@@ -71,6 +71,8 @@ export class PluginManager {
       init: (deps: any) => Promise<void>;
     }> = [];
 
+    const providedBy = new Map<string, string>(); // ServiceId -> PluginId
+
     for (const plugin of enabledPlugins) {
       rootLogger.info(`🔌 Loading module ${plugin.name}...`);
 
@@ -105,6 +107,7 @@ export class PluginManager {
           },
           registerService: (ref: any, impl: any) => {
             this.registry.register(ref, impl);
+            providedBy.set(ref.id, backendPlugin.pluginId);
             rootLogger.debug(`   -> Registered service '${ref.id}'`);
           },
         });
@@ -113,19 +116,72 @@ export class PluginManager {
       }
     }
 
-    // Phase 2: Initialize Plugins (Topological Sort / Dependency Check)
-    // For now, simpler approach: Just iterate. If deps fail, it throws.
-    // If we wanted to be safer, we'd check availability first.
+    // Phase 2: Initialize Plugins (Topological Sort)
+    rootLogger.info("🔄 Calculating initialization order...");
 
+    const inDegree = new Map<string, number>();
+    const graph = new Map<string, string[]>(); // Dependency -> Dependents
+
+    // Initialize graph nodes
     for (const p of pendingInits) {
-      rootLogger.info(`🚀 Initializing ${p.pluginId}...`);
+      inDegree.set(p.pluginId, 0);
+      graph.set(p.pluginId, []);
+    }
 
-      // 1. Run Migrations (Scoped DB logic is inside Factory, but migrations need path)
-      // We can do migrations here separately or assume the plugin handles it?
-      // Old logic: PluginManager ran migrations.
-      // New logic: PluginManager should still run migrations because it knows the PATH.
-      // BUT it needs the DB.
-      // We can resolve the DB for the plugin.
+    // Build Graph
+    for (const p of pendingInits) {
+      const consumerId = p.pluginId;
+      for (const [key, ref] of Object.entries(p.deps)) {
+        const serviceId = (ref as any).id;
+        const providerId = providedBy.get(serviceId);
+
+        // If the service is provided by another plugin (and not the consumer itself)
+        if (providerId && providerId !== consumerId) {
+          // Edge: Provider -> Consumer
+          if (!graph.has(providerId)) {
+            graph.set(providerId, []);
+          }
+          graph.get(providerId)!.push(consumerId);
+          inDegree.set(consumerId, (inDegree.get(consumerId) || 0) + 1);
+        }
+      }
+    }
+
+    // Sort using Kahn's Algorithm
+    const queue: string[] = [];
+    for (const [id, count] of inDegree.entries()) {
+      if (count === 0) {
+        queue.push(id);
+      }
+    }
+
+    const sortedIds: string[] = [];
+    while (queue.length > 0) {
+      const u = queue.shift()!;
+      sortedIds.push(u);
+
+      const dependents = graph.get(u) || [];
+      for (const v of dependents) {
+        inDegree.set(v, inDegree.get(v)! - 1);
+        if (inDegree.get(v) === 0) {
+          queue.push(v);
+        }
+      }
+    }
+
+    if (sortedIds.length !== pendingInits.length) {
+      rootLogger.error(
+        "❌ Circular dependency detected or failed to sort plugins."
+      );
+      // For now, fail hard to prevent partial startup state
+      throw new Error("Circular dependency detected");
+    }
+
+    rootLogger.info(`✅ Initialization Order: ${sortedIds.join(" -> ")}`);
+
+    for (const id of sortedIds) {
+      const p = pendingInits.find((x) => x.pluginId === id)!;
+      rootLogger.info(`🚀 Initializing ${p.pluginId}...`);
 
       try {
         const pluginDb = await this.registry.get(
