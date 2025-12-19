@@ -1,10 +1,8 @@
 {
-  "id": "3ae4b5c7-f355-4b56-83be-d1670ab9bcfd",
-  "prevId": "00000000-0000-0000-0000-000000000000",
-  "version": "5",
-  "dialect": "pg",
+  "version": "7",
+  "dialect": "postgresql",
   "tables": {
-    "plugins": {
+    "public.plugins": {
       "name": "plugins",
       "schema": "",
       "columns": {
@@ -54,19 +52,28 @@
       "uniqueConstraints": {
         "plugins_name_unique": {
           "name": "plugins_name_unique",
-          "nullsNotDistinct": false,
           "columns": [
             "name"
-          ]
+          ],
+          "nullsNotDistinct": false
         }
-      }
+      },
+      "policies": {},
+      "isRLSEnabled": false,
+      "checkConstraints": {}
     }
   },
   "enums": {},
   "schemas": {},
   "_meta": {
-    "columns": {},
     "schemas": {},
-    "tables": {}
-  }
+    "tables": {},
+    "columns": {}
+  },
+  "id": "3ae4b5c7-f355-4b56-83be-d1670ab9bcfd",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "sequences": {},
+  "policies": {},
+  "views": {},
+  "roles": {}
 }

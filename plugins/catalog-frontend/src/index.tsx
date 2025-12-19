@@ -1,16 +1,10 @@
 import { fetchApiRef, ApiRef } from "@checkmate/frontend-api";
 import { CatalogClient } from "./client";
-import { Link, Route } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { catalogApiRef } from "./api";
 import { FrontendPlugin } from "@checkmate/frontend-api";
 
 import { CatalogPage } from "./components/CatalogPage";
-
-const CatalogRoutes = () => (
-  <>
-    <Route path="/catalog" element={<CatalogPage />} />
-  </>
-);
 
 const CatalogNavbarItem = () => (
   <Link
@@ -32,12 +26,13 @@ export const catalogPlugin: FrontendPlugin = {
       },
     },
   ],
-  extensions: [
+  routes: [
     {
-      id: "catalog.routes",
-      slotId: "core.routes",
-      component: CatalogRoutes,
+      path: "/catalog",
+      element: <CatalogPage />,
     },
+  ],
+  extensions: [
     {
       id: "catalog.navbar.item",
       slotId: "core.layout.navbar",

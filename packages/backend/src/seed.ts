@@ -1,48 +1,17 @@
-import { db, adminPool } from "./db";
-import { plugins } from "./schema";
-import path from "node:path";
+import { adminPool } from "./db";
 
 async function main() {
   console.log("🌱 Seeding database...");
 
-  const verifyPluginPath = path.join(
-    process.cwd(),
-    "../../plugins/auth-backend"
+  // Seed initial users or configuration if needed
+  // Plugins are now discovered automatically if in the monorepo
+  console.log(
+    "ℹ️  Skipping hardcoded plugin seeding (auto-discovery enabled)."
   );
-  console.log("Using Auth Plugin Path:", verifyPluginPath);
 
   try {
-    await db
-      .insert(plugins)
-      .values([
-        {
-          name: "auth-backend",
-          path: verifyPluginPath,
-          isUninstallable: true,
-          enabled: true,
-          config: {},
-        },
-        {
-          name: "catalog-backend",
-          path: path.join(process.cwd(), "../../plugins/catalog-backend"),
-          isUninstallable: true,
-          enabled: true,
-          config: {},
-        },
-        {
-          name: "http-healthcheck-backend",
-          path: path.join(
-            process.cwd(),
-            "../../plugins/http-healthcheck-backend"
-          ),
-          isUninstallable: true,
-          enabled: true,
-          config: {},
-        },
-      ])
-      .onConflictDoNothing();
-
-    console.log("✅ Seeded default plugins.");
+    // Other seeding logic could go here
+    console.log("✅ Seeded base data.");
   } catch (error) {
     console.error("❌ Seeding failed:", error);
   } finally {

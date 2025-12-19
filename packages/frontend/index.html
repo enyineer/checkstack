@@ -1,12 +1,25 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Checkmate</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Checkmate</title>
+  <script type="importmap">
+      {
+        "imports": {
+          "react": "/vendor/react.js",
+          "react-dom/client": "/vendor/react-dom-client.js",
+          "react-router-dom": "/vendor/react-router-dom.js",
+          "@checkmate/frontend-api": "/vendor/frontend-api.js"
+        }
+      }
+    </script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
 </html>

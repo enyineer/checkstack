@@ -1,4 +1,6 @@
 {
+  "id": "dfdb567f-006b-4875-ba09-c4bc200673d8",
+  "prevId": "25835c0d-0a74-4d56-b07d-bd66c930d143",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -44,6 +46,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'backend'"
         }
       },
       "indexes": {},
@@ -52,28 +61,26 @@
       "uniqueConstraints": {
         "plugins_name_unique": {
           "name": "plugins_name_unique",
+          "nullsNotDistinct": false,
           "columns": [
             "name"
-          ],
-          "nullsNotDistinct": false
+          ]
         }
       },
       "policies": {},
-      "isRLSEnabled": false,
-      "checkConstraints": {}
+      "checkConstraints": {},
+      "isRLSEnabled": false
     }
   },
   "enums": {},
   "schemas": {},
-  "_meta": {
-    "schemas": {},
-    "tables": {},
-    "columns": {}
-  },
-  "id": "25835c0d-0a74-4d56-b07d-bd66c930d143",
-  "prevId": "a3518262-d4e6-44ff-8c4a-9a2f8f13468e",
   "sequences": {},
+  "roles": {},
   "policies": {},
   "views": {},
-  "roles": {}
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
 }

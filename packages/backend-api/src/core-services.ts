@@ -40,6 +40,11 @@ export interface AuthenticationStrategy {
   validate(request: Request): Promise<AuthUser | undefined>; // Returns User or undefined
 }
 
+// Define PluginInstaller interface
+export interface PluginInstaller {
+  install(packageName: string): Promise<{ name: string; path: string }>;
+}
+
 export const coreServices = {
   database:
     createServiceRef<NodePgDatabase<Record<string, never>>>("core.database"),
@@ -54,4 +59,5 @@ export const coreServices = {
   healthCheckRegistry: createServiceRef<
     import("./health-check").HealthCheckRegistry
   >("core.healthCheckRegistry"),
+  pluginInstaller: createServiceRef<PluginInstaller>("core.pluginInstaller"),
 };

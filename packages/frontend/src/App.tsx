@@ -10,11 +10,6 @@ import {
 import { ConsoleLoggerApi } from "./apis/logger-api";
 import { CoreFetchApi } from "./apis/fetch-api";
 
-import { catalogPlugin } from "@checkmate/catalog-frontend";
-
-// Register Plugins
-pluginRegistry.register(catalogPlugin);
-
 // Initialize API Registry with core apiRefs
 const registryBuilder = new ApiRegistryBuilder()
   .register(loggerApiRef, new ConsoleLoggerApi())
@@ -60,8 +55,14 @@ function App() {
                   </div>
                 }
               />
-              {/* Core Routes Extension Point */}
-              <ExtensionSlot id="core.routes" />
+              {/* Plugin Routes */}
+              {pluginRegistry.getAllRoutes().map((route) => (
+                <Route
+                  key={route.path}
+                  path={route.path}
+                  element={route.element}
+                />
+              ))}
             </Routes>
           </main>
         </div>

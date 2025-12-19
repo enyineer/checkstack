@@ -24,6 +24,13 @@ import z, { ZodSchema } from "zod";
 import { ValidationCheck } from "@checkmate/backend-api";
 import { zValidator } from "@hono/zod-validator";
 
+interface PluginManifest {
+  name: string;
+  path: string;
+  enabled: boolean;
+  type: "backend" | "frontend" | "common";
+}
+
 export class PluginManager {
   private registry = new ServiceRegistry();
 
@@ -51,7 +58,7 @@ export class PluginManager {
     });
   }
 
-  async loadPluginsFromDb(rootRouter: Hono) {
+  async loadPlugins(rootRouter: Hono) {
     // Register Router Factory now that we have rootRouter
     this.registry.registerFactory(coreServices.httpRouter, (pluginId) => {
       const pluginRouter = new Hono();
@@ -126,14 +133,52 @@ export class PluginManager {
       };
     });
 
-    rootLogger.info("🔍 Scanning for plugins in database...");
+    rootLogger.info("🔍 Discovering plugins...");
 
-    const enabledPlugins = await db
+    // 1. Discover local plugins from monorepo
+    const localPlugins: PluginManifest[] = [];
+    const pluginsDir = path.resolve(process.cwd(), "../../plugins");
+
+    if (fs.existsSync(pluginsDir)) {
+      const entries = fs.readdirSync(pluginsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory() && entry.name.endsWith("-backend")) {
+          const pluginPath = path.join(pluginsDir, entry.name);
+          localPlugins.push({
+            name: entry.name,
+            path: pluginPath,
+            enabled: true, // Local plugins are always enabled in monorepo
+            type: "backend",
+          });
+          rootLogger.debug(
+            `   -> Discovered local backend plugin: ${entry.name}`
+          );
+        }
+      }
+    }
+
+    // 2. Load remote plugins from database
+    const dbPlugins = await db
       .select()
       .from(plugins)
       .where(eq(plugins.enabled, true));
 
-    if (enabledPlugins.length === 0) {
+    // 3. Combine and Deduplicate (Local takes precedence)
+    const allPlugins: PluginManifest[] = [...localPlugins];
+    const localNames = new Set(localPlugins.map((p) => p.name));
+
+    for (const dbP of dbPlugins) {
+      if (!localNames.has(dbP.name)) {
+        allPlugins.push({
+          name: dbP.name,
+          path: dbP.path,
+          enabled: dbP.enabled,
+          type: dbP.type as "backend" | "frontend" | "common",
+        });
+      }
+    }
+
+    if (allPlugins.length === 0) {
       rootLogger.info("ℹ️  No enabled plugins found.");
       return;
     }
@@ -149,7 +194,7 @@ export class PluginManager {
 
     const providedBy = new Map<string, string>(); // ServiceId -> PluginId
 
-    for (const plugin of enabledPlugins) {
+    for (const plugin of allPlugins) {
       rootLogger.info(`🔌 Loading module ${plugin.name}...`);
 
       let pluginModule;
@@ -358,6 +403,10 @@ export class PluginManager {
     } catch {
       return undefined;
     }
+  }
+
+  registerService<T>(ref: ServiceRef<T>, impl: T) {
+    this.registry.register(ref, impl);
   }
 }
 

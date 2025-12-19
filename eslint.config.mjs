@@ -3,6 +3,14 @@ import tseslint from "typescript-eslint";
 import unicorn from "eslint-plugin-unicorn";
 
 export default tseslint.config(
+  {
+    ignores: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/drizzle/**",
+      "**/public/vendor/**",
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

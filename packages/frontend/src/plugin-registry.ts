@@ -25,6 +25,10 @@ class PluginRegistry {
   getExtensions<T>(slotId: string): Extension<T>[] {
     return (this.extensions.get(slotId) as Extension<T>[]) || [];
   }
+
+  getAllRoutes() {
+    return this.plugins.flatMap((p) => p.routes || []);
+  }
 }
 
 export const pluginRegistry = new PluginRegistry();

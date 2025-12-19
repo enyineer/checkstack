@@ -8,4 +8,5 @@ export const plugins = pgTable("plugins", {
   isUninstallable: boolean("is_uninstallable").default(false).notNull(),
   config: json("config").default({}),
   enabled: boolean("enabled").default(true).notNull(),
+  type: text("type").default("backend").notNull(),
 });

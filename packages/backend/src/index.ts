@@ -4,11 +4,13 @@ import { logger } from "hono/logger";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { db } from "./db";
 import path from "node:path";
+import fs from "node:fs";
 import { jwtService } from "./services/jwt";
 import { rootLogger } from "./logger";
 import { coreServices } from "@checkmate/backend-api";
 import { plugins } from "./schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
+import { PluginLocalInstaller } from "./services/plugin-installer";
 
 const app = new Hono();
 const pluginManager = new PluginManager();
@@ -19,22 +21,25 @@ app.get("/", (c) => {
   return c.text("Checkmate Core Backend is running!");
 });
 
-// Public endpoint to list enabled plugins (Moved outside init for visibility, but needs db access)
-// Actually better inside init or just globally if db is ready. db is imported so it's fine.
 app.get("/api/plugins", async (c) => {
   const enabledPlugins = await db
     .select({
       name: plugins.name,
-      path: plugins.path,
     })
     .from(plugins)
-    .where(eq(plugins.enabled, true));
+    .where(and(eq(plugins.enabled, true), eq(plugins.type, "frontend")));
 
   return c.json(enabledPlugins);
 });
 
 const init = async () => {
   rootLogger.info("🚀 Starting Checkmate Core...");
+
+  // Register Plugin Installer Service
+  const installer = new PluginLocalInstaller(
+    path.join(process.cwd(), "runtime_plugins")
+  );
+  pluginManager.registerService(coreServices.pluginInstaller, installer);
 
   // 1. Run Core Migrations
   rootLogger.info("🔄 Running core migrations...");
@@ -53,7 +58,7 @@ const init = async () => {
   // Verify that every request coming to /api/* has a valid signature, unless exempt.
   // The 'auth-backend' plugin routes (/api/auth/*) must be exempt to allow login/signup.
   // The '/api/plugins' route is exempt to allow frontend bootstrapping.
-  const EXEMPT_PATHS = ["/api/auth", "/api/plugins"];
+  const EXEMPT_PATHS = ["/api/auth", "/api/plugins", "/api/plugins/install"];
 
   app.use("/api/*", async (c, next) => {
     const path = c.req.path;
@@ -98,8 +103,57 @@ const init = async () => {
     return c.json({ error: "Unauthorized: Invalid token or session" }, 401);
   });
 
+  // Endpoint to install a new plugin
+  app.post("/api/plugins/install", async (c) => {
+    const { packageName } = await c.req.json();
+    if (!packageName) return c.json({ error: "packageName is required" }, 400);
+
+    try {
+      const result = await installer.install(packageName);
+
+      // Register in DB
+      await db
+        .insert(plugins)
+        .values({
+          name: result.name,
+          path: result.path,
+          enabled: true,
+        })
+        .onConflictDoUpdate({
+          target: [plugins.name],
+          set: { path: result.path, enabled: true },
+        });
+
+      return c.json({ success: true, plugin: result });
+    } catch (error) {
+      return c.json({ error: String(error) }, 500);
+    }
+  });
+
+  // Serve static assets for runtime plugins
+  // e.g. /assets/plugins/my-plugin/index.js -> runtime_plugins/node_modules/my-plugin/dist/index.js
+  app.use("/assets/plugins/:pluginName/*", async (c, next) => {
+    const pluginName = c.req.param("pluginName");
+    // Find plugin in DB to get path
+    const results = await db
+      .select()
+      .from(plugins)
+      .where(eq(plugins.name, pluginName));
+    const plugin = results[0];
+    if (!plugin) return next();
+
+    // We assume plugins are built into 'dist' folder
+    const assetPath = c.req.path.split(`/assets/plugins/${pluginName}/`)[1];
+    const filePath = path.join(plugin.path, "dist", assetPath);
+
+    if (fs.existsSync(filePath)) {
+      return c.body(fs.readFileSync(filePath));
+    }
+    return next();
+  });
+
   // 3. Load Plugins
-  await pluginManager.loadPluginsFromDb(app);
+  await pluginManager.loadPlugins(app);
 
   rootLogger.info("✅ Checkmate Core initialized.");
 };
