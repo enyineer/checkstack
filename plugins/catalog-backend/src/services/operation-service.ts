@@ -1,31 +1,37 @@
-import { db } from "../index";
-import { incidents, maintenances } from "../schema";
+import { NodePgDatabase } from "drizzle-orm/node-postgres";
+import * as schema from "../schema";
 import { NewIncident, NewMaintenance } from "./types";
 
 export class OperationService {
+  private database: NodePgDatabase<typeof schema>;
+
+  constructor(database: NodePgDatabase<typeof schema>) {
+    this.database = database;
+  }
+
   // Incidents
   async getIncidents() {
-    if (!db) throw new Error("Database not initialized");
-    return db.select().from(incidents);
+    return this.database.select().from(schema.incidents);
   }
 
   async createIncident(data: NewIncident) {
-    if (!db) throw new Error("Database not initialized");
-    const result = await db.insert(incidents).values(data).returning();
+    const result = await this.database
+      .insert(schema.incidents)
+      .values(data)
+      .returning();
     return result[0];
   }
 
   // Maintenances
   async getMaintenances() {
-    if (!db) throw new Error("Database not initialized");
-    return db.select().from(maintenances);
+    return this.database.select().from(schema.maintenances);
   }
 
   async createMaintenance(data: NewMaintenance) {
-    if (!db) throw new Error("Database not initialized");
-    const result = await db.insert(maintenances).values(data).returning();
+    const result = await this.database
+      .insert(schema.maintenances)
+      .values(data)
+      .returning();
     return result[0];
   }
 }
-
-export const operationService = new OperationService();

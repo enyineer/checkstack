@@ -2,8 +2,8 @@ import { createBackendPlugin } from "@checkmate/backend-api";
 import { type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { coreServices } from "@checkmate/backend-api";
 import * as schema from "./schema";
-import { entityService } from "./services/entity-service";
-import { operationService } from "./services/operation-service";
+import { EntityService } from "./services/entity-service";
+import { OperationService } from "./services/operation-service";
 import { permissionList } from "./permissions";
 
 export let db: NodePgDatabase<typeof schema> | undefined;
@@ -23,8 +23,8 @@ export default createBackendPlugin({
       init: async ({ database, router, logger, check }) => {
         logger.info("Initializing Catalog Backend...");
 
-        // Use local db variable for services to import
-        db = database;
+        const entityService = new EntityService(database);
+        const operationService = new OperationService(database);
 
         // Entities
         router.get("/entities", check("entity.read"), async (c) => {

@@ -92,6 +92,7 @@ export default createBackendPlugin({
 
     // 3. Register Init logic
     env.registerInit({
+      schema,
       deps: {
         database: coreServices.database,
         router: coreServices.httpRouter,
@@ -99,8 +100,6 @@ export default createBackendPlugin({
       },
       init: async ({ database, router, logger }) => {
         logger.info("Initializing Auth Backend...");
-
-        db = database as unknown as NodePgDatabase<typeof schema>;
 
         auth = betterAuth({
           database: drizzleAdapter(database, {

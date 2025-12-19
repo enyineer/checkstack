@@ -1,56 +1,67 @@
-import { db } from "../index";
 import { eq } from "drizzle-orm";
-import { systems, groups, views } from "../schema";
 import { NewSystem, NewGroup, NewView } from "./types";
+import * as schema from "../schema";
+import { NodePgDatabase } from "drizzle-orm/node-postgres";
 
 export class EntityService {
+  private database: NodePgDatabase<typeof schema>;
+
+  constructor(database: NodePgDatabase<typeof schema>) {
+    this.database = database;
+  }
+
   // Systems
   async getSystems() {
-    if (!db) throw new Error("Database not initialized");
-    return db.select().from(systems);
+    return this.database.select().from(schema.systems);
   }
 
   async getSystem(id: string) {
-    if (!db) throw new Error("Database not initialized");
-    const result = await db.select().from(systems).where(eq(systems.id, id));
+    const result = await this.database
+      .select()
+      .from(schema.systems)
+      .where(eq(schema.systems.id, id));
     return result[0];
   }
 
   async createSystem(data: NewSystem) {
-    if (!db) throw new Error("Database not initialized");
-    const result = await db.insert(systems).values(data).returning();
+    const result = await this.database
+      .insert(schema.systems)
+      .values(data)
+      .returning();
     return result[0];
   }
 
   // Groups
   async getGroups() {
-    if (!db) throw new Error("Database not initialized");
-    return db.select().from(groups);
+    return this.database.select().from(schema.groups);
   }
 
   async createGroup(data: NewGroup) {
-    if (!db) throw new Error("Database not initialized");
-    const result = await db.insert(groups).values(data).returning();
+    const result = await this.database
+      .insert(schema.groups)
+      .values(data)
+      .returning();
     return result[0];
   }
 
   // Views
   async getViews() {
-    if (!db) throw new Error("Database not initialized");
-    return db.select().from(views);
+    return this.database.select().from(schema.views);
   }
 
   async getView(id: string) {
-    if (!db) throw new Error("Database not initialized");
-    const result = await db.select().from(views).where(eq(views.id, id));
+    const result = await this.database
+      .select()
+      .from(schema.views)
+      .where(eq(schema.views.id, id));
     return result[0];
   }
 
   async createView(data: NewView) {
-    if (!db) throw new Error("Database not initialized");
-    const result = await db.insert(views).values(data).returning();
+    const result = await this.database
+      .insert(schema.views)
+      .values(data)
+      .returning();
     return result[0];
   }
 }
-
-export const entityService = new EntityService();
