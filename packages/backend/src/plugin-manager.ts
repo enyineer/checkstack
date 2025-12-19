@@ -132,7 +132,7 @@ export class PluginManager {
     }
 
     // Phase 2: Initialize Plugins (Topological Sort)
-    rootLogger.info("🔄 Calculating initialization order...");
+    rootLogger.debug("🔄 Calculating initialization order...");
 
     const inDegree = new Map<string, number>();
     const graph = new Map<string, string[]>(); // Dependency -> Dependents
@@ -209,7 +209,7 @@ export class PluginManager {
         try {
           await migrate(pluginDb, { migrationsFolder });
         } catch (e) {
-          // Ignore no migrations
+          rootLogger.error(`❌ Failed migration of plugin ${p.pluginId}:`, e);
         }
 
         // Resolve all dependencies
