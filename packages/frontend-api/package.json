@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "type": "module",
   "main": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "peerDependencies": {
     "react": "^18.0.0"
   },

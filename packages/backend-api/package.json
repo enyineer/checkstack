@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "type": "module",
   "main": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "drizzle-orm": "^0.45.1",
     "hono": "^4.0.0",

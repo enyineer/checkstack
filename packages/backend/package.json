@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --env-file=../../.env run --watch src/index.ts",
+    "typecheck": "tsc --noEmit",
     "generate": "bun --env-file=../../.env run drizzle-kit generate:pg",
     "seed": "bun --env-file=../../.env run src/seed.ts"
   },

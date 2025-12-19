@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "type": "module",
   "main": "src/index.tsx",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@checkmate/frontend-api": "workspace:*",
     "react": "^18.2.0",

@@ -7,6 +7,7 @@
   ],
   "scripts": {
     "dev": "docker compose up -d && bun run --filter '@checkmate/backend' --filter '@checkmate/frontend' dev",
+    "typecheck": "bun run --filter '*' typecheck",
     "lint": "bun run eslint .",
     "docker:stop": "docker compose down"
   },
