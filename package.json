@@ -1,0 +1,11 @@
+{
+  "name": "checkmate-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "plugins/*"
+  ],
+  "devDependencies": {
+    "bun": "^1.0.0"
+  }
+}
