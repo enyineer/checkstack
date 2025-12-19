@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "type": "module",
   "main": "src/index.ts",
+  "scripts": {
+    "generate": "drizzle-kit generate:pg"
+  },
   "dependencies": {
     "@checkmate/backend-api": "workspace:*",
     "@checkmate/backend": "workspace:*",

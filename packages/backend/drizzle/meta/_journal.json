@@ -15,6 +15,13 @@
       "when": 1766150993236,
       "tag": "0001_shallow_supernaut",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1766158112523,
+      "tag": "0002_silly_network",
+      "breakpoints": true
     }
   ]
 }
