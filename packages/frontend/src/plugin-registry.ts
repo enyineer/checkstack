@@ -1,22 +1,4 @@
-import React from "react";
-
-export interface FrontendPlugin {
-  name: string;
-  apis?: {
-    ref: any; // ApiRef<T>
-    factory: (deps: any) => any;
-  }[];
-  routes?: {
-    path: string;
-    element?: React.ReactNode;
-    title?: string;
-  }[];
-  navItems?: {
-    title: string;
-    path: string;
-    icon?: any;
-  }[];
-}
+import { FrontendPlugin } from "@checkmate/frontend-api";
 
 class PluginRegistry {
   private plugins: FrontendPlugin[] = [];

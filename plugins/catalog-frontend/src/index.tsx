@@ -1,7 +1,7 @@
 import { fetchApiRef } from "@checkmate/frontend-api";
 import { CatalogClient } from "./client";
 import { catalogApiRef } from "./api";
-import { FrontendPlugin } from "@checkmate/frontend/src/plugin-registry";
+import { FrontendPlugin } from "@checkmate/frontend-api";
 
 import { CatalogPage } from "./components/CatalogPage";
 
