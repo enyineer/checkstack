@@ -7,6 +7,8 @@ import path from "node:path";
 import { jwtService } from "./services/jwt";
 import { rootLogger } from "./logger";
 import { coreServices } from "@checkmate/backend-api";
+import { plugins } from "./schema";
+import { eq } from "drizzle-orm";
 
 const app = new Hono();
 const pluginManager = new PluginManager();
@@ -15,6 +17,20 @@ app.use("*", logger());
 
 app.get("/", (c) => {
   return c.text("Checkmate Core Backend is running!");
+});
+
+// Public endpoint to list enabled plugins (Moved outside init for visibility, but needs db access)
+// Actually better inside init or just globally if db is ready. db is imported so it's fine.
+app.get("/api/plugins", async (c) => {
+  const enabledPlugins = await db
+    .select({
+      name: plugins.name,
+      path: plugins.path,
+    })
+    .from(plugins)
+    .where(eq(plugins.enabled, true));
+
+  return c.json(enabledPlugins);
 });
 
 const init = async () => {
@@ -36,7 +52,8 @@ const init = async () => {
   // 2. Signature Verification Middleware
   // Verify that every request coming to /api/* has a valid signature, unless exempt.
   // The 'auth-backend' plugin routes (/api/auth/*) must be exempt to allow login/signup.
-  const EXEMPT_PATHS = ["/api/auth"];
+  // The '/api/plugins' route is exempt to allow frontend bootstrapping.
+  const EXEMPT_PATHS = ["/api/auth", "/api/plugins"];
 
   app.use("/api/*", async (c, next) => {
     const path = c.req.path;
@@ -60,7 +77,6 @@ const init = async () => {
     const payload = await jwtService.verify(token);
     if (payload) {
       // It's a valid Service Token
-      // c.set('jwtPayload', payload); // If we wanted to pass it down
       return next();
     }
 
@@ -74,7 +90,6 @@ const init = async () => {
       const user = await authStrategy.validate(c.req.raw);
       if (user) {
         // It's a valid User Session
-        // c.set('user', user); // If we wanted to pass it down
         return next();
       }
     }

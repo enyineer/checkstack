@@ -27,10 +27,4 @@ class PluginRegistry {
   }
 }
 
-import { catalogPlugin } from "@checkmate/catalog-frontend";
-import { authPlugin } from "@checkmate/auth-frontend-plugin";
 export const pluginRegistry = new PluginRegistry();
-
-// Register Plugins
-pluginRegistry.register(catalogPlugin);
-pluginRegistry.register(authPlugin);
