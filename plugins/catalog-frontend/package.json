@@ -1,0 +1,17 @@
+{
+  "name": "@checkmate/catalog-frontend-plugin",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.tsx",
+  "dependencies": {
+    "@checkmate/frontend-api": "workspace:*",
+    "@checkmate/frontend": "workspace:*",
+    "react": "^18.2.0",
+    "react-router-dom": "^6.22.0",
+    "lucide-react": "^0.344.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/react": "^18.2.0"
+  }
+}

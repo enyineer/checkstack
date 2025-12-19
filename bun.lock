@@ -46,8 +46,9 @@
       "name": "@checkmate/frontend",
       "version": "0.0.1",
       "dependencies": {
+        "@checkmate/catalog-frontend": "workspace:*",
         "@checkmate/frontend-api": "workspace:*",
-        "better-auth": "^1.4.7",
+        "better-auth": "^1.1.8",
         "class-variance-authority": "^0.7.0",
         "clsx": "^2.1.0",
         "lucide-react": "^0.344.0",
@@ -92,6 +93,39 @@
       "devDependencies": {
         "@types/node": "^20.0.0",
         "drizzle-kit": "^0.20.0",
+        "typescript": "^5.0.0",
+      },
+    },
+    "plugins/catalog-backend": {
+      "name": "catalog-backend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate/backend": "workspace:*",
+        "@checkmate/backend-api": "workspace:*",
+        "drizzle-orm": "^0.30.0",
+        "drizzle-zod": "^0.8.3",
+        "hono": "^4.0.0",
+        "zod": "^3.0.0",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.5",
+        "@types/node": "^20.0.0",
+        "drizzle-kit": "^0.20.0",
+        "typescript": "^5.0.0",
+      },
+    },
+    "plugins/catalog-frontend": {
+      "name": "@checkmate/catalog-frontend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate/frontend": "workspace:*",
+        "@checkmate/frontend-api": "workspace:*",
+        "lucide-react": "^0.344.0",
+        "react": "^18.2.0",
+        "react-router-dom": "^6.22.0",
+      },
+      "devDependencies": {
+        "@types/react": "^18.2.0",
         "typescript": "^5.0.0",
       },
     },
@@ -148,6 +182,8 @@
     "@checkmate/backend": ["@checkmate/backend@workspace:packages/backend"],
 
     "@checkmate/backend-api": ["@checkmate/backend-api@workspace:packages/backend-api"],
+
+    "@checkmate/catalog-frontend": ["@checkmate/catalog-frontend@workspace:plugins/catalog-frontend"],
 
     "@checkmate/frontend": ["@checkmate/frontend@workspace:packages/frontend"],
 
@@ -371,6 +407,8 @@
 
     "caniuse-lite": ["caniuse-lite@1.0.30001761", "", {}, "sha512-JF9ptu1vP2coz98+5051jZ4PwQgd2ni8A+gYSN7EA7dPKIMf0pDlSUxhdmVOaV3/fYK5uWBkgSXJaRLr4+3A6g=="],
 
+    "catalog-backend": ["catalog-backend@workspace:plugins/catalog-backend"],
+
     "chalk": ["chalk@5.6.2", "", {}, "sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA=="],
 
     "chokidar": ["chokidar@3.6.0", "", { "dependencies": { "anymatch": "~3.1.2", "braces": "~3.0.2", "glob-parent": "~5.1.2", "is-binary-path": "~2.1.0", "is-glob": "~4.0.1", "normalize-path": "~3.0.0", "readdirp": "~3.6.0" }, "optionalDependencies": { "fsevents": "~2.3.2" } }, "sha512-7VT13fmjotKpGipCW9JEQAusEPE+Ei8nl6/g4FBAmIm0GOOLMua9NDDo/DWp0ZAxCr3cPq5ZpBqmPAQgDda2Pw=="],
@@ -416,6 +454,8 @@
     "drizzle-kit": ["drizzle-kit@0.20.18", "", { "dependencies": { "@esbuild-kit/esm-loader": "^2.5.5", "@hono/node-server": "^1.9.0", "@hono/zod-validator": "^0.2.0", "camelcase": "^7.0.1", "chalk": "^5.2.0", "commander": "^9.4.1", "env-paths": "^3.0.0", "esbuild": "^0.19.7", "esbuild-register": "^3.5.0", "glob": "^8.1.0", "hanji": "^0.0.5", "hono": "^4.1.4", "json-diff": "0.9.0", "minimatch": "^7.4.3", "semver": "^7.5.4", "superjson": "^2.2.1", "zod": "^3.20.2" }, "bin": { "drizzle-kit": "bin.cjs" } }, "sha512-fLTwcnLqtBxGd+51H/dEm9TC0FW6+cIX/RVPyNcitBO77X9+nkogEfMAJebpd/8Yl4KucmePHRYRWWvUlW0rqg=="],
 
     "drizzle-orm": ["drizzle-orm@0.30.10", "", { "peerDependencies": { "@aws-sdk/client-rds-data": ">=3", "@cloudflare/workers-types": ">=3", "@electric-sql/pglite": ">=0.1.1", "@libsql/client": "*", "@neondatabase/serverless": ">=0.1", "@op-engineering/op-sqlite": ">=2", "@opentelemetry/api": "^1.4.1", "@planetscale/database": ">=1", "@types/better-sqlite3": "*", "@types/pg": "*", "@types/react": ">=18", "@types/sql.js": "*", "@vercel/postgres": ">=0.8.0", "@xata.io/client": "*", "better-sqlite3": ">=7", "bun-types": "*", "expo-sqlite": ">=13.2.0", "knex": "*", "kysely": "*", "mysql2": ">=2", "pg": ">=8", "postgres": ">=3", "react": ">=18", "sql.js": ">=1", "sqlite3": ">=5" }, "optionalPeers": ["@aws-sdk/client-rds-data", "@cloudflare/workers-types", "@electric-sql/pglite", "@libsql/client", "@neondatabase/serverless", "@op-engineering/op-sqlite", "@opentelemetry/api", "@planetscale/database", "@types/better-sqlite3", "@types/pg", "@types/react", "@types/sql.js", "@vercel/postgres", "@xata.io/client", "better-sqlite3", "bun-types", "expo-sqlite", "knex", "kysely", "mysql2", "pg", "postgres", "react", "sql.js", "sqlite3"] }, "sha512-IRy/QmMWw9lAQHpwbUh1b8fcn27S/a9zMIzqea1WNOxK9/4EB8gIo+FZWLiPXzl2n9ixGSv8BhsLZiOppWEwBw=="],
+
+    "drizzle-zod": ["drizzle-zod@0.8.3", "", { "peerDependencies": { "drizzle-orm": ">=0.36.0", "zod": "^3.25.0 || ^4.0.0" } }, "sha512-66yVOuvGhKJnTdiqj1/Xaaz9/qzOdRJADpDa68enqS6g3t0kpNkwNYjUuaeXgZfO/UWuIM9HIhSlJ6C5ZraMww=="],
 
     "electron-to-chromium": ["electron-to-chromium@1.5.267", "", {}, "sha512-0Drusm6MVRXSOJpGbaSVgcQsuB4hEkMpHXaVstcPmhu5LIedxs1xNK/nIxmQIU/RPC0+1/o0AVZfBTkTNJOdUw=="],
 

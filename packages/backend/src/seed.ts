@@ -11,13 +11,22 @@ async function main() {
   try {
     await db
       .insert(plugins)
-      .values({
-        name: "auth-backend",
-        path: verifyPluginPath,
-        isUninstallable: true,
-        enabled: true,
-        config: {},
-      })
+      .values([
+        {
+          name: "auth-backend",
+          path: verifyPluginPath,
+          isUninstallable: true,
+          enabled: true,
+          config: {},
+        },
+        {
+          name: "catalog-backend",
+          path: join(process.cwd(), "../../plugins/catalog-backend"),
+          isUninstallable: true,
+          enabled: true,
+          config: {},
+        },
+      ])
       .onConflictDoNothing();
 
     console.log("✅ Seeded default plugins.");

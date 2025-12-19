@@ -9,11 +9,33 @@ import {
 import { ConsoleLoggerApi } from "./apis/logger-api";
 import { CoreFetchApi } from "./apis/fetch-api";
 
+import { catalogPlugin } from "@checkmate/catalog-frontend";
+
+// Register Plugins
+pluginRegistry.register(catalogPlugin);
+
 // Initialize API Registry with core apiRefs
-const apiRegistry = new ApiRegistryBuilder()
+const registryBuilder = new ApiRegistryBuilder()
   .register(loggerApiRef, new ConsoleLoggerApi())
-  .register(fetchApiRef, new CoreFetchApi())
-  .build();
+  .register(fetchApiRef, new CoreFetchApi());
+
+// Register API factories from plugins
+const plugins = pluginRegistry.getPlugins();
+plugins.forEach((plugin) => {
+  if (plugin.apis) {
+    plugin.apis.forEach((api) => {
+      registryBuilder.registerFactory(api.ref, (registry) => {
+        // Adapt registry map to dependency getter
+        const deps = {
+          get: <T,>(ref: any) => registry.get(ref.id) as T,
+        };
+        return api.factory(deps);
+      });
+    });
+  }
+});
+
+const apiRegistry = registryBuilder.build();
 
 function App() {
   const plugins = pluginRegistry.getPlugins();

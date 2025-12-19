@@ -1,7 +1,7 @@
 import React, { createContext, useContext, ReactNode } from "react";
 import { ApiRef } from "./api-ref";
 
-type ApiRegistry = Map<string, any>;
+export type ApiRegistry = Map<string, any>;
 
 const ApiContext = createContext<ApiRegistry | undefined>(undefined);
 
@@ -9,6 +9,12 @@ export class ApiRegistryBuilder {
   private registry: ApiRegistry = new Map();
 
   register<T>(ref: ApiRef<T>, impl: T) {
+    this.registry.set(ref.id, impl);
+    return this;
+  }
+
+  registerFactory<T>(ref: ApiRef<T>, factory: (registry: ApiRegistry) => T) {
+    const impl = factory(this.registry);
     this.registry.set(ref.id, impl);
     return this;
   }
