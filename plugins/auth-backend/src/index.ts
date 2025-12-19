@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { User } from "better-auth/types";
 import { jwtVerify } from "jose";
+import { hashPassword } from "better-auth/crypto";
 
 export default createBackendPlugin({
   pluginId: "auth-backend",
@@ -157,6 +158,58 @@ export default createBackendPlugin({
         router.on(["POST", "GET"], "/*", (c) => {
           return auth!.handler(c.req.raw);
         });
+
+        // 4. Idempotent Seeding
+        logger.info("🌱 Checking for initial admin user...");
+        const adminRole = await database
+          .select()
+          .from(schema.role)
+          .where(eq(schema.role.id, "admin"));
+        if (adminRole.length === 0) {
+          await database.insert(schema.role).values({
+            id: "admin",
+            name: "Administrator",
+            isSystem: true,
+          });
+          logger.info("   -> Created 'admin' role.");
+        }
+
+        const adminUser = await database
+          .select()
+          .from(schema.user)
+          .where(eq(schema.user.email, "admin@checkmate.local"));
+
+        if (adminUser.length === 0) {
+          const adminId = "initial-admin-id";
+          await database.insert(schema.user).values({
+            id: adminId,
+            name: "Admin",
+            email: "admin@checkmate.local",
+            emailVerified: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+
+          const hashedAdminPassword = await hashPassword("admin");
+          await database.insert(schema.account).values({
+            id: "initial-admin-account-id",
+            accountId: "admin@checkmate.local",
+            providerId: "credential",
+            userId: adminId,
+            password: hashedAdminPassword,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+
+          await database.insert(schema.userRole).values({
+            userId: adminId,
+            roleId: "admin",
+          });
+
+          logger.info(
+            "   -> Created initial admin user (admin@checkmate.local : admin)"
+          );
+        }
 
         logger.info("✅ Auth Backend initialized.");
       },

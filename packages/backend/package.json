@@ -5,8 +5,7 @@
   "scripts": {
     "dev": "bun --env-file=../../.env run --watch src/index.ts",
     "typecheck": "tsc --noEmit",
-    "generate": "bun --env-file=../../.env run drizzle-kit generate",
-    "seed": "bun --env-file=../../.env run src/seed.ts"
+    "generate": "bun --env-file=../../.env run drizzle-kit generate"
   },
   "dependencies": {
     "@checkmate/backend-api": "workspace:*",
