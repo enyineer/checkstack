@@ -20,7 +20,7 @@ export default createBackendPlugin({
         logger.info("Initializing Catalog Backend...");
 
         // Use local db variable for services to import
-        db = database as any; // Type casting for now, will fix with proper schema generics if needed
+        db = database as unknown as NodePgDatabase<typeof schema>;
 
         // Register Permissions (TODO: How does core learn about these?
         // Architecture doc says: "The backend plugin must export permissions that can be set in the init-function"
