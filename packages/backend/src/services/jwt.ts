@@ -23,9 +23,9 @@ export const jwtService = {
     try {
       const { payload } = await jwtVerify(token, SECRET);
       return payload;
-    } catch (e) {
-      console.error("JWT Verification failed:", e);
-      return null;
+    } catch (error) {
+      console.error("JWT Verification failed:", error);
+      return;
     }
   },
 };

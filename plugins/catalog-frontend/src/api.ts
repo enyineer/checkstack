@@ -5,7 +5,7 @@ export interface System {
   name: string;
   description?: string;
   owner?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -14,7 +14,7 @@ export interface Group {
   id: string;
   name: string;
   systemId: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -23,7 +23,7 @@ export interface View {
   id: string;
   name: string;
   description?: string;
-  configuration: any;
+  configuration: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }

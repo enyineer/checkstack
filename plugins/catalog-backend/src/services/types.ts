@@ -1,4 +1,3 @@
-import * as schema from "../schema";
 import { z } from "zod";
 
 // Systems

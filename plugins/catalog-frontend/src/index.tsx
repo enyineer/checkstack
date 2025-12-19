@@ -1,4 +1,4 @@
-import { fetchApiRef } from "@checkmate/frontend-api";
+import { fetchApiRef, ApiRef } from "@checkmate/frontend-api";
 import { CatalogClient } from "./client";
 import { catalogApiRef } from "./api";
 import { FrontendPlugin } from "@checkmate/frontend-api";
@@ -10,7 +10,7 @@ export const catalogPlugin: FrontendPlugin = {
   apis: [
     {
       ref: catalogApiRef,
-      factory: (deps: any) => {
+      factory: (deps: { get: <T>(ref: ApiRef<T>) => T }) => {
         const fetchApi = deps.get(fetchApiRef);
         return new CatalogClient(fetchApi);
       },

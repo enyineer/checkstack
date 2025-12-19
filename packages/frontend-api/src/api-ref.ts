@@ -7,7 +7,7 @@ export type ApiRef<T> = {
 export function createApiRef<T>(id: string): ApiRef<T> {
   return {
     id,
-    T: null as T,
+    T: undefined as T,
     toString() {
       return `ApiRef(${id})`;
     },

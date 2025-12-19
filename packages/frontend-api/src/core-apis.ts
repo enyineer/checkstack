@@ -1,10 +1,10 @@
 import { createApiRef } from "./api-ref";
 
 export interface LoggerApi {
-  info(message: string, ...args: any[]): void;
-  error(message: string, ...args: any[]): void;
-  warn(message: string, ...args: any[]): void;
-  debug(message: string, ...args: any[]): void;
+  info(message: string, ...args: unknown[]): void;
+  error(message: string, ...args: unknown[]): void;
+  warn(message: string, ...args: unknown[]): void;
+  debug(message: string, ...args: unknown[]): void;
 }
 
 export interface FetchApi {

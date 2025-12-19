@@ -6,7 +6,7 @@ const devFormat = printf(({ level, message, timestamp, ...meta }) => {
   const plugin = meta.plugin ? `[${meta.plugin}] ` : "";
   // Stringify rest of meta if it exists and isn't just plugin
   const { plugin: _p, ...rest } = meta;
-  const metaStr = Object.keys(rest).length ? JSON.stringify(rest) : "";
+  const metaStr = Object.keys(rest).length > 0 ? JSON.stringify(rest) : "";
 
   return `${timestamp} ${level}: ${plugin}${message} ${metaStr}`;
 });

@@ -19,7 +19,7 @@ export default createBackendPlugin({
         const session = await auth.api.getSession({
           headers,
         });
-        return session?.user || null;
+        return session?.user;
       },
     });
 
@@ -27,13 +27,13 @@ export default createBackendPlugin({
     env.registerService(coreServices.authentication, {
       validate: async (request: Request) => {
         if (!auth) {
-          return null; // Not initialized yet
+          return; // Not initialized yet
         }
         // better-auth needs headers to validate session
         const session = await auth.api.getSession({
           headers: request.headers,
         });
-        return session?.user || null;
+        return session?.user;
       },
     });
 

@@ -7,9 +7,17 @@
   ],
   "scripts": {
     "dev": "docker compose up -d && bun run --filter '@checkmate/backend' --filter '@checkmate/frontend' dev",
+    "lint": "bun run eslint .",
     "docker:stop": "docker compose down"
   },
   "devDependencies": {
-    "bun": "^1.0.0"
+    "@eslint/js": "^9.39.2",
+    "@typescript-eslint/eslint-plugin": "^8.50.0",
+    "@typescript-eslint/parser": "^8.50.0",
+    "bun": "^1.0.0",
+    "eslint": "^9.39.2",
+    "eslint-plugin-unicorn": "^62.0.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.50.0"
   }
 }

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, ReactNode } from "react";
 import { ApiRef } from "./api-ref";
 
-export type ApiRegistry = Map<string, any>;
+export type ApiRegistry = Map<string, unknown>;
 
 const ApiContext = createContext<ApiRegistry | undefined>(undefined);
 

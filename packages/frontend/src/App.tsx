@@ -21,19 +21,19 @@ const registryBuilder = new ApiRegistryBuilder()
 
 // Register API factories from plugins
 const plugins = pluginRegistry.getPlugins();
-plugins.forEach((plugin) => {
+for (const plugin of plugins) {
   if (plugin.apis) {
-    plugin.apis.forEach((api) => {
+    for (const api of plugin.apis) {
       registryBuilder.registerFactory(api.ref, (registry) => {
         // Adapt registry map to dependency getter
         const deps = {
-          get: <T,>(ref: any) => registry.get(ref.id) as T,
+          get: <T,>(ref: { id: string }) => registry.get(ref.id) as T,
         };
         return api.factory(deps);
       });
-    });
+    }
   }
-});
+}
 
 const apiRegistry = registryBuilder.build();
 

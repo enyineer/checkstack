@@ -4,8 +4,8 @@ import { ApiRef } from "./api-ref";
 export interface FrontendPlugin {
   name: string;
   apis?: {
-    ref: ApiRef<any>;
-    factory: (deps: any) => any;
+    ref: ApiRef<unknown>;
+    factory: (deps: { get: <T>(ref: ApiRef<T>) => T }) => unknown;
   }[];
   routes?: {
     path: string;
@@ -15,6 +15,6 @@ export interface FrontendPlugin {
   navItems?: {
     title: string;
     path: string;
-    icon?: any;
+    icon?: React.ComponentType | React.ReactNode;
   }[];
 }

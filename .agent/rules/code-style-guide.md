@@ -2,11 +2,9 @@
 trigger: always_on
 ---
 
-# Strong types
+# Linting
 
-ALWAYS use Typescript and avoid untyped code.
-
-NEVER use "any".
+Always run "bun run lint ." in the project root after you've made changes to make sure that you're not breaking any linter rules. If there are linter errors, fix them before considering your changes done.
 
 # Validation
 

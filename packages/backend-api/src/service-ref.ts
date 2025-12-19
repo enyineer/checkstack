@@ -7,7 +7,7 @@ export type ServiceRef<T> = {
 export function createServiceRef<T>(id: string): ServiceRef<T> {
   return {
     id,
-    T: null as T,
+    T: undefined as T,
     toString() {
       return `ServiceRef(${id})`;
     },

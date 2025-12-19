@@ -1,17 +1,22 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
-import { join } from "path";
+import path from "node:path";
 import { Hono } from "hono";
 import { adminPool, db } from "./db";
 import { plugins } from "./schema";
 import { eq } from "drizzle-orm";
 import { ServiceRegistry } from "./services/service-registry";
-import { coreServices } from "@checkmate/backend-api";
-import { BackendPlugin } from "@checkmate/backend-api";
+import {
+  coreServices,
+  BackendPlugin,
+  ServiceRef,
+  Deps,
+  ResolvedDeps,
+} from "@checkmate/backend-api";
 import { rootLogger } from "./logger";
 import { jwtService } from "./services/jwt";
-import { ServiceRef } from "@checkmate/backend-api";
+import { CoreHealthCheckRegistry } from "./services/health-check-registry";
 
 export class PluginManager {
   private registry = new ServiceRegistry();
@@ -66,6 +71,13 @@ export class PluginManager {
       };
     });
 
+    // Register Health Check Registry (Global Singleton)
+    const healthCheckRegistry = new CoreHealthCheckRegistry();
+    this.registry.registerFactory(
+      coreServices.healthCheckRegistry,
+      () => healthCheckRegistry
+    );
+
     rootLogger.info("🔍 Scanning for plugins in database...");
 
     const enabledPlugins = await db
@@ -82,8 +94,8 @@ export class PluginManager {
     const pendingInits: Array<{
       pluginId: string;
       pluginPath: string;
-      deps: any;
-      init: (deps: any) => Promise<void>;
+      deps: Record<string, ServiceRef<unknown>>;
+      init: (deps: Record<string, unknown>) => Promise<void>;
     }> = [];
 
     const providedBy = new Map<string, string>(); // ServiceId -> PluginId
@@ -112,22 +124,27 @@ export class PluginManager {
 
         // Execute Register
         backendPlugin.register({
-          registerInit: (args: { deps: any; init: any }) => {
+          registerInit: <D extends Deps>(args: {
+            deps: D;
+            init: (deps: ResolvedDeps<D>) => Promise<void>;
+          }) => {
             pendingInits.push({
               pluginId: backendPlugin.pluginId,
               pluginPath: plugin.path,
               deps: args.deps,
-              init: args.init,
+              init: args.init as unknown as (
+                deps: Record<string, unknown>
+              ) => Promise<void>,
             });
           },
-          registerService: (ref: any, impl: any) => {
+          registerService: (ref: ServiceRef<unknown>, impl: unknown) => {
             this.registry.register(ref, impl);
             providedBy.set(ref.id, backendPlugin.pluginId);
             rootLogger.debug(`   -> Registered service '${ref.id}'`);
           },
         });
-      } catch (e) {
-        rootLogger.error(`Failed to load module for ${plugin.name}:`, e);
+      } catch (error) {
+        rootLogger.error(`Failed to load module for ${plugin.name}:`, error);
       }
     }
 
@@ -146,8 +163,8 @@ export class PluginManager {
     // Build Graph
     for (const p of pendingInits) {
       const consumerId = p.pluginId;
-      for (const [key, ref] of Object.entries(p.deps)) {
-        const serviceId = (ref as any).id;
+      for (const [, ref] of Object.entries(p.deps)) {
+        const serviceId = (ref as ServiceRef<unknown>).id;
         const providerId = providedBy.get(serviceId);
 
         // If the service is provided by another plugin (and not the consumer itself)
@@ -205,25 +222,30 @@ export class PluginManager {
         );
 
         // Run Migrations
-        const migrationsFolder = join(p.pluginPath, "drizzle");
+        const migrationsFolder = path.join(p.pluginPath, "drizzle");
         try {
           await migrate(pluginDb, { migrationsFolder });
-        } catch (e) {
-          rootLogger.error(`❌ Failed migration of plugin ${p.pluginId}:`, e);
+        } catch (error) {
+          rootLogger.error(
+            `❌ Failed migration of plugin ${p.pluginId}:`,
+            error
+          );
         }
 
         // Resolve all dependencies
-        const resolvedDeps: any = {};
+        const resolvedDeps: Record<string, unknown> = {};
         for (const [key, ref] of Object.entries(p.deps)) {
-          // @ts-ignore
-          resolvedDeps[key] = await this.registry.get(ref, p.pluginId);
+          resolvedDeps[key] = await this.registry.get(
+            ref as ServiceRef<unknown>,
+            p.pluginId
+          );
         }
 
         // Init
         await p.init(resolvedDeps);
         rootLogger.info(`✅ ${p.pluginId} initialized.`);
-      } catch (e) {
-        rootLogger.error(`❌ Failed to initialize ${p.pluginId}:`, e);
+      } catch (error) {
+        rootLogger.error(`❌ Failed to initialize ${p.pluginId}:`, error);
       }
     }
   }

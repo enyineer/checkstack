@@ -3,7 +3,7 @@ import { PluginManager } from "./plugin-manager";
 import { logger } from "hono/logger";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { db } from "./db";
-import { join } from "path";
+import path from "node:path";
 import { jwtService } from "./services/jwt";
 import { rootLogger } from "./logger";
 import { coreServices } from "@checkmate/backend-api";
@@ -23,11 +23,14 @@ const init = async () => {
   // 1. Run Core Migrations
   rootLogger.info("🔄 Running core migrations...");
   try {
-    await migrate(db, { migrationsFolder: join(process.cwd(), "drizzle") });
+    await migrate(db, {
+      migrationsFolder: path.join(process.cwd(), "drizzle"),
+    });
     rootLogger.info("✅ Core migrations applied.");
-  } catch (e) {
-    rootLogger.error("❌ Failed to apply core migrations:", e);
-    process.exit(1);
+  } catch (error) {
+    throw new Error("❌ Failed to apply core migrations", {
+      cause: error,
+    });
   }
 
   // 2. Signature Verification Middleware

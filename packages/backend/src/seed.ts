@@ -1,12 +1,15 @@
 import { db, adminPool } from "./db";
 import { plugins } from "./schema";
-import { join } from "path";
+import path from "node:path";
 
 async function main() {
   console.log("🌱 Seeding database...");
 
-  const verifyPluginPath = join(process.cwd(), "../../plugins/auth-backend");
-  console.log("Using Auth Plugin Path: ", verifyPluginPath);
+  const verifyPluginPath = path.join(
+    process.cwd(),
+    "../../plugins/auth-backend"
+  );
+  console.log("Using Auth Plugin Path:", verifyPluginPath);
 
   try {
     await db
@@ -21,7 +24,17 @@ async function main() {
         },
         {
           name: "catalog-backend",
-          path: join(process.cwd(), "../../plugins/catalog-backend"),
+          path: path.join(process.cwd(), "../../plugins/catalog-backend"),
+          isUninstallable: true,
+          enabled: true,
+          config: {},
+        },
+        {
+          name: "http-healthcheck-backend",
+          path: path.join(
+            process.cwd(),
+            "../../plugins/http-healthcheck-backend"
+          ),
           isUninstallable: true,
           enabled: true,
           config: {},
@@ -37,4 +50,4 @@ async function main() {
   }
 }
 
-main();
+await main();

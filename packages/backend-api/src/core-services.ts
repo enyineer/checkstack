@@ -4,10 +4,10 @@ import { createServiceRef } from "./service-ref";
 
 // Define a Logger interface to avoid strict dependency on specific logger lib in types
 export interface Logger {
-  info(message: string, ...args: any[]): void;
-  error(message: string, ...args: any[]): void;
-  warn(message: string, ...args: any[]): void;
-  debug(message: string, ...args: any[]): void;
+  info(message: string, ...args: unknown[]): void;
+  error(message: string, ...args: unknown[]): void;
+  warn(message: string, ...args: unknown[]): void;
+  debug(message: string, ...args: unknown[]): void;
 }
 
 // Define Fetch interface
@@ -15,9 +15,11 @@ export interface Fetch {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
 }
 
+export type AuthUser = Record<string, unknown>;
+
 // Define AuthenticationStrategy interface (for verifying User Sessions)
 export interface AuthenticationStrategy {
-  validate(request: Request): Promise<any | null>; // Returns User or null
+  validate(request: Request): Promise<AuthUser | undefined>; // Returns User or undefined
 }
 
 export const coreServices = {
@@ -29,4 +31,7 @@ export const coreServices = {
   authentication: createServiceRef<AuthenticationStrategy>(
     "core.authentication"
   ),
+  healthCheckRegistry: createServiceRef<
+    import("./health-check").HealthCheckRegistry
+  >("core.healthCheckRegistry"),
 };

@@ -1,5 +1,4 @@
 import { db } from "../index";
-import { eq } from "drizzle-orm";
 import { incidents, maintenances } from "../schema";
 import { NewIncident, NewMaintenance } from "./types";
 

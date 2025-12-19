@@ -13,7 +13,7 @@ export class EntityService {
   async getSystem(id: string) {
     if (!db) throw new Error("Database not initialized");
     const result = await db.select().from(systems).where(eq(systems.id, id));
-    return result[0] || null;
+    return result[0];
   }
 
   async createSystem(data: NewSystem) {
@@ -43,7 +43,7 @@ export class EntityService {
   async getView(id: string) {
     if (!db) throw new Error("Database not initialized");
     const result = await db.select().from(views).where(eq(views.id, id));
-    return result[0] || null;
+    return result[0];
   }
 
   async createView(data: NewView) {

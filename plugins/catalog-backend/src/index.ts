@@ -1,7 +1,5 @@
 import { createBackendPlugin } from "@checkmate/backend-api";
-import { permissions } from "./permissions";
 import { type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { Hono } from "hono";
 import { coreServices } from "@checkmate/backend-api";
 import * as schema from "./schema";
 import { entityService } from "./services/entity-service";
