@@ -22,11 +22,11 @@ This project is called "checkmate". It's an Open Source solution for Healthcheck
 
 # Package types
 
-- "frontend" packages MUST always use React, ShadCN, react-router-dom and vite
-- "backend" packages MUST always use Hono (https://hono.dev/) for REST endpoints, zod for validation of inputs and Drizzle (https://orm.drizzle.team/) for their database schemas
-- "common" packages MUST NOT include any frontend- or backend-specific libraries or code. They SHOULD only contain shared functionality that can be used in front- and backend-packages
-- "node" packages MUST NOT include any frontend-specific librarys but MAY include backend specific libraries and are used for shared code only used in the backend
-- "react" packages MUST NOT include any backend-specific librarys but MAY include frontend specific libraries or shared react components
+- "frontend" (eg. "/plugins/pluginA-frontend") packages MUST always use React, ShadCN, react-router-dom and vite
+- "backend" (eg. "/plugins/pluginA-backend") packages MUST always use Hono (https://hono.dev/) for REST endpoints, zod for validation of inputs and Drizzle (https://orm.drizzle.team/) for their database schemas
+- "common" (eg. "/plugins/pluginA-common") packages MUST NOT include any frontend- or backend-specific libraries or code. They SHOULD only contain shared functionality that can be used in front- and backend-packages
+- "node" (eg. "plugins/pluginA-node") packages MUST NOT include any frontend-specific librarys but MAY include backend specific libraries and are used for shared code only used in the backend
+- "react" (eg. "plugins/pluginA-react") packages MUST NOT include any backend-specific librarys but MAY include frontend specific libraries or shared react components
 
 # Plugin architecture
 
