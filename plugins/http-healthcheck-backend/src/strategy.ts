@@ -5,7 +5,7 @@ import {
 } from "@checkmate/backend-api";
 
 export const httpHealthCheckConfigSchema = z.object({
-  url: z.string().url(),
+  url: z.url(),
   method: z.enum(["GET", "POST", "PUT", "DELETE", "HEAD"]).default("GET"),
   headers: z.record(z.string(), z.string()).optional(),
   timeout: z.number().min(100).default(5000), // ms
