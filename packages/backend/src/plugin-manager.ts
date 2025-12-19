@@ -7,11 +7,11 @@ import { adminPool, db } from "./db";
 import { plugins } from "./schema";
 import { eq } from "drizzle-orm";
 import { ServiceRegistry } from "./services/service-registry";
-import { coreServices } from "./services/core-services";
+import { coreServices } from "@checkmate/core-api";
 import { BackendPlugin } from "./plugin-system";
 import { rootLogger } from "./logger";
 import { jwtService } from "./services/jwt";
-import { ServiceRef } from "./services/service-ref";
+import { ServiceRef } from "@checkmate/core-api";
 
 export class PluginManager {
   private registry = new ServiceRegistry();

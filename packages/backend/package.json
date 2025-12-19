@@ -8,6 +8,7 @@
     "seed": "bun --env-file=../../.env run src/seed.ts"
   },
   "dependencies": {
+    "@checkmate/core-api": "workspace:*",
     "better-auth": "^1.4.7",
     "drizzle-orm": "^0.30.0",
     "hono": "^4.0.0",

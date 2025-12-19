@@ -1,4 +1,4 @@
-import { ServiceRef } from "./service-ref";
+import { ServiceRef } from "@checkmate/core-api";
 
 type ServiceFactory<T> = (pluginId: string) => T | Promise<T>;
 

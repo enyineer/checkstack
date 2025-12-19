@@ -1,7 +1,7 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createBackendPlugin } from "@checkmate/backend/src/plugin-system";
-import { coreServices } from "@checkmate/backend/src/services/core-services";
+import { coreServices } from "@checkmate/core-api";
 import { userInfoRef } from "./services/user-info";
 import * as schema from "./schema";
 

@@ -4,6 +4,7 @@
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
+    "@checkmate/core-api": "workspace:*",
     "@checkmate/backend": "workspace:*",
     "better-auth": "^1.4.7",
     "drizzle-orm": "^0.30.0",

@@ -6,7 +6,7 @@ import { db } from "./db";
 import { join } from "path";
 import { jwtService } from "./services/jwt";
 import { rootLogger } from "./logger";
-import { coreServices } from "./services/core-services";
+import { coreServices } from "@checkmate/core-api";
 
 const app = new Hono();
 const pluginManager = new PluginManager();
