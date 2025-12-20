@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { LogIn, LogOut } from "lucide-react";
-import { useApi, ExtensionSlot } from "@checkmate/frontend-api";
+import { useApi, ExtensionSlot, pluginRegistry } from "@checkmate/frontend-api";
 import { authApiRef } from "../api";
 import {
   Button,
@@ -15,6 +15,7 @@ import {
   CardFooter,
   UserMenu,
   DropdownMenuItem,
+  DropdownMenuSeparator,
 } from "@checkmate/ui";
 
 export const LoginPage = () => {
@@ -115,9 +116,17 @@ export const LoginNavbarAction = () => {
   }
 
   if (session?.user) {
+    // Check if we have any bottom items to decide if we need a separator
+    const bottomExtensions = pluginRegistry.getExtensions(
+      "core.layout.navbar.user-menu.items.bottom"
+    );
+    const hasBottomItems = bottomExtensions.length > 0;
+
     return (
       <UserMenu user={session.user}>
         <ExtensionSlot id="core.layout.navbar.user-menu.items" />
+        {hasBottomItems && <DropdownMenuSeparator />}
+        <ExtensionSlot id="core.layout.navbar.user-menu.items.bottom" />
       </UserMenu>
     );
   }

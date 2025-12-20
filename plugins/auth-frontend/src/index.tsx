@@ -109,7 +109,7 @@ export const authPlugin: FrontendPlugin = {
     },
     {
       id: "auth.user-menu.logout",
-      slotId: "core.layout.navbar.user-menu.items",
+      slotId: "core.layout.navbar.user-menu.items.bottom",
       component: LogoutMenuItem,
     },
   ],
