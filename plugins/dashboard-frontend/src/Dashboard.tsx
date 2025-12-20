@@ -1,37 +1,97 @@
 import React, { useEffect, useState } from "react";
 import { useApi } from "@checkmate/frontend-api";
-import { catalogApiRef, Group } from "@checkmate/catalog-frontend-plugin";
+import {
+  catalogApiRef,
+  Group,
+  System,
+} from "@checkmate/catalog-frontend-plugin";
 import {
   Card,
   CardHeader,
   CardTitle,
-  CardDescription,
+  CardContent,
   SectionHeader,
   StatusCard,
   EmptyState,
   LoadingSpinner,
+  SystemHealthItem,
+  HealthStatus,
 } from "@checkmate/ui";
 import { LayoutGrid, Info, Server, Activity } from "lucide-react";
 
+// Mock health status generator based on system ID
+const getHealthStatus = (systemId: string): HealthStatus => {
+  // Simple hash function to get consistent but pseudo-random status
+  let hash = 0;
+  for (let i = 0; i < systemId.length; i++) {
+    hash = (hash << 5) - hash + (systemId.codePointAt(i) ?? 0);
+    hash = hash & hash;
+  }
+  const value = Math.abs(hash) % 10;
+
+  if (value < 7) return "healthy"; // 70% healthy
+  if (value < 9) return "degraded"; // 20% degraded
+  return "unhealthy"; // 10% unhealthy
+};
+
+// Mock metadata generator
+const getMockMetadata = (systemId: string) => {
+  const hash = [...systemId].reduce(
+    (acc, char) => acc + (char.codePointAt(0) ?? 0),
+    0
+  );
+  const latency = 50 + (hash % 200); // Latency between 50-250ms
+  const now = new Date();
+  const lastCheckMinutes = hash % 10; // Last check 0-9 minutes ago
+  now.setMinutes(now.getMinutes() - lastCheckMinutes);
+
+  return {
+    latency,
+    lastCheck: `${lastCheckMinutes}m ago`,
+  };
+};
+
+interface GroupWithSystems extends Group {
+  systems: System[];
+}
+
 export const Dashboard: React.FC = () => {
   const catalogApi = useApi(catalogApiRef);
-  const [groups, setGroups] = useState<Group[]>([]);
+  const [groupsWithSystems, setGroupsWithSystems] = useState<
+    GroupWithSystems[]
+  >([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    catalogApi
-      .getGroups()
-      .then(setGroups)
+    Promise.all([catalogApi.getGroups(), catalogApi.getSystems()])
+      .then(([groups, systems]) => {
+        // Create a map of system IDs to systems
+        const systemMap = new Map(systems.map((s) => [s.id, s]));
+
+        // Map groups to include their systems
+        const groupsData: GroupWithSystems[] = groups.map((group) => {
+          const groupSystems = (group.systemIds || [])
+            .map((id) => systemMap.get(id))
+            .filter((s): s is System => s !== undefined);
+
+          return {
+            ...group,
+            systems: groupSystems,
+          };
+        });
+
+        setGroupsWithSystems(groupsData);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [catalogApi]);
 
-  const renderContent = () => {
+  const renderGroupsContent = () => {
     if (loading) {
       return <LoadingSpinner />;
     }
 
-    if (groups.length === 0) {
+    if (groupsWithSystems.length === 0) {
       return (
         <EmptyState
           title="No system groups found"
@@ -42,23 +102,44 @@ export const Dashboard: React.FC = () => {
     }
 
     return (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {groups.map((group) => (
+      <div className="space-y-4">
+        {groupsWithSystems.map((group) => (
           <Card
             key={group.id}
-            className="group hover:shadow-md transition-all duration-200 border-gray-100"
+            className="border-gray-200 shadow-sm hover:shadow-md transition-shadow"
           >
-            <CardHeader className="p-4">
-              <div className="flex justify-between items-start">
-                <CardTitle className="text-base font-bold text-gray-800 group-hover:text-indigo-600 transition-colors">
+            <CardHeader className="border-b border-gray-100 bg-gray-50/50">
+              <div className="flex items-center gap-2">
+                <LayoutGrid className="h-5 w-5 text-gray-600" />
+                <CardTitle className="text-lg font-semibold text-gray-900">
                   {group.name}
                 </CardTitle>
-                <Server className="w-4 h-4 text-gray-400" />
+                <span className="ml-auto text-sm text-gray-500">
+                  {group.systems.length}{" "}
+                  {group.systems.length === 1 ? "system" : "systems"}
+                </span>
               </div>
-              <CardDescription className="text-xs mt-1">
-                ID: {group.id}
-              </CardDescription>
             </CardHeader>
+            <CardContent className="p-4">
+              {group.systems.length === 0 ? (
+                <div className="py-8 text-center">
+                  <p className="text-sm text-gray-500">
+                    No systems in this group yet
+                  </p>
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {group.systems.map((system) => (
+                    <SystemHealthItem
+                      key={system.id}
+                      name={system.name}
+                      status={getHealthStatus(system.id)}
+                      metadata={getMockMetadata(system.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </CardContent>
           </Card>
         ))}
       </div>
@@ -100,7 +181,7 @@ export const Dashboard: React.FC = () => {
           title="System Groups"
           icon={<LayoutGrid className="w-5 h-5" />}
         />
-        {renderContent()}
+        {renderGroupsContent()}
       </section>
     </div>
   );

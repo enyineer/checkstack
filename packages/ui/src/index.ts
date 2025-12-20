@@ -12,4 +12,6 @@ export * from "./components/DropdownMenu";
 export * from "./components/UserMenu";
 export * from "./components/EditableText";
 export * from "./components/ConfirmationModal";
+export * from "./components/HealthBadge";
+export * from "./components/SystemHealthItem";
 export * from "./utils";
