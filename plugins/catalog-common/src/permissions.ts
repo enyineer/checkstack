@@ -1,4 +1,4 @@
-import { Permission } from "@checkmate/backend-api";
+import type { Permission } from "@checkmate/common";
 
 export const permissions = {
   entityRead: {

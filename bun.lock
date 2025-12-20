@@ -21,6 +21,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@checkmate/backend-api": "workspace:*",
+        "@checkmate/common": "workspace:*",
         "@hono/zod-validator": "^0.7.6",
         "better-auth": "^1.4.7",
         "drizzle-orm": "^0.45.1",
@@ -40,6 +41,7 @@
       "name": "@checkmate/backend-api",
       "version": "0.0.1",
       "dependencies": {
+        "@checkmate/common": "workspace:*",
         "drizzle-orm": "^0.45.1",
         "hono": "^4.0.0",
         "zod": "^4.2.1",
@@ -50,6 +52,13 @@
       "peerDependencies": {
         "drizzle-orm": "^0.45.1",
         "hono": "^4.0.0",
+      },
+    },
+    "packages/common": {
+      "name": "@checkmate/common",
+      "version": "0.0.1",
+      "devDependencies": {
+        "typescript": "^5.7.2",
       },
     },
     "packages/frontend": {
@@ -161,7 +170,7 @@
       "name": "@checkmate/catalog-common",
       "version": "0.0.1",
       "dependencies": {
-        "@checkmate/backend-api": "workspace:*",
+        "@checkmate/common": "workspace:*",
       },
       "devDependencies": {
         "typescript": "^5.7.2",
@@ -274,6 +283,8 @@
     "@checkmate/catalog-common": ["@checkmate/catalog-common@workspace:plugins/catalog-common"],
 
     "@checkmate/catalog-frontend-plugin": ["@checkmate/catalog-frontend-plugin@workspace:plugins/catalog-frontend"],
+
+    "@checkmate/common": ["@checkmate/common@workspace:packages/common"],
 
     "@checkmate/dashboard-frontend-plugin": ["@checkmate/dashboard-frontend-plugin@workspace:plugins/dashboard-frontend"],
 

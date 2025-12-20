@@ -1,6 +1,7 @@
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { ServiceRef } from "./service-ref";
 import { ExtensionPoint } from "./extension-point";
+import type { Permission } from "@checkmate/common";
 
 export type Deps = Record<string, ServiceRef<unknown>>;
 
@@ -11,11 +12,6 @@ export type ResolvedDeps<T extends Deps> = {
 
 export type PluginContext = {
   pluginId: string;
-};
-
-export type Permission = {
-  id: string; // e.g. "read-things", will be prefixed: "pluginId.read-things"
-  description?: string;
 };
 
 export type BackendPluginRegistry = {

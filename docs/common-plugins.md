@@ -4,6 +4,16 @@
 
 Common plugins (e.g., `catalog-common`, `auth-common`) are special plugin packages designed to share code, types, and constants between frontend and backend plugins. They contain code that is agnostic to the runtime environment and can safely be imported by both frontend and backend packages.
 
+## Dependency Architecture Rules
+
+**Strict dependency isolation must be enforced:**
+
+- **Frontend plugins** → May only depend on other frontend plugins OR common plugins
+- **Backend plugins** → May only depend on other backend plugins OR common plugins
+- **Common plugins** → May ONLY depend on other common plugins
+
+This ensures clean separation of concerns and prevents runtime-specific code from leaking into shared packages.
+
 ## When to Create a Common Plugin
 
 Create a common plugin when you need to:
@@ -71,6 +81,37 @@ Create a common plugin when you need to:
 - **Database Logic**: Keep in `*-backend` plugins
 - **HTTP Request Logic**: Keep in appropriate frontend/backend plugins
 
+## The `@checkmate/common` Core Package
+
+The `@checkmate/common` package is a special core package located in `packages/common/` that provides shared type definitions used across the entire codebase. This is the foundation that all common plugins can depend on.
+
+**What it contains:**
+- Core type definitions (e.g., `Permission` type)
+- Fundamental interfaces used across plugins
+- Zero runtime dependencies
+
+**Who can use it:**
+- ✅ All common plugins (including plugin-specific common packages like `catalog-common`)
+- ✅ Backend API packages (like `@checkmate/backend-api`)
+- ✅ Frontend API packages (like `@checkmate/frontend-api`)
+- ✅ Backend and frontend plugins (when they need core types)
+
+**Example - `packages/common/src/types.ts`:**
+```typescript
+/**
+ * Represents a permission that can be assigned to roles.
+ * The id will be prefixed with the plugin name when registered.
+ */
+export type Permission = {
+  /** Permission identifier (e.g., "read-things", will become "pluginId.read-things") */
+  id: string;
+  /** Human-readable description of what this permission allows */
+  description?: string;
+};
+```
+
+This ensures that all packages can reference core types without creating circular dependencies or violating the architecture rules.
+
 ## Package Structure
 
 A typical common plugin structure:
@@ -104,7 +145,7 @@ plugins/
     }
   },
   "dependencies": {
-    "@checkmate/backend-api": "workspace:*"
+    "@checkmate/common": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.2"
@@ -114,8 +155,9 @@ plugins/
 
 **Key points:**
 - Use `workspace:*` for internal dependencies
-- Only depend on `@checkmate/backend-api` for type definitions like `Permission`
-- Do NOT depend on `@checkmate/frontend` or runtime-specific packages
+- Only depend on `@checkmate/common` for shared type definitions like `Permission`
+- Do NOT depend on `@checkmate/backend-api`, `@checkmate/frontend-api`, or any runtime-specific packages
+- Common plugins must maintain zero runtime dependencies to ensure they can be safely imported anywhere
 
 ### tsconfig.json
 
@@ -140,7 +182,7 @@ plugins/
 ### In Common Plugin (`catalog-common/src/permissions.ts`)
 
 ```typescript
-import { Permission } from "@checkmate/backend-api";
+import type { Permission } from "@checkmate/common";
 
 export const permissions = {
   entityRead: {

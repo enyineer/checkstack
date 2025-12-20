@@ -1,14 +1,11 @@
 {
-  "name": "@checkmate/catalog-common",
+  "name": "@checkmate/common",
   "version": "0.0.1",
   "type": "module",
   "exports": {
     ".": {
       "import": "./src/index.ts"
     }
-  },
-  "dependencies": {
-    "@checkmate/common": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.2"

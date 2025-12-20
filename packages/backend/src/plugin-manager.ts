@@ -16,8 +16,8 @@ import {
   ExtensionPoint,
   Deps,
   ResolvedDeps,
-  Permission,
 } from "@checkmate/backend-api";
+import type { Permission } from "@checkmate/common";
 import { rootLogger } from "./logger";
 import { jwtService } from "./services/jwt";
 import { CoreHealthCheckRegistry } from "./services/health-check-registry";
