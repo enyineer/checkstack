@@ -19,7 +19,10 @@ class AuthPermissionApi implements PermissionApi {
     if (!session?.user?.permissions) {
       return false;
     }
-    return session.user.permissions.includes(permission);
+    return (
+      session.user.permissions.includes("*") ||
+      session.user.permissions.includes(permission)
+    );
   }
 }
 

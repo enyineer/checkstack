@@ -62,4 +62,16 @@ describe("AuthPermissionApi", () => {
 
     expect(permissionApi.usePermission("test.permission")).toBe(false);
   });
+
+  it("should return true if user has the wildcard permission", () => {
+    (authClient.useSession as ReturnType<typeof mock>).mockReturnValue({
+      data: {
+        user: {
+          permissions: ["*"],
+        },
+      },
+    });
+
+    expect(permissionApi.usePermission("any.permission")).toBe(true);
+  });
 });
