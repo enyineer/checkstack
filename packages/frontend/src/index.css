@@ -1,3 +1,15 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Prism JSON highlighting */
+.token.property { color: #4f46e5; }
+.token.string { color: #059669; }
+.token.number { color: #d97706; }
+.token.boolean { color: #2563eb; }
+.token.punctuation { color: #4b5563; }
+.token.operator { color: #4b5563; }
+
+.editor pre, .editor code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+}

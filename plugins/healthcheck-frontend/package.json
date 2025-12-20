@@ -7,13 +7,18 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@checkmate/frontend-api": "workspace:*",
     "@checkmate/common": "workspace:*",
+    "@checkmate/frontend-api": "workspace:*",
     "@checkmate/healthcheck-common": "workspace:*",
     "@checkmate/ui": "workspace:*",
+    "@types/prismjs": "^1.26.5",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "lucide-react": "^0.344.0",
+    "prismjs": "^1.30.0",
     "react": "^18.2.0",
     "react-router-dom": "^6.20.0",
-    "lucide-react": "^0.344.0",
+    "react-simple-code-editor": "^0.14.1",
     "zod": "^4.2.1"
   },
   "devDependencies": {

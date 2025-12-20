@@ -1,4 +1,11 @@
 import React from "react";
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
+import Editor from "react-simple-code-editor";
+// @ts-expect-error - prismjs doesn't have types for deep imports in some environments
+import { highlight, languages } from "prismjs/components/prism-core";
+import "prismjs/components/prism-json";
+
 import {
   Input,
   Label,
@@ -7,8 +14,10 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Textarea,
 } from "@checkmate/ui";
+
+const ajv = new Ajv({ allErrors: true, strict: false });
+addFormats(ajv);
 
 interface DynamicFormProps {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -24,40 +33,85 @@ const JsonField: React.FC<{
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   value: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  propSchema: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onChange: (val: any) => void;
-}> = ({ id, value, onChange }) => {
+}> = ({ id, value, propSchema, onChange }) => {
   const [internalValue, setInternalValue] = React.useState(
     JSON.stringify(value || {}, undefined, 2)
   );
+  const [error, setError] = React.useState<string | undefined>();
+  const lastPropValue = React.useRef(value);
 
-  // Sync internal value when external value changes (e.g. strategy change)
-  React.useEffect(() => {
+  const validateFn = React.useMemo(() => {
     try {
-      const currentParsed = JSON.parse(internalValue);
-      if (JSON.stringify(currentParsed) !== JSON.stringify(value)) {
-        setInternalValue(JSON.stringify(value || {}, undefined, 2));
-      }
+      return ajv.compile(propSchema);
     } catch {
+      return;
+    }
+  }, [propSchema]);
+
+  // Sync internal value ONLY when external value changes from outside
+  React.useEffect(() => {
+    const valueString = JSON.stringify(value);
+    const lastValueString = JSON.stringify(lastPropValue.current);
+
+    if (valueString !== lastValueString) {
       setInternalValue(JSON.stringify(value || {}, undefined, 2));
+      lastPropValue.current = value;
+      setError(undefined);
     }
   }, [value]);
 
+  const validate = (val: string) => {
+    try {
+      const parsed = JSON.parse(val);
+      if (!validateFn) {
+        setError(undefined);
+        return parsed;
+      }
+
+      const valid = validateFn(parsed);
+      if (!valid) {
+        setError(
+          validateFn.errors
+            ?.map((e) => `${e.instancePath} ${e.message}`)
+            .join(", ")
+        );
+        return false;
+      }
+      setError(undefined);
+      return parsed;
+    } catch (error_: unknown) {
+      // Syntax errors are expected while typing, so we show them but don't reset
+      setError(`Invalid JSON: ${(error_ as Error).message}`);
+      return false;
+    }
+  };
+
   return (
-    <Textarea
-      id={id}
-      rows={4}
-      value={internalValue}
-      onChange={(e) => {
-        const newValue = e.target.value;
-        setInternalValue(newValue);
-        try {
-          const parsed = JSON.parse(newValue);
-          onChange(parsed);
-        } catch {
-          // Keep internal state but don't propagate invalid JSON
-        }
-      }}
-    />
+    <div className="space-y-2">
+      <div className="min-h-[100px] w-full rounded-md border border-gray-300 bg-white font-mono text-sm focus-within:ring-2 focus-within:ring-indigo-600 focus-within:border-transparent transition-all overflow-hidden box-border">
+        <Editor
+          id={id}
+          value={internalValue}
+          onValueChange={(code) => {
+            setInternalValue(code);
+            const parsed = validate(code);
+            if (parsed !== false) {
+              lastPropValue.current = parsed; // Prevent feedback loop
+              onChange(parsed);
+            }
+          }}
+          highlight={(code) => highlight(code, languages.json)}
+          padding={10}
+          style={{
+            minHeight: "100px",
+          }}
+        />
+      </div>
+      {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
+    </div>
   );
 };
 
@@ -172,6 +226,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 <JsonField
                   id={key}
                   value={value[key]}
+                  propSchema={propSchema}
                   onChange={(val) => handleChange(key, val)}
                 />
                 <p className="text-xs text-muted-foreground">
