@@ -8,9 +8,32 @@ import {
   loggerApiRef,
   permissionApiRef,
   fetchApiRef,
+  useApi,
 } from "@checkmate/frontend-api";
 import { ConsoleLoggerApi } from "./apis/logger-api";
 import { CoreFetchApi } from "./apis/fetch-api";
+import { PermissionDenied } from "@checkmate/ui";
+
+const RouteGuard: React.FC<{
+  children: React.ReactNode;
+  permission?: string;
+}> = ({ children, permission }) => {
+  if (!permission) return <>{children}</>;
+
+  try {
+    const permissionApi = useApi(permissionApiRef);
+    if (!permissionApi.hasPermission(permission)) {
+      return <PermissionDenied />;
+    }
+  } catch {
+    console.warn("PermissionApi unavailable in RouteGuard");
+    // Fail safe -> deny? or allow?
+    // Consistent with NavItem, if guarded but API missing, deny.
+    return <PermissionDenied message="Authorization service unavailable." />;
+  }
+
+  return <>{children}</>;
+};
 
 function App() {
   const apiRegistry = useMemo(() => {
@@ -76,7 +99,11 @@ function App() {
                 <Route
                   key={route.path}
                   path={route.path}
-                  element={route.element}
+                  element={
+                    <RouteGuard permission={route.permission}>
+                      {route.element}
+                    </RouteGuard>
+                  }
                 />
               ))}
             </Routes>

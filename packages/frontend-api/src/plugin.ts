@@ -18,6 +18,7 @@ export interface FrontendPlugin {
     path: string;
     element?: React.ReactNode;
     title?: string;
+    permission?: string;
   }[];
   navItems?: {
     title: string;
