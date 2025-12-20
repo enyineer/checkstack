@@ -56,12 +56,17 @@ export class HealthCheckClient implements HealthCheckApi {
       throw new Error(`Request failed with status ${res.status}`);
     }
 
-    // Handle 204 No Content
+    // Handle 204 No Content or empty bodies
     if (res.status === 204) {
       return undefined as unknown as T;
     }
 
-    return res.json();
+    const text = await res.text();
+    if (!text) {
+      return undefined as unknown as T;
+    }
+
+    return JSON.parse(text);
   }
 
   async getStrategies(): Promise<HealthCheckStrategyDto[]> {

@@ -46,29 +46,86 @@ export const SystemHealthCheckAssignment: React.FC<unknown> = (props) => {
   };
 
   useEffect(() => {
-    if (isOpen) {
-      loadData();
-    }
+    loadData();
   }, [system.id, isOpen]);
 
-  const handleToggle = async (configId: string, isAssigned: boolean) => {
+  const handleToggle = async (
+    configId: string,
+    isCurrentlyAssigned: boolean
+  ) => {
+    // Optimistic Update
+    const previousAssignedIds = [...assignedIds];
+    if (isCurrentlyAssigned) {
+      setAssignedIds((prev) => prev.filter((id) => id !== configId));
+    } else {
+      setAssignedIds((prev) => [...prev, configId]);
+    }
+
     setUpdating(configId);
     try {
-      if (isAssigned) {
-        await api.disassociateSystem(system.id, configId);
-        setAssignedIds((prev) => prev.filter((id) => id !== configId));
-      } else {
-        await api.associateSystem(system.id, {
-          configurationId: configId,
-          enabled: true,
-        });
-        setAssignedIds((prev) => [...prev, configId]);
-      }
+      await (isCurrentlyAssigned
+        ? api.disassociateSystem(system.id, configId)
+        : api.associateSystem(system.id, {
+            configurationId: configId,
+            enabled: true,
+          }));
     } catch (error) {
       console.error("Failed to toggle assignment:", error);
+      // Rollback on error
+      setAssignedIds(previousAssignedIds);
     } finally {
       setUpdating(undefined);
     }
+  };
+
+  const renderContent = () => {
+    if (loading) {
+      return (
+        <div className="flex justify-center py-4">
+          <LoadingSpinner />
+        </div>
+      );
+    }
+
+    if (configs.length === 0) {
+      return (
+        <p className="text-[11px] text-gray-500 text-center py-2 italic">
+          No health checks configured.
+        </p>
+      );
+    }
+
+    return (
+      <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+        {configs.map((config) => {
+          const isAssigned = (assignedIds || []).includes(config.id);
+          const isUpdating = updating === config.id;
+
+          return (
+            <div
+              key={config.id}
+              className="flex items-center space-x-2 rounded-md p-1.5 transition-colors hover:bg-gray-50 cursor-pointer"
+              onClick={() => !updating && handleToggle(config.id, isAssigned)}
+            >
+              <Checkbox
+                id={`check-${config.id}`}
+                checked={isAssigned}
+                onCheckedChange={() => {}} // Handled by div click
+                disabled={!!updating}
+              />
+              <Label
+                htmlFor={`check-${config.id}`}
+                className="flex-1 cursor-pointer text-[12px] font-medium text-gray-700 truncate"
+                onClick={(e) => e.preventDefault()} // Let parent div handle it
+              >
+                {config.name}
+              </Label>
+              {isUpdating && <LoadingSpinner className="h-3 w-3" />}
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   return (
@@ -104,45 +161,7 @@ export const SystemHealthCheckAssignment: React.FC<unknown> = (props) => {
               </span>
             </div>
           </DropdownMenuLabel>
-          {loading ? (
-            <div className="flex justify-center py-4">
-              <LoadingSpinner />
-            </div>
-          ) : configs.length === 0 ? (
-            <p className="text-[11px] text-gray-500 text-center py-2 italic">
-              No health checks configured.
-            </p>
-          ) : (
-            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-              {configs.map((config) => {
-                const isAssigned = (assignedIds || []).includes(config.id);
-                const isUpdating = updating === config.id;
-
-                return (
-                  <div
-                    key={config.id}
-                    className="flex items-center space-x-2 rounded-md p-1.5 transition-colors hover:bg-gray-50"
-                  >
-                    <Checkbox
-                      id={`check-${config.id}`}
-                      checked={isAssigned}
-                      onCheckedChange={() =>
-                        handleToggle(config.id, isAssigned)
-                      }
-                      disabled={!!updating}
-                    />
-                    <Label
-                      htmlFor={`check-${config.id}`}
-                      className="flex-1 cursor-pointer text-[12px] font-medium text-gray-700 truncate"
-                    >
-                      {config.name}
-                    </Label>
-                    {isUpdating && <LoadingSpinner className="h-3 w-3" />}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          {renderContent()}
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
