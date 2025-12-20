@@ -4,7 +4,7 @@ import { coreServices } from "@checkmate/backend-api";
 import * as schema from "./schema";
 import { EntityService } from "./services/entity-service";
 import { OperationService } from "./services/operation-service";
-import { permissionList } from "./permissions";
+import { permissionList, permissions } from "@checkmate/catalog-common";
 
 import {
   insertGroupSchema,
@@ -35,7 +35,7 @@ export default createBackendPlugin({
         const operationService = new OperationService(database);
 
         // Entities
-        router.get("/entities", check("entity.read"), async (c) => {
+        router.get("/entities", check(permissions.entityRead.id), async (c) => {
           const systems = await entityService.getSystems();
           const groups = await entityService.getGroups();
           return c.json({ systems, groups });
@@ -43,7 +43,7 @@ export default createBackendPlugin({
 
         router.post(
           "/entities/systems",
-          check("entity.create"),
+          check(permissions.entityCreate.id),
           validate(insertSystemSchema),
           async (c) => {
             const body = await c.req.json();
@@ -54,7 +54,7 @@ export default createBackendPlugin({
 
         router.put(
           "/entities/systems/:id",
-          check("entity.update"),
+          check(permissions.entityUpdate.id),
           validate(insertSystemSchema.partial()),
           async (c) => {
             const id = c.req.param("id");
@@ -66,7 +66,7 @@ export default createBackendPlugin({
 
         router.delete(
           "/entities/systems/:id",
-          check("entity.delete"),
+          check(permissions.entityDelete.id),
           async (c) => {
             const id = c.req.param("id");
             await entityService.deleteSystem(id);
@@ -87,7 +87,7 @@ export default createBackendPlugin({
 
         router.put(
           "/entities/groups/:id",
-          check("entity.update"),
+          check(permissions.entityUpdate.id),
           validate(insertGroupSchema.partial()),
           async (c) => {
             const id = c.req.param("id");
@@ -99,7 +99,7 @@ export default createBackendPlugin({
 
         router.delete(
           "/entities/groups/:id",
-          check("entity.delete"),
+          check(permissions.entityDelete.id),
           async (c) => {
             const id = c.req.param("id");
             await entityService.deleteGroup(id);
@@ -109,7 +109,7 @@ export default createBackendPlugin({
 
         router.post(
           "/entities/groups/:id/systems",
-          check("entity.update"),
+          check(permissions.entityUpdate.id),
           async (c) => {
             const groupId = c.req.param("id");
             const body = await c.req.json();
@@ -123,7 +123,7 @@ export default createBackendPlugin({
 
         router.delete(
           "/entities/groups/:id/systems/:systemId",
-          check("entity.update"),
+          check(permissions.entityUpdate.id),
           async (c) => {
             const groupId = c.req.param("id");
             const systemId = c.req.param("systemId");
@@ -133,7 +133,7 @@ export default createBackendPlugin({
         );
 
         // Views
-        router.get("/views", check("entity.read"), async (c) => {
+        router.get("/views", check(permissions.entityRead.id), async (c) => {
           const views = await entityService.getViews();
           return c.json(views);
         });
@@ -150,14 +150,18 @@ export default createBackendPlugin({
         );
 
         // Incidents
-        router.get("/incidents", check("incident.manage"), async (c) => {
-          const incidents = await operationService.getIncidents();
-          return c.json(incidents);
-        });
+        router.get(
+          "/incidents",
+          check(permissions.incidentManage.id),
+          async (c) => {
+            const incidents = await operationService.getIncidents();
+            return c.json(incidents);
+          }
+        );
 
         router.post(
           "/incidents",
-          check("incident.manage"),
+          check(permissions.incidentManage.id),
           validate(insertIncidentSchema),
           async (c) => {
             const body = await c.req.json();

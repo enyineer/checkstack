@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useApi, permissionApiRef } from "@checkmate/frontend-api";
 import { catalogApiRef, System, Group } from "../api";
+import { permissions } from "@checkmate/catalog-common";
 import {
   SectionHeader,
   Card,
@@ -19,7 +20,7 @@ import { Plus, Trash2, LayoutGrid, Server, Settings } from "lucide-react";
 export const CatalogConfigPage = () => {
   const catalogApi = useApi(catalogApiRef);
   const permissionApi = useApi(permissionApiRef);
-  const canManage = permissionApi.usePermission("catalog.manage");
+  const canManage = permissionApi.usePermission(permissions.catalogManage.id);
 
   const [systems, setSystems] = useState<System[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);

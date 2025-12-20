@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@checkmate/backend-api": "workspace:*",
+    "@checkmate/catalog-common": "workspace:*",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.0.0",
     "zod": "^4.2.1"

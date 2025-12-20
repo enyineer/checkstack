@@ -145,6 +145,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@checkmate/backend-api": "workspace:*",
+        "@checkmate/catalog-common": "workspace:*",
         "drizzle-orm": "^0.45.1",
         "hono": "^4.0.0",
         "zod": "^4.2.1",
@@ -156,10 +157,21 @@
         "typescript": "^5.0.0",
       },
     },
+    "plugins/catalog-common": {
+      "name": "@checkmate/catalog-common",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate/backend-api": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.7.2",
+      },
+    },
     "plugins/catalog-frontend": {
       "name": "@checkmate/catalog-frontend-plugin",
       "version": "0.0.1",
       "dependencies": {
+        "@checkmate/catalog-common": "workspace:*",
         "@checkmate/frontend-api": "workspace:*",
         "@checkmate/ui": "workspace:*",
         "lucide-react": "^0.344.0",
@@ -258,6 +270,8 @@
     "@checkmate/backend-api": ["@checkmate/backend-api@workspace:packages/backend-api"],
 
     "@checkmate/catalog-backend-plugin": ["@checkmate/catalog-backend-plugin@workspace:plugins/catalog-backend"],
+
+    "@checkmate/catalog-common": ["@checkmate/catalog-common@workspace:plugins/catalog-common"],
 
     "@checkmate/catalog-frontend-plugin": ["@checkmate/catalog-frontend-plugin@workspace:plugins/catalog-frontend"],
 
