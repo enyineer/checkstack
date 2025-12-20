@@ -9,6 +9,8 @@ export interface HealthCheckResult {
 
 export interface HealthCheckStrategy<Config = unknown> {
   id: string;
+  displayName: string;
+  description?: string;
   configSchema: z.ZodType<Config>; // Validation schema for the strategy-specific config
   execute(config: Config): Promise<HealthCheckResult>;
 }

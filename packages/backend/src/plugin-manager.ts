@@ -32,6 +32,14 @@ interface PluginManifest {
   type: "backend" | "frontend" | "common";
 }
 
+interface PendingInit {
+  pluginId: string;
+  pluginPath: string;
+  deps: Record<string, ServiceRef<unknown>>;
+  init: (deps: Record<string, unknown>) => Promise<void>;
+  schema?: Record<string, unknown>;
+}
+
 export class PluginManager {
   private registry = new ServiceRegistry();
   private extensionPointProxies = new Map<string, unknown>();
@@ -259,7 +267,7 @@ export class PluginManager {
     return proxy;
   }
 
-  async loadPlugins(rootRouter: Hono) {
+  async loadPlugins(rootRouter: Hono, manualPlugins: BackendPlugin[] = []) {
     // Register Router Factory now that we have rootRouter
     this.registry.registerFactory(coreServices.httpRouter, (pluginId) => {
       const pluginRouter = new Hono();
@@ -271,7 +279,7 @@ export class PluginManager {
 
     // 1. Discover local plugins from monorepo
     const localPlugins: PluginManifest[] = [];
-    const pluginsDir = path.resolve(process.cwd(), "../../plugins");
+    const pluginsDir = path.join(__dirname, "..", "..", "..", "plugins");
 
     if (fs.existsSync(pluginsDir)) {
       const entries = fs.readdirSync(pluginsDir, { withFileTypes: true });
@@ -318,13 +326,7 @@ export class PluginManager {
     }
 
     // Phase 1: Load Modules & Register Services
-    const pendingInits: {
-      pluginId: string;
-      pluginPath: string;
-      deps: Record<string, ServiceRef<unknown>>;
-      init: (deps: Record<string, unknown>) => Promise<void>;
-      schema?: Record<string, unknown>;
-    }[] = [];
+    const pendingInits: PendingInit[] = [];
 
     const providedBy = new Map<string, string>(); // ServiceId -> PluginId
 
@@ -340,59 +342,20 @@ export class PluginManager {
         }
 
         const backendPlugin: BackendPlugin = pluginModule.default;
-
-        if (!backendPlugin || typeof backendPlugin.register !== "function") {
-          // Fallback for legacy plugins? Or just error.
-          // For now, assume migration.
-          rootLogger.warn(
-            `Plugin ${plugin.name} is not using new API. Skipping.`
-          );
-          continue;
-        }
-
-        // Execute Register
-        backendPlugin.register({
-          registerInit: <
-            D extends Deps,
-            S extends Record<string, unknown> | undefined = undefined
-          >(args: {
-            deps: D;
-            schema?: S;
-            init: (
-              deps: ResolvedDeps<D> &
-                (S extends undefined
-                  ? unknown
-                  : { database: NodePgDatabase<NonNullable<S>> })
-            ) => Promise<void>;
-          }) => {
-            pendingInits.push({
-              pluginId: backendPlugin.pluginId,
-              pluginPath: plugin.path, // Retained pluginPath
-              deps: args.deps,
-              init: args.init as (
-                deps: Record<string, unknown>
-              ) => Promise<void>,
-              schema: args.schema,
-            });
-          },
-          registerService: (ref: ServiceRef<unknown>, impl: unknown) => {
-            this.registry.register(ref, impl);
-            providedBy.set(ref.id, backendPlugin.pluginId);
-            rootLogger.debug(`   -> Registered service '${ref.id}'`);
-          },
-          registerExtensionPoint: (ref, impl) => {
-            this.registerExtensionPoint(ref, impl);
-          },
-          getExtensionPoint: (ref) => {
-            return this.getExtensionPoint(ref);
-          },
-          registerPermissions: (permissions: Permission[]) => {
-            this.registerPermissions(backendPlugin.pluginId, permissions);
-          },
-        });
+        this.registerPlugin(
+          backendPlugin,
+          plugin.path,
+          pendingInits,
+          providedBy
+        );
       } catch (error) {
         rootLogger.error(`Failed to load module for ${plugin.name}:`, error);
       }
+    }
+
+    // Phase 1.5: Register manual plugins
+    for (const backendPlugin of manualPlugins) {
+      this.registerPlugin(backendPlugin, "", pendingInits, providedBy);
     }
 
     // Phase 2: Initialize Plugins (Topological Sort)
@@ -477,6 +440,62 @@ export class PluginManager {
       }
     }
   }
+
+  private registerPlugin(
+    backendPlugin: BackendPlugin,
+    pluginPath: string,
+    pendingInits: PendingInit[],
+    providedBy: Map<string, string>
+  ) {
+    if (!backendPlugin || typeof backendPlugin.register !== "function") {
+      rootLogger.warn(
+        `Plugin ${
+          backendPlugin?.pluginId || "unknown"
+        } is not using new API. Skipping.`
+      );
+      return;
+    }
+
+    // Execute Register
+    backendPlugin.register({
+      registerInit: <
+        D extends Deps,
+        S extends Record<string, unknown> | undefined = undefined
+      >(args: {
+        deps: D;
+        schema?: S;
+        init: (
+          deps: ResolvedDeps<D> &
+            (S extends undefined
+              ? unknown
+              : { database: NodePgDatabase<NonNullable<S>> })
+        ) => Promise<void>;
+      }) => {
+        pendingInits.push({
+          pluginId: backendPlugin.pluginId,
+          pluginPath: pluginPath,
+          deps: args.deps,
+          init: args.init as (deps: Record<string, unknown>) => Promise<void>,
+          schema: args.schema,
+        });
+      },
+      registerService: (ref: ServiceRef<unknown>, impl: unknown) => {
+        this.registry.register(ref, impl);
+        providedBy.set(ref.id, backendPlugin.pluginId);
+        rootLogger.debug(`   -> Registered service '${ref.id}'`);
+      },
+      registerExtensionPoint: (ref, impl) => {
+        this.registerExtensionPoint(ref, impl);
+      },
+      getExtensionPoint: (ref) => {
+        return this.getExtensionPoint(ref);
+      },
+      registerPermissions: (permissions: Permission[]) => {
+        this.registerPermissions(backendPlugin.pluginId, permissions);
+      },
+    });
+  }
+
   async getService<T>(ref: ServiceRef<T>): Promise<T | undefined> {
     try {
       return await this.registry.get(ref, "core"); // Use 'core' as requester

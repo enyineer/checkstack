@@ -19,6 +19,8 @@ export class HttpHealthCheckStrategy
   implements HealthCheckStrategy<HttpHealthCheckConfig>
 {
   id = "http";
+  displayName = "HTTP Health Check";
+  description = "Checks a HTTP(S) endpoint for a specific status code";
 
   configSchema = httpHealthCheckConfigSchema;
 
