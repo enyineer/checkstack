@@ -23,23 +23,34 @@ import {
 const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);
 
+interface JsonSchemaProperty {
+  type?: string;
+  description?: string;
+  enum?: string[];
+  properties?: Record<string, JsonSchemaProperty>;
+  items?: JsonSchemaProperty;
+  required?: string[];
+  additionalProperties?: boolean | JsonSchemaProperty;
+  format?: string;
+  default?: unknown;
+}
+
+interface JsonSchema {
+  properties?: Record<string, JsonSchemaProperty>;
+  required?: string[];
+}
+
 interface DynamicFormProps {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  schema: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  value: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  onChange: (value: any) => void;
+  schema: JsonSchema;
+  value: Record<string, unknown>;
+  onChange: (value: Record<string, unknown>) => void;
 }
 
 const JsonField: React.FC<{
   id: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  value: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  propSchema: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  onChange: (val: any) => void;
+  value: Record<string, unknown>;
+  propSchema: JsonSchemaProperty;
+  onChange: (val: Record<string, unknown>) => void;
 }> = ({ id, value, propSchema, onChange }) => {
   const [internalValue, setInternalValue] = React.useState(
     JSON.stringify(value || {}, undefined, 2)
@@ -122,13 +133,10 @@ const JsonField: React.FC<{
 const FormField: React.FC<{
   id: string;
   label: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  propSchema: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  value: any;
+  propSchema: JsonSchemaProperty;
+  value: unknown;
   isRequired?: boolean;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  onChange: (val: any) => void;
+  onChange: (val: unknown) => void;
 }> = ({ id, label, propSchema, value, isRequired, onChange }) => {
   const description = propSchema.description || "";
 
@@ -145,7 +153,7 @@ const FormField: React.FC<{
         </div>
         <div className="relative">
           <Select
-            value={value || propSchema.default || ""}
+            value={(value as string) || (propSchema.default as string) || ""}
             onValueChange={(val) => onChange(val)}
           >
             <SelectTrigger id={id}>
@@ -182,10 +190,10 @@ const FormField: React.FC<{
           </div>
           <Textarea
             id={id}
-            value={value || ""}
+            value={(value as string) || ""}
             onChange={(e) => onChange(e.target.value)}
             placeholder={
-              propSchema.default ? `Default: ${propSchema.default}` : ""
+              propSchema.default ? `Default: ${String(propSchema.default)}` : ""
             }
             rows={5}
           />
@@ -203,10 +211,10 @@ const FormField: React.FC<{
         </div>
         <Input
           id={id}
-          value={value || ""}
+          value={(value as string) || ""}
           onChange={(e) => onChange(e.target.value)}
           placeholder={
-            propSchema.default ? `Default: ${propSchema.default}` : ""
+            propSchema.default ? `Default: ${String(propSchema.default)}` : ""
           }
         />
       </div>
@@ -227,7 +235,11 @@ const FormField: React.FC<{
         <Input
           id={id}
           type="number"
-          value={value === undefined ? propSchema.default || "" : value}
+          value={
+            value === undefined
+              ? (propSchema.default as number | string) || ""
+              : (value as number | string)
+          }
           onChange={(e) =>
             onChange(
               propSchema.type === "integer"
@@ -253,7 +265,7 @@ const FormField: React.FC<{
         </div>
         <JsonField
           id={id}
-          value={value}
+          value={value as Record<string, unknown>}
           propSchema={propSchema}
           onChange={(val) => onChange(val)}
         />
@@ -271,11 +283,12 @@ const FormField: React.FC<{
             key={key}
             id={`${id}.${key}`}
             label={key.charAt(0).toUpperCase() + key.slice(1)}
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            propSchema={subSchema as any}
-            value={value?.[key]}
+            propSchema={subSchema}
+            value={(value as Record<string, unknown>)?.[key]}
             isRequired={propSchema.required?.includes(key)}
-            onChange={(val) => onChange({ ...value, [key]: val })}
+            onChange={(val) =>
+              onChange({ ...(value as Record<string, unknown>), [key]: val })
+            }
           />
         ))}
       </div>
@@ -284,9 +297,11 @@ const FormField: React.FC<{
 
   // Array support
   if (propSchema.type === "array") {
-    const items = value || [];
+    const items = (value as unknown[]) || [];
     const itemSchema = propSchema.items;
     const cleanDesc = getCleanDescription(description);
+
+    if (!itemSchema) return <></>;
 
     return (
       <div className="space-y-4">
@@ -301,7 +316,9 @@ const FormField: React.FC<{
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => onChange([...items, {}])}
+            onClick={() =>
+              onChange([...(items as Record<string, unknown>[]), {}])
+            }
             className="h-8 gap-1 transition-all hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200"
           >
             <Plus className="h-4 w-4" />
@@ -322,7 +339,7 @@ const FormField: React.FC<{
                   variant="ghost"
                   size="icon"
                   onClick={() => {
-                    const next = [...items];
+                    const next = [...(items as unknown[])];
                     next.splice(index, 1);
                     onChange(next);
                   }}
@@ -336,7 +353,7 @@ const FormField: React.FC<{
                   propSchema={itemSchema}
                   value={item}
                   onChange={(val) => {
-                    const next = [...items];
+                    const next = [...(items as unknown[])];
                     next[index] = val;
                     onChange(next);
                   }}
@@ -368,25 +385,22 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
 
   return (
     <div className="space-y-6">
-      {Object.entries(schema.properties).map(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ([key, propSchema]: [string, any]) => {
-          const isRequired = schema.required?.includes(key);
-          const label = key.charAt(0).toUpperCase() + key.slice(1);
+      {Object.entries(schema.properties).map(([key, propSchema]) => {
+        const isRequired = schema.required?.includes(key);
+        const label = key.charAt(0).toUpperCase() + key.slice(1);
 
-          return (
-            <FormField
-              key={key}
-              id={key}
-              label={label}
-              propSchema={propSchema}
-              value={value[key]}
-              isRequired={isRequired}
-              onChange={(val) => onChange({ ...value, [key]: val })}
-            />
-          );
-        }
-      )}
+        return (
+          <FormField
+            key={key}
+            id={key}
+            label={label}
+            propSchema={propSchema}
+            value={value[key]}
+            isRequired={isRequired}
+            onChange={(val) => onChange({ ...value, [key]: val })}
+          />
+        );
+      })}
     </div>
   );
 };

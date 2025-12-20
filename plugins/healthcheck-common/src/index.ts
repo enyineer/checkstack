@@ -47,6 +47,14 @@ export interface HealthCheckConfiguration {
   config: Record<string, unknown>;
   intervalSeconds: number;
 }
+export interface HealthCheckRun {
+  id: string;
+  configurationId: string;
+  systemId: string;
+  status: "healthy" | "unhealthy" | "degraded";
+  result: Record<string, unknown>;
+  timestamp: string;
+}
 
 // --- API Request/Response Schemas (Zod) ---
 

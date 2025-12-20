@@ -6,6 +6,7 @@ export const selectSystemSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   owner: z.string().nullable(),
+  status: z.enum(["healthy", "degraded", "unhealthy"]),
   metadata: z.record(z.string(), z.unknown()).nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
@@ -15,6 +16,7 @@ export const insertSystemSchema = selectSystemSchema
   .extend({
     description: z.string().optional(),
     owner: z.string().optional(),
+    status: z.enum(["healthy", "degraded", "unhealthy"]).optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   });
 export type System = z.infer<typeof selectSystemSchema>;

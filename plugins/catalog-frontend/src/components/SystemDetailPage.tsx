@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useApi } from "@checkmate/frontend-api";
 import { catalogApiRef, System, Group } from "../api";
+import { ExtensionSlot } from "@checkmate/frontend-api";
+import { SLOT_SYSTEM_DETAILS } from "@checkmate/common";
 import {
   Card,
   CardHeader,
@@ -9,8 +11,8 @@ import {
   CardContent,
   LoadingSpinner,
   HealthBadge,
-  HealthStatus,
 } from "@checkmate/ui";
+
 import {
   ArrowLeft,
   Activity,
@@ -20,34 +22,7 @@ import {
   Calendar,
 } from "lucide-react";
 
-// Mock health status generator (same as Dashboard)
-const getHealthStatus = (systemId: string): HealthStatus => {
-  let hash = 0;
-  for (let i = 0; i < systemId.length; i++) {
-    hash = (hash << 5) - hash + (systemId.codePointAt(i) ?? 0);
-    hash = hash & hash;
-  }
-  const value = Math.abs(hash) % 10;
-
-  if (value < 7) return "healthy";
-  if (value < 9) return "degraded";
-  return "unhealthy";
-};
-
-// Mock metadata generator (same as Dashboard)
-const getMockMetadata = (systemId: string) => {
-  const hash = [...systemId].reduce(
-    (acc, char) => acc + (char.codePointAt(0) ?? 0),
-    0
-  );
-  const latency = 50 + (hash % 200);
-  const lastCheckMinutes = hash % 10;
-
-  return {
-    latency,
-    lastCheck: `${lastCheckMinutes}m ago`,
-  };
-};
+// Metadata can be extracted from system.metadata or last runs if needed
 
 export const SystemDetailPage: React.FC = () => {
   const { systemId } = useParams<{ systemId: string }>();
@@ -122,8 +97,11 @@ export const SystemDetailPage: React.FC = () => {
     );
   }
 
-  const healthStatus = getHealthStatus(system.id);
-  const mockMetadata = getMockMetadata(system.id);
+  // Placeholder for real metadata if we decide to fetch latest runs here
+  const metadata = {
+    latency: "N/A",
+    lastCheck: "N/A",
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -158,18 +136,18 @@ export const SystemDetailPage: React.FC = () => {
           <div className="flex items-center justify-between">
             <div className="space-y-1">
               <p className="text-sm text-gray-600">Current Status</p>
-              <HealthBadge status={healthStatus} />
+              <HealthBadge status={system.status} />
             </div>
             <div className="text-right space-y-1">
               <p className="text-sm text-gray-600">Response Time</p>
               <p className="text-2xl font-semibold text-gray-900">
-                {mockMetadata.latency}ms
+                {metadata.latency}
               </p>
             </div>
             <div className="text-right space-y-1">
               <p className="text-sm text-gray-600">Last Checked</p>
               <p className="text-base font-medium text-gray-700">
-                {mockMetadata.lastCheck}
+                {metadata.lastCheck}
               </p>
             </div>
           </div>
@@ -274,6 +252,12 @@ export const SystemDetailPage: React.FC = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* Extension Slot for System Details */}
+      <ExtensionSlot
+        id={SLOT_SYSTEM_DETAILS}
+        context={{ systemId: system.id }}
+      />
     </div>
   );
 };

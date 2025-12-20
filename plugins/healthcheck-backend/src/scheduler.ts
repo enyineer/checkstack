@@ -1,11 +1,16 @@
-import { HealthCheckRegistry, Logger } from "@checkmate/backend-api";
+import {
+  HealthCheckRegistry,
+  Logger,
+  Fetch,
+  TokenVerification,
+} from "@checkmate/backend-api";
 import {
   healthCheckConfigurations,
   systemHealthChecks,
   healthCheckRuns,
 } from "./schema";
 import * as schema from "./schema";
-import { eq } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 
 type Db = NodePgDatabase<typeof schema>;
@@ -17,7 +22,9 @@ export class Scheduler {
   constructor(
     private db: Db,
     private registry: HealthCheckRegistry,
-    private logger: Logger
+    private logger: Logger,
+    private fetch: Fetch,
+    private tokenVerification: TokenVerification
   ) {}
 
   start(intervalMs = 10_000) {
@@ -105,6 +112,9 @@ export class Scheduler {
       this.logger.debug(
         `Ran check ${check.configId} for system ${check.systemId}: ${result.status}`
       );
+
+      // Trigger status propagation
+      await this.propagateStatus(check.systemId);
     } catch (error) {
       this.logger.error(`Failed to execute check ${check.configId}`, error);
       await this.db.insert(healthCheckRuns).values({
@@ -113,6 +123,100 @@ export class Scheduler {
         status: "unhealthy",
         result: { error: String(error) },
       });
+
+      // Trigger status propagation even on failure
+      await this.propagateStatus(check.systemId);
     }
+  }
+
+  private async propagateStatus(systemId: string) {
+    try {
+      const aggregateStatus = await this.calculateAggregateStatus(systemId);
+
+      this.logger.info(
+        `Propagating status '${aggregateStatus}' for system ${systemId}`
+      );
+
+      const token = await this.tokenVerification.sign({
+        sub: "healthcheck-backend",
+        purpose: "status-propagation",
+      });
+
+      // Construct the URL to catalog-backend.
+      // In a real scenario, this might come from a discovery service or config.
+      // For now, we assume it's reachable at the core's API prefix.
+      const catalogUrl = `http://localhost:3000/api/catalog-backend/entities/systems/${systemId}`;
+
+      const response = await this.fetch.fetch(catalogUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status: aggregateStatus }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        this.logger.error(
+          `Failed to propagate status for system ${systemId}: ${response.status} ${text}`
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error propagating status for system ${systemId}`,
+        error
+      );
+    }
+  }
+
+  private async calculateAggregateStatus(systemId: string) {
+    // 1. Get all enabled checks for this system
+    const checks = await this.db
+      .select({ configId: systemHealthChecks.configurationId })
+      .from(systemHealthChecks)
+      .where(
+        and(
+          eq(systemHealthChecks.systemId, systemId),
+          eq(systemHealthChecks.enabled, true)
+        )
+      );
+
+    if (checks.length === 0) return "healthy";
+
+    const statuses: string[] = [];
+
+    // 2. Get the latest run for each check
+    for (const check of checks) {
+      const latestRun = await this.db
+        .select({ status: healthCheckRuns.status })
+        .from(healthCheckRuns)
+        .where(
+          and(
+            eq(healthCheckRuns.systemId, systemId),
+            eq(healthCheckRuns.configurationId, check.configId)
+          )
+        )
+        .orderBy(desc(healthCheckRuns.timestamp))
+        .limit(1);
+
+      if (latestRun.length > 0) {
+        statuses.push(latestRun[0].status);
+      } else {
+        // If it hasn't run yet, we don't know, but let's treat it as neutral/healthy for aggregation
+        // or should we treat it as unknown? Let's skip for now.
+      }
+    }
+
+    if (statuses.length === 0) return "healthy";
+
+    // Aggregation logic:
+    // - Any 'unhealthy' -> 'unhealthy'
+    // - Any 'degraded' -> 'degraded' (if no unhealthy)
+    // - All 'healthy' -> 'healthy'
+
+    if (statuses.includes("unhealthy")) return "unhealthy";
+    if (statuses.includes("degraded")) return "degraded";
+    return "healthy";
   }
 }

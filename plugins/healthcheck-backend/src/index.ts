@@ -25,6 +25,8 @@ export default createBackendPlugin({
         healthCheckRegistry: coreServices.healthCheckRegistry,
         router: coreServices.httpRouter,
         check: coreServices.permissionCheck,
+        fetch: coreServices.fetch,
+        tokenVerification: coreServices.tokenVerification,
       },
       init: async ({
         logger,
@@ -32,6 +34,8 @@ export default createBackendPlugin({
         healthCheckRegistry,
         router,
         check,
+        fetch,
+        tokenVerification,
       }) => {
         logger.info("🏥 Initializing Health Check Backend...");
 
@@ -41,7 +45,9 @@ export default createBackendPlugin({
         const scheduler = new Scheduler(
           database as unknown as NodePgDatabase<typeof schema>,
           healthCheckRegistry,
-          logger
+          logger,
+          fetch,
+          tokenVerification
         );
 
         scheduler.start();
@@ -148,6 +154,25 @@ export default createBackendPlugin({
             await service.disassociateSystem(systemId, configId);
             // eslint-disable-next-line unicorn/no-null
             return c.body(null, 204);
+          }
+        );
+
+        apiRouter.get(
+          "/history",
+          check(permissions.healthCheckRead.id),
+          async (c) => {
+            const systemId = c.req.query("systemId");
+            const configurationId = c.req.query("configurationId");
+            const limit = c.req.query("limit")
+              ? Number.parseInt(c.req.query("limit")!, 10)
+              : undefined;
+
+            const history = await service.getHistory({
+              systemId,
+              configurationId,
+              limit,
+            });
+            return c.json(history);
           }
         );
 

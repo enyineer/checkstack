@@ -39,8 +39,10 @@ export const HealthCheckEditor: React.FC<HealthCheckEditorProps> = ({
   const [interval, setInterval] = useState(
     initialData?.intervalSeconds?.toString() || "60"
   );
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [config, setConfig] = useState<any>(initialData?.config || {});
+  const [config, setConfig] = useState<Record<string, unknown>>(
+    (initialData?.config as Record<string, unknown>) || {}
+  );
+
   const [loading, setLoading] = useState(false);
 
   const selectedStrategy = strategies.find((s) => s.id === strategyId);

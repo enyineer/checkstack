@@ -1,10 +1,20 @@
 import { createApiRef, FetchApi } from "@checkmate/frontend-api";
-import {
+import type {
   HealthCheckConfiguration,
   CreateHealthCheckConfiguration,
   UpdateHealthCheckConfiguration,
   HealthCheckStrategyDto,
   AssociateHealthCheck,
+  HealthCheckRun,
+} from "@checkmate/healthcheck-common";
+
+export type {
+  HealthCheckConfiguration,
+  CreateHealthCheckConfiguration,
+  UpdateHealthCheckConfiguration,
+  HealthCheckStrategyDto,
+  AssociateHealthCheck,
+  HealthCheckRun,
 } from "@checkmate/healthcheck-common";
 
 export interface HealthCheckApi {
@@ -24,6 +34,11 @@ export interface HealthCheckApi {
   ): Promise<HealthCheckConfiguration[]>;
   associateSystem(systemId: string, data: AssociateHealthCheck): Promise<void>;
   disassociateSystem(systemId: string, configId: string): Promise<void>;
+  getHistory(params: {
+    systemId?: string;
+    configurationId?: string;
+    limit?: number;
+  }): Promise<HealthCheckRun[]>;
 }
 
 export const healthCheckApiRef =
@@ -107,5 +122,19 @@ export class HealthCheckClient implements HealthCheckApi {
     return this.fetch<void>(`/systems/${systemId}/checks/${configId}`, {
       method: "DELETE",
     });
+  }
+
+  async getHistory(params: {
+    systemId?: string;
+    configurationId?: string;
+    limit?: number;
+  }): Promise<HealthCheckRun[]> {
+    const query = new URLSearchParams();
+    if (params.systemId) query.append("systemId", params.systemId);
+    if (params.configurationId)
+      query.append("configurationId", params.configurationId);
+    if (params.limit) query.append("limit", params.limit.toString());
+
+    return this.fetch<HealthCheckRun[]>(`/history?${query.toString()}`);
   }
 }

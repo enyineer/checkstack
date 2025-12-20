@@ -3,9 +3,13 @@ import {
   CreateHealthCheckConfiguration,
   UpdateHealthCheckConfiguration,
 } from "@checkmate/healthcheck-common";
-import { healthCheckConfigurations, systemHealthChecks } from "./schema";
+import {
+  healthCheckConfigurations,
+  systemHealthChecks,
+  healthCheckRuns,
+} from "./schema";
 import * as schema from "./schema";
-import { eq, and, InferSelectModel } from "drizzle-orm";
+import { eq, and, InferSelectModel, desc } from "drizzle-orm";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 
 // Drizzle type helper
@@ -113,6 +117,28 @@ export class HealthCheckService {
       .where(eq(systemHealthChecks.systemId, systemId));
 
     return rows.map((r) => this.mapConfig(r.config));
+  }
+
+  async getHistory(props: {
+    systemId?: string;
+    configurationId?: string;
+    limit?: number;
+  }) {
+    const { systemId, configurationId, limit = 50 } = props;
+
+    let query = this.db.select().from(healthCheckRuns);
+
+    const conditions = [];
+    if (systemId) conditions.push(eq(healthCheckRuns.systemId, systemId));
+    if (configurationId)
+      conditions.push(eq(healthCheckRuns.configurationId, configurationId));
+
+    if (conditions.length > 0) {
+      // @ts-expect-error drizzle-orm type mismatch in where block with dynamic array
+      query = query.where(and(...conditions));
+    }
+
+    return query.orderBy(desc(healthCheckRuns.timestamp)).limit(limit);
   }
 
   private mapConfig(

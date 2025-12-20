@@ -5,7 +5,9 @@ export interface System {
   name: string;
   description?: string;
   owner?: string;
+  status: "healthy" | "degraded" | "unhealthy";
   metadata?: Record<string, unknown>;
+
   createdAt: string;
   updatedAt: string;
 }
