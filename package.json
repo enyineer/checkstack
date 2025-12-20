@@ -8,7 +8,9 @@
   "scripts": {
     "dev": "docker compose up -d && bun run --filter '@checkmate/backend' --filter '@checkmate/frontend' dev",
     "typecheck": "bun run --filter '*' typecheck",
-    "lint": "bun run eslint .",
+    "lint": "bun run lint:code && bun run lint:deps",
+    "lint:code": "bun run eslint .",
+    "lint:deps": "bun run scripts/validate-dependencies.ts",
     "bundle-vendor": "bun run scripts/bundle-vendor.ts",
     "docker:stop": "docker compose down"
   },
