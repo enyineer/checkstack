@@ -37,9 +37,12 @@ export default createBackendPlugin({
       addStrategy: (s) => strategies.push(s),
     });
 
-    const SECRET = new TextEncoder().encode(
-      process.env.JWT_SECRET || "default-secret-do-not-use-in-prod"
-    );
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      throw new Error("JWT_SECRET is not set");
+    }
+
+    const SECRET = new TextEncoder().encode(jwtSecret);
 
     // Helper: Verify Service Token
     const verifyServiceToken = async (
