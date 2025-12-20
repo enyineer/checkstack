@@ -5,6 +5,7 @@ export interface AuthUser {
   email: string;
   name?: string;
   image?: string;
+  permissions?: string[];
 }
 
 export interface AuthSession {

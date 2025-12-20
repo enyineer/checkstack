@@ -18,18 +18,12 @@ const RouteGuard: React.FC<{
   children: React.ReactNode;
   permission?: string;
 }> = ({ children, permission }) => {
-  if (!permission) return <>{children}</>;
+  const permissionApi = useApi(permissionApiRef);
+  const hasPermission = permissionApi.usePermission(permission || "");
+  const isAllowed = permission ? hasPermission : true;
 
-  try {
-    const permissionApi = useApi(permissionApiRef);
-    if (!permissionApi.hasPermission(permission)) {
-      return <PermissionDenied />;
-    }
-  } catch {
-    console.warn("PermissionApi unavailable in RouteGuard");
-    // Fail safe -> deny? or allow?
-    // Consistent with NavItem, if guarded but API missing, deny.
-    return <PermissionDenied message="Authorization service unavailable." />;
+  if (!isAllowed) {
+    return <PermissionDenied />;
   }
 
   return <>{children}</>;
@@ -41,7 +35,7 @@ function App() {
     const registryBuilder = new ApiRegistryBuilder()
       .register(loggerApiRef, new ConsoleLoggerApi())
       .register(permissionApiRef, {
-        hasPermission: () => true, // Default to allow all if no auth plugin present
+        usePermission: () => true, // Default to allow all if no auth plugin present
       })
       .registerFactory(fetchApiRef, (registry) => {
         return new CoreFetchApi({

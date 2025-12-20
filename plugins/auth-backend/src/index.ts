@@ -188,6 +188,28 @@ export default createBackendPlugin({
           basePath: "/api/auth-backend",
           baseURL: process.env.VITE_API_BASE_URL || "http://localhost:3000",
           trustedOrigins: [process.env.FRONTEND_URL || "http://localhost:5173"],
+          callbacks: {
+            session: {
+              after: async (session: {
+                user?: User;
+                session: {
+                  id: string;
+                  expiresAt: Date;
+                  token: string;
+                  ipAddress?: string | null;
+                  userAgent?: string | null;
+                  userId: string;
+                };
+              }) => {
+                if (!session.user) return session;
+                const enriched = await enrichUser(session.user);
+                return {
+                  ...session,
+                  user: enriched,
+                };
+              },
+            },
+          },
         });
 
         router.on(["POST", "GET"], "/**", (c) => {

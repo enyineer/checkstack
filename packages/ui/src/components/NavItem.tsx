@@ -24,28 +24,12 @@ export const NavItem: React.FC<NavItemProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Permission Check
-  let hasAccess = true;
-  try {
-    const permissionApi = useApi(permissionApiRef);
-    if (permission) {
-      hasAccess = permissionApi.hasPermission(permission);
-    }
-  } catch {
-    // Permission API might not be available yet or failed.
-    // Defaulting to visible or hidden?
-    // User said "anonymous" is allowed.
-    // If permission is strictly required and API is missing, maybe default to safe (hide)?
-    // Or if permission is explicitly "anonymous" allow.
-    // Assuming if permission prop is present, we need the API. If not present, public.
-    if (permission) {
-      console.warn(
-        "PermissionApi unavailable, blocking guarded NavItem:",
-        label
-      );
-      hasAccess = false;
-    }
-  }
+  // Always call hooks at top level
+  // We assume permissionApi is available if we use it. Safe fallback?
+  // ApiProvider guarantees it if registered. App.tsx registers a default.
+  const permissionApi = useApi(permissionApiRef);
+  const hasPermission = permissionApi.usePermission(permission || "");
+  const hasAccess = permission ? hasPermission : true;
 
   // Handle click outside for dropdown
   useEffect(() => {

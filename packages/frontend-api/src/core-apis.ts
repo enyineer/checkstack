@@ -18,7 +18,7 @@ export const loggerApiRef = createApiRef<LoggerApi>("core.logger");
 export const fetchApiRef = createApiRef<FetchApi>("core.fetch");
 
 export interface PermissionApi {
-  hasPermission(permission: string): boolean;
+  usePermission(permission: string): boolean;
 }
 
 export const permissionApiRef = createApiRef<PermissionApi>("core.permission");

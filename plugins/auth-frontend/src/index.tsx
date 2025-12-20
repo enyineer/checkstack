@@ -1,7 +1,23 @@
-import { FrontendPlugin, ApiRef } from "@checkmate/frontend-api";
+import {
+  FrontendPlugin,
+  ApiRef,
+  permissionApiRef,
+  PermissionApi,
+} from "@checkmate/frontend-api";
 import { LoginPage, LoginNavbarAction } from "./components/LoginPage";
 import { authApiRef, AuthApi, AuthSession } from "./api";
 import { authClient } from "./lib/auth-client";
+
+class AuthPermissionApi implements PermissionApi {
+  usePermission(permission: string): boolean {
+    const session = authClient.useSession().data as AuthSession | undefined;
+    // If no user, or user has no permissions, return false
+    if (!session?.user?.permissions) {
+      return false;
+    }
+    return session.user.permissions.includes(permission);
+  }
+}
 
 class BetterAuthApi implements AuthApi {
   async signIn(email: string, password: string) {
@@ -66,6 +82,10 @@ export const authPlugin: FrontendPlugin = {
     {
       ref: authApiRef as ApiRef<unknown>,
       factory: () => new BetterAuthApi(),
+    },
+    {
+      ref: permissionApiRef as ApiRef<unknown>,
+      factory: () => new AuthPermissionApi(),
     },
   ],
   routes: [
