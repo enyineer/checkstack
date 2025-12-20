@@ -1,0 +1,1 @@
+ALTER TABLE "systems" ADD COLUMN "status" text DEFAULT 'healthy' NOT NULL;

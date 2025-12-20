@@ -15,6 +15,13 @@
       "when": 1766236973668,
       "tag": "0001_loud_the_hood",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1766256842911,
+      "tag": "0002_short_naoko",
+      "breakpoints": true
     }
   ]
 }
