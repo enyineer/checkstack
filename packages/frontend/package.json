@@ -19,6 +19,7 @@
     "class-variance-authority": "^0.7.0",
     "lucide-react": "^0.344.0",
     "@checkmate/frontend-api": "workspace:*",
+    "@checkmate/ui": "workspace:*",
     "@checkmate/auth-frontend-plugin": "workspace:*",
     "@checkmate/catalog-frontend-plugin": "workspace:*",
     "better-auth": "^1.1.8"

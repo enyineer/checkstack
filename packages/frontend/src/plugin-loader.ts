@@ -61,7 +61,22 @@ export async function loadPlugins() {
       if (!registeredNames.has(plugin.name)) {
         console.log(`🔌 Attempting to load remote plugin: ${plugin.name}`);
         try {
-          // We assume the entry point is at the backend's static assets endpoint
+          // 1. Load CSS if it exists
+          const remoteCssUrl = `/assets/plugins/${plugin.name}/index.css`;
+          try {
+            const cssCheck = await fetch(remoteCssUrl, { method: "HEAD" });
+            if (cssCheck.ok) {
+              console.log(`🎨 Loading remote styles for: ${plugin.name}`);
+              const link = document.createElement("link");
+              link.rel = "stylesheet";
+              link.href = remoteCssUrl;
+              document.head.append(link);
+            }
+          } catch (error) {
+            console.debug(`No separate CSS found for ${plugin.name}`, error);
+          }
+
+          // 2. Load JS entry point
           const remoteUrl = `/assets/plugins/${plugin.name}/index.js`;
           const mod = await import(/* @vite-ignore */ remoteUrl);
 
