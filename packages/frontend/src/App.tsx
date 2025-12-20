@@ -6,6 +6,7 @@ import {
   ApiProvider,
   ApiRegistryBuilder,
   loggerApiRef,
+  permissionApiRef,
   fetchApiRef,
 } from "@checkmate/frontend-api";
 import { ConsoleLoggerApi } from "./apis/logger-api";
@@ -16,6 +17,9 @@ function App() {
     // Initialize API Registry with core apiRefs
     const registryBuilder = new ApiRegistryBuilder()
       .register(loggerApiRef, new ConsoleLoggerApi())
+      .register(permissionApiRef, {
+        hasPermission: () => true, // Default to allow all if no auth plugin present
+      })
       .registerFactory(fetchApiRef, (registry) => {
         return new CoreFetchApi({
           get: <T,>(ref: { id: string }) => registry.get(ref.id) as T,
@@ -45,8 +49,13 @@ function App() {
     <ApiProvider registry={apiRegistry}>
       <BrowserRouter>
         <div className="min-h-screen bg-gray-50 text-gray-900 font-sans">
-          <header className="p-4 bg-white shadow-sm border-b border-gray-200 flex justify-between items-center">
-            <h1 className="text-xl font-bold text-indigo-600">Checkmate</h1>
+          <header className="p-4 bg-white shadow-sm border-b border-gray-200 flex justify-between items-center z-50 relative">
+            <div className="flex items-center gap-8">
+              <h1 className="text-xl font-bold text-indigo-600">Checkmate</h1>
+              <nav className="hidden md:flex gap-1">
+                <ExtensionSlot id="core.layout.navbar.main" />
+              </nav>
+            </div>
             <div className="flex gap-2">
               <ExtensionSlot id="core.layout.navbar" />
             </div>
