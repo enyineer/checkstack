@@ -25,6 +25,10 @@ export const permissions = {
     id: "maintenance.manage",
     description: "Manage Maintenances",
   },
+  catalogManage: {
+    id: "catalog.manage",
+    description: "Full management of Catalog (Systems, Groups, Views)",
+  },
 } satisfies Record<string, Permission>;
 
 export const permissionList = Object.values(permissions);

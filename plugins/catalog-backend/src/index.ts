@@ -52,6 +52,28 @@ export default createBackendPlugin({
           }
         );
 
+        router.put(
+          "/entities/systems/:id",
+          check("entity.update"),
+          validate(insertSystemSchema.partial()),
+          async (c) => {
+            const id = c.req.param("id");
+            const body = await c.req.json();
+            const system = await entityService.updateSystem(id, body);
+            return c.json(system);
+          }
+        );
+
+        router.delete(
+          "/entities/systems/:id",
+          check("entity.delete"),
+          async (c) => {
+            const id = c.req.param("id");
+            await entityService.deleteSystem(id);
+            return c.json({ success: true });
+          }
+        );
+
         router.post(
           "/entities/groups",
           check("entity.create"),
@@ -60,6 +82,28 @@ export default createBackendPlugin({
             const body = await c.req.json();
             const group = await entityService.createGroup(body);
             return c.json(group);
+          }
+        );
+
+        router.put(
+          "/entities/groups/:id",
+          check("entity.update"),
+          validate(insertGroupSchema.partial()),
+          async (c) => {
+            const id = c.req.param("id");
+            const body = await c.req.json();
+            const group = await entityService.updateGroup(id, body);
+            return c.json(group);
+          }
+        );
+
+        router.delete(
+          "/entities/groups/:id",
+          check("entity.delete"),
+          async (c) => {
+            const id = c.req.param("id");
+            await entityService.deleteGroup(id);
+            return c.json({ success: true });
           }
         );
 

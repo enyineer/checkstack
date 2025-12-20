@@ -31,6 +31,19 @@ export class EntityService {
     return result[0];
   }
 
+  async updateSystem(id: string, data: Partial<NewSystem>) {
+    const result = await this.database
+      .update(schema.systems)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(schema.systems.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteSystem(id: string) {
+    await this.database.delete(schema.systems).where(eq(schema.systems.id, id));
+  }
+
   // Groups
   async getGroups() {
     return this.database.select().from(schema.groups);
@@ -42,6 +55,19 @@ export class EntityService {
       .values(data)
       .returning();
     return result[0];
+  }
+
+  async updateGroup(id: string, data: Partial<NewGroup>) {
+    const result = await this.database
+      .update(schema.groups)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(schema.groups.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteGroup(id: string) {
+    await this.database.delete(schema.groups).where(eq(schema.groups.id, id));
   }
 
   // Views

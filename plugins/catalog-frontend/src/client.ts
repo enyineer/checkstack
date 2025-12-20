@@ -28,6 +28,20 @@ export class CatalogClient implements CatalogApi {
     });
   }
 
+  async updateSystem(id: string, system: Partial<System>): Promise<System> {
+    return this.fetch<System>(`/entities/systems/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(system),
+    });
+  }
+
+  async deleteSystem(id: string): Promise<void> {
+    await this.fetch(`/entities/systems/${id}`, {
+      method: "DELETE",
+    });
+  }
+
   async getGroups(): Promise<Group[]> {
     const data = await this.fetch<{ groups: Group[] }>("/entities");
     // Backend returns { systems, groups } on /entities GET.
@@ -40,6 +54,20 @@ export class CatalogClient implements CatalogApi {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(group),
+    });
+  }
+
+  async updateGroup(id: string, group: Partial<Group>): Promise<Group> {
+    return this.fetch<Group>(`/entities/groups/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(group),
+    });
+  }
+
+  async deleteGroup(id: string): Promise<void> {
+    await this.fetch(`/entities/groups/${id}`, {
+      method: "DELETE",
     });
   }
 

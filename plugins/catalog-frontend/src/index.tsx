@@ -4,6 +4,8 @@ import { catalogApiRef } from "./api";
 import { FrontendPlugin } from "@checkmate/frontend-api";
 
 import { CatalogPage } from "./components/CatalogPage";
+import { CatalogConfigPage } from "./components/CatalogConfigPage";
+import { CatalogUserMenuItems } from "./components/UserMenuItems";
 
 export const catalogPlugin: FrontendPlugin = {
   name: "catalog-frontend",
@@ -20,6 +22,18 @@ export const catalogPlugin: FrontendPlugin = {
     {
       path: "/catalog",
       element: <CatalogPage />,
+    },
+    {
+      path: "/catalog/config",
+      element: <CatalogConfigPage />,
+      permission: "catalog.manage",
+    },
+  ],
+  extensions: [
+    {
+      id: "catalog.user-menu.items",
+      slotId: "core.layout.navbar.user-menu.items",
+      component: CatalogUserMenuItems,
     },
   ],
 };

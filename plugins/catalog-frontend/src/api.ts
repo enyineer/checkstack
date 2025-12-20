@@ -43,9 +43,13 @@ export interface Incident {
 export interface CatalogApi {
   getSystems(): Promise<System[]>;
   createSystem(system: Partial<System>): Promise<System>;
+  updateSystem(id: string, system: Partial<System>): Promise<System>;
+  deleteSystem(id: string): Promise<void>;
 
   getGroups(): Promise<Group[]>;
   createGroup(group: Partial<Group>): Promise<Group>;
+  updateGroup(id: string, group: Partial<Group>): Promise<Group>;
+  deleteGroup(id: string): Promise<void>;
 
   getViews(): Promise<View[]>;
   createView(view: Partial<View>): Promise<View>;
