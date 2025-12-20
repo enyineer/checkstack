@@ -131,6 +131,90 @@ export class PluginManager {
     });
   }
 
+  registerExtensionPoint<T>(ref: ExtensionPoint<T>, impl: T) {
+    const proxy = this.getExtensionPointProxy(ref);
+    (proxy as Record<string, (...args: unknown[]) => unknown>)[
+      "$$setImplementation"
+    ](impl);
+    rootLogger.info(`   -> Registered extension point '${ref.id}'`);
+  }
+
+  getExtensionPoint<T>(ref: ExtensionPoint<T>): T {
+    return this.getExtensionPointProxy(ref);
+  }
+
+  registerPermissions(pluginId: string, permissions: Permission[]) {
+    const prefixed = permissions.map((p) => ({
+      ...p,
+      id: `${pluginId}.${p.id}`,
+    }));
+    rootLogger.info(
+      `   -> Registered ${prefixed.length} permissions for ${pluginId}`
+    );
+    // TODO: Store these in a database or central registry
+  }
+
+  public sortPlugins(
+    pendingInits: {
+      pluginId: string;
+      deps: Record<string, ServiceRef<unknown>>;
+    }[],
+    providedBy: Map<string, string>
+  ): string[] {
+    rootLogger.debug("🔄 Calculating initialization order...");
+
+    const inDegree = new Map<string, number>();
+    const graph = new Map<string, string[]>();
+
+    for (const p of pendingInits) {
+      inDegree.set(p.pluginId, 0);
+      graph.set(p.pluginId, []);
+    }
+
+    for (const p of pendingInits) {
+      const consumerId = p.pluginId;
+      for (const [, ref] of Object.entries(p.deps)) {
+        const serviceId = ref.id;
+        const providerId = providedBy.get(serviceId);
+
+        if (providerId && providerId !== consumerId) {
+          if (!graph.has(providerId)) {
+            graph.set(providerId, []);
+          }
+          graph.get(providerId)!.push(consumerId);
+          inDegree.set(consumerId, (inDegree.get(consumerId) || 0) + 1);
+        }
+      }
+    }
+
+    const queue: string[] = [];
+    for (const [id, count] of inDegree.entries()) {
+      if (count === 0) {
+        queue.push(id);
+      }
+    }
+
+    const sortedIds: string[] = [];
+    while (queue.length > 0) {
+      const u = queue.shift()!;
+      sortedIds.push(u);
+
+      const dependents = graph.get(u) || [];
+      for (const v of dependents) {
+        inDegree.set(v, inDegree.get(v)! - 1);
+        if (inDegree.get(v) === 0) {
+          queue.push(v);
+        }
+      }
+    }
+
+    if (sortedIds.length !== pendingInits.length) {
+      throw new Error("Circular dependency detected");
+    }
+
+    return sortedIds;
+  }
+
   private getExtensionPointProxy<T>(ref: ExtensionPoint<T>): T {
     let proxy = this.extensionPointProxies.get(ref.id) as T | undefined;
     if (!proxy) {
@@ -297,24 +381,13 @@ export class PluginManager {
             rootLogger.debug(`   -> Registered service '${ref.id}'`);
           },
           registerExtensionPoint: (ref, impl) => {
-            const proxy = this.getExtensionPointProxy(ref);
-            (proxy as Record<string, (...args: unknown[]) => unknown>)[
-              "$$setImplementation"
-            ](impl);
-            rootLogger.info(`   -> Registered extension point '${ref.id}'`);
+            this.registerExtensionPoint(ref, impl);
           },
           getExtensionPoint: (ref) => {
-            return this.getExtensionPointProxy(ref);
+            return this.getExtensionPoint(ref);
           },
           registerPermissions: (permissions: Permission[]) => {
-            const prefixed = permissions.map((p) => ({
-              ...p,
-              id: `${backendPlugin.pluginId}.${p.id}`,
-            }));
-            rootLogger.info(
-              `   -> Registered ${prefixed.length} permissions for ${backendPlugin.pluginId}`
-            );
-            // TODO: Store these in a database or central registry
+            this.registerPermissions(backendPlugin.pluginId, permissions);
           },
         });
       } catch (error) {
@@ -323,66 +396,7 @@ export class PluginManager {
     }
 
     // Phase 2: Initialize Plugins (Topological Sort)
-    rootLogger.debug("🔄 Calculating initialization order...");
-
-    const inDegree = new Map<string, number>();
-    const graph = new Map<string, string[]>(); // Dependency -> Dependents
-
-    // Initialize graph nodes
-    for (const p of pendingInits) {
-      inDegree.set(p.pluginId, 0);
-      graph.set(p.pluginId, []);
-    }
-
-    // Build Graph
-    for (const p of pendingInits) {
-      const consumerId = p.pluginId;
-      for (const [, ref] of Object.entries(p.deps)) {
-        const serviceId = (ref as ServiceRef<unknown>).id;
-        const providerId = providedBy.get(serviceId);
-
-        // If the service is provided by another plugin (and not the consumer itself)
-        if (providerId && providerId !== consumerId) {
-          // Edge: Provider -> Consumer
-          if (!graph.has(providerId)) {
-            graph.set(providerId, []);
-          }
-          graph.get(providerId)!.push(consumerId);
-          inDegree.set(consumerId, (inDegree.get(consumerId) || 0) + 1);
-        }
-      }
-    }
-
-    // Sort using Kahn's Algorithm
-    const queue: string[] = [];
-    for (const [id, count] of inDegree.entries()) {
-      if (count === 0) {
-        queue.push(id);
-      }
-    }
-
-    const sortedIds: string[] = [];
-    while (queue.length > 0) {
-      const u = queue.shift()!;
-      sortedIds.push(u);
-
-      const dependents = graph.get(u) || [];
-      for (const v of dependents) {
-        inDegree.set(v, inDegree.get(v)! - 1);
-        if (inDegree.get(v) === 0) {
-          queue.push(v);
-        }
-      }
-    }
-
-    if (sortedIds.length !== pendingInits.length) {
-      rootLogger.error(
-        "❌ Circular dependency detected or failed to sort plugins."
-      );
-      // For now, fail hard to prevent partial startup state
-      throw new Error("Circular dependency detected");
-    }
-
+    const sortedIds = this.sortPlugins(pendingInits, providedBy);
     rootLogger.info(`✅ Initialization Order: ${sortedIds.join(" -> ")}`);
 
     for (const id of sortedIds) {
