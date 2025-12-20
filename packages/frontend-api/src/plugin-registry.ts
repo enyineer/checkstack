@@ -1,4 +1,4 @@
-import { FrontendPlugin, Extension } from "@checkmate/frontend-api";
+import { FrontendPlugin, Extension } from "./plugin";
 
 class PluginRegistry {
   private plugins: FrontendPlugin[] = [];
@@ -28,6 +28,11 @@ class PluginRegistry {
 
   getAllRoutes() {
     return this.plugins.flatMap((p) => p.routes || []);
+  }
+
+  reset() {
+    this.plugins = [];
+    this.extensions.clear();
   }
 }
 

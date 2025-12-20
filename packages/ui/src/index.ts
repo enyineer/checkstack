@@ -8,4 +8,6 @@ export * from "./components/SectionHeader";
 export * from "./components/StatusCard";
 export * from "./components/EmptyState";
 export * from "./components/LoadingSpinner";
+export * from "./components/DropdownMenu";
+export * from "./components/UserMenu";
 export * from "./utils";

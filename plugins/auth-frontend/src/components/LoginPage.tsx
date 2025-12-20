@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { LogIn, LogOut } from "lucide-react";
-import { useApi } from "@checkmate/frontend-api";
+import { useApi, ExtensionSlot } from "@checkmate/frontend-api";
 import { authApiRef } from "../api";
 import {
   Button,
@@ -13,9 +13,12 @@ import {
   CardDescription,
   CardContent,
   CardFooter,
+  UserMenu,
+  DropdownMenuItem,
 } from "@checkmate/ui";
 
 export const LoginPage = () => {
+  // ... existing implementation remains the same
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -29,7 +32,6 @@ export const LoginPage = () => {
       const { error } = await authApi.signIn(email, password);
       if (error) {
         console.error("Login failed:", error);
-        // TODO: Show toast notification
       } else {
         navigate("/");
       }
@@ -91,30 +93,38 @@ export const LoginPage = () => {
   );
 };
 
+export const LogoutMenuItem = () => {
+  const authApi = useApi(authApiRef);
+
+  return (
+    <DropdownMenuItem
+      onClick={() => authApi.signOut()}
+      icon={<LogOut className="h-4 w-4" />}
+    >
+      Logout
+    </DropdownMenuItem>
+  );
+};
+
 export const LoginNavbarAction = () => {
   const authApi = useApi(authApiRef);
   const { data: session, isPending } = authApi.useSession();
 
   if (isPending) {
-    return <div className="w-20 h-9 bg-gray-100 animate-pulse rounded-md" />;
+    return <div className="w-20 h-9 bg-gray-100 animate-pulse rounded-full" />;
   }
 
-  if (session) {
+  if (session?.user) {
     return (
-      <Button
-        variant="ghost"
-        className="flex items-center text-gray-600"
-        onClick={() => authApi.signOut()}
-      >
-        <LogOut className="mr-2 h-4 w-4" />
-        Logout ({session.user?.email})
-      </Button>
+      <UserMenu user={session.user}>
+        <ExtensionSlot id="core.layout.navbar.user-menu.items" />
+      </UserMenu>
     );
   }
 
   return (
     <Link to="/auth/login">
-      <Button variant="outline" className="flex items-center">
+      <Button variant="outline" className="flex items-center rounded-full px-5">
         <LogIn className="mr-2 h-4 w-4" />
         Login
       </Button>

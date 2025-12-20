@@ -4,7 +4,11 @@ import {
   permissionApiRef,
   PermissionApi,
 } from "@checkmate/frontend-api";
-import { LoginPage, LoginNavbarAction } from "./components/LoginPage";
+import {
+  LoginPage,
+  LoginNavbarAction,
+  LogoutMenuItem,
+} from "./components/LoginPage";
 import { authApiRef, AuthApi, AuthSession } from "./api";
 import { authClient } from "./lib/auth-client";
 
@@ -99,6 +103,11 @@ export const authPlugin: FrontendPlugin = {
       id: "auth.navbar.action",
       slotId: "core.layout.navbar",
       component: LoginNavbarAction,
+    },
+    {
+      id: "auth.user-menu.logout",
+      slotId: "core.layout.navbar.user-menu.items",
+      component: LogoutMenuItem,
     },
   ],
 };

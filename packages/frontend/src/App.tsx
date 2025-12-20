@@ -1,7 +1,5 @@
 import { useMemo } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { ExtensionSlot } from "./components/ExtensionSlot";
-import { pluginRegistry } from "./plugin-registry";
 import {
   ApiProvider,
   ApiRegistryBuilder,
@@ -9,6 +7,8 @@ import {
   permissionApiRef,
   fetchApiRef,
   useApi,
+  ExtensionSlot,
+  pluginRegistry,
 } from "@checkmate/frontend-api";
 import { ConsoleLoggerApi } from "./apis/logger-api";
 import { CoreFetchApi } from "./apis/fetch-api";

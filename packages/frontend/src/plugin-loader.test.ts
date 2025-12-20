@@ -1,9 +1,9 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { loadPlugins } from "./plugin-loader";
-import { pluginRegistry } from "./plugin-registry";
+import { pluginRegistry } from "@checkmate/frontend-api";
 
 // Mock pluginRegistry
-mock.module("./plugin-registry", () => ({
+mock.module("@checkmate/frontend-api", () => ({
   pluginRegistry: {
     register: mock(),
   },
@@ -15,16 +15,16 @@ const mockFetch = mock((url: string) => {
     return Promise.resolve({
       ok: true,
       json: () => Promise.resolve([{ name: "remote-plugin", path: "/dist" }]),
-    } as any);
+    } as unknown as Response);
   }
   // Mock HEAD request for CSS
   if (url.endsWith(".css")) {
-    return Promise.resolve({ ok: true } as any);
+    return Promise.resolve({ ok: true } as unknown as Response);
   }
-  return Promise.resolve({ ok: false } as any);
+  return Promise.resolve({ ok: false } as unknown as Response);
 });
 
-global.fetch = mockFetch as any;
+(global as any).fetch = mockFetch;
 
 // Mock document
 global.document = {
@@ -32,10 +32,11 @@ global.document = {
   head: {
     append: mock(),
   },
-} as any;
+} as unknown as Document;
 
 describe("frontend loadPlugins", () => {
   beforeEach(() => {
+    mock.restore(); // Optional but good practice if needed, though we use mock.module
     (pluginRegistry.register as any).mockClear();
     mockFetch.mockClear();
   });

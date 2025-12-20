@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "bun:test";
-import { pluginRegistry } from "./plugin-registry";
+import { pluginRegistry } from "@checkmate/frontend-api";
 import { FrontendPlugin } from "@checkmate/frontend-api";
 import React from "react";
 
@@ -10,8 +10,7 @@ describe("PluginRegistry", () => {
     // or just accept that it's additive if we don't want to refactor.
     // Let's refactor the registry to be a class we can instantiate for testing.
     // For now, I'll just check if I can clear it.
-    (pluginRegistry as any).plugins = [];
-    (pluginRegistry as any).extensions = new Map();
+    pluginRegistry.reset();
   });
 
   const mockPlugin: FrontendPlugin = {

@@ -1,5 +1,4 @@
-import { FrontendPlugin } from "@checkmate/frontend-api";
-import { pluginRegistry } from "./plugin-registry";
+import { FrontendPlugin, pluginRegistry } from "@checkmate/frontend-api";
 
 export async function loadPlugins(
   overrideModules?: Record<string, () => Promise<unknown>>
