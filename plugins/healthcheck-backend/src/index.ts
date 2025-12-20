@@ -8,20 +8,31 @@ import {
   CreateHealthCheckConfigurationSchema,
   UpdateHealthCheckConfigurationSchema,
   AssociateHealthCheckSchema,
+  permissionList,
+  permissions,
 } from "@checkmate/healthcheck-common";
 import { zValidator } from "@hono/zod-validator";
 
 export default createBackendPlugin({
   pluginId: "healthcheck-backend",
   register(env) {
+    env.registerPermissions(permissionList);
+
     env.registerInit({
       deps: {
         logger: coreServices.logger,
         database: coreServices.database,
         healthCheckRegistry: coreServices.healthCheckRegistry,
         router: coreServices.httpRouter,
+        check: coreServices.permissionCheck,
       },
-      init: async ({ logger, database, healthCheckRegistry, router }) => {
+      init: async ({
+        logger,
+        database,
+        healthCheckRegistry,
+        router,
+        check,
+      }) => {
         logger.info("🏥 Initializing Health Check Backend...");
 
         const service = new HealthCheckService(
@@ -38,27 +49,33 @@ export default createBackendPlugin({
         const apiRouter = new Hono();
 
         // Strategies
-        apiRouter.get("/strategies", (c) => {
-          const strategies = healthCheckRegistry.getStrategies().map((s) => ({
-            id: s.id,
-            displayName: s.displayName,
-            description: s.description,
-            // We need to convert Zod schema to JSON schema if we want frontend to render it automatically
-            // For now, assuming frontend has a way or just sending raw for custom handling?
-            // Usually we'd use 'zod-to-json-schema' here.
-            configSchema: {}, // TODO: Implement Zod to JSON Schema conversion
-          }));
-          return c.json(strategies);
-        });
+        apiRouter.get(
+          "/strategies",
+          check(permissions.healthCheckRead.id),
+          (c) => {
+            const strategies = healthCheckRegistry.getStrategies().map((s) => ({
+              id: s.id,
+              displayName: s.displayName,
+              description: s.description,
+              configSchema: {}, // TODO: Implement Zod to JSON Schema conversion
+            }));
+            return c.json(strategies);
+          }
+        );
 
         // Configurations CRUD
-        apiRouter.get("/configurations", async (c) => {
-          const configs = await service.getConfigurations();
-          return c.json(configs);
-        });
+        apiRouter.get(
+          "/configurations",
+          check(permissions.healthCheckRead.id),
+          async (c) => {
+            const configs = await service.getConfigurations();
+            return c.json(configs);
+          }
+        );
 
         apiRouter.post(
           "/configurations",
+          check(permissions.healthCheckCreate.id),
           zValidator("json", CreateHealthCheckConfigurationSchema),
           async (c) => {
             const data = c.req.valid("json");
@@ -69,6 +86,7 @@ export default createBackendPlugin({
 
         apiRouter.put(
           "/configurations/:id",
+          check(permissions.healthCheckUpdate.id),
           zValidator("json", UpdateHealthCheckConfigurationSchema),
           async (c) => {
             const id = c.req.param("id");
@@ -79,22 +97,31 @@ export default createBackendPlugin({
           }
         );
 
-        apiRouter.delete("/configurations/:id", async (c) => {
-          const id = c.req.param("id");
-          await service.deleteConfiguration(id);
-          // eslint-disable-next-line unicorn/no-null
-          return c.body(null, 204);
-        });
+        apiRouter.delete(
+          "/configurations/:id",
+          check(permissions.healthCheckDelete.id),
+          async (c) => {
+            const id = c.req.param("id");
+            await service.deleteConfiguration(id);
+            // eslint-disable-next-line unicorn/no-null
+            return c.body(null, 204);
+          }
+        );
 
         // System Associations
-        apiRouter.get("/systems/:systemId/checks", async (c) => {
-          const systemId = c.req.param("systemId");
-          const configs = await service.getSystemConfigurations(systemId);
-          return c.json(configs);
-        });
+        apiRouter.get(
+          "/systems/:systemId/checks",
+          check(permissions.healthCheckRead.id),
+          async (c) => {
+            const systemId = c.req.param("systemId");
+            const configs = await service.getSystemConfigurations(systemId);
+            return c.json(configs);
+          }
+        );
 
         apiRouter.post(
           "/systems/:systemId/checks",
+          check(permissions.healthCheckUpdate.id), // Managing associations is like updating configuration
           zValidator("json", AssociateHealthCheckSchema),
           async (c) => {
             const systemId = c.req.param("systemId");
@@ -105,13 +132,17 @@ export default createBackendPlugin({
           }
         );
 
-        apiRouter.delete("/systems/:systemId/checks/:configId", async (c) => {
-          const systemId = c.req.param("systemId");
-          const configId = c.req.param("configId");
-          await service.disassociateSystem(systemId, configId);
-          // eslint-disable-next-line unicorn/no-null
-          return c.body(null, 204);
-        });
+        apiRouter.delete(
+          "/systems/:systemId/checks/:configId",
+          check(permissions.healthCheckUpdate.id),
+          async (c) => {
+            const systemId = c.req.param("systemId");
+            const configId = c.req.param("configId");
+            await service.disassociateSystem(systemId, configId);
+            // eslint-disable-next-line unicorn/no-null
+            return c.body(null, 204);
+          }
+        );
 
         router.route("/healthcheck", apiRouter);
       },

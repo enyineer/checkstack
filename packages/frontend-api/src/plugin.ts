@@ -7,7 +7,7 @@ export interface Extension<T = unknown> {
   component: React.ComponentType<T>;
 }
 
-interface FrontendPlugin {
+export interface FrontendPlugin {
   name: string;
   extensions?: Extension[];
   apis?: {

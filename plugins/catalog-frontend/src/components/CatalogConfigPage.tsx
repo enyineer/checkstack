@@ -70,10 +70,6 @@ export const CatalogConfigPage = () => {
     loadData();
   }, []);
 
-  if (!canManage) {
-    return <PermissionDenied />;
-  }
-
   const handleCreateSystem = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSystemName) return;
@@ -201,6 +197,10 @@ export const CatalogConfigPage = () => {
       throw error;
     }
   };
+
+  if (!canManage) {
+    return <PermissionDenied />;
+  }
 
   if (loading) return <LoadingSpinner />;
 

@@ -1,4 +1,28 @@
 import { z } from "zod";
+import type { Permission } from "@checkmate/common";
+
+// --- Permissions ---
+
+export const permissions = {
+  healthCheckRead: {
+    id: "healthcheck.read",
+    description: "Read Health Check Configurations and Status",
+  },
+  healthCheckCreate: {
+    id: "healthcheck.create",
+    description: "Create Health Check Configurations",
+  },
+  healthCheckUpdate: {
+    id: "healthcheck.update",
+    description: "Update Health Check Configurations",
+  },
+  healthCheckDelete: {
+    id: "healthcheck.delete",
+    description: "Delete Health Check Configurations",
+  },
+} satisfies Record<string, Permission>;
+
+export const permissionList = Object.values(permissions);
 
 // --- DTOs for API Responses ---
 

@@ -1,18 +1,32 @@
 import React, { useEffect, useState } from "react";
-import { useApi, wrapInSuspense } from "@checkmate/frontend-api";
+import {
+  useApi,
+  wrapInSuspense,
+  permissionApiRef,
+} from "@checkmate/frontend-api";
 import { healthCheckApiRef } from "../api";
 import {
   HealthCheckConfiguration,
   HealthCheckStrategyDto,
   CreateHealthCheckConfiguration,
+  permissions,
 } from "@checkmate/healthcheck-common";
 import { HealthCheckList } from "../components/HealthCheckList";
 import { HealthCheckEditor } from "../components/HealthCheckEditor";
-import { Button, Page, PageHeader, PageContent } from "@checkmate/ui";
+import {
+  Button,
+  Page,
+  PageHeader,
+  PageContent,
+  PermissionDenied,
+} from "@checkmate/ui";
 import { Plus } from "lucide-react";
 
 const HealthCheckConfigPageContent = () => {
   const api = useApi(healthCheckApiRef);
+  const permissionApi = useApi(permissionApiRef);
+  const canRead = permissionApi.usePermission(permissions.healthCheckRead.id);
+
   const [configurations, setConfigurations] = useState<
     HealthCheckConfiguration[]
   >([]);
@@ -59,6 +73,10 @@ const HealthCheckConfigPageContent = () => {
     setIsEditing(false);
     await fetchData();
   };
+
+  if (!canRead) {
+    return <PermissionDenied />;
+  }
 
   return (
     <Page>
