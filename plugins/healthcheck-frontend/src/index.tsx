@@ -1,8 +1,4 @@
-import {
-  createFrontendPlugin,
-  discoveryApiRef,
-  DiscoveryApi,
-} from "@checkmate/frontend-api";
+import { createFrontendPlugin, fetchApiRef } from "@checkmate/frontend-api";
 import { healthCheckApiRef, HealthCheckClient } from "./api";
 import { HealthCheckConfigPage } from "./pages/HealthCheckConfigPage";
 import { HealthCheckMenuItems } from "./components/HealthCheckMenuItems";
@@ -23,8 +19,8 @@ export default createFrontendPlugin({
     {
       ref: healthCheckApiRef,
       factory: (deps) => {
-        const discoveryApi = deps.get(discoveryApiRef) as DiscoveryApi;
-        return new HealthCheckClient(discoveryApi);
+        const fetchApi = deps.get(fetchApiRef);
+        return new HealthCheckClient(fetchApi);
       },
     },
   ],

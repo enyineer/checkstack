@@ -1,4 +1,4 @@
-import { createApiRef, DiscoveryApi } from "@checkmate/frontend-api";
+import { createApiRef, FetchApi } from "@checkmate/frontend-api";
 import {
   HealthCheckConfiguration,
   CreateHealthCheckConfiguration,
@@ -30,11 +30,12 @@ export const healthCheckApiRef =
   createApiRef<HealthCheckApi>("healthcheck-api");
 
 export class HealthCheckClient implements HealthCheckApi {
-  constructor(private discoveryApi: DiscoveryApi) {}
+  constructor(private fetchApi: FetchApi) {}
 
   private async fetch<T>(path: string, init?: RequestInit): Promise<T> {
-    const baseUrl = await this.discoveryApi.getBaseUrl("healthcheck-backend");
-    const res = await fetch(`${baseUrl}${path}`, init);
+    const res = await this.fetchApi
+      .forPlugin("healthcheck-backend")
+      .fetch(path, init);
 
     if (!res.ok) {
       throw new Error(`Request failed with status ${res.status}`);

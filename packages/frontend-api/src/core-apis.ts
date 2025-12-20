@@ -22,9 +22,3 @@ export interface PermissionApi {
 }
 
 export const permissionApiRef = createApiRef<PermissionApi>("core.permission");
-
-export interface DiscoveryApi {
-  getBaseUrl(pluginId: string): Promise<string>;
-}
-
-export const discoveryApiRef = createApiRef<DiscoveryApi>("core.discovery");
