@@ -1,7 +1,9 @@
 import { FrontendPlugin } from "@checkmate/frontend-api";
 import { pluginRegistry } from "./plugin-registry";
 
-export async function loadPlugins() {
+export async function loadPlugins(
+  overrideModules?: Record<string, () => Promise<unknown>>
+) {
   console.log("🔌 discovering plugins...");
 
   // 1. Fetch enabled plugins from backend
@@ -17,10 +19,10 @@ export async function loadPlugins() {
     // 2. Glob all available local plugins
     // We expect plugins to be in ../../plugins/*/src/index.tsx
     // The key will be the relative path
-    // @ts-expect-error - Vite specific property
-    const modules = import.meta.glob(
-      "../../../plugins/*-frontend/src/index.tsx"
-    );
+    const modules =
+      overrideModules ||
+      // @ts-expect-error - Vite specific property
+      import.meta.glob("../../../plugins/*-frontend/src/index.tsx");
 
     console.log(
       `🔌 Found ${

@@ -4,13 +4,20 @@ import { promisify } from "node:util";
 import path from "node:path";
 import fs from "node:fs";
 
-const execAsync = promisify(exec);
-
 export class PluginLocalInstaller implements PluginInstaller {
   private runtimeDir: string;
+  private execAsync: (
+    command: string
+  ) => Promise<{ stdout: string; stderr: string }>;
 
-  constructor(runtimeDir: string) {
+  constructor(
+    runtimeDir: string,
+    customExec?: (
+      command: string
+    ) => Promise<{ stdout: string; stderr: string }>
+  ) {
     this.runtimeDir = path.resolve(runtimeDir);
+    this.execAsync = customExec || promisify(exec);
     if (!fs.existsSync(this.runtimeDir)) {
       fs.mkdirSync(this.runtimeDir, { recursive: true });
     }
@@ -24,7 +31,7 @@ export class PluginLocalInstaller implements PluginInstaller {
 
       // We use npm install --prefix to avoid messing with the global bun lockfile
       // and to have a self-contained node_modules in the runtime directory.
-      await execAsync(
+      await this.execAsync(
         `npm install ${packageName} --prefix ${this.runtimeDir} --no-save`
       );
 

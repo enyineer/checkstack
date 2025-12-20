@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, beforeEach } from "bun:test";
+import { describe, it, expect, mock, beforeEach, spyOn } from "bun:test";
 import { PluginManager } from "./plugin-manager";
 import {
   createServiceRef,
@@ -11,8 +11,22 @@ mock.module("./db", () => ({
   adminPool: { query: mock(() => Promise.resolve()) },
   db: {
     select: mock(() => ({
-      from: mock(() => ({ where: mock(() => Promise.resolve([])) })),
+      from: mock(() => ({
+        where: mock(() => Promise.resolve([])),
+      })),
     })),
+  },
+}));
+
+const mockReaddirSync = mock(() => []);
+const mockExistsSync = mock(() => true);
+
+mock.module("node:fs", () => ({
+  existsSync: mockExistsSync,
+  readdirSync: mockReaddirSync,
+  default: {
+    existsSync: mockExistsSync,
+    readdirSync: mockReaddirSync,
   },
 }));
 
@@ -157,6 +171,62 @@ describe("PluginManager", () => {
       expect(() => pluginManager.sortPlugins(pendingInits, providedBy)).toThrow(
         "Circular dependency detected"
       );
+    });
+  });
+
+  describe("loadPlugins", () => {
+    it("should discover and initialize plugins", async () => {
+      const mockRouter: any = { route: mock() };
+
+      // Setup discovery mocks
+      mockExistsSync.mockReturnValue(true);
+      mockReaddirSync.mockReturnValue([
+        { isDirectory: () => true, name: "test-backend" },
+      ] as any);
+
+      // Mock DB to return one remote plugin
+      const mockDbPlugins = [
+        {
+          name: "remote-plugin",
+          path: "/path/to/remote",
+          enabled: true,
+          type: "backend",
+        },
+      ];
+
+      const { db } = await import("./db");
+      (db.select as any).mockReturnValue({
+        from: mock(() => ({
+          where: mock(() => Promise.resolve(mockDbPlugins)),
+        })),
+      });
+
+      // Mock dynamic imports
+      const testBackendInit = mock(async () => {});
+      const remotePluginInit = mock(async () => {});
+
+      mock.module("test-backend", () => ({
+        default: {
+          pluginId: "test-backend",
+          register: ({ registerInit }: any) => {
+            registerInit({ deps: {}, init: testBackendInit });
+          },
+        },
+      }));
+
+      mock.module("/path/to/remote", () => ({
+        default: {
+          pluginId: "remote-plugin",
+          register: ({ registerInit }: any) => {
+            registerInit({ deps: {}, init: remotePluginInit });
+          },
+        },
+      }));
+
+      await pluginManager.loadPlugins(mockRouter);
+
+      expect(testBackendInit).toHaveBeenCalled();
+      expect(remotePluginInit).toHaveBeenCalled();
     });
   });
 });
