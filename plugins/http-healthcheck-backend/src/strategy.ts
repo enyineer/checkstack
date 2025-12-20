@@ -12,13 +12,35 @@ export const httpHealthCheckAssertionSchema = z.object({
 });
 
 export const httpHealthCheckConfigSchema = z.object({
-  url: z.string().url(),
-  method: z.enum(["GET", "POST", "PUT", "DELETE", "HEAD"]).default("GET"),
-  headers: z.record(z.string(), z.string()).optional(),
-  timeout: z.number().min(100).default(5000), // ms
-  expectedStatus: z.number().int().default(200),
-  body: z.string().optional(),
-  assertions: z.array(httpHealthCheckAssertionSchema).optional(),
+  url: z.string().url().describe("The full URL of the endpoint to check."),
+  method: z
+    .enum(["GET", "POST", "PUT", "DELETE", "HEAD"])
+    .default("GET")
+    .describe("The HTTP method to use for the request."),
+  headers: z
+    .record(z.string(), z.string())
+    .optional()
+    .describe("Custom HTTP headers to send with the request (JSON object)."),
+  timeout: z
+    .number()
+    .min(100)
+    .default(5000)
+    .describe("Maximum time in milliseconds to wait for a response."),
+  expectedStatus: z
+    .number()
+    .int()
+    .default(200)
+    .describe("The HTTP status code that indicates a healthy service."),
+  body: z
+    .string()
+    .optional()
+    .describe(
+      "Optional request payload body (e.g. JSON for POST requests). [textarea]"
+    ),
+  assertions: z
+    .array(httpHealthCheckAssertionSchema)
+    .optional()
+    .describe("A list of rules to validate the response body content."),
 });
 
 export type HttpHealthCheckConfig = z.infer<typeof httpHealthCheckConfigSchema>;

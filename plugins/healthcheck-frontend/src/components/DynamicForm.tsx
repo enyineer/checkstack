@@ -16,6 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
   Button,
+  Textarea,
+  Tooltip,
 } from "@checkmate/ui";
 
 const ajv = new Ajv({ allErrors: true, strict: false });
@@ -132,11 +134,15 @@ const FormField: React.FC<{
 
   // Enum handling
   if (propSchema.enum) {
+    const cleanDesc = getCleanDescription(description);
     return (
       <div className="space-y-2">
-        <Label htmlFor={id}>
-          {label} {isRequired && "*"}
-        </Label>
+        <div className="flex items-center gap-1.5">
+          <Label htmlFor={id}>
+            {label} {isRequired && "*"}
+          </Label>
+          {cleanDesc && <Tooltip content={cleanDesc} />}
+        </div>
         <div className="relative">
           <Select
             value={value || propSchema.default || ""}
@@ -154,20 +160,47 @@ const FormField: React.FC<{
             </SelectContent>
           </Select>
         </div>
-        {description && (
-          <p className="text-xs text-muted-foreground">{description}</p>
-        )}
       </div>
     );
   }
 
   // String
   if (propSchema.type === "string") {
+    const isTextarea =
+      propSchema.format === "textarea" ||
+      propSchema.description?.includes("[textarea]");
+    const cleanDesc = getCleanDescription(description);
+
+    if (isTextarea) {
+      return (
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor={id}>
+              {label} {isRequired && "*"}
+            </Label>
+            {cleanDesc && <Tooltip content={cleanDesc} />}
+          </div>
+          <Textarea
+            id={id}
+            value={value || ""}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={
+              propSchema.default ? `Default: ${propSchema.default}` : ""
+            }
+            rows={5}
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-2">
-        <Label htmlFor={id}>
-          {label} {isRequired && "*"}
-        </Label>
+        <div className="flex items-center gap-1.5">
+          <Label htmlFor={id}>
+            {label} {isRequired && "*"}
+          </Label>
+          {cleanDesc && <Tooltip content={cleanDesc} />}
+        </div>
         <Input
           id={id}
           value={value || ""}
@@ -176,20 +209,21 @@ const FormField: React.FC<{
             propSchema.default ? `Default: ${propSchema.default}` : ""
           }
         />
-        {description && (
-          <p className="text-xs text-muted-foreground">{description}</p>
-        )}
       </div>
     );
   }
 
   // Number
   if (propSchema.type === "number" || propSchema.type === "integer") {
+    const cleanDesc = getCleanDescription(description);
     return (
       <div className="space-y-2">
-        <Label htmlFor={id}>
-          {label} {isRequired && "*"}
-        </Label>
+        <div className="flex items-center gap-1.5">
+          <Label htmlFor={id}>
+            {label} {isRequired && "*"}
+          </Label>
+          {cleanDesc && <Tooltip content={cleanDesc} />}
+        </div>
         <Input
           id={id}
           type="number"
@@ -202,29 +236,27 @@ const FormField: React.FC<{
             )
           }
         />
-        {description && (
-          <p className="text-xs text-muted-foreground">{description}</p>
-        )}
       </div>
     );
   }
 
   // Dictionary/Record (headers)
   if (propSchema.type === "object" && propSchema.additionalProperties) {
+    const cleanDesc = getCleanDescription(description);
     return (
       <div className="space-y-2">
-        <Label htmlFor={id}>
-          {label} (JSON) {isRequired && "*"}
-        </Label>
+        <div className="flex items-center gap-1.5">
+          <Label htmlFor={id}>
+            {label} (JSON) {isRequired && "*"}
+          </Label>
+          {cleanDesc && <Tooltip content={cleanDesc} />}
+        </div>
         <JsonField
           id={id}
           value={value}
           propSchema={propSchema}
           onChange={(val) => onChange(val)}
         />
-        {description && (
-          <p className="text-xs text-muted-foreground">{description}</p>
-        )}
       </div>
     );
   }
@@ -254,13 +286,17 @@ const FormField: React.FC<{
   if (propSchema.type === "array") {
     const items = value || [];
     const itemSchema = propSchema.items;
+    const cleanDesc = getCleanDescription(description);
 
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <Label>
-            {label} {isRequired && "*"}
-          </Label>
+          <div className="flex items-center gap-1.5">
+            <Label>
+              {label} {isRequired && "*"}
+            </Label>
+            {cleanDesc && <Tooltip content={cleanDesc} />}
+          </div>
           <Button
             type="button"
             variant="outline"
@@ -309,14 +345,18 @@ const FormField: React.FC<{
             </div>
           ))}
         </div>
-        {description && (
-          <p className="text-xs text-muted-foreground">{description}</p>
-        )}
       </div>
     );
   }
 
   return <></>;
+};
+
+const getCleanDescription = (description?: string) => {
+  if (!description || description === "textarea") return;
+  const cleaned = description.replace("[textarea]", "").trim();
+  if (!cleaned) return;
+  return cleaned;
 };
 
 export const DynamicForm: React.FC<DynamicFormProps> = ({
