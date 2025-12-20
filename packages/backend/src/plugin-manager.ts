@@ -131,6 +131,11 @@ export class PluginManager {
       };
     });
 
+    // Register Token Verification Factory
+    this.registry.registerFactory(coreServices.tokenVerification, () => {
+      return jwtService;
+    });
+
     // Register Health Check Registry (Global Singleton)
     const healthCheckRegistry = new CoreHealthCheckRegistry();
     this.registry.registerFactory(

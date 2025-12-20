@@ -44,6 +44,18 @@ export interface PluginInstaller {
   install(packageName: string): Promise<{ name: string; path: string }>;
 }
 
+export interface TokenVerification {
+  /**
+   * Verified a token and returns the payload.
+   * Returns undefined if invalid.
+   */
+  verify(token: string): Promise<Record<string, unknown> | undefined>;
+  /**
+   * Signs a payload for service-to-service communication.
+   */
+  sign(payload: Record<string, unknown>): Promise<string>;
+}
+
 export const coreServices = {
   database:
     createServiceRef<NodePgDatabase<Record<string, never>>>("core.database"),
@@ -59,4 +71,7 @@ export const coreServices = {
     import("./health-check").HealthCheckRegistry
   >("core.healthCheckRegistry"),
   pluginInstaller: createServiceRef<PluginInstaller>("core.pluginInstaller"),
+  tokenVerification: createServiceRef<TokenVerification>(
+    "core.tokenVerification"
+  ),
 };

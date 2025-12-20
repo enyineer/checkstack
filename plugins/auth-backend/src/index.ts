@@ -7,7 +7,6 @@ import * as schema from "./schema";
 import { eq } from "drizzle-orm";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { User } from "better-auth/types";
-import { jwtVerify } from "jose";
 import { hashPassword } from "better-auth/crypto";
 import { createExtensionPoint } from "@checkmate/backend-api";
 
@@ -30,19 +29,15 @@ export default createBackendPlugin({
   register(env) {
     let auth: ReturnType<typeof betterAuth> | undefined;
     let db: NodePgDatabase<typeof schema> | undefined;
+    let tokenVerification:
+      | import("@checkmate/backend-api").TokenVerification
+      | undefined;
 
     const strategies: BetterAuthStrategy[] = [];
 
     env.registerExtensionPoint(betterAuthExtensionPoint, {
       addStrategy: (s) => strategies.push(s),
     });
-
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) {
-      throw new Error("JWT_SECRET is not set");
-    }
-
-    const SECRET = new TextEncoder().encode(jwtSecret);
 
     // Helper: Verify Service Token
     const verifyServiceToken = async (
@@ -55,12 +50,16 @@ export default createBackendPlugin({
         }
       | undefined
     > => {
+      if (!tokenVerification) return undefined;
+
       const authHeader = headers.get("Authorization");
       if (!authHeader?.startsWith("Bearer ")) return undefined;
 
       const token = authHeader.split(" ")[1];
       try {
-        const { payload } = await jwtVerify(token, SECRET);
+        const payload = await tokenVerification.verify(token);
+        if (!payload) return undefined;
+
         // It's a valid service token
         return {
           id: (payload.sub as string) || "service",
@@ -165,11 +164,13 @@ export default createBackendPlugin({
         database: coreServices.database,
         router: coreServices.httpRouter,
         logger: coreServices.logger,
+        tokenVerification: coreServices.tokenVerification,
       },
-      init: async ({ database, router, logger }) => {
+      init: async ({ database, router, logger, tokenVerification: tv }) => {
         logger.info("Initializing Auth Backend...");
 
         db = database;
+        tokenVerification = tv;
 
         const socialProviders: Record<string, unknown> = {};
         for (const s of strategies) {

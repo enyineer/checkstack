@@ -45,6 +45,12 @@ app.get("/api/plugins", async (c) => {
   return c.json(enabledPlugins);
 });
 
+app.get("/.well-known/jwks.json", async (c) => {
+  const { keyStore } = await import("./services/keystore");
+  const jwks = await keyStore.getPublicJWKS();
+  return c.json(jwks);
+});
+
 const init = async () => {
   rootLogger.info("🚀 Starting Checkmate Core...");
 
