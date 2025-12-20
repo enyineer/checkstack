@@ -12,7 +12,7 @@
     "@checkmate/catalog-backend-plugin": "workspace:*",
     "@checkmate/healthcheck-common": "workspace:*",
     "@hono/zod-validator": "^0.7.6",
-    "drizzle-orm": "^0.30.2",
+    "drizzle-orm": "^0.45.1",
     "hono": "^4.0.0",
     "zod": "^3.22.4"
   },
