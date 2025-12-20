@@ -12,17 +12,17 @@ import {
 import { authApiRef, AuthApi, AuthSession } from "./api";
 import { authClient } from "./lib/auth-client";
 
+import { usePermissions } from "./hooks/usePermissions";
+
 class AuthPermissionApi implements PermissionApi {
   usePermission(permission: string): boolean {
-    const session = authClient.useSession().data as AuthSession | undefined;
+    const permissions = usePermissions();
+
     // If no user, or user has no permissions, return false
-    if (!session?.user?.permissions) {
+    if (!permissions || permissions.length === 0) {
       return false;
     }
-    return (
-      session.user.permissions.includes("*") ||
-      session.user.permissions.includes(permission)
-    );
+    return permissions.includes("*") || permissions.includes(permission);
   }
 }
 
