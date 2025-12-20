@@ -34,7 +34,7 @@ export class HealthCheckClient implements HealthCheckApi {
 
   private async fetch<T>(path: string, init?: RequestInit): Promise<T> {
     const baseUrl = await this.discoveryApi.getBaseUrl("healthcheck-backend");
-    const res = await fetch(`${baseUrl}/api/healthcheck${path}`, init);
+    const res = await fetch(`${baseUrl}${path}`, init);
 
     if (!res.ok) {
       throw new Error(`Request failed with status ${res.status}`);

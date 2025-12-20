@@ -1,4 +1,3 @@
-import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
 import { Hono } from "hono";
 import { HealthCheckService } from "./service";
 import { Scheduler } from "./scheduler";
@@ -12,7 +11,7 @@ import {
   permissions,
 } from "@checkmate/healthcheck-common";
 import { zValidator } from "@hono/zod-validator";
-import { z } from "zod";
+import { createBackendPlugin, coreServices, z } from "@checkmate/backend-api";
 
 export default createBackendPlugin({
   pluginId: "healthcheck-backend",
@@ -54,13 +53,20 @@ export default createBackendPlugin({
           "/strategies",
           check(permissions.healthCheckRead.id),
           (c) => {
-            const strategies = healthCheckRegistry.getStrategies().map((s) => ({
-              id: s.id,
-              displayName: s.displayName,
-              description: s.description,
-              configSchema: z.toJSONSchema(s.configSchema),
-            }));
-            return c.json(strategies);
+            try {
+              const strategies = healthCheckRegistry
+                .getStrategies()
+                .map((s) => ({
+                  id: s.id,
+                  displayName: s.displayName,
+                  description: s.description,
+                  configSchema: z.toJSONSchema(s.configSchema),
+                }));
+              return c.json(strategies);
+            } catch (error) {
+              console.error("Error fetching strategies:", error);
+              return c.json({ error: String(error) }, 500);
+            }
           }
         );
 
@@ -145,7 +151,7 @@ export default createBackendPlugin({
           }
         );
 
-        router.route("/healthcheck", apiRouter);
+        router.route("/", apiRouter);
       },
     });
   },
