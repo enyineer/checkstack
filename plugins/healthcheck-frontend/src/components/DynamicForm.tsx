@@ -376,11 +376,47 @@ const getCleanDescription = (description?: string) => {
   return cleaned;
 };
 
+/**
+ * Extracts default values from a JSON schema recursively.
+ */
+const extractDefaults = (schema: JsonSchema): Record<string, unknown> => {
+  const defaults: Record<string, unknown> = {};
+
+  if (!schema.properties) return defaults;
+
+  for (const [key, propSchema] of Object.entries(schema.properties)) {
+    if (propSchema.default !== undefined) {
+      defaults[key] = propSchema.default;
+    } else if (propSchema.type === "object" && propSchema.properties) {
+      // Recursively extract defaults for nested objects
+      defaults[key] = extractDefaults(propSchema as JsonSchema);
+    } else if (propSchema.type === "array") {
+      // Arrays default to empty array
+      defaults[key] = [];
+    }
+  }
+
+  return defaults;
+};
+
 export const DynamicForm: React.FC<DynamicFormProps> = ({
   schema,
   value,
   onChange,
 }) => {
+  // Initialize form with default values from schema
+  React.useEffect(() => {
+    if (!schema || !schema.properties) return;
+
+    const defaults = extractDefaults(schema);
+    const merged = { ...defaults, ...value };
+
+    // Only update if there are new defaults to apply
+    if (JSON.stringify(merged) !== JSON.stringify(value)) {
+      onChange(merged);
+    }
+  }, [schema]); // Only run when schema changes
+
   if (!schema || !schema.properties) return <></>;
 
   return (

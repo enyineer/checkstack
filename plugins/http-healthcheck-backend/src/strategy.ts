@@ -55,27 +55,30 @@ export class HttpHealthCheckStrategy
   configSchema = httpHealthCheckConfigSchema;
 
   async execute(config: HttpHealthCheckConfig): Promise<HealthCheckResult> {
+    // Validate and apply defaults from schema
+    const validatedConfig = this.configSchema.parse(config);
+
     const start = performance.now();
     try {
-      const response = await fetch(config.url, {
-        method: config.method,
-        headers: config.headers,
-        body: config.body,
-        signal: AbortSignal.timeout(config.timeout),
+      const response = await fetch(validatedConfig.url, {
+        method: validatedConfig.method,
+        headers: validatedConfig.headers,
+        body: validatedConfig.body,
+        signal: AbortSignal.timeout(validatedConfig.timeout),
       });
       const end = performance.now();
       const latency = Math.round(end - start);
 
-      if (response.status !== config.expectedStatus) {
+      if (response.status !== validatedConfig.expectedStatus) {
         return {
           status: "unhealthy",
           latency,
-          message: `Unexpected status code: ${response.status}. Expected: ${config.expectedStatus}`,
+          message: `Unexpected status code: ${response.status}. Expected: ${validatedConfig.expectedStatus}`,
           metadata: { statusCode: response.status },
         };
       }
 
-      if (config.assertions && config.assertions.length > 0) {
+      if (validatedConfig.assertions && validatedConfig.assertions.length > 0) {
         let responseData: unknown;
         const contentType = response.headers.get("content-type") || "";
 
@@ -107,7 +110,7 @@ export class HttpHealthCheckStrategy
           };
         }
 
-        for (const assertion of config.assertions) {
+        for (const assertion of validatedConfig.assertions) {
           const results = JSONPath({
             path: assertion.path,
             json: responseData as object,
@@ -159,8 +162,8 @@ export class HttpHealthCheckStrategy
         status: "healthy",
         latency,
         message: `Respond with ${response.status}${
-          config.assertions?.length
-            ? ` and passed ${config.assertions.length} assertions`
+          validatedConfig.assertions?.length
+            ? ` and passed ${validatedConfig.assertions.length} assertions`
             : ""
         }`,
         metadata: { statusCode: response.status },
