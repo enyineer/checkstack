@@ -1,0 +1,18 @@
+{
+  "name": "@checkmate/queue-memory-backend",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@checkmate/backend-api": "workspace:*",
+    "@checkmate/queue-api": "workspace:*",
+    "@checkmate/queue-memory-common": "workspace:*",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

@@ -10,6 +10,8 @@ import { coreServices } from "@checkmate/backend-api";
 import { plugins } from "./schema";
 import { eq, and } from "drizzle-orm";
 import { PluginLocalInstaller } from "./services/plugin-installer";
+import { QueuePluginRegistryImpl } from "./services/queue-plugin-registry";
+import { QueueFactoryImpl } from "./services/queue-factory";
 
 import { cors } from "hono/cors";
 
@@ -78,6 +80,16 @@ const init = async () => {
   rootLogger.info("🔑 Ensuring JWKS signing keys...");
   const { keyStore } = await import("./services/keystore");
   await keyStore.getSigningKey(); // This triggers generation if missing
+
+  // 1.6. Register Queue Services
+  rootLogger.info("📋 Registering queue services...");
+  const queueRegistry = new QueuePluginRegistryImpl();
+  const queueFactory = new QueueFactoryImpl(queueRegistry, db, rootLogger);
+  pluginManager.registerService(
+    coreServices.queuePluginRegistry,
+    queueRegistry
+  );
+  pluginManager.registerService(coreServices.queueFactory, queueFactory);
 
   // 2. Signature Verification Middleware
   // Verify that every request coming to /api/* has a valid signature, unless exempt.
@@ -151,6 +163,10 @@ const init = async () => {
 
   // 3. Load Plugins
   await pluginManager.loadPlugins(app);
+
+  // 4. Load Queue Configuration
+  rootLogger.info("📋 Loading queue configuration...");
+  await queueFactory.loadConfiguration();
 
   rootLogger.info("✅ Checkmate Core initialized.");
 };

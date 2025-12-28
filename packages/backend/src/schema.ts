@@ -1,4 +1,12 @@
-import { pgTable, text, boolean, json, serial } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  boolean,
+  json,
+  serial,
+  timestamp,
+  jsonb,
+} from "drizzle-orm/pg-core";
 
 // --- Plugin System Schema ---
 export const plugins = pgTable("plugins", {
@@ -20,4 +28,12 @@ export const jwtKeys = pgTable("jwt_keys", {
   createdAt: text("created_at").notNull(), // ISO string
   expiresAt: text("expires_at"), // ISO string, null if indefinite
   revokedAt: text("revoked_at"), // ISO string, null if valid
+});
+
+// --- Queue Configuration Schema ---
+export const queueConfiguration = pgTable("queue_configuration", {
+  id: serial("id").primaryKey(),
+  pluginId: text("plugin_id").notNull(),
+  config: jsonb("config").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
