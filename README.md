@@ -26,6 +26,35 @@ To stop the Docker containers, run:
 bun run docker:stop
 ```
 
+## Developer Documentation
+
+Checkmate is built on a pluggable architecture that enables extensibility and modularity. Whether you're contributing to the core or creating plugins, these guides will help you get started:
+
+### Core Documentation
+
+- **[Plugin Architecture](./docs/plugin-architecture.md)** - Overview of the plugin system, core principles, and deployment options
+- **[Contributing Guide](./docs/contributing.md)** - How to contribute code or plugins to the project
+
+### Plugin Development
+
+- **[Backend Plugins](./docs/backend-plugins.md)** - Create REST APIs, business logic, and database schemas
+- **[Frontend Plugins](./docs/frontend-plugins.md)** - Build UI components, pages, and routing
+- **[Common Plugins](./docs/common-plugins.md)** - Share types, permissions, and constants
+
+### Advanced Topics
+
+- **[Extension Points](./docs/extension-points.md)** - Implement health checks, exporters, notifications, and more
+- **[Versioned Configurations](./docs/versioned-configs.md)** - Manage backward-compatible schema evolution
+- **[Database Schema Isolation](./docs/drizzle-schema-isolation.md)** - How plugins get isolated database schemas
+- **[Dependency Linter](./docs/dependency-linter.md)** - Enforced architecture rules
+
+### Quick Links
+
+- [Create a Backend Plugin](./docs/backend-plugins.md#quick-start)
+- [Create a Frontend Plugin](./docs/frontend-plugins.md#quick-start)
+- [Implement a Health Check Strategy](./docs/extension-points.md#healthcheckstrategy)
+
+
 ## License
 
 This project is licensed under the [Elastic License 2.0](LICENSE.md).
