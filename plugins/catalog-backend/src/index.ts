@@ -35,15 +35,19 @@ export default createBackendPlugin({
         const operationService = new OperationService(database);
 
         // Entities
-        router.get("/entities", check(permissions.entityRead.id), async (c) => {
-          const systems = await entityService.getSystems();
-          const groups = await entityService.getGroups();
-          return c.json({ systems, groups });
-        });
+        router.get(
+          "/entities",
+          check(permissions.catalogRead.id),
+          async (c) => {
+            const systems = await entityService.getSystems();
+            const groups = await entityService.getGroups();
+            return c.json({ systems, groups });
+          }
+        );
 
         router.post(
           "/entities/systems",
-          check(permissions.entityCreate.id),
+          check(permissions.catalogManage.id),
           validate(insertSystemSchema),
           async (c) => {
             const body = await c.req.json();
@@ -54,7 +58,7 @@ export default createBackendPlugin({
 
         router.put(
           "/entities/systems/:id",
-          check(permissions.entityUpdate.id),
+          check(permissions.catalogManage.id),
           validate(insertSystemSchema.partial()),
           async (c) => {
             const id = c.req.param("id");
@@ -66,7 +70,7 @@ export default createBackendPlugin({
 
         router.delete(
           "/entities/systems/:id",
-          check(permissions.entityDelete.id),
+          check(permissions.catalogManage.id),
           async (c) => {
             const id = c.req.param("id");
             await entityService.deleteSystem(id);
@@ -76,7 +80,7 @@ export default createBackendPlugin({
 
         router.post(
           "/entities/groups",
-          check(permissions.entityCreate.id),
+          check(permissions.catalogManage.id),
           validate(insertGroupSchema),
           async (c) => {
             const body = await c.req.json();
@@ -87,7 +91,7 @@ export default createBackendPlugin({
 
         router.put(
           "/entities/groups/:id",
-          check(permissions.entityUpdate.id),
+          check(permissions.catalogManage.id),
           validate(insertGroupSchema.partial()),
           async (c) => {
             const id = c.req.param("id");
@@ -99,7 +103,7 @@ export default createBackendPlugin({
 
         router.delete(
           "/entities/groups/:id",
-          check(permissions.entityDelete.id),
+          check(permissions.catalogManage.id),
           async (c) => {
             const id = c.req.param("id");
             await entityService.deleteGroup(id);
@@ -109,7 +113,7 @@ export default createBackendPlugin({
 
         router.post(
           "/entities/groups/:id/systems",
-          check(permissions.entityUpdate.id),
+          check(permissions.catalogManage.id),
           async (c) => {
             const groupId = c.req.param("id");
             const body = await c.req.json();
@@ -123,7 +127,7 @@ export default createBackendPlugin({
 
         router.delete(
           "/entities/groups/:id/systems/:systemId",
-          check(permissions.entityUpdate.id),
+          check(permissions.catalogManage.id),
           async (c) => {
             const groupId = c.req.param("id");
             const systemId = c.req.param("systemId");
@@ -133,14 +137,14 @@ export default createBackendPlugin({
         );
 
         // Views
-        router.get("/views", check(permissions.entityRead.id), async (c) => {
+        router.get("/views", check(permissions.catalogRead.id), async (c) => {
           const views = await entityService.getViews();
           return c.json(views);
         });
 
         router.post(
           "/views",
-          check(permissions.entityCreate.id),
+          check(permissions.catalogManage.id),
           validate(insertViewSchema),
           async (c) => {
             const body = await c.req.json();
@@ -152,7 +156,7 @@ export default createBackendPlugin({
         // Incidents
         router.get(
           "/incidents",
-          check(permissions.incidentManage.id),
+          check(permissions.catalogRead.id),
           async (c) => {
             const incidents = await operationService.getIncidents();
             return c.json(incidents);
@@ -161,7 +165,7 @@ export default createBackendPlugin({
 
         router.post(
           "/incidents",
-          check(permissions.incidentManage.id),
+          check(permissions.catalogManage.id),
           validate(insertIncidentSchema),
           async (c) => {
             const body = await c.req.json();

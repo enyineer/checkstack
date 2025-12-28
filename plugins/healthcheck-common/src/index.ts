@@ -1,26 +1,18 @@
 import { z } from "zod";
-import type { Permission } from "@checkmate/common";
-
-// --- Permissions ---
+import { createPermission } from "@checkmate/common";
 
 export const permissions = {
-  healthCheckRead: {
-    id: "healthcheck.read",
-    description: "Read Health Check Configurations and Status",
-  },
-  healthCheckCreate: {
-    id: "healthcheck.create",
-    description: "Create Health Check Configurations",
-  },
-  healthCheckUpdate: {
-    id: "healthcheck.update",
-    description: "Update Health Check Configurations",
-  },
-  healthCheckDelete: {
-    id: "healthcheck.delete",
-    description: "Delete Health Check Configurations",
-  },
-} satisfies Record<string, Permission>;
+  healthCheckRead: createPermission(
+    "healthcheck",
+    "read",
+    "Read Health Check Configurations and Status"
+  ),
+  healthCheckManage: createPermission(
+    "healthcheck",
+    "manage",
+    "Full management of Health Check Configurations"
+  ),
+};
 
 export const permissionList = Object.values(permissions);
 

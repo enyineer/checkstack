@@ -1,3 +1,4 @@
+import { PermissionAction } from "@checkmate/common";
 import { createApiRef } from "./api-ref";
 
 export interface LoggerApi {
@@ -19,6 +20,11 @@ export const fetchApiRef = createApiRef<FetchApi>("core.fetch");
 
 export interface PermissionApi {
   usePermission(permission: string): { loading: boolean; allowed: boolean };
+  useResourcePermission(
+    resource: string,
+    action: PermissionAction
+  ): { loading: boolean; allowed: boolean };
+  useManagePermission(resource: string): { loading: boolean; allowed: boolean };
 }
 
 export const permissionApiRef = createApiRef<PermissionApi>("core.permission");

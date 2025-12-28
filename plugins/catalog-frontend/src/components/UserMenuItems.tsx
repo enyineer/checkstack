@@ -3,13 +3,11 @@ import { Link } from "react-router-dom";
 import { Settings } from "lucide-react";
 import { useApi, permissionApiRef } from "@checkmate/frontend-api";
 import { DropdownMenuItem } from "@checkmate/ui";
-import { permissions } from "@checkmate/catalog-common";
 
 export const CatalogUserMenuItems = () => {
   const permissionApi = useApi(permissionApiRef);
-  const { allowed: canManage, loading } = permissionApi.usePermission(
-    permissions.catalogManage.id
-  );
+  const { allowed: canManage, loading } =
+    permissionApi.useManagePermission("catalog");
 
   if (loading || !canManage) {
     return <React.Fragment />;

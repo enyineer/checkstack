@@ -9,7 +9,6 @@ import {
   HealthCheckConfiguration,
   HealthCheckStrategyDto,
   CreateHealthCheckConfiguration,
-  permissions,
 } from "@checkmate/healthcheck-common";
 import { HealthCheckList } from "../components/HealthCheckList";
 import { HealthCheckEditor } from "../components/HealthCheckEditor";
@@ -20,7 +19,7 @@ const HealthCheckConfigPageContent = () => {
   const api = useApi(healthCheckApiRef);
   const permissionApi = useApi(permissionApiRef);
   const { allowed: canRead, loading: permissionLoading } =
-    permissionApi.usePermission(permissions.healthCheckRead.id);
+    permissionApi.useResourcePermission("healthcheck", "read");
 
   const [configurations, setConfigurations] = useState<
     HealthCheckConfiguration[]

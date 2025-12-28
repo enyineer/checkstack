@@ -4,7 +4,7 @@ import { HealthCheckConfigPage } from "./pages/HealthCheckConfigPage";
 import { HealthCheckMenuItems } from "./components/HealthCheckMenuItems";
 import { HealthCheckHistory } from "./components/HealthCheckHistory";
 import { SystemHealthCheckAssignment } from "./components/SystemHealthCheckAssignment";
-import { permissions } from "@checkmate/healthcheck-common";
+
 import {
   SLOT_USER_MENU_ITEMS,
   SLOT_SYSTEM_DETAILS,
@@ -18,7 +18,7 @@ export default createFrontendPlugin({
       path: "/healthcheck/config",
       element: <HealthCheckConfigPage />,
       title: "Health Checks",
-      permission: permissions.healthCheckRead.id,
+      permission: "healthcheck.read",
     },
   ],
   apis: [

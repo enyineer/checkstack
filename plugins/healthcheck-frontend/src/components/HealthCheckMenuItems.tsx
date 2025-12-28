@@ -3,12 +3,12 @@ import { Link } from "react-router-dom";
 import { Activity } from "lucide-react";
 import { useApi, permissionApiRef } from "@checkmate/frontend-api";
 import { DropdownMenuItem } from "@checkmate/ui";
-import { permissions } from "@checkmate/healthcheck-common";
 
 export const HealthCheckMenuItems = () => {
   const permissionApi = useApi(permissionApiRef);
-  const { allowed: canRead, loading } = permissionApi.usePermission(
-    permissions.healthCheckRead.id
+  const { allowed: canRead, loading } = permissionApi.useResourcePermission(
+    "healthcheck",
+    "read"
   );
 
   if (loading || !canRead) {

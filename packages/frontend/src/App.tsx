@@ -50,6 +50,8 @@ function App() {
       .register(loggerApiRef, new ConsoleLoggerApi())
       .register(permissionApiRef, {
         usePermission: () => ({ loading: false, allowed: true }), // Default to allow all if no auth plugin present
+        useResourcePermission: () => ({ loading: false, allowed: true }),
+        useManagePermission: () => ({ loading: false, allowed: true }),
       })
       .registerFactory(fetchApiRef, (_registry) => {
         return new CoreFetchApi();

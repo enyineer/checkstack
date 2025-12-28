@@ -3,12 +3,12 @@ import { Link } from "react-router-dom";
 import { ListOrdered } from "lucide-react";
 import { useApi, permissionApiRef } from "@checkmate/frontend-api";
 import { DropdownMenuItem } from "@checkmate/ui";
-import { permissions } from "@checkmate/queue-common";
 
 export const QueueUserMenuItems = () => {
   const permissionApi = useApi(permissionApiRef);
-  const { allowed: canRead, loading } = permissionApi.usePermission(
-    permissions.queueRead.id
+  const { allowed: canRead, loading } = permissionApi.useResourcePermission(
+    "queue",
+    "read"
   );
 
   if (loading || !canRead) {

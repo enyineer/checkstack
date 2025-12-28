@@ -5,7 +5,7 @@ import {
   permissionApiRef,
 } from "@checkmate/frontend-api";
 import { queueApiRef } from "../api";
-import { QueuePluginDto, permissions } from "@checkmate/queue-common";
+import { QueuePluginDto } from "@checkmate/queue-common";
 import {
   Button,
   Alert,
@@ -20,10 +20,8 @@ const QueueConfigPageContent = () => {
   const api = useApi(queueApiRef);
   const permissionApi = useApi(permissionApiRef);
   const { allowed: canRead, loading: permissionLoading } =
-    permissionApi.usePermission(permissions.queueRead.id);
-  const { allowed: canUpdate } = permissionApi.usePermission(
-    permissions.queueUpdate.id
-  );
+    permissionApi.useResourcePermission("queue", "read");
+  const { allowed: canUpdate } = permissionApi.useManagePermission("queue");
 
   const [plugins, setPlugins] = useState<QueuePluginDto[]>([]);
   const [selectedPluginId, setSelectedPluginId] = useState<string>("");

@@ -5,7 +5,6 @@ import { queueApiRef } from "./api";
 import { createFrontendPlugin } from "@checkmate/frontend-api";
 import { QueueConfigPage } from "./pages/QueueConfigPage";
 import { QueueUserMenuItems } from "./components/UserMenuItems";
-import { permissions } from "@checkmate/queue-common";
 
 export const queuePlugin = createFrontendPlugin({
   name: "queue-frontend",
@@ -22,7 +21,7 @@ export const queuePlugin = createFrontendPlugin({
     {
       path: "/queue",
       element: <QueueConfigPage />,
-      permission: permissions.queueRead.id,
+      permission: "queue.read",
     },
   ],
   extensions: [

@@ -5,7 +5,6 @@ import {
   ExtensionSlot,
 } from "@checkmate/frontend-api";
 import { catalogApiRef, System, Group } from "../api";
-import { permissions } from "@checkmate/catalog-common";
 import { SLOT_CATALOG_SYSTEM_ACTIONS } from "@checkmate/common";
 import {
   SectionHeader,
@@ -28,7 +27,7 @@ export const CatalogConfigPage = () => {
   const catalogApi = useApi(catalogApiRef);
   const permissionApi = useApi(permissionApiRef);
   const { allowed: canManage, loading: permissionLoading } =
-    permissionApi.usePermission(permissions.catalogManage.id);
+    permissionApi.useManagePermission("catalog");
 
   const [systems, setSystems] = useState<System[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);

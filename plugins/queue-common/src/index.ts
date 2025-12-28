@@ -1,18 +1,12 @@
-import type { Permission } from "@checkmate/common";
+import { createPermission } from "@checkmate/common";
 import { z } from "zod";
 
 /**
  * Permissions for queue settings
  */
 export const permissions = {
-  queueRead: {
-    id: "queue.read",
-    description: "Read Queue Settings",
-  } satisfies Permission,
-  queueUpdate: {
-    id: "queue.update",
-    description: "Update Queue Settings",
-  } satisfies Permission,
+  queueRead: createPermission("queue", "read", "Read Queue Settings"),
+  queueManage: createPermission("queue", "manage", "Update Queue Settings"),
 };
 
 export const permissionList = Object.values(permissions);

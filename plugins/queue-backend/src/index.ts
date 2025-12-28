@@ -78,7 +78,7 @@ export default createBackendPlugin({
         // Update queue configuration
         apiRouter.put(
           "/configuration",
-          check(permissions.queueUpdate.id),
+          check(permissions.queueManage.id),
           zValidator("json", UpdateQueueConfigurationSchema),
           async (c) => {
             try {

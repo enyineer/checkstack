@@ -15,6 +15,8 @@ import { authClient } from "./lib/auth-client";
 import { usePermissions } from "./hooks/usePermissions";
 import { SLOT_NAVBAR, SLOT_USER_MENU_ITEMS_BOTTOM } from "@checkmate/common";
 
+import { PermissionAction } from "@checkmate/common";
+
 class AuthPermissionApi implements PermissionApi {
   usePermission(permission: string): { loading: boolean; allowed: boolean } {
     const { permissions, loading } = usePermissions();
@@ -30,6 +32,41 @@ class AuthPermissionApi implements PermissionApi {
     const allowed =
       permissions.includes("*") || permissions.includes(permission);
     return { loading: false, allowed };
+  }
+
+  useResourcePermission(
+    resource: string,
+    action: PermissionAction
+  ): { loading: boolean; allowed: boolean } {
+    const { permissions, loading } = usePermissions();
+
+    if (loading) {
+      return { loading: true, allowed: false };
+    }
+
+    if (!permissions || permissions.length === 0) {
+      return { loading: false, allowed: false };
+    }
+
+    const isWildcard = permissions.includes("*");
+    const hasResourceManage = permissions.includes(`${resource}.manage`);
+    const hasSpecificPermission = permissions.includes(`${resource}.${action}`);
+
+    // manage implies read
+    const isAllowed =
+      isWildcard ||
+      hasResourceManage ||
+      (action === "read" && hasResourceManage) ||
+      hasSpecificPermission;
+
+    return { loading: false, allowed: isAllowed };
+  }
+
+  useManagePermission(resource: string): {
+    loading: boolean;
+    allowed: boolean;
+  } {
+    return this.useResourcePermission(resource, "manage");
   }
 }
 

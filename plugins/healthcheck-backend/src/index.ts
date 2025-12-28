@@ -88,7 +88,7 @@ export default createBackendPlugin({
 
         apiRouter.post(
           "/configurations",
-          check(permissions.healthCheckCreate.id),
+          check(permissions.healthCheckManage.id),
           zValidator("json", CreateHealthCheckConfigurationSchema),
           async (c) => {
             const data = c.req.valid("json");
@@ -99,7 +99,7 @@ export default createBackendPlugin({
 
         apiRouter.put(
           "/configurations/:id",
-          check(permissions.healthCheckUpdate.id),
+          check(permissions.healthCheckManage.id),
           zValidator("json", UpdateHealthCheckConfigurationSchema),
           async (c) => {
             const id = c.req.param("id");
@@ -112,7 +112,7 @@ export default createBackendPlugin({
 
         apiRouter.delete(
           "/configurations/:id",
-          check(permissions.healthCheckDelete.id),
+          check(permissions.healthCheckManage.id),
           async (c) => {
             const id = c.req.param("id");
             await service.deleteConfiguration(id);
@@ -134,7 +134,7 @@ export default createBackendPlugin({
 
         apiRouter.post(
           "/systems/:systemId/checks",
-          check(permissions.healthCheckUpdate.id), // Managing associations is like updating configuration
+          check(permissions.healthCheckManage.id), // Managing associations is like managing configurations
           zValidator("json", AssociateHealthCheckSchema),
           async (c) => {
             const systemId = c.req.param("systemId");
@@ -147,7 +147,7 @@ export default createBackendPlugin({
 
         apiRouter.delete(
           "/systems/:systemId/checks/:configId",
-          check(permissions.healthCheckUpdate.id),
+          check(permissions.healthCheckManage.id),
           async (c) => {
             const systemId = c.req.param("systemId");
             const configId = c.req.param("configId");
