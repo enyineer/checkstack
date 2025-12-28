@@ -4,12 +4,16 @@ import { createBackendPlugin } from "@checkmate/backend-api";
 import { coreServices } from "@checkmate/backend-api";
 import { userInfoRef } from "./services/user-info";
 import * as schema from "./schema";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { User } from "better-auth/types";
 import { hashPassword } from "better-auth/crypto";
 import { createExtensionPoint } from "@checkmate/backend-api";
 import { enrichUser } from "./utils/user";
+import {
+  permissionList,
+  permissions as authPermissions,
+} from "@checkmate/auth-common";
 
 export interface BetterAuthStrategy {
   id: string;
@@ -35,6 +39,8 @@ export default createBackendPlugin({
       | undefined;
 
     const strategies: BetterAuthStrategy[] = [];
+
+    env.registerPermissions(permissionList);
 
     env.registerExtensionPoint(betterAuthExtensionPoint, {
       addStrategy: (s) => strategies.push(s),
@@ -125,15 +131,33 @@ export default createBackendPlugin({
         router: coreServices.httpRouter,
         logger: coreServices.logger,
         tokenVerification: coreServices.tokenVerification,
+        check: coreServices.permissionCheck,
+        validate: coreServices.validation,
       },
-      init: async ({ database, router, logger, tokenVerification: tv }) => {
+      init: async ({
+        database,
+        router,
+        logger,
+        tokenVerification: tv,
+        check,
+        validate: _validate,
+      }) => {
         logger.info("Initializing Auth Backend...");
 
         db = database;
         tokenVerification = tv;
 
+        // Fetch enabled strategies
+        const dbStrategies = await database.select().from(schema.authStrategy);
+        const isDisabled = (id: string) =>
+          dbStrategies.find((s) => s.id === id)?.enabled === false;
+
         const socialProviders: Record<string, unknown> = {};
         for (const s of strategies) {
+          if (isDisabled(s.id)) {
+            logger.info(`   -> Auth strategy DISABLED: ${s.id}`);
+            continue;
+          }
           logger.info(`   -> Adding auth strategy: ${s.id}`);
           socialProviders[s.id] = s.config;
         }
@@ -143,7 +167,7 @@ export default createBackendPlugin({
             provider: "pg",
             schema: { ...schema },
           }),
-          emailAndPassword: { enabled: true },
+          emailAndPassword: { enabled: !isDisabled("credential") },
           socialProviders,
           basePath: "/api/auth-backend",
           baseURL: process.env.VITE_API_BASE_URL || "http://localhost:3000",
@@ -165,6 +189,120 @@ export default createBackendPlugin({
             "permissions" in enrichedUser ? enrichedUser.permissions : [];
           return c.json({ permissions });
         });
+
+        // 5. User Management APIs
+        router.get("/users", check(authPermissions.usersRead.id), async (c) => {
+          const users = await database.select().from(schema.user);
+          const userRoles = await database
+            .select()
+            .from(schema.userRole)
+            .where(
+              inArray(
+                schema.userRole.userId,
+                users.map((u) => u.id)
+              )
+            );
+
+          const usersWithRoles = users.map((u) => ({
+            ...u,
+            roles: userRoles
+              .filter((ur) => ur.userId === u.id)
+              .map((ur) => ur.roleId),
+          }));
+
+          return c.json(usersWithRoles);
+        });
+
+        router.delete(
+          "/users/:id",
+          check(authPermissions.usersManage.id),
+          async (c) => {
+            const id = c.req.param("id");
+            if (id === "initial-admin-id") {
+              return c.json({ error: "Cannot delete initial admin" }, 403);
+            }
+            await database.delete(schema.user).where(eq(schema.user.id, id));
+            return c.json({ success: true });
+          }
+        );
+
+        router.get(
+          "/roles",
+          check(authPermissions.rolesManage.id),
+          async (c) => {
+            const roles = await database.select().from(schema.role);
+            return c.json(roles);
+          }
+        );
+
+        router.post(
+          "/users/:id/roles",
+          check(authPermissions.rolesManage.id),
+          async (c) => {
+            const userId = c.req.param("id");
+            const { roles } = (await c.req.json()) as { roles: string[] };
+
+            await database.transaction(async (tx) => {
+              await tx
+                .delete(schema.userRole)
+                .where(eq(schema.userRole.userId, userId));
+              if (roles.length > 0) {
+                await tx.insert(schema.userRole).values(
+                  roles.map((roleId) => ({
+                    userId,
+                    roleId,
+                  }))
+                );
+              }
+            });
+
+            return c.json({ success: true });
+          }
+        );
+
+        router.get(
+          "/strategies",
+          check(authPermissions.strategiesManage.id),
+          async (c) => {
+            const dbStrategies = await database
+              .select()
+              .from(schema.authStrategy);
+            const result = strategies.map((s) => {
+              const dbS = dbStrategies.find((ds) => ds.id === s.id);
+              return {
+                id: s.id,
+                enabled: dbS ? dbS.enabled : true,
+              };
+            });
+            // Also include credential strategy
+            result.push({
+              id: "credential",
+              enabled:
+                dbStrategies.find((ds) => ds.id === "credential")?.enabled ??
+                true,
+            });
+            return c.json(result);
+          }
+        );
+
+        router.patch(
+          "/strategies/:id",
+          check(authPermissions.strategiesManage.id),
+          async (c) => {
+            const id = c.req.param("id");
+            const { enabled } = (await c.req.json()) as { enabled: boolean };
+
+            await database
+              .insert(schema.authStrategy)
+              .values({ id, enabled })
+              .onConflictDoUpdate({
+                target: schema.authStrategy.id,
+                set: { enabled, updatedAt: new Date() },
+              });
+
+            return c.json({ success: true });
+          }
+        );
 
         router.all("*", (c) => {
           return auth!.handler(c.req.raw);

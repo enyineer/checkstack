@@ -8,6 +8,13 @@
       "when": 1766158129109,
       "tag": "0000_sloppy_squirrel_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1766960944721,
+      "tag": "0001_stale_ender_wiggin",
+      "breakpoints": true
     }
   ]
 }

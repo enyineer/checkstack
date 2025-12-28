@@ -175,6 +175,7 @@
       "name": "@checkmate/auth-backend-plugin",
       "version": "0.0.1",
       "dependencies": {
+        "@checkmate/auth-common": "workspace:*",
         "@checkmate/backend-api": "workspace:*",
         "better-auth": "^1.4.7",
         "drizzle-orm": "^0.45.1",
@@ -190,10 +191,23 @@
         "typescript": "^5.0.0",
       },
     },
+    "plugins/auth-common": {
+      "name": "@checkmate/auth-common",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate/common": "workspace:*",
+      },
+      "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
+        "@checkmate/tsconfig": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
     "plugins/auth-frontend": {
       "name": "@checkmate/auth-frontend-plugin",
       "version": "0.0.1",
       "dependencies": {
+        "@checkmate/auth-common": "workspace:*",
         "@checkmate/common": "workspace:*",
         "@checkmate/frontend-api": "workspace:*",
         "@checkmate/ui": "workspace:*",
@@ -519,6 +533,8 @@
     "@changesets/write": ["@changesets/write@0.4.0", "", { "dependencies": { "@changesets/types": "^6.1.0", "fs-extra": "^7.0.1", "human-id": "^4.1.1", "prettier": "^2.7.1" } }, "sha512-CdTLvIOPiCNuH71pyDu3rA+Q0n65cmAbXnwWH84rKGiFumFzkmHNT8KHTMEchcxN+Kl8I54xGUhJ7l3E7X396Q=="],
 
     "@checkmate/auth-backend-plugin": ["@checkmate/auth-backend-plugin@workspace:plugins/auth-backend"],
+
+    "@checkmate/auth-common": ["@checkmate/auth-common@workspace:plugins/auth-common"],
 
     "@checkmate/auth-frontend-plugin": ["@checkmate/auth-frontend-plugin@workspace:plugins/auth-frontend"],
 

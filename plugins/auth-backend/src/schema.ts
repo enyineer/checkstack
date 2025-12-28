@@ -99,3 +99,9 @@ export const userRole = pgTable(
     pk: primaryKey({ columns: [t.userId, t.roleId] }),
   })
 );
+
+export const authStrategy = pgTable("auth_strategy", {
+  id: text("id").primaryKey(), // strategy ID (e.g., 'github', 'credential')
+  enabled: boolean("enabled").notNull().default(true),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});

@@ -13,9 +13,19 @@ import { authApiRef, AuthApi, AuthSession } from "./api";
 import { authClient } from "./lib/auth-client";
 
 import { usePermissions } from "./hooks/usePermissions";
-import { SLOT_NAVBAR, SLOT_USER_MENU_ITEMS_BOTTOM } from "@checkmate/common";
+import {
+  SLOT_NAVBAR,
+  SLOT_USER_MENU_ITEMS,
+  SLOT_USER_MENU_ITEMS_BOTTOM,
+} from "@checkmate/common";
 
 import { PermissionAction } from "@checkmate/common";
+import { useNavigate } from "react-router-dom";
+import { Settings2 } from "lucide-react";
+import { DropdownMenuItem } from "@checkmate/ui";
+import { fetchApiRef, FetchApi, useApi } from "@checkmate/frontend-api";
+import { AuthSettingsPage } from "./components/AuthSettingsPage";
+import { permissions as authPermissions } from "@checkmate/auth-common";
 
 class AuthPermissionApi implements PermissionApi {
   usePermission(permission: string): { loading: boolean; allowed: boolean } {
@@ -71,6 +81,8 @@ class AuthPermissionApi implements PermissionApi {
 }
 
 class BetterAuthApi implements AuthApi {
+  constructor(private readonly fetchApi: FetchApi) {}
+
   async signIn(email: string, password: string) {
     const res = await authClient.signIn.email({ email, password });
     if (res.error) {
@@ -125,6 +137,42 @@ class BetterAuthApi implements AuthApi {
       error: error as Error | undefined,
     };
   }
+
+  // Management APIs
+  async getUsers() {
+    const res = await this.fetchApi.fetch("/api/auth-backend/users");
+    return res.json();
+  }
+
+  async deleteUser(userId: string) {
+    await this.fetchApi.fetch(`/api/auth-backend/users/${userId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async getRoles() {
+    const res = await this.fetchApi.fetch("/api/auth-backend/roles");
+    return res.json();
+  }
+
+  async updateUserRoles(userId: string, roles: string[]) {
+    await this.fetchApi.fetch(`/api/auth-backend/users/${userId}/roles`, {
+      method: "POST",
+      body: JSON.stringify({ roles }),
+    });
+  }
+
+  async getStrategies() {
+    const res = await this.fetchApi.fetch("/api/auth-backend/strategies");
+    return res.json();
+  }
+
+  async toggleStrategy(strategyId: string, enabled: boolean) {
+    await this.fetchApi.fetch(`/api/auth-backend/strategies/${strategyId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    });
+  }
 }
 
 export const authPlugin = createFrontendPlugin({
@@ -132,7 +180,7 @@ export const authPlugin = createFrontendPlugin({
   apis: [
     {
       ref: authApiRef as ApiRef<unknown>,
-      factory: () => new BetterAuthApi(),
+      factory: (deps) => new BetterAuthApi(deps.get(fetchApiRef)),
     },
     {
       ref: permissionApiRef as ApiRef<unknown>,
@@ -144,12 +192,39 @@ export const authPlugin = createFrontendPlugin({
       path: "/auth/login",
       element: <LoginPage />,
     },
+    {
+      path: "/settings/auth",
+      element: <AuthSettingsPage />,
+    },
   ],
   extensions: [
     {
       id: "auth.navbar.action",
       slotId: SLOT_NAVBAR,
       component: LoginNavbarAction,
+    },
+    {
+      id: "auth.user-menu.settings",
+      slotId: SLOT_USER_MENU_ITEMS,
+      component: () => {
+        // Use a wrapper component to use hooks
+        const navigate = useNavigate();
+        const permissionApi = useApi(permissionApiRef);
+        const canManage = permissionApi.usePermission(
+          authPermissions.strategiesManage.id
+        );
+
+        if (!canManage.allowed) return;
+
+        return (
+          <DropdownMenuItem
+            onClick={() => navigate("/settings/auth")}
+            icon={<Settings2 className="h-4 w-4" />}
+          >
+            Auth Settings
+          </DropdownMenuItem>
+        );
+      },
     },
     {
       id: "auth.user-menu.logout",

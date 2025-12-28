@@ -5,11 +5,12 @@
   "main": "src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "generate": "drizzle-kit generate:pg",
+    "generate": "drizzle-kit generate",
     "lint": "bun run lint:code",
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
+    "@checkmate/auth-common": "workspace:*",
     "@checkmate/backend-api": "workspace:*",
     "better-auth": "^1.4.7",
     "drizzle-orm": "^0.45.1",
