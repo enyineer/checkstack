@@ -4,7 +4,9 @@
   "type": "module",
   "main": "src/index.tsx",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
     "@checkmate/catalog-common": "workspace:*",
@@ -18,6 +20,7 @@
   "devDependencies": {
     "typescript": "^5.0.0",
     "@types/react": "^18.2.0",
-    "@checkmate/tsconfig": "workspace:*"
+    "@checkmate/tsconfig": "workspace:*",
+    "@checkmate/scripts": "workspace:*"
   }
 }

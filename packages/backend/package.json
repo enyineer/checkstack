@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "bun --env-file=../../.env run --watch src/index.ts",
     "typecheck": "tsc --noEmit",
-    "generate": "bun --env-file=../../.env run drizzle-kit generate"
+    "generate": "bun --env-file=../../.env run drizzle-kit generate",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
     "@checkmate/backend-api": "workspace:*",
@@ -24,6 +26,7 @@
     "drizzle-kit": "^0.31.8",
     "@types/pg": "^8.11.0",
     "@types/bun": "latest",
-    "@checkmate/tsconfig": "workspace:*"
+    "@checkmate/tsconfig": "workspace:*",
+    "@checkmate/scripts": "workspace:*"
   }
 }

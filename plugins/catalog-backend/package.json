@@ -5,7 +5,9 @@
   "main": "src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "generate": "drizzle-kit generate"
+    "generate": "drizzle-kit generate",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
     "@checkmate/backend-api": "workspace:*",
@@ -19,6 +21,7 @@
     "@types/node": "^20.0.0",
     "drizzle-kit": "^0.31.8",
     "typescript": "^5.0.0",
-    "@checkmate/tsconfig": "workspace:*"
+    "@checkmate/tsconfig": "workspace:*",
+    "@checkmate/scripts": "workspace:*"
   }
 }

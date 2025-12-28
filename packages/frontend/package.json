@@ -7,8 +7,9 @@
     "build": "npm run vite-vendor && vite build",
     "vite-vendor": "vite build --config vite.config.vendor.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "lint": "bun run lint:code",
+    "preview": "vite preview",
+    "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
     "react": "^18.2.0",
@@ -33,6 +34,7 @@
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
     "vite": "^5.1.6",
-    "@checkmate/tsconfig": "workspace:*"
+    "@checkmate/tsconfig": "workspace:*",
+    "@checkmate/scripts": "workspace:*"
   }
 }

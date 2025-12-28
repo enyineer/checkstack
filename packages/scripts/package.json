@@ -1,0 +1,16 @@
+{
+  "name": "@checkmate/scripts",
+  "version": "1.0.0",
+  "private": true,
+  "bin": {
+    "checkmate-scripts": "./src/cli.ts"
+  },
+  "scripts": {
+    "sync": "bun run src/sync.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@checkmate/tsconfig": "workspace:*",
+    "typescript": "^5.0.0"
+  }
+}

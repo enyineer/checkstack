@@ -7,6 +7,12 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@checkmate/tsconfig": "workspace:*"
+    "@checkmate/tsconfig": "workspace:*",
+    "@checkmate/scripts": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
   }
 }

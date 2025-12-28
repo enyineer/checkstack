@@ -34,6 +34,7 @@
         "zod": "^4.2.1",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "@types/bun": "latest",
         "@types/pg": "^8.11.0",
@@ -51,6 +52,7 @@
         "zod": "^4.2.1",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "@types/bun": "latest",
       },
@@ -63,6 +65,7 @@
       "name": "@checkmate/common",
       "version": "0.0.1",
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "typescript": "^5.7.2",
       },
@@ -86,6 +89,7 @@
         "tailwind-merge": "^2.2.0",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "@types/react": "^18.2.64",
         "@types/react-dom": "^18.2.21",
@@ -103,6 +107,7 @@
         "@checkmate/common": "workspace:*",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "@types/bun": "^1.3.5",
         "@types/react": "^18.0.0",
@@ -119,12 +124,27 @@
         "zod": "^4.0.0",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
+      },
+    },
+    "packages/scripts": {
+      "name": "@checkmate/scripts",
+      "version": "1.0.0",
+      "bin": {
+        "checkmate-scripts": "./src/cli.ts",
+      },
+      "devDependencies": {
+        "@checkmate/tsconfig": "workspace:*",
+        "typescript": "^5.0.0",
       },
     },
     "packages/tsconfig": {
       "name": "@checkmate/tsconfig",
       "version": "1.0.0",
+      "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
+      },
     },
     "packages/ui": {
       "name": "@checkmate/ui",
@@ -145,6 +165,7 @@
         "tailwind-merge": "^2.2.0",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "@types/react": "^18.2.0",
         "typescript": "^5.0.0",
@@ -162,6 +183,7 @@
         "zod": "^4.2.1",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "@types/node": "^20.0.0",
         "drizzle-kit": "^0.31.8",
@@ -181,6 +203,7 @@
         "react-router-dom": "^6.22.0",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "@types/react": "^18.2.0",
         "typescript": "^5.0.0",
@@ -197,6 +220,7 @@
         "zod": "^4.2.1",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "@types/bun": "^1.3.5",
         "@types/node": "^20.0.0",
@@ -211,6 +235,7 @@
         "@checkmate/common": "workspace:*",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "typescript": "^5.7.2",
       },
@@ -228,6 +253,7 @@
         "react-router-dom": "^6.22.0",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "@types/react": "^18.2.0",
         "typescript": "^5.0.0",
@@ -246,6 +272,7 @@
         "react-router-dom": "^6.22.0",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "@types/react": "^18.2.0",
         "typescript": "^5.0.0",
@@ -264,6 +291,7 @@
         "zod": "^4.2.1",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "@types/bun": "^1.0.0",
         "drizzle-kit": "^0.31.8",
@@ -278,6 +306,7 @@
         "zod": "^4.2.1",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "typescript": "^5.7.2",
       },
@@ -302,6 +331,7 @@
         "zod": "^4.2.1",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "@types/react": "^18.2.0",
         "typescript": "^5.0.0",
@@ -315,6 +345,7 @@
         "jsonpath-plus": "^10.3.0",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "@types/bun": "^1.0.0",
         "drizzle-kit": "^0.31.8",
@@ -333,6 +364,7 @@
         "zod": "^4.0.0",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "typescript": "^5.7.2",
       },
@@ -345,6 +377,7 @@
         "zod": "^4.0.0",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "typescript": "^5.7.2",
       },
@@ -367,6 +400,7 @@
         "zod": "^4.0.0",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "@types/react": "^18.3.18",
         "typescript": "^5.7.2",
@@ -382,6 +416,7 @@
         "zod": "^4.2.1",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "@types/bun": "latest",
       },
@@ -393,6 +428,7 @@
         "@checkmate/common": "workspace:*",
       },
       "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
       },
     },
@@ -523,6 +559,8 @@
     "@checkmate/queue-memory-backend": ["@checkmate/queue-memory-backend@workspace:plugins/queue-memory-backend"],
 
     "@checkmate/queue-memory-common": ["@checkmate/queue-memory-common@workspace:plugins/queue-memory-common"],
+
+    "@checkmate/scripts": ["@checkmate/scripts@workspace:packages/scripts"],
 
     "@checkmate/tsconfig": ["@checkmate/tsconfig@workspace:packages/tsconfig"],
 

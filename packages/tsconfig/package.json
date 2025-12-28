@@ -6,5 +6,13 @@
     "base.json",
     "frontend.json",
     "backend.json"
-  ]
+  ],
+  "scripts": {
+    "typecheck": "echo skipping",
+    "lint": "echo skipping",
+    "lint:code": "eslint . --max-warnings 0"
+  },
+  "devDependencies": {
+    "@checkmate/scripts": "workspace:*"
+  }
 }

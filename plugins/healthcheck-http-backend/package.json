@@ -4,7 +4,9 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
     "@checkmate/backend-api": "workspace:*",
@@ -14,6 +16,7 @@
     "@types/bun": "^1.0.0",
     "drizzle-kit": "^0.31.8",
     "typescript": "^5.0.0",
-    "@checkmate/tsconfig": "workspace:*"
+    "@checkmate/tsconfig": "workspace:*",
+    "@checkmate/scripts": "workspace:*"
   }
 }
