@@ -13,7 +13,9 @@ mkdir -p plugins/myplugin-frontend/src
 cd plugins/myplugin-frontend
 ```
 
-### 2. Initialize package.json
+### 2. Initialize Packages
+
+Create `package.json` for each package. Then run the sync tool to apply shared configurations:
 
 ```json
 {
@@ -39,6 +41,12 @@ cd plugins/myplugin-frontend
   }
 }
 ```
+
+```bash
+bun run sync
+```
+
+See [Monorepo Tooling](./monorepo-tooling.md) for details on shared configurations.
 
 ### 3. Create Plugin Entry Point
 

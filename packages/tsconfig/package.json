@@ -5,7 +5,8 @@
   "files": [
     "base.json",
     "frontend.json",
-    "backend.json"
+    "backend.json",
+    "common.json"
   ],
   "scripts": {
     "typecheck": "echo skipping",

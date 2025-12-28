@@ -18,9 +18,7 @@ const STANDARD_SCRIPTS: Record<string, string> = {
 const packageGlob = new Glob("{packages,plugins}/*/package.json");
 const packages = [...packageGlob.scanSync({ cwd: rootDir })];
 
-console.log(
-  `Checking ${packages.length} packages for script synchronization...`
-);
+console.log(`Checking ${packages.length} packages for synchronization...`);
 
 for (const pkgPath of packages) {
   const fullPkgPath = path.join(rootDir, pkgPath);
@@ -50,6 +48,7 @@ for (const pkgPath of packages) {
     pkgChanged = true;
   }
 
+  // Update scripts
   for (const [name, script] of Object.entries(STANDARD_SCRIPTS)) {
     if (pkg.scripts[name] !== script) {
       console.log(`  [${pkg.name}] Updating script: ${name}`);
@@ -62,7 +61,7 @@ for (const pkgPath of packages) {
     writeFileSync(fullPkgPath, JSON.stringify(pkg, undefined, 2) + "\n");
   }
 
-  // Also fix tsconfig.json if it exists
+  // Manage tsconfig.json
   if (existsSync(tsconfigPath)) {
     const tsconfigContent = readFileSync(tsconfigPath, "utf8");
     let tsconfig;
@@ -72,6 +71,33 @@ for (const pkgPath of packages) {
       continue;
     }
 
+    let tsconfigChanged = false;
+
+    // Determine correct configType
+    let configType = "backend.json";
+    const isFrontend =
+      pkgPath.includes("frontend") ||
+      pkg.name.match(/frontend|ui|dashboard/) ||
+      (pkg.dependencies &&
+        (pkg.dependencies["react"] || pkg.dependencies["vite"]));
+    const isCommon = pkgPath.includes("common") || pkg.name.includes("common");
+
+    if (isFrontend) {
+      configType = "frontend.json";
+    } else if (isCommon) {
+      configType = "common.json";
+    }
+
+    const expectedExtends = `@checkmate/tsconfig/${configType}`;
+    if (tsconfig.extends !== expectedExtends) {
+      console.log(
+        `  [${pkg.name}] Updating tsconfig extends to ${expectedExtends}`
+      );
+      tsconfig.extends = expectedExtends;
+      tsconfigChanged = true;
+    }
+
+    // Repair corrupted include path
     if (Array.isArray(tsconfig.include) && tsconfig.include.includes("src*")) {
       console.log(
         `  [${pkg.name}] Fixing corrupted include path in tsconfig.json`
@@ -79,6 +105,10 @@ for (const pkgPath of packages) {
       tsconfig.include = tsconfig.include.map((i: string) =>
         i === "src*" ? "src" : i
       );
+      tsconfigChanged = true;
+    }
+
+    if (tsconfigChanged) {
       writeFileSync(
         tsconfigPath,
         JSON.stringify(tsconfig, undefined, 2) + "\n"

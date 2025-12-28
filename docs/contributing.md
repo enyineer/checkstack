@@ -36,6 +36,14 @@ cd checkmate
 bun install
 ```
 
+### Synchronize Configurations
+
+Ensure your project follows the shared standards for TypeScript and package scripts:
+
+```bash
+bun run packages/scripts/src/sync.ts
+```
+
 ### Set Up Database
 
 ```bash
@@ -70,7 +78,9 @@ checkmate/
 │   ├── backend-api/  # Backend plugin API
 │   ├── frontend-api/ # Frontend plugin API
 │   ├── common/       # Shared types
-│   └── ui/           # UI components
+│   ├── ui/           # UI components
+│   ├── tsconfig/     # Shared TypeScript configurations
+│   └── scripts/      # Shared monorepo scripts
 │
 ├── plugins/          # Plugin packages
 │   ├── catalog-backend/
@@ -99,10 +109,9 @@ bun run build:frontend   # Frontend only
 bun test                 # Run all tests
 bun test:watch           # Watch mode
 
-# Linting
+# Tooling (Standardized via @checkmate/scripts)
+bun run sync             # Synchronize project configurations
 bun run lint             # Run all linters
-bun run lint:code        # ESLint only
-bun run lint:deps        # Dependency linter only
 bun run typecheck        # TypeScript type checking
 
 # Database
@@ -133,10 +142,17 @@ mkdir -p plugins/myplugin-common/src
 
 ### 3. Initialize Packages
 
-Create `package.json` for each package. See:
+Create `package.json` for each package. Then run the sync tool to apply shared configurations:
+
+```bash
+bun run sync
+```
+
+See:
 - [Backend Plugin Guide](./backend-plugins.md)
 - [Frontend Plugin Guide](./frontend-plugins.md)
 - [Common Plugin Guidelines](./common-plugins.md)
+- [Monorepo Tooling Guide](./monorepo-tooling.md)
 
 ### 4. Implement Plugin
 
@@ -183,6 +199,7 @@ API endpoints or components provided.
 ### TypeScript
 
 - Use **TypeScript** for all code
+- Extend shared configurations from `@checkmate/tsconfig`
 - Enable **strict mode**
 - Avoid `any` types (use `unknown` if needed)
 - Use **type inference** where possible
@@ -316,9 +333,11 @@ Use prefixes:
 - Follow code style guidelines
 - Write tests
 - Update documentation
-- Run linters
+- Run standardized linters
+- Ensure configurations are synchronized
 
 ```bash
+bun run sync
 bun run lint
 bun run typecheck
 bun test
@@ -465,6 +484,7 @@ See [versioned-configs.md](./versioned-configs.md) for details.
 ### Documentation
 
 - [Plugin Architecture](./plugin-architecture.md)
+- [Monorepo Tooling](./monorepo-tooling.md)
 - [Backend Plugins](./backend-plugins.md)
 - [Frontend Plugins](./frontend-plugins.md)
 - [Extension Points](./extension-points.md)

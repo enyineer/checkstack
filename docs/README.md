@@ -9,6 +9,7 @@ New to Checkmate? Start here:
 1. **[README](../README.md)** - Project overview and setup instructions
 2. **[Plugin Architecture](./plugin-architecture.md)** - Understand the core architecture
 3. **[Contributing Guide](./contributing.md)** - Set up your development environment
+4. **[Monorepo Tooling](./monorepo-tooling.md)** - Shared configurations and scripts
 
 ## Plugin Development
 
@@ -28,6 +29,7 @@ New to Checkmate? Start here:
 ### Core Concepts
 
 - **[Plugin Architecture](./plugin-architecture.md)** - Pluggable architecture, IoC, and deployment options
+- **[Monorepo Tooling](./monorepo-tooling.md)** - Shared configurations for TypeScript and package scripts
 - **[Database Schema Isolation](./drizzle-schema-isolation.md)** - How each plugin gets its own database schema
 - **[Dependency Linter](./dependency-linter.md)** - Enforced architecture rules and package types
 
@@ -72,11 +74,12 @@ New to Checkmate? Start here:
 ### Creating a New Plugin
 
 1. Read [Plugin Architecture](./plugin-architecture.md) to understand the system
-2. Follow [Backend Plugin Guide](./backend-plugins.md#quick-start) to create backend
-3. Follow [Frontend Plugin Guide](./frontend-plugins.md#quick-start) to create frontend
-4. Create [Common Package](./common-plugins.md) for shared code
-5. Write tests and documentation
-6. Submit a PR following [Contributing Guide](./contributing.md#submitting-changes)
+2. Run [Monorepo Tooling Sync](./monorepo-tooling.md#synchronization-tool) to setup configurations
+3. Follow [Backend Plugin Guide](./backend-plugins.md#quick-start) to create backend
+4. Follow [Frontend Plugin Guide](./frontend-plugins.md#quick-start) to create frontend
+5. Create [Common Package](./common-plugins.md) for shared code
+6. Write tests and documentation
+7. Submit a PR following [Contributing Guide](./contributing.md#submitting-changes)
 
 ### Implementing a Health Check
 
@@ -122,6 +125,7 @@ graph TD
 ## Code Style
 
 - **Language**: TypeScript (strict mode)
+- **Tooling**: Standardized via [Monorepo Tooling](./monorepo-tooling.md)
 - **Formatting**: Enforced by ESLint
 - **Testing**: Bun test runner
 - **Documentation**: JSDoc for public APIs

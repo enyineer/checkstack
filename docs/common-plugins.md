@@ -161,21 +161,16 @@ plugins/
 
 ### tsconfig.json
 
+Common plugins should extend the shared common configuration:
+
 ```json
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "skipLibCheck": true,
-    "outDir": "./dist",
-    "declaration": true,
-    "types": ["bun"]
-  },
+  "extends": "@checkmate/tsconfig/common.json",
   "include": ["src"]
 }
 ```
+
+See [Monorepo Tooling](./monorepo-tooling.md) for more information.
 
 ## Permission Export Pattern
 

@@ -40,6 +40,11 @@ cd plugins/myplugin-backend
   }
 }
 ```
+```bash
+bun run sync
+```
+
+See [Monorepo Tooling](./monorepo-tooling.md) for details on shared configurations.
 
 ### 3. Create Plugin Entry Point
 
@@ -250,7 +255,20 @@ export const items = pgTable("items", {
 });
 ```
 
-> **Important**: Do NOT use `pgSchema()`. The core automatically isolates your schema.
+### TypeScript Configuration
+
+Backend plugins should extend the shared backend configuration.
+
+**tsconfig.json:**
+
+```json
+{
+  "extends": "@checkmate/tsconfig/backend.json",
+  "include": ["src"]
+}
+```
+
+See [Monorepo Tooling](./monorepo-tooling.md) for more information.
 
 ### Configure Drizzle
 
