@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/queue-settings-common",
+  "name": "@checkmate/queue-backend",
   "version": "0.0.1",
   "type": "module",
   "main": "./dist/index.js",
@@ -9,7 +9,11 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@checkmate/common": "workspace:*",
+    "@checkmate/backend-api": "workspace:*",
+    "@checkmate/queue-api": "workspace:*",
+    "@checkmate/queue-common": "workspace:*",
+    "@hono/zod-validator": "^0.4.1",
+    "hono": "^4.6.14",
     "zod": "^4.0.0"
   },
   "devDependencies": {

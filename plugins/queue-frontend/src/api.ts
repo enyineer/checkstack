@@ -3,9 +3,9 @@ import {
   QueuePluginDto,
   QueueConfigurationDto,
   UpdateQueueConfiguration,
-} from "@checkmate/queue-settings-common";
+} from "@checkmate/queue-common";
 
-export interface QueueSettingsApi {
+export interface QueueApi {
   getPlugins(): Promise<QueuePluginDto[]>;
   getConfiguration(): Promise<QueueConfigurationDto>;
   updateConfiguration(
@@ -13,15 +13,14 @@ export interface QueueSettingsApi {
   ): Promise<QueueConfigurationDto>;
 }
 
-export const queueSettingsApiRef =
-  createApiRef<QueueSettingsApi>("queue-settings-api");
+export const queueApiRef = createApiRef<QueueApi>("queue-api");
 
-export class QueueSettingsApiClient implements QueueSettingsApi {
+export class QueueApiClient implements QueueApi {
   constructor(private fetchApi: FetchApi) {}
 
   private async fetch<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await this.fetchApi
-      .forPlugin("queue-settings-backend")
+      .forPlugin("queue-backend")
       .fetch(path, init);
 
     if (!res.ok) {

@@ -4,11 +4,11 @@ import {
   permissionList,
   permissions,
   UpdateQueueConfigurationSchema,
-} from "@checkmate/queue-settings-common";
+} from "@checkmate/queue-common";
 import { zValidator } from "@hono/zod-validator";
 
 export default createBackendPlugin({
-  pluginId: "queue-settings-backend",
+  pluginId: "queue-backend",
   register(env) {
     env.registerPermissions(permissionList);
 

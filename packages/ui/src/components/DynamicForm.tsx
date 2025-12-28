@@ -23,7 +23,7 @@ import {
 const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);
 
-interface JsonSchemaProperty {
+export interface JsonSchemaProperty {
   type?: string;
   description?: string;
   enum?: string[];
@@ -35,7 +35,7 @@ interface JsonSchemaProperty {
   default?: unknown;
 }
 
-interface JsonSchema {
+export interface JsonSchema {
   properties?: Record<string, JsonSchemaProperty>;
   required?: string[];
 }

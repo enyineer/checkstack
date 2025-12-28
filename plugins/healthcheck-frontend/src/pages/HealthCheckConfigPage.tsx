@@ -13,15 +13,7 @@ import {
 } from "@checkmate/healthcheck-common";
 import { HealthCheckList } from "../components/HealthCheckList";
 import { HealthCheckEditor } from "../components/HealthCheckEditor";
-import {
-  Button,
-  Page,
-  PageHeader,
-  PageContent,
-  PermissionDenied,
-  LoadingSpinner,
-  ConfirmationModal,
-} from "@checkmate/ui";
+import { Button, ConfirmationModal, PageLayout } from "@checkmate/ui";
 import { Plus } from "lucide-react";
 
 const HealthCheckConfigPageContent = () => {
@@ -93,44 +85,36 @@ const HealthCheckConfigPageContent = () => {
     await fetchData();
   };
 
-  if (permissionLoading) {
-    return <LoadingSpinner />;
-  }
-
-  if (!canRead) {
-    return <PermissionDenied />;
-  }
-
   return (
-    <Page>
-      <PageHeader
-        title="Health Checks"
-        subtitle="Manage health check configurations"
-        actions={
-          !isEditing && (
-            <Button onClick={handleCreate}>
-              <Plus className="mr-2 h-4 w-4" /> Create Check
-            </Button>
-          )
-        }
-      />
-      <PageContent>
-        {isEditing ? (
-          <HealthCheckEditor
-            strategies={strategies}
-            initialData={editingConfig}
-            onSave={handleSave}
-            onCancel={() => setIsEditing(false)}
-          />
-        ) : (
-          <HealthCheckList
-            configurations={configurations}
-            strategies={strategies}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-          />
-        )}
-      </PageContent>
+    <PageLayout
+      title="Health Checks"
+      subtitle="Manage health check configurations"
+      loading={permissionLoading}
+      allowed={canRead}
+      maxWidth={isEditing ? "3xl" : "full"}
+      actions={
+        !isEditing && (
+          <Button onClick={handleCreate}>
+            <Plus className="mr-2 h-4 w-4" /> Create Check
+          </Button>
+        )
+      }
+    >
+      {isEditing ? (
+        <HealthCheckEditor
+          strategies={strategies}
+          initialData={editingConfig}
+          onSave={handleSave}
+          onCancel={() => setIsEditing(false)}
+        />
+      ) : (
+        <HealthCheckList
+          configurations={configurations}
+          strategies={strategies}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+        />
+      )}
 
       <ConfirmationModal
         isOpen={isDeleteModalOpen}
@@ -142,7 +126,7 @@ const HealthCheckConfigPageContent = () => {
         variant="danger"
         isLoading={isDeleting}
       />
-    </Page>
+    </PageLayout>
   );
 };
 

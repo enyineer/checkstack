@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/queue-settings-frontend",
+  "name": "@checkmate/queue-frontend",
   "version": "0.0.1",
   "type": "module",
   "main": "./dist/index.js",
@@ -11,7 +11,7 @@
   "dependencies": {
     "@checkmate/common": "workspace:*",
     "@checkmate/frontend-api": "workspace:*",
-    "@checkmate/queue-settings-common": "workspace:*",
+    "@checkmate/queue-common": "workspace:*",
     "@checkmate/ui": "workspace:*",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",

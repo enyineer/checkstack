@@ -8,17 +8,12 @@ import {
   Button,
   Input,
   Label,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Card,
   CardContent,
   CardFooter,
   CardHeader,
   CardTitle,
-  DynamicForm,
+  PluginConfigForm,
 } from "@checkmate/ui";
 
 interface HealthCheckEditorProps {
@@ -44,8 +39,6 @@ export const HealthCheckEditor: React.FC<HealthCheckEditorProps> = ({
   );
 
   const [loading, setLoading] = useState(false);
-
-  const selectedStrategy = strategies.find((s) => s.id === strategyId);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,26 +77,6 @@ export const HealthCheckEditor: React.FC<HealthCheckEditorProps> = ({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="strategy">Strategy</Label>
-            <Select
-              value={strategyId}
-              onValueChange={setStrategyId}
-              disabled={!!initialData} // Changing strategy changes schema, tricky for edit
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select a strategy" />
-              </SelectTrigger>
-              <SelectContent>
-                {strategies.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.displayName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
             <Label htmlFor="interval">Interval (seconds)</Label>
             <Input
               id="interval"
@@ -115,17 +88,18 @@ export const HealthCheckEditor: React.FC<HealthCheckEditorProps> = ({
             />
           </div>
 
-          {selectedStrategy ? (
-            <DynamicForm
-              schema={selectedStrategy.configSchema}
-              value={config}
-              onChange={setConfig}
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Select a strategy to configure.
-            </p>
-          )}
+          <PluginConfigForm
+            label="Strategy"
+            plugins={strategies}
+            selectedPluginId={strategyId}
+            onPluginChange={(id) => {
+              setStrategyId(id);
+              setConfig({});
+            }}
+            config={config}
+            onConfigChange={setConfig}
+            disabled={!!initialData}
+          />
         </CardContent>
         <CardFooter className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onCancel}>
