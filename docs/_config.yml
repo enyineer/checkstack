@@ -1,0 +1,20 @@
+title: Checkmate Documentation
+description: Plugin-based application platform with extensible architecture
+theme: jekyll-theme-primer
+baseurl: /checkmate
+url: https://enyineer.github.io
+
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+plugins:
+  - jekyll-relative-links
+
+relative_links:
+  enabled: true
+  collections: false
+
+include:
+  - README.md
