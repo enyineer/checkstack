@@ -110,7 +110,7 @@ export const httpHealthCheckStrategy: HealthCheckStrategy<HttpCheckConfigV1> = {
 ```typescript
 const versionedConfig: VersionedConfig<HttpCheckConfigV1> = {
   version: 1,
-  pluginId: "http-healthcheck-backend",
+  pluginId: "healthcheck-http-backend",
   data: {
     url: "https://example.com",
     timeout: 5000,
@@ -267,7 +267,7 @@ The core automatically migrates configs when they're loaded:
 // User has a V1 config stored
 const storedConfig: VersionedConfig<ConfigV1> = {
   version: 1,
-  pluginId: "http-healthcheck-backend",
+  pluginId: "healthcheck-http-backend",
   data: {
     url: "https://example.com",
     timeout: 5000,
@@ -284,7 +284,7 @@ const migratedConfig = await migrationRunner.migrate(
 // Result: V4 config
 {
   version: 4,
-  pluginId: "http-healthcheck-backend",
+  pluginId: "healthcheck-http-backend",
   data: {
     url: "https://example.com",
     timeoutMs: 5000,

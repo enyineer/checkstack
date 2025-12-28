@@ -367,7 +367,7 @@ Adds a new HTTP health check plugin that supports custom headers and retry logic
 
 ## Changes
 
-- Created `http-healthcheck-backend` plugin
+- Created `healthcheck-http-backend` plugin
 - Added support for custom headers
 - Implemented retry logic with exponential backoff
 - Added comprehensive tests

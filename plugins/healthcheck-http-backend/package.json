@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/http-healthcheck-backend-plugin",
+  "name": "@checkmate/healthcheck-http-backend",
   "version": "0.0.1",
   "type": "module",
   "main": "src/index.ts",
