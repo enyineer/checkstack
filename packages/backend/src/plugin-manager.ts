@@ -350,7 +350,7 @@ export class PluginManager {
           providedBy
         );
       } catch (error) {
-        rootLogger.error(`Failed to load module for ${plugin.name}:`, error);
+        rootLogger.error(`❌ Failed to load module for ${plugin.name}:`, error);
       }
     }
 

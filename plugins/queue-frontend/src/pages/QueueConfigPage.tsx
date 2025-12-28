@@ -13,6 +13,11 @@ import {
   AlertDescription,
   PageLayout,
   PluginConfigForm,
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
 } from "@checkmate/ui";
 import { AlertTriangle, Save } from "lucide-react";
 
@@ -66,47 +71,60 @@ const QueueConfigPageContent = () => {
       subtitle="Configure the queue system for background jobs"
       loading={permissionLoading}
       allowed={canRead}
-      actions={
-        <Button onClick={handleSave} disabled={!canUpdate || isSaving}>
-          <Save className="mr-2 h-4 w-4" />
-          {isSaving ? "Saving..." : "Save Configuration"}
-        </Button>
-      }
+      maxWidth="3xl"
     >
-      {isMemoryQueue && (
-        <Alert variant="warning">
-          <AlertTriangle className="h-5 w-5" />
-          <div>
-            <AlertTitle>In-Memory Queue Warning</AlertTitle>
-            <AlertDescription>
-              The in-memory queue is suitable for development and
-              single-instance deployments only. It will not scale across
-              multiple instances and jobs will be lost on restart. For
-              production environments with multiple instances, consider using a
-              persistent queue implementation.
-            </AlertDescription>
-          </div>
-        </Alert>
-      )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Queue Configuration</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Select and configure the queue plugin
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {isMemoryQueue && (
+            <Alert variant="warning">
+              <AlertTriangle className="h-5 w-5" />
+              <div>
+                <AlertTitle>In-Memory Queue Warning</AlertTitle>
+                <AlertDescription>
+                  The in-memory queue is suitable for development and
+                  single-instance deployments only. It will not scale across
+                  multiple instances and jobs will be lost on restart. For
+                  production environments with multiple instances, consider
+                  using a persistent queue implementation.
+                </AlertDescription>
+              </div>
+            </Alert>
+          )}
 
-      {saveSuccess && (
-        <Alert variant="success">
-          <AlertDescription>Configuration saved successfully!</AlertDescription>
-        </Alert>
-      )}
+          {saveSuccess && (
+            <Alert variant="success">
+              <AlertDescription>
+                Configuration saved successfully!
+              </AlertDescription>
+            </Alert>
+          )}
 
-      <PluginConfigForm
-        label="Queue Plugin"
-        plugins={plugins}
-        selectedPluginId={selectedPluginId}
-        onPluginChange={(value) => {
-          setSelectedPluginId(value);
-          setConfig({});
-        }}
-        config={config}
-        onConfigChange={setConfig}
-        disabled={!canUpdate}
-      />
+          <PluginConfigForm
+            label="Queue Plugin"
+            plugins={plugins}
+            selectedPluginId={selectedPluginId}
+            onPluginChange={(value) => {
+              setSelectedPluginId(value);
+              setConfig({});
+            }}
+            config={config}
+            onConfigChange={setConfig}
+            disabled={!canUpdate}
+          />
+        </CardContent>
+        <CardFooter className="flex justify-end gap-2">
+          <Button onClick={handleSave} disabled={!canUpdate || isSaving}>
+            <Save className="mr-2 h-4 w-4" />
+            {isSaving ? "Saving..." : "Save Configuration"}
+          </Button>
+        </CardFooter>
+      </Card>
     </PageLayout>
   );
 };
