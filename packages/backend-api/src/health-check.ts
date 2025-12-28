@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MigrationChain } from "@checkmate/queue-api";
 
 export interface HealthCheckResult {
   status: "healthy" | "unhealthy" | "degraded";
@@ -11,7 +12,16 @@ export interface HealthCheckStrategy<Config = unknown> {
   id: string;
   displayName: string;
   description?: string;
-  configSchema: z.ZodType<Config>; // Validation schema for the strategy-specific config
+
+  /** Current version of the configuration schema */
+  configVersion: number;
+
+  /** Validation schema for the strategy-specific config */
+  configSchema: z.ZodType<Config>;
+
+  /** Optional migrations for backward compatibility */
+  migrations?: MigrationChain<Config>;
+
   execute(config: Config): Promise<HealthCheckResult>;
 }
 

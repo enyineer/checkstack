@@ -50,8 +50,8 @@ export class HttpHealthCheckStrategy
 {
   id = "http";
   displayName = "HTTP Health Check";
-  description = "Checks a HTTP(S) endpoint for status code and body assertions";
-
+  description = "Performs HTTP requests to check endpoint health";
+  configVersion = 1; // Initial version
   configSchema = httpHealthCheckConfigSchema;
 
   async execute(config: HttpHealthCheckConfig): Promise<HealthCheckResult> {

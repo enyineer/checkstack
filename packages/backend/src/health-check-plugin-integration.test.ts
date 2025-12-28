@@ -5,6 +5,7 @@ import {
   createBackendPlugin,
   HealthCheckStrategy,
 } from "@checkmate/backend-api";
+import { z } from "zod";
 
 // Mock DB and other globals to avoid side effects
 mock.module("./db", () => ({
@@ -45,13 +46,17 @@ describe("HealthCheck Plugin Integration", () => {
   it("should allow a plugin to register a health check strategy", async () => {
     const mockRouter: any = { route: mock() };
 
+    // Define a mock execute function for the strategy
+    const mockExecute = mock(async () => ({ status: "healthy" as const }));
+
     // 1. Define a mock strategy
-    const testStrategy: HealthCheckStrategy<any> = {
-      id: "plugin-test-strategy",
-      displayName: "Plugin Test Strategy",
-      description: "A strategy registered by a plugin",
-      configSchema: { type: "object" } as any,
-      execute: mock(async () => ({ status: "healthy" as const })),
+    const mockStrategy: HealthCheckStrategy<unknown> = {
+      id: "test-strategy",
+      displayName: "Test Strategy",
+      description: "A test strategy for integration testing",
+      configVersion: 1,
+      configSchema: z.any(),
+      execute: mockExecute,
     };
 
     // 2. Define a mock plugin that registers this strategy
@@ -63,7 +68,7 @@ describe("HealthCheck Plugin Integration", () => {
             healthCheckRegistry: coreServices.healthCheckRegistry,
           },
           init: async ({ healthCheckRegistry }) => {
-            healthCheckRegistry.register(testStrategy);
+            healthCheckRegistry.register(mockStrategy);
           },
         });
       },
@@ -78,8 +83,10 @@ describe("HealthCheck Plugin Integration", () => {
     );
     expect(registry).toBeDefined();
 
-    const strategy = registry?.getStrategy(testStrategy.id);
-    expect(strategy).toBe(testStrategy);
-    expect(strategy?.displayName).toBe("Plugin Test Strategy");
+    const retrieved = registry?.getStrategy(mockStrategy.id);
+    expect(retrieved).toBe(mockStrategy);
+    expect(retrieved?.displayName).toBe("Test Strategy");
+    expect(retrieved?.id).toBe("test-strategy");
+    expect(retrieved?.execute).toBe(mockExecute);
   });
 });

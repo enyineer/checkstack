@@ -1,6 +1,7 @@
-import { describe, it, expect, mock, beforeEach } from "bun:test";
+import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { CoreHealthCheckRegistry } from "./health-check-registry";
 import { HealthCheckStrategy } from "@checkmate/backend-api";
+import { z } from "zod";
 
 // Mock logger
 mock.module("../logger", () => ({
@@ -13,23 +14,24 @@ mock.module("../logger", () => ({
 describe("CoreHealthCheckRegistry", () => {
   let registry: CoreHealthCheckRegistry;
 
-  const mockStrategy1: HealthCheckStrategy<any> = {
+  const mockStrategy1: HealthCheckStrategy<unknown> = {
     id: "test-strategy-1",
     displayName: "Test Strategy 1",
     description: "A test strategy",
-    configSchema: { type: "object", properties: {} } as any,
-    execute: mock(async () => ({ status: "healthy" as const })),
+    configVersion: 1, // Added configVersion
+    configSchema: z.any(), // Changed configSchema
+    execute: mock(() => Promise.resolve({ status: "healthy" as const })), // Modified execute
   };
 
-  const mockStrategy2: HealthCheckStrategy<any> = {
+  const mockStrategy2: HealthCheckStrategy<unknown> = {
     id: "test-strategy-2",
     displayName: "Test Strategy 2",
     description: "Another test strategy",
-    configSchema: { type: "object", properties: {} } as any,
-    execute: mock(async () => ({
-      status: "unhealthy" as const,
-      message: "Error",
-    })),
+    configVersion: 1, // Added configVersion
+    configSchema: z.any(), // Changed configSchema
+    execute: mock(() =>
+      Promise.resolve({ status: "unhealthy" as const, message: "Failed" })
+    ), // Modified execute
   };
 
   beforeEach(() => {

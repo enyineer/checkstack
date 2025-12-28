@@ -23,6 +23,7 @@ export class InMemoryQueuePlugin implements QueuePlugin<InMemoryQueueConfig> {
   displayName = "In-Memory Queue";
   description =
     "Simple in-memory queue for development and single-instance deployments";
+  configVersion = 1; // Initial version
   configSchema = configSchema;
 
   createQueue<T>(name: string, config: InMemoryQueueConfig): Queue<T> {
