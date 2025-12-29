@@ -364,6 +364,21 @@ oRPC automatically infers types from the procedure chain. **Do not** add explici
 
 ## Database Schema
 
+### Configuration vs User Data
+
+**Important:** Distinguish between **plugin configuration** and **user data**:
+
+- **Plugin Configuration**: Use `ConfigService` for settings that control plugin behavior
+  - Examples: Active queue provider, enabled auth strategies, API keys
+  - See [Configuration Storage Guide](./config-service.md) for details
+
+-  **User Data**: Use custom Drizzle schemas for user-created content
+  - Examples: Health check instances, catalog systems, user-created items
+  - Define schema in `src/schema.ts` as shown below
+
+> **When in doubt**: Ask "Is this controlling the plugin's behavior, or is it content users create?"  
+> Behavior → ConfigService | Content → Custom schema
+
 ### Define Schema
 
 **src/schema.ts:**
@@ -652,6 +667,7 @@ If TypeScript complains about handler types:
 
 ## Next Steps
 
+- [Configuration Storage](./config-service.md) - When to use ConfigService vs custom schemas
 - [Frontend Plugin Development](./frontend-plugins.md)
 - [Common Plugin Guidelines](./common-plugins.md)
 - [Extension Points](./extension-points.md)
