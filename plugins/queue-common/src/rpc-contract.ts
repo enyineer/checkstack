@@ -1,11 +1,11 @@
 import { oc } from "@orpc/contract";
 import { z } from "zod";
+import { permissions } from "./permissions";
 import {
-  permissions,
   QueuePluginDtoSchema,
   QueueConfigurationDtoSchema,
   UpdateQueueConfigurationSchema,
-} from "./index";
+} from "./schemas";
 
 // Permission metadata type
 export interface QueueMetadata {

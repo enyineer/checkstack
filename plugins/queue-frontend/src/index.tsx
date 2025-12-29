@@ -1,7 +1,6 @@
-import { fetchApiRef, ApiRef } from "@checkmate/frontend-api";
+import { rpcApiRef, ApiRef } from "@checkmate/frontend-api";
 import { SLOT_USER_MENU_ITEMS } from "@checkmate/common";
-import { QueueApiClient } from "./api";
-import { queueApiRef } from "./api";
+import { queueApiRef, type QueueApi } from "./api";
 import { createFrontendPlugin } from "@checkmate/frontend-api";
 import { QueueConfigPage } from "./pages/QueueConfigPage";
 import { QueueUserMenuItems } from "./components/UserMenuItems";
@@ -11,9 +10,9 @@ export const queuePlugin = createFrontendPlugin({
   apis: [
     {
       ref: queueApiRef,
-      factory: (deps: { get: <T>(ref: ApiRef<T>) => T }) => {
-        const fetchApi = deps.get(fetchApiRef);
-        return new QueueApiClient(fetchApi);
+      factory: (deps: { get: <T>(ref: ApiRef<T>) => T }): QueueApi => {
+        const rpcApi = deps.get(rpcApiRef);
+        return rpcApi.forPlugin<QueueApi>("queue-backend");
       },
     },
   ],
