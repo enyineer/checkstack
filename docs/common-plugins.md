@@ -2,7 +2,9 @@
 
 ## Overview
 
-Common plugins (e.g., `catalog-common`, `auth-common`) are special plugin packages designed to share code, types, and constants between frontend and backend plugins. They contain code that is agnostic to the runtime environment and can safely be imported by both frontend and backend packages.
+Common plugins (e.g., `catalog-common`, `healthcheck-common`) are special plugin packages designed to define **contracts** and share types, schemas, and permissions between frontend and backend plugins. They contain code that is agnostic to the runtime environment and can safely be imported by both frontend and backend packages.
+
+**Key Purpose**: Common packages define the **contract** for type-safe RPC communication using oRPC, serving as the single source of truth for API definitions.
 
 ## Dependency Architecture Rules
 
@@ -18,14 +20,28 @@ This ensures clean separation of concerns and prevents runtime-specific code fro
 
 Create a common plugin when you need to:
 
-1. **Share Permission Definitions**: Export permission constants that both frontend and backend need to reference
-2. **Share Type Definitions**: Define types/interfaces used across frontend and backend (e.g., API request/response types)
-3. **Share Constants**: Export enums, configuration constants, or other shared values
-4. **Share Utilities**: Include pure functions that don't depend on runtime-specific APIs (no DOM, no Node.js APIs)
+1. **Define RPC Contracts**: Create type-safe oRPC contracts that both frontend and backend implement
+2. **Share Permission Definitions**: Export permission constants that both frontend and backend need to reference
+3. **Share Type Definitions**: Define types/interfaces used across frontend and backend (via Zod schemas)
+4. **Share Validation Schemas**: Define Zod schemas for data validation and type inference
+5. **Share Constants**: Export enums, configuration constants, or other shared values
 
 ## What Belongs in Common Plugins
 
 ### ✅ Safe to Include
+
+- **RPC Contracts**: Type-safe contract definitions using `@orpc/contract`
+  ```typescript
+  import { oc } from "@orpc/contract";
+  
+  const _base = oc.$meta<Metadata>({});
+  
+  export const myContract = {
+    getData: _base
+      .meta({ permissions: [permissions.read.id] })
+      .output(z.array(DataSchema)),
+  };
+  ```
 
 - **Permission Definitions**: Type-safe permission objects and lists
   ```typescript
@@ -38,20 +54,15 @@ Create a common plugin when you need to:
   } satisfies Record<string, Permission>;
   ```
 
-- **Type Definitions**: Shared interfaces and types
-  ```typescript
-  export interface System {
-    id: string;
-    name: string;
-  }
-  ```
-
-- **Validation Schemas**: Zod schemas for shared data structures
+- **Zod Schemas**: Validation schemas for shared data structures
   ```typescript
   export const systemSchema = z.object({
     id: z.string(),
     name: z.string(),
+    createdAt: z.date(),
   });
+  
+  export type System = z.infer<typeof systemSchema>;
   ```
 
 - **Pure Utility Functions**: Functions with no side effects or runtime dependencies
@@ -74,7 +85,7 @@ Create a common plugin when you need to:
 ### ❌ Do NOT Include
 
 - **React Components**: These belong in `*-react` or `*-frontend` plugins
-- **Hono Routers**: These belong in `*-backend` plugins
+- **oRPC Router Implementations**: These belong in `*-backend` plugins
 - **Drizzle Schemas**: These belong in `*-backend` plugins
 - **Node.js-specific APIs**: Use `*-node` plugins instead
 - **Browser-specific APIs**: Use `*-frontend` or `*-react` plugins instead
@@ -124,13 +135,27 @@ plugins/
     src/
       index.ts          # Barrel export
       permissions.ts    # Permission definitions
-      types.ts          # Shared type definitions
-      schemas.ts        # Zod validation schemas (optional)
+      schemas.ts        # Zod schemas and type definitions
+      rpc-contract.ts   # oRPC contract definition
       constants.ts      # Shared constants (optional)
       utils.ts          # Pure utility functions (optional)
 ```
 
 ## Package Configuration
+
+### Mandatory Dependencies
+
+The `-common` package must have these dependencies to support oRPC contracts:
+
+```json
+{
+  "dependencies": {
+    "@checkmate/common": "workspace:*",
+    "@orpc/contract": "^1.13.2",
+    "zod": "^3.23.0"
+  }
+}
+```
 
 ### package.json
 
@@ -145,7 +170,9 @@ plugins/
     }
   },
   "dependencies": {
-    "@checkmate/common": "workspace:*"
+    "@checkmate/common": "workspace:*",
+    "@orpc/contract": "^1.13.2",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "typescript": "^5.7.2"
@@ -156,8 +183,9 @@ plugins/
 **Key points:**
 - Use `workspace:*` for internal dependencies
 - Only depend on `@checkmate/common` for shared type definitions like `Permission`
+- Include `@orpc/contract` and `zod` for contract and schema definitions
 - Do NOT depend on `@checkmate/backend-api`, `@checkmate/frontend-api`, or any runtime-specific packages
-- Common plugins must maintain zero runtime dependencies to ensure they can be safely imported anywhere
+- Common plugins must maintain minimal dependencies to ensure they can be safely imported anywhere
 
 ### tsconfig.json
 
@@ -172,24 +200,244 @@ Common plugins should extend the shared common configuration:
 
 See [Monorepo Tooling](./monorepo-tooling.md) for more information.
 
+## Mandatory Project Structure
+
+To prevent circular dependencies (which cause `ReferenceError: Cannot access 'X' before initialization` at runtime), follow this strict file layout for all `-common` packages:
+
+### File Organization
+
+1. **`src/permissions.ts`**: Define permissions using `createPermission`
+2. **`src/schemas.ts`**: Define all Zod schemas and derive types
+3. **`src/rpc-contract.ts`**: Define the oRPC contract
+4. **`src/index.ts`**: Barrel file that exports everything
+
+### The Golden Rule
+
+**Internal package files (like `rpc-contract.ts`) MUST NEVER import from `./index`.** 
+
+Doing so creates a circular loop when the barrel file also exports the contract, leading to uninitialized variable errors in tests and at runtime.
+
+```typescript
+// ✅ Good - Import from specific files
+import { permissions } from "./permissions";
+import { SystemSchema } from "./schemas";
+
+// ❌ Bad - Creates circular dependency
+import { permissions, SystemSchema } from "./index";
+```
+
+### Example Structure
+
+**src/permissions.ts:**
+```typescript
+import { createPermission } from "@checkmate/common";
+
+export const permissions = {
+  catalogRead: createPermission({
+    id: "catalog.read",
+    description: "Read catalog entities",
+  }),
+  catalogManage: createPermission({
+    id: "catalog.manage",
+    description: "Manage catalog entities",
+  }),
+};
+
+export const permissionList = Object.values(permissions);
+```
+
+**src/schemas.ts:**
+```typescript
+import { z } from "zod";
+
+export const SystemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.enum(["healthy", "degraded", "unhealthy"]),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type System = z.infer<typeof SystemSchema>;
+
+export const CreateSystemSchema = z.object({
+  name: z.string().min(1).max(255),
+  description: z.string().optional(),
+});
+```
+
+**src/rpc-contract.ts:**
+```typescript
+import { oc } from "@orpc/contract";
+import { z } from "zod";
+import { SystemSchema, CreateSystemSchema } from "./schemas"; // Direct import
+import { permissions } from "./permissions"; // Direct import
+
+// 1. Define metadata type (must match backend-api's PermissionMetadata structure)
+export interface CatalogMetadata {
+  permissions?: string[];
+}
+
+// 2. Create base builder with metadata support
+const _base = oc.$meta<CatalogMetadata>({});
+
+export const catalogContract = {
+  getSystems: _base
+    .meta({ permissions: [permissions.catalogRead.id] })
+    .output(z.array(SystemSchema)),
+  
+  createSystem: _base
+    .meta({ permissions: [permissions.catalogManage.id] })
+    .input(CreateSystemSchema)
+    .output(SystemSchema),
+};
+
+export type CatalogContract = typeof catalogContract;
+```
+
+**src/index.ts:**
+```typescript
+// Export permissions
+export { permissions, permissionList } from "./permissions";
+
+// Export schemas and types
+export * from "./schemas";
+
+// CRITICAL: Use explicit named re-exports for the contract
+// Using export * can lead to silent export failures in some bundler configurations
+export { catalogContract, type CatalogContract } from "./rpc-contract";
+```
+
+## Defining RPC Contracts
+
+### Step 1: Define Domain Schemas
+
+Define the core data models using Zod in `src/schemas.ts`. **Match database output types exactly** (using `z.date()` for timestamps and `.nullable()` where appropriate):
+
+```typescript
+import { z } from "zod";
+
+export const SystemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.enum(["healthy", "degraded", "unhealthy"]),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type System = z.infer<typeof SystemSchema>;
+```
+
+### Step 2: Define Input Schemas
+
+**Best Practice**: **Always omit the `id` field** from creation schemas. The backend should generate unique identifiers.
+
+```typescript
+export const CreateSystemSchema = z.object({
+  name: z.string().min(1).max(255),
+  description: z.string().optional(),
+  status: z.enum(["healthy", "degraded", "unhealthy"]).optional(),
+});
+
+export const UpdateSystemSchema = CreateSystemSchema.partial();
+```
+
+Using `z.enum` ensures frontend gets exact type inference for allowed values, avoiding unsafe type casting.
+
+### Step 3: Define RPC Contract
+
+Define your contract in `src/rpc-contract.ts` using the `oc` builder from `@orpc/contract`.
+
+```typescript
+import { oc } from "@orpc/contract";
+import { z } from "zod";
+import { SystemSchema, CreateSystemSchema, UpdateSystemSchema } from "./schemas";
+import { permissions } from "./permissions";
+
+// 1. Define metadata type for type-safe permission declarations
+export interface CatalogMetadata {
+  permissions?: string[];
+}
+
+// 2. Create base builder with metadata support
+// Convention: Use '_base' to avoid shadowing in router implementation
+const _base = oc.$meta<CatalogMetadata>({});
+
+export const catalogContract = {
+  // Use .meta() to declare required permissions (documentation)
+  getSystems: _base
+    .meta({ permissions: [permissions.catalogRead.id] })
+    .output(z.array(SystemSchema)),
+  
+  getSystem: _base
+    .meta({ permissions: [permissions.catalogRead.id] })
+    .input(z.string())
+    .output(SystemSchema),
+  
+  createSystem: _base
+    .meta({ permissions: [permissions.catalogManage.id] })
+    .input(CreateSystemSchema)
+    .output(SystemSchema),
+  
+  updateSystem: _base
+    .meta({ permissions: [permissions.catalogManage.id] })
+    .input(z.object({
+      id: z.string(),
+      data: UpdateSystemSchema,
+    }))
+    .output(SystemSchema),
+  
+  deleteSystem: _base
+    .meta({ permissions: [permissions.catalogManage.id] })
+    .input(z.string())
+    .output(z.void()),
+};
+
+export type CatalogContract = typeof catalogContract;
+```
+
+## Declarative Permission Metadata
+
+oRPC allows attaching metadata to procedures. The project uses the `permissions` key to designate required permissions.
+
+By defining these in the contract, you ensure security policies are **self-documenting** and can be:
+- Automatically enforced by the backend (via explicit middleware)
+- Used by the frontend to control UI visibility
+
+```typescript
+export const catalogContract = {
+  getSystems: _base
+    .meta({ permissions: [permissions.catalogRead.id] })
+    .output(z.array(SystemSchema)),
+
+  createSystem: _base
+    .meta({ permissions: [permissions.catalogManage.id] })
+    .input(CreateSystemSchema)
+    .output(SystemSchema),
+};
+```
+
+The **backend router** uses this metadata as the reference for **explicit manual enforcement** using `authedProcedure.use(permissionMiddleware(...))`. This ensures security is auditable and documented in a single place.
+
 ## Permission Export Pattern
 
 ### In Common Plugin (`catalog-common/src/permissions.ts`)
 
 ```typescript
-import type { Permission } from "@checkmate/common";
+import { createPermission } from "@checkmate/common";
 
 export const permissions = {
-  entityRead: {
-    id: "entity.read",
-    description: "Read Systems and Groups",
-  },
-  entityCreate: {
-    id: "entity.create",
-    description: "Create Systems and Groups",
-  },
-  // ... more permissions
-} satisfies Record<string, Permission>;
+  catalogRead: createPermission({
+    id: "catalog.read",
+    description: "Read catalog entities",
+  }),
+  catalogManage: createPermission({
+    id: "catalog.manage",
+    description: "Manage catalog entities",
+  }),
+};
 
 // Export as array for backend registration
 export const permissionList = Object.values(permissions);
@@ -199,6 +447,7 @@ export const permissionList = Object.values(permissions);
 
 ```typescript
 import { permissionList, permissions } from "@checkmate/catalog-common";
+import { permissionMiddleware } from "@checkmate/backend-api";
 
 export default createBackendPlugin({
   pluginId: "catalog-backend",
@@ -208,11 +457,18 @@ export default createBackendPlugin({
 
     env.registerInit({
       // ...
-      init: async ({ router, check }) => {
-        // Use typed permission constants
-        router.get("/entities", check(permissions.entityRead.id), async (c) => {
-          // ...
+      init: async ({ rpc }) => {
+        const catalogRead = permissionMiddleware(permissions.catalogRead.id);
+        
+        const router = os.router({
+          getSystems: authedProcedure
+            .use(catalogRead)
+            .handler(async () => {
+              // Implementation
+            }),
         });
+        
+        rpc.registerRouter("catalog-backend", router);
       },
     });
   },
@@ -235,20 +491,103 @@ export const CatalogConfigPage = () => {
 };
 ```
 
-## Benefits
+## Benefits of This Approach
 
-1. **Type Safety**: Compile-time validation of permission strings
-2. **Single Source of Truth**: Permission definitions in one place
-3. **Refactoring Support**: IDE can find all usages when renaming
-4. **Autocomplete**: IDE provides suggestions for available permissions
-5. **No Duplication**: Eliminates hardcoded permission strings scattered across files
-6. **Cross-Plugin Sharing**: Other plugins can import and use the same permissions
+1. **Type Safety**: Full end-to-end type safety from DB to frontend
+2. **Runtime Validation**: Zod schemas provide runtime validation for all API inputs and outputs
+3. **No Contract Drift**: Compile-time errors if backend implementation doesn't match contract
+4. **Improved DX**: Auto-completion and type checking for all RPC calls
+5. **Single Source of Truth**: Contract definition is the authoritative API specification
+6. **Self-Documenting**: Permission requirements declared in contract metadata
+7. **Refactoring Support**: IDE can find all usages when renaming
+8. **No Duplication**: Eliminates hardcoded strings and duplicate type definitions
+
+## Migrating Legacy Interfaces
+
+In older parts of the codebase, contracts might be defined as simple TypeScript interfaces:
+
+```typescript
+// Legacy src/rpc-contract.ts
+export interface MyLegacyContract {
+  getData: (id: string) => Promise<Data[]>;
+  updateData: (input: { id: string; data: Partial<Data> }) => Promise<Data>;
+}
+```
+
+To migrate to the oRPC pattern:
+
+1. **Define Zod Schemas**: Create schemas for `Data`, `CreateInput`, etc., in `src/schemas.ts`
+2. **Rewrite with oc**: Use `oc.$meta<MyMetadata>({})` to create a base builder
+   ```typescript
+   const _base = oc.$meta<MyMetadata>({});
+
+   export const myContract = {
+     getData: _base
+       .meta({ permissions: [permissions.myRead.id] })
+       .input(z.string())
+       .output(z.array(DataSchema)),
+
+     updateData: _base
+       .meta({ permissions: [permissions.myManage.id] })
+       .input(z.object({ id: z.string(), data: DataSchema.partial() }))
+       .output(DataSchema),
+   };
+   ```
+3. **Update Type Exports**: Replace the `interface` with a `typeof` export
+   ```typescript
+   export type MyContract = typeof myContract;
+   ```
+4. **Update Router**: Refactor backend router to use `os.router()` and manual middleware
+5. **Update Frontend**: Update API factory to use `ContractRouterClient<typeof myContract>`
+
+## Troubleshooting Type Export Issues
+
+If you encounter `TS2305: Module 'X' has no exported member 'Y'` in the frontend after restructuring a common package:
+
+### 1. Verify Named Re-exports
+
+Ensure `src/index.ts` uses **explicit named re-exports** instead of `export *`:
+
+```typescript
+// ✅ Good - Explicit named re-exports
+export { myContract, type MyContract } from "./rpc-contract";
+
+// ❌ Risky - Can fail to propagate types in complex monorepos
+export * from "./rpc-contract";
+```
+
+This is the most common cause of `TS2305` in complex monorepos, as `export *` can fail to propagate types if the compiler doesn't trace the internal dependency tree correctly.
+
+### 2. Remove Stale dist Folder
+
+If a `dist` folder exists in your common package, **delete it**:
+
+```bash
+rm -rf dist
+```
+
+In source-resolving monorepos, a stale `dist` folder can shadow your updated source files, causing the compiler to see old types or no types at all.
+
+### 3. Clear Consumer Cache
+
+The consumer (frontend/backend) might have a stale TypeScript cache:
+
+```bash
+rm -rf tsconfig.tsbuildinfo node_modules/.cache
+```
+
+Restart the TypeScript Language Server or `bun run dev` process to pick up new declaration files.
+
+### 4. Verify No Circular Dependencies
+
+If a member remains missing despite being in `src/index.ts`, it is likely being silently omitted due to a circular dependency loop. **NEVER** import from the barrel file within its children.
 
 ## Naming Conventions
 
 - **Package Name**: `@checkmate/<plugin>-common`
 - **Permission IDs**: Use dot notation: `entity.read`, `incident.manage`
 - **Permission Constants**: Use camelCase: `entityRead`, `incidentManage`
+- **Contract Names**: Use camelCase suffix: `catalogContract`, `healthCheckContract`
 - **Exports**: Always use barrel exports in `index.ts`
 
 ## Testing
@@ -258,20 +597,57 @@ Common plugins should be tested with unit tests that verify:
 - Validation schemas work as expected
 - Utility functions produce correct outputs
 - Permission lists contain expected permissions
+- Contract metadata is properly defined
 
-Since common plugins have no runtime dependencies, they're easy to test:
+Since common plugins have minimal runtime dependencies, they're easy to test:
 
 ```typescript
 import { describe, expect, test } from "bun:test";
 import { permissions, permissionList } from "./permissions";
+import { SystemSchema } from "./schemas";
 
 describe("Permissions", () => {
   test("permission list contains all permissions", () => {
-    expect(permissionList).toHaveLength(7);
+    expect(permissionList).toHaveLength(2);
   });
 
   test("permission IDs are correctly formatted", () => {
-    expect(permissions.entityRead.id).toBe("entity.read");
+    expect(permissions.catalogRead.id).toBe("catalog.read");
+  });
+});
+
+describe("Schemas", () => {
+  test("SystemSchema validates correct data", () => {
+    const result = SystemSchema.safeParse({
+      id: "sys-1",
+      name: "Test System",
+      status: "healthy",
+      metadata: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    
+    expect(result.success).toBe(true);
+  });
+  
+  test("SystemSchema rejects invalid status", () => {
+    const result = SystemSchema.safeParse({
+      id: "sys-1",
+      name: "Test System",
+      status: "invalid",
+      metadata: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    
+    expect(result.success).toBe(false);
   });
 });
 ```
+
+## Next Steps
+
+- [Backend Plugin Development](./backend-plugins.md) - Implement contracts in backend routers
+- [Frontend Plugin Development](./frontend-plugins.md) - Consume contracts in frontend clients
+- [Extension Points](./extension-points.md)
+- [Versioned Configurations](./versioned-configs.md)

@@ -2,18 +2,156 @@
 
 ## Overview
 
-Backend plugins provide REST APIs, business logic, database schemas, and integration with external services. They are built using **Hono** for routing, **Drizzle** for database access, and **Zod** for validation.
+Backend plugins provide type-safe RPC APIs, business logic, database schemas, and integration with external services. They are built using **oRPC** for contract implementation, **Drizzle** for database access, and **Zod** for validation.
+
+The backend implements contracts defined in `-common` packages, ensuring end-to-end type safety from database to frontend.
 
 ## Quick Start
 
 ### 1. Create Plugin Structure
 
 ```bash
-mkdir -p plugins/myplugin-backend/src
-cd plugins/myplugin-backend
+mkdir -p plugins/myplugin-{common,backend}/src
 ```
 
-### 2. Initialize package.json
+### 2. Initialize Common Package
+
+Create the common package first to define your contract.
+
+**plugins/myplugin-common/package.json:**
+
+```json
+{
+  "name": "@checkmate/myplugin-common",
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@checkmate/common": "workspace:*",
+    "@orpc/contract": "^1.13.2",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}
+```
+
+### 3. Define Permissions
+
+**plugins/myplugin-common/src/permissions.ts:**
+
+```typescript
+import { createPermission } from "@checkmate/common";
+
+export const permissions = {
+  itemRead: createPermission({
+    id: "item.read",
+    description: "Read items",
+  }),
+  itemManage: createPermission({
+    id: "item.manage",
+    description: "Manage items",
+  }),
+};
+
+export const permissionList = Object.values(permissions);
+```
+
+### 4. Define Schemas
+
+**plugins/myplugin-common/src/schemas.ts:**
+
+```typescript
+import { z } from "zod";
+
+export const ItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type Item = z.infer<typeof ItemSchema>;
+
+export const CreateItemSchema = z.object({
+  name: z.string().min(1).max(255),
+  description: z.string().optional(),
+});
+
+export const UpdateItemSchema = CreateItemSchema.partial();
+```
+
+### 5. Define Contract
+
+**plugins/myplugin-common/src/rpc-contract.ts:**
+
+```typescript
+import { oc } from "@orpc/contract";
+import { z } from "zod";
+import { ItemSchema, CreateItemSchema, UpdateItemSchema } from "./schemas";
+import { permissions } from "./permissions";
+
+// Define metadata type for type-safe permission declarations
+export interface MyPluginMetadata {
+  permissions?: string[];
+}
+
+// Create base builder with metadata support
+const _base = oc.$meta<MyPluginMetadata>({});
+
+export const myPluginContract = {
+  getItems: _base
+    .meta({ permissions: [permissions.itemRead.id] })
+    .output(z.array(ItemSchema)),
+
+  getItem: _base
+    .meta({ permissions: [permissions.itemRead.id] })
+    .input(z.string())
+    .output(ItemSchema),
+
+  createItem: _base
+    .meta({ permissions: [permissions.itemManage.id] })
+    .input(CreateItemSchema)
+    .output(ItemSchema),
+
+  updateItem: _base
+    .meta({ permissions: [permissions.itemManage.id] })
+    .input(z.object({ id: z.string(), data: UpdateItemSchema }))
+    .output(ItemSchema),
+
+  deleteItem: _base
+    .meta({ permissions: [permissions.itemManage.id] })
+    .input(z.string())
+    .output(z.void()),
+};
+
+export type MyPluginContract = typeof myPluginContract;
+```
+
+### 6. Export from Common
+
+**plugins/myplugin-common/src/index.ts:**
+
+```typescript
+// Export permissions
+export { permissions, permissionList } from "./permissions";
+
+// Export schemas and types
+export * from "./schemas";
+
+// Export contract - use explicit named re-exports to avoid bundler issues
+export { myPluginContract, type MyPluginContract } from "./rpc-contract";
+```
+
+### 7. Initialize Backend Package
+
+**plugins/myplugin-backend/package.json:**
 
 ```json
 {
@@ -30,8 +168,7 @@ cd plugins/myplugin-backend
     "@checkmate/common": "workspace:*",
     "@checkmate/myplugin-common": "workspace:*",
     "drizzle-orm": "^0.38.3",
-    "hono": "^4.6.14",
-    "zod": "^4.2.1"
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -40,20 +177,164 @@ cd plugins/myplugin-backend
   }
 }
 ```
+
 ```bash
 bun run sync
 ```
 
 See [Monorepo Tooling](./monorepo-tooling.md) for details on shared configurations.
 
-### 3. Create Plugin Entry Point
+### 8. Define Database Schema
 
-**src/index.ts:**
+**plugins/myplugin-backend/src/schema.ts:**
+
+```typescript
+import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
+
+export const items = pgTable("items", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+```
+
+### 9. Create Router Implementation
+
+**plugins/myplugin-backend/src/router.ts:**
+
+```typescript
+import {
+  os,
+  authedProcedure,
+  permissionMiddleware,
+} from "@checkmate/backend-api";
+import { permissions, CreateItemSchema, UpdateItemSchema } from "@checkmate/myplugin-common";
+import { ItemService } from "./service";
+import { NodePgDatabase } from "drizzle-orm/node-postgres";
+import * as schema from "./schema";
+import { z } from "zod";
+
+// Create permission middleware instances
+const itemRead = permissionMiddleware(permissions.itemRead.id);
+const itemManage = permissionMiddleware(permissions.itemManage.id);
+
+export const createMyPluginRouter = (
+  database: NodePgDatabase<typeof schema>
+) => {
+  const service = new ItemService(database);
+
+  return os.router({
+    getItems: authedProcedure
+      .use(itemRead)
+      .handler(async () => {
+        return await service.getItems();
+      }),
+
+    getItem: authedProcedure
+      .use(itemRead)
+      .input(z.string())
+      .handler(async ({ input }) => {
+        const item = await service.getItem(input);
+        if (!item) throw new Error("Item not found");
+        return item;
+      }),
+
+    createItem: authedProcedure
+      .use(itemManage)
+      .input(CreateItemSchema)
+      .handler(async ({ input }) => {
+        return await service.createItem(input);
+      }),
+
+    updateItem: authedProcedure
+      .use(itemManage)
+      .input(z.object({ id: z.string(), data: UpdateItemSchema }))
+      .handler(async ({ input }) => {
+        const item = await service.updateItem(input.id, input.data);
+        if (!item) throw new Error("Item not found");
+        return item;
+      }),
+
+    deleteItem: authedProcedure
+      .use(itemManage)
+      .input(z.string())
+      .handler(async ({ input }) => {
+        await service.deleteItem(input);
+      }),
+  });
+};
+
+export type MyPluginRouter = ReturnType<typeof createMyPluginRouter>;
+```
+
+### 10. Create Service Layer
+
+**plugins/myplugin-backend/src/service.ts:**
+
+```typescript
+import { NodePgDatabase } from "drizzle-orm/node-postgres";
+import * as schema from "./schema";
+import { eq } from "drizzle-orm";
+import { v4 as uuidv4 } from "uuid";
+
+export class ItemService {
+  constructor(private database: NodePgDatabase<typeof schema>) {}
+
+  async getItems() {
+    return await this.database.select().from(schema.items);
+  }
+
+  async getItem(id: string) {
+    const [item] = await this.database
+      .select()
+      .from(schema.items)
+      .where(eq(schema.items.id, id));
+    return item;
+  }
+
+  async createItem(data: { name: string; description?: string }) {
+    const [item] = await this.database
+      .insert(schema.items)
+      .values({
+        id: uuidv4(), // Generate ID server-side
+        name: data.name,
+        description: data.description ?? null,
+      })
+      .returning();
+    return item;
+  }
+
+  async updateItem(id: string, data: Partial<{ name: string; description?: string }>) {
+    const [item] = await this.database
+      .update(schema.items)
+      .set({
+        ...data,
+        description: data.description ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.items.id, id))
+      .returning();
+    return item;
+  }
+
+  async deleteItem(id: string) {
+    await this.database.delete(schema.items).where(eq(schema.items.id, id));
+  }
+}
+```
+
+### 11. Create Plugin Entry Point
+
+**plugins/myplugin-backend/src/index.ts:**
 
 ```typescript
 import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
-import { permissionList, permissions } from "@checkmate/myplugin-common";
+import { permissionList } from "@checkmate/myplugin-common";
 import * as schema from "./schema";
+import { createMyPluginRouter } from "./router";
+import { NodePgDatabase } from "drizzle-orm/node-postgres";
 
 export default createBackendPlugin({
   pluginId: "myplugin-backend",
@@ -65,33 +346,19 @@ export default createBackendPlugin({
     env.registerInit({
       schema,
       deps: {
-        router: coreServices.httpRouter,
+        rpc: coreServices.rpc,
         logger: coreServices.logger,
-        check: coreServices.permissionCheck,
-        validate: coreServices.validation,
       },
-      init: async ({ database, router, logger, check, validate }) => {
+      init: async ({ database, rpc, logger }) => {
         logger.info("Initializing MyPlugin Backend...");
 
-        // Define routes
-        router.get("/items", check(permissions.itemRead.id), async (c) => {
-          const items = await database.select().from(schema.items);
-          return c.json(items);
-        });
-
-        router.post(
-          "/items",
-          check(permissions.itemCreate.id),
-          validate(itemSchema),
-          async (c) => {
-            const body = await c.req.json();
-            const [item] = await database
-              .insert(schema.items)
-              .values(body)
-              .returning();
-            return c.json(item);
-          }
+        // Create router with plugin-scoped database
+        const router = createMyPluginRouter(
+          database as NodePgDatabase<typeof schema>
         );
+
+        // Register router using the plugin ID
+        rpc.registerRouter("myplugin-backend", router);
 
         logger.info("✅ MyPlugin Backend initialized.");
       },
@@ -121,7 +388,7 @@ Register permissions that this plugin provides.
 ```typescript
 env.registerPermissions([
   { id: "item.read", description: "Read items" },
-  { id: "item.create", description: "Create items" },
+  { id: "item.manage", description: "Manage items" },
 ]);
 ```
 
@@ -141,10 +408,10 @@ Register the plugin's initialization function.
 env.registerInit({
   schema: mySchema,
   deps: {
-    router: coreServices.httpRouter,
+    rpc: coreServices.rpc,
     logger: coreServices.logger,
   },
-  init: async ({ database, router, logger }) => {
+  init: async ({ database, rpc, logger }) => {
     // Plugin initialization logic
   },
 });
@@ -184,18 +451,19 @@ env.registerExtensionPoint(healthCheckExtensionPoint, {
 
 The core provides these services via `coreServices`:
 
-### `coreServices.httpRouter`
+### `coreServices.rpc`
 
-A Hono router instance scoped to your plugin.
+The RPC service for registering oRPC routers.
 
-**Routes are automatically mounted at:** `/api/<pluginId>/`
+**Routers are automatically mounted at:** `/api/<pluginId>/`
 
 ```typescript
-router.get("/items", async (c) => {
-  // Accessible at: /api/myplugin-backend/items
-  return c.json({ items: [] });
-});
+const router = createMyPluginRouter(database);
+rpc.registerRouter("myplugin-backend", router);
+// Procedures accessible at: /api/myplugin-backend/<procedureName>
 ```
+
+> **Critical**: The registration name must match the plugin ID exactly for frontend clients to work correctly.
 
 ### `coreServices.logger`
 
@@ -208,35 +476,97 @@ logger.error("Error message");
 logger.debug("Debug message");
 ```
 
-### `coreServices.permissionCheck`
+## Contract Implementation Pattern
 
-Middleware factory for permission checks.
+### 1. Define Contract in Common Package
 
-```typescript
-router.get("/items", check("item.read"), async (c) => {
-  // Only accessible if user has permission
-});
-```
+Contracts are defined in the `-common` package using `@orpc/contract`. See [Common Plugin Guidelines](./common-plugins.md) for details.
 
-Returns **401 Unauthorized** if the user lacks the permission.
+### 2. Implement Contract in Backend
 
-### `coreServices.validation`
-
-Middleware factory for request validation using Zod schemas.
+The backend router implements the contract using `os.router()`:
 
 ```typescript
-const itemSchema = z.object({
-  name: z.string(),
-  description: z.string().optional(),
-});
+import { os, authedProcedure, permissionMiddleware } from "@checkmate/backend-api";
+import { permissions } from "@checkmate/myplugin-common";
 
-router.post("/items", validate(itemSchema), async (c) => {
-  const body = await c.req.json();
-  // body is typed and validated
-});
+const itemRead = permissionMiddleware(permissions.itemRead.id);
+const itemManage = permissionMiddleware(permissions.itemManage.id);
+
+export const createMyPluginRouter = (database: Database) => {
+  return os.router({
+    // Each procedure name must match the contract
+    getItems: authedProcedure
+      .use(itemRead)
+      .handler(async () => {
+        // Implementation
+      }),
+  });
+};
 ```
 
-Returns **400 Bad Request** with validation errors if the request is invalid.
+### 3. Security Enforcement
+
+The project uses **explicit permission enforcement**:
+
+- **Contracts document** required permissions via `.meta({ permissions: [...] })`
+- **Backend enforces** permissions via `authedProcedure.use(permissionMiddleware(...))`
+
+This pattern ensures security is auditable and visible in the router implementation.
+
+```typescript
+// In contract (documentation):
+getItems: _base
+  .meta({ permissions: [permissions.itemRead.id] })
+  .output(z.array(ItemSchema)),
+
+// In router (enforcement):
+getItems: authedProcedure
+  .use(itemRead) // Explicit enforcement
+  .handler(async () => { /* ... */ }),
+```
+
+### 4. Base Procedures
+
+**`authedProcedure`**: Ensures the user is authenticated (has a valid session).
+
+```typescript
+import { authedProcedure } from "@checkmate/backend-api";
+
+getItems: authedProcedure
+  .handler(async ({ context }) => {
+    // context.user is guaranteed to exist
+    console.log(`Request from user: ${context.user.id}`);
+  });
+```
+
+**Permission Middleware**: Ensures the user has the required permission.
+
+```typescript
+const itemRead = permissionMiddleware(permissions.itemRead.id);
+
+getItems: authedProcedure
+  .use(itemRead)
+  .handler(async ({ context }) => {
+    // User is authenticated AND has itemRead permission
+  });
+```
+
+### 5. Handler Type Inference
+
+oRPC automatically infers types from the procedure chain. **Do not** add explicit type annotations to handler parameters.
+
+```typescript
+// ✅ Good - Let oRPC infer types
+.handler(async ({ input, context }) => {
+  // input and context are automatically typed
+})
+
+// ❌ Bad - Don't add complex type annotations
+.handler(async ({ input, context }: { input: SomeType; context: SomeContext }) => {
+  // This breaks inference
+})
+```
 
 ## Database Schema
 
@@ -245,13 +575,14 @@ Returns **400 Bad Request** with validation errors if the request is invalid.
 **src/schema.ts:**
 
 ```typescript
-import { pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
 export const items = pgTable("items", {
-  id: serial("id").primaryKey(),
+  id: text("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
-  createdAt: timestamp("created_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 ```
 
@@ -298,6 +629,24 @@ The core **automatically runs migrations** when the plugin loads. No manual migr
 
 See [drizzle-schema-isolation.md](./drizzle-schema-isolation.md) for details.
 
+## Router Factory Pattern
+
+Routers should be created as factory functions that accept the plugin-scoped database instance:
+
+```typescript
+export const createMyPluginRouter = (
+  database: NodePgDatabase<typeof schema>
+) => {
+  return os.router({
+    // Procedures use the captured database, NOT context.db
+  });
+};
+```
+
+**Why?** The `context.db` in oRPC handlers is the admin database pool. Plugin tables are isolated in schemas like `plugin_<id>`, so using `context.db` will result in "relation does not exist" errors.
+
+**Solution:** Capture the plugin-scoped database via the factory pattern and use it in all handlers.
+
 ## Dependency Injection
 
 ### Declaring Dependencies
@@ -305,11 +654,11 @@ See [drizzle-schema-isolation.md](./drizzle-schema-isolation.md) for details.
 ```typescript
 env.registerInit({
   deps: {
-    router: coreServices.httpRouter,
+    rpc: coreServices.rpc,
     logger: coreServices.logger,
     myService: myServiceRef,
   },
-  init: async ({ router, logger, myService }) => {
+  init: async ({ database, rpc, logger, myService }) => {
     // All dependencies are resolved and typed
   },
 });
@@ -322,92 +671,55 @@ Dependencies are fully typed. TypeScript will error if:
 - You use a dependency with the wrong type
 - You forget to declare a dependency you use
 
-## Permission Patterns
-
-### Define in Common Package
-
-**plugins/myplugin-common/src/permissions.ts:**
-
-```typescript
-import type { Permission } from "@checkmate/common";
-
-export const permissions = {
-  itemRead: {
-    id: "item.read",
-    description: "Read items",
-  },
-  itemCreate: {
-    id: "item.create",
-    description: "Create items",
-  },
-  itemUpdate: {
-    id: "item.update",
-    description: "Update items",
-  },
-  itemDelete: {
-    id: "item.delete",
-    description: "Delete items",
-  },
-} satisfies Record<string, Permission>;
-
-export const permissionList = Object.values(permissions);
-```
-
-### Use in Backend
-
-```typescript
-import { permissionList, permissions } from "@checkmate/myplugin-common";
-
-env.registerPermissions(permissionList);
-
-router.get("/items", check(permissions.itemRead.id), async (c) => {
-  // Protected route
-});
-```
-
-## Validation Patterns
-
-### Define Schemas
-
-**src/schemas.ts:**
-
-```typescript
-import { z } from "zod";
-
-export const createItemSchema = z.object({
-  name: z.string().min(1).max(255),
-  description: z.string().optional(),
-});
-
-export const updateItemSchema = createItemSchema.partial();
-```
-
-### Use in Routes
-
-```typescript
-router.post(
-  "/items",
-  check(permissions.itemCreate.id),
-  validate(createItemSchema),
-  async (c) => {
-    const body = await c.req.json();
-    // body is validated and typed
-  }
-);
-```
-
 ## Testing
 
-### Unit Tests
+### Router Tests
 
-**src/services/item-service.test.ts:**
+**src/router.test.ts:**
+
+```typescript
+import { describe, it, expect, mock } from "bun:test";
+import { createMyPluginRouter } from "./router";
+import { createMockRpcContext } from "@checkmate/backend-api";
+import { call } from "@orpc/server";
+
+describe("MyPlugin Router", () => {
+  // 1. Create a mock database instance
+  const mockDb = {
+    select: mock().mockReturnValue({
+      from: mock().mockReturnValue([
+        { id: "1", name: "Test Item", description: null },
+      ]),
+    }),
+  } as any;
+
+  // 2. Initialize the router with the mock database
+  const router = createMyPluginRouter(mockDb);
+
+  it("getItems returns items", async () => {
+    const context = createMockRpcContext({
+      user: { id: "test-user", roles: ["admin"] },
+    });
+
+    // 3. Use 'call' from @orpc/server to execute the procedure
+    const result = await call(router.getItems, undefined, { context });
+
+    expect(Array.isArray(result)).toBe(true);
+    expect(mockDb.select).toHaveBeenCalled();
+  });
+});
+```
+
+### Service Tests
+
+**src/service.test.ts:**
 
 ```typescript
 import { describe, expect, test, beforeEach } from "bun:test";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import * as schema from "../schema";
-import { ItemService } from "./item-service";
+import * as schema from "./schema";
+import { ItemService } from "./service";
 
 describe("ItemService", () => {
   let db: ReturnType<typeof drizzle>;
@@ -452,87 +764,53 @@ describe("MyPlugin Backend", () => {
 });
 ```
 
-## Extension Points
-
-### Implementing an Extension Point
-
-```typescript
-import { createExtensionPoint } from "@checkmate/backend-api";
-
-// Define the extension point interface
-export interface MyExtension {
-  id: string;
-  execute: (input: string) => Promise<string>;
-}
-
-// Create the extension point reference
-export const myExtensionPoint = createExtensionPoint<MyExtension[]>(
-  "my-extension"
-);
-
-// Register an implementation
-env.registerExtensionPoint(myExtensionPoint, [
-  {
-    id: "impl-1",
-    execute: async (input) => {
-      return `Processed: ${input}`;
-    },
-  },
-]);
-```
-
-### Using an Extension Point
-
-```typescript
-const implementations = env.getExtensionPoint(myExtensionPoint);
-
-for (const impl of implementations) {
-  const result = await impl.execute("test");
-  logger.info(`Result from ${impl.id}: ${result}`);
-}
-```
-
 ## Best Practices
 
 ### 1. Use Services for Business Logic
 
-Don't put business logic directly in route handlers:
+Don't put business logic directly in procedure handlers:
 
 ```typescript
 // ❌ Bad
-router.post("/items", async (c) => {
-  const body = await c.req.json();
-  const [item] = await database.insert(schema.items).values(body).returning();
-  return c.json(item);
+getItems: authedProcedure.handler(async () => {
+  const items = await database.select().from(schema.items);
+  return items;
 });
 
 // ✅ Good
-router.post("/items", async (c) => {
-  const body = await c.req.json();
-  const item = await itemService.createItem(body);
-  return c.json(item);
+getItems: authedProcedure.handler(async () => {
+  return await itemService.getItems();
 });
 ```
 
-### 2. Always Validate Input
+### 2. Generate IDs Server-Side
 
-Use Zod schemas for all user input:
-
-```typescript
-router.post("/items", validate(createItemSchema), async (c) => {
-  // Input is validated
-});
-```
-
-### 3. Use Typed Errors
+Never require IDs from the frontend. Generate them in the service layer:
 
 ```typescript
-class ItemNotFoundError extends Error {
-  constructor(id: string) {
-    super(`Item ${id} not found`);
-    this.name = "ItemNotFoundError";
-  }
+async createItem(data: NewItem) {
+  const [item] = await this.database
+    .insert(schema.items)
+    .values({
+      id: uuidv4(), // Generate ID internally
+      ...data
+    })
+    .returning();
+  return item;
 }
+```
+
+### 3. Use Type Assertions for JSON Fields
+
+Drizzle's `json()` columns infer to `unknown`. Use type assertions to bridge to your contract types:
+
+```typescript
+.handler(async () => {
+  const result = await service.getItems();
+  return result as unknown as Array<typeof result[number] & {
+    metadata: Record<string, unknown> | null
+  }>;
+});
 ```
 
 ### 4. Log Important Events
@@ -551,125 +829,32 @@ Test all services and critical paths:
 bun test
 ```
 
-## Common Patterns
-
-### CRUD Operations
-
-```typescript
-// List
-router.get("/items", check(permissions.itemRead.id), async (c) => {
-  const items = await itemService.getItems();
-  return c.json(items);
-});
-
-// Get by ID
-router.get("/items/:id", check(permissions.itemRead.id), async (c) => {
-  const id = c.req.param("id");
-  const item = await itemService.getItem(id);
-  if (!item) {
-    return c.json({ error: "Not found" }, 404);
-  }
-  return c.json(item);
-});
-
-// Create
-router.post(
-  "/items",
-  check(permissions.itemCreate.id),
-  validate(createItemSchema),
-  async (c) => {
-    const body = await c.req.json();
-    const item = await itemService.createItem(body);
-    return c.json(item, 201);
-  }
-);
-
-// Update
-router.put(
-  "/items/:id",
-  check(permissions.itemUpdate.id),
-  validate(updateItemSchema),
-  async (c) => {
-    const id = c.req.param("id");
-    const body = await c.req.json();
-    const item = await itemService.updateItem(id, body);
-    return c.json(item);
-  }
-);
-
-// Delete
-router.delete("/items/:id", check(permissions.itemDelete.id), async (c) => {
-  const id = c.req.param("id");
-  await itemService.deleteItem(id);
-  return c.json({ success: true });
-});
-```
-
-### Pagination
-
-```typescript
-router.get("/items", async (c) => {
-  const page = parseInt(c.req.query("page") || "1");
-  const limit = parseInt(c.req.query("limit") || "20");
-  const offset = (page - 1) * limit;
-
-  const items = await database
-    .select()
-    .from(schema.items)
-    .limit(limit)
-    .offset(offset);
-
-  return c.json({ items, page, limit });
-});
-```
-
-### Error Handling
-
-```typescript
-router.get("/items/:id", async (c) => {
-  try {
-    const id = c.req.param("id");
-    const item = await itemService.getItem(id);
-    return c.json(item);
-  } catch (err) {
-    if (err instanceof ItemNotFoundError) {
-      return c.json({ error: err.message }, 404);
-    }
-    logger.error("Unexpected error", { error: err });
-    return c.json({ error: "Internal server error" }, 500);
-  }
-});
-```
-
 ## Troubleshooting
 
-### Plugin Not Loading
+### 404 Errors
 
-Check that:
-1. Plugin is in `plugins/` directory
-2. `package.json` has correct `name` and `exports`
-3. Default export is a `BackendPlugin`
+If your oRPC endpoints return 404:
 
-### Migrations Not Running
+1. Verify router is registered with `rpc.registerRouter`
+2. Ensure registration name exactly matches the plugin ID
+3. Check plugin initialization is executed (check backend logs)
+4. Verify frontend client uses matching plugin ID
 
-Check that:
-1. `drizzle.config.ts` exists
-2. Migrations are in `./drizzle/` directory
-3. Schema is passed to `registerInit`
+### 500 Errors
 
-### Routes Not Working
+If your oRPC endpoints return 500 after routing is fixed:
 
-Check that:
-1. Router is from `coreServices.httpRouter`
-2. Routes are defined in `init` function
-3. URL path includes `/api/<pluginId>/`
+1. **Missing Database Migrations**: Check backend logs for "relation does not exist"
+2. **Context Database**: Ensure handlers use the captured plugin-scoped database, NOT `context.db`
+3. **Validation Errors**: Check that service layer returns data matching the contract output schema
 
-### Permission Errors
+### Type Errors in Handlers
 
-Check that:
-1. Permissions are registered via `registerPermissions`
-2. Permission IDs match between common and backend
-3. User has the required role/permission
+If TypeScript complains about handler types:
+
+1. Remove explicit type annotations from handler parameters
+2. Let oRPC infer types from the procedure chain
+3. Ensure input/output schemas match the contract definition
 
 ## Next Steps
 

@@ -4,6 +4,8 @@
 
 Frontend plugins provide UI components, pages, routing, and client-side services. They are built using **React**, **React Router**, **ShadCN UI**, and **Vite**.
 
+Frontend plugins consume **oRPC contracts** defined in `-common` packages, enabling type-safe RPC communication with the backend.
+
 ## Quick Start
 
 ### 1. Create Plugin Structure
@@ -13,9 +15,7 @@ mkdir -p plugins/myplugin-frontend/src
 cd plugins/myplugin-frontend
 ```
 
-### 2. Initialize Packages
-
-Create `package.json` for each package. Then run the sync tool to apply shared configurations:
+### 2. Initialize package.json
 
 ```json
 {
@@ -48,28 +48,53 @@ bun run sync
 
 See [Monorepo Tooling](./monorepo-tooling.md) for details on shared configurations.
 
-### 3. Create Plugin Entry Point
+### 3. Define API Interface (Contract-Based)
+
+**src/api.ts:**
+
+```typescript
+import { createApiRef } from "@checkmate/frontend-api";
+import type { ContractRouterClient } from "@orpc/contract";
+import { myPluginContract } from "@checkmate/myplugin-common";
+
+// Re-export types for convenience
+export type { Item, CreateItem, UpdateItem } from "@checkmate/myplugin-common";
+
+// Derive API type from contract - no manual interface definitions!
+export type MyPluginApi = ContractRouterClient<typeof myPluginContract>;
+
+export const myPluginApiRef = createApiRef<MyPluginApi>("myplugin-api");
+```
+
+**Key Concept**: The frontend API type is **derived from the contract**, ensuring compile-time safety. If the backend contract changes, TypeScript will immediately flag any incompatible frontend code.
+
+### 4. Create Plugin Entry Point
 
 **src/index.tsx:**
 
 ```typescript
-import { createFrontendPlugin, fetchApiRef } from "@checkmate/frontend-api";
-import { MyPluginClient } from "./client";
+import {
+  createFrontendPlugin,
+  rpcApiRef,
+} from "@checkmate/frontend-api";
 import { myPluginApiRef } from "./api";
 import { ItemListPage } from "./components/ItemListPage";
 import { ItemDetailPage } from "./components/ItemDetailPage";
+import { ItemConfigPage } from "./components/ItemConfigPage";
 import { permissions } from "@checkmate/myplugin-common";
+import { ListIcon } from "lucide-react";
 
 export const myPlugin = createFrontendPlugin({
   name: "myplugin-frontend",
   
-  // Register client API
+  // Register client API using oRPC
   apis: [
     {
       ref: myPluginApiRef,
       factory: (deps) => {
-        const fetchApi = deps.get(fetchApiRef);
-        return new MyPluginClient(fetchApi);
+        const rpcApi = deps.get(rpcApiRef);
+        // Create type-safe client for the backend plugin
+        return rpcApi.forPlugin<MyPluginApi>("myplugin-backend");
       },
     },
   ],
@@ -100,7 +125,7 @@ export const myPlugin = createFrontendPlugin({
     },
   ],
   
-  // Register UI extensions
+  // Register UI extensions (optional)
   extensions: [
     {
       id: "myplugin.user-menu.items",
@@ -111,7 +136,6 @@ export const myPlugin = createFrontendPlugin({
 });
 
 export * from "./api";
-export * from "./client";
 ```
 
 ## Plugin Configuration
@@ -139,8 +163,8 @@ apis: [
   {
     ref: myPluginApiRef,
     factory: (deps) => {
-      const fetchApi = deps.get(fetchApiRef);
-      return new MyPluginClient(fetchApi);
+      const rpcApi = deps.get(rpcApiRef);
+      return rpcApi.forPlugin<MyPluginApi>("myplugin-backend");
     },
   },
 ]
@@ -156,7 +180,7 @@ routes: [
     path: "/items",
     element: <ItemListPage />,
     title: "Items", // Optional: page title
-    permission: "item.read", // Optional: required permission
+    permission: permissions.itemRead.id, // Optional: required permission
   },
 ]
 ```
@@ -189,74 +213,61 @@ extensions: [
 ]
 ```
 
-## Client API Pattern
+## Contract-Based Client API Pattern
 
-### Define API Interface
+The frontend consumes contracts defined in `-common` packages to get type-safe RPC clients.
+
+### Step 1: Import Contract and Derive Types
 
 **src/api.ts:**
 
 ```typescript
 import { createApiRef } from "@checkmate/frontend-api";
+import type { ContractRouterClient } from "@orpc/contract";
+import { myPluginContract } from "@checkmate/myplugin-common";
 
-export interface Item {
-  id: string;
-  name: string;
-  description?: string;
-}
+// Re-export types from common for convenience
+export type { Item, CreateItem, UpdateItem } from "@checkmate/myplugin-common";
 
-export interface MyPluginApi {
-  getItems(): Promise<Item[]>;
-  getItem(id: string): Promise<Item>;
-  createItem(data: Omit<Item, "id">): Promise<Item>;
-  updateItem(id: string, data: Partial<Item>): Promise<Item>;
-  deleteItem(id: string): Promise<void>;
-}
+// Derive the API client type from the contract
+export type MyPluginApi = ContractRouterClient<typeof myPluginContract>;
 
-export const myPluginApiRef = createApiRef<MyPluginApi>("my-plugin-api");
+export const myPluginApiRef = createApiRef<MyPluginApi>("myplugin-api");
 ```
 
-### Implement Client
+**Why `ContractRouterClient`?**
+- It derives the client type from the oRPC contract
+- Provides compile-time type safety for all RPC calls
+- Eliminates manual interface definitions that can drift from the backend
 
-**src/client.ts:**
+### Step 2: Register API Factory
+
+**src/index.tsx:**
 
 ```typescript
-import { FetchApi } from "@checkmate/frontend-api";
-import { MyPluginApi, Item } from "./api";
+import { rpcApiRef } from "@checkmate/frontend-api";
+import { myPluginApiRef, type MyPluginApi } from "./api";
 
-export class MyPluginClient implements MyPluginApi {
-  constructor(private fetchApi: FetchApi) {}
-
-  async getItems(): Promise<Item[]> {
-    return this.fetchApi.fetch("/api/myplugin-backend/items");
-  }
-
-  async getItem(id: string): Promise<Item> {
-    return this.fetchApi.fetch(`/api/myplugin-backend/items/${id}`);
-  }
-
-  async createItem(data: Omit<Item, "id">): Promise<Item> {
-    return this.fetchApi.fetch("/api/myplugin-backend/items", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-  }
-
-  async updateItem(id: string, data: Partial<Item>): Promise<Item> {
-    return this.fetchApi.fetch(`/api/myplugin-backend/items/${id}`, {
-      method: "PUT",
-      body: JSON.stringify(data),
-    });
-  }
-
-  async deleteItem(id: string): Promise<void> {
-    await this.fetchApi.fetch(`/api/myplugin-backend/items/${id}`, {
-      method: "DELETE",
-    });
-  }
-}
+export const myPlugin = createFrontendPlugin({
+  name: "myplugin-frontend",
+  
+  apis: [
+    {
+      ref: myPluginApiRef,
+      factory: (deps) => {
+        const rpcApi = deps.get(rpcApiRef);
+        // Create a client for the backend plugin
+        // The plugin ID must match the backend router registration name
+        return rpcApi.forPlugin<MyPluginApi>("myplugin-backend");
+      },
+    },
+  ],
+});
 ```
 
-### Use in Components
+**Critical**: The plugin ID passed to `forPlugin` must exactly match the name used in the backend's `rpc.registerRouter()` call.
+
+### Step 3: Use in Components
 
 ```typescript
 import { useApi } from "@checkmate/frontend-api";
@@ -267,8 +278,15 @@ export const ItemListPage = () => {
   const [items, setItems] = useState<Item[]>([]);
 
   useEffect(() => {
+    // Type-safe RPC call - no manual URL construction!
     api.getItems().then(setItems);
   }, [api]);
+
+  const handleCreate = async (data: CreateItem) => {
+    // Input types are automatically inferred from the contract
+    const newItem = await api.createItem(data);
+    setItems([...items, newItem]);
+  };
 
   return (
     <div>
@@ -280,18 +298,27 @@ export const ItemListPage = () => {
 };
 ```
 
+### Benefits of Contract-Based Clients
+
+1. **No Manual URL Construction**: RPC procedures are called like functions
+2. **Full Type Safety**: Input and output types inferred from contract
+3. **Auto-completion**: IDE suggests available procedures and their parameters
+4. **Compile-Time Errors**: Contract changes immediately break incompatible frontend code
+5. **No Duplication**: Single source of truth for API definitions
+
 ## Core APIs
 
 The core provides these APIs for use in components:
 
-### `fetchApiRef`
+### `rpcApiRef`
 
-HTTP client with automatic authentication.
+The oRPC client factory for creating type-safe plugin clients.
 
 ```typescript
-const fetchApi = useApi(fetchApiRef);
+const rpcApi = useApi(rpcApiRef);
 
-const data = await fetchApi.fetch("/api/myplugin-backend/items");
+// Create a client for a specific backend plugin
+const client = rpcApi.forPlugin<MyPluginApi>("myplugin-backend");
 ```
 
 ### `permissionApiRef`
@@ -301,7 +328,7 @@ Check user permissions.
 ```typescript
 const permissionApi = useApi(permissionApiRef);
 
-const canManage = permissionApi.usePermission("item.manage");
+const canManage = permissionApi.usePermission(permissions.itemManage.id);
 
 if (canManage.allowed) {
   // Show management UI
@@ -327,6 +354,8 @@ if (session.user) {
 ### Route-Level Permissions
 
 ```typescript
+import { permissions } from "@checkmate/myplugin-common";
+
 routes: [
   {
     path: "/items/config",
@@ -510,11 +539,12 @@ export const ItemForm = () => {
 };
 ```
 
-### Server State
+### Server State with RPC
 
 ```typescript
 import { useEffect, useState } from "react";
 import { useApi } from "@checkmate/frontend-api";
+import { myPluginApiRef, type Item } from "../api";
 
 export const ItemListPage = () => {
   const api = useApi(myPluginApiRef);
@@ -627,9 +657,12 @@ export const ItemForm = () => {
 
 ## Common Patterns
 
-### List Page
+### List Page with RPC
 
 ```typescript
+import { useApi } from "@checkmate/frontend-api";
+import { myPluginApiRef, type Item } from "../api";
+
 export const ItemListPage = () => {
   const api = useApi(myPluginApiRef);
   const [items, setItems] = useState<Item[]>([]);
@@ -638,6 +671,11 @@ export const ItemListPage = () => {
   useEffect(() => {
     api.getItems().then(setItems);
   }, [api]);
+
+  const handleDelete = async (id: string) => {
+    await api.deleteItem(id);
+    setItems(items.filter(item => item.id !== id));
+  };
 
   return (
     <div className="p-6">
@@ -662,6 +700,9 @@ export const ItemListPage = () => {
               <TableCell>
                 <Button onClick={() => navigate(`/items/${item.id}`)}>
                   View
+                </Button>
+                <Button onClick={() => handleDelete(item.id)} variant="destructive">
+                  Delete
                 </Button>
               </TableCell>
             </TableRow>
@@ -713,9 +754,9 @@ export const ItemEditPage = () => {
     }
   }, [id, api]);
 
-  const handleSubmit = async (data: ItemData) => {
+  const handleSubmit = async (data: CreateItem) => {
     if (id) {
-      await api.updateItem(id, data);
+      await api.updateItem({ id, data });
     } else {
       await api.createItem(data);
     }
@@ -799,6 +840,22 @@ if (!data) return <EmptyState />;
 />
 ```
 
+### 6. Leverage Contract Types
+
+Import types from the common package instead of redefining them:
+
+```typescript
+// ✅ Good - Use contract types
+import type { Item, CreateItem } from "@checkmate/myplugin-common";
+
+// ❌ Bad - Duplicate type definitions
+interface Item {
+  id: string;
+  name: string;
+  // ...
+}
+```
+
 ## Testing
 
 ### Component Tests
@@ -838,7 +895,16 @@ test("create item", async ({ page }) => {
 Check that:
 1. API is registered in plugin `apis` array
 2. API ref is created with `createApiRef`
-3. Factory function returns correct implementation
+3. Factory function uses `rpcApi.forPlugin<T>()` with correct plugin ID
+4. Plugin ID matches backend router registration name
+
+### Type Errors with Contract
+
+If TypeScript complains about contract types:
+1. Ensure you're importing from the `-common` package
+2. Verify the contract is exported from `src/index.ts` using named exports
+3. Clear TypeScript cache: `rm -rf tsconfig.tsbuildinfo`
+4. Restart the TypeScript language server
 
 ### Routes Not Working
 
@@ -853,6 +919,64 @@ Check that:
 1. Permission ID matches backend permission
 2. User has required role/permission
 3. Permission check is not in loading state
+
+### 404 Errors from Backend
+
+If RPC calls return 404:
+1. Verify backend router is registered with correct plugin ID
+2. Ensure frontend `forPlugin()` uses matching plugin ID
+3. Check backend plugin is loaded (check backend logs)
+
+## Migrating from Legacy REST Clients
+
+If you have legacy clients using manual `fetch()` calls:
+
+### Before (Legacy Pattern)
+
+```typescript
+export class MyPluginClient implements MyPluginApi {
+  constructor(private fetchApi: FetchApi) {}
+
+  async getItems(): Promise<Item[]> {
+    return this.fetchApi.fetch("/api/myplugin-backend/items");
+  }
+
+  async createItem(data: CreateItem): Promise<Item> {
+    return this.fetchApi.fetch("/api/myplugin-backend/items", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+}
+```
+
+### After (oRPC Pattern)
+
+```typescript
+// src/api.ts
+import type { ContractRouterClient } from "@orpc/contract";
+import { myPluginContract } from "@checkmate/myplugin-common";
+
+export type MyPluginApi = ContractRouterClient<typeof myPluginContract>;
+export const myPluginApiRef = createApiRef<MyPluginApi>("myplugin-api");
+
+// src/index.tsx
+apis: [
+  {
+    ref: myPluginApiRef,
+    factory: (deps) => {
+      const rpcApi = deps.get(rpcApiRef);
+      return rpcApi.forPlugin<MyPluginApi>("myplugin-backend");
+    },
+  },
+]
+```
+
+**Benefits:**
+- No manual client class needed
+- No hardcoded URLs
+- Automatic type inference
+- Compile-time contract validation
 
 ## Next Steps
 
