@@ -48,49 +48,173 @@ Create a common plugin when you need to:
   export const permissions = {
     entityRead: {
       id: "entity.read",
-      description: "Read Systems and Groups",
+      description: "Read entity data",
     },
-    // ...
-  } satisfies Record<string, Permission>;
+  };
   ```
 
-- **Zod Schemas**: Validation schemas for shared data structures
+- **Zod Schemas**: For validation and type inference
   ```typescript
-  export const systemSchema = z.object({
+  export const ItemSchema = z.object({
     id: z.string(),
     name: z.string(),
-    createdAt: z.date(),
   });
-  
-  export type System = z.infer<typeof systemSchema>;
   ```
 
-- **Pure Utility Functions**: Functions with no side effects or runtime dependencies
+- **Type Definitions**: TypeScript types/interfaces (preferably inferred from Zod)
   ```typescript
-  export function formatSystemId(name: string): string {
-    return name.toLowerCase().replace(/\s+/g, "-");
-  }
+  export type Item = z.infer<typeof ItemSchema>;
   ```
 
-- **Constants and Enums**:
-  ```typescript
-  export const API_VERSION = "v1";
-  export enum SystemStatus {
-    Healthy = "healthy",
-    Degraded = "degraded",
-    Down = "down",
-  }
-  ```
+### ❌ Never Include
 
-### ❌ Do NOT Include
+- Node.js-specific APIs (`fs`, `path`, server code)
+- Browser-specific APIs (`window`, `document`)
+- Database clients or ORM instances
+- HTTP clients or server frameworks
+- Backend business logic or services
+- React components or hooks
 
-- **React Components**: These belong in `*-react` or `*-frontend` plugins
-- **oRPC Router Implementations**: These belong in `*-backend` plugins
-- **Drizzle Schemas**: These belong in `*-backend` plugins
-- **Node.js-specific APIs**: Use `*-node` plugins instead
-- **Browser-specific APIs**: Use `*-frontend` or `*-react` plugins instead
-- **Database Logic**: Keep in `*-backend` plugins
-- **HTTP Request Logic**: Keep in appropriate frontend/backend plugins
+## Quick Start
+
+### 1. Scaffold Plugin with CLI
+
+The fastest way to create a common plugin is using the CLI:
+
+```bash
+bun run create
+```
+
+**Interactive prompts:**
+1. Select `common` as the plugin type
+2. Enter your plugin name (e.g., `myfeature`)
+3. Provide a description (optional)
+4. Confirm to generate
+
+This will create a complete common package with:
+- ✅ Package configuration with required dependencies (`@orpc/contract`, `zod`)
+- ✅ TypeScript configuration
+- ✅ Permission definitions (read/manage pattern)
+- ✅ Example Zod schemas with input/output types
+- ✅ Complete oRPC contract with CRUD operations
+- ✅ Barrel exports following circular dependency prevention
+- ✅ Initial changeset for version management
+
+**Generated structure:**
+```
+plugins/myfeature-common/
+├── .changeset/
+│   └── initial.md              # Version changeset
+├── package.json                # Dependencies
+├── tsconfig.json               # TypeScript config
+├── README.md                   # Documentation
+└── src/
+    ├── index.ts                # Barrel exports
+    ├── permissions.ts          # Permission definitions
+    ├── schemas.ts              # Zod schemas
+    └── rpc-contract.ts         # oRPC contract
+```
+
+### 2. Install Dependencies
+
+```bash
+cd plugins/myfeature-common
+bun install
+```
+
+### 3. Customize Your Contract
+
+The generated plugin is a working example. Customize it for your domain:
+
+#### Update Permissions
+
+**src/permissions.ts:**
+
+```typescript
+import { createPermission } from "@checkmate/common";
+
+export const permissions = {
+  myFeatureRead: createPermission({
+    id: "myfeature.read",
+    description: "Read myfeature data",
+  }),
+  myFeatureManage: createPermission({
+    id: "myfeature.manage",
+    description: "Manage myfeature data",
+  }),
+};
+
+export const permissionList = Object.values(permissions);
+```
+
+#### Define Your Schemas
+
+**src/schemas.ts:**
+
+```typescript
+import { z } from "zod";
+
+// Output schema (matches database)
+export const MyItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type MyItem = z.infer<typeof MyItemSchema>;
+
+// Input schema (omits id and timestamps)
+export const CreateMyItemSchema = z.object({
+  name: z.string().min(1).max(255),
+  description: z.string().optional(),
+});
+
+export type CreateMyItem = z.infer<typeof CreateMyItemSchema>;
+```
+
+#### Update Your Contract
+
+**src/rpc-contract.ts:**
+
+```typescript
+import { oc } from "@orpc/contract";
+import { z } from "zod";
+import { MyItemSchema, CreateMyItemSchema } from "./schemas";
+import { permissions } from "./permissions";
+
+export interface MyFeatureMetadata {
+  permissions?: string[];
+}
+
+const _base = oc.$meta<MyFeatureMetadata>({});
+
+export const myFeatureContract = {
+  getItems: _base
+    .meta({ permissions: [permissions.myFeatureRead.id] })
+    .output(z.array(MyItemSchema)),
+
+  createItem: _base
+    .meta({ permissions: [permissions.myFeatureManage.id] })
+    .input(CreateMyItemSchema)
+    .output(MyItemSchema),
+};
+
+export type MyFeatureContract = typeof myFeatureContract;
+```
+
+### 4. Verify
+
+```bash
+# Type check
+bun run typecheck
+
+# Lint
+bun run lint
+```
+
+That's it! Your common package is ready to be consumed by backend and frontend plugins.
 
 ## The `@checkmate/common` Core Package
 

@@ -8,135 +8,169 @@ Frontend plugins consume **oRPC contracts** defined in `-common` packages, enabl
 
 ## Quick Start
 
-### 1. Create Plugin Structure
+### 1. Scaffold Plugin with CLI
+
+The fastest way to create a frontend plugin is using the CLI:
 
 ```bash
-mkdir -p plugins/myplugin-frontend/src
-cd plugins/myplugin-frontend
+bun run create
 ```
 
-### 2. Initialize package.json
+**Interactive prompts:**
+1. Select `frontend` as the plugin type
+2. Enter your plugin name (e.g., `myfeature`)
+3. Provide a description (optional)
+4. Confirm to generate
 
-```json
-{
-  "name": "@checkmate/myplugin-frontend",
-  "version": "0.0.1",
-  "type": "module",
-  "exports": {
-    ".": {
-      "import": "./src/index.tsx"
-    }
-  },
-  "dependencies": {
-    "@checkmate/frontend-api": "workspace:*",
-    "@checkmate/common": "workspace:*",
-    "@checkmate/myplugin-common": "workspace:*",
-    "@checkmate/ui": "workspace:*",
-    "react": "^18.3.1",
-    "react-router-dom": "^7.1.1"
-  },
-  "devDependencies": {
-    "@types/react": "^18.3.1",
-    "typescript": "^5.7.2"
-  }
-}
+This will create a complete plugin structure with:
+- ✅ Package configuration with React, router, and UI dependencies
+- ✅ TypeScript configuration
+- ✅ Contract-based API definition using `ContractRouterClient`
+- ✅ Example list page component with CRUD operations
+- ✅ Plugin registration with routes and navigation
+- ✅ Initial changeset for version management
+
+**Generated structure:**
 ```
+plugins/myfeature-frontend/
+├── .changeset/
+│   └── initial.md              # Version changeset
+├── package.json                # Dependencies
+├── tsconfig.json               # TypeScript config
+├── README.md                   # Documentation
+└── src/
+    ├── index.tsx               # Plugin entry point
+    ├── api.ts                  # Contract-derived API types
+    └── components/
+        └── MyFeatureListPage.tsx  # Example page
+```
+
+### 2. Install Dependencies
 
 ```bash
-bun run sync
+cd plugins/myfeature-frontend
+bun install
 ```
 
-See [Monorepo Tooling](./monorepo-tooling.md) for details on shared configurations.
+### 3. Customize Your Plugin
 
-### 3. Define API Interface (Contract-Based)
+The generated plugin is a working example. Customize it for your domain:
+
+#### Update API Types
 
 **src/api.ts:**
+
+The API types are automatically derived from your contract:
 
 ```typescript
 import { createApiRef } from "@checkmate/frontend-api";
 import type { ContractRouterClient } from "@orpc/contract";
-import { myPluginContract } from "@checkmate/myplugin-common";
+import { myFeatureContract } from "@checkmate/myfeature-common";
 
 // Re-export types for convenience
-export type { Item, CreateItem, UpdateItem } from "@checkmate/myplugin-common";
+export type {
+  MyItem,
+  CreateMyItem,
+  UpdateMyItem,
+} from "@checkmate/myfeature-common";
 
 // Derive API type from contract - no manual interface definitions!
-export type MyPluginApi = ContractRouterClient<typeof myPluginContract>;
+export type MyFeatureApi = ContractRouterClient<typeof myFeatureContract>;
 
-export const myPluginApiRef = createApiRef<MyPluginApi>("myplugin-api");
+export const myFeatureApiRef = createApiRef<MyFeatureApi>("myfeature-api");
 ```
 
-**Key Concept**: The frontend API type is **derived from the contract**, ensuring compile-time safety. If the backend contract changes, TypeScript will immediately flag any incompatible frontend code.
+#### Create Your Components
 
-### 4. Create Plugin Entry Point
+**src/components/MyFeaturePage.tsx:**
+
+```typescript
+import { useEffect, useState } from "react";
+import { useApi } from "@checkmate/frontend-api";
+import { myFeatureApiRef, type MyItem } from "../api";
+import { Button, Card } from "@checkmate/ui";
+
+export const MyFeaturePage = () => {
+  const api = useApi(myFeatureApiRef);
+  const [items, setItems] = useState<MyItem[]>([]);
+
+  useEffect(() => {
+    api.getItems().then(setItems);
+  }, [api]);
+
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4">My Features</h1>
+      <div className="grid gap-4">
+        {items.map((item) => (
+          <Card key={item.id} className="p-4">
+            <h3>{item.name}</h3>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+};
+```
+
+#### Register Routes and Navigation
 
 **src/index.tsx:**
 
 ```typescript
-import {
-  createFrontendPlugin,
-  rpcApiRef,
-} from "@checkmate/frontend-api";
-import { myPluginApiRef } from "./api";
-import { ItemListPage } from "./components/ItemListPage";
-import { ItemDetailPage } from "./components/ItemDetailPage";
-import { ItemConfigPage } from "./components/ItemConfigPage";
-import { permissions } from "@checkmate/myplugin-common";
+import { createFrontendPlugin, rpcApiRef } from "@checkmate/frontend-api";
+import { myFeatureApiRef, type MyFeatureApi } from "./api";
+import { MyFeaturePage } from "./components/MyFeaturePage";
+import { permissions } from "@checkmate/myfeature-common";
 import { ListIcon } from "lucide-react";
 
-export const myPlugin = createFrontendPlugin({
-  name: "myplugin-frontend",
-  
-  // Register client API using oRPC
+export const myFeaturePlugin = createFrontendPlugin({
+  name: "myfeature-frontend",
+
+  // Register client API
   apis: [
     {
-      ref: myPluginApiRef,
+      ref: myFeatureApiRef,
       factory: (deps) => {
         const rpcApi = deps.get(rpcApiRef);
-        // Create type-safe client for the backend plugin
-        return rpcApi.forPlugin<MyPluginApi>("myplugin-backend");
+        return rpcApi.forPlugin<MyFeatureApi>("myfeature-backend");
       },
     },
   ],
-  
+
   // Register routes
   routes: [
     {
-      path: "/items",
-      element: <ItemListPage />,
-    },
-    {
-      path: "/items/:id",
-      element: <ItemDetailPage />,
-    },
-    {
-      path: "/items/config",
-      element: <ItemConfigPage />,
-      permission: permissions.itemManage.id,
+      path: "/myfeature",
+      element: <MyFeaturePage />,
+      permission: permissions.myFeatureRead.id,
     },
   ],
-  
-  // Register navigation items
+
+  // Register navigation
   navItems: [
     {
-      title: "Items",
-      path: "/items",
+      title: "My Feature",
+      path: "/myfeature",
       icon: <ListIcon />,
     },
   ],
-  
-  // Register UI extensions (optional)
-  extensions: [
-    {
-      id: "myplugin.user-menu.items",
-      slotId: SLOT_USER_MENU_ITEMS,
-      component: MyUserMenuItems,
-    },
-  ],
 });
-
-export * from "./api";
 ```
+
+### 4. Verify
+
+```bash
+# Type check
+bun run typecheck
+
+# Lint
+bun run lint
+```
+
+That's it! Your frontend plugin is ready to use.
+
+> **Note:** Make sure you have also created the corresponding `-common` and `-backend` packages. See [Common Plugin Guidelines](./common-plugins.md) and [Backend Plugin Development](./backend-plugins.md) for details.
 
 ## Plugin Configuration
 

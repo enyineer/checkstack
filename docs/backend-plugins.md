@@ -8,364 +8,158 @@ The backend implements contracts defined in `-common` packages, ensuring end-to-
 
 ## Quick Start
 
-### 1. Create Plugin Structure
+### 1. Scaffold Plugin with CLI
+
+The fastest way to create a backend plugin is using the CLI scaffolding tool:
 
 ```bash
-mkdir -p plugins/myplugin-{common,backend}/src
+bun run create
 ```
 
-### 2. Initialize Common Package
+**Interactive prompts:**
+1. Select `backend` as the plugin type
+2. Enter your plugin name (e.g., `myfeature`)
+3. Provide a description (optional)
+4. Confirm to generate
 
-Create the common package first to define your contract.
+This will create a complete plugin structure with:
+- ✅ Package configuration with all required dependencies
+- ✅ TypeScript configuration
+- ✅ Drizzle database schema template
+- ✅ oRPC router with permission middleware
+- ✅ Service layer with CRUD operations
+- ✅ Plugin registration
+- ✅ Initial changeset for version management
 
-**plugins/myplugin-common/package.json:**
-
-```json
-{
-  "name": "@checkmate/myplugin-common",
-  "version": "0.0.1",
-  "type": "module",
-  "exports": {
-    ".": {
-      "import": "./src/index.ts"
-    }
-  },
-  "dependencies": {
-    "@checkmate/common": "workspace:*",
-    "@orpc/contract": "^1.13.2",
-    "zod": "^3.23.0"
-  },
-  "devDependencies": {
-    "typescript": "^5.7.2"
-  }
-}
+**Generated structure:**
+```
+plugins/myfeature-backend/
+├── .changeset/
+│   └── initial.md              # Version changeset
+├── drizzle.config.ts           # Drizzle Kit configuration
+├── package.json                # Dependencies
+├── tsconfig.json               # TypeScript config
+├── README.md                   # Documentation
+└── src/
+    ├── index.ts                # Plugin entry point
+    ├── router.ts               # oRPC router implementation
+    ├── service.ts              # Business logic layer
+    └── schema.ts               # Drizzle database schema
 ```
 
-### 3. Define Permissions
-
-**plugins/myplugin-common/src/permissions.ts:**
-
-```typescript
-import { createPermission } from "@checkmate/common";
-
-export const permissions = {
-  itemRead: createPermission({
-    id: "item.read",
-    description: "Read items",
-  }),
-  itemManage: createPermission({
-    id: "item.manage",
-    description: "Manage items",
-  }),
-};
-
-export const permissionList = Object.values(permissions);
-```
-
-### 4. Define Schemas
-
-**plugins/myplugin-common/src/schemas.ts:**
-
-```typescript
-import { z } from "zod";
-
-export const ItemSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string().nullable(),
-  createdAt: z.date(),
-  updatedAt: z.date(),
-});
-
-export type Item = z.infer<typeof ItemSchema>;
-
-export const CreateItemSchema = z.object({
-  name: z.string().min(1).max(255),
-  description: z.string().optional(),
-});
-
-export const UpdateItemSchema = CreateItemSchema.partial();
-```
-
-### 5. Define Contract
-
-**plugins/myplugin-common/src/rpc-contract.ts:**
-
-```typescript
-import { oc } from "@orpc/contract";
-import { z } from "zod";
-import { ItemSchema, CreateItemSchema, UpdateItemSchema } from "./schemas";
-import { permissions } from "./permissions";
-
-// Define metadata type for type-safe permission declarations
-export interface MyPluginMetadata {
-  permissions?: string[];
-}
-
-// Create base builder with metadata support
-const _base = oc.$meta<MyPluginMetadata>({});
-
-export const myPluginContract = {
-  getItems: _base
-    .meta({ permissions: [permissions.itemRead.id] })
-    .output(z.array(ItemSchema)),
-
-  getItem: _base
-    .meta({ permissions: [permissions.itemRead.id] })
-    .input(z.string())
-    .output(ItemSchema),
-
-  createItem: _base
-    .meta({ permissions: [permissions.itemManage.id] })
-    .input(CreateItemSchema)
-    .output(ItemSchema),
-
-  updateItem: _base
-    .meta({ permissions: [permissions.itemManage.id] })
-    .input(z.object({ id: z.string(), data: UpdateItemSchema }))
-    .output(ItemSchema),
-
-  deleteItem: _base
-    .meta({ permissions: [permissions.itemManage.id] })
-    .input(z.string())
-    .output(z.void()),
-};
-
-export type MyPluginContract = typeof myPluginContract;
-```
-
-### 6. Export from Common
-
-**plugins/myplugin-common/src/index.ts:**
-
-```typescript
-// Export permissions
-export { permissions, permissionList } from "./permissions";
-
-// Export schemas and types
-export * from "./schemas";
-
-// Export contract - use explicit named re-exports to avoid bundler issues
-export { myPluginContract, type MyPluginContract } from "./rpc-contract";
-```
-
-### 7. Initialize Backend Package
-
-**plugins/myplugin-backend/package.json:**
-
-```json
-{
-  "name": "@checkmate/myplugin-backend",
-  "version": "0.0.1",
-  "type": "module",
-  "exports": {
-    ".": {
-      "import": "./src/index.ts"
-    }
-  },
-  "dependencies": {
-    "@checkmate/backend-api": "workspace:*",
-    "@checkmate/common": "workspace:*",
-    "@checkmate/myplugin-common": "workspace:*",
-    "drizzle-orm": "^0.38.3",
-    "zod": "^3.23.0"
-  },
-  "devDependencies": {
-    "@types/bun": "latest",
-    "drizzle-kit": "^0.30.0",
-    "typescript": "^5.7.2"
-  }
-}
-```
+### 2. Install Dependencies
 
 ```bash
-bun run sync
+cd plugins/myfeature-backend
+bun install
 ```
 
-See [Monorepo Tooling](./monorepo-tooling.md) for details on shared configurations.
+### 3. Customize Your Plugin
 
-### 8. Define Database Schema
+The generated plugin is a fully functional example. Customize it for your domain:
 
-**plugins/myplugin-backend/src/schema.ts:**
+#### Update Database Schema
+
+**src/schema.ts:**
 
 ```typescript
-import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-export const items = pgTable("items", {
-  id: text("id").primaryKey(),
+export const myItems = pgTable("myfeature_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   description: text("description"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  // Add your custom fields here
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 ```
 
-### 9. Create Router Implementation
+#### Generate Migration
 
-**plugins/myplugin-backend/src/router.ts:**
+After modifying the schema:
 
-```typescript
-import {
-  os,
-  authedProcedure,
-  permissionMiddleware,
-} from "@checkmate/backend-api";
-import { permissions, CreateItemSchema, UpdateItemSchema } from "@checkmate/myplugin-common";
-import { ItemService } from "./service";
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
-import * as schema from "./schema";
-import { z } from "zod";
-
-// Create permission middleware instances
-const itemRead = permissionMiddleware(permissions.itemRead.id);
-const itemManage = permissionMiddleware(permissions.itemManage.id);
-
-export const createMyPluginRouter = (
-  database: NodePgDatabase<typeof schema>
-) => {
-  const service = new ItemService(database);
-
-  return os.router({
-    getItems: authedProcedure
-      .use(itemRead)
-      .handler(async () => {
-        return await service.getItems();
-      }),
-
-    getItem: authedProcedure
-      .use(itemRead)
-      .input(z.string())
-      .handler(async ({ input }) => {
-        const item = await service.getItem(input);
-        if (!item) throw new Error("Item not found");
-        return item;
-      }),
-
-    createItem: authedProcedure
-      .use(itemManage)
-      .input(CreateItemSchema)
-      .handler(async ({ input }) => {
-        return await service.createItem(input);
-      }),
-
-    updateItem: authedProcedure
-      .use(itemManage)
-      .input(z.object({ id: z.string(), data: UpdateItemSchema }))
-      .handler(async ({ input }) => {
-        const item = await service.updateItem(input.id, input.data);
-        if (!item) throw new Error("Item not found");
-        return item;
-      }),
-
-    deleteItem: authedProcedure
-      .use(itemManage)
-      .input(z.string())
-      .handler(async ({ input }) => {
-        await service.deleteItem(input);
-      }),
-  });
-};
-
-export type MyPluginRouter = ReturnType<typeof createMyPluginRouter>;
+```bash
+bun run drizzle-kit generate
 ```
 
-### 10. Create Service Layer
+This creates a migration in the `migrations/` directory.
 
-**plugins/myplugin-backend/src/service.ts:**
+### 4. Implement Business Logic
+
+The generated service layer provides a starting point. Extend it with your domain logic:
+
+**src/service.ts:**
 
 ```typescript
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
-import * as schema from "./schema";
-import { eq } from "drizzle-orm";
-import { v4 as uuidv4 } from "uuid";
-
-export class ItemService {
-  constructor(private database: NodePgDatabase<typeof schema>) {}
+export class MyFeatureService {
+  constructor(private readonly database: Database) {}
 
   async getItems() {
-    return await this.database.select().from(schema.items);
+    return await this.database.select().from(myItems);
   }
 
-  async getItem(id: string) {
+  async createItem(data: CreateMyItem) {
+    // Add custom validation or business logic
     const [item] = await this.database
-      .select()
-      .from(schema.items)
-      .where(eq(schema.items.id, id));
-    return item;
-  }
-
-  async createItem(data: { name: string; description?: string }) {
-    const [item] = await this.database
-      .insert(schema.items)
+      .insert(myItems)
       .values({
-        id: uuidv4(), // Generate ID server-side
         name: data.name,
         description: data.description ?? null,
       })
       .returning();
+
     return item;
   }
 
-  async updateItem(id: string, data: Partial<{ name: string; description?: string }>) {
-    const [item] = await this.database
-      .update(schema.items)
-      .set({
-        ...data,
-        description: data.description ?? null,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.items.id, id))
-      .returning();
-    return item;
-  }
-
-  async deleteItem(id: string) {
-    await this.database.delete(schema.items).where(eq(schema.items.id, id));
-  }
+  // Add your custom methods here
 }
 ```
 
-### 11. Create Plugin Entry Point
+### 5. Update Router Procedures
 
-**plugins/myplugin-backend/src/index.ts:**
+The router implements the contract from your common package. Update procedures as needed:
+
+**src/router.ts:**
 
 ```typescript
-import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
-import { permissionList } from "@checkmate/myplugin-common";
-import * as schema from "./schema";
-import { createMyPluginRouter } from "./router";
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
+export function createMyFeatureRouter({ database }: { database: Database }) {
+  const service = new MyFeatureService(database);
 
-export default createBackendPlugin({
-  pluginId: "myplugin-backend",
-  register(env) {
-    // Register permissions
-    env.registerPermissions(permissionList);
+  return os.router(myFeatureContract, {
+    getItems: authedProcedure
+      .use(permissionMiddleware(permissions.myFeatureRead))
+      .handler(async () => {
+        return await service.getItems();
+      }),
 
-    // Register initialization
-    env.registerInit({
-      schema,
-      deps: {
-        rpc: coreServices.rpc,
-        logger: coreServices.logger,
-      },
-      init: async ({ database, rpc, logger }) => {
-        logger.info("Initializing MyPlugin Backend...");
+    createItem: authedProcedure
+      .use(permissionMiddleware(permissions.myFeatureManage))
+      .handler(async ({ input }) => {
+        return await service.createItem(input);
+      }),
 
-        // Create router with plugin-scoped database
-        const router = createMyPluginRouter(
-          database as NodePgDatabase<typeof schema>
-        );
-
-        // Register router using the plugin ID
-        rpc.registerRouter("myplugin-backend", router);
-
-        logger.info("✅ MyPlugin Backend initialized.");
-      },
-    });
-  },
-});
+    // Add more procedures matching your contract
+  });
+}
 ```
+
+### 6. Verify and Test
+
+```bash
+# Type check
+bun run typecheck
+
+# Lint
+bun run lint
+
+# Run tests
+bun test
+```
+
+That's it! Your backend plugin is ready to use.
+
+> **Note:** Don't forget to also create the corresponding `-common` package to define your contract. See [Common Plugin Guidelines](./common-plugins.md) for details.
 
 ## Plugin Registration API
 
