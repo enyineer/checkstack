@@ -235,7 +235,10 @@ export const AuthSettingsPage: React.FC = () => {
                                 <Checkbox
                                   id={`role-${user.id}-${role.id}`}
                                   checked={user.roles.includes(role.id)}
-                                  disabled={!canManageRoles.allowed}
+                                  disabled={
+                                    !canManageRoles.allowed ||
+                                    session.data?.user.id === user.id
+                                  }
                                   onCheckedChange={() =>
                                     handleToggleRole(
                                       user.id,
