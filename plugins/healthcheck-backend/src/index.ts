@@ -36,7 +36,7 @@ export default createBackendPlugin({
 
         scheduler.start();
 
-        rpc.registerRouter("healthcheck", router);
+        rpc.registerRouter("healthcheck-backend", router);
       },
     });
   },
