@@ -9,7 +9,6 @@ import {
   UpdateHealthCheckConfigurationSchema,
   AssociateHealthCheckSchema,
   permissions,
-  type HealthCheckRpcContract,
 } from "@checkmate/healthcheck-common";
 import { HealthCheckService } from "./service";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -132,8 +131,3 @@ export const router = os.router({
 });
 
 export type HealthCheckRouter = typeof router;
-
-// Compile-time validation: ensure router implements the RPC contract
-type _ValidateContract = HealthCheckRpcContract extends HealthCheckRouter
-  ? never
-  : "Router does not implement HealthCheckRpcContract";

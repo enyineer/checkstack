@@ -1,16 +1,14 @@
 import { oc } from "@orpc/contract";
 import { z } from "zod";
-import { permissions } from "./index";
-import type {
-  HealthCheckStrategyDto,
-  HealthCheckConfiguration,
-  HealthCheckRun,
-} from "./index";
+import { permissions } from "./permissions";
 import {
+  HealthCheckStrategyDtoSchema,
+  HealthCheckConfigurationSchema,
   CreateHealthCheckConfigurationSchema,
   UpdateHealthCheckConfigurationSchema,
   AssociateHealthCheckSchema,
-} from "./index";
+  HealthCheckRunSchema,
+} from "./schemas";
 
 // Permission metadata type
 export interface HealthCheckMetadata {
@@ -19,31 +17,6 @@ export interface HealthCheckMetadata {
 
 // Base builder with metadata support
 const _base = oc.$meta<HealthCheckMetadata>({});
-
-// Zod schemas for return types
-const HealthCheckStrategyDtoSchema = z.object({
-  id: z.string(),
-  displayName: z.string(),
-  description: z.string().optional(),
-  configSchema: z.record(z.string(), z.unknown()),
-}) satisfies z.ZodType<HealthCheckStrategyDto>;
-
-const HealthCheckConfigurationSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  strategyId: z.string(),
-  config: z.record(z.string(), z.unknown()),
-  intervalSeconds: z.number(),
-}) satisfies z.ZodType<HealthCheckConfiguration>;
-
-const HealthCheckRunSchema = z.object({
-  id: z.string(),
-  configurationId: z.string(),
-  systemId: z.string(),
-  status: z.enum(["healthy", "unhealthy", "degraded"]),
-  result: z.record(z.string(), z.unknown()),
-  timestamp: z.string(),
-}) satisfies z.ZodType<HealthCheckRun>;
 
 // Health Check RPC Contract using oRPC's contract-first pattern
 export const healthCheckContract = {
@@ -118,33 +91,3 @@ export const healthCheckContract = {
 
 // Export contract type for frontend
 export type HealthCheckContract = typeof healthCheckContract;
-
-// Keep old interface for backwards compatibility during migration
-export interface HealthCheckRpcContract {
-  getStrategies: () => Promise<HealthCheckStrategyDto[]>;
-  getConfigurations: () => Promise<HealthCheckConfiguration[]>;
-  createConfiguration: (
-    input: z.infer<typeof CreateHealthCheckConfigurationSchema>
-  ) => Promise<HealthCheckConfiguration>;
-  updateConfiguration: (input: {
-    id: string;
-    body: z.infer<typeof UpdateHealthCheckConfigurationSchema>;
-  }) => Promise<HealthCheckConfiguration>;
-  deleteConfiguration: (id: string) => Promise<void>;
-  getSystemConfigurations: (
-    systemId: string
-  ) => Promise<HealthCheckConfiguration[]>;
-  associateSystem: (input: {
-    systemId: string;
-    body: z.infer<typeof AssociateHealthCheckSchema>;
-  }) => Promise<void>;
-  disassociateSystem: (input: {
-    systemId: string;
-    configId: string;
-  }) => Promise<void>;
-  getHistory: (params: {
-    systemId?: string;
-    configurationId?: string;
-    limit?: number;
-  }) => Promise<HealthCheckRun[]>;
-}
