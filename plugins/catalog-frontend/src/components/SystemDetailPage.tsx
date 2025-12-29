@@ -141,13 +141,13 @@ export const SystemDetailPage: React.FC = () => {
             <div className="text-right space-y-1">
               <p className="text-sm text-gray-600">Response Time</p>
               <p className="text-2xl font-semibold text-gray-900">
-                {metadata.latency}
+                {String(metadata.latency)}
               </p>
             </div>
             <div className="text-right space-y-1">
               <p className="text-sm text-gray-600">Last Checked</p>
               <p className="text-base font-medium text-gray-700">
-                {metadata.lastCheck}
+                {String(metadata.lastCheck)}
               </p>
             </div>
           </div>
@@ -237,21 +237,25 @@ export const SystemDetailPage: React.FC = () => {
       </Card>
 
       {/* Metadata Card */}
-      {system.metadata && Object.keys(system.metadata).length > 0 && (
-        <Card className="border-gray-200 shadow-sm">
-          <CardHeader className="border-b border-gray-100 bg-gray-50/50">
-            <div className="flex items-center gap-2">
-              <FileJson className="h-5 w-5 text-gray-600" />
-              <CardTitle className="text-lg font-semibold">Metadata</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="p-6">
-            <pre className="text-sm text-gray-700 bg-gray-50 p-4 rounded border border-gray-200 overflow-x-auto">
-              {JSON.stringify(system.metadata, undefined, 2)}
-            </pre>
-          </CardContent>
-        </Card>
-      )}
+      {system.metadata &&
+        typeof system.metadata === "object" &&
+        Object.keys(system.metadata).length > 0 && (
+          <Card className="border-gray-200 shadow-sm">
+            <CardHeader className="border-b border-gray-100 bg-gray-50/50">
+              <div className="flex items-center gap-2">
+                <FileJson className="h-5 w-5 text-gray-600" />
+                <CardTitle className="text-lg font-semibold">
+                  Metadata
+                </CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="p-6">
+              <pre className="text-sm text-gray-700 bg-gray-50 p-4 rounded border border-gray-200 overflow-x-auto">
+                {JSON.stringify(system.metadata, undefined, 2)}
+              </pre>
+            </CardContent>
+          </Card>
+        )}
 
       {/* Extension Slot for System Details */}
       <ExtensionSlot

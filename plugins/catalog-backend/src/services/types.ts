@@ -11,14 +11,13 @@ export const selectSystemSchema = z.object({
   createdAt: z.date(),
   updatedAt: z.date(),
 });
-export const insertSystemSchema = selectSystemSchema
-  .pick({ id: true, name: true })
-  .extend({
-    description: z.string().optional(),
-    owner: z.string().optional(),
-    status: z.enum(["healthy", "degraded", "unhealthy"]).optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
-  });
+export const insertSystemSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  owner: z.string().optional(),
+  status: z.enum(["healthy", "degraded", "unhealthy"]).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
 export type System = z.infer<typeof selectSystemSchema>;
 export type NewSystem = z.infer<typeof insertSystemSchema>;
 
@@ -30,11 +29,10 @@ export const selectGroupSchema = z.object({
   createdAt: z.date(),
   updatedAt: z.date(),
 });
-export const insertGroupSchema = selectGroupSchema
-  .pick({ id: true, name: true })
-  .extend({
-    metadata: z.record(z.string(), z.unknown()).optional(),
-  });
+export const insertGroupSchema = z.object({
+  name: z.string(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
 export type Group = z.infer<typeof selectGroupSchema>;
 export type NewGroup = z.infer<typeof insertGroupSchema>;
 
@@ -47,12 +45,11 @@ export const selectViewSchema = z.object({
   createdAt: z.date(),
   updatedAt: z.date(),
 });
-export const insertViewSchema = selectViewSchema
-  .pick({ id: true, name: true })
-  .extend({
-    description: z.string().optional(),
-    configuration: z.any().optional(),
-  });
+export const insertViewSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  configuration: z.any().optional(),
+});
 export type View = z.infer<typeof selectViewSchema>;
 export type NewView = z.infer<typeof insertViewSchema>;
 
@@ -68,13 +65,14 @@ export const selectIncidentSchema = z.object({
   createdAt: z.date(),
   updatedAt: z.date(),
 });
-export const insertIncidentSchema = selectIncidentSchema
-  .pick({ id: true, title: true, status: true, severity: true })
-  .extend({
-    description: z.string().optional(),
-    systemId: z.string().optional().nullable(),
-    groupId: z.string().optional().nullable(),
-  });
+export const insertIncidentSchema = z.object({
+  title: z.string(),
+  status: z.string().default("open"),
+  severity: z.string().default("medium"),
+  description: z.string().optional(),
+  systemId: z.string().nullable().optional(),
+  groupId: z.string().nullable().optional(),
+});
 export type Incident = z.infer<typeof selectIncidentSchema>;
 export type NewIncident = z.infer<typeof insertIncidentSchema>;
 

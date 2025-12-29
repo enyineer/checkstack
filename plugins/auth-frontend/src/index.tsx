@@ -23,9 +23,12 @@ import { PermissionAction } from "@checkmate/common";
 import { useNavigate } from "react-router-dom";
 import { Settings2 } from "lucide-react";
 import { DropdownMenuItem } from "@checkmate/ui";
-import { fetchApiRef, FetchApi, useApi } from "@checkmate/frontend-api";
+import { rpcApiRef, RpcApi, useApi } from "@checkmate/frontend-api";
 import { AuthSettingsPage } from "./components/AuthSettingsPage";
-import { permissions as authPermissions } from "@checkmate/auth-common";
+import {
+  permissions as authPermissions,
+  AuthRpcContract,
+} from "@checkmate/auth-common";
 
 class AuthPermissionApi implements PermissionApi {
   usePermission(permission: string): { loading: boolean; allowed: boolean } {
@@ -81,7 +84,12 @@ class AuthPermissionApi implements PermissionApi {
 }
 
 class BetterAuthApi implements AuthApi {
-  constructor(private readonly fetchApi: FetchApi) {}
+  // Management APIs
+  private get rpc(): AuthRpcContract {
+    return this.rpcApi.forPlugin<AuthRpcContract>("auth-backend");
+  }
+
+  constructor(private readonly rpcApi: RpcApi) {}
 
   async signIn(email: string, password: string) {
     const res = await authClient.signIn.email({ email, password });
@@ -91,8 +99,6 @@ class BetterAuthApi implements AuthApi {
       return { data: undefined, error };
     }
 
-    // better-auth returns { user, session, token } on some flows, or just { user, session }
-    // We map it to our common AuthSession interface
     const data = res.data as typeof res.data & {
       session?: AuthSession["session"];
     };
@@ -138,40 +144,28 @@ class BetterAuthApi implements AuthApi {
     };
   }
 
-  // Management APIs
   async getUsers() {
-    const res = await this.fetchApi.fetch("/api/auth-backend/users");
-    return res.json();
+    return this.rpc.getUsers();
   }
 
   async deleteUser(userId: string) {
-    await this.fetchApi.fetch(`/api/auth-backend/users/${userId}`, {
-      method: "DELETE",
-    });
+    return this.rpc.deleteUser(userId);
   }
 
   async getRoles() {
-    const res = await this.fetchApi.fetch("/api/auth-backend/roles");
-    return res.json();
+    return this.rpc.getRoles();
   }
 
   async updateUserRoles(userId: string, roles: string[]) {
-    await this.fetchApi.fetch(`/api/auth-backend/users/${userId}/roles`, {
-      method: "POST",
-      body: JSON.stringify({ roles }),
-    });
+    return this.rpc.updateUserRoles({ userId, roles });
   }
 
   async getStrategies() {
-    const res = await this.fetchApi.fetch("/api/auth-backend/strategies");
-    return res.json();
+    return this.rpc.getStrategies();
   }
 
-  async toggleStrategy(strategyId: string, enabled: boolean) {
-    await this.fetchApi.fetch(`/api/auth-backend/strategies/${strategyId}`, {
-      method: "PATCH",
-      body: JSON.stringify({ enabled }),
-    });
+  async toggleStrategy(id: string, enabled: boolean) {
+    return this.rpc.updateStrategy({ id, enabled });
   }
 }
 
@@ -180,7 +174,7 @@ export const authPlugin = createFrontendPlugin({
   apis: [
     {
       ref: authApiRef as ApiRef<unknown>,
-      factory: (deps) => new BetterAuthApi(deps.get(fetchApiRef)),
+      factory: (deps) => new BetterAuthApi(deps.get(rpcApiRef)),
     },
     {
       ref: permissionApiRef as ApiRef<unknown>,

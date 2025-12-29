@@ -12,19 +12,20 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
+    "@checkmate/auth-frontend-plugin": "workspace:*",
+    "@checkmate/catalog-frontend-plugin": "workspace:*",
+    "@checkmate/common": "workspace:*",
+    "@checkmate/frontend-api": "workspace:*",
+    "@checkmate/ui": "workspace:*",
+    "@orpc/client": "^1.13.2",
+    "better-auth": "^1.1.8",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.0",
+    "lucide-react": "^0.344.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.22.0",
-    "clsx": "^2.1.0",
-    "tailwind-merge": "^2.2.0",
-    "class-variance-authority": "^0.7.0",
-    "lucide-react": "^0.344.0",
-    "@checkmate/frontend-api": "workspace:*",
-    "@checkmate/common": "workspace:*",
-    "@checkmate/ui": "workspace:*",
-    "@checkmate/auth-frontend-plugin": "workspace:*",
-    "@checkmate/catalog-frontend-plugin": "workspace:*",
-    "better-auth": "^1.1.8"
+    "tailwind-merge": "^2.2.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.64",

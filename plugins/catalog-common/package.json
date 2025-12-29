@@ -8,7 +8,9 @@
     }
   },
   "dependencies": {
-    "@checkmate/common": "workspace:*"
+    "@checkmate/common": "workspace:*",
+    "@orpc/contract": "^1.13.2",
+    "zod": "^4.2.1"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

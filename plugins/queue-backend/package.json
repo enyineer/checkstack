@@ -20,8 +20,9 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.2",
+    "@checkmate/scripts": "workspace:*",
     "@checkmate/tsconfig": "workspace:*",
-    "@checkmate/scripts": "workspace:*"
+    "@orpc/server": "^1.13.2",
+    "typescript": "^5.7.2"
   }
 }

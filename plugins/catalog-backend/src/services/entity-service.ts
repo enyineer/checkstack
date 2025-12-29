@@ -2,6 +2,7 @@ import { eq, and } from "drizzle-orm";
 import { NewSystem, NewGroup, NewView } from "./types";
 import * as schema from "../schema";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { v4 as uuidv4 } from "uuid";
 
 export class EntityService {
   private database: NodePgDatabase<typeof schema>;
@@ -26,7 +27,7 @@ export class EntityService {
   async createSystem(data: NewSystem) {
     const result = await this.database
       .insert(schema.systems)
-      .values(data)
+      .values({ id: uuidv4(), ...data })
       .returning();
     return result[0];
   }
@@ -72,7 +73,7 @@ export class EntityService {
   async createGroup(data: NewGroup) {
     const result = await this.database
       .insert(schema.groups)
-      .values(data)
+      .values({ id: uuidv4(), ...data })
       .returning();
     return result[0];
   }
@@ -126,7 +127,7 @@ export class EntityService {
   async createView(data: NewView) {
     const result = await this.database
       .insert(schema.views)
-      .values(data)
+      .values({ id: uuidv4(), ...data })
       .returning();
     return result[0];
   }

@@ -44,7 +44,11 @@ describe("HealthCheck Plugin Integration", () => {
   });
 
   it("should allow a plugin to register a health check strategy", async () => {
-    const mockRouter: any = { route: mock() };
+    const mockRouter: any = {
+      route: mock(),
+      all: mock(),
+      newResponse: mock(),
+    };
 
     // Define a mock execute function for the strategy
     const mockExecute = mock(async () => ({ status: "healthy" as const }));

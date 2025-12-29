@@ -28,3 +28,10 @@ export interface PermissionApi {
 }
 
 export const permissionApiRef = createApiRef<PermissionApi>("core.permission");
+
+export interface RpcApi {
+  client: unknown;
+  forPlugin<T>(pluginId: string): T;
+}
+
+export const rpcApiRef = createApiRef<RpcApi>("core.rpc");

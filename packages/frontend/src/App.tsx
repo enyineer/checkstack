@@ -6,12 +6,14 @@ import {
   loggerApiRef,
   permissionApiRef,
   fetchApiRef,
+  rpcApiRef,
   useApi,
   ExtensionSlot,
   pluginRegistry,
 } from "@checkmate/frontend-api";
 import { ConsoleLoggerApi } from "./apis/logger-api";
 import { CoreFetchApi } from "./apis/fetch-api";
+import { CoreRpcApi } from "./apis/rpc-api";
 import { PermissionDenied, LoadingSpinner } from "@checkmate/ui";
 import {
   SLOT_DASHBOARD,
@@ -55,6 +57,9 @@ function App() {
       })
       .registerFactory(fetchApiRef, (_registry) => {
         return new CoreFetchApi();
+      })
+      .registerFactory(rpcApiRef, (_registry) => {
+        return new CoreRpcApi();
       });
 
     // Register API factories from plugins

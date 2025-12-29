@@ -80,7 +80,6 @@ export const CatalogConfigPage = () => {
     if (!newSystemName) return;
     catalogApi
       .createSystem({
-        id: newSystemName.toLowerCase().replaceAll(/\s+/g, "-"),
         name: newSystemName,
         description: newSystemDescription || undefined,
       })
@@ -99,7 +98,6 @@ export const CatalogConfigPage = () => {
     if (!newGroupName) return;
     catalogApi
       .createGroup({
-        id: newGroupName.toLowerCase().replaceAll(/\s+/g, "-"),
         name: newGroupName,
       })
       .then(() => {
@@ -150,7 +148,10 @@ export const CatalogConfigPage = () => {
   const handleAddSystemToGroup = async () => {
     if (!selectedGroupId || !selectedSystemToAdd) return;
     try {
-      await catalogApi.addSystemToGroup(selectedGroupId, selectedSystemToAdd);
+      await catalogApi.addSystemToGroup({
+        groupId: selectedGroupId,
+        systemId: selectedSystemToAdd,
+      });
       setSelectedSystemToAdd("");
       loadData();
     } catch (error) {
@@ -163,7 +164,7 @@ export const CatalogConfigPage = () => {
     systemId: string
   ) => {
     try {
-      await catalogApi.removeSystemFromGroup(groupId, systemId);
+      await catalogApi.removeSystemFromGroup({ groupId, systemId });
       loadData();
     } catch (error) {
       console.error("Failed to remove system from group:", error);
@@ -172,7 +173,7 @@ export const CatalogConfigPage = () => {
 
   const handleUpdateSystemName = async (id: string, newName: string) => {
     try {
-      await catalogApi.updateSystem(id, { name: newName });
+      await catalogApi.updateSystem({ id, data: { name: newName } });
       loadData();
     } catch (error) {
       console.error("Failed to update system name:", error);
@@ -185,7 +186,10 @@ export const CatalogConfigPage = () => {
     newDescription: string
   ) => {
     try {
-      await catalogApi.updateSystem(id, { description: newDescription });
+      await catalogApi.updateSystem({
+        id,
+        data: { description: newDescription },
+      });
       loadData();
     } catch (error) {
       console.error("Failed to update system description:", error);
@@ -195,7 +199,7 @@ export const CatalogConfigPage = () => {
 
   const handleUpdateGroupName = async (id: string, newName: string) => {
     try {
-      await catalogApi.updateGroup(id, { name: newName });
+      await catalogApi.updateGroup({ id, data: { name: newName } });
       loadData();
     } catch (error) {
       console.error("Failed to update group name:", error);

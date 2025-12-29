@@ -19,10 +19,11 @@
     "zod": "^4.2.1"
   },
   "devDependencies": {
+    "@checkmate/scripts": "workspace:*",
+    "@checkmate/tsconfig": "workspace:*",
+    "@orpc/server": "^1.13.2",
     "@types/bun": "^1.0.0",
     "drizzle-kit": "^0.31.8",
-    "typescript": "^5.0.0",
-    "@checkmate/tsconfig": "workspace:*",
-    "@checkmate/scripts": "workspace:*"
+    "typescript": "^5.0.0"
   }
 }

@@ -64,10 +64,13 @@ export const SystemHealthCheckAssignment: React.FC<unknown> = (props) => {
     setUpdating(configId);
     try {
       await (isCurrentlyAssigned
-        ? api.disassociateSystem(system.id, configId)
-        : api.associateSystem(system.id, {
-            configurationId: configId,
-            enabled: true,
+        ? api.disassociateSystem({ systemId: system.id, configId })
+        : api.associateSystem({
+            systemId: system.id,
+            body: {
+              configurationId: configId,
+              enabled: true,
+            },
           }));
     } catch (error) {
       console.error("Failed to toggle assignment:", error);

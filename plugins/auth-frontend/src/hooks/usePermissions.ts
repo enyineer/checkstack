@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { authClient } from "../lib/auth-client";
+import { rpcApiRef, useApi } from "@checkmate/frontend-api";
+import type { AuthRpcContract } from "@checkmate/auth-common";
 
 export const usePermissions = () => {
   const { data: session } = authClient.useSession();
   const [permissions, setPermissions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const rpcApi = useApi(rpcApiRef);
 
   useEffect(() => {
     if (!session?.user) {
@@ -15,12 +18,10 @@ export const usePermissions = () => {
 
     const fetchPermissions = async () => {
       try {
-        const res = await fetch("/api/auth-backend/permissions");
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data.permissions)) {
-            setPermissions(data.permissions as string[]);
-          }
+        const authRpc = rpcApi.forPlugin<AuthRpcContract>("auth-backend");
+        const data = await authRpc.permissions();
+        if (Array.isArray(data.permissions)) {
+          setPermissions(data.permissions);
         }
       } catch (error) {
         console.error("Failed to fetch permissions", error);
@@ -29,7 +30,7 @@ export const usePermissions = () => {
       }
     };
     fetchPermissions();
-  }, [session?.user?.id]);
+  }, [session?.user?.id, rpcApi]);
 
   return { permissions, loading };
 };

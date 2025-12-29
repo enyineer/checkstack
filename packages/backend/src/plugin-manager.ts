@@ -4,7 +4,6 @@ import { Pool } from "pg";
 import path from "node:path";
 import fs from "node:fs";
 import { Hono } from "hono";
-import { createMiddleware } from "hono/factory";
 import { adminPool, db } from "./db";
 import { plugins } from "./schema";
 import { eq } from "drizzle-orm";
@@ -17,17 +16,20 @@ import {
   Deps,
   ResolvedDeps,
   AuthService,
-  PluginRouter,
-  RouteOptions,
   authenticationStrategyServiceRef,
+  RpcService,
+  RpcContext,
+  Logger,
+  Fetch,
+  HealthCheckRegistry,
+  AuthenticationStrategy,
 } from "@checkmate/backend-api";
+import type { QueuePluginRegistry, QueueFactory } from "@checkmate/queue-api";
+import { RPCHandler } from "@orpc/server/fetch";
 import type { Permission } from "@checkmate/common";
 import { rootLogger } from "./logger";
 import { jwtService } from "./services/jwt";
 import { CoreHealthCheckRegistry } from "./services/health-check-registry";
-import z, { ZodSchema } from "zod";
-import { Context, MiddlewareHandler, Handler } from "hono";
-import { zValidator } from "@hono/zod-validator";
 import { fixMigrationsSchemaReferences } from "./utils/fix-migrations";
 
 interface PluginManifest {
@@ -48,7 +50,11 @@ interface PendingInit {
 export class PluginManager {
   private registry = new ServiceRegistry();
   private extensionPointProxies = new Map<string, unknown>();
-  private pluginRouters = new Map<string, Hono>();
+  private pluginRpcRouters = new Map<string, unknown>();
+  private pluginHttpHandlers = new Map<
+    string,
+    (req: Request) => Promise<Response>
+  >();
 
   constructor() {
     this.registerCoreServices();
@@ -81,8 +87,9 @@ export class PluginManager {
     // 3. Auth Factory (Scoped)
     this.registry.registerFactory(coreServices.auth, (pluginId) => {
       const authService: AuthService = {
-        authenticate: async (c: Context) => {
-          const token = c.req.header("Authorization")?.replace("Bearer ", "");
+        authenticate: async (request: Request) => {
+          const authHeader = request.headers.get("Authorization");
+          const token = authHeader?.replace("Bearer ", "");
 
           // Strategy A: Service Token
           if (token) {
@@ -103,55 +110,19 @@ export class PluginManager {
               pluginId
             );
             if (authStrategy) {
-              return await authStrategy.validate(c.req.raw);
+              return await (authStrategy as AuthenticationStrategy).validate(
+                request
+              );
             }
           } catch {
             // No strategy registered yet
           }
         },
 
-        getCredentials: async (c?: Context) => {
-          if (c) {
-            const authHeader = c.req.header("Authorization");
-            if (authHeader) {
-              return { headers: { Authorization: authHeader } };
-            }
-          }
+        getCredentials: async () => {
           const token = await jwtService.sign({ service: pluginId }, "5m");
           return { headers: { Authorization: `Bearer ${token}` } };
         },
-
-        authorize: (permission: string | string[]) => {
-          return createMiddleware(async (c, next) => {
-            const user = await authService.authenticate(c);
-            if (!user) {
-              return c.json({ error: "Unauthorized" }, 401);
-            }
-
-            const userPermissions = user.permissions || [];
-            const perms = Array.isArray(permission) ? permission : [permission];
-
-            const hasPermission = perms.some((p) => {
-              const fullId = `${pluginId}.${p}`;
-              return (
-                userPermissions.includes("*") ||
-                userPermissions.includes(fullId) ||
-                userPermissions.includes(p)
-              );
-            });
-
-            if (!hasPermission) {
-              return c.json(
-                { error: `Forbidden: Missing ${perms.join(" or ")}` },
-                403
-              );
-            }
-
-            await next();
-          });
-        },
-
-        validate: (schema: ZodSchema) => createValidationMiddleware(schema),
       };
       return authService;
     });
@@ -226,73 +197,24 @@ export class PluginManager {
       () => healthCheckRegistry
     );
 
-    // 6. Router Factory (Scoped)
-    this.registry.registerFactory(coreServices.httpRouter, async (pluginId) => {
-      const auth = await this.registry.get(coreServices.auth, pluginId);
-      return this.createPluginRouter(pluginId, auth);
-    });
-  }
-
-  private createPluginRouter(
-    pluginId: string,
-    authService: AuthService
-  ): PluginRouter {
-    const honoRouter = new Hono();
-    this.pluginRouters.set(pluginId, honoRouter);
-
-    const wrap = (
-      method: "get" | "post" | "put" | "patch" | "delete" | "all"
-    ) => {
-      return (path: string, ...args: unknown[]) => {
-        let options: RouteOptions | undefined;
-        let handler: Handler;
-
-        if (
-          args.length === 2 &&
-          typeof args[0] === "object" &&
-          args[0] !== null &&
-          !Array.isArray(args[0])
-        ) {
-          options = args[0] as RouteOptions;
-          handler = args[1] as Handler;
-        } else {
-          handler = args.at(-1) as Handler;
-        }
-
-        const middlewares: MiddlewareHandler[] = [];
-        if (options?.permission) {
-          middlewares.push(authService.authorize(options.permission));
-        }
-        if (options?.schema) {
-          middlewares.push(authService.validate(options.schema));
-        }
-
-        // We use a type cast to access the method dynamically while staying safe
-        const router = honoRouter as unknown as Record<
-          string,
-          (path: string, ...handlers: MiddlewareHandler[]) => void
-        >;
-        router[method](
-          path,
-          ...middlewares,
-          handler as unknown as MiddlewareHandler
-        );
-      };
-    };
-
-    return {
-      get: wrap("get"),
-      post: wrap("post"),
-      put: wrap("put"),
-      patch: wrap("patch"),
-      delete: wrap("delete"),
-      all: wrap("all"),
-      use: (...args: unknown[]) =>
-        (
-          honoRouter as unknown as Record<string, (...a: unknown[]) => void>
-        ).use(...args),
-      hono: honoRouter,
-    };
+    // 6. RPC Service (Global Singleton)
+    this.registry.registerFactory(
+      coreServices.rpc,
+      () =>
+        ({
+          registerRouter: (pluginId: string, router: unknown): void => {
+            this.pluginRpcRouters.set(pluginId, router);
+            rootLogger.info(`   -> Registered oRPC router for '${pluginId}'`);
+          },
+          registerHttpHandler: (
+            path: string,
+            handler: (req: Request) => Promise<Response>
+          ): void => {
+            this.pluginHttpHandlers.set(path, handler);
+            rootLogger.info(`   -> Registered HTTP handler for path '${path}'`);
+          },
+        } satisfies RpcService)
+    );
   }
 
   registerExtensionPoint<T>(ref: ExtensionPoint<T>, impl: T) {
@@ -571,12 +493,6 @@ export class PluginManager {
         try {
           await p.init(resolvedDeps);
           rootLogger.debug(`   -> Initialized ${p.pluginId}`);
-
-          // Mount router if it was created
-          const pluginRouter = this.pluginRouters.get(p.pluginId);
-          if (pluginRouter) {
-            rootRouter.route(`/api/${p.pluginId}`, pluginRouter);
-          }
         } catch (error) {
           rootLogger.error(`❌ Failed to initialize ${p.pluginId}:`, error);
         }
@@ -587,6 +503,82 @@ export class PluginManager {
         );
       }
     }
+
+    const rootRpcRouter: Record<string, unknown> = {};
+    for (const [pluginId, router] of this.pluginRpcRouters.entries()) {
+      rootRpcRouter[pluginId] = router;
+    }
+
+    const rpcHandler = new RPCHandler(
+      rootRpcRouter as ConstructorParameters<typeof RPCHandler>[0]
+    );
+
+    rootRouter.all("/api/*", async (c) => {
+      const pathname = new URL(c.req.raw.url).pathname;
+
+      // Resolve core services for RPC context
+      const auth = await this.getService(coreServices.auth);
+      const logger = await this.getService(coreServices.logger);
+      const db = await this.getService(coreServices.database);
+      const fetch = await this.getService(coreServices.fetch);
+      const healthCheckRegistry = await this.getService(
+        coreServices.healthCheckRegistry
+      );
+      const queuePluginRegistry = await this.getService(
+        coreServices.queuePluginRegistry
+      );
+      const queueFactory = await this.getService(coreServices.queueFactory);
+
+      if (
+        !auth ||
+        !logger ||
+        !db ||
+        !fetch ||
+        !healthCheckRegistry ||
+        !queuePluginRegistry ||
+        !queueFactory
+      ) {
+        return c.json({ error: "Core services not initialized" }, 500);
+      }
+
+      const user = await (auth as AuthService).authenticate(c.req.raw);
+
+      const context: RpcContext = {
+        auth: auth as AuthService,
+        logger: logger as Logger,
+        db: db as NodePgDatabase<Record<string, unknown>>,
+        fetch: fetch as Fetch,
+        healthCheckRegistry: healthCheckRegistry as HealthCheckRegistry,
+        queuePluginRegistry: queuePluginRegistry as QueuePluginRegistry,
+        queueFactory: queueFactory as QueueFactory,
+        user,
+      };
+
+      // 1. Try oRPC first
+      try {
+        const { matched, response } = await rpcHandler.handle(c.req.raw, {
+          prefix: "/api",
+          context,
+        });
+
+        if (matched) {
+          return c.newResponse(response.body, response);
+        }
+
+        logger.debug(`RPC mismatch for: ${c.req.method} ${pathname}`);
+      } catch (error) {
+        logger.error(`RPC Handler error: ${String(error)}`);
+      }
+
+      // 2. Try native handlers
+      for (const [path, handler] of this.pluginHttpHandlers) {
+        if (pathname.startsWith(path)) {
+          return handler(c.req.raw);
+        }
+      }
+
+      return c.json({ error: "Not Found" }, 404);
+    });
   }
 
   private registerPlugin(
@@ -641,6 +633,9 @@ export class PluginManager {
       registerPermissions: (permissions: Permission[]) => {
         this.registerPermissions(backendPlugin.pluginId, permissions);
       },
+      registerRouter: (router: unknown) => {
+        this.pluginRpcRouters.set(backendPlugin.pluginId, router);
+      },
     });
   }
 
@@ -656,11 +651,3 @@ export class PluginManager {
     this.registry.register(ref, impl);
   }
 }
-
-// Direct zValidator fits the signature logic but needs explicit typing for strictness
-const createValidationMiddleware = (schema: ZodSchema): MiddlewareHandler =>
-  zValidator("json", schema, (result, c) => {
-    if (!result.success) {
-      return c.json({ error: z.treeifyError(result.error) }, 400);
-    }
-  }) as unknown as MiddlewareHandler;

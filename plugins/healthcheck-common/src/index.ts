@@ -74,3 +74,5 @@ export const AssociateHealthCheckSchema = z.object({
 });
 
 export type AssociateHealthCheck = z.infer<typeof AssociateHealthCheckSchema>;
+
+export * from "./rpc-contract";

@@ -15,8 +15,6 @@ import { QueueFactoryImpl } from "./services/queue-factory";
 
 import { cors } from "hono/cors";
 
-import { createAuthMiddleware } from "./middleware/auth";
-
 const app = new Hono();
 const pluginManager = new PluginManager();
 
@@ -90,27 +88,6 @@ const init = async () => {
     queueRegistry
   );
   pluginManager.registerService(coreServices.queueFactory, queueFactory);
-
-  // 2. Signature Verification Middleware
-  // Verify that every request coming to /api/* has a valid signature, unless exempt.
-  // The 'auth-backend' plugin routes (/api/auth/*) must be exempt to allow login/signup.
-  // The '/api/plugins' route is exempt to allow frontend bootstrapping.
-  const EXEMPT_PATHS = [
-    "/api/auth-backend",
-    "/api/plugins",
-    "/api/plugins/install",
-  ];
-
-  app.use("/api/*", async (c, next) => {
-    const reqPath = c.req.path;
-
-    // Check exemptions (prefix match)
-    if (EXEMPT_PATHS.some((p) => reqPath.startsWith(p))) {
-      return next();
-    }
-
-    return createAuthMiddleware(pluginManager)(c, next);
-  });
 
   // Endpoint to install a new plugin
   app.post("/api/plugins/install", async (c) => {

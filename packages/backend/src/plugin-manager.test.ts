@@ -176,7 +176,11 @@ describe("PluginManager", () => {
 
   describe("loadPlugins", () => {
     it("should discover and initialize plugins", async () => {
-      const mockRouter: any = { route: mock() };
+      const mockRouter: any = {
+        route: mock(),
+        all: mock(),
+        newResponse: mock(),
+      };
 
       // Setup discovery mocks
       mockExistsSync.mockReturnValue(true);

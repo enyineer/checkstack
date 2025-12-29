@@ -11,6 +11,10 @@
   "dependencies": {
     "@checkmate/common": "workspace:*",
     "@checkmate/queue-api": "workspace:*",
+    "@orpc/client": "^1.13.2",
+    "@orpc/openapi": "^1.13.2",
+    "@orpc/server": "^1.13.2",
+    "@orpc/zod": "^1.13.2",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.0.0",
     "zod": "^4.2.1"

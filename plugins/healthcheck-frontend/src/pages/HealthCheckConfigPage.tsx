@@ -78,7 +78,7 @@ const HealthCheckConfigPageContent = () => {
 
   const handleSave = async (data: CreateHealthCheckConfiguration) => {
     await (editingConfig
-      ? api.updateConfiguration(editingConfig.id, data)
+      ? api.updateConfiguration({ id: editingConfig.id, body: data })
       : api.createConfiguration(data));
     setIsEditing(false);
     await fetchData();

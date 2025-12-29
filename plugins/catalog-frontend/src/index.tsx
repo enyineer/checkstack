@@ -1,7 +1,6 @@
-import { fetchApiRef, ApiRef } from "@checkmate/frontend-api";
+import { rpcApiRef, ApiRef } from "@checkmate/frontend-api";
 import { SLOT_USER_MENU_ITEMS } from "@checkmate/common";
-import { CatalogClient } from "./client";
-import { catalogApiRef } from "./api";
+import { catalogApiRef, type CatalogApi } from "./api";
 import { createFrontendPlugin } from "@checkmate/frontend-api";
 
 import { CatalogPage } from "./components/CatalogPage";
@@ -14,9 +13,10 @@ export const catalogPlugin = createFrontendPlugin({
   apis: [
     {
       ref: catalogApiRef,
-      factory: (deps: { get: <T>(ref: ApiRef<T>) => T }) => {
-        const fetchApi = deps.get(fetchApiRef);
-        return new CatalogClient(fetchApi);
+      factory: (deps: { get: <T>(ref: ApiRef<T>) => T }): CatalogApi => {
+        const rpcApi = deps.get(rpcApiRef);
+        // CatalogApi is derived from the contract type
+        return rpcApi.forPlugin<CatalogApi>("catalog-backend");
       },
     },
   ],
@@ -45,4 +45,3 @@ export const catalogPlugin = createFrontendPlugin({
 });
 
 export * from "./api";
-export * from "./client";

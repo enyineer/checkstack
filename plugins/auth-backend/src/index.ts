@@ -1,23 +1,22 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { Context } from "hono";
 import {
   createBackendPlugin,
   authenticationStrategyServiceRef,
+  RpcContext,
 } from "@checkmate/backend-api";
 import { coreServices } from "@checkmate/backend-api";
 import { userInfoRef } from "./services/user-info";
 import * as schema from "./schema";
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { User } from "better-auth/types";
 import { hashPassword } from "better-auth/crypto";
 import { createExtensionPoint } from "@checkmate/backend-api";
 import { enrichUser } from "./utils/user";
-import {
-  permissionList,
-  permissions as authPermissions,
-} from "@checkmate/auth-common";
+import { permissionList } from "@checkmate/auth-common";
+import { createAuthRouter } from "./router";
+import { call } from "@orpc/server";
 
 export interface BetterAuthStrategy {
   id: string;
@@ -89,11 +88,11 @@ export default createBackendPlugin({
       schema,
       deps: {
         database: coreServices.database,
-        router: coreServices.httpRouter,
+        rpc: coreServices.rpc,
         logger: coreServices.logger,
         auth: coreServices.auth,
       },
-      init: async ({ database, router, logger, auth: _auth }) => {
+      init: async ({ database, rpc, logger, auth: _auth }) => {
         logger.info("Initializing Auth Backend...");
 
         db = database;
@@ -125,152 +124,58 @@ export default createBackendPlugin({
           trustedOrigins: [process.env.FRONTEND_URL || "http://localhost:5173"],
         });
 
-        // 4. Register permissions endpoint (BEFORE catch-all)
-        router.get("/permissions", async (c) => {
-          const session = await auth!.api.getSession({
-            headers: c.req.raw.headers,
+        // 4. Register oRPC router
+        const authRouter = createAuthRouter(
+          auth,
+          database as NodePgDatabase<typeof schema>,
+          strategies
+        );
+        rpc.registerRouter("auth-backend", authRouter);
+
+        // 5. Register Better Auth native handler
+        rpc.registerHttpHandler("/api/auth-backend", (req) =>
+          auth!.handler(req)
+        );
+
+        // REST Compatibility Layer for legacy frontend calls
+        rpc.registerHttpHandler(
+          "/api/auth-backend/permissions",
+          async (req) => {
+            const session = await auth!.api.getSession({
+              headers: req.headers,
+            });
+            const user = session?.user
+              ? await enrichUserLocal(session.user)
+              : undefined;
+            return Response.json({
+              permissions:
+                (user as { permissions?: string[] })?.permissions || [],
+            });
+          }
+        );
+
+        rpc.registerHttpHandler("/api/auth-backend/users", async () => {
+          const users = await call(authRouter.getUsers, undefined, {
+            context: {} as RpcContext,
           });
-
-          if (!session?.user) {
-            return c.json({ error: "Unauthorized" }, 401);
-          }
-
-          const enrichedUser = await enrichUserLocal(session.user);
-          const permissions =
-            "permissions" in enrichedUser ? enrichedUser.permissions : [];
-          return c.json({ permissions });
+          return Response.json(users);
         });
 
-        // 5. User Management APIs
-        router.get(
-          "/users",
-          { permission: authPermissions.usersRead.id },
-          async (c) => {
-            const users = await database.select().from(schema.user);
-            const userRoles = await database
-              .select()
-              .from(schema.userRole)
-              .where(
-                inArray(
-                  schema.userRole.userId,
-                  users.map((u) => u.id)
-                )
-              );
-
-            const usersWithRoles = users.map((u) => ({
-              ...u,
-              roles: userRoles
-                .filter((ur) => ur.userId === u.id)
-                .map((ur) => ur.roleId),
-            }));
-
-            return c.json(usersWithRoles);
-          }
-        );
-
-        router.delete(
-          "/users/:id",
-          { permission: authPermissions.usersManage.id },
-          async (c) => {
-            const id = c.req.param("id");
-            if (id === "initial-admin-id") {
-              return c.json({ error: "Cannot delete initial admin" }, 403);
-            }
-            await database.delete(schema.user).where(eq(schema.user.id, id));
-            return c.json({ success: true });
-          }
-        );
-
-        router.get(
-          "/roles",
-          { permission: authPermissions.rolesManage.id },
-          async (c) => {
-            const roles = await database.select().from(schema.role);
-            return c.json(roles);
-          }
-        );
-
-        router.post(
-          "/users/:id/roles",
-          { permission: authPermissions.rolesManage.id },
-          async (c) => {
-            const userId = c.req.param("id");
-            const session = await auth?.api.getSession({
-              headers: c.req.raw.headers,
-            });
-            const sessionUserId = session?.user?.id;
-
-            if (userId === sessionUserId) {
-              return c.json({ error: "Cannot update your own roles" }, 403);
-            }
-
-            const { roles } = (await c.req.json()) as { roles: string[] };
-
-            await database.transaction(async (tx) => {
-              await tx
-                .delete(schema.userRole)
-                .where(eq(schema.userRole.userId, userId));
-              if (roles.length > 0) {
-                await tx.insert(schema.userRole).values(
-                  roles.map((roleId) => ({
-                    userId,
-                    roleId,
-                  }))
-                );
-              }
-            });
-
-            return c.json({ success: true });
-          }
-        );
-
-        router.get(
-          "/strategies",
-          { permission: authPermissions.strategiesManage.id },
-          async (c) => {
-            const dbStrategies = await database
-              .select()
-              .from(schema.authStrategy);
-            const result = strategies.map((s) => {
-              const dbS = dbStrategies.find((ds) => ds.id === s.id);
-              return {
-                id: s.id,
-                enabled: dbS ? dbS.enabled : true,
-              };
-            });
-            // Also include credential strategy
-            result.push({
-              id: "credential",
-              enabled:
-                dbStrategies.find((ds) => ds.id === "credential")?.enabled ??
-                true,
-            });
-            return c.json(result);
-          }
-        );
-
-        router.patch(
-          "/strategies/:id",
-          { permission: authPermissions.strategiesManage.id },
-          async (c) => {
-            const id = c.req.param("id");
-            const { enabled } = (await c.req.json()) as { enabled: boolean };
-
-            await database
-              .insert(schema.authStrategy)
-              .values({ id, enabled })
-              .onConflictDoUpdate({
-                target: schema.authStrategy.id,
-                set: { enabled, updatedAt: new Date() },
-              });
-
-            return c.json({ success: true });
-          }
-        );
-
-        router.all("*", (c: Context) => {
-          return auth!.handler(c.req.raw);
+        rpc.registerHttpHandler("/api/auth-backend/roles", async () => {
+          const roles = await call(authRouter.getRoles, undefined, {
+            context: {} as RpcContext,
+          });
+          return Response.json(roles);
         });
+
+        rpc.registerHttpHandler("/api/auth-backend/strategies", async () => {
+          const strategies = await call(authRouter.getStrategies, undefined, {
+            context: {} as RpcContext,
+          });
+          return Response.json(strategies);
+        });
+
+        // User management and strategy settings are now handled via oRPC router in ./router.ts
 
         // 4. Idempotent Seeding
         logger.info("🌱 Checking for initial admin user...");

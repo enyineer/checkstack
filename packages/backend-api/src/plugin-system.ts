@@ -32,6 +32,7 @@ export type BackendPluginRegistry = {
   registerExtensionPoint: <T>(ref: ExtensionPoint<T>, impl: T) => void;
   getExtensionPoint: <T>(ref: ExtensionPoint<T>) => T;
   registerPermissions: (permissions: Permission[]) => void;
+  registerRouter: (router: unknown) => void;
 };
 
 export type BackendPlugin = {
