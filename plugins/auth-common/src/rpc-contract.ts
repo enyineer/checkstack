@@ -22,6 +22,12 @@ const RoleDtoSchema = z.object({
   id: z.string(),
   name: z.string(),
   permissions: z.array(z.string()),
+  isSystem: z.boolean().optional(),
+});
+
+const PermissionDtoSchema = z.object({
+  id: z.string(),
+  description: z.string().optional(),
 });
 
 const StrategyDtoSchema = z.object({
@@ -61,10 +67,43 @@ export const authContract = {
     )
     .output(z.void()),
 
-  // Role management - Manage permission
+  // Role management - Read, Create, Update, Delete permissions
   getRoles: _base
-    .meta({ permissions: [permissions.rolesManage.id] })
+    .meta({ permissions: [permissions.rolesRead.id] })
     .output(z.array(RoleDtoSchema)),
+
+  getPermissions: _base
+    .meta({ permissions: [permissions.rolesRead.id] })
+    .output(z.array(PermissionDtoSchema)),
+
+  createRole: _base
+    .meta({ permissions: [permissions.rolesCreate.id] })
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        description: z.string().optional(),
+        permissions: z.array(z.string()),
+      })
+    )
+    .output(z.void()),
+
+  updateRole: _base
+    .meta({ permissions: [permissions.rolesUpdate.id] })
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string().optional(),
+        description: z.string().optional(),
+        permissions: z.array(z.string()),
+      })
+    )
+    .output(z.void()),
+
+  deleteRole: _base
+    .meta({ permissions: [permissions.rolesDelete.id] })
+    .input(z.string())
+    .output(z.void()),
 
   getStrategies: _base
     .meta({ permissions: [permissions.strategiesManage.id] })
@@ -88,45 +127,3 @@ export const authContract = {
 
 // Export contract type for frontend
 export type AuthContract = typeof authContract;
-
-// Keep old interface for backwards compatibility
-export interface AuthRpcContract {
-  permissions: () => Promise<{ permissions: string[] }>;
-  getUsers: () => Promise<
-    Array<{
-      id: string;
-      email: string;
-      name: string;
-      roles: string[];
-    }>
-  >;
-  deleteUser: (userId: string) => Promise<void>;
-  updateUserRoles: (input: {
-    userId: string;
-    roles: string[];
-  }) => Promise<void>;
-  getRoles: () => Promise<
-    Array<{
-      id: string;
-      name: string;
-      permissions: string[];
-    }>
-  >;
-  getStrategies: () => Promise<
-    Array<{
-      id: string;
-      displayName: string;
-      description?: string;
-      enabled: boolean;
-      configVersion: number;
-      configSchema: Record<string, unknown>;
-      config?: Record<string, unknown>;
-    }>
-  >;
-  updateStrategy: (input: {
-    id: string;
-    enabled: boolean;
-    config?: Record<string, unknown>;
-  }) => Promise<{ success: boolean }>;
-  reloadAuth: () => Promise<{ success: boolean }>;
-}

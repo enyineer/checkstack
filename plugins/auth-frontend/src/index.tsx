@@ -9,7 +9,7 @@ import {
   LoginNavbarAction,
   LogoutMenuItem,
 } from "./components/LoginPage";
-import { authApiRef, AuthApi, AuthSession } from "./api";
+import { authApiRef, AuthApi, AuthSession, AuthClient } from "./api";
 import { authClient } from "./lib/auth-client";
 
 import { usePermissions } from "./hooks/usePermissions";
@@ -25,10 +25,7 @@ import { Settings2 } from "lucide-react";
 import { DropdownMenuItem } from "@checkmate/ui";
 import { rpcApiRef, RpcApi, useApi } from "@checkmate/frontend-api";
 import { AuthSettingsPage } from "./components/AuthSettingsPage";
-import {
-  permissions as authPermissions,
-  AuthRpcContract,
-} from "@checkmate/auth-common";
+import { permissions as authPermissions } from "@checkmate/auth-common";
 
 class AuthPermissionApi implements PermissionApi {
   usePermission(permission: string): { loading: boolean; allowed: boolean } {
@@ -85,8 +82,8 @@ class AuthPermissionApi implements PermissionApi {
 
 class BetterAuthApi implements AuthApi {
   // Management APIs
-  private get rpc(): AuthRpcContract {
-    return this.rpcApi.forPlugin<AuthRpcContract>("auth-backend");
+  private get rpc(): AuthClient {
+    return this.rpcApi.forPlugin<AuthClient>("auth-backend");
   }
 
   constructor(private readonly rpcApi: RpcApi) {}
@@ -154,6 +151,32 @@ class BetterAuthApi implements AuthApi {
 
   async getRoles() {
     return this.rpc.getRoles();
+  }
+
+  async getPermissions() {
+    return this.rpc.getPermissions();
+  }
+
+  async createRole(params: {
+    id: string;
+    name: string;
+    description?: string;
+    permissions: string[];
+  }) {
+    return this.rpc.createRole(params);
+  }
+
+  async updateRole(params: {
+    id: string;
+    name?: string;
+    description?: string;
+    permissions: string[];
+  }) {
+    return this.rpc.updateRole(params);
+  }
+
+  async deleteRole(roleId: string) {
+    return this.rpc.deleteRole(roleId);
   }
 
   async updateUserRoles(userId: string, roles: string[]) {

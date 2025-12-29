@@ -34,9 +34,17 @@ export default createBackendPlugin({
 
     const strategies: AuthStrategy<unknown>[] = [];
 
+    // Permission registry to track currently active permissions
+    const activePermissions: { id: string; description?: string }[] = [];
+
     // Strategy registry
     const strategyRegistry = {
       getStrategies: () => strategies,
+    };
+
+    // Permission registry
+    const permissionRegistry = {
+      getPermissions: () => activePermissions,
     };
 
     env.registerPermissions(permissionList);
@@ -183,12 +191,69 @@ export default createBackendPlugin({
           logger.info("[auth-backend] ✅ Authentication reloaded successfully");
         };
 
+        // Sync permissions to database
+        logger.info("🔑 Syncing permissions to database...");
+        // Note: Permissions are collected via PluginManager.registerPermissions
+        // We need to get them from the plugin manager's collection
+        // For now, we'll seed our own permissions
+        const authPermissions = permissionList.map((p) => ({
+          id: `auth-backend.${p.id}`,
+          description: p.description,
+        }));
+
+        // Upsert permissions into database
+        for (const perm of authPermissions) {
+          const existing = await database
+            .select()
+            .from(schema.permission)
+            .where(eq(schema.permission.id, perm.id));
+
+          if (existing.length === 0) {
+            await database.insert(schema.permission).values(perm);
+            logger.debug(`   -> Created permission: ${perm.id}`);
+          } else {
+            // Update description if changed
+            await database
+              .update(schema.permission)
+              .set({ description: perm.description })
+              .where(eq(schema.permission.id, perm.id));
+          }
+
+          // Add to active permissions registry
+          activePermissions.push(perm);
+        }
+
+        logger.info(
+          `   -> Synced ${authPermissions.length} permissions from auth-backend`
+        );
+
+        // Assign all permissions to admin role during seed
+        const adminRolePermissions = await database
+          .select()
+          .from(schema.rolePermission)
+          .where(eq(schema.rolePermission.roleId, "admin"));
+
+        for (const perm of authPermissions) {
+          const hasPermission = adminRolePermissions.some(
+            (rp) => rp.permissionId === perm.id
+          );
+
+          if (!hasPermission) {
+            await database.insert(schema.rolePermission).values({
+              roleId: "admin",
+              permissionId: perm.id,
+            });
+            logger.debug(`   -> Assigned permission ${perm.id} to admin role`);
+          }
+        }
+
         // 4. Register oRPC router
         const authRouter = createAuthRouter(
           database as NodePgDatabase<typeof schema>,
           strategyRegistry,
           reloadAuth,
-          config
+          config,
+          permissionRegistry
         );
         rpc.registerRouter("auth-backend", authRouter);
 

@@ -67,11 +67,20 @@ describe("Auth Router", () => {
     list: mock(() => Promise.resolve([])),
   };
 
+  const mockPermissionRegistry = {
+    getPermissions: () => [
+      { id: "auth-backend.users.read", description: "List all users" },
+      { id: "auth-backend.users.manage", description: "Delete users" },
+      { id: "auth-backend.roles.read", description: "Read and list roles" },
+    ],
+  };
+
   const router = createAuthRouter(
     mockDb,
     mockRegistry,
     async () => {},
-    mockConfigService
+    mockConfigService,
+    mockPermissionRegistry
   );
 
   it("getPermissions returns current user permissions", async () => {

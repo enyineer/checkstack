@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
   Button,
+  Badge,
   LoadingSpinner,
   PageLayout,
   Checkbox,
@@ -20,7 +21,7 @@ import {
   DynamicForm,
   useToast,
 } from "@checkmate/ui";
-import { authApiRef, AuthUser, Role, AuthStrategy } from "../api";
+import { authApiRef, AuthUser, Role, AuthStrategy, Permission } from "../api";
 import { permissions as authPermissions } from "@checkmate/auth-common";
 import {
   Trash2,
@@ -30,7 +31,10 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronRight,
+  Plus,
+  Edit,
 } from "lucide-react";
+import { RoleDialog } from "./RoleDialog";
 
 export const AuthSettingsPage: React.FC = () => {
   const authApi = useApi(authApiRef);
@@ -39,14 +43,20 @@ export const AuthSettingsPage: React.FC = () => {
 
   const session = authApi.useSession();
 
-  const [activeTab, setActiveTab] = useState<"users" | "strategies">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "roles" | "strategies">(
+    "users"
+  );
   const [users, setUsers] = useState<(AuthUser & { roles: string[] })[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [permissions, setPermissions] = useState<Permission[]>([]);
   const [strategies, setStrategies] = useState<AuthStrategy[]>([]);
   const [loading, setLoading] = useState(true);
   const [reloading, setReloading] = useState(false);
 
   const [userToDelete, setUserToDelete] = useState<string>();
+  const [roleToDelete, setRoleToDelete] = useState<string>();
+  const [roleDialogOpen, setRoleDialogOpen] = useState(false);
+  const [editingRole, setEditingRole] = useState<Role | undefined>();
   const [expandedStrategy, setExpandedStrategy] = useState<string>();
   const [strategyConfigs, setStrategyConfigs] = useState<
     Record<string, Record<string, unknown>>
@@ -57,6 +67,18 @@ export const AuthSettingsPage: React.FC = () => {
   );
   const canManageUsers = permissionApi.usePermission(
     authPermissions.usersManage.id
+  );
+  const canReadRoles = permissionApi.usePermission(
+    authPermissions.rolesRead.id
+  );
+  const canCreateRoles = permissionApi.usePermission(
+    authPermissions.rolesCreate.id
+  );
+  const canUpdateRoles = permissionApi.usePermission(
+    authPermissions.rolesUpdate.id
+  );
+  const canDeleteRoles = permissionApi.usePermission(
+    authPermissions.rolesDelete.id
   );
   const canManageRoles = permissionApi.usePermission(
     authPermissions.rolesManage.id
@@ -72,9 +94,11 @@ export const AuthSettingsPage: React.FC = () => {
         roles: string[];
       })[];
       const rolesData = await authApi.getRoles();
+      const permissionsData = await authApi.getPermissions();
       const strategiesData = await authApi.getStrategies();
       setUsers(usersData);
       setRoles(rolesData);
+      setPermissions(permissionsData);
       setStrategies(strategiesData);
 
       // Initialize strategy configs
@@ -165,6 +189,53 @@ export const AuthSettingsPage: React.FC = () => {
     }
   };
 
+  const handleCreateRole = () => {
+    setEditingRole(undefined);
+    setRoleDialogOpen(true);
+  };
+
+  const handleEditRole = (role: Role) => {
+    setEditingRole(role);
+    setRoleDialogOpen(true);
+  };
+
+  const handleSaveRole = async (params: {
+    id: string;
+    name: string;
+    description?: string;
+    permissions: string[];
+  }) => {
+    try {
+      if (editingRole) {
+        await authApi.updateRole(params);
+        toast.success("Role updated successfully");
+      } else {
+        await authApi.createRole(params);
+        toast.success("Role created successfully");
+      }
+      await fetchData();
+    } catch (error: unknown) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to save role"
+      );
+      throw error;
+    }
+  };
+
+  const handleDeleteRole = async () => {
+    if (!roleToDelete) return;
+    try {
+      await authApi.deleteRole(roleToDelete);
+      toast.success("Role deleted successfully");
+      setRoleToDelete(undefined);
+      await fetchData();
+    } catch (error: unknown) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete role"
+      );
+    }
+  };
+
   if (loading) return <LoadingSpinner />;
 
   return (
@@ -180,6 +251,17 @@ export const AuthSettingsPage: React.FC = () => {
         >
           <Users size={18} />
           <span>Users & Roles</span>
+        </button>
+        <button
+          onClick={() => setActiveTab("roles")}
+          className={`pb-2 px-4 flex items-center space-x-2 ${
+            activeTab === "roles"
+              ? "border-b-2 border-primary text-primary"
+              : "text-muted-foreground"
+          }`}
+        >
+          <Shield size={18} />
+          <span>Roles & Permissions</span>
         </button>
         <button
           onClick={() => setActiveTab("strategies")}
@@ -277,6 +359,107 @@ export const AuthSettingsPage: React.FC = () => {
             ) : (
               <p className="text-muted-foreground">
                 You don't have permission to list users.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {activeTab === "roles" && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>Role Management</CardTitle>
+            {canCreateRoles.allowed && (
+              <Button onClick={handleCreateRole} size="sm">
+                <Plus className="h-4 w-4 mr-2" />
+                Create Role
+              </Button>
+            )}
+          </CardHeader>
+          <CardContent>
+            {canReadRoles.allowed ? (
+              roles.length === 0 ? (
+                <p className="text-muted-foreground">No roles found.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Role</TableHead>
+                      <TableHead>Permissions</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {roles.map((role) => {
+                      const userData = users.find(
+                        (u) => u.id === session.data?.user?.id
+                      );
+                      const userRoles = userData?.roles || [];
+                      const isUserRole = userRoles.includes(role.id);
+                      const isSystem = role.isSystem;
+
+                      return (
+                        <TableRow key={role.id}>
+                          <TableCell>
+                            <div className="flex flex-col">
+                              <span className="font-medium">{role.name}</span>
+                              {role.description && (
+                                <span className="text-sm text-muted-foreground">
+                                  {role.description}
+                                </span>
+                              )}
+                              <div className="flex gap-2 mt-1">
+                                {isSystem && (
+                                  <Badge variant="outline">System</Badge>
+                                )}
+                                {isUserRole && (
+                                  <Badge variant="secondary">Your Role</Badge>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-sm text-muted-foreground">
+                              {role.permissions?.length || 0} permissions
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEditRole(role)}
+                                disabled={
+                                  isSystem ||
+                                  isUserRole ||
+                                  !canUpdateRoles.allowed
+                                }
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setRoleToDelete(role.id)}
+                                disabled={
+                                  isSystem ||
+                                  isUserRole ||
+                                  !canDeleteRoles.allowed
+                                }
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )
+            ) : (
+              <p className="text-muted-foreground">
+                You don't have permission to view roles.
               </p>
             )}
           </CardContent>
@@ -398,6 +581,22 @@ export const AuthSettingsPage: React.FC = () => {
         onConfirm={handleDeleteUser}
         title="Delete User"
         message="Are you sure you want to delete this user? This action cannot be undone."
+      />
+
+      <RoleDialog
+        open={roleDialogOpen}
+        onOpenChange={setRoleDialogOpen}
+        role={editingRole}
+        permissions={permissions}
+        onSave={handleSaveRole}
+      />
+
+      <ConfirmationModal
+        isOpen={!!roleToDelete}
+        onClose={() => setRoleToDelete(undefined)}
+        onConfirm={handleDeleteRole}
+        title="Delete Role"
+        message="Are you sure you want to delete this role? This action cannot be undone."
       />
     </PageLayout>
   );

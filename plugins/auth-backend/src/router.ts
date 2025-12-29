@@ -21,7 +21,10 @@ export const createAuthRouter = (
   internalDb: NodePgDatabase<typeof schema>,
   strategyRegistry: { getStrategies: () => AuthStrategy<unknown>[] },
   reloadAuthFn: () => Promise<void>,
-  configService: ConfigService
+  configService: ConfigService,
+  permissionRegistry: {
+    getPermissions: () => { id: string; description?: string }[];
+  }
 ) => {
   const permissions = os.permissions.handler(async ({ context }) => {
     return { permissions: context.user?.permissions || [] };
@@ -68,7 +71,131 @@ export const createAuthRouter = (
       permissions: rolePermissions
         .filter((rp) => rp.roleId === role.id)
         .map((rp) => rp.permissionId),
+      isSystem: role.isSystem || false,
     }));
+  });
+
+  const getPermissions = os.getPermissions.handler(async () => {
+    // Return only currently active permissions (registered by loaded plugins)
+    return permissionRegistry.getPermissions();
+  });
+
+  const createRole = os.createRole.handler(async ({ input }) => {
+    const { id, name, description, permissions: inputPermissions } = input;
+
+    // Get active permissions to filter input
+    const activePermissions = new Set(
+      permissionRegistry.getPermissions().map((p) => p.id)
+    );
+
+    // Filter to only include active permissions
+    const validPermissions = inputPermissions.filter((p) =>
+      activePermissions.has(p)
+    );
+
+    await internalDb.transaction(async (tx) => {
+      // Create role
+      await tx.insert(schema.role).values({
+        id,
+        name,
+        description: description || undefined,
+        isSystem: false,
+      });
+
+      // Create role-permission mappings
+      if (validPermissions.length > 0) {
+        await tx.insert(schema.rolePermission).values(
+          validPermissions.map((permissionId) => ({
+            roleId: id,
+            permissionId,
+          }))
+        );
+      }
+    });
+  });
+
+  const updateRole = os.updateRole.handler(async ({ input, context }) => {
+    const { id, name, description, permissions: inputPermissions } = input;
+
+    // Security check: prevent users from modifying their own roles
+    const userRoles = context.user?.roles || [];
+    if (userRoles.includes(id)) {
+      throw new Error("Cannot modify a role that you currently have");
+    }
+
+    // Check if role is a system role
+    const existingRole = await internalDb
+      .select()
+      .from(schema.role)
+      .where(eq(schema.role.id, id));
+
+    if (existingRole.length === 0) {
+      throw new Error(`Role ${id} not found`);
+    }
+
+    if (existingRole[0].isSystem) {
+      throw new Error("Cannot modify system role");
+    }
+
+    // Get active permissions to filter input
+    const activePermissions = new Set(
+      permissionRegistry.getPermissions().map((p) => p.id)
+    );
+
+    // Filter to only include active permissions
+    const validPermissions = inputPermissions.filter((p) =>
+      activePermissions.has(p)
+    );
+
+    await internalDb.transaction(async (tx) => {
+      // Update role name/description if provided
+      if (name !== undefined || description !== undefined) {
+        const updates: { name?: string; description?: string | null } = {};
+        if (name !== undefined) updates.name = name;
+        if (description !== undefined) updates.description = description;
+
+        await tx.update(schema.role).set(updates).where(eq(schema.role.id, id));
+      }
+
+      // Replace permission mappings
+      await tx
+        .delete(schema.rolePermission)
+        .where(eq(schema.rolePermission.roleId, id));
+
+      if (validPermissions.length > 0) {
+        await tx.insert(schema.rolePermission).values(
+          validPermissions.map((permissionId) => ({
+            roleId: id,
+            permissionId,
+          }))
+        );
+      }
+    });
+  });
+
+  const deleteRole = os.deleteRole.handler(async ({ input: id, context }) => {
+    // Security check: prevent users from deleting their own roles
+    const userRoles = context.user?.roles || [];
+    if (userRoles.includes(id)) {
+      throw new Error("Cannot delete a role that you currently have");
+    }
+
+    // Check if role is a system role
+    const existingRole = await internalDb
+      .select()
+      .from(schema.role)
+      .where(eq(schema.role.id, id));
+
+    if (existingRole.length === 0) {
+      throw new Error(`Role ${id} not found`);
+    }
+
+    if (existingRole[0].isSystem) {
+      throw new Error("Cannot delete system role");
+    }
+
+    // Delete role (cascades to user_role and role_permission via foreign keys)
+    await internalDb.delete(schema.role).where(eq(schema.role.id, id));
   });
 
   const updateUserRoles = os.updateUserRoles.handler(
@@ -202,6 +329,10 @@ export const createAuthRouter = (
     getUsers,
     deleteUser,
     getRoles,
+    getPermissions,
+    createRole,
+    updateRole,
+    deleteRole,
     updateUserRoles,
     getStrategies,
     updateStrategy,

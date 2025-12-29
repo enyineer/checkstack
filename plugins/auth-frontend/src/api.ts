@@ -1,4 +1,6 @@
 import { createApiRef } from "@checkmate/frontend-api";
+import type { ContractRouterClient } from "@orpc/contract";
+import { authContract } from "@checkmate/auth-common";
 
 export interface AuthUser {
   id: string;
@@ -21,6 +23,13 @@ export interface Role {
   id: string;
   name: string;
   description?: string;
+  isSystem?: boolean;
+  permissions?: string[];
+}
+
+export interface Permission {
+  id: string;
+  description?: string;
 }
 
 export interface AuthStrategy {
@@ -32,6 +41,9 @@ export interface AuthStrategy {
   configSchema: Record<string, unknown>; // JSON Schema
   config?: Record<string, unknown>;
 }
+
+// Auth RPC client type derived from the contract
+export type AuthClient = ContractRouterClient<typeof authContract>;
 
 export interface AuthApi {
   signIn(
@@ -50,6 +62,20 @@ export interface AuthApi {
   getUsers(): Promise<AuthUser[] & { roles: string[] }[]>;
   deleteUser(userId: string): Promise<void>;
   getRoles(): Promise<Role[]>;
+  getPermissions(): Promise<Permission[]>;
+  createRole(params: {
+    id: string;
+    name: string;
+    description?: string;
+    permissions: string[];
+  }): Promise<void>;
+  updateRole(params: {
+    id: string;
+    name?: string;
+    description?: string;
+    permissions: string[];
+  }): Promise<void>;
+  deleteRole(roleId: string): Promise<void>;
   updateUserRoles(userId: string, roles: string[]): Promise<void>;
   getStrategies(): Promise<AuthStrategy[]>;
   toggleStrategy(strategyId: string, enabled: boolean): Promise<void>;

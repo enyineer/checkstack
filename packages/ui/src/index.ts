@@ -27,3 +27,5 @@ export * from "./components/PageLayout";
 export * from "./components/PluginConfigForm";
 export * from "./components/Toast";
 export * from "./components/ToastProvider";
+export * from "./components/Dialog";
+export * from "./components/Badge";

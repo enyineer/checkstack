@@ -9,6 +9,22 @@ export const permissions = {
     id: "users.manage",
     description: "Delete users",
   },
+  rolesRead: {
+    id: "roles.read",
+    description: "Read and list roles",
+  },
+  rolesCreate: {
+    id: "roles.create",
+    description: "Create new roles",
+  },
+  rolesUpdate: {
+    id: "roles.update",
+    description: "Update role names and permissions",
+  },
+  rolesDelete: {
+    id: "roles.delete",
+    description: "Delete roles",
+  },
   rolesManage: {
     id: "roles.manage",
     description: "Assign roles to users",
