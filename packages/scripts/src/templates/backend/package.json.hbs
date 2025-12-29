@@ -1,0 +1,21 @@
+{
+  "name": "@checkmate/{{pluginName}}",
+  "version": "0.0.1",
+  "description": "{{pluginDescription}}",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@checkmate/backend-api": "workspace:*",
+    "@checkmate/common": "workspace:*",
+    "@checkmate/{{pluginBaseName}}-common": "workspace:*",
+    "drizzle-orm": "^0.36.4"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.28.1",
+    "typescript": "^5.7.2"
+  }
+}

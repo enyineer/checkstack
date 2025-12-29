@@ -1,0 +1,54 @@
+import { oc } from "@orpc/contract";
+import { z } from "zod";
+import {
+  {{pluginNamePascal}}ItemSchema,
+  Create{{pluginNamePascal}}ItemSchema,
+  Update{{pluginNamePascal}}ItemSchema,
+} from "./schemas";
+import { permissions } from "./permissions";
+
+// Define metadata type for permission declarations
+export interface {{pluginNamePascal}}Metadata {
+  permissions?: string[];
+}
+
+// Create base builder with metadata support
+const _base = oc.$meta<{{pluginNamePascal}}Metadata>({});
+
+export const {{pluginNameCamel}}Contract = {
+  // List all items
+  getItems: _base
+    .meta({ permissions: [permissions.{{pluginNameCamel}}Read.id] })
+    .output(z.array({{pluginNamePascal}}ItemSchema)),
+
+  // Get single item
+  getItem: _base
+    .meta({ permissions: [permissions.{{pluginNameCamel}}Read.id] })
+    .input(z.string())
+    .output({{pluginNamePascal}}ItemSchema),
+
+  // Create item
+  createItem: _base
+    .meta({ permissions: [permissions.{{pluginNameCamel}}Manage.id] })
+    .input(Create{{pluginNamePascal}}ItemSchema)
+    .output({{pluginNamePascal}}ItemSchema),
+
+  // Update item
+  updateItem: _base
+    .meta({ permissions: [permissions.{{pluginNameCamel}}Manage.id] })
+    .input(
+      z.object({
+        id: z.string(),
+        data: Update{{pluginNamePascal}}ItemSchema,
+      })
+    )
+    .output({{pluginNamePascal}}ItemSchema),
+
+  // Delete item
+  deleteItem: _base
+    .meta({ permissions: [permissions.{{pluginNameCamel}}Manage.id] })
+    .input(z.string())
+    .output(z.void()),
+};
+
+export type {{pluginNamePascal}}Contract = typeof {{pluginNameCamel}}Contract;

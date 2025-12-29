@@ -1,0 +1,68 @@
+import type { Database } from "@checkmate/backend-api";
+import { eq } from "drizzle-orm";
+import { {{pluginNameCamel}}Items } from "./schema";
+import type {
+  Create{{pluginNamePascal}}Item,
+  Update{{pluginNamePascal}}Item,
+} from "@checkmate/{{pluginBaseName}}-common";
+
+export class {{pluginNamePascal}}Service {
+  constructor(private readonly database: Database) {}
+
+  async getItems() {
+    return await this.database.select().from({{pluginNameCamel}}Items);
+  }
+
+  async getItem(id: string) {
+    const [item] = await this.database
+      .select()
+      .from({{pluginNameCamel}}Items)
+      .where(eq({{pluginNameCamel}}Items.id, id));
+
+    if (!item) {
+      throw new Error(`Item with id ${id} not found`);
+    }
+
+    return item;
+  }
+
+  async createItem(data: Create{{pluginNamePascal}}Item) {
+    const [item] = await this.database
+      .insert({{pluginNameCamel}}Items)
+      .values({
+        name: data.name,
+        description: data.description ?? null,
+      })
+      .returning();
+
+    if (!item) {
+      throw new Error("Failed to create item");
+    }
+
+    return item;
+  }
+
+  async updateItem(id: string, data: Update{{pluginNamePascal}}Item) {
+    const [item] = await this.database
+      .update({{pluginNameCamel}}Items)
+      .set({
+        name: data.name,
+        description: data.description ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq({{pluginNameCamel}}Items.id, id))
+      .returning();
+
+    if (!item) {
+      throw new Error(`Item with id ${id} not found`);
+    }
+
+    return item;
+  }
+
+  async deleteItem(id: string) {
+    await this.database
+      .delete({{pluginNameCamel}}Items)
+      .where(eq({{pluginNameCamel}}Items.id, id));
+  }
+}

@@ -1,0 +1,15 @@
+import { createApiRef } from "@checkmate/frontend-api";
+import type { ContractRouterClient } from "@orpc/contract";
+import { {{pluginNameCamel}}Contract } from "@checkmate/{{pluginBaseName}}-common";
+
+// Re-export types for convenience
+export type {
+  {{pluginNamePascal}}Item,
+  Create{{pluginNamePascal}}Item,
+  Update{{pluginNamePascal}}Item,
+} from "@checkmate/{{pluginBaseName}}-common";
+
+// Derive API type from contract - no manual interface definitions!
+export type {{pluginNamePascal}}Api = ContractRouterClient<typeof {{pluginNameCamel}}Contract>;
+
+export const {{pluginNameCamel}}ApiRef = createApiRef<{{pluginNamePascal}}Api>("{{pluginBaseName}}-api");

@@ -1,0 +1,41 @@
+import { createFrontendPlugin, rpcApiRef } from "@checkmate/frontend-api";
+import { {{pluginNameCamel}}ApiRef, type {{pluginNamePascal}}Api } from "./api";
+import { {{pluginNamePascal}}ListPage } from "./components/{{pluginNamePascal}}ListPage";
+import { permissions } from "@checkmate/{{pluginBaseName}}-common";
+import { ListIcon } from "lucide-react";
+
+export const {{pluginNameCamel}}Plugin = createFrontendPlugin({
+  name: "{{pluginId}}",
+
+  // Register client API using oRPC
+  apis: [
+    {
+      ref: {{pluginNameCamel}}ApiRef,
+      factory: (deps) => {
+        const rpcApi = deps.get(rpcApiRef);
+        // Create type-safe client for the backend plugin
+        return rpcApi.forPlugin<{{pluginNamePascal}}Api>("{{pluginBaseName}}-backend");
+      },
+    },
+  ],
+
+  // Register routes
+  routes: [
+    {
+      path: "/{{pluginBaseName}}",
+      element: <{{pluginNamePascal}}ListPage />,
+      permission: permissions.{{pluginNameCamel}}Read.id,
+    },
+  ],
+
+  // Register navigation items
+  navItems: [
+    {
+      title: "{{pluginNamePascal}}",
+      path: "/{{pluginBaseName}}",
+      icon: <ListIcon />,
+    },
+  ],
+});
+
+export * from "./api";

@@ -1,0 +1,40 @@
+import { os, authedProcedure, permissionMiddleware } from "@checkmate/backend-api";
+import { {{pluginNameCamel}}Contract, permissions } from "@checkmate/{{pluginBaseName}}-common";
+import type { Database } from "@checkmate/backend-api";
+import { {{pluginNamePascal}}Service } from "./service";
+
+export function create{{pluginNamePascal}}Router({ database }: { database: Database }) {
+  const service = new {{pluginNamePascal}}Service(database);
+
+  return os.router({{pluginNameCamel}}Contract, {
+    getItems: authedProcedure
+      .use(permissionMiddleware(permissions.{{pluginNameCamel}}Read))
+      .handler(async () => {
+        return await service.getItems();
+      }),
+
+    getItem: authedProcedure
+      .use(permissionMiddleware(permissions.{{pluginNameCamel}}Read))
+      .handler(async ({ input }) => {
+        return await service.getItem(input);
+      }),
+
+    createItem: authedProcedure
+      .use(permissionMiddleware(permissions.{{pluginNameCamel}}Manage))
+      .handler(async ({ input }) => {
+        return await service.createItem(input);
+      }),
+
+    updateItem: authedProcedure
+      .use(permissionMiddleware(permissions.{{pluginNameCamel}}Manage))
+      .handler(async ({ input }) => {
+        return await service.updateItem(input.id, input.data);
+      }),
+
+    deleteItem: authedProcedure
+      .use(permissionMiddleware(permissions.{{pluginNameCamel}}Manage))
+      .handler(async ({ input }) => {
+        await service.deleteItem(input);
+      }),
+  });
+}

@@ -1,0 +1,14 @@
+import { createPermission } from "@checkmate/common";
+
+export const permissions = {
+  {{pluginNameCamel}}Read: createPermission({
+    id: "{{pluginBaseName}}.read",
+    description: "Read {{pluginBaseName}} data",
+  }),
+  {{pluginNameCamel}}Manage: createPermission({
+    id: "{{pluginBaseName}}.manage",
+    description: "Manage {{pluginBaseName}} data",
+  }),
+};
+
+export const permissionList = Object.values(permissions);

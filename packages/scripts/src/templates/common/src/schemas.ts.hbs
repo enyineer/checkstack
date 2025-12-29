@@ -1,0 +1,25 @@
+import { z } from "zod";
+
+// Example schema - customize for your domain
+export const {{pluginNamePascal}}ItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type {{pluginNamePascal}}Item = z.infer<typeof {{pluginNamePascal}}ItemSchema>;
+
+// Input schema for creating items (omit id and timestamps)
+export const Create{{pluginNamePascal}}ItemSchema = z.object({
+  name: z.string().min(1).max(255),
+  description: z.string().optional(),
+});
+
+export type Create{{pluginNamePascal}}Item = z.infer<typeof Create{{pluginNamePascal}}ItemSchema>;
+
+// Input schema for updating items
+export const Update{{pluginNamePascal}}ItemSchema = Create{{pluginNamePascal}}ItemSchema.partial();
+
+export type Update{{pluginNamePascal}}Item = z.infer<typeof Update{{pluginNamePascal}}ItemSchema>;

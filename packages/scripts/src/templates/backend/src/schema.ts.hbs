@@ -1,0 +1,13 @@
+import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+
+// Example schema - customize for your domain
+export const {{pluginNameCamel}}Items = pgTable("{{pluginBaseName}}_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type {{pluginNamePascal}}Item = typeof {{pluginNameCamel}}Items.$inferSelect;
+export type New{{pluginNamePascal}}Item = typeof {{pluginNameCamel}}Items.$inferInsert;

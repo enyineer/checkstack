@@ -9,8 +9,14 @@
     "sync": "bun run src/sync.ts",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "inquirer": "^8.1.0",
+    "handlebars": "^4.7.8"
+  },
   "devDependencies": {
     "@checkmate/tsconfig": "workspace:*",
+    "@types/inquirer": "^8.2.10",
+    "@types/handlebars": "^4.1.0",
     "typescript": "^5.0.0"
   }
 }

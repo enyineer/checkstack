@@ -1,0 +1,28 @@
+import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
+import { permissionList } from "@checkmate/{{pluginBaseName}}-common";
+import * as schema from "./schema";
+import { create{{pluginNamePascal}}Router } from "./router";
+
+export default createBackendPlugin({
+  pluginId: "{{pluginId}}",
+  register(env) {
+    env.registerPermissions(permissionList);
+
+    env.registerInit({
+      schema,
+      deps: {
+        rpc: coreServices.rpc,
+        logger: coreServices.logger,
+      },
+      init: async ({ database, rpc, logger }) => {
+        logger.info("Initializing {{pluginNamePascal}} Backend...");
+
+        // Create and register router with plugin-scoped database
+        const router = create{{pluginNamePascal}}Router({ database });
+        rpc.registerRouter("{{pluginId}}", router);
+
+        logger.info("✅ {{pluginNamePascal}} Backend initialized.");
+      },
+    });
+  },
+});

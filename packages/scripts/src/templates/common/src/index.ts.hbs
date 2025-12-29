@@ -1,0 +1,8 @@
+// Export permissions
+export { permissions, permissionList } from "./permissions";
+
+// Export schemas and types
+export * from "./schemas";
+
+// Export contract - use explicit named re-exports to avoid bundler issues
+export { {{pluginNameCamel}}Contract, type {{pluginNamePascal}}Contract } from "./rpc-contract";

@@ -1,0 +1,46 @@
+# {{pluginNamePascal}} Backend
+
+Backend plugin for {{pluginNamePascal}}. Implements the oRPC contract with database persistence.
+
+## Structure
+
+- `src/index.ts` - Plugin entry point
+- `src/router.ts` - oRPC router implementation
+- `src/service.ts` - Business logic layer
+- `src/schema.ts` - Drizzle database schema
+- `drizzle.config.ts` - Drizzle Kit configuration
+- `migrations/` - Database migrations (generated)
+
+## Development
+
+### Generate Migration
+
+After modifying `src/schema.ts`:
+
+```bash
+bun run drizzle-kit generate
+```
+
+### Run Migration
+
+```bash
+bun run drizzle-kit migrate
+```
+
+### Type Check
+
+```bash
+bun run typecheck
+```
+
+### Lint
+
+```bash
+bun run lint
+```
+
+## Testing
+
+```bash
+bun test
+```

@@ -1,0 +1,12 @@
+interface {{pluginNamePascal}}ComponentProps {
+  title?: string;
+}
+
+export function {{pluginNamePascal}}Component({ title = "{{pluginNamePascal}}" }: {{pluginNamePascal}}ComponentProps) {
+  return (
+    <div>
+      <h1>{title}</h1>
+      <p>This is a {{pluginNamePascal}} component.</p>
+    </div>
+  );
+}

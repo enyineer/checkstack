@@ -1,0 +1,6 @@
+{
+  "extends": "@checkmate/tsconfig/common.json",
+  "include": [
+    "src"
+  ]
+}
