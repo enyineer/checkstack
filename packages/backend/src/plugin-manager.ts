@@ -6,7 +6,7 @@ import fs from "node:fs";
 import { Hono } from "hono";
 import { adminPool, db } from "./db";
 import { plugins } from "./schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { ServiceRegistry } from "./services/service-registry";
 import {
   coreServices,
@@ -31,13 +31,10 @@ import { rootLogger } from "./logger";
 import { jwtService } from "./services/jwt";
 import { CoreHealthCheckRegistry } from "./services/health-check-registry";
 import { fixMigrationsSchemaReferences } from "./utils/fix-migrations";
-
-interface PluginManifest {
-  name: string;
-  path: string;
-  enabled: boolean;
-  type: "backend" | "frontend" | "common";
-}
+import {
+  discoverLocalPlugins,
+  syncPluginsToDatabase,
+} from "./utils/plugin-discovery";
 
 interface PendingInit {
   pluginId: string;
@@ -356,48 +353,25 @@ export class PluginManager {
   async loadPlugins(rootRouter: Hono, manualPlugins: BackendPlugin[] = []) {
     rootLogger.info("🔍 Discovering plugins...");
 
-    // 1. Discover local plugins from monorepo
-    const localPlugins: PluginManifest[] = [];
-    const pluginsDir = path.join(__dirname, "..", "..", "..", "plugins");
+    // 1. Discover local BACKEND plugins from monorepo using package.json metadata
+    const workspaceRoot = path.join(__dirname, "..", "..", "..");
+    const localPlugins = discoverLocalPlugins({
+      workspaceRoot,
+      type: "backend", // Only discover backend plugins
+    });
 
-    if (fs.existsSync(pluginsDir)) {
-      const entries = fs.readdirSync(pluginsDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory() && entry.name.endsWith("-backend")) {
-          const pluginPath = path.join(pluginsDir, entry.name);
-          localPlugins.push({
-            name: entry.name,
-            path: pluginPath,
-            enabled: true, // Local plugins are always enabled in monorepo
-            type: "backend",
-          });
-          rootLogger.debug(
-            `   -> Discovered local backend plugin: ${entry.name}`
-          );
-        }
-      }
-    }
+    rootLogger.debug(
+      `   -> Found ${localPlugins.length} local backend plugin(s) in workspace`
+    );
 
-    // 2. Load remote plugins from database
-    const dbPlugins = await db
+    // 2. Sync local plugins to database (prevents stale entries)
+    await syncPluginsToDatabase({ localPlugins, db });
+
+    // 3. Load all enabled BACKEND plugins from database (now always up-to-date)
+    const allPlugins = await db
       .select()
       .from(plugins)
-      .where(eq(plugins.enabled, true));
-
-    // 3. Combine and Deduplicate (Local takes precedence)
-    const allPlugins: PluginManifest[] = [...localPlugins];
-    const localNames = new Set(localPlugins.map((p) => p.name));
-
-    for (const dbP of dbPlugins) {
-      if (!localNames.has(dbP.name)) {
-        allPlugins.push({
-          name: dbP.name,
-          path: dbP.path,
-          enabled: dbP.enabled,
-          type: dbP.type as "backend" | "frontend" | "common",
-        });
-      }
-    }
+      .where(and(eq(plugins.enabled, true), eq(plugins.type, "backend")));
 
     if (allPlugins.length === 0) {
       rootLogger.info("ℹ️  No enabled plugins found.");
@@ -412,11 +386,17 @@ export class PluginManager {
     for (const plugin of allPlugins) {
       rootLogger.info(`🔌 Loading module ${plugin.name}...`);
 
-      let pluginModule;
       try {
+        // Try to import by package name first (works for npm-installed plugins)
+        // Fall back to path for local plugins in plugins/ directory
+        let pluginModule;
         try {
           pluginModule = await import(plugin.name);
         } catch {
+          // For local plugins, the package name won't resolve, so use the path
+          rootLogger.debug(
+            `   -> Package name import failed, trying path: ${plugin.path}`
+          );
           pluginModule = await import(plugin.path);
         }
 
@@ -429,6 +409,7 @@ export class PluginManager {
         );
       } catch (error) {
         rootLogger.error(`❌ Failed to load module for ${plugin.name}:`, error);
+        rootLogger.error(`   Expected path: ${plugin.path}`);
       }
     }
 
