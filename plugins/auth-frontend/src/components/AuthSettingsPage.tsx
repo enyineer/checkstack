@@ -569,7 +569,14 @@ export const AuthSettingsPage: React.FC = () => {
                 <CardContent>
                   <div className="space-y-4">
                     <DynamicForm
-                      schema={strategy.configSchema}
+                      schema={{
+                        ...strategy.configSchema,
+                        properties: Object.fromEntries(
+                          Object.entries(
+                            strategy.configSchema.properties || {}
+                          ).filter(([key]) => key !== "enabled")
+                        ),
+                      }}
                       value={strategyConfigs[strategy.id] || {}}
                       onChange={(newConfig) => {
                         setStrategyConfigs({

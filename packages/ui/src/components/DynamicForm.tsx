@@ -19,6 +19,7 @@ import {
   Textarea,
   Tooltip,
   EmptyState,
+  Checkbox,
 } from "../index";
 
 const ajv = new Ajv({ allErrors: true, strict: false });
@@ -327,6 +328,39 @@ const FormField: React.FC<{
             )
           }
         />
+      </div>
+    );
+  }
+
+  // Boolean
+  if (propSchema.type === "boolean") {
+    const cleanDesc = getCleanDescription(description);
+    return (
+      <div className="space-y-2">
+        <div className="flex items-start gap-3">
+          <Checkbox
+            id={id}
+            checked={
+              value === undefined
+                ? (propSchema.default as boolean) || false
+                : (value as boolean)
+            }
+            onCheckedChange={(checked) => onChange(checked)}
+          />
+          <div className="flex-1 space-y-1">
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor={id} className="cursor-pointer">
+                {label} {isRequired && "*"}
+              </Label>
+              {cleanDesc && <Tooltip content={cleanDesc} />}
+            </div>
+            {cleanDesc && (
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {cleanDesc}
+              </p>
+            )}
+          </div>
+        </div>
       </div>
     );
   }
