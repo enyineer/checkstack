@@ -140,6 +140,245 @@ describe("PluginManager", () => {
         "Circular dependency detected"
       );
     });
+
+    describe("Queue Plugin Ordering", () => {
+      it("should initialize queue plugin providers before queue consumers", () => {
+        const queueFactoryRef = createServiceRef<any>("core.queue-factory");
+        const queueRegistryRef = createServiceRef<any>(
+          "core.queue-plugin-registry"
+        );
+
+        const pendingInits = [
+          {
+            pluginId: "queue-consumer",
+            deps: { queueFactory: queueFactoryRef } as Record<
+              string,
+              ServiceRef<unknown>
+            >,
+          },
+          {
+            pluginId: "queue-provider",
+            deps: { queuePluginRegistry: queueRegistryRef } as Record<
+              string,
+              ServiceRef<unknown>
+            >,
+          },
+        ];
+
+        const providedBy = new Map<string, string>();
+        const sorted = pluginManager.sortPlugins(pendingInits, providedBy);
+
+        // Queue provider should come before queue consumer
+        expect(sorted.indexOf("queue-provider")).toBeLessThan(
+          sorted.indexOf("queue-consumer")
+        );
+      });
+
+      it("should handle multiple queue providers and consumers", () => {
+        const queueFactoryRef = createServiceRef<any>("core.queue-factory");
+        const queueRegistryRef = createServiceRef<any>(
+          "core.queue-plugin-registry"
+        );
+        const loggerRef = createServiceRef<any>("core.logger");
+
+        const pendingInits = [
+          {
+            pluginId: "consumer-1",
+            deps: { queueFactory: queueFactoryRef } as Record<
+              string,
+              ServiceRef<unknown>
+            >,
+          },
+          {
+            pluginId: "provider-1",
+            deps: { queuePluginRegistry: queueRegistryRef } as Record<
+              string,
+              ServiceRef<unknown>
+            >,
+          },
+          {
+            pluginId: "consumer-2",
+            deps: { queueFactory: queueFactoryRef } as Record<
+              string,
+              ServiceRef<unknown>
+            >,
+          },
+          {
+            pluginId: "provider-2",
+            deps: { queuePluginRegistry: queueRegistryRef } as Record<
+              string,
+              ServiceRef<unknown>
+            >,
+          },
+          {
+            pluginId: "unrelated",
+            deps: { logger: loggerRef } as Record<string, ServiceRef<unknown>>,
+          },
+        ];
+
+        const providedBy = new Map<string, string>();
+        const sorted = pluginManager.sortPlugins(pendingInits, providedBy);
+
+        // All providers should come before all consumers
+        const provider1Index = sorted.indexOf("provider-1");
+        const provider2Index = sorted.indexOf("provider-2");
+        const consumer1Index = sorted.indexOf("consumer-1");
+        const consumer2Index = sorted.indexOf("consumer-2");
+
+        expect(provider1Index).toBeLessThan(consumer1Index);
+        expect(provider1Index).toBeLessThan(consumer2Index);
+        expect(provider2Index).toBeLessThan(consumer1Index);
+        expect(provider2Index).toBeLessThan(consumer2Index);
+      });
+
+      it("should respect existing service dependencies while prioritizing queue plugins", () => {
+        const queueFactoryRef = createServiceRef<any>("core.queue-factory");
+        const queueRegistryRef = createServiceRef<any>(
+          "core.queue-plugin-registry"
+        );
+        const customServiceRef = createServiceRef<any>("custom.service");
+        const loggerRef = createServiceRef<any>("core.logger");
+
+        const pendingInits = [
+          {
+            pluginId: "queue-consumer",
+            deps: {
+              queueFactory: queueFactoryRef,
+              customService: customServiceRef,
+            } as Record<string, ServiceRef<unknown>>,
+          },
+          {
+            pluginId: "queue-provider",
+            deps: { queuePluginRegistry: queueRegistryRef } as Record<
+              string,
+              ServiceRef<unknown>
+            >,
+          },
+          {
+            pluginId: "provider-plugin",
+            deps: { logger: loggerRef } as Record<string, ServiceRef<unknown>>,
+          },
+        ];
+
+        const providedBy = new Map<string, string>([
+          [customServiceRef.id, "provider-plugin"],
+        ]);
+
+        const sorted = pluginManager.sortPlugins(pendingInits, providedBy);
+
+        // Queue provider should come before queue consumer
+        const queueProviderIndex = sorted.indexOf("queue-provider");
+        const queueConsumerIndex = sorted.indexOf("queue-consumer");
+        expect(queueProviderIndex).toBeLessThan(queueConsumerIndex);
+
+        // Provider plugin should come before queue consumer (due to service dependency)
+        const providerPluginIndex = sorted.indexOf("provider-plugin");
+        expect(providerPluginIndex).toBeLessThan(queueConsumerIndex);
+      });
+
+      it("should handle plugins that both provide and consume queues", () => {
+        const queueFactoryRef = createServiceRef<any>("core.queue-factory");
+        const queueRegistryRef = createServiceRef<any>(
+          "core.queue-plugin-registry"
+        );
+
+        const pendingInits = [
+          {
+            pluginId: "dual-plugin",
+            deps: {
+              queuePluginRegistry: queueRegistryRef,
+              queueFactory: queueFactoryRef,
+            } as Record<string, ServiceRef<unknown>>,
+          },
+          {
+            pluginId: "consumer-only",
+            deps: { queueFactory: queueFactoryRef } as Record<
+              string,
+              ServiceRef<unknown>
+            >,
+          },
+        ];
+
+        const providedBy = new Map<string, string>();
+        const sorted = pluginManager.sortPlugins(pendingInits, providedBy);
+
+        // Dual plugin should come before consumer-only
+        const dualIndex = sorted.indexOf("dual-plugin");
+        const consumerIndex = sorted.indexOf("consumer-only");
+        expect(dualIndex).toBeLessThan(consumerIndex);
+      });
+
+      it("should not create circular dependencies with queue ordering", () => {
+        const queueFactoryRef = createServiceRef<any>("core.queue-factory");
+        const queueRegistryRef = createServiceRef<any>(
+          "core.queue-plugin-registry"
+        );
+
+        const pendingInits = [
+          {
+            pluginId: "queue-provider",
+            deps: { queuePluginRegistry: queueRegistryRef } as Record<
+              string,
+              ServiceRef<unknown>
+            >,
+          },
+          {
+            pluginId: "queue-consumer",
+            deps: { queueFactory: queueFactoryRef } as Record<
+              string,
+              ServiceRef<unknown>
+            >,
+          },
+        ];
+
+        const providedBy = new Map<string, string>();
+
+        // Should not throw
+        expect(() => {
+          pluginManager.sortPlugins(pendingInits, providedBy);
+        }).not.toThrow();
+      });
+    });
+  });
+
+  describe("Permission and Hook Deferral", () => {
+    it("should defer permission hook emissions until after initialization", () => {
+      // Call registerPermissions during the "register" phase
+      (pluginManager as any).registerPermissions("test-plugin", [
+        { id: "test.permission", description: "Test permission" },
+      ]);
+
+      // At this point, the hook should NOT have been emitted yet
+      // Deferred registrations should be stored
+      const deferred = (pluginManager as any).deferredPermissionRegistrations;
+      expect(deferred.length).toBe(1);
+      expect(deferred[0]).toEqual({
+        pluginId: "test-plugin",
+        permissions: [
+          {
+            id: "test-plugin.test.permission",
+            description: "Test permission",
+          },
+        ],
+      });
+    });
+
+    it("should store multiple deferred permission registrations", () => {
+      (pluginManager as any).registerPermissions("plugin-1", [
+        { id: "perm.1" },
+        { id: "perm.2" },
+      ]);
+      (pluginManager as any).registerPermissions("plugin-2", [
+        { id: "perm.3" },
+      ]);
+
+      const deferred = (pluginManager as any).deferredPermissionRegistrations;
+      expect(deferred.length).toBe(2);
+      expect(deferred[0].pluginId).toBe("plugin-1");
+      expect(deferred[1].pluginId).toBe("plugin-2");
+      expect(deferred[0].permissions.length).toBe(2);
+      expect(deferred[1].permissions.length).toBe(1);
+    });
   });
 
   describe("loadPlugins", () => {

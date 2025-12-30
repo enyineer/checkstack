@@ -25,6 +25,7 @@ import {
   AuthenticationStrategy,
   EventBus as IEventBus,
   coreHooks,
+  HookSubscribeOptions,
 } from "@checkmate/backend-api";
 import { EventBus } from "./services/event-bus.js";
 import type { QueuePluginRegistry, QueueFactory } from "@checkmate/queue-api";
@@ -46,6 +47,9 @@ interface PendingInit {
   init: (deps: Record<string, unknown>) => Promise<void>;
   schema?: Record<string, unknown>;
 }
+
+// No-op unsubscribe function for deferred hooks
+const noOpUnsubscribe = async () => {};
 
 export class PluginManager {
   private registry = new ServiceRegistry();
@@ -252,6 +256,16 @@ export class PluginManager {
   }
 
   private registeredPermissions: { id: string; description?: string }[] = [];
+  private deferredPermissionRegistrations: Array<{
+    pluginId: string;
+    permissions: { id: string; description?: string }[];
+  }> = [];
+  private deferredHookSubscriptions: Array<{
+    pluginId: string;
+    hook: { id: string };
+    listener: (payload: unknown) => Promise<void>;
+    options?: HookSubscribeOptions;
+  }> = [];
 
   registerPermissions(pluginId: string, permissions: Permission[]) {
     const prefixed = permissions.map((p) => ({
@@ -266,18 +280,12 @@ export class PluginManager {
       `   -> Registered ${prefixed.length} permissions for ${pluginId}`
     );
 
-    // Emit hook asynchronously (don't block registration)
-    void (async () => {
-      try {
-        const eventBus = await this.registry.get(coreServices.eventBus, "core");
-        await eventBus.emit(coreHooks.permissionsRegistered, {
-          pluginId,
-          permissions: prefixed,
-        });
-      } catch (error) {
-        rootLogger.error("Failed to emit permissionsRegistered hook:", error);
-      }
-    })();
+    // Defer hook emission until all plugins are initialized
+    // This ensures queue plugins are available before event bus tries to create queues
+    this.deferredPermissionRegistrations.push({
+      pluginId,
+      permissions: prefixed,
+    });
   }
 
   getAllPermissions(): { id: string; description?: string }[] {
@@ -301,6 +309,17 @@ export class PluginManager {
       graph.set(p.pluginId, []);
     }
 
+    // Track queue plugin providers (plugins that depend on queuePluginRegistry)
+    const queuePluginProviders = new Set<string>();
+    for (const p of pendingInits) {
+      for (const [, ref] of Object.entries(p.deps)) {
+        if (ref.id === "core.queue-plugin-registry") {
+          queuePluginProviders.add(p.pluginId);
+        }
+      }
+    }
+
+    // Build dependency graph
     for (const p of pendingInits) {
       const consumerId = p.pluginId;
       for (const [, ref] of Object.entries(p.deps)) {
@@ -313,6 +332,25 @@ export class PluginManager {
           }
           graph.get(providerId)!.push(consumerId);
           inDegree.set(consumerId, (inDegree.get(consumerId) || 0) + 1);
+        }
+      }
+
+      // Special handling: if this plugin uses queueFactory, it must wait for all queue plugin providers
+      const usesQueueFactory = Object.values(p.deps).some(
+        (ref) => ref.id === "core.queue-factory"
+      );
+      if (usesQueueFactory) {
+        for (const qpp of queuePluginProviders) {
+          if (qpp !== consumerId) {
+            if (!graph.has(qpp)) {
+              graph.set(qpp, []);
+            }
+            // Add edge: queue plugin provider -> queue consumer
+            if (!graph.get(qpp)!.includes(consumerId)) {
+              graph.get(qpp)!.push(consumerId);
+              inDegree.set(consumerId, (inDegree.get(consumerId) || 0) + 1);
+            }
+          }
         }
       }
     }
@@ -532,6 +570,43 @@ export class PluginManager {
       }
     }
 
+    // Now that all plugins are initialized, emit deferred permission registration hooks
+    rootLogger.info("📢 Emitting deferred permission registration hooks...");
+    for (const { pluginId, permissions } of this
+      .deferredPermissionRegistrations) {
+      try {
+        const eventBus = await this.registry.get(coreServices.eventBus, "core");
+        await eventBus.emit(coreHooks.permissionsRegistered, {
+          pluginId,
+          permissions,
+        });
+      } catch (error) {
+        rootLogger.error(
+          `Failed to emit permissionsRegistered hook for ${pluginId}:`,
+          error
+        );
+      }
+    }
+    // Clear deferred registrations after emission
+    this.deferredPermissionRegistrations = [];
+
+    // Now subscribe all deferred hooks
+    rootLogger.info("🔗 Subscribing deferred hook listeners...");
+    for (const { pluginId, hook, listener, options } of this
+      .deferredHookSubscriptions) {
+      try {
+        const eventBus = await this.registry.get(coreServices.eventBus, "core");
+        await eventBus.subscribe(pluginId, hook, listener, options);
+      } catch (error) {
+        rootLogger.error(
+          `Failed to subscribe hook ${hook.id} for ${pluginId}:`,
+          error
+        );
+      }
+    }
+    // Clear deferred subscriptions after processing
+    this.deferredHookSubscriptions = [];
+
     const rootRpcRouter: Record<string, unknown> = {};
     for (const [pluginId, router] of this.pluginRpcRouters.entries()) {
       rootRpcRouter[pluginId] = router;
@@ -665,25 +740,18 @@ export class PluginManager {
         this.pluginRpcRouters.set(backendPlugin.pluginId, router);
       },
       onHook: (hook, listener, options) => {
-        // Can't make this async, so we store the promise and wrap it
-        const subscriptionPromise = (async () => {
-          const eventBus = await this.registry.get(
-            coreServices.eventBus,
-            "core"
-          );
-          return await eventBus.subscribe(
-            backendPlugin.pluginId,
-            hook,
-            listener,
-            options
-          );
-        })();
+        // Defer hook subscription until all plugins are initialized
+        // This ensures queue plugins are available when event bus creates queues
+        this.deferredHookSubscriptions.push({
+          pluginId: backendPlugin.pluginId,
+          hook,
+          listener: listener as (payload: unknown) => Promise<void>,
+          options,
+        });
 
-        // Return a wrapped unsubscribe function
-        return async () => {
-          const unsubscribe = await subscriptionPromise;
-          await unsubscribe();
-        };
+        // Return a no-op unsubscribe function for now
+        // TODO: Support unsubscribe for deferred hooks if needed
+        return noOpUnsubscribe;
       },
       emitHook: async (hook, payload) => {
         const eventBus = await this.registry.get(coreServices.eventBus, "core");
