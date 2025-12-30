@@ -1,0 +1,30 @@
+{
+  "name": "@checkmate/auth-ldap-backend",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@checkmate/backend-api": "workspace:*",
+    "@checkmate/auth-backend": "workspace:*",
+    "@checkmate/auth-common": "workspace:*",
+    "better-auth": "^1.4.9",
+    "drizzle-orm": "^0.45.1",
+    "ldapts": "^8.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@checkmate/tsconfig": "workspace:*",
+    "typescript": "^5.7.2"
+  },
+  "plugin": {
+    "id": "auth-ldap-backend",
+    "name": "@checkmate/auth-ldap-backend",
+    "type": "backend",
+    "displayName": "LDAP Authentication (Backend)"
+  }
+}
