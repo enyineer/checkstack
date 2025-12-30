@@ -89,6 +89,7 @@ export const createAuthRouter = (
           type,
           enabled,
           icon: strategy.icon,
+          requiresManualRegistration: strategy.requiresManualRegistration,
         };
       })
     );

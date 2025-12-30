@@ -55,6 +55,7 @@ describe("Auth Router", () => {
         configSchema: z.object({ enabled: z.boolean() }),
         configVersion: 1,
         migrations: [],
+        requiresManualRegistration: true,
       },
     ],
   };

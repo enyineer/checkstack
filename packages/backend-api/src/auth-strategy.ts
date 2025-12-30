@@ -67,6 +67,13 @@ export interface AuthStrategy<Config = unknown> {
 
   /** Optional migrations for backward compatibility */
   migrations?: AuthStrategyMigrationChain<Config>;
+
+  /**
+   * Whether this strategy requires manual user registration via a signup form.
+   * - `true` for strategies like credentials where users explicitly register
+   * - `false` for strategies like social providers or LDAP where users are auto-registered on first login
+   */
+  requiresManualRegistration: boolean;
 }
 
 /**

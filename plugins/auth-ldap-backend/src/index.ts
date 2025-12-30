@@ -98,6 +98,7 @@ const ldapStrategy: AuthStrategy<LdapConfig> = {
   icon: "network",
   configVersion: 1,
   configSchema: ldapConfigV1,
+  requiresManualRegistration: false,
 };
 
 export default createBackendPlugin({

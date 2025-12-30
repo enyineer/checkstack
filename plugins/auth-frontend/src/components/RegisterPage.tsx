@@ -102,6 +102,41 @@ export const RegisterPage = () => {
     );
   }
 
+  // Check if any strategy requires manual registration
+  const requiresRegistration = strategies.some(
+    (s) => s.requiresManualRegistration
+  );
+
+  // If no strategy requires manual registration, inform the user
+  if (!requiresRegistration) {
+    return (
+      <div className="min-h-[80vh] flex items-center justify-center">
+        <Card className="w-full max-w-md">
+          <CardHeader className="flex flex-col space-y-1 items-center">
+            <CardTitle>Registration Not Required</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Automatic Account Creation</AlertTitle>
+              <AlertDescription>
+                Accounts are automatically created when you sign in with one of
+                the available authentication methods. Please proceed to the{" "}
+                <Link
+                  to="/auth/login"
+                  className="underline text-primary hover:text-primary/90 font-medium"
+                >
+                  login page
+                </Link>
+                .
+              </AlertDescription>
+            </Alert>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-[80vh] flex items-center justify-center">
       <Card className="w-full max-w-md">

@@ -48,6 +48,7 @@ export interface EnabledAuthStrategy {
   description?: string;
   type: "credential" | "social";
   icon?: string; // Lucide icon name
+  requiresManualRegistration: boolean;
 }
 
 // Auth RPC client type derived from the contract

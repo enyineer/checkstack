@@ -23,6 +23,7 @@ const githubStrategy: AuthStrategy<z.infer<typeof githubConfigV1>> = {
   icon: "github", // Lucide icon name
   configVersion: 1,
   configSchema: githubConfigV1,
+  requiresManualRegistration: false,
 };
 
 export default createBackendPlugin({

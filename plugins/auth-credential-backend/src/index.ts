@@ -12,6 +12,7 @@ const credentialStrategy: AuthStrategy<z.infer<typeof credentialConfigV1>> = {
   icon: "key-round", // Lucide icon name
   configVersion: 1,
   configSchema: credentialConfigV1,
+  requiresManualRegistration: true,
 };
 
 export default createBackendPlugin({

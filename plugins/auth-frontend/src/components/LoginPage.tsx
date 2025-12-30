@@ -179,17 +179,19 @@ export const LoginPage = () => {
             )}
           </div>
         </CardContent>
-        <CardFooter className="flex justify-center border-t border-border mt-4 pt-4">
-          <div className="text-sm">
-            Don't have an account?{" "}
-            <Link
-              to="/auth/register"
-              className="underline text-primary hover:text-primary/90 font-medium"
-            >
-              Sign up
-            </Link>
-          </div>
-        </CardFooter>
+        {strategies.some((s) => s.requiresManualRegistration) && (
+          <CardFooter className="flex justify-center border-t border-border mt-4 pt-4">
+            <div className="text-sm">
+              Don't have an account?{" "}
+              <Link
+                to="/auth/register"
+                className="underline text-primary hover:text-primary/90 font-medium"
+              >
+                Sign up
+              </Link>
+            </div>
+          </CardFooter>
+        )}
       </Card>
     </div>
   );
