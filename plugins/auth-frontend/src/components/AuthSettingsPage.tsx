@@ -18,6 +18,10 @@ import {
   Checkbox,
   ConfirmationModal,
   Alert,
+  AlertIcon,
+  AlertContent,
+  AlertTitle,
+  AlertDescription,
   DynamicForm,
   useToast,
   Tabs,
@@ -626,16 +630,18 @@ export const AuthSettingsPage: React.FC = () => {
               <>
                 {hasNoEnabled && (
                   <Alert variant="warning">
-                    <Shield className="h-4 w-4" />
-                    <div>
-                      <p className="font-semibold">
+                    <AlertIcon>
+                      <Shield className="h-4 w-4" />
+                    </AlertIcon>
+                    <AlertContent>
+                      <AlertTitle>
                         No authentication strategies enabled
-                      </p>
-                      <p className="text-sm mt-1">
+                      </AlertTitle>
+                      <AlertDescription>
                         You won't be able to log in! Please enable at least one
                         authentication strategy and reload authentication.
-                      </p>
-                    </div>
+                      </AlertDescription>
+                    </AlertContent>
                   </Alert>
                 )}
               </>
@@ -643,12 +649,16 @@ export const AuthSettingsPage: React.FC = () => {
           })()}
 
           <Alert className="mt-6">
-            <Shield className="h-4 w-4" />
-            <p className="text-sm">
-              Changes to authentication strategies require clicking the "Reload
-              Authentication" button to take effect. This reloads the auth
-              system without requiring a full restart.
-            </p>
+            <AlertIcon>
+              <Shield className="h-4 w-4" />
+            </AlertIcon>
+            <AlertContent>
+              <AlertDescription>
+                Changes to authentication strategies require clicking the
+                "Reload Authentication" button to take effect. This reloads the
+                auth system without requiring a full restart.
+              </AlertDescription>
+            </AlertContent>
           </Alert>
 
           {strategies.map((strategy) => (

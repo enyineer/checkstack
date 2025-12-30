@@ -17,6 +17,8 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   Alert,
+  AlertIcon,
+  AlertContent,
   AlertTitle,
   AlertDescription,
   InfoBanner,
@@ -111,12 +113,16 @@ export const LoginPage = () => {
           </CardHeader>
           <CardContent>
             <Alert variant="warning">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>No authentication methods enabled</AlertTitle>
-              <AlertDescription>
-                Please contact your system administrator to enable
-                authentication methods.
-              </AlertDescription>
+              <AlertIcon>
+                <AlertCircle className="h-4 w-4" />
+              </AlertIcon>
+              <AlertContent>
+                <AlertTitle>No authentication methods enabled</AlertTitle>
+                <AlertDescription>
+                  Please contact your system administrator to enable
+                  authentication methods.
+                </AlertDescription>
+              </AlertContent>
             </Alert>
           </CardContent>
         </Card>
