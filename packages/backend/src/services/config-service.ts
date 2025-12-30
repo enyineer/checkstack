@@ -41,8 +41,12 @@ export class ConfigServiceImpl implements ConfigService {
       const value = data[key];
 
       if (isSecretSchema(fieldSchema as z.ZodTypeAny)) {
-        // Encrypt secret field
-        if (typeof value === "string" && value.trim() !== "") {
+        // Encrypt secret field (only if not already encrypted)
+        if (
+          typeof value === "string" &&
+          value.trim() !== "" &&
+          !isEncrypted(value)
+        ) {
           result[key] = encrypt(value);
         }
       } else if (
