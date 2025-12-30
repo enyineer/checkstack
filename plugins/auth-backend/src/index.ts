@@ -154,10 +154,13 @@ export default createBackendPlugin({
         // Function to initialize/reinitialize better-auth
         const initializeBetterAuth = async () => {
           const socialProviders: Record<string, unknown> = {};
+          logger.debug(
+            `[auth-backend] Processing ${strategies.length} strategies...`
+          );
 
           for (const strategy of strategies) {
             logger.debug(
-              `[auth-backend]    -> Adding auth strategy: ${strategy.id}`
+              `[auth-backend]    -> Processing auth strategy: ${strategy.id}`
             );
 
             // Skip credential strategy - it's built into better-auth
@@ -187,7 +190,15 @@ export default createBackendPlugin({
             }
 
             // Add to socialProviders (secrets are already decrypted by ConfigService)
+            logger.debug(
+              `[auth-backend]    -> Config keys for ${
+                strategy.id
+              }: ${Object.keys(strategyConfig || {}).join(", ")}`
+            );
             socialProviders[strategy.id] = strategyConfig;
+            logger.debug(
+              `[auth-backend]    -> ✅ Added ${strategy.id} to socialProviders`
+            );
           }
 
           // Check if credential strategy is enabled from meta config
@@ -212,6 +223,12 @@ export default createBackendPlugin({
           );
           const registrationAllowed =
             platformRegistrationConfig?.allowRegistration ?? true;
+
+          logger.debug(
+            `[auth-backend] Initializing Better Auth with ${
+              Object.keys(socialProviders).length
+            } social providers: ${Object.keys(socialProviders).join(", ")}`
+          );
 
           return betterAuth({
             database: drizzleAdapter(database, {

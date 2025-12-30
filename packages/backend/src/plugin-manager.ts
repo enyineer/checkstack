@@ -470,6 +470,10 @@ export class PluginManager {
     rootLogger.debug(
       `   -> Found ${localPlugins.length} local backend plugin(s) in workspace`
     );
+    rootLogger.debug("   -> Discovered plugins:");
+    for (const p of localPlugins) {
+      rootLogger.debug(`      • ${p.packageName}`);
+    }
 
     // 2. Sync local plugins to database (prevents stale entries)
     await syncPluginsToDatabase({ localPlugins, db });
@@ -479,6 +483,13 @@ export class PluginManager {
       .select()
       .from(plugins)
       .where(and(eq(plugins.enabled, true), eq(plugins.type, "backend")));
+
+    rootLogger.debug(
+      `   -> ${allPlugins.length} enabled backend plugins in database:`
+    );
+    for (const p of allPlugins) {
+      rootLogger.debug(`      • ${p.name}`);
+    }
 
     if (allPlugins.length === 0 && manualPlugins.length === 0) {
       rootLogger.info("ℹ️  No enabled plugins found.");
