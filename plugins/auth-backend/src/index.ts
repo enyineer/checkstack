@@ -16,6 +16,7 @@ import { createExtensionPoint } from "@checkmate/backend-api";
 import { enrichUser } from "./utils/user";
 import { permissionList } from "@checkmate/auth-common";
 import { createAuthRouter } from "./router";
+import { validateStrategySchema } from "./utils/validate-schema";
 
 export interface BetterAuthExtensionPoint {
   addStrategy(strategy: AuthStrategy<unknown>): void;
@@ -74,7 +75,19 @@ export default createBackendPlugin({
     );
 
     env.registerExtensionPoint(betterAuthExtensionPoint, {
-      addStrategy: (s) => strategies.push(s),
+      addStrategy: (s) => {
+        // Validate that the strategy schema doesn't have required fields without defaults
+        try {
+          validateStrategySchema(s.configSchema, s.id);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `Failed to register authentication strategy "${s.id}": ${message}`
+          );
+        }
+        strategies.push(s);
+      },
     });
 
     // Helper to fetch permissions
