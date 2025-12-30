@@ -9,9 +9,52 @@ import { authContract } from "@checkmate/auth-common";
 import * as schema from "./schema";
 import { eq, inArray } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import {
+  strategyMetaConfigV1,
+  STRATEGY_META_CONFIG_VERSION,
+} from "./meta-config";
 
 // Create implementer from contract with our context
 const os = implement(authContract).$context<RpcContext>();
+
+/**
+ * Get the enabled state for an authentication strategy from its meta config.
+ *
+ * @param strategyId - The ID of the strategy
+ * @param configService - The ConfigService instance
+ * @returns The enabled state:
+ *  - If meta config exists: returns the stored enabled value
+ *  - If no meta config (fresh install): defaults to true for credential, false for others
+ */
+async function getStrategyEnabled(
+  strategyId: string,
+  configService: ConfigService
+): Promise<boolean> {
+  const metaConfig = await configService.get(
+    `${strategyId}.meta`,
+    strategyMetaConfigV1,
+    STRATEGY_META_CONFIG_VERSION
+  );
+
+  // Default: credential=true (fresh installs), others=false (require explicit config)
+  return metaConfig?.enabled ?? strategyId === "credential";
+}
+
+/**
+ * Set the enabled state for an authentication strategy in its meta config.
+ */
+async function setStrategyEnabled(
+  strategyId: string,
+  enabled: boolean,
+  configService: ConfigService
+): Promise<void> {
+  await configService.set(
+    `${strategyId}.meta`,
+    strategyMetaConfigV1,
+    STRATEGY_META_CONFIG_VERSION,
+    { enabled }
+  );
+}
 
 export interface AuthStrategyInfo {
   id: string;
@@ -32,19 +75,8 @@ export const createAuthRouter = (
 
     const enabledStrategies = await Promise.all(
       registeredStrategies.map(async (strategy) => {
-        // Get config to check enabled status
-        const config = await configService.get(
-          strategy.id,
-          strategy.configSchema,
-          strategy.configVersion,
-          strategy.migrations
-        );
-
-        // Check if strategy is enabled
-        const enabled =
-          config && typeof config === "object" && "enabled" in config
-            ? config.enabled !== false
-            : true;
+        // Get enabled state from meta config
+        const enabled = await getStrategyEnabled(strategy.id, configService);
 
         // Determine strategy type
         const type: "credential" | "social" =
@@ -280,11 +312,8 @@ export const createAuthRouter = (
         // Convert Zod schema to JSON Schema with automatic secret metadata
         const jsonSchema = toJsonSchema(strategy.configSchema);
 
-        // Check if strategy is enabled
-        const enabled =
-          config && typeof config === "object" && "enabled" in config
-            ? config.enabled !== false
-            : true;
+        // Get enabled state from meta config
+        const enabled = await getStrategyEnabled(strategy.id, configService);
 
         return {
           id: strategy.id,
@@ -307,53 +336,19 @@ export const createAuthRouter = (
       throw new Error(`Strategy ${id} not found`);
     }
 
-    // Prepare config for storage if provided
+    // Save strategy configuration (if provided)
     if (config) {
-      // Add enabled flag to config
-      const configWithEnabled = { ...config, enabled };
-
-      // Store using ConfigService (handles encryption and versioning)
       await configService.set(
         id,
         strategy.configSchema,
         strategy.configVersion,
-        configWithEnabled,
+        config, // Just the config, no enabled mixed in
         strategy.migrations
       );
-    } else {
-      // Just update enabled status
-      const existingConfig = await configService.get(
-        id,
-        strategy.configSchema,
-        strategy.configVersion,
-        strategy.migrations
-      );
-
-      if (existingConfig) {
-        // Update config with new enabled status
-        const configWithEnabled =
-          typeof existingConfig === "object" && existingConfig !== null
-            ? { ...existingConfig, enabled }
-            : { enabled };
-
-        await configService.set(
-          id,
-          strategy.configSchema,
-          strategy.configVersion,
-          configWithEnabled,
-          strategy.migrations
-        );
-      } else {
-        // No existing config, create minimal one with enabled flag
-        await configService.set(
-          id,
-          strategy.configSchema,
-          strategy.configVersion,
-          { enabled } as never,
-          strategy.migrations
-        );
-      }
     }
+
+    // Save enabled state separately in meta config
+    await setStrategyEnabled(id, enabled, configService);
 
     // Trigger auth reload
     await reloadAuthFn();

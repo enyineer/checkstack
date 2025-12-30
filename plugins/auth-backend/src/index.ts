@@ -17,6 +17,10 @@ import { enrichUser } from "./utils/user";
 import { permissionList } from "@checkmate/auth-common";
 import { createAuthRouter } from "./router";
 import { validateStrategySchema } from "./utils/validate-schema";
+import {
+  strategyMetaConfigV1,
+  STRATEGY_META_CONFIG_VERSION,
+} from "./meta-config";
 
 export interface BetterAuthExtensionPoint {
   addStrategy(strategy: AuthStrategy<unknown>): void;
@@ -162,17 +166,15 @@ export default createBackendPlugin({
               strategy.migrations
             );
 
-            // Skip if no config or disabled
-            if (!strategyConfig) {
-              logger.debug(
-                `[auth-backend]    -> Strategy ${strategy.id} has no config, skipping`
-              );
-              continue;
-            }
+            // Check if strategy is enabled from meta config
+            const metaConfig = await config.get(
+              `${strategy.id}.meta`,
+              strategyMetaConfigV1,
+              STRATEGY_META_CONFIG_VERSION
+            );
+            const enabled = metaConfig?.enabled ?? false;
 
-            // Check if strategy is enabled (if config includes an 'enabled' field)
-            const configRecord = strategyConfig as Record<string, unknown>;
-            if ("enabled" in configRecord && configRecord.enabled === false) {
+            if (!enabled) {
               logger.debug(
                 `[auth-backend]    -> Strategy ${strategy.id} is disabled, skipping`
               );
@@ -183,23 +185,19 @@ export default createBackendPlugin({
             socialProviders[strategy.id] = strategyConfig;
           }
 
-          // Check if credential strategy is enabled (default to true)
+          // Check if credential strategy is enabled from meta config
           const credentialStrategy = strategies.find(
             (s) => s.id === "credential"
           );
-          const credentialConfig = credentialStrategy
+          const credentialMetaConfig = credentialStrategy
             ? await config.get(
-                "credential",
-                credentialStrategy.configSchema,
-                credentialStrategy.configVersion,
-                credentialStrategy.migrations
+                "credential.meta",
+                strategyMetaConfigV1,
+                STRATEGY_META_CONFIG_VERSION
               )
             : undefined;
-
-          const credentialConfigRecord = credentialConfig as
-            | Record<string, unknown>
-            | undefined;
-          const credentialEnabled = credentialConfigRecord?.enabled !== false;
+          // Default to true on fresh installs (no meta config)
+          const credentialEnabled = credentialMetaConfig?.enabled ?? true;
 
           return betterAuth({
             database: drizzleAdapter(database, {
