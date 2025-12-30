@@ -25,7 +25,7 @@ bun run create
 This will create a complete plugin structure with:
 - ✅ Package configuration with React, router, and UI dependencies
 - ✅ TypeScript configuration
-- ✅ Contract-based API definition using `ContractRouterClient`
+- ✅ Contract-based API definition with typed client imports
 - ✅ Example list page component with CRUD operations
 - ✅ Plugin registration with routes and navigation
 - ✅ Initial changeset for version management
@@ -60,12 +60,11 @@ The generated plugin is a working example. Customize it for your domain:
 
 **src/api.ts:**
 
-The API types are automatically derived from your contract:
+The API types are imported from your common package (no derivation needed):
 
 ```typescript
 import { createApiRef } from "@checkmate/frontend-api";
-import type { ContractRouterClient } from "@orpc/contract";
-import { myFeatureContract } from "@checkmate/myfeature-common";
+import { MyFeatureClient } from "@checkmate/myfeature-common";
 
 // Re-export types for convenience
 export type {
@@ -74,8 +73,8 @@ export type {
   UpdateMyItem,
 } from "@checkmate/myfeature-common";
 
-// Derive API type from contract - no manual interface definitions!
-export type MyFeatureApi = ContractRouterClient<typeof myFeatureContract>;
+// Use the client type from the common package
+export type MyFeatureApi = MyFeatureClient;
 
 export const myFeatureApiRef = createApiRef<MyFeatureApi>("myfeature-api");
 ```
@@ -251,28 +250,28 @@ extensions: [
 
 The frontend consumes contracts defined in `-common` packages to get type-safe RPC clients.
 
-### Step 1: Import Contract and Derive Types
+### Step 1: Import Client Type
 
 **src/api.ts:**
 
 ```typescript
 import { createApiRef } from "@checkmate/frontend-api";
-import type { ContractRouterClient } from "@orpc/contract";
-import { myPluginContract } from "@checkmate/myplugin-common";
+import { MyPluginClient } from "@checkmate/myplugin-common";
 
 // Re-export types from common for convenience
 export type { Item, CreateItem, UpdateItem } from "@checkmate/myplugin-common";
 
-// Derive the API client type from the contract
-export type MyPluginApi = ContractRouterClient<typeof myPluginContract>;
+// Use the client type from the common package
+export type MyPluginApi = MyPluginClient;
 
 export const myPluginApiRef = createApiRef<MyPluginApi>("myplugin-api");
 ```
 
-**Why `ContractRouterClient`?**
-- It derives the client type from the oRPC contract
+**Why import from common?**
+- Client type is defined once in the common package
 - Provides compile-time type safety for all RPC calls
-- Eliminates manual interface definitions that can drift from the backend
+- Eliminates duplicate derivations that can drift
+- Usable by both frontend and backend for type-safe calls
 
 ### Step 2: Register API Factory
 

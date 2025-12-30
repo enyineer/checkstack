@@ -662,7 +662,7 @@ To migrate to the oRPC pattern:
    export type MyContract = typeof myContract;
    ```
 4. **Update Router**: Refactor backend router to use `os.router()` and manual middleware
-5. **Update Frontend**: Update API factory to use `ContractRouterClient<typeof myContract>`
+5. **Update Frontend**: Import the client type from the common package (`MyClient`)
 
 ## Troubleshooting Type Export Issues
 
