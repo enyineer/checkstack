@@ -234,6 +234,10 @@ class BetterAuthApi implements AuthApi {
   async getRegistrationStatus() {
     return this.rpc.getRegistrationStatus();
   }
+
+  async setRegistrationStatus(allowRegistration: boolean) {
+    await this.rpc.setRegistrationStatus({ allowRegistration });
+  }
 }
 
 export const authPlugin = createFrontendPlugin({

@@ -93,6 +93,12 @@ export const AuthSettingsPage: React.FC = () => {
   const canManageStrategies = permissionApi.usePermission(
     authPermissions.strategiesManage.id
   );
+  const canManageRegistration = permissionApi.usePermission(
+    authPermissions.registrationManage.id
+  );
+
+  const [registrationEnabled, setRegistrationEnabled] = useState(true);
+  const [loadingRegistration, setLoadingRegistration] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -114,6 +120,14 @@ export const AuthSettingsPage: React.FC = () => {
         configs[strategy.id] = strategy.config || {};
       }
       setStrategyConfigs(configs);
+
+      // Fetch registration status
+      try {
+        const { allowRegistration } = await authApi.getRegistrationStatus();
+        setRegistrationEnabled(allowRegistration);
+      } catch (error) {
+        console.error("Failed to fetch registration status:", error);
+      }
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "Failed to fetch data";
@@ -217,6 +231,27 @@ export const AuthSettingsPage: React.FC = () => {
       toast.error(message);
     } finally {
       setReloading(false);
+    }
+  };
+
+  const handleToggleRegistration = async (enabled: boolean) => {
+    setLoadingRegistration(true);
+    try {
+      await authApi.setRegistrationStatus(enabled);
+      setRegistrationEnabled(enabled);
+      toast.success(
+        enabled
+          ? "User registration enabled successfully"
+          : "User registration disabled successfully"
+      );
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to update registration status";
+      toast.error(message);
+    } finally {
+      setLoadingRegistration(false);
     }
   };
 
@@ -530,6 +565,46 @@ export const AuthSettingsPage: React.FC = () => {
 
       <TabPanel id="strategies" activeTab={activeTab}>
         <div className="space-y-4">
+          {/* Platform Settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Platform Settings</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="allow-registration"
+                    className="text-sm font-medium leading-none"
+                  >
+                    Allow User Registration
+                  </label>
+                  <p className="text-sm text-muted-foreground">
+                    Controls whether new user accounts can be created. When
+                    disabled, all user registration is blocked, including both
+                    manual registration and automatic account creation from
+                    authentication strategies (e.g., LDAP).
+                  </p>
+                </div>
+                <Checkbox
+                  id="allow-registration"
+                  checked={registrationEnabled}
+                  disabled={
+                    !canManageRegistration.allowed || loadingRegistration
+                  }
+                  onCheckedChange={(checked) =>
+                    handleToggleRegistration(!!checked)
+                  }
+                />
+              </div>
+              {!canManageRegistration.allowed && (
+                <p className="text-xs text-muted-foreground mt-4">
+                  You don't have permission to manage registration settings.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="flex justify-end">
             <Button
               onClick={handleReloadAuth}

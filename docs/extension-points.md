@@ -415,6 +415,45 @@ export const oauthStrategy: AuthenticationStrategy<OAuthConfig> = {
 };
 ```
 
+> [!WARNING] Registration Check Requirement
+>
+> If your custom authentication strategy creates new user accounts automatically (e.g., LDAP, SSO, or custom OAuth implementations), you **must** check the platform's registration settings before creating users.
+>
+> Use the typed RPC client to call `auth-backend.getRegistrationStatus()` and verify that `allowRegistration` is `true` before creating any new users. If registration is disabled, throw an appropriate error.
+>
+> **Example:**
+> ```typescript
+> import { coreServices } from "@checkmate/backend-api";
+> import type { AuthClient } from "@checkmate/auth-common";
+>
+> env.registerInit({
+>   deps: {
+>     rpcClient: coreServices.rpcClient,
+>     logger: coreServices.logger,
+>   },
+>   init: async ({ rpcClient, logger }) => {
+>     // In your user sync/creation logic:
+>     try {
+>       const authClient = rpcClient.forPlugin<AuthClient>("auth-backend");
+>       const { allowRegistration } = await authClient.getRegistrationStatus();
+>       
+>       if (!allowRegistration) {
+>         throw new Error(
+>           "Registration is disabled. Please contact an administrator."
+>         );
+>       }
+>       
+>       // Proceed with user creation
+>     } catch (error) {
+>       logger.warn("Failed to check registration status:", error);
+>       throw error;
+>     }
+>   },
+> });
+> ```
+>
+> This ensures administrators have full control over user registration across all authentication methods. See [Backend Service Communication](./backend-service-communication.md) for more details on using the RPC client.
+
 ## Frontend Extension Points
 
 ### Slots

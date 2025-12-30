@@ -93,6 +93,7 @@ export interface AuthApi {
   ): Promise<void>;
   reloadAuth(): Promise<void>;
   getRegistrationStatus(): Promise<{ allowRegistration: boolean }>;
+  setRegistrationStatus(allowRegistration: boolean): Promise<void>;
 }
 
 export const authApiRef = createApiRef<AuthApi>("auth.api");
