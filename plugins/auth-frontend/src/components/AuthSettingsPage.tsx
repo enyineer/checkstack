@@ -22,6 +22,7 @@ import {
   useToast,
   Tabs,
   TabPanel,
+  PermissionDenied,
 } from "@checkmate/ui";
 import { authApiRef, AuthUser, Role, AuthStrategy, Permission } from "../api";
 import { permissions as authPermissions } from "@checkmate/auth-common";
@@ -174,7 +175,15 @@ export const AuthSettingsPage: React.FC = () => {
   const handleSaveStrategyConfig = async (strategyId: string) => {
     try {
       const config = strategyConfigs[strategyId];
-      await authApi.updateStrategy(strategyId, { config });
+      const strategy = strategies.find((s) => s.id === strategyId);
+      if (!strategy) {
+        toast.error("Strategy not found");
+        return;
+      }
+      await authApi.updateStrategy(strategyId, {
+        enabled: strategy.enabled,
+        config,
+      });
       toast.success(
         "Configuration saved successfully! Click 'Reload Authentication' to apply changes."
       );
@@ -254,6 +263,21 @@ export const AuthSettingsPage: React.FC = () => {
   };
 
   if (loading) return <LoadingSpinner />;
+
+  // Check if user is authenticated and has any permission to view this page
+  if (!session.data?.user) {
+    return (
+      <PermissionDenied message="You must be logged in to access authentication settings." />
+    );
+  }
+
+  // Check if user has permission to view at least one tab
+  const hasAnyPermission =
+    canReadUsers.allowed || canReadRoles.allowed || canManageStrategies.allowed;
+
+  if (!hasAnyPermission) {
+    return <PermissionDenied />;
+  }
 
   return (
     <PageLayout title="Authentication Settings">
