@@ -198,7 +198,7 @@ export default createBackendPlugin({
             basePath: "/api/auth-backend",
             baseURL: process.env.VITE_API_BASE_URL || "http://localhost:3000",
             trustedOrigins: [
-              process.env.FRONTEND_URL || "http://localhost:5173",
+              process.env.VITE_FRONTEND_URL || "http://localhost:5173",
             ],
           });
         };

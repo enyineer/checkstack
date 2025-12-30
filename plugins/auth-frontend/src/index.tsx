@@ -119,7 +119,10 @@ class BetterAuthApi implements AuthApi {
   }
 
   async signInWithSocial(provider: string) {
-    await authClient.signIn.social({ provider });
+    await authClient.signIn.social({
+      provider,
+      callbackURL: import.meta.env.VITE_FRONTEND_URL || "http://localhost:5173",
+    });
   }
 
   async signOut() {
