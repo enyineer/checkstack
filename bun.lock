@@ -275,6 +275,20 @@
         "typescript": "^5.0.0",
       },
     },
+    "plugins/auth-github-backend": {
+      "name": "@checkmate/auth-github-backend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate/auth-backend": "workspace:*",
+        "@checkmate/backend-api": "workspace:*",
+        "@checkmate/common": "workspace:*",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkmate/tsconfig": "workspace:*",
+        "typescript": "^5.9.3",
+      },
+    },
     "plugins/catalog-backend": {
       "name": "@checkmate/catalog-backend",
       "version": "0.0.1",
@@ -651,6 +665,8 @@
     "@checkmate/auth-credential-backend": ["@checkmate/auth-credential-backend@workspace:plugins/auth-credential-backend"],
 
     "@checkmate/auth-frontend": ["@checkmate/auth-frontend@workspace:plugins/auth-frontend"],
+
+    "@checkmate/auth-github-backend": ["@checkmate/auth-github-backend@workspace:plugins/auth-github-backend"],
 
     "@checkmate/backend": ["@checkmate/backend@workspace:packages/backend"],
 

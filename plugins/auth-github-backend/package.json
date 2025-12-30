@@ -1,0 +1,23 @@
+{
+  "name": "@checkmate/auth-github-backend",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@checkmate/backend-api": "workspace:*",
+    "@checkmate/auth-backend": "workspace:*",
+    "@checkmate/common": "workspace:*",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@checkmate/tsconfig": "workspace:*",
+    "typescript": "^5.9.3"
+  }
+}

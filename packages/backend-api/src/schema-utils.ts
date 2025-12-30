@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import { isSecretSchema } from "./auth-strategy";
 
 /**
@@ -21,7 +20,14 @@ function addSecretMetadata(
   if (!properties) return;
 
   for (const [key, fieldSchema] of Object.entries(objectSchema.shape)) {
-    if (isSecretSchema(fieldSchema as z.ZodTypeAny) && properties[key]) {
+    let unwrappedSchema = fieldSchema as z.ZodTypeAny;
+
+    // Unwrap ZodOptional to check the inner schema
+    if (unwrappedSchema instanceof z.ZodOptional) {
+      unwrappedSchema = unwrappedSchema.unwrap() as z.ZodTypeAny;
+    }
+
+    if (isSecretSchema(unwrappedSchema) && properties[key]) {
       properties[key]["x-secret"] = true;
     }
   }
@@ -29,14 +35,14 @@ function addSecretMetadata(
 
 /**
  * Converts a Zod schema to JSON Schema with automatic x-secret metadata.
- * This should be used instead of zodToJsonSchema directly when working with
- * schemas that may contain secret fields.
+ * Uses Zod v4's native toJSONSchema() method.
  *
  * The x-secret metadata enables DynamicForm to automatically render
  * password input fields for secret properties.
  */
 export function toJsonSchema(zodSchema: z.ZodTypeAny): Record<string, unknown> {
-  const jsonSchema = zodToJsonSchema(zodSchema as never);
-  addSecretMetadata(zodSchema, jsonSchema as Record<string, unknown>);
-  return jsonSchema as Record<string, unknown>;
+  // Use Zod's native JSON Schema conversion
+  const jsonSchema = zodSchema.toJSONSchema() as Record<string, unknown>;
+  addSecretMetadata(zodSchema, jsonSchema);
+  return jsonSchema;
 }
