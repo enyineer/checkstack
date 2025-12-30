@@ -27,7 +27,7 @@
     --foreground: 240 10% 4%;
 
     /* Card - Elevated surfaces */
-    --card: 0 0% 100%;
+    --card: 0 0% 98%;
     --card-foreground: 240 10% 4%;
 
     /* Popover - Floating elements */
@@ -92,7 +92,7 @@
     --foreground: 0 0% 98%;
 
     /* Card */
-    --card: 240 10% 4%;
+    --card: 240 6% 10%;
     --card-foreground: 0 0% 98%;
 
     /* Popover */
