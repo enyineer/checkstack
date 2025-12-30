@@ -112,7 +112,10 @@ export const PermissionsViewDialog: React.FC<PermissionsViewDialogProps> = ({
                                     {perm.id}
                                   </div>
                                   {isAssigned && (
-                                    <Badge className="text-xs bg-success/20 text-success-foreground border-success/30">
+                                    <Badge
+                                      variant="success"
+                                      className="text-xs"
+                                    >
                                       Assigned
                                     </Badge>
                                   )}
