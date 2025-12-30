@@ -20,6 +20,7 @@
   "devDependencies": {
     "@checkmate/scripts": "workspace:*",
     "@checkmate/tsconfig": "workspace:*",
+    "@checkmate/test-utils-backend": "workspace:*",
     "@orpc/server": "^1.13.2",
     "@types/node": "^20.0.0",
     "drizzle-kit": "^0.31.8",

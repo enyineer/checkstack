@@ -518,6 +518,7 @@
       },
       "devDependencies": {
         "@checkmate/scripts": "workspace:*",
+        "@checkmate/test-utils-backend": "workspace:*",
         "@checkmate/tsconfig": "workspace:*",
         "@orpc/server": "^1.13.2",
         "@types/node": "^20.0.0",
