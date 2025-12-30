@@ -93,13 +93,13 @@ When the user toggles dark mode, the `ThemeProvider` adds/removes the `.dark` cl
 | Token | Purpose | Light Mode | Dark Mode | Usage |
 |-------|---------|------------|-----------|-------|
 | `destructive` | Errors, dangerous actions | Red `0 84% 60%` | Darker red `0 63% 50%` | Delete buttons, error states |
-| `destructive-foreground` | Text on destructive backgrounds | White `0 0% 100%` | White `0 0% 100%` | Delete button text |
+| `destructive-foreground` | Text on destructive backgrounds | Red-700 `0 74% 42%` | White `0 0% 100%` | Error text |
 | `success` | Success states, confirmations | Green `142 71% 45%` | Darker green `142 76% 36%` | Success alerts, badges |
-| `success-foreground` | Text on success backgrounds | White `355 7% 97%` | Light green `138 76% 97%` | Success text |
+| `success-foreground` | Text on success backgrounds | Green-700 `142 76% 35%` | Light green `138 76% 97%` | Success text |
 | `warning` | Warnings, caution | Yellow `38 92% 50%` | Brighter yellow `48 96% 53%` | Warning alerts |
-| `warning-foreground` | Text on warning backgrounds | Dark brown `26 83% 14%` | Dark brown `26 83% 14%` | Warning text |
+| `warning-foreground` | Text on warning backgrounds | Yellow-600 `32 95% 44%` | Yellow-200 `48 96% 89%` | Warning text |
 | `info` | Informational states | Blue `217 91% 60%` | Brighter blue `213 94% 68%` | Info alerts, badges |
-| `info-foreground` | Text on info backgrounds | White `355 7% 97%` | Light blue `214 100% 97%` | Info text |
+| `info-foreground` | Text on info backgrounds | Blue-700 `221 83% 41%` | Light blue `214 100% 97%` | Info text |
 
 ### Additional Tokens
 
@@ -301,10 +301,10 @@ The `Toggle` component shows dynamic state-based theming:
 | `border-gray-200` | `border-border` | Subtle dividers |
 | `border-gray-300` | `border-input` | Form field borders |
 | `bg-red-600` | `bg-destructive` | Delete buttons, errors |
-| `text-red-600`, `bg-red-50` | `text-destructive`, `bg-destructive/10` | Error states |
-| `text-green-600`, `bg-green-50` | `text-success`, `bg-success/10` | Success states |
-| `text-yellow-600`, `bg-yellow-50` | `text-warning`, `bg-warning/10` | Warning states |
-| `text-blue-600`, `bg-blue-50` | `text-info`, `bg-info/10` | Info states |
+| `text-red-700`, `bg-red-50` | `text-destructive-foreground`, `bg-destructive/10` | Error states |
+| `text-green-700`, `bg-green-50` | `text-success-foreground`, `bg-success/10` | Success states |
+| `text-yellow-600`, `bg-yellow-50` | `text-warning-foreground`, `bg-warning/10` | Warning states |
+| `text-blue-700`, `bg-blue-50` | `text-info-foreground`, `bg-info/10` | Info states |
 
 ## Theme Provider & Runtime Management
 
