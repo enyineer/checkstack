@@ -21,7 +21,7 @@ export default createBackendPlugin({
         logger: coreServices.logger,
       },
       init: async ({ database, rpc, logger }) => {
-        logger.info("Initializing Catalog Backend...");
+        logger.debug("Initializing Catalog Backend...");
 
         // 4. Register oRPC router
         const catalogRouter = createCatalogRouter(
@@ -29,7 +29,7 @@ export default createBackendPlugin({
         );
         rpc.registerRouter("catalog-backend", catalogRouter);
 
-        logger.info("✅ Catalog Backend initialized.");
+        logger.debug("✅ Catalog Backend initialized.");
       },
     });
   },

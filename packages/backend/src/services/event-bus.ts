@@ -119,7 +119,7 @@ export class EventBus implements IEventBus {
       }
     );
 
-    this.logger.info(
+    this.logger.debug(
       `Subscribed to hook ${hook.id} (plugin: ${pluginId}, mode: ${mode}, group: ${consumerGroup})`
     );
 

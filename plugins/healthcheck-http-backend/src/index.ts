@@ -10,7 +10,7 @@ export default createBackendPlugin({
         logger: coreServices.logger,
       },
       init: async ({ healthCheckRegistry, logger }) => {
-        logger.info("🔌 Registering HTTP Health Check Strategy...");
+        logger.debug("🔌 Registering HTTP Health Check Strategy...");
         const strategy = new HttpHealthCheckStrategy();
         healthCheckRegistry.register(strategy);
       },

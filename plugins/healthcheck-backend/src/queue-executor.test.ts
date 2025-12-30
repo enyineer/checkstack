@@ -93,7 +93,7 @@ describe("Queue-Based Health Check Executor", () => {
         queueFactory: mockQueueFactory,
       });
 
-      expect(mockLogger.info).toHaveBeenCalledWith(
+      expect(mockLogger.debug).toHaveBeenCalledWith(
         expect.stringContaining("Health Check Worker subscribed")
       );
     });
@@ -139,10 +139,10 @@ describe("Queue-Based Health Check Executor", () => {
         logger: mockLogger,
       });
 
-      expect(mockLogger.info).toHaveBeenCalledWith(
+      expect(mockLogger.debug).toHaveBeenCalledWith(
         "Bootstrapping 2 health checks"
       );
-      expect(mockLogger.info).toHaveBeenCalledWith(
+      expect(mockLogger.debug).toHaveBeenCalledWith(
         "✅ Bootstrapped 2 health checks"
       );
     });
@@ -165,10 +165,10 @@ describe("Queue-Based Health Check Executor", () => {
         logger: mockLogger,
       });
 
-      expect(mockLogger.info).toHaveBeenCalledWith(
+      expect(mockLogger.debug).toHaveBeenCalledWith(
         "Bootstrapping 0 health checks"
       );
-      expect(mockLogger.info).toHaveBeenCalledWith(
+      expect(mockLogger.debug).toHaveBeenCalledWith(
         "✅ Bootstrapped 0 health checks"
       );
     });

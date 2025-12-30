@@ -208,14 +208,16 @@ export class PluginManager {
         ({
           registerRouter: (pluginId: string, router: unknown): void => {
             this.pluginRpcRouters.set(pluginId, router);
-            rootLogger.info(`   -> Registered oRPC router for '${pluginId}'`);
+            rootLogger.debug(`   -> Registered oRPC router for '${pluginId}'`);
           },
           registerHttpHandler: (
             path: string,
             handler: (req: Request) => Promise<Response>
           ): void => {
             this.pluginHttpHandlers.set(path, handler);
-            rootLogger.info(`   -> Registered HTTP handler for path '${path}'`);
+            rootLogger.debug(
+              `   -> Registered HTTP handler for path '${path}'`
+            );
           },
         } satisfies RpcService)
     );
@@ -248,7 +250,7 @@ export class PluginManager {
     (proxy as Record<string, (...args: unknown[]) => unknown>)[
       "$$setImplementation"
     ](impl);
-    rootLogger.info(`   -> Registered extension point '${ref.id}'`);
+    rootLogger.debug(`   -> Registered extension point '${ref.id}'`);
   }
 
   getExtensionPoint<T>(ref: ExtensionPoint<T>): T {
@@ -276,7 +278,7 @@ export class PluginManager {
     // Store permissions in central registry
     this.registeredPermissions.push(...prefixed);
 
-    rootLogger.info(
+    rootLogger.debug(
       `   -> Registered ${prefixed.length} permissions for ${pluginId}`
     );
 
@@ -461,7 +463,7 @@ export class PluginManager {
     const providedBy = new Map<string, string>(); // ServiceId -> PluginId
 
     for (const plugin of allPlugins) {
-      rootLogger.info(`🔌 Loading module ${plugin.name}...`);
+      rootLogger.debug(`🔌 Loading module ${plugin.name}...`);
 
       try {
         // Try to import by package name first (works for npm-installed plugins)
@@ -497,7 +499,7 @@ export class PluginManager {
 
     // Phase 2: Initialize Plugins (Topological Sort)
     const sortedIds = this.sortPlugins(pendingInits, providedBy);
-    rootLogger.info(`✅ Initialization Order: ${sortedIds.join(" -> ")}`);
+    rootLogger.debug(`✅ Initialization Order: ${sortedIds.join(" -> ")}`);
 
     for (const id of sortedIds) {
       const p = pendingInits.find((x) => x.pluginId === id)!;
@@ -571,7 +573,7 @@ export class PluginManager {
     }
 
     // Now that all plugins are initialized, emit deferred permission registration hooks
-    rootLogger.info("📢 Emitting deferred permission registration hooks...");
+    rootLogger.debug("📢 Emitting deferred permission registration hooks...");
     for (const { pluginId, permissions } of this
       .deferredPermissionRegistrations) {
       try {
@@ -591,7 +593,7 @@ export class PluginManager {
     this.deferredPermissionRegistrations = [];
 
     // Now subscribe all deferred hooks
-    rootLogger.info("🔗 Subscribing deferred hook listeners...");
+    rootLogger.debug("🔗 Subscribing deferred hook listeners...");
     for (const { pluginId, hook, listener, options } of this
       .deferredHookSubscriptions) {
       try {

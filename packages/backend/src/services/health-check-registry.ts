@@ -14,7 +14,7 @@ export class CoreHealthCheckRegistry implements HealthCheckRegistry {
       );
     }
     this.strategies.set(strategy.id, strategy);
-    rootLogger.info(`✅ Registered HealthCheckStrategy: ${strategy.id}`);
+    rootLogger.debug(`✅ Registered HealthCheckStrategy: ${strategy.id}`);
   }
 
   getStrategy(id: string) {

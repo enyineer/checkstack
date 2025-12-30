@@ -316,7 +316,7 @@ export async function setupHealthCheckWorker(props: {
     }
   );
 
-  logger.info("🎯 Health Check Worker subscribed to queue");
+  logger.debug("🎯 Health Check Worker subscribed to queue");
 }
 
 /**
@@ -343,7 +343,7 @@ export async function bootstrapHealthChecks(props: {
     )
     .where(eq(systemHealthChecks.enabled, true));
 
-  logger.info(`Bootstrapping ${enabledChecks.length} health checks`);
+  logger.debug(`Bootstrapping ${enabledChecks.length} health checks`);
 
   for (const check of enabledChecks) {
     await scheduleHealthCheck({
@@ -357,5 +357,5 @@ export async function bootstrapHealthChecks(props: {
     });
   }
 
-  logger.info(`✅ Bootstrapped ${enabledChecks.length} health checks`);
+  logger.debug(`✅ Bootstrapped ${enabledChecks.length} health checks`);
 }

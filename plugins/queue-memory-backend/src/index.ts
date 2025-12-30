@@ -13,7 +13,7 @@ export default createBackendPlugin({
         logger: coreServices.logger,
       },
       init: async ({ queuePluginRegistry, logger }) => {
-        logger.info("🔌 Registering In-Memory Queue Plugin...");
+        logger.debug("🔌 Registering In-Memory Queue Plugin...");
         const plugin = new InMemoryQueuePlugin();
         queuePluginRegistry.register(plugin);
       },

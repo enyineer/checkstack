@@ -116,7 +116,7 @@ export default createBackendPlugin({
         database: coreServices.database,
       },
       init: async ({ rpc, logger, config, database }) => {
-        logger.info("[auth-ldap-backend] Initializing LDAP authentication...");
+        logger.debug("[auth-ldap-backend] Initializing LDAP authentication...");
 
         // Helper function to authenticate against LDAP
         const authenticateLdap = async (
@@ -425,7 +425,7 @@ export default createBackendPlugin({
           }
         );
 
-        logger.info("✅ LDAP authentication initialized");
+        logger.debug("✅ LDAP authentication initialized");
       },
     });
   },

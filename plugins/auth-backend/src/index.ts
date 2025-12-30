@@ -138,7 +138,7 @@ export default createBackendPlugin({
         config: coreServices.config,
       },
       init: async ({ database, rpc, logger, auth: _auth, config }) => {
-        logger.info("[auth-backend] Initializing Auth Backend...");
+        logger.debug("[auth-backend] Initializing Auth Backend...");
 
         db = database;
 
@@ -147,7 +147,7 @@ export default createBackendPlugin({
           const socialProviders: Record<string, unknown> = {};
 
           for (const strategy of strategies) {
-            logger.info(
+            logger.debug(
               `[auth-backend]    -> Adding auth strategy: ${strategy.id}`
             );
 
@@ -164,7 +164,7 @@ export default createBackendPlugin({
 
             // Skip if no config or disabled
             if (!strategyConfig) {
-              logger.info(
+              logger.debug(
                 `[auth-backend]    -> Strategy ${strategy.id} has no config, skipping`
               );
               continue;
@@ -173,7 +173,7 @@ export default createBackendPlugin({
             // Check if strategy is enabled (if config includes an 'enabled' field)
             const configRecord = strategyConfig as Record<string, unknown>;
             if ("enabled" in configRecord && configRecord.enabled === false) {
-              logger.info(
+              logger.debug(
                 `[auth-backend]    -> Strategy ${strategy.id} is disabled, skipping`
               );
               continue;
@@ -232,7 +232,7 @@ export default createBackendPlugin({
         syncPermissionsToDb = async (
           permissions: { id: string; description?: string }[]
         ) => {
-          logger.info(
+          logger.debug(
             `🔑 Syncing ${permissions.length} permissions to database...`
           );
 
@@ -280,7 +280,7 @@ export default createBackendPlugin({
         // Initial sync of all registered permissions
         const allPermissions = permissionRegistry.getPermissions();
         await syncPermissionsToDb(allPermissions);
-        logger.info(
+        logger.debug(
           `   -> Synced ${allPermissions.length} permissions from all plugins`
         );
 
@@ -302,7 +302,7 @@ export default createBackendPlugin({
         // All auth management endpoints are now via oRPC (see ./router.ts)
 
         // 4. Idempotent Seeding
-        logger.info("🌱 Checking for initial admin user...");
+        logger.debug("🌱 Checking for initial admin user...");
         const adminRole = await database
           .select()
           .from(schema.role)
@@ -353,7 +353,7 @@ export default createBackendPlugin({
           );
         }
 
-        logger.info("✅ Auth Backend initialized.");
+        logger.debug("✅ Auth Backend initialized.");
       },
     });
   },

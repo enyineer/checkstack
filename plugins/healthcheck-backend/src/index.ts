@@ -30,7 +30,7 @@ export default createBackendPlugin({
         fetch,
         queueFactory,
       }) => {
-        logger.info("🏥 Initializing Health Check Backend...");
+        logger.debug("🏥 Initializing Health Check Backend...");
 
         // Setup queue-based health check worker
         await setupHealthCheckWorker({
@@ -53,7 +53,7 @@ export default createBackendPlugin({
         );
         rpc.registerRouter("healthcheck-backend", healthCheckRouter);
 
-        logger.info("✅ Health Check Backend initialized.");
+        logger.debug("✅ Health Check Backend initialized.");
       },
     });
   },

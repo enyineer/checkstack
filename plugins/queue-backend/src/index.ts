@@ -13,7 +13,7 @@ export default createBackendPlugin({
         rpc: coreServices.rpc,
       },
       init: async ({ logger, rpc }) => {
-        logger.info("📋 Initializing Queue Settings Backend...");
+        logger.debug("📋 Initializing Queue Settings Backend...");
 
         // 4. Register oRPC router
         const queueRouter = createQueueRouter();

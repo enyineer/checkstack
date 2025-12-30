@@ -1,14 +1,13 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { CoreHealthCheckRegistry } from "./health-check-registry";
 import { HealthCheckStrategy } from "@checkmate/backend-api";
+import { createMockLogger } from "@checkmate/test-utils-backend";
 import { z } from "zod";
 
 // Mock logger
+const mockLogger = createMockLogger();
 mock.module("../logger", () => ({
-  rootLogger: {
-    info: mock(),
-    warn: mock(),
-  },
+  rootLogger: mockLogger,
 }));
 
 describe("CoreHealthCheckRegistry", () => {
