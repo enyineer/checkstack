@@ -30,3 +30,4 @@ export * from "./components/ToastProvider";
 export * from "./components/Dialog";
 export * from "./components/Badge";
 export * from "./components/Accordion";
+export * from "./components/Tabs";

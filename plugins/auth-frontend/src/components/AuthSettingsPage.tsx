@@ -20,6 +20,8 @@ import {
   Alert,
   DynamicForm,
   useToast,
+  Tabs,
+  TabPanel,
 } from "@checkmate/ui";
 import { authApiRef, AuthUser, Role, AuthStrategy, Permission } from "../api";
 import { permissions as authPermissions } from "@checkmate/auth-common";
@@ -251,43 +253,32 @@ export const AuthSettingsPage: React.FC = () => {
 
   return (
     <PageLayout title="Authentication Settings">
-      <div className="flex space-x-4 mb-6 border-b">
-        <button
-          onClick={() => setActiveTab("users")}
-          className={`pb-2 px-4 flex items-center space-x-2 ${
-            activeTab === "users"
-              ? "border-b-2 border-primary text-primary"
-              : "text-muted-foreground"
-          }`}
-        >
-          <Users size={18} />
-          <span>Users & Roles</span>
-        </button>
-        <button
-          onClick={() => setActiveTab("roles")}
-          className={`pb-2 px-4 flex items-center space-x-2 ${
-            activeTab === "roles"
-              ? "border-b-2 border-primary text-primary"
-              : "text-muted-foreground"
-          }`}
-        >
-          <Shield size={18} />
-          <span>Roles & Permissions</span>
-        </button>
-        <button
-          onClick={() => setActiveTab("strategies")}
-          className={`pb-2 px-4 flex items-center space-x-2 ${
-            activeTab === "strategies"
-              ? "border-b-2 border-primary text-primary"
-              : "text-muted-foreground"
-          }`}
-        >
-          <Settings2 size={18} />
-          <span>Authentication Strategies</span>
-        </button>
-      </div>
+      <Tabs
+        items={[
+          {
+            id: "users",
+            label: "Users & Roles",
+            icon: <Users size={18} />,
+          },
+          {
+            id: "roles",
+            label: "Roles & Permissions",
+            icon: <Shield size={18} />,
+          },
+          {
+            id: "strategies",
+            label: "Authentication Strategies",
+            icon: <Settings2 size={18} />,
+          },
+        ]}
+        activeTab={activeTab}
+        onTabChange={(tabId) =>
+          setActiveTab(tabId as "users" | "roles" | "strategies")
+        }
+        className="mb-6"
+      />
 
-      {activeTab === "users" && (
+      <TabPanel id="users" activeTab={activeTab}>
         <Card>
           <CardHeader>
             <CardTitle>User Management</CardTitle>
@@ -374,9 +365,9 @@ export const AuthSettingsPage: React.FC = () => {
             )}
           </CardContent>
         </Card>
-      )}
+      </TabPanel>
 
-      {activeTab === "roles" && (
+      <TabPanel id="roles" activeTab={activeTab}>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Role Management</CardTitle>
@@ -475,9 +466,9 @@ export const AuthSettingsPage: React.FC = () => {
             )}
           </CardContent>
         </Card>
-      )}
+      </TabPanel>
 
-      {activeTab === "strategies" && (
+      <TabPanel id="strategies" activeTab={activeTab}>
         <div className="space-y-4">
           <div className="flex justify-end">
             <Button
@@ -584,7 +575,7 @@ export const AuthSettingsPage: React.FC = () => {
             </p>
           </Alert>
         </div>
-      )}
+      </TabPanel>
 
       <ConfirmationModal
         isOpen={!!userToDelete}
