@@ -5,8 +5,8 @@ import {
   createExtensionPoint,
   ServiceRef,
 } from "@checkmate/backend-api";
-import { createMockDbModule } from "./test-utils/mock-db";
-import { createMockLoggerModule } from "./test-utils/mock-logger";
+import { createMockDbModule } from "@checkmate/test-utils-backend";
+import { createMockLoggerModule } from "@checkmate/test-utils-backend";
 
 // Mock DB and other globals
 mock.module("./db", () => createMockDbModule());
