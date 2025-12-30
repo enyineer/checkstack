@@ -19,9 +19,9 @@ export interface VersionedConfig<T = unknown> {
   originalVersion?: number;
 }
 
-// Re-export migration types from queue-api for convenience
-export type { ConfigMigration, MigrationChain } from "@checkmate/queue-api";
-import type { ConfigMigration } from "@checkmate/queue-api";
+// Re-export migration types for convenience
+export type { ConfigMigration, MigrationChain } from "./config-migration";
+import type { ConfigMigration } from "./config-migration";
 
 /**
  * Builder for creating type-safe migration chains

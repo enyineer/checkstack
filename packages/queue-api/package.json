@@ -4,6 +4,7 @@
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
+    "@checkmate/backend-api": "workspace:*",
     "zod": "^4.0.0"
   },
   "devDependencies": {

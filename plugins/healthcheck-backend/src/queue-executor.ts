@@ -1,9 +1,5 @@
-import {
-  HealthCheckRegistry,
-  Logger,
-  Fetch,
-  QueueFactory,
-} from "@checkmate/backend-api";
+import { HealthCheckRegistry, Logger, Fetch } from "@checkmate/backend-api";
+import { QueueFactory } from "@checkmate/queue-api";
 import {
   healthCheckConfigurations,
   systemHealthChecks,

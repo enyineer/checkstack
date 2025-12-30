@@ -5,7 +5,8 @@ import {
   createMockLogger,
   createMockQueueFactory,
 } from "@checkmate/test-utils-backend";
-import type { QueueFactory, Logger } from "@checkmate/backend-api";
+import type { Logger } from "@checkmate/backend-api";
+import type { QueueFactory } from "@checkmate/queue-api";
 
 describe("EventBus Integration Tests", () => {
   let eventBus: EventBus;

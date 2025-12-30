@@ -1,20 +1,6 @@
 import { z } from "zod";
 import { Queue } from "./queue";
-
-/**
- * Type-safe migration from one config version to another
- */
-export interface ConfigMigration<TFrom = unknown, TTo = unknown> {
-  fromVersion: number;
-  toVersion: number;
-  description: string;
-  migrate(oldConfig: TFrom): TTo | Promise<TTo>;
-}
-
-/**
- * Helper type for a chain of migrations
- */
-export type MigrationChain<T> = ConfigMigration<unknown, T>[];
+import type { MigrationChain } from "@checkmate/backend-api";
 
 export interface QueuePlugin<Config = unknown> {
   id: string;

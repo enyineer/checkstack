@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MigrationChain } from "@checkmate/queue-api";
+import { MigrationChain } from "./config-migration";
 
 export interface HealthCheckResult {
   status: "healthy" | "unhealthy" | "degraded";
