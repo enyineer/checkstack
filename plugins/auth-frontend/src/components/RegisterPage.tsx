@@ -178,8 +178,8 @@ export const RegisterPage = () => {
                 {socialStrategies.map((strategy) => (
                   <SocialProviderButton
                     key={strategy.id}
-                    provider={strategy.id}
                     displayName={strategy.displayName}
+                    icon={strategy.icon}
                     onClick={() => handleSocialRegister(strategy.id)}
                   />
                 ))}

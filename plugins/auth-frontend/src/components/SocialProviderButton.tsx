@@ -1,30 +1,44 @@
 import React from "react";
 import { Button } from "@checkmate/ui";
-import { Github, Mail, Chrome } from "lucide-react";
+import * as LucideIcons from "lucide-react";
 
 interface SocialProviderButtonProps {
-  provider: string;
   displayName: string;
+  icon?: string; // Lucide icon name
   onClick: () => void;
 }
 
-const getProviderIcon = (providerId: string) => {
-  switch (providerId.toLowerCase()) {
-    case "github": {
-      return <Github className="h-4 w-4" />;
-    }
-    case "google": {
-      return <Chrome className="h-4 w-4" />;
-    }
-    default: {
-      return <Mail className="h-4 w-4" />;
-    }
+const getIconComponent = (iconName?: string) => {
+  if (!iconName) {
+    return <LucideIcons.Mail className="h-4 w-4" />;
   }
+
+  // Convert icon name to PascalCase for Lucide icon lookup
+  const pascalCase = iconName
+    .split("-")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join("");
+
+  // Dynamically look up the icon from lucide-react
+  // Type assertion is safe here since we provide a fallback
+  const IconComponent = (
+    LucideIcons as unknown as Record<
+      string,
+      React.ComponentType<{ className?: string }>
+    >
+  )[pascalCase];
+
+  if (!IconComponent) {
+    // Fallback to Mail icon if not found
+    return <LucideIcons.Mail className="h-4 w-4" />;
+  }
+
+  return <IconComponent className="h-4 w-4" />;
 };
 
 export const SocialProviderButton: React.FC<SocialProviderButtonProps> = ({
-  provider,
   displayName,
+  icon,
   onClick,
 }) => {
   return (
@@ -34,7 +48,7 @@ export const SocialProviderButton: React.FC<SocialProviderButtonProps> = ({
       className="w-full"
       onClick={onClick}
     >
-      {getProviderIcon(provider)}
+      {getIconComponent(icon)}
       <span className="ml-2">Continue with {displayName}</span>
     </Button>
   );

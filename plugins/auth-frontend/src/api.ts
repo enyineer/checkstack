@@ -47,6 +47,7 @@ export interface EnabledAuthStrategy {
   displayName: string;
   description?: string;
   type: "credential" | "social";
+  icon?: string; // Lucide icon name
 }
 
 // Auth RPC client type derived from the contract

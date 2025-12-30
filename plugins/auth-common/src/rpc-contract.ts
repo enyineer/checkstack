@@ -45,6 +45,7 @@ const EnabledStrategyDtoSchema = z.object({
   displayName: z.string(),
   description: z.string().optional(),
   type: z.enum(["credential", "social"]),
+  icon: z.string().optional(), // Lucide icon name
 });
 
 // Auth RPC Contract with permission metadata

@@ -48,6 +48,9 @@ export interface AuthStrategy<Config = unknown> {
   /** Optional description of the strategy */
   description?: string;
 
+  /** Lucide icon name (e.g., "github", "chrome", "mail") */
+  icon?: string;
+
   /** Current version of the configuration schema */
   configVersion: number;
 

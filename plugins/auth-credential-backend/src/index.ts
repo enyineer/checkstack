@@ -9,6 +9,7 @@ const credentialStrategy: AuthStrategy<z.infer<typeof credentialConfigV1>> = {
   id: "credential",
   displayName: "Email & Password",
   description: "Traditional email and password authentication",
+  icon: "key-round", // Lucide icon name
   configVersion: 1,
   configSchema: credentialConfigV1,
 };

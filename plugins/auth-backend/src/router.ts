@@ -56,6 +56,7 @@ export const createAuthRouter = (
           description: strategy.description,
           type,
           enabled,
+          icon: strategy.icon,
         };
       })
     );

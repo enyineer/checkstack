@@ -113,9 +113,9 @@ export const LoginPage = () => {
           <CardDescription>
             {hasCredential && hasSocial
               ? "Choose your preferred sign-in method"
-              : (hasCredential
+              : hasCredential
               ? "Enter your credentials to access the dashboard"
-              : "Continue with your account")}
+              : "Continue with your account"}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -170,8 +170,8 @@ export const LoginPage = () => {
                 {socialStrategies.map((strategy) => (
                   <SocialProviderButton
                     key={strategy.id}
-                    provider={strategy.id}
                     displayName={strategy.displayName}
+                    icon={strategy.icon}
                     onClick={() => handleSocialLogin(strategy.id)}
                   />
                 ))}
