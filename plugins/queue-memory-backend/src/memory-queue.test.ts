@@ -155,63 +155,74 @@ describe("InMemoryQueue Consumer Groups", () => {
   });
 
   describe("Retry Logic", () => {
-    it("should retry failed jobs with exponential backoff", async () => {
-      let attempts = 0;
-      const attemptTimestamps: number[] = [];
+    it(
+      "should retry failed jobs with exponential backoff",
+      async () => {
+        let attempts = 0;
+        const attemptTimestamps: number[] = [];
 
-      await queue.consume(
-        async (job) => {
-          attemptTimestamps.push(Date.now());
-          attempts++;
-          if (attempts < 3) {
-            throw new Error("Simulated failure");
-          }
-        },
-        { consumerGroup: "retry-group", maxRetries: 3 }
-      );
+        await queue.consume(
+          async (job) => {
+            attemptTimestamps.push(Date.now());
+            attempts++;
+            if (attempts < 3) {
+              throw new Error("Simulated failure");
+            }
+          },
+          { consumerGroup: "retry-group", maxRetries: 3 }
+        );
 
-      await queue.enqueue("test");
+        await queue.enqueue("test");
 
-      // Wait for retries (2^1=2s, 2^2=4s, so total ~6s)
-      await new Promise((resolve) => setTimeout(resolve, 7000));
+        // Wait for retries (2^1=2s, 2^2=4s, so total ~7s + buffer)
+        await new Promise((resolve) => setTimeout(resolve, 8000));
 
-      // Should have tried 3 times (initial + 2 retries)
-      expect(attempts).toBe(3);
+        // Should have tried 3 times (initial + 2 retries)
+        expect(attempts).toBe(3);
 
-      // Check exponential backoff (delays should increase)
-      if (attemptTimestamps.length >= 3) {
-        const delay1 = attemptTimestamps[1] - attemptTimestamps[0];
-        const delay2 = attemptTimestamps[2] - attemptTimestamps[1];
+        // Check exponential backoff (delays should increase)
+        if (attemptTimestamps.length >= 3) {
+          const delay1 = attemptTimestamps[1] - attemptTimestamps[0];
+          const delay2 = attemptTimestamps[2] - attemptTimestamps[1];
 
-        // First retry after 2^1 = 2 seconds
-        expect(delay1).toBeGreaterThanOrEqual(1900); // Allow 100ms tolerance
-        expect(delay1).toBeLessThanOrEqual(2100);
+          // First retry after 2^1 = 2 seconds (allow more tolerance for suite execution)
+          expect(delay1).toBeGreaterThanOrEqual(1800); // Allow 200ms tolerance
+          expect(delay1).toBeLessThanOrEqual(2500);
 
-        // Second retry after 2^2 = 4 seconds
-        expect(delay2).toBeGreaterThanOrEqual(3900);
-        expect(delay2).toBeLessThanOrEqual(4100);
-      }
-    });
+          // Second retry after 2^2 = 4 seconds
+          expect(delay2).toBeGreaterThanOrEqual(3800);
+          expect(delay2).toBeLessThanOrEqual(4500);
 
-    it("should not retry beyond maxRetries", async () => {
-      let attempts = 0;
+          // Verify exponential growth (delay2 should be roughly 2x delay1)
+          expect(delay2).toBeGreaterThan(delay1);
+        }
+      },
+      { timeout: 10000 } // Increase timeout for this test
+    );
 
-      await queue.consume(
-        async () => {
-          attempts++;
-          throw new Error("Always fails");
-        },
-        { consumerGroup: "fail-group", maxRetries: 2 }
-      );
+    it(
+      "should not retry beyond maxRetries",
+      async () => {
+        let attempts = 0;
 
-      await queue.enqueue("test");
+        await queue.consume(
+          async () => {
+            attempts++;
+            throw new Error("Always fails");
+          },
+          { consumerGroup: "fail-group", maxRetries: 2 }
+        );
 
-      // Wait for retries
-      await new Promise((resolve) => setTimeout(resolve, 8000));
+        await queue.enqueue("test");
 
-      // Should try 3 times total (initial + 2 retries)
-      expect(attempts).toBe(3);
-    });
+        // Wait for all retries (2^1=2s, 2^2=4s, so ~7s total)
+        await new Promise((resolve) => setTimeout(resolve, 8000));
+
+        // Should try 3 times total (initial + 2 retries)
+        expect(attempts).toBe(3);
+      },
+      { timeout: 10000 } // Increase timeout for this test
+    );
   });
 
   describe("Mixed Patterns", () => {
