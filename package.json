@@ -15,7 +15,7 @@
     "docker:stop": "docker compose down",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "create": "bun run checkmate-scripts create"
+    "create": "bun run packages/scripts/src/commands/create.ts"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.8",
