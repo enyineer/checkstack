@@ -23,7 +23,10 @@ import {
   Fetch,
   HealthCheckRegistry,
   AuthenticationStrategy,
+  EventBus as IEventBus,
+  coreHooks,
 } from "@checkmate/backend-api";
+import { EventBus } from "./services/event-bus.js";
 import type { QueuePluginRegistry, QueueFactory } from "@checkmate/queue-api";
 import { RPCHandler } from "@orpc/server/fetch";
 import type { Permission } from "@checkmate/common";
@@ -220,6 +223,20 @@ export class PluginManager {
       );
       return new ConfigServiceImpl(pluginId, db);
     });
+
+    // 8. EventBus (Global Singleton)
+    let eventBusInstance: IEventBus | undefined;
+    this.registry.registerFactory(coreServices.eventBus, async () => {
+      if (!eventBusInstance) {
+        const queueFactory = await this.registry.get(
+          coreServices.queueFactory,
+          "core"
+        );
+        const logger = await this.registry.get(coreServices.logger, "core");
+        eventBusInstance = new EventBus(queueFactory, logger);
+      }
+      return eventBusInstance;
+    });
   }
 
   registerExtensionPoint<T>(ref: ExtensionPoint<T>, impl: T) {
@@ -248,6 +265,19 @@ export class PluginManager {
     rootLogger.info(
       `   -> Registered ${prefixed.length} permissions for ${pluginId}`
     );
+
+    // Emit hook asynchronously (don't block registration)
+    void (async () => {
+      try {
+        const eventBus = await this.registry.get(coreServices.eventBus, "core");
+        await eventBus.emit(coreHooks.permissionsRegistered, {
+          pluginId,
+          permissions: prefixed,
+        });
+      } catch (error) {
+        rootLogger.error("Failed to emit permissionsRegistered hook:", error);
+      }
+    })();
   }
 
   getAllPermissions(): { id: string; description?: string }[] {
@@ -633,6 +663,31 @@ export class PluginManager {
       },
       registerRouter: (router: unknown) => {
         this.pluginRpcRouters.set(backendPlugin.pluginId, router);
+      },
+      onHook: (hook, listener, options) => {
+        // Can't make this async, so we store the promise and wrap it
+        const subscriptionPromise = (async () => {
+          const eventBus = await this.registry.get(
+            coreServices.eventBus,
+            "core"
+          );
+          return await eventBus.subscribe(
+            backendPlugin.pluginId,
+            hook,
+            listener,
+            options
+          );
+        })();
+
+        // Return a wrapped unsubscribe function
+        return async () => {
+          const unsubscribe = await subscriptionPromise;
+          await unsubscribe();
+        };
+      },
+      emitHook: async (hook, payload) => {
+        const eventBus = await this.registry.get(coreServices.eventBus, "core");
+        await eventBus.emit(hook, payload);
       },
       pluginManager: {
         getAllPermissions: () => this.getAllPermissions(),

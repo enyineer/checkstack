@@ -5,7 +5,7 @@ import {
   authenticationStrategyServiceRef,
   type AuthStrategy,
 } from "@checkmate/backend-api";
-import { coreServices } from "@checkmate/backend-api";
+import { coreServices, coreHooks } from "@checkmate/backend-api";
 import { userInfoRef } from "./services/user-info";
 import * as schema from "./schema";
 import { eq } from "drizzle-orm";
@@ -48,6 +48,30 @@ export default createBackendPlugin({
     };
 
     env.registerPermissions(permissionList);
+
+    // Helper function (will be defined in init)
+    let syncPermissionsToDb:
+      | ((permissions: { id: string; description?: string }[]) => Promise<void>)
+      | undefined;
+
+    // Subscribe to permission registration hook (work-queue mode = only one instance syncs)
+    env.onHook(
+      coreHooks.permissionsRegistered,
+      async ({ permissions }) => {
+        // Only sync if database is ready and function is initialized
+        if (!db || !syncPermissionsToDb) {
+          return; // Will be synced during initial init
+        }
+
+        // Sync new permissions to database
+        await syncPermissionsToDb(permissions);
+      },
+      {
+        mode: "work-queue",
+        workerGroup: "permission-db-sync",
+        maxRetries: 5,
+      }
+    );
 
     env.registerExtensionPoint(betterAuthExtensionPoint, {
       addStrategy: (s) => strategies.push(s),
@@ -191,60 +215,61 @@ export default createBackendPlugin({
           logger.info("[auth-backend] ✅ Authentication reloaded successfully");
         };
 
-        // Sync permissions to database
-        logger.info("🔑 Syncing permissions to database...");
-        // Note: Permissions are collected via PluginManager.registerPermissions
-        // We need to get them from the plugin manager's collection
-        // For now, we'll seed our own permissions
-        const authPermissions = permissionList.map((p) => ({
-          id: `auth-backend.${p.id}`,
-          description: p.description,
-        }));
-
-        // Upsert permissions into database
-        for (const perm of authPermissions) {
-          const existing = await database
-            .select()
-            .from(schema.permission)
-            .where(eq(schema.permission.id, perm.id));
-
-          if (existing.length === 0) {
-            await database.insert(schema.permission).values(perm);
-            logger.debug(`   -> Created permission: ${perm.id}`);
-          } else {
-            // Update description if changed
-            await database
-              .update(schema.permission)
-              .set({ description: perm.description })
-              .where(eq(schema.permission.id, perm.id));
-          }
-
-          // Permissions are now centrally tracked in PluginManager
-        }
-
-        logger.info(
-          `   -> Synced ${authPermissions.length} permissions from auth-backend`
-        );
-
-        // Assign all permissions to admin role during seed
-        const adminRolePermissions = await database
-          .select()
-          .from(schema.rolePermission)
-          .where(eq(schema.rolePermission.roleId, "admin"));
-
-        for (const perm of authPermissions) {
-          const hasPermission = adminRolePermissions.some(
-            (rp) => rp.permissionId === perm.id
+        // Assign the sync function so it's available to the hook listener
+        syncPermissionsToDb = async (
+          permissions: { id: string; description?: string }[]
+        ) => {
+          logger.info(
+            `🔑 Syncing ${permissions.length} permissions to database...`
           );
 
-          if (!hasPermission) {
-            await database.insert(schema.rolePermission).values({
-              roleId: "admin",
-              permissionId: perm.id,
-            });
-            logger.debug(`   -> Assigned permission ${perm.id} to admin role`);
+          for (const perm of permissions) {
+            const existing = await database
+              .select()
+              .from(schema.permission)
+              .where(eq(schema.permission.id, perm.id));
+
+            if (existing.length === 0) {
+              await database.insert(schema.permission).values(perm);
+              logger.debug(`   -> Created permission: ${perm.id}`);
+            } else {
+              // Update description if changed
+              await database
+                .update(schema.permission)
+                .set({ description: perm.description })
+                .where(eq(schema.permission.id, perm.id));
+            }
           }
-        }
+
+          // Assign all permissions to admin role
+          const adminRolePermissions = await database
+            .select()
+            .from(schema.rolePermission)
+            .where(eq(schema.rolePermission.roleId, "admin"));
+
+          for (const perm of permissions) {
+            const hasPermission = adminRolePermissions.some(
+              (rp) => rp.permissionId === perm.id
+            );
+
+            if (!hasPermission) {
+              await database.insert(schema.rolePermission).values({
+                roleId: "admin",
+                permissionId: perm.id,
+              });
+              logger.debug(
+                `   -> Assigned permission ${perm.id} to admin role`
+              );
+            }
+          }
+        };
+
+        // Initial sync of all registered permissions
+        const allPermissions = permissionRegistry.getPermissions();
+        await syncPermissionsToDb(allPermissions);
+        logger.info(
+          `   -> Synced ${allPermissions.length} permissions from all plugins`
+        );
 
         // 4. Register oRPC router
         const authRouter = createAuthRouter(

@@ -5,6 +5,7 @@ import type { QueuePluginRegistry, QueueFactory } from "@checkmate/queue-api";
 import type { ConfigService } from "./config-service";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Logger, Fetch, AuthService, PluginInstaller } from "./types";
+import type { EventBus } from "./event-bus-types";
 
 export * from "./types";
 
@@ -28,4 +29,5 @@ export const coreServices = {
   ),
   queueFactory: createServiceRef<QueueFactory>("core.queueFactory"),
   config: createServiceRef<ConfigService>("core.config"),
+  eventBus: createServiceRef<EventBus>("core.eventBus"),
 };

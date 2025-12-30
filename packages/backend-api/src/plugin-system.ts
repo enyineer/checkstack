@@ -2,6 +2,7 @@ import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { ServiceRef } from "./service-ref";
 import { ExtensionPoint } from "./extension-point";
 import type { Permission } from "@checkmate/common";
+import type { Hook, HookSubscribeOptions, HookUnsubscribe } from "./hooks";
 
 export type Deps = Record<string, ServiceRef<unknown>>;
 
@@ -33,6 +34,19 @@ export type BackendPluginRegistry = {
   getExtensionPoint: <T>(ref: ExtensionPoint<T>) => T;
   registerPermissions: (permissions: Permission[]) => void;
   registerRouter: (router: unknown) => void;
+  /**
+   * Subscribe to a hook
+   * @returns Unsubscribe function
+   */
+  onHook: <T>(
+    hook: Hook<T>,
+    listener: (payload: T) => Promise<void>,
+    options?: HookSubscribeOptions
+  ) => HookUnsubscribe;
+  /**
+   * Emit a hook event
+   */
+  emitHook: <T>(hook: Hook<T>, payload: T) => Promise<void>;
   pluginManager: {
     getAllPermissions: () => { id: string; description?: string }[];
   };

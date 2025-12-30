@@ -12,3 +12,5 @@ export * from "@checkmate/queue-api";
 export * from "./config-versioning";
 export * from "./rpc";
 export * from "./test-utils";
+export * from "./hooks";
+export * from "./event-bus-types";
