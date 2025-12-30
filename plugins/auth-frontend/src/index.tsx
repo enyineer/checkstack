@@ -10,6 +10,7 @@ import {
   LogoutMenuItem,
 } from "./components/LoginPage";
 import { RegisterPage } from "./components/RegisterPage";
+import { AuthErrorPage } from "./components/AuthErrorPage";
 import { authApiRef, AuthApi, AuthSession, AuthClient } from "./api";
 import { authClient } from "./lib/auth-client";
 
@@ -119,9 +120,12 @@ class BetterAuthApi implements AuthApi {
   }
 
   async signInWithSocial(provider: string) {
+    const frontendUrl =
+      import.meta.env.VITE_FRONTEND_URL || "http://localhost:5173";
     await authClient.signIn.social({
       provider,
-      callbackURL: import.meta.env.VITE_FRONTEND_URL || "http://localhost:5173",
+      callbackURL: frontendUrl,
+      errorCallbackURL: `${frontendUrl}/auth/error`,
     });
   }
 
@@ -260,6 +264,10 @@ export const authPlugin = createFrontendPlugin({
     {
       path: "/auth/register",
       element: <RegisterPage />,
+    },
+    {
+      path: "/auth/error",
+      element: <AuthErrorPage />,
     },
     {
       path: "/settings/auth",
