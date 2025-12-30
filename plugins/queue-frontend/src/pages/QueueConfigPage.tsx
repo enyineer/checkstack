@@ -57,6 +57,10 @@ const QueueConfigPageContent = () => {
         config,
       });
       toast.success("Configuration saved successfully!");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(`Failed to save configuration: ${message}`);
+
     } finally {
       setIsSaving(false);
     }

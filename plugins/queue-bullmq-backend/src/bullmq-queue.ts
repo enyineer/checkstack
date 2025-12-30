@@ -32,9 +32,31 @@ export class BullMQQueue<T = unknown> implements Queue<T> {
         port: config.port,
         password: config.password,
         db: config.db,
+        // Disable automatic reconnection and retries for immediate failure
+        // eslint-disable-next-line unicorn/no-null
+        retryStrategy: () => null, // Don't retry, fail immediately
+        maxRetriesPerRequest: 1,
+        enableReadyCheck: true,
+        connectTimeout: 5000, // 5 second connection timeout
       },
       prefix: config.keyPrefix,
     });
+  }
+
+  /**
+   * Test Redis connection by attempting a simple operation
+   * @throws Error if connection fails
+   */
+  async testConnection(): Promise<void> {
+    try {
+      // Try to get job counts - this will fail if Redis is not accessible
+      await this.queue.getJobCounts();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Failed to connect to Redis at ${this.config.host}:${this.config.port}: ${message}`
+      );
+    }
   }
 
   async enqueue(

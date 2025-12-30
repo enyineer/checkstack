@@ -66,8 +66,10 @@ export function createMockQueueFactory(): QueueFactory {
           // Mock implementation - no-op
         },
         listRecurringJobs: async () => {
-          // Mock implementation - return empty array
           return [];
+        },
+        testConnection: async () => {
+          // Mock implementation - always succeeds
         },
         stop: async () => {
           consumers.clear();

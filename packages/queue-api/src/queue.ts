@@ -106,6 +106,12 @@ export interface Queue<T = unknown> {
   listRecurringJobs(): Promise<string[]>;
 
   /**
+   * Test connection to the queue backend
+   * @throws Error if connection fails
+   */
+  testConnection(): Promise<void>;
+
+  /**
    * Stop consuming jobs and cleanup
    */
   stop(): Promise<void>;

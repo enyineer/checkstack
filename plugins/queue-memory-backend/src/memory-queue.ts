@@ -396,4 +396,8 @@ export class InMemoryQueue<T> implements Queue<T> {
       consumerGroups: this.consumerGroups.size,
     };
   }
+
+  async testConnection(): Promise<void> {
+    // In-memory queue is always available
+  }
 }

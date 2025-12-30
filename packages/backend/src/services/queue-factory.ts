@@ -73,6 +73,19 @@ export class QueueFactoryImpl implements QueueFactory {
     // Validate config against schema
     plugin.configSchema.parse(config);
 
+    // Test connection by creating a test queue
+    this.logger.info("🔍 Testing queue connection...");
+    try {
+      const testQueue = plugin.createQueue("__connection_test__", config);
+      await testQueue.testConnection();
+      await testQueue.stop();
+      this.logger.info("✅ Connection test successful");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`❌ Connection test failed: ${message}`);
+      throw new Error(`Failed to connect to queue: ${message}`);
+    }
+
     // Stop all active queues gracefully before switching
     this.logger.info(
       "🛑 Stopping active queues before switching configuration..."

@@ -8,6 +8,7 @@ import {
   permissions,
   UpdateQueueConfigurationSchema,
 } from "@checkmate/queue-common";
+import { ORPCError } from "@orpc/server";
 
 const queueRead = permissionMiddleware(permissions.queueRead.id);
 const queueManage = permissionMiddleware(permissions.queueManage.id);
@@ -46,7 +47,16 @@ export const createQueueRouter = () => {
       .input(UpdateQueueConfigurationSchema)
       .handler(async ({ input, context }) => {
         const { pluginId, config } = input;
-        await context.queueFactory.setActivePlugin(pluginId, config);
+        try {
+          await context.queueFactory.setActivePlugin(pluginId, config);
+        } catch (error) {
+          if (error instanceof Error) {
+            throw new ORPCError("INTERNAL_SERVER_ERROR", {
+              message: error.message,
+            });
+          }
+          throw error;
+        }
         context.logger.info(
           `Queue configuration updated to plugin: ${pluginId}`
         );
