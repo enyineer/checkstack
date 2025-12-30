@@ -1,0 +1,109 @@
+/* Base theme colors using CSS custom properties */
+@layer base {
+  :root {
+    /* Primary - Purple/Indigo brand color */
+    --primary: 262 83% 58%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary - Complementary color */
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 6% 10%;
+
+    /* Accent - Highlight color */
+    --accent: 240 5% 96%;
+    --accent-foreground: 240 6% 10%;
+
+    /* Destructive - Error/danger color */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Muted - Subtle backgrounds */
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+
+    /* Background and foreground */
+    --background: 0 0% 100%;
+    --foreground: 240 10% 4%;
+
+    /* Card - Elevated surfaces */
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 4%;
+
+    /* Popover - Floating elements */
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 4%;
+
+    /* Border and input */
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 262 83% 58%;
+
+    /* Chart colors */
+    --chart-1: 262 83% 58%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+
+    /* Radius for rounded corners */
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    /* Primary - Brighter in dark mode */
+    --primary: 263 70% 65%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary */
+    --secondary: 240 4% 16%;
+    --secondary-foreground: 0 0% 100%;
+
+    /* Accent */
+    --accent: 240 4% 16%;
+    --accent-foreground: 0 0% 100%;
+
+    /* Destructive */
+    --destructive: 0 63% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Muted */
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 5% 65%;
+
+    /* Background and foreground */
+    --background: 240 10% 4%;
+    --foreground: 0 0% 98%;
+
+    /* Card */
+    --card: 240 10% 4%;
+    --card-foreground: 0 0% 98%;
+
+    /* Popover */
+    --popover: 240 10% 4%;
+    --popover-foreground: 0 0% 98%;
+
+    /* Border and input */
+    --border: 240 4% 16%;
+    --input: 240 4% 16%;
+    --ring: 263 70% 65%;
+
+    /* Chart colors - adjusted for dark mode */
+    --chart-1: 263 70% 65%;
+    --chart-2: 173 58% 49%;
+    --chart-3: 197 37% 34%;
+    --chart-4: 43 74% 76%;
+    --chart-5: 27 87% 77%;
+  }
+}
+
+/* Apply base styles */
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}

@@ -31,3 +31,4 @@ export * from "./components/Dialog";
 export * from "./components/Badge";
 export * from "./components/Accordion";
 export * from "./components/Tabs";
+export * from "./components/ThemeProvider";
