@@ -5,6 +5,7 @@ import {
   coreServices,
 } from "@checkmate/backend-api";
 import { betterAuthExtensionPoint } from "@checkmate/auth-backend";
+import type { AuthClient } from "@checkmate/auth-common";
 import { z } from "zod";
 import { Client as LdapClient } from "ldapts";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -115,8 +116,9 @@ export default createBackendPlugin({
         logger: coreServices.logger,
         config: coreServices.config,
         database: coreServices.database,
+        rpcClient: coreServices.rpcClient,
       },
-      init: async ({ rpc, logger, config, database }) => {
+      init: async ({ rpc, logger, config, database, rpcClient }) => {
         logger.debug("[auth-ldap-backend] Initializing LDAP authentication...");
 
         // Helper function to authenticate against LDAP
@@ -304,6 +306,22 @@ export default createBackendPlugin({
               throw new Error(
                 "User does not exist and auto-creation is disabled"
               );
+            }
+
+            // Check platform registration setting via typed RPC client
+            try {
+              const authClient =
+                rpcClient.forPlugin<AuthClient>("auth-backend");
+              const { allowRegistration } =
+                await authClient.getRegistrationStatus();
+              if (!allowRegistration) {
+                throw new Error(
+                  "Registration is disabled. Please contact an administrator."
+                );
+              }
+            } catch (error) {
+              logger.warn("Failed to check registration status:", error);
+              // Allow user creation if registration check fails to avoid blocking existing workflows
             }
 
             userId = crypto.randomUUID();

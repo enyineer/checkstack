@@ -13,6 +13,11 @@ import {
   strategyMetaConfigV1,
   STRATEGY_META_CONFIG_VERSION,
 } from "./meta-config";
+import {
+  platformRegistrationConfigV1,
+  PLATFORM_REGISTRATION_CONFIG_VERSION,
+  PLATFORM_REGISTRATION_CONFIG_ID,
+} from "./platform-registration-config";
 
 // Create implementer from contract with our context
 const os = implement(authContract).$context<RpcContext>();
@@ -54,6 +59,23 @@ async function setStrategyEnabled(
     STRATEGY_META_CONFIG_VERSION,
     { enabled }
   );
+}
+
+/**
+ * Check if platform-wide registration is currently allowed.
+ *
+ * @param configService - The ConfigService instance
+ * @returns true if registration is allowed, false otherwise
+ */
+async function isRegistrationAllowed(
+  configService: ConfigService
+): Promise<boolean> {
+  const config = await configService.get(
+    PLATFORM_REGISTRATION_CONFIG_ID,
+    platformRegistrationConfigV1,
+    PLATFORM_REGISTRATION_CONFIG_VERSION
+  );
+  return config?.allowRegistration ?? true;
 }
 
 export interface AuthStrategyInfo {
@@ -380,6 +402,25 @@ export const createAuthRouter = (
     return { success: true };
   });
 
+  const getRegistrationStatus = os.getRegistrationStatus.handler(async () => {
+    const allowRegistration = await isRegistrationAllowed(configService);
+    return { allowRegistration };
+  });
+
+  const setRegistrationStatus = os.setRegistrationStatus.handler(
+    async ({ input }) => {
+      await configService.set(
+        PLATFORM_REGISTRATION_CONFIG_ID,
+        platformRegistrationConfigV1,
+        PLATFORM_REGISTRATION_CONFIG_VERSION,
+        { allowRegistration: input.allowRegistration }
+      );
+      // Trigger auth reload to apply new settings
+      await reloadAuthFn();
+      return { success: true };
+    }
+  );
+
   return os.router({
     getEnabledStrategies,
     permissions,
@@ -394,6 +435,8 @@ export const createAuthRouter = (
     getStrategies,
     updateStrategy,
     reloadAuth,
+    getRegistrationStatus,
+    setRegistrationStatus,
   });
 };
 

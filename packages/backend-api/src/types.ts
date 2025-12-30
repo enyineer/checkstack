@@ -45,3 +45,20 @@ export interface RouteOptions {
   permission?: string | string[];
   schema?: ZodSchema;
 }
+
+/**
+ * RPC Client for typed backend-to-backend communication.
+ * Similar to the frontend RpcApi but with service token authentication.
+ */
+export interface RpcClient {
+  /**
+   * Get a typed RPC client for a specific plugin.
+   * @param pluginId - The ID of the target plugin
+   * @returns Typed client for the plugin's RPC endpoints
+   *
+   * @example
+   * const authClient = rpcClient.forPlugin<AuthClient>("auth-backend");
+   * const result = await authClient.getRegistrationStatus();
+   */
+  forPlugin<T>(pluginId: string): T;
+}

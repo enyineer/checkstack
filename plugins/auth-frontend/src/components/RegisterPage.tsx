@@ -20,6 +20,7 @@ import {
 import { useEnabledStrategies } from "../hooks/useEnabledStrategies";
 import { SocialProviderButton } from "./SocialProviderButton";
 import { authClient } from "../lib/auth-client";
+import { useEffect } from "react";
 
 export const RegisterPage = () => {
   const [name, setName] = useState("");
@@ -29,6 +30,22 @@ export const RegisterPage = () => {
   const navigate = useNavigate();
   const authApi = useApi(authApiRef);
   const { strategies, loading: strategiesLoading } = useEnabledStrategies();
+  const [registrationAllowed, setRegistrationAllowed] = useState<boolean>(true);
+  const [checkingRegistration, setCheckingRegistration] = useState(true);
+
+  useEffect(() => {
+    authApi
+      .getRegistrationStatus()
+      .then(({ allowRegistration }) => {
+        setRegistrationAllowed(allowRegistration);
+      })
+      .catch((error) => {
+        console.error("Failed to check registration status:", error);
+        // Default to allowed on error to avoid blocking
+        setRegistrationAllowed(true);
+      })
+      .finally(() => setCheckingRegistration(false));
+  }, [authApi]);
 
   const handleCredentialRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,7 +79,7 @@ export const RegisterPage = () => {
   const hasSocial = socialStrategies.length > 0;
 
   // Loading state
-  if (strategiesLoading) {
+  if (strategiesLoading || checkingRegistration) {
     return (
       <div className="min-h-[80vh] flex items-center justify-center">
         <Card className="w-full max-w-md">
@@ -73,6 +90,36 @@ export const RegisterPage = () => {
               <div className="h-10 bg-muted animate-pulse rounded" />
               <div className="h-10 bg-muted animate-pulse rounded" />
             </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Registration is disabled
+  if (!registrationAllowed) {
+    return (
+      <div className="min-h-[80vh] flex items-center justify-center">
+        <Card className="w-full max-w-md">
+          <CardHeader className="flex flex-col space-y-1 items-center">
+            <CardTitle>Registration Disabled</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Alert variant="warning">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Registration is Currently Disabled</AlertTitle>
+              <AlertDescription>
+                New user registration has been disabled by the system
+                administrator. If you already have an account, please{" "}
+                <Link
+                  to="/auth/login"
+                  className="underline text-primary hover:text-primary/90 font-medium"
+                >
+                  sign in
+                </Link>
+                . Otherwise, please contact your administrator for assistance.
+              </AlertDescription>
+            </Alert>
           </CardContent>
         </Card>
       </div>

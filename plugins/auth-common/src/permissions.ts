@@ -31,7 +31,11 @@ export const permissions = {
   },
   strategiesManage: {
     id: "strategies.manage",
-    description: "Enable/disable auth strategies",
+    description: "Manage authentication strategies and settings",
+  },
+  registrationManage: {
+    id: "registration.manage",
+    description: "Manage user registration settings",
   },
 } satisfies Record<string, Permission>;
 

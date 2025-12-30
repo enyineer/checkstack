@@ -230,6 +230,10 @@ class BetterAuthApi implements AuthApi {
   async reloadAuth(): Promise<void> {
     await this.rpc.reloadAuth();
   }
+
+  async getRegistrationStatus() {
+    return this.rpc.getRegistrationStatus();
+  }
 }
 
 export const authPlugin = createFrontendPlugin({

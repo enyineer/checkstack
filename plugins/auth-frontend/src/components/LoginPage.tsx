@@ -26,6 +26,7 @@ import {
 } from "@checkmate/common";
 import { useEnabledStrategies } from "../hooks/useEnabledStrategies";
 import { SocialProviderButton } from "./SocialProviderButton";
+import { useEffect } from "react";
 
 export const LoginPage = () => {
   const [email, setEmail] = useState("");
@@ -34,6 +35,19 @@ export const LoginPage = () => {
   const navigate = useNavigate();
   const authApi = useApi(authApiRef);
   const { strategies, loading: strategiesLoading } = useEnabledStrategies();
+  const [registrationAllowed, setRegistrationAllowed] = useState<boolean>(true);
+
+  useEffect(() => {
+    authApi
+      .getRegistrationStatus()
+      .then(({ allowRegistration }) => {
+        setRegistrationAllowed(allowRegistration);
+      })
+      .catch((error) => {
+        console.error("Failed to check registration status:", error);
+        setRegistrationAllowed(true);
+      });
+  }, [authApi]);
 
   const handleCredentialLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -120,6 +134,18 @@ export const LoginPage = () => {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
+            {/* Registration Disabled Alert */}
+            {!registrationAllowed && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Registration Disabled</AlertTitle>
+                <AlertDescription>
+                  New user registration is currently disabled. Please contact an
+                  administrator if you need access.
+                </AlertDescription>
+              </Alert>
+            )}
+
             {/* Credential Form */}
             {hasCredential && (
               <form className="space-y-4" onSubmit={handleCredentialLogin}>
@@ -179,19 +205,20 @@ export const LoginPage = () => {
             )}
           </div>
         </CardContent>
-        {strategies.some((s) => s.requiresManualRegistration) && (
-          <CardFooter className="flex justify-center border-t border-border mt-4 pt-4">
-            <div className="text-sm">
-              Don't have an account?{" "}
-              <Link
-                to="/auth/register"
-                className="underline text-primary hover:text-primary/90 font-medium"
-              >
-                Sign up
-              </Link>
-            </div>
-          </CardFooter>
-        )}
+        {registrationAllowed &&
+          strategies.some((s) => s.requiresManualRegistration) && (
+            <CardFooter className="flex justify-center border-t border-border mt-4 pt-4">
+              <div className="text-sm">
+                Don't have an account?{" "}
+                <Link
+                  to="/auth/register"
+                  className="underline text-primary hover:text-primary/90 font-medium"
+                >
+                  Sign up
+                </Link>
+              </div>
+            </CardFooter>
+          )}
       </Card>
     </div>
   );

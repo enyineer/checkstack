@@ -1,4 +1,5 @@
 import { oc } from "@orpc/contract";
+import type { ContractRouterClient } from "@orpc/contract";
 import { z } from "zod";
 import { permissions } from "./index";
 
@@ -47,6 +48,10 @@ const EnabledStrategyDtoSchema = z.object({
   type: z.enum(["credential", "social"]),
   icon: z.string().optional(), // Lucide icon name
   requiresManualRegistration: z.boolean(),
+});
+
+const RegistrationStatusSchema = z.object({
+  allowRegistration: z.boolean(),
 });
 
 // Auth RPC Contract with permission metadata
@@ -136,7 +141,20 @@ export const authContract = {
   reloadAuth: _base
     .meta({ permissions: [permissions.strategiesManage.id] })
     .output(z.object({ success: z.boolean() })),
+
+  // Registration management
+  getRegistrationStatus: _base
+    .meta({ permissions: [] }) // Public endpoint
+    .output(RegistrationStatusSchema),
+
+  setRegistrationStatus: _base
+    .meta({ permissions: [permissions.registrationManage.id] })
+    .input(z.object({ allowRegistration: z.boolean() }))
+    .output(z.object({ success: z.boolean() })),
 };
 
 // Export contract type for frontend
 export type AuthContract = typeof authContract;
+
+// Export typed client for backend-to-backend communication
+export type AuthClient = ContractRouterClient<typeof authContract>;

@@ -94,6 +94,7 @@ export interface AuthApi {
     config: { enabled?: boolean; config?: Record<string, unknown> }
   ): Promise<void>;
   reloadAuth(): Promise<void>;
+  getRegistrationStatus(): Promise<{ allowRegistration: boolean }>;
 }
 
 export const authApiRef = createApiRef<AuthApi>("auth.api");

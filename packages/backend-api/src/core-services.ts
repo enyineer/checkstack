@@ -4,7 +4,13 @@ import type { HealthCheckRegistry } from "./health-check";
 import type { QueuePluginRegistry, QueueFactory } from "@checkmate/queue-api";
 import type { ConfigService } from "./config-service";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { Logger, Fetch, AuthService, PluginInstaller } from "./types";
+import {
+  Logger,
+  Fetch,
+  AuthService,
+  PluginInstaller,
+  RpcClient,
+} from "./types";
 import type { EventBus } from "./event-bus-types";
 
 export * from "./types";
@@ -24,6 +30,7 @@ export const coreServices = {
   ),
   pluginInstaller: createServiceRef<PluginInstaller>("core.pluginInstaller"),
   rpc: createServiceRef<RpcService>("core.rpc"),
+  rpcClient: createServiceRef<RpcClient>("core.rpcClient"),
   queuePluginRegistry: createServiceRef<QueuePluginRegistry>(
     "core.queuePluginRegistry"
   ),

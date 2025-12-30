@@ -21,6 +21,11 @@ import {
   strategyMetaConfigV1,
   STRATEGY_META_CONFIG_VERSION,
 } from "./meta-config";
+import {
+  platformRegistrationConfigV1,
+  PLATFORM_REGISTRATION_CONFIG_VERSION,
+  PLATFORM_REGISTRATION_CONFIG_ID,
+} from "./platform-registration-config";
 
 export interface BetterAuthExtensionPoint {
   addStrategy(strategy: AuthStrategy<unknown>): void;
@@ -199,12 +204,24 @@ export default createBackendPlugin({
           // Default to true on fresh installs (no meta config)
           const credentialEnabled = credentialMetaConfig?.enabled ?? true;
 
+          // Check platform registration setting
+          const platformRegistrationConfig = await config.get(
+            PLATFORM_REGISTRATION_CONFIG_ID,
+            platformRegistrationConfigV1,
+            PLATFORM_REGISTRATION_CONFIG_VERSION
+          );
+          const registrationAllowed =
+            platformRegistrationConfig?.allowRegistration ?? true;
+
           return betterAuth({
             database: drizzleAdapter(database, {
               provider: "pg",
               schema: { ...schema },
             }),
-            emailAndPassword: { enabled: credentialEnabled },
+            emailAndPassword: {
+              enabled: credentialEnabled,
+              disableSignUp: !registrationAllowed, // Disable signup when registration is not allowed
+            },
             socialProviders,
             basePath: "/api/auth-backend",
             baseURL: process.env.VITE_API_BASE_URL || "http://localhost:3000",

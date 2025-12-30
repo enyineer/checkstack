@@ -174,4 +174,28 @@ describe("Auth Router", () => {
     expect(result.success).toBe(true);
     expect(mockConfigService.set).toHaveBeenCalled();
   });
+
+  it("getRegistrationStatus returns default true", async () => {
+    const context = createMockRpcContext({ user: undefined }); // Public endpoint
+    const result = await call(router.getRegistrationStatus, undefined, {
+      context,
+    });
+    expect(result.allowRegistration).toBe(true);
+  });
+
+  it("setRegistrationStatus updates flag and requires permission", async () => {
+    const context = createMockRpcContext({ user: mockUser });
+    const result = await call(
+      router.setRegistrationStatus,
+      { allowRegistration: false },
+      { context }
+    );
+    expect(result.success).toBe(true);
+    expect(mockConfigService.set).toHaveBeenCalledWith(
+      "platform.registration",
+      expect.anything(),
+      1,
+      { allowRegistration: false }
+    );
+  });
 });

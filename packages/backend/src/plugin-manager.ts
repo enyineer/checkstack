@@ -26,6 +26,7 @@ import {
   EventBus as IEventBus,
   coreHooks,
   HookSubscribeOptions,
+  RpcClient,
 } from "@checkmate/backend-api";
 import { EventBus } from "./services/event-bus.js";
 import type { QueuePluginRegistry, QueueFactory } from "@checkmate/queue-api";
@@ -39,6 +40,8 @@ import {
   discoverLocalPlugins,
   syncPluginsToDatabase,
 } from "./utils/plugin-discovery";
+import { createORPCClient } from "@orpc/client";
+import { RPCLink } from "@orpc/client/fetch";
 
 interface PendingInit {
   pluginId: string;
@@ -192,6 +195,31 @@ export class PluginManager {
         fetch: fetchWithAuth,
         forPlugin,
       };
+    });
+
+    // 4.5. RPC Client Factory (Scoped, Typed)
+    this.registry.registerFactory(coreServices.rpcClient, async (pluginId) => {
+      const fetchService = await this.registry.get(
+        coreServices.fetch,
+        pluginId
+      );
+      const apiBaseUrl = process.env.API_BASE_URL || "http://localhost:3000";
+
+      // Create RPC Link using the fetch service (already has auth)
+      const link = new RPCLink({
+        url: `${apiBaseUrl}/api`,
+        fetch: fetchService.fetch,
+      });
+
+      const client = createORPCClient(link);
+
+      const rpcClient: RpcClient = {
+        forPlugin<T>(targetPluginId: string): T {
+          return (client as Record<string, T>)[targetPluginId];
+        },
+      };
+
+      return rpcClient;
     });
 
     // 5. Health Check Registry (Global Singleton)
