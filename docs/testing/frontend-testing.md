@@ -146,10 +146,12 @@ export default createPlaywrightConfig({
 
 #### 2. Create E2E Tests
 
-Create an `e2e/` directory and add test files with `.spec.ts` extension:
+Create an `e2e/` directory and add test files with `.e2e.ts` extension:
+
+> **Important:** Use `.e2e.ts` extension (not `.spec.ts` or `.test.ts`) to ensure E2E tests are **not** picked up by `bun test` when running unit tests from the monorepo root. The `.e2e.ts` pattern is specifically excluded from Bun's default test discovery.
 
 ```typescript
-// e2e/login.spec.ts
+// e2e/login.e2e.ts
 import { test, expect } from "@checkmate/test-utils-frontend/playwright";
 
 test.describe("Login Page", () => {
