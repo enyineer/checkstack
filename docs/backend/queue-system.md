@@ -1,3 +1,5 @@
+---
+---
 # Queue System
 
 The Checkmate Queue system provides a pluggable, type-safe infrastructure for managing asynchronous tasks and distributed events. It is designed to scale from simple in-memory development environments to multi-node production clusters.

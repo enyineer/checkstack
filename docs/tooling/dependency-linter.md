@@ -1,3 +1,5 @@
+---
+---
 # Dependency Architecture Linter
 
 This document explains the dependency validation system that enforces clean architecture rules.

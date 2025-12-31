@@ -1,3 +1,5 @@
+---
+---
 # Common Plugin Guidelines
 
 ## Overview

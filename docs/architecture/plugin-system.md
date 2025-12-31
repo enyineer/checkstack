@@ -1,3 +1,5 @@
+---
+---
 # Plugin Architecture Overview
 
 ## Introduction

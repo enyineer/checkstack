@@ -1,3 +1,5 @@
+---
+---
 # Contributing to Checkmate
 
 Thank you for your interest in contributing to Checkmate! This guide will help you get started with contributing plugins or code to the project.

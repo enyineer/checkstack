@@ -1,3 +1,5 @@
+---
+---
 # Custom Authentication Strategy Error Handling
 
 When implementing custom authentication strategies (like LDAP or custom OAuth providers), it's important to provide a consistent error experience for end users. The `auth-backend` plugin provides utilities to redirect authentication errors to a centralized error page with user-friendly messages.

@@ -1,3 +1,5 @@
+---
+---
 # Configuration Patterns
 
 Common patterns for managing plugin configuration. See [Versioned Configs](../backend/versioned-configs.md) and [Config Service](../backend/config-service.md).

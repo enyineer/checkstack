@@ -1,3 +1,5 @@
+---
+---
 # Queue Usage Patterns
 
 Common patterns for using the Checkmate Queue system. See [Queue System](../backend/queue-system.md) for full documentation.

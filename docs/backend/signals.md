@@ -1,3 +1,5 @@
+---
+---
 # Signal Service Architecture
 
 The Signal Service provides realtime backend-to-frontend communication via WebSockets. It enables plugins to push typed events to connected clients, replacing polling mechanisms with instant updates.

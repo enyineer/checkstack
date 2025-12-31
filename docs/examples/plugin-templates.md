@@ -1,3 +1,5 @@
+---
+---
 # Plugin Templates
 
 Minimal examples for creating Checkmate plugins. See full guides: [Backend](../backend/plugins.md), [Frontend](../frontend/plugins.md), [Common](../common/plugins.md).

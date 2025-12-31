@@ -1,3 +1,5 @@
+---
+---
 # Drizzle Schema Isolation
 
 ## The Problem
@@ -70,4 +72,3 @@ if (fs.existsSync(migrationsFolder)) {
 ## Future Considerations
 
 If Drizzle adds a configuration option like `schemaAgnostic: true` in the future, we can remove this runtime fix. Track Drizzle ORM issues for updates.
-

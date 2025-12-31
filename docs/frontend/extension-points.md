@@ -1,3 +1,5 @@
+---
+---
 # Extension Points and Strategies
 
 ## Overview

@@ -1,3 +1,5 @@
+---
+---
 # Theming System
 
 The Checkmate UI system uses a centralized, configurable theming architecture based on CSS Custom Properties (CSS variables) and HSL color space. This system provides automatic dark mode support, semantic color tokens, and consistent styling across the entire platform.

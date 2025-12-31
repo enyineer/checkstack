@@ -1,3 +1,5 @@
+---
+---
 # Sending Configuration Schemas to Frontend
 
 This guide documents the required pattern for exposing plugin configuration schemas to the frontend to enable dynamic form rendering with proper secret field handling.
