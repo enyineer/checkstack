@@ -1,40 +1,46 @@
-import { os, authedProcedure, permissionMiddleware } from "@checkmate/backend-api";
-import { {{pluginNameCamel}}Contract, permissions } from "@checkmate/{{pluginBaseName}}-common";
-import type { Database } from "@checkmate/backend-api";
+import { implement } from "@orpc/server";
+import { autoAuthMiddleware, type RpcContext } from "@checkmate/backend-api";
+import { {{pluginNameCamel}}Contract } from "@checkmate/{{pluginBaseName}}-common";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type * as schema from "./schema";
 import { {{pluginNamePascal}}Service } from "./service";
 
-export function create{{pluginNamePascal}}Router({ database }: { database: Database }) {
+/**
+ * Creates the {{pluginBaseName}} router using contract-based implementation.
+ *
+ * Auth and permissions are automatically enforced via autoAuthMiddleware
+ * based on the contract's meta.userType and meta.permissions.
+ */
+const os = implement({{pluginNameCamel}}Contract)
+  .$context<RpcContext>()
+  .use(autoAuthMiddleware);
+
+export function create{{pluginNamePascal}}Router({
+  database,
+}: {
+  database: NodePgDatabase<typeof schema>;
+}) {
   const service = new {{pluginNamePascal}}Service(database);
 
-  return os.router({{pluginNameCamel}}Contract, {
-    getItems: authedProcedure
-      .use(permissionMiddleware(permissions.{{pluginNameCamel}}Read))
-      .handler(async () => {
-        return await service.getItems();
-      }),
+  return os.router({
+    getItems: os.getItems.handler(async () => {
+      return await service.getItems();
+    }),
 
-    getItem: authedProcedure
-      .use(permissionMiddleware(permissions.{{pluginNameCamel}}Read))
-      .handler(async ({ input }) => {
-        return await service.getItem(input);
-      }),
+    getItem: os.getItem.handler(async ({ input }) => {
+      return await service.getItem(input);
+    }),
 
-    createItem: authedProcedure
-      .use(permissionMiddleware(permissions.{{pluginNameCamel}}Manage))
-      .handler(async ({ input }) => {
-        return await service.createItem(input);
-      }),
+    createItem: os.createItem.handler(async ({ input }) => {
+      return await service.createItem(input);
+    }),
 
-    updateItem: authedProcedure
-      .use(permissionMiddleware(permissions.{{pluginNameCamel}}Manage))
-      .handler(async ({ input }) => {
-        return await service.updateItem(input.id, input.data);
-      }),
+    updateItem: os.updateItem.handler(async ({ input }) => {
+      return await service.updateItem(input.id, input.data);
+    }),
 
-    deleteItem: authedProcedure
-      .use(permissionMiddleware(permissions.{{pluginNameCamel}}Manage))
-      .handler(async ({ input }) => {
-        await service.deleteItem(input);
-      }),
+    deleteItem: os.deleteItem.handler(async ({ input }) => {
+      await service.deleteItem(input);
+    }),
   });
 }
