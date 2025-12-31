@@ -5,8 +5,12 @@ import {
   createExtensionPoint,
   ServiceRef,
 } from "@checkmate/backend-api";
-import { createMockDbModule } from "@checkmate/test-utils-backend";
-import { createMockLoggerModule } from "@checkmate/test-utils-backend";
+import {
+  createMockDbModule,
+  createMockLoggerModule,
+  createMockLogger,
+} from "@checkmate/test-utils-backend";
+import { sortPlugins } from "./plugin-manager/dependency-sorter";
 
 // Mock DB and other globals
 mock.module("./db", () => createMockDbModule());
@@ -107,7 +111,11 @@ describe("PluginManager", () => {
         [s2.id, "provider-2"],
       ]);
 
-      const sorted = pluginManager.sortPlugins(pendingInits, providedBy);
+      const sorted = sortPlugins({
+        pendingInits,
+        providedBy,
+        logger: createMockLogger(),
+      });
 
       // provider-1 must come before consumer and provider-2
       // provider-2 must come before consumer
@@ -136,9 +144,9 @@ describe("PluginManager", () => {
         [s2.id, "p2"],
       ]);
 
-      expect(() => pluginManager.sortPlugins(pendingInits, providedBy)).toThrow(
-        "Circular dependency detected"
-      );
+      expect(() =>
+        sortPlugins({ pendingInits, providedBy, logger: createMockLogger() })
+      ).toThrow("Circular dependency detected");
     });
 
     describe("Queue Plugin Ordering", () => {
@@ -166,7 +174,11 @@ describe("PluginManager", () => {
         ];
 
         const providedBy = new Map<string, string>();
-        const sorted = pluginManager.sortPlugins(pendingInits, providedBy);
+        const sorted = sortPlugins({
+          pendingInits,
+          providedBy,
+          logger: createMockLogger(),
+        });
 
         // Queue provider should come before queue consumer
         expect(sorted.indexOf("queue-provider")).toBeLessThan(
@@ -217,7 +229,11 @@ describe("PluginManager", () => {
         ];
 
         const providedBy = new Map<string, string>();
-        const sorted = pluginManager.sortPlugins(pendingInits, providedBy);
+        const sorted = sortPlugins({
+          pendingInits,
+          providedBy,
+          logger: createMockLogger(),
+        });
 
         // All providers should come before all consumers
         const provider1Index = sorted.indexOf("provider-1");
@@ -264,7 +280,11 @@ describe("PluginManager", () => {
           [customServiceRef.id, "provider-plugin"],
         ]);
 
-        const sorted = pluginManager.sortPlugins(pendingInits, providedBy);
+        const sorted = sortPlugins({
+          pendingInits,
+          providedBy,
+          logger: createMockLogger(),
+        });
 
         // Queue provider should come before queue consumer
         const queueProviderIndex = sorted.indexOf("queue-provider");
@@ -300,7 +320,11 @@ describe("PluginManager", () => {
         ];
 
         const providedBy = new Map<string, string>();
-        const sorted = pluginManager.sortPlugins(pendingInits, providedBy);
+        const sorted = sortPlugins({
+          pendingInits,
+          providedBy,
+          logger: createMockLogger(),
+        });
 
         // Dual plugin should come before consumer-only
         const dualIndex = sorted.indexOf("dual-plugin");
@@ -335,7 +359,7 @@ describe("PluginManager", () => {
 
         // Should not throw
         expect(() => {
-          pluginManager.sortPlugins(pendingInits, providedBy);
+          sortPlugins({ pendingInits, providedBy, logger: createMockLogger() });
         }).not.toThrow();
       });
     });
