@@ -38,11 +38,9 @@ export function createApiRouteHandler({
   }
 
   return async function handleApiRequest(c: Context) {
+    // Extract pluginId from Hono path parameter (/api/:pluginId/*)
+    const pluginId = c.req.param("pluginId") || "";
     const pathname = new URL(c.req.raw.url).pathname;
-
-    // Extract pluginId from path: /api/{pluginId}/...
-    const pathParts = pathname.split("/").filter(Boolean);
-    const pluginId = pathParts.length >= 2 ? pathParts[1] : "";
 
     // Build RPC handler lazily at request time
     // This ensures all plugins registered during init are included
@@ -130,11 +128,11 @@ export function createApiRouteHandler({
 }
 
 /**
- * Registers the /api/* route with Hono.
+ * Registers the /api/:pluginId/* route with Hono.
  */
 export function registerApiRoute(
   rootRouter: Hono,
   handler: ReturnType<typeof createApiRouteHandler>
 ) {
-  rootRouter.all("/api/*", handler);
+  rootRouter.all("/api/:pluginId/*", handler);
 }
