@@ -13,7 +13,6 @@ import {
   CardTitle,
   CardContent,
   Button,
-  Input,
   Label,
   LoadingSpinner,
   EmptyState,
@@ -23,6 +22,8 @@ import {
   useToast,
 } from "@checkmate/ui";
 import { Plus, Trash2, LayoutGrid, Server, Settings } from "lucide-react";
+import { SystemEditor } from "./SystemEditor";
+import { GroupEditor } from "./GroupEditor";
 
 export const CatalogConfigPage = () => {
   const catalogApi = useApi(catalogApiRef);
@@ -35,9 +36,10 @@ export const CatalogConfigPage = () => {
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [newSystemName, setNewSystemName] = useState("");
-  const [newSystemDescription, setNewSystemDescription] = useState("");
-  const [newGroupName, setNewGroupName] = useState("");
+  // Dialog state
+  const [isSystemEditorOpen, setIsSystemEditorOpen] = useState(false);
+  const [isGroupEditorOpen, setIsGroupEditorOpen] = useState(false);
+
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [selectedSystemToAdd, setSelectedSystemToAdd] = useState("");
 
@@ -80,46 +82,19 @@ export const CatalogConfigPage = () => {
     loadData();
   }, []);
 
-  const handleCreateSystem = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newSystemName) return;
-    catalogApi
-      .createSystem({
-        name: newSystemName,
-        description: newSystemDescription || undefined,
-      })
-      .then(() => {
-        setNewSystemName("");
-        setNewSystemDescription("");
-        toast.success("System created successfully");
-        loadData();
-      })
-      .catch((error) => {
-        const message =
-          error instanceof Error ? error.message : "Failed to create system";
-        toast.error(message);
-        console.error("Failed to create system:", error);
-      });
+  const handleCreateSystem = async (data: {
+    name: string;
+    description?: string;
+  }) => {
+    await catalogApi.createSystem(data);
+    toast.success("System created successfully");
+    await loadData();
   };
 
-  const handleCreateGroup = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newGroupName) return;
-    catalogApi
-      .createGroup({
-        name: newGroupName,
-      })
-      .then(() => {
-        setNewGroupName("");
-        toast.success("Group created successfully");
-        loadData();
-      })
-      .catch((error) => {
-        const message =
-          error instanceof Error ? error.message : "Failed to create group";
-        toast.error(message);
-        console.error("Failed to create group:", error);
-      });
+  const handleCreateGroup = async (data: { name: string }) => {
+    await catalogApi.createGroup(data);
+    toast.success("Group created successfully");
+    await loadData();
   };
 
   const handleDeleteSystem = async (id: string) => {
@@ -276,45 +251,22 @@ export const CatalogConfigPage = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Systems Management */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <Server className="w-5 h-5 text-muted-foreground" />
               Systems
             </CardTitle>
+            <Button size="sm" onClick={() => setIsSystemEditorOpen(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add System
+            </Button>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <form onSubmit={handleCreateSystem} className="space-y-3">
-              <div>
-                <Input
-                  placeholder="New System Name (e.g. Payments)"
-                  value={newSystemName}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setNewSystemName(e.target.value)
-                  }
-                />
-              </div>
-              <div>
-                <textarea
-                  className="w-full flex min-h-[60px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
-                  placeholder="Description (optional)"
-                  value={newSystemDescription}
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                    setNewSystemDescription(e.target.value)
-                  }
-                  rows={2}
-                />
-              </div>
-              <Button type="submit" className="w-full">
-                <Plus className="w-4 h-4 mr-2" />
-                Add System
-              </Button>
-            </form>
-
-            <div className="space-y-2">
-              {systems.length === 0 ? (
-                <EmptyState title="No systems created yet." />
-              ) : (
-                systems.map((system) => (
+          <CardContent className="space-y-4">
+            {systems.length === 0 ? (
+              <EmptyState title="No systems created yet." />
+            ) : (
+              <div className="space-y-2">
+                {systems.map((system) => (
                   <div
                     key={system.id}
                     className="flex items-start justify-between p-3 bg-muted/30 rounded-lg border border-border"
@@ -353,42 +305,30 @@ export const CatalogConfigPage = () => {
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
-                ))
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
         {/* Groups Management */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <LayoutGrid className="w-5 h-5 text-muted-foreground" />
               Groups
             </CardTitle>
+            <Button size="sm" onClick={() => setIsGroupEditorOpen(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add Group
+            </Button>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <form onSubmit={handleCreateGroup} className="flex gap-2">
-              <div className="flex-1">
-                <Input
-                  placeholder="New Group Name (e.g. Payment Flow)"
-                  value={newGroupName}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setNewGroupName(e.target.value)
-                  }
-                />
-              </div>
-              <Button type="submit">
-                <Plus className="w-4 h-4 mr-2" />
-                Add
-              </Button>
-            </form>
-
-            <div className="space-y-2">
-              {groups.length === 0 ? (
-                <EmptyState title="No groups created yet." />
-              ) : (
-                groups.map((group) => (
+          <CardContent className="space-y-4">
+            {groups.length === 0 ? (
+              <EmptyState title="No groups created yet." />
+            ) : (
+              <div className="space-y-2">
+                {groups.map((group) => (
                   <div
                     key={group.id}
                     className="p-3 bg-muted/30 rounded-lg border border-border space-y-2"
@@ -418,12 +358,12 @@ export const CatalogConfigPage = () => {
                     {/* Systems in this group */}
                     {group.systemIds && group.systemIds.length > 0 && (
                       <div className="pl-4 space-y-1">
-                        {group.systemIds.map((sysId) => {
-                          const sys = systems.find((s) => s.id === sysId);
-                          if (!sys) return;
-                          return (
+                        {group.systemIds
+                          .map((sysId) => systems.find((s) => s.id === sysId))
+                          .filter((sys): sys is System => !!sys)
+                          .map((sys) => (
                             <div
-                              key={sysId}
+                              key={sys.id}
                               className="flex items-center justify-between text-sm bg-background p-2 rounded border border-border"
                             >
                               <span className="text-foreground">
@@ -433,20 +373,19 @@ export const CatalogConfigPage = () => {
                                 variant="ghost"
                                 className="text-destructive/60 hover:text-destructive h-6 w-6 p-0"
                                 onClick={() =>
-                                  handleRemoveSystemFromGroup(group.id, sysId)
+                                  handleRemoveSystemFromGroup(group.id, sys.id)
                                 }
                               >
                                 <Trash2 className="w-3 h-3" />
                               </Button>
                             </div>
-                          );
-                        })}
+                          ))}
                       </div>
                     )}
                   </div>
-                ))
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -508,6 +447,19 @@ export const CatalogConfigPage = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* Dialogs */}
+      <SystemEditor
+        open={isSystemEditorOpen}
+        onClose={() => setIsSystemEditorOpen(false)}
+        onSave={handleCreateSystem}
+      />
+
+      <GroupEditor
+        open={isGroupEditorOpen}
+        onClose={() => setIsGroupEditorOpen(false)}
+        onSave={handleCreateGroup}
+      />
 
       <ConfirmationModal
         isOpen={confirmModal.isOpen}
