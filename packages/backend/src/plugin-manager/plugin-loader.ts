@@ -36,14 +36,13 @@ export interface PluginLoaderDeps {
   pluginRpcRouters: Map<string, unknown>;
   pluginHttpHandlers: Map<string, (req: Request) => Promise<Response>>;
   extensionPointManager: ExtensionPointManager;
-  registerPermissions: (pluginId: string, permissions: Permission[]) => void;
+  registeredPermissions: {
+    pluginId: string;
+    id: string;
+    description?: string;
+  }[];
   getAllPermissions: () => { id: string; description?: string }[];
   db: NodePgDatabase<Record<string, unknown>>;
-  deferredPermissionRegistrations: {
-    pluginId: string;
-    permissions: { id: string; description?: string }[];
-  }[];
-  clearDeferredPermissions: () => void;
 }
 
 /**
@@ -105,7 +104,16 @@ export function registerPlugin({
       return deps.extensionPointManager.getExtensionPoint(ref);
     },
     registerPermissions: (permissions: Permission[]) => {
-      deps.registerPermissions(backendPlugin.pluginId, permissions);
+      // Store permissions with pluginId for Phase 3 emission
+      const prefixed = permissions.map((p) => ({
+        pluginId: backendPlugin.pluginId,
+        id: `${backendPlugin.pluginId}.${p.id}`,
+        description: p.description,
+      }));
+      deps.registeredPermissions.push(...prefixed);
+      rootLogger.debug(
+        `   -> Registered ${prefixed.length} permissions for ${backendPlugin.pluginId}`
+      );
     },
     registerRouter: (router: unknown) => {
       deps.pluginRpcRouters.set(backendPlugin.pluginId, router);
@@ -285,14 +293,26 @@ export async function loadPlugins({
     }
   }
 
-  // Emit deferred permission registration hooks
-  rootLogger.debug("📢 Emitting deferred permission registration hooks...");
-  for (const {
-    pluginId,
-    permissions,
-  } of deps.deferredPermissionRegistrations) {
+  // Phase 3: Run afterPluginsReady callbacks
+  rootLogger.debug("🔄 Running afterPluginsReady callbacks...");
+
+  // Emit permission registration hooks at start of Phase 3
+  // (EventBus is now available, all plugins can receive notifications)
+  const eventBus = await deps.registry.get(coreServices.eventBus, "core");
+  const permissionsByPlugin = new Map<
+    string,
+    { id: string; description?: string }[]
+  >();
+  for (const perm of deps.registeredPermissions) {
+    if (!permissionsByPlugin.has(perm.pluginId)) {
+      permissionsByPlugin.set(perm.pluginId, []);
+    }
+    permissionsByPlugin
+      .get(perm.pluginId)!
+      .push({ id: perm.id, description: perm.description });
+  }
+  for (const [pluginId, permissions] of permissionsByPlugin) {
     try {
-      const eventBus = await deps.registry.get(coreServices.eventBus, "core");
       await eventBus.emit(coreHooks.permissionsRegistered, {
         pluginId,
         permissions,
@@ -304,10 +324,6 @@ export async function loadPlugins({
       );
     }
   }
-  deps.clearDeferredPermissions();
-
-  // Phase 3: Run afterPluginsReady callbacks
-  rootLogger.debug("🔄 Running afterPluginsReady callbacks...");
   for (const p of pendingInits) {
     if (p.afterPluginsReady) {
       try {

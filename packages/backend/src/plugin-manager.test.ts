@@ -365,43 +365,55 @@ describe("PluginManager", () => {
     });
   });
 
-  describe("Permission and Hook Deferral", () => {
-    it("should defer permission hook emissions until after initialization", () => {
-      // Call registerPermissions during the "register" phase
-      (pluginManager as any).registerPermissions("test-plugin", [
-        { id: "test.permission", description: "Test permission" },
-      ]);
+  describe("Permission Registration", () => {
+    it("should store permissions in the registry", () => {
+      // Permissions are now stored directly via the registeredPermissions array
+      // and hooks are emitted in Phase 3 (afterPluginsReady)
+      const perms = (
+        pluginManager as unknown as {
+          registeredPermissions: {
+            pluginId: string;
+            id: string;
+            description?: string;
+          }[];
+        }
+      ).registeredPermissions;
 
-      // At this point, the hook should NOT have been emitted yet
-      // Deferred registrations should be stored
-      const deferred = (pluginManager as any).deferredPermissionRegistrations;
-      expect(deferred.length).toBe(1);
-      expect(deferred[0]).toEqual({
+      // Add permissions directly (simulating what plugin-loader does)
+      perms.push({
         pluginId: "test-plugin",
-        permissions: [
-          {
-            id: "test-plugin.test.permission",
-            description: "Test permission",
-          },
-        ],
+        id: "test-plugin.test.permission",
+        description: "Test permission",
+      });
+
+      // getAllPermissions should return them (without pluginId in the output)
+      const all = pluginManager.getAllPermissions();
+      expect(all.length).toBe(1);
+      expect(all[0]).toEqual({
+        id: "test-plugin.test.permission",
+        description: "Test permission",
       });
     });
 
-    it("should store multiple deferred permission registrations", () => {
-      (pluginManager as any).registerPermissions("plugin-1", [
-        { id: "perm.1" },
-        { id: "perm.2" },
-      ]);
-      (pluginManager as any).registerPermissions("plugin-2", [
-        { id: "perm.3" },
-      ]);
+    it("should aggregate permissions from multiple plugins", () => {
+      const perms = (
+        pluginManager as unknown as {
+          registeredPermissions: {
+            pluginId: string;
+            id: string;
+            description?: string;
+          }[];
+        }
+      ).registeredPermissions;
 
-      const deferred = (pluginManager as any).deferredPermissionRegistrations;
-      expect(deferred.length).toBe(2);
-      expect(deferred[0].pluginId).toBe("plugin-1");
-      expect(deferred[1].pluginId).toBe("plugin-2");
-      expect(deferred[0].permissions.length).toBe(2);
-      expect(deferred[1].permissions.length).toBe(1);
+      perms.push(
+        { pluginId: "plugin-1", id: "plugin-1.perm.1", description: undefined },
+        { pluginId: "plugin-1", id: "plugin-1.perm.2", description: undefined },
+        { pluginId: "plugin-2", id: "plugin-2.perm.3", description: undefined }
+      );
+
+      const all = pluginManager.getAllPermissions();
+      expect(all.length).toBe(3);
     });
   });
 

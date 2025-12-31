@@ -6,8 +6,6 @@ import {
   ServiceRef,
   ExtensionPoint,
 } from "@checkmate/backend-api";
-import type { Permission } from "@checkmate/common";
-import { rootLogger } from "./logger";
 
 // Extracted modules
 import { registerCoreServices } from "./plugin-manager/core-services";
@@ -23,11 +21,11 @@ export class PluginManager {
   >();
   private extensionPointManager = createExtensionPointManager();
 
-  // Permission registry
-  private registeredPermissions: { id: string; description?: string }[] = [];
-  private deferredPermissionRegistrations: {
+  // Permission registry - stores all registered permissions with pluginId for hook emission
+  private registeredPermissions: {
     pluginId: string;
-    permissions: { id: string; description?: string }[];
+    id: string;
+    description?: string;
   }[] = [];
 
   constructor() {
@@ -47,28 +45,11 @@ export class PluginManager {
     return this.extensionPointManager.getExtensionPoint(ref);
   }
 
-  private registerPermissions(pluginId: string, permissions: Permission[]) {
-    // Prefix all permission IDs with the plugin ID
-    const prefixed = permissions.map((p) => ({
-      id: `${pluginId}.${p.id}`,
-      description: p.description,
-    }));
-
-    // Store permissions in central registry
-    this.registeredPermissions.push(...prefixed);
-    rootLogger.debug(
-      `   -> Registered ${prefixed.length} permissions for ${pluginId}`
-    );
-
-    // Defer hook emission until all plugins are initialized
-    this.deferredPermissionRegistrations.push({
-      pluginId,
-      permissions: prefixed,
-    });
-  }
-
   getAllPermissions(): { id: string; description?: string }[] {
-    return [...this.registeredPermissions];
+    return this.registeredPermissions.map(({ id, description }) => ({
+      id,
+      description,
+    }));
   }
 
   async loadPlugins(rootRouter: Hono, manualPlugins: BackendPlugin[] = []) {
@@ -80,14 +61,9 @@ export class PluginManager {
         pluginRpcRouters: this.pluginRpcRouters,
         pluginHttpHandlers: this.pluginHttpHandlers,
         extensionPointManager: this.extensionPointManager,
-        registerPermissions: (pluginId, permissions) =>
-          this.registerPermissions(pluginId, permissions),
+        registeredPermissions: this.registeredPermissions,
         getAllPermissions: () => this.getAllPermissions(),
         db,
-        deferredPermissionRegistrations: this.deferredPermissionRegistrations,
-        clearDeferredPermissions: () => {
-          this.deferredPermissionRegistrations = [];
-        },
       },
     });
   }
