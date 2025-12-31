@@ -39,12 +39,14 @@ export const betterAuthExtensionPoint =
 
 /**
  * Sync permissions to database and assign to admin role.
- * Extracted to avoid duplication between init and afterPluginsReady.
+ * @param fullSync - If true, also performs orphan cleanup and default role sync.
+ *                   Should only be true when syncing ALL permissions (not per-plugin hooks).
  */
 async function syncPermissionsToDb({
   database,
   logger,
   permissions,
+  fullSync = false,
 }: {
   database: NodePgDatabase<typeof schema>;
   logger: { debug: (msg: string) => void };
@@ -54,6 +56,7 @@ async function syncPermissionsToDb({
     isAuthenticatedDefault?: boolean;
     isPublicDefault?: boolean;
   }[];
+  fullSync?: boolean;
 }) {
   logger.debug(`🔑 Syncing ${permissions.length} permissions to database...`);
 
@@ -92,6 +95,12 @@ async function syncPermissionsToDb({
       });
       logger.debug(`   -> Assigned permission ${perm.id} to admin role`);
     }
+  }
+
+  // Only perform orphan cleanup and default sync when doing a full sync
+  // (i.e., when we have ALL permissions, not just one plugin's permissions from a hook)
+  if (!fullSync) {
+    return;
   }
 
   // Cleanup orphan permissions (no longer registered by any plugin)
@@ -547,6 +556,7 @@ export default createBackendPlugin({
           database: database as NodePgDatabase<typeof schema>,
           logger,
           permissions: allPermissions,
+          fullSync: true,
         });
         logger.debug(
           `   -> Synced ${allPermissions.length} permissions from all plugins`
@@ -621,6 +631,7 @@ export default createBackendPlugin({
           database: database as NodePgDatabase<typeof schema>,
           logger,
           permissions: allPermissions,
+          fullSync: true,
         });
 
         // Subscribe to permission registration hook for future registrations
