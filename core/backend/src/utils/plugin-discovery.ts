@@ -75,7 +75,7 @@ export function discoverLocalPlugins({
 
   // Scan both packages/ (core) and plugins/ (providers)
   const dirsToScan = [
-    path.join(workspaceRoot, "packages"),
+    path.join(workspaceRoot, "core"),
     path.join(workspaceRoot, "plugins"),
   ];
 

@@ -2,7 +2,7 @@
   "name": "checkmate-monorepo",
   "private": true,
   "workspaces": [
-    "packages/*",
+    "core/*",
     "plugins/*"
   ],
   "scripts": {
@@ -15,7 +15,7 @@
     "docker:stop": "docker compose down",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "create": "bun run packages/scripts/src/commands/create.ts"
+    "create": "bun run core/scripts/src/commands/create.ts"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.8",
