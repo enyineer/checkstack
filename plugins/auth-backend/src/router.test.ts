@@ -15,6 +15,7 @@ const mockAuth: any = {
 
 describe("Auth Router", () => {
   const mockUser = {
+    type: "user" as const,
     id: "test-user",
     permissions: ["*"],
     roles: ["admin"],

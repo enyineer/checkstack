@@ -5,3 +5,4 @@ dist/
 tsconfig.tsbuildinfo
 packages/frontend/public/vendor/
 runtime_plugins/
+.dev/
