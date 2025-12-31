@@ -17,9 +17,8 @@ import {
   SelectValue,
   Button,
   Textarea,
-  Tooltip,
   EmptyState,
-  Checkbox,
+  Toggle,
 } from "../index";
 
 const ajv = new Ajv({ allErrors: true, strict: false });
@@ -148,11 +147,13 @@ const FormField: React.FC<{
     const cleanDesc = getCleanDescription(description);
     return (
       <div className="space-y-2">
-        <div className="flex items-center gap-1.5">
+        <div>
           <Label htmlFor={id}>
             {label} {isRequired && "*"}
           </Label>
-          {cleanDesc && <Tooltip content={cleanDesc} />}
+          {cleanDesc && (
+            <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
+          )}
         </div>
         <div className="relative">
           <Select
@@ -188,11 +189,15 @@ const FormField: React.FC<{
     if (isTextarea) {
       return (
         <div className="space-y-2">
-          <div className="flex items-center gap-1.5">
+          <div>
             <Label htmlFor={id}>
               {label} {isRequired && "*"}
             </Label>
-            {cleanDesc && <Tooltip content={cleanDesc} />}
+            {cleanDesc && (
+              <p className="text-sm text-muted-foreground mt-0.5">
+                {cleanDesc}
+              </p>
+            )}
           </div>
           <Textarea
             id={id}
@@ -215,11 +220,15 @@ const FormField: React.FC<{
 
       return (
         <div className="space-y-2">
-          <div className="flex items-center gap-1.5">
+          <div>
             <Label htmlFor={id}>
               {label} {isRequired && "*"}
             </Label>
-            {cleanDesc && <Tooltip content={cleanDesc} />}
+            {cleanDesc && (
+              <p className="text-sm text-muted-foreground mt-0.5">
+                {cleanDesc}
+              </p>
+            )}
           </div>
           <div className="relative">
             <Input
@@ -283,11 +292,13 @@ const FormField: React.FC<{
 
     return (
       <div className="space-y-2">
-        <div className="flex items-center gap-1.5">
+        <div>
           <Label htmlFor={id}>
             {label} {isRequired && "*"}
           </Label>
-          {cleanDesc && <Tooltip content={cleanDesc} />}
+          {cleanDesc && (
+            <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
+          )}
         </div>
         <Input
           id={id}
@@ -306,11 +317,13 @@ const FormField: React.FC<{
     const cleanDesc = getCleanDescription(description);
     return (
       <div className="space-y-2">
-        <div className="flex items-center gap-1.5">
+        <div>
           <Label htmlFor={id}>
             {label} {isRequired && "*"}
           </Label>
-          {cleanDesc && <Tooltip content={cleanDesc} />}
+          {cleanDesc && (
+            <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
+          )}
         </div>
         <Input
           id={id}
@@ -336,31 +349,23 @@ const FormField: React.FC<{
   if (propSchema.type === "boolean") {
     const cleanDesc = getCleanDescription(description);
     return (
-      <div className="space-y-2">
-        <div className="flex items-start gap-3">
-          <Checkbox
-            id={id}
-            checked={
-              value === undefined
-                ? (propSchema.default as boolean) || false
-                : (value as boolean)
-            }
-            onCheckedChange={(checked) => onChange(checked)}
-          />
-          <div className="flex-1 space-y-1">
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor={id} className="cursor-pointer">
-                {label} {isRequired && "*"}
-              </Label>
-              {cleanDesc && <Tooltip content={cleanDesc} />}
-            </div>
-            {cleanDesc && (
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                {cleanDesc}
-              </p>
-            )}
-          </div>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex-1 space-y-1">
+          <Label htmlFor={id} className="cursor-pointer">
+            {label} {isRequired && "*"}
+          </Label>
+          {cleanDesc && (
+            <p className="text-sm text-muted-foreground">{cleanDesc}</p>
+          )}
         </div>
+        <Toggle
+          checked={
+            value === undefined
+              ? (propSchema.default as boolean) || false
+              : (value as boolean)
+          }
+          onCheckedChange={(checked) => onChange(checked)}
+        />
       </div>
     );
   }
@@ -370,11 +375,13 @@ const FormField: React.FC<{
     const cleanDesc = getCleanDescription(description);
     return (
       <div className="space-y-2">
-        <div className="flex items-center gap-1.5">
+        <div>
           <Label htmlFor={id}>
             {label} (JSON) {isRequired && "*"}
           </Label>
-          {cleanDesc && <Tooltip content={cleanDesc} />}
+          {cleanDesc && (
+            <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
+          )}
         </div>
         <JsonField
           id={id}
@@ -419,11 +426,15 @@ const FormField: React.FC<{
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
+          <div>
             <Label>
               {label} {isRequired && "*"}
             </Label>
-            {cleanDesc && <Tooltip content={cleanDesc} />}
+            {cleanDesc && (
+              <p className="text-sm text-muted-foreground mt-0.5">
+                {cleanDesc}
+              </p>
+            )}
           </div>
           <Button
             type="button"
