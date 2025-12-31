@@ -37,6 +37,59 @@ export const betterAuthExtensionPoint =
     "auth.betterAuthExtensionPoint"
   );
 
+/**
+ * Sync permissions to database and assign to admin role.
+ * Extracted to avoid duplication between init and afterPluginsReady.
+ */
+async function syncPermissionsToDb({
+  database,
+  logger,
+  permissions,
+}: {
+  database: NodePgDatabase<typeof schema>;
+  logger: { debug: (msg: string) => void };
+  permissions: { id: string; description?: string }[];
+}) {
+  logger.debug(`🔑 Syncing ${permissions.length} permissions to database...`);
+
+  for (const perm of permissions) {
+    const existing = await database
+      .select()
+      .from(schema.permission)
+      .where(eq(schema.permission.id, perm.id));
+
+    if (existing.length === 0) {
+      await database.insert(schema.permission).values(perm);
+      logger.debug(`   -> Created permission: ${perm.id}`);
+    } else {
+      await database
+        .update(schema.permission)
+        .set({ description: perm.description })
+        .where(eq(schema.permission.id, perm.id));
+    }
+  }
+
+  // Assign all permissions to admin role
+  const adminRolePermissions = await database
+    .select()
+    .from(schema.rolePermission)
+    .where(eq(schema.rolePermission.roleId, "admin"));
+
+  for (const perm of permissions) {
+    const hasPermission = adminRolePermissions.some(
+      (rp) => rp.permissionId === perm.id
+    );
+
+    if (!hasPermission) {
+      await database.insert(schema.rolePermission).values({
+        roleId: "admin",
+        permissionId: perm.id,
+      });
+      logger.debug(`   -> Assigned permission ${perm.id} to admin role`);
+    }
+  }
+}
+
 export default createBackendPlugin({
   pluginId: "auth-backend",
   register(env) {
@@ -255,58 +308,13 @@ export default createBackendPlugin({
           logger.info("[auth-backend] ✅ Authentication reloaded successfully");
         };
 
-        // Function to sync permissions to database
-        const syncPermissionsToDb = async (
-          permissions: { id: string; description?: string }[]
-        ) => {
-          logger.debug(
-            `🔑 Syncing ${permissions.length} permissions to database...`
-          );
-
-          for (const perm of permissions) {
-            const existing = await database
-              .select()
-              .from(schema.permission)
-              .where(eq(schema.permission.id, perm.id));
-
-            if (existing.length === 0) {
-              await database.insert(schema.permission).values(perm);
-              logger.debug(`   -> Created permission: ${perm.id}`);
-            } else {
-              // Update description if changed
-              await database
-                .update(schema.permission)
-                .set({ description: perm.description })
-                .where(eq(schema.permission.id, perm.id));
-            }
-          }
-
-          // Assign all permissions to admin role
-          const adminRolePermissions = await database
-            .select()
-            .from(schema.rolePermission)
-            .where(eq(schema.rolePermission.roleId, "admin"));
-
-          for (const perm of permissions) {
-            const hasPermission = adminRolePermissions.some(
-              (rp) => rp.permissionId === perm.id
-            );
-
-            if (!hasPermission) {
-              await database.insert(schema.rolePermission).values({
-                roleId: "admin",
-                permissionId: perm.id,
-              });
-              logger.debug(
-                `   -> Assigned permission ${perm.id} to admin role`
-              );
-            }
-          }
-        };
-
         // Initial sync of all registered permissions
         const allPermissions = permissionRegistry.getPermissions();
-        await syncPermissionsToDb(allPermissions);
+        await syncPermissionsToDb({
+          database: database as NodePgDatabase<typeof schema>,
+          logger,
+          permissions: allPermissions,
+        });
         logger.debug(
           `   -> Synced ${allPermissions.length} permissions from all plugins`
         );
@@ -384,60 +392,16 @@ export default createBackendPlugin({
       },
       // Phase 3: Subscribe to hooks after all plugins are ready
       afterPluginsReady: async ({ database, logger, onHook }) => {
-        // Function to sync permissions to database (same logic as in init)
-        const syncPermissionsToDb = async (
-          permissions: { id: string; description?: string }[]
-        ) => {
-          logger.debug(
-            `🔑 Syncing ${permissions.length} permissions to database...`
-          );
-
-          for (const perm of permissions) {
-            const existing = await database
-              .select()
-              .from(schema.permission)
-              .where(eq(schema.permission.id, perm.id));
-
-            if (existing.length === 0) {
-              await database.insert(schema.permission).values(perm);
-              logger.debug(`   -> Created permission: ${perm.id}`);
-            } else {
-              await database
-                .update(schema.permission)
-                .set({ description: perm.description })
-                .where(eq(schema.permission.id, perm.id));
-            }
-          }
-
-          // Assign all permissions to admin role
-          const adminRolePermissions = await database
-            .select()
-            .from(schema.rolePermission)
-            .where(eq(schema.rolePermission.roleId, "admin"));
-
-          for (const perm of permissions) {
-            const hasPermission = adminRolePermissions.some(
-              (rp) => rp.permissionId === perm.id
-            );
-
-            if (!hasPermission) {
-              await database.insert(schema.rolePermission).values({
-                roleId: "admin",
-                permissionId: perm.id,
-              });
-              logger.debug(
-                `   -> Assigned permission ${perm.id} to admin role`
-              );
-            }
-          }
-        };
-
         // Subscribe to permission registration hook
         // This syncs new permissions when other plugins register them dynamically
         onHook(
           coreHooks.permissionsRegistered,
           async ({ permissions }) => {
-            await syncPermissionsToDb(permissions);
+            await syncPermissionsToDb({
+              database: database as NodePgDatabase<typeof schema>,
+              logger,
+              permissions,
+            });
           },
           {
             mode: "work-queue",
