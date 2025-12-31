@@ -24,18 +24,18 @@ interface PluginTypeChoice {
 
 interface LocationChoice {
   name: string;
-  value: "packages" | "plugins";
+  value: "core" | "plugins";
   description: string;
 }
 
 const PACKAGE_LOCATIONS: LocationChoice[] = [
   {
-    name: "packages/ - Core platform component (essential, non-replaceable)",
-    value: "packages",
+    name: "core/    - Core platform component (essential, non-replaceable)",
+    value: "core",
     description: "Core platform component",
   },
   {
-    name: "plugins/  - Replaceable provider (optional, swappable)",
+    name: "plugins/ - Replaceable provider (optional, swappable)",
     value: "plugins",
     description: "Replaceable provider plugin",
   },
@@ -77,7 +77,7 @@ export async function createCommand() {
 
   // Prompt for package location
   const { packageLocation } = await inquirer.prompt<{
-    packageLocation: "packages" | "plugins";
+    packageLocation: "core" | "plugins";
   }>([
     {
       type: "list",
@@ -88,7 +88,7 @@ export async function createCommand() {
   ]);
 
   // Show guidance based on choice
-  if (packageLocation === "packages") {
+  if (packageLocation === "core") {
     console.log(
       "\n📦 Core packages are essential platform components that cannot be removed."
     );
@@ -143,7 +143,7 @@ export async function createCommand() {
   });
 
   if (existsInPlugins || existsInPackages) {
-    const existingLocation = existsInPackages ? "packages" : "plugins";
+    const existingLocation = existsInPackages ? "core" : "plugins";
     console.error(
       `\n❌ Error: '${pluginBaseName}-${pluginType}' already exists in ${existingLocation}/!\n`
     );
@@ -158,7 +158,7 @@ export async function createCommand() {
       message: "Package description (optional):",
       default: `${
         pluginBaseName.charAt(0).toUpperCase() + pluginBaseName.slice(1)
-      } ${packageLocation === "packages" ? "package" : "plugin"}`,
+      } ${packageLocation === "core" ? "package" : "plugin"}`,
     },
   ]);
 
@@ -170,7 +170,7 @@ export async function createCommand() {
   });
 
   // Confirm before generation
-  const locationLabel = packageLocation === "packages" ? "package" : "plugin";
+  const locationLabel = packageLocation === "core" ? "package" : "plugin";
   const { confirmed } = await inquirer.prompt<{ confirmed: boolean }>([
     {
       type: "confirm",

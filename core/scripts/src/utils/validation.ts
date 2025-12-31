@@ -77,7 +77,7 @@ export function pluginExists({
 }
 
 /**
- * Check if a package already exists in packages/
+ * Check if a package already exists in core/
  */
 export function packageExists({
   baseName,
@@ -89,7 +89,7 @@ export function packageExists({
   rootDir: string;
 }): boolean {
   const packageName = `${baseName}-${pluginType}`;
-  const packagePath = path.join(rootDir, "packages", packageName);
+  const packagePath = path.join(rootDir, "core", packageName);
   return existsSync(packagePath);
 }
 
