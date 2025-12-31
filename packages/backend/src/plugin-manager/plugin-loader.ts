@@ -40,8 +40,13 @@ export interface PluginLoaderDeps {
     pluginId: string;
     id: string;
     description?: string;
+    isDefault?: boolean;
   }[];
-  getAllPermissions: () => { id: string; description?: string }[];
+  getAllPermissions: () => {
+    id: string;
+    description?: string;
+    isDefault?: boolean;
+  }[];
   db: NodePgDatabase<Record<string, unknown>>;
 }
 

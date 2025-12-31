@@ -26,6 +26,7 @@ export class PluginManager {
     pluginId: string;
     id: string;
     description?: string;
+    isDefault?: boolean;
   }[] = [];
 
   constructor() {
@@ -45,10 +46,15 @@ export class PluginManager {
     return this.extensionPointManager.getExtensionPoint(ref);
   }
 
-  getAllPermissions(): { id: string; description?: string }[] {
-    return this.registeredPermissions.map(({ id, description }) => ({
+  getAllPermissions(): {
+    id: string;
+    description?: string;
+    isDefault?: boolean;
+  }[] {
+    return this.registeredPermissions.map(({ id, description, isDefault }) => ({
       id,
       description,
+      isDefault,
     }));
   }
 

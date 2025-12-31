@@ -110,12 +110,22 @@ async function syncDefaultPermissionsToUsersRole({
   logger: { debug: (msg: string) => void };
   permissions: { id: string; isDefault?: boolean }[];
 }) {
-  const defaultPermissions = permissions.filter((p) => p.isDefault);
-  if (defaultPermissions.length === 0) return;
-
+  // Debug: log all permissions with their isDefault status
   logger.debug(
-    `👥 Syncing ${defaultPermissions.length} default permissions to users role...`
+    `[DEBUG] All permissions received (${permissions.length} total):`
   );
+  for (const p of permissions) {
+    logger.debug(`   -> ${p.id}: isDefault=${p.isDefault}`);
+  }
+
+  const defaultPermissions = permissions.filter((p) => p.isDefault);
+  logger.debug(
+    `👥 Found ${defaultPermissions.length} default permissions to sync to users role`
+  );
+  if (defaultPermissions.length === 0) {
+    logger.debug(`   -> No default permissions found, skipping sync`);
+    return;
+  }
 
   // Get already disabled defaults (admin has removed them)
   const disabledDefaults = await database
