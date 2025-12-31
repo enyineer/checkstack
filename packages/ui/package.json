@@ -23,12 +23,14 @@
   "devDependencies": {
     "typescript": "^5.0.0",
     "@types/react": "^18.2.0",
+    "@checkmate/test-utils-frontend": "workspace:*",
     "@checkmate/tsconfig": "workspace:*",
     "@checkmate/scripts": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "bun run lint:code",
-    "lint:code": "eslint . --max-warnings 0"
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test"
   }
 }

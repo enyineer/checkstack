@@ -1,0 +1,10 @@
+{
+  "extends": "@checkmate/tsconfig/common.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "include": [
+    "src/**/*"
+  ]
+}

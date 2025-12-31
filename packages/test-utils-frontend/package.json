@@ -1,0 +1,33 @@
+{
+  "name": "@checkmate/test-utils-frontend",
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    },
+    "./setup": {
+      "import": "./src/setup.ts"
+    }
+  },
+  "dependencies": {
+    "@happy-dom/global-registrator": "^20.0.0",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/dom": "^10.0.0",
+    "@testing-library/jest-dom": "^6.0.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/react": "^18.2.0",
+    "@checkmate/tsconfig": "workspace:*",
+    "@checkmate/scripts": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
+  }
+}
