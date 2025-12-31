@@ -164,6 +164,62 @@ export const createNotificationRouter = (
           input
         );
       }),
+
+    // --- Backend-to-Backend Group Management ---
+
+    createGroup: authedProcedure
+      .input(
+        zod.object({
+          groupId: zod.string(),
+          name: zod.string(),
+          description: zod.string(),
+          ownerPlugin: zod.string(),
+        })
+      )
+      .handler(async ({ input }) => {
+        // Create the namespaced group ID
+        const namespacedId = `${input.ownerPlugin}.${input.groupId}`;
+
+        await database
+          .insert(schema.notificationGroups)
+          .values({
+            id: namespacedId,
+            name: input.name,
+            description: input.description,
+            ownerPlugin: input.ownerPlugin,
+          })
+          .onConflictDoUpdate({
+            target: [schema.notificationGroups.id],
+            set: {
+              name: input.name,
+              description: input.description,
+            },
+          });
+
+        return { id: namespacedId };
+      }),
+
+    deleteGroup: authedProcedure
+      .input(
+        zod.object({
+          groupId: zod.string(),
+          ownerPlugin: zod.string(),
+        })
+      )
+      .handler(async ({ input }) => {
+        const { eq, and } = await import("drizzle-orm");
+
+        const result = await database
+          .delete(schema.notificationGroups)
+          .where(
+            and(
+              eq(schema.notificationGroups.id, input.groupId),
+              eq(schema.notificationGroups.ownerPlugin, input.ownerPlugin)
+            )
+          );
+
+        return { success: (result.rowCount ?? 0) > 0 };
+      }),
   });
 };
 

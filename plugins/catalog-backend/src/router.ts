@@ -5,16 +5,60 @@ import { EntityService } from "./services/entity-service";
 import { OperationService } from "./services/operation-service";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type * as schema from "./schema";
+import type { NotificationClient } from "@checkmate/notification-common";
 
 // Create implementer from contract with our context
 // The contract already includes auto permission middleware via baseContractBuilder
 const os = implement(catalogContract).$context<RpcContext>();
 
 export const createCatalogRouter = (
-  database: NodePgDatabase<typeof schema>
+  database: NodePgDatabase<typeof schema>,
+  notificationClient: NotificationClient,
+  pluginId: string
 ) => {
   const entityService = new EntityService(database);
   const operationService = new OperationService(database);
+
+  // Helper to create notification group for an entity
+  const createNotificationGroup = async (
+    type: "system" | "group",
+    id: string,
+    name: string
+  ) => {
+    try {
+      await notificationClient.createGroup({
+        groupId: `${type}.${id}`,
+        name: `${name} Notifications`,
+        description: `Notifications for the ${name} ${type}`,
+        ownerPlugin: pluginId,
+      });
+    } catch (error) {
+      // Log but don't fail the operation
+      console.warn(
+        `Failed to create notification group for ${type} ${id}:`,
+        error
+      );
+    }
+  };
+
+  // Helper to delete notification group for an entity
+  const deleteNotificationGroup = async (
+    type: "system" | "group",
+    id: string
+  ) => {
+    try {
+      await notificationClient.deleteGroup({
+        groupId: `${pluginId}.${type}.${id}`,
+        ownerPlugin: pluginId,
+      });
+    } catch (error) {
+      // Log but don't fail the operation
+      console.warn(
+        `Failed to delete notification group for ${type} ${id}:`,
+        error
+      );
+    }
+  };
 
   // Implement each contract method
   const getEntities = os.getEntities.handler(async () => {
@@ -49,6 +93,10 @@ export const createCatalogRouter = (
 
   const createSystem = os.createSystem.handler(async ({ input }) => {
     const result = await entityService.createSystem(input);
+
+    // Create a notification group for this system
+    await createNotificationGroup("system", result.id, result.name);
+
     return result as typeof result & {
       metadata: Record<string, unknown> | null;
     };
@@ -89,6 +137,10 @@ export const createCatalogRouter = (
 
   const deleteSystem = os.deleteSystem.handler(async ({ input }) => {
     await entityService.deleteSystem(input);
+
+    // Delete the notification group for this system
+    await deleteNotificationGroup("system", input);
+
     return { success: true };
   });
 
@@ -97,6 +149,10 @@ export const createCatalogRouter = (
       name: input.name,
       metadata: input.metadata,
     });
+
+    // Create a notification group for this catalog group
+    await createNotificationGroup("group", result.id, result.name);
+
     // New groups have no systems yet
     return {
       ...result,
@@ -132,6 +188,10 @@ export const createCatalogRouter = (
 
   const deleteGroup = os.deleteGroup.handler(async ({ input }) => {
     await entityService.deleteGroup(input);
+
+    // Delete the notification group for this catalog group
+    await deleteNotificationGroup("group", input);
+
     return { success: true };
   });
 

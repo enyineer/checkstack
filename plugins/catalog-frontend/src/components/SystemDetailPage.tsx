@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useApi } from "@checkmate/frontend-api";
+import { useApi, rpcApiRef } from "@checkmate/frontend-api";
 import { catalogApiRef, System, Group } from "../api";
 import { ExtensionSlot } from "@checkmate/frontend-api";
 import { SLOT_SYSTEM_DETAILS } from "@checkmate/common";
+import type { NotificationClient } from "@checkmate/notification-common";
 import {
   Card,
   CardHeader,
@@ -11,6 +12,8 @@ import {
   CardContent,
   LoadingSpinner,
   HealthBadge,
+  SubscribeButton,
+  useToast,
 } from "@checkmate/ui";
 
 import {
@@ -22,17 +25,31 @@ import {
   Calendar,
 } from "lucide-react";
 
-// Metadata can be extracted from system.metadata or last runs if needed
+const CATALOG_PLUGIN_ID = "catalog-backend";
 
 export const SystemDetailPage: React.FC = () => {
   const { systemId } = useParams<{ systemId: string }>();
   const navigate = useNavigate();
   const catalogApi = useApi(catalogApiRef);
+  const rpcApi = useApi(rpcApiRef);
+  const notificationApi = rpcApi.forPlugin<NotificationClient>(
+    "notification-backend"
+  );
+  const toast = useToast();
 
   const [system, setSystem] = useState<System | undefined>();
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+
+  // Subscription state
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
+
+  // Construct the full group ID for this system
+  const getSystemGroupId = useCallback(() => {
+    return `${CATALOG_PLUGIN_ID}.system.${systemId}`;
+  }, [systemId]);
 
   useEffect(() => {
     if (!systemId) {
@@ -64,6 +81,56 @@ export const SystemDetailPage: React.FC = () => {
       })
       .finally(() => setLoading(false));
   }, [systemId, catalogApi]);
+
+  // Check subscription status
+  useEffect(() => {
+    if (!systemId) return;
+
+    setSubscriptionLoading(true);
+    notificationApi
+      .getSubscriptions()
+      .then((subscriptions) => {
+        const groupId = getSystemGroupId();
+        const hasSubscription = subscriptions.some(
+          (s) => s.groupId === groupId
+        );
+        setIsSubscribed(hasSubscription);
+      })
+      .catch((error) => {
+        console.error("Failed to check subscription status:", error);
+      })
+      .finally(() => setSubscriptionLoading(false));
+  }, [systemId, notificationApi, getSystemGroupId]);
+
+  const handleSubscribe = async () => {
+    setSubscriptionLoading(true);
+    try {
+      await notificationApi.subscribe({ groupId: getSystemGroupId() });
+      setIsSubscribed(true);
+      toast.success("Subscribed to system notifications");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to subscribe";
+      toast.error(message);
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  };
+
+  const handleUnsubscribe = async () => {
+    setSubscriptionLoading(true);
+    try {
+      await notificationApi.unsubscribe({ groupId: getSystemGroupId() });
+      setIsSubscribed(false);
+      toast.success("Unsubscribed from system notifications");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to unsubscribe";
+      toast.error(message);
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -116,10 +183,18 @@ export const SystemDetailPage: React.FC = () => {
         </button>
       </div>
 
-      {/* System Name */}
-      <div className="flex items-center gap-3">
-        <Activity className="h-8 w-8 text-primary" />
-        <h1 className="text-3xl font-bold text-foreground">{system.name}</h1>
+      {/* System Name with Subscribe Button */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Activity className="h-8 w-8 text-primary" />
+          <h1 className="text-3xl font-bold text-foreground">{system.name}</h1>
+        </div>
+        <SubscribeButton
+          isSubscribed={isSubscribed}
+          onSubscribe={handleSubscribe}
+          onUnsubscribe={handleUnsubscribe}
+          loading={subscriptionLoading}
+        />
       </div>
 
       {/* Health Overview Card */}

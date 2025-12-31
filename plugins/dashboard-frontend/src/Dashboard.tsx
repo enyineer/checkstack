@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useApi } from "@checkmate/frontend-api";
+import { useApi, rpcApiRef } from "@checkmate/frontend-api";
 import {
   catalogApiRef,
   Group,
   System,
 } from "@checkmate/catalog-frontend-plugin";
+import type {
+  NotificationClient,
+  EnrichedSubscription,
+} from "@checkmate/notification-common";
 import {
   Card,
   CardHeader,
@@ -16,8 +20,14 @@ import {
   EmptyState,
   LoadingSpinner,
   SystemHealthItem,
+  SubscribeButton,
+  useToast,
 } from "@checkmate/ui";
 import { LayoutGrid, Info, Server, Activity } from "lucide-react";
+
+const CATALOG_PLUGIN_ID = "catalog-backend";
+
+const getGroupId = (groupId: string) => `${CATALOG_PLUGIN_ID}.group.${groupId}`;
 
 interface GroupWithSystems extends Group {
   systems: System[];
@@ -25,15 +35,35 @@ interface GroupWithSystems extends Group {
 
 export const Dashboard: React.FC = () => {
   const catalogApi = useApi(catalogApiRef);
+  const rpcApi = useApi(rpcApiRef);
+  const notificationApi = rpcApi.forPlugin<NotificationClient>(
+    "notification-backend"
+  );
   const navigate = useNavigate();
+  const toast = useToast();
+
   const [groupsWithSystems, setGroupsWithSystems] = useState<
     GroupWithSystems[]
   >([]);
   const [loading, setLoading] = useState(true);
 
+  // Subscription state
+  const [subscriptions, setSubscriptions] = useState<EnrichedSubscription[]>(
+    []
+  );
+  const [subscriptionLoading, setSubscriptionLoading] = useState<
+    Record<string, boolean>
+  >({});
+
   useEffect(() => {
-    Promise.all([catalogApi.getGroups(), catalogApi.getSystems()])
-      .then(([groups, systems]) => {
+    Promise.all([
+      catalogApi.getGroups(),
+      catalogApi.getSystems(),
+      notificationApi
+        .getSubscriptions()
+        .catch(() => [] as EnrichedSubscription[]),
+    ])
+      .then(([groups, systems, subs]) => {
         // Create a map of system IDs to systems
         const systemMap = new Map(systems.map((s) => [s.id, s]));
 
@@ -50,13 +80,60 @@ export const Dashboard: React.FC = () => {
         });
 
         setGroupsWithSystems(groupsData);
+        setSubscriptions(subs);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [catalogApi]);
+  }, [catalogApi, notificationApi]);
 
   const handleSystemClick = (systemId: string) => {
     navigate(`/system/${systemId}`);
+  };
+
+  const isSubscribed = (groupId: string) => {
+    const fullId = getGroupId(groupId);
+    return subscriptions.some((s) => s.groupId === fullId);
+  };
+
+  const handleSubscribe = async (groupId: string) => {
+    const fullId = getGroupId(groupId);
+    setSubscriptionLoading((prev) => ({ ...prev, [groupId]: true }));
+    try {
+      await notificationApi.subscribe({ groupId: fullId });
+      setSubscriptions((prev) => [
+        ...prev,
+        {
+          groupId: fullId,
+          groupName: "",
+          groupDescription: "",
+          ownerPlugin: CATALOG_PLUGIN_ID,
+          subscribedAt: new Date(),
+        },
+      ]);
+      toast.success("Subscribed to group notifications");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to subscribe";
+      toast.error(message);
+    } finally {
+      setSubscriptionLoading((prev) => ({ ...prev, [groupId]: false }));
+    }
+  };
+
+  const handleUnsubscribe = async (groupId: string) => {
+    const fullId = getGroupId(groupId);
+    setSubscriptionLoading((prev) => ({ ...prev, [groupId]: true }));
+    try {
+      await notificationApi.unsubscribe({ groupId: fullId });
+      setSubscriptions((prev) => prev.filter((s) => s.groupId !== fullId));
+      toast.success("Unsubscribed from group notifications");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to unsubscribe";
+      toast.error(message);
+    } finally {
+      setSubscriptionLoading((prev) => ({ ...prev, [groupId]: false }));
+    }
   };
 
   const renderGroupsContent = () => {
@@ -87,10 +164,16 @@ export const Dashboard: React.FC = () => {
                 <CardTitle className="text-lg font-semibold text-foreground">
                   {group.name}
                 </CardTitle>
-                <span className="ml-auto text-sm text-muted-foreground">
+                <span className="ml-auto text-sm text-muted-foreground mr-2">
                   {group.systems.length}{" "}
                   {group.systems.length === 1 ? "system" : "systems"}
                 </span>
+                <SubscribeButton
+                  isSubscribed={isSubscribed(group.id)}
+                  onSubscribe={() => handleSubscribe(group.id)}
+                  onUnsubscribe={() => handleUnsubscribe(group.id)}
+                  loading={subscriptionLoading[group.id] || false}
+                />
               </div>
             </CardHeader>
             <CardContent className="p-4">

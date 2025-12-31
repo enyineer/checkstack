@@ -34,3 +34,4 @@ export * from "./components/Badge";
 export * from "./components/Accordion";
 export * from "./components/Tabs";
 export * from "./components/ThemeProvider";
+export * from "./components/SubscribeButton";

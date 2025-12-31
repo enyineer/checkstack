@@ -315,6 +315,7 @@
       "dependencies": {
         "@checkmate/backend-api": "workspace:*",
         "@checkmate/catalog-common": "workspace:*",
+        "@checkmate/notification-common": "workspace:*",
         "@orpc/server": "^1.13.2",
         "drizzle-orm": "^0.45.1",
         "hono": "^4.0.0",
@@ -352,6 +353,7 @@
         "@checkmate/catalog-common": "workspace:*",
         "@checkmate/common": "workspace:*",
         "@checkmate/frontend-api": "workspace:*",
+        "@checkmate/notification-common": "workspace:*",
         "@checkmate/ui": "workspace:*",
         "lucide-react": "^0.344.0",
         "react": "^18.2.0",
@@ -371,6 +373,7 @@
         "@checkmate/catalog-frontend": "workspace:*",
         "@checkmate/common": "workspace:*",
         "@checkmate/frontend-api": "workspace:*",
+        "@checkmate/notification-common": "workspace:*",
         "@checkmate/ui": "workspace:*",
         "lucide-react": "^0.344.0",
         "react": "^18.2.0",
