@@ -17,6 +17,7 @@
   "dependencies": {
     "@checkmate/notification-common": "workspace:*",
     "@checkmate/backend-api": "workspace:*",
+    "@checkmate/signal-common": "workspace:*",
     "@checkmate/queue-api": "workspace:*",
     "drizzle-orm": "^0.45.1",
     "zod": "^4.2.1"

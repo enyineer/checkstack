@@ -11,12 +11,16 @@ import {
   Button,
 } from "@checkmate/ui";
 import { useApi, rpcApiRef } from "@checkmate/frontend-api";
+import { useSignal } from "@checkmate/signal-frontend";
 import type {
   Notification,
   NotificationClient,
 } from "@checkmate/notification-common";
-
-const POLLING_INTERVAL_MS = 60_000; // 1 minute
+import {
+  NOTIFICATION_RECEIVED,
+  NOTIFICATION_COUNT_CHANGED,
+  NOTIFICATION_READ,
+} from "@checkmate/notification-common";
 
 export const NotificationBell = () => {
   const rpcApi = useApi(rpcApiRef);
@@ -62,15 +66,64 @@ export const NotificationBell = () => {
     void init();
   }, [fetchUnreadCount, fetchRecentNotifications]);
 
-  // Polling for updates
-  useEffect(() => {
-    const interval = setInterval(() => {
-      void fetchUnreadCount();
-    }, POLLING_INTERVAL_MS);
-    return () => {
-      clearInterval(interval);
-    };
-  }, [fetchUnreadCount]);
+  // ==========================================================================
+  // REALTIME SIGNAL SUBSCRIPTIONS (replaces polling)
+  // ==========================================================================
+
+  // Handle new notification received
+  useSignal(
+    NOTIFICATION_RECEIVED,
+    useCallback((payload) => {
+      // Increment unread count
+      setUnreadCount((prev) => prev + 1);
+
+      // Add to recent notifications if dropdown is open
+      setRecentNotifications((prev) => [
+        {
+          id: payload.id,
+          title: payload.title,
+          description: payload.description,
+          importance: payload.importance,
+          userId: "", // Not needed for display
+          isRead: false,
+          createdAt: new Date(),
+        },
+        ...prev.slice(0, 4), // Keep only 5 items
+      ]);
+    }, [])
+  );
+
+  // Handle count changes from other sources
+  useSignal(
+    NOTIFICATION_COUNT_CHANGED,
+    useCallback((payload) => {
+      setUnreadCount(payload.unreadCount);
+    }, [])
+  );
+
+  // Handle notification marked as read
+  useSignal(
+    NOTIFICATION_READ,
+    useCallback((payload) => {
+      if (payload.notificationId) {
+        // Single notification marked as read
+        setRecentNotifications((prev) =>
+          prev.map((n) =>
+            n.id === payload.notificationId ? { ...n, isRead: true } : n
+          )
+        );
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+      } else {
+        // All marked as read
+        setRecentNotifications((prev) =>
+          prev.map((n) => ({ ...n, isRead: true }))
+        );
+        setUnreadCount(0);
+      }
+    }, [])
+  );
+
+  // ==========================================================================
 
   // Fetch notifications when dropdown opens
   useEffect(() => {

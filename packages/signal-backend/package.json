@@ -1,22 +1,20 @@
 {
-  "name": "@checkmate/notification-common",
+  "name": "@checkmate/signal-backend",
   "version": "0.0.1",
   "type": "module",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
       "import": "./src/index.ts"
     }
   },
   "dependencies": {
-    "@checkmate/common": "workspace:*",
     "@checkmate/signal-common": "workspace:*",
-    "@orpc/contract": "^1.13.2",
-    "zod": "^4.0.0"
+    "@checkmate/backend-api": "workspace:*"
   },
   "devDependencies": {
-    "@checkmate/tsconfig": "workspace:*",
+    "@types/bun": "latest",
     "typescript": "^5.7.2",
+    "@checkmate/tsconfig": "workspace:*",
     "@checkmate/scripts": "workspace:*"
   },
   "scripts": {

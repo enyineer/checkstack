@@ -1,3 +1,4 @@
+import type { Server } from "bun";
 import { Hono } from "hono";
 import { PluginManager } from "./plugin-manager";
 import { logger } from "hono/logger";
@@ -12,11 +13,19 @@ import { eq, and } from "drizzle-orm";
 import { PluginLocalInstaller } from "./services/plugin-installer";
 import { QueuePluginRegistryImpl } from "./services/queue-plugin-registry";
 import { QueueManagerImpl } from "./services/queue-manager";
+import {
+  createWebSocketHandler,
+  SignalServiceImpl,
+  type WebSocketData,
+} from "@checkmate/signal-backend";
 
 import { cors } from "hono/cors";
 
 const app = new Hono();
 const pluginManager = new PluginManager();
+
+// WebSocket handler instance (initialized during init)
+let wsHandler: ReturnType<typeof createWebSocketHandler> | undefined;
 
 app.use(
   "*",
@@ -93,7 +102,7 @@ const init = async () => {
   const configService = new ConfigServiceImpl("backend", db);
 
   // 1.7. Register Queue Services
-  rootLogger.info("📋 Registering queue services...");
+  rootLogger.debug("Registering queue services...");
   const queueRegistry = new QueuePluginRegistryImpl();
   const queueManager = new QueueManagerImpl(
     queueRegistry,
@@ -165,14 +174,101 @@ const init = async () => {
   // 5. Start config polling for multi-instance coordination
   queueManager.startPolling(5000);
 
+  // 6. Initialize Signal Service (requires EventBus which is registered during plugin loading)
+  rootLogger.debug("Initializing signal service...");
+  const eventBus = await pluginManager.getService(coreServices.eventBus);
+  if (!eventBus) {
+    throw new Error("EventBus not available - required for SignalService");
+  }
+  const signalService = new SignalServiceImpl(
+    eventBus,
+    rootLogger.child({ service: "SignalService" })
+  );
+  pluginManager.registerService(coreServices.signalService, signalService);
+
+  // 7. Create WebSocket handler for realtime signals
+  wsHandler = createWebSocketHandler({
+    eventBus,
+    logger: rootLogger.child({ service: "WebSocket" }),
+  });
+
   rootLogger.info("✅ Checkmate Core initialized.");
 };
 
-init();
+void init();
+
+// Custom fetch handler that handles WebSocket upgrades
+const fetch = async (
+  req: Request,
+  server: Server<WebSocketData>
+): Promise<Response | undefined> => {
+  // Set the server reference for WebSocket pub/sub after startup
+  if (wsHandler && !server.upgrade) {
+    // Server doesn't support WebSocket upgrade (shouldn't happen with Bun)
+    return app.fetch(req, server);
+  }
+
+  // Give the WebSocket handler the server reference if needed
+  wsHandler?.setServer(server);
+
+  const url = new URL(req.url);
+
+  // Handle WebSocket upgrade for signals
+  if (url.pathname === "/api/signals/ws") {
+    // Try to authenticate, but allow anonymous connections for broadcast signals
+    const authService = await pluginManager.getService(coreServices.auth);
+    let userId: string | undefined;
+
+    if (authService) {
+      const user = await authService.authenticate(req);
+      // Only RealUser (type: 'user') can have a private channel
+      if (user?.type === "user") {
+        userId = user.id;
+      }
+    }
+
+    const success = server.upgrade(req, {
+      data: {
+        userId, // undefined for anonymous, set for authenticated users
+        createdAt: Date.now(),
+      },
+    });
+
+    return success
+      ? undefined
+      : new Response("WebSocket upgrade failed", { status: 500 });
+  }
+
+  // Handle regular HTTP requests with Hono
+  return app.fetch(req, server);
+};
 
 export default {
   port: 3000,
-  fetch: app.fetch,
+  fetch,
+  websocket: {
+    // Type template for ws.data
+    data: {} as WebSocketData,
+
+    open(ws: import("bun").ServerWebSocket<WebSocketData>) {
+      wsHandler?.websocket.open(ws);
+    },
+
+    message(
+      ws: import("bun").ServerWebSocket<WebSocketData>,
+      message: string | Buffer
+    ) {
+      wsHandler?.websocket.message(ws, message);
+    },
+
+    close(
+      ws: import("bun").ServerWebSocket<WebSocketData>,
+      code: number,
+      reason: string
+    ) {
+      wsHandler?.websocket.close(ws, code, reason);
+    },
+  },
 };
 
 export { jwtService } from "./services/jwt";

@@ -11,6 +11,7 @@
   "dependencies": {
     "@checkmate/common": "workspace:*",
     "@checkmate/queue-api": "workspace:*",
+    "@checkmate/signal-common": "workspace:*",
     "@orpc/client": "^1.13.2",
     "@orpc/openapi": "^1.13.2",
     "@orpc/server": "^1.13.2",

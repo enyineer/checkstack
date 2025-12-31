@@ -27,6 +27,7 @@
         "@checkmate/backend-api": "workspace:*",
         "@checkmate/common": "workspace:*",
         "@checkmate/queue-api": "workspace:*",
+        "@checkmate/signal-backend": "workspace:*",
         "@hono/zod-validator": "^0.7.6",
         "@orpc/client": "^1.13.2",
         "@orpc/openapi": "^1.13.2",
@@ -55,6 +56,7 @@
       "dependencies": {
         "@checkmate/common": "workspace:*",
         "@checkmate/queue-api": "workspace:*",
+        "@checkmate/signal-common": "workspace:*",
         "@orpc/client": "^1.13.2",
         "@orpc/openapi": "^1.13.2",
         "@orpc/server": "^1.13.2",
@@ -90,6 +92,7 @@
         "@checkmate/catalog-frontend": "workspace:*",
         "@checkmate/common": "workspace:*",
         "@checkmate/frontend-api": "workspace:*",
+        "@checkmate/signal-frontend": "workspace:*",
         "@checkmate/ui": "workspace:*",
         "@orpc/client": "^1.13.2",
         "better-auth": "^1.1.8",
@@ -159,6 +162,48 @@
         "@types/handlebars": "^4.1.0",
         "@types/inquirer": "^8.2.10",
         "typescript": "^5.0.0",
+      },
+    },
+    "packages/signal-backend": {
+      "name": "@checkmate/signal-backend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate/backend-api": "workspace:*",
+        "@checkmate/signal-common": "workspace:*",
+      },
+      "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
+        "@checkmate/tsconfig": "workspace:*",
+        "@types/bun": "latest",
+        "typescript": "^5.7.2",
+      },
+    },
+    "packages/signal-common": {
+      "name": "@checkmate/signal-common",
+      "version": "0.0.1",
+      "dependencies": {
+        "zod": "^4.0.0",
+      },
+      "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
+        "@checkmate/tsconfig": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
+    "packages/signal-frontend": {
+      "name": "@checkmate/signal-frontend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate/signal-common": "workspace:*",
+      },
+      "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
+        "@checkmate/tsconfig": "workspace:*",
+        "@types/react": "^18.0.0",
+        "typescript": "^5.7.2",
+      },
+      "peerDependencies": {
+        "react": "^18.0.0",
       },
     },
     "packages/test-utils-backend": {
@@ -470,6 +515,7 @@
         "@checkmate/backend-api": "workspace:*",
         "@checkmate/notification-common": "workspace:*",
         "@checkmate/queue-api": "workspace:*",
+        "@checkmate/signal-common": "workspace:*",
         "drizzle-orm": "^0.45.1",
         "zod": "^4.2.1",
       },
@@ -487,8 +533,8 @@
       "name": "@checkmate/notification-common",
       "version": "0.0.1",
       "dependencies": {
-        "@checkmate/backend-api": "workspace:*",
         "@checkmate/common": "workspace:*",
+        "@checkmate/signal-common": "workspace:*",
         "@orpc/contract": "^1.13.2",
         "zod": "^4.0.0",
       },
@@ -505,6 +551,7 @@
         "@checkmate/common": "workspace:*",
         "@checkmate/frontend-api": "workspace:*",
         "@checkmate/notification-common": "workspace:*",
+        "@checkmate/signal-frontend": "workspace:*",
         "@checkmate/ui": "workspace:*",
         "lucide-react": "^0.344.0",
         "react": "^18.2.0",
@@ -826,6 +873,12 @@
     "@checkmate/queue-memory-common": ["@checkmate/queue-memory-common@workspace:plugins/queue-memory-common"],
 
     "@checkmate/scripts": ["@checkmate/scripts@workspace:packages/scripts"],
+
+    "@checkmate/signal-backend": ["@checkmate/signal-backend@workspace:packages/signal-backend"],
+
+    "@checkmate/signal-common": ["@checkmate/signal-common@workspace:packages/signal-common"],
+
+    "@checkmate/signal-frontend": ["@checkmate/signal-frontend@workspace:packages/signal-frontend"],
 
     "@checkmate/test-utils-backend": ["@checkmate/test-utils-backend@workspace:packages/test-utils-backend"],
 

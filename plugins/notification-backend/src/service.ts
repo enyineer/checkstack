@@ -4,6 +4,8 @@ import type {
   NotificationAction,
   Importance,
 } from "@checkmate/notification-common";
+import { NOTIFICATION_RECEIVED } from "@checkmate/notification-common";
+import type { SignalService } from "@checkmate/signal-common";
 import * as schema from "./schema";
 
 export interface NotifyUserOptions {
@@ -34,7 +36,8 @@ export interface CreateGroupOptions {
 export class NotificationService {
   constructor(
     private readonly db: NodePgDatabase<typeof schema>,
-    private readonly pluginId: string
+    private readonly pluginId: string,
+    private readonly signalService?: SignalService
   ) {}
 
   /**
@@ -67,7 +70,19 @@ export class NotificationService {
       })
       .returning({ id: schema.notifications.id });
 
-    return result[0].id;
+    const notificationId = result[0].id;
+
+    // Emit realtime signal to the user
+    if (this.signalService) {
+      void this.signalService.sendToUser(NOTIFICATION_RECEIVED, userId, {
+        id: notificationId,
+        title,
+        description,
+        importance,
+      });
+    }
+
+    return notificationId;
   }
 
   /**
@@ -220,9 +235,10 @@ export class NotificationService {
  */
 export function createNotificationService(
   db: NodePgDatabase<typeof schema>,
-  pluginId: string
+  pluginId: string,
+  signalService?: SignalService
 ): NotificationService {
-  return new NotificationService(db, pluginId);
+  return new NotificationService(db, pluginId, signalService);
 }
 
 // --- Internal service functions for router (not namespaced) ---
