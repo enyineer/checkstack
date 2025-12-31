@@ -101,9 +101,10 @@ export class InMemoryQueue<T> implements Queue<T> {
     }
 
     const now = new Date();
-    const availableAt = options?.startDelay
-      ? new Date(now.getTime() + options.startDelay * 1000)
-      : now;
+    const delayMs = options?.startDelay
+      ? options.startDelay * 1000 * (this.config.delayMultiplier ?? 1)
+      : 0;
+    const availableAt = delayMs > 0 ? new Date(now.getTime() + delayMs) : now;
 
     // Use custom jobId if provided, otherwise generate one
     const jobId = options?.jobId ?? crypto.randomUUID();
@@ -138,11 +139,13 @@ export class InMemoryQueue<T> implements Queue<T> {
     if (!this.stopped) {
       if (options?.startDelay) {
         // Schedule processing when the job becomes available
+        const scheduledDelayMs =
+          options.startDelay * 1000 * (this.config.delayMultiplier ?? 1);
         setTimeout(() => {
           if (!this.stopped) {
             void this.processNext();
           }
-        }, options.startDelay * 1000);
+        }, scheduledDelayMs);
       } else {
         void this.processNext();
       }
@@ -364,7 +367,10 @@ export class InMemoryQueue<T> implements Queue<T> {
         }
 
         // Re-trigger processing with exponential backoff
-        const delay = Math.pow(2, job.attempts!) * 1000;
+        const delay =
+          Math.pow(2, job.attempts!) *
+          1000 *
+          (this.config.delayMultiplier ?? 1);
         setTimeout(() => {
           if (!this.stopped) {
             void this.processNext();

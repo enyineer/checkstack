@@ -9,6 +9,7 @@ describe("InMemoryQueue Consumer Groups", () => {
     queue = new InMemoryQueue("test-queue", {
       concurrency: 10,
       maxQueueSize: 100,
+      delayMultiplier: 0.01, // 100x faster delays for testing
     });
   });
 
@@ -155,74 +156,66 @@ describe("InMemoryQueue Consumer Groups", () => {
   });
 
   describe("Retry Logic", () => {
-    it(
-      "should retry failed jobs with exponential backoff",
-      async () => {
-        let attempts = 0;
-        const attemptTimestamps: number[] = [];
+    it("should retry failed jobs with exponential backoff", async () => {
+      let attempts = 0;
+      const attemptTimestamps: number[] = [];
 
-        await queue.consume(
-          async (job) => {
-            attemptTimestamps.push(Date.now());
-            attempts++;
-            if (attempts < 3) {
-              throw new Error("Simulated failure");
-            }
-          },
-          { consumerGroup: "retry-group", maxRetries: 3 }
-        );
+      await queue.consume(
+        async (job) => {
+          attemptTimestamps.push(Date.now());
+          attempts++;
+          if (attempts < 3) {
+            throw new Error("Simulated failure");
+          }
+        },
+        { consumerGroup: "retry-group", maxRetries: 3 }
+      );
 
-        await queue.enqueue("test");
+      await queue.enqueue("test");
 
-        // Wait for retries (2^1=2s, 2^2=4s, so total ~7s + buffer)
-        await new Promise((resolve) => setTimeout(resolve, 8000));
+      // Wait for retries (with delayMultiplier=0.01: 20ms + 40ms = 60ms + buffer)
+      await new Promise((resolve) => setTimeout(resolve, 150));
 
-        // Should have tried 3 times (initial + 2 retries)
-        expect(attempts).toBe(3);
+      // Should have tried 3 times (initial + 2 retries)
+      expect(attempts).toBe(3);
 
-        // Check exponential backoff (delays should increase)
-        if (attemptTimestamps.length >= 3) {
-          const delay1 = attemptTimestamps[1] - attemptTimestamps[0];
-          const delay2 = attemptTimestamps[2] - attemptTimestamps[1];
+      // Check exponential backoff (delays should increase)
+      if (attemptTimestamps.length >= 3) {
+        const delay1 = attemptTimestamps[1] - attemptTimestamps[0];
+        const delay2 = attemptTimestamps[2] - attemptTimestamps[1];
 
-          // First retry after 2^1 = 2 seconds (allow more tolerance for suite execution)
-          expect(delay1).toBeGreaterThanOrEqual(1800); // Allow 200ms tolerance
-          expect(delay1).toBeLessThanOrEqual(2500);
+        // With delayMultiplier=0.01: first retry after 2^1 * 1000 * 0.01 = 20ms
+        expect(delay1).toBeGreaterThanOrEqual(15); // Allow tolerance
+        expect(delay1).toBeLessThanOrEqual(50);
 
-          // Second retry after 2^2 = 4 seconds
-          expect(delay2).toBeGreaterThanOrEqual(3800);
-          expect(delay2).toBeLessThanOrEqual(4500);
+        // Second retry after 2^2 * 1000 * 0.01 = 40ms
+        expect(delay2).toBeGreaterThanOrEqual(35);
+        expect(delay2).toBeLessThanOrEqual(80);
 
-          // Verify exponential growth (delay2 should be roughly 2x delay1)
-          expect(delay2).toBeGreaterThan(delay1);
-        }
-      },
-      { timeout: 10000 } // Increase timeout for this test
-    );
+        // Verify exponential growth (delay2 should be roughly 2x delay1)
+        expect(delay2).toBeGreaterThan(delay1);
+      }
+    });
 
-    it(
-      "should not retry beyond maxRetries",
-      async () => {
-        let attempts = 0;
+    it("should not retry beyond maxRetries", async () => {
+      let attempts = 0;
 
-        await queue.consume(
-          async () => {
-            attempts++;
-            throw new Error("Always fails");
-          },
-          { consumerGroup: "fail-group", maxRetries: 2 }
-        );
+      await queue.consume(
+        async () => {
+          attempts++;
+          throw new Error("Always fails");
+        },
+        { consumerGroup: "fail-group", maxRetries: 2 }
+      );
 
-        await queue.enqueue("test");
+      await queue.enqueue("test");
 
-        // Wait for all retries (2^1=2s, 2^2=4s, so ~7s total)
-        await new Promise((resolve) => setTimeout(resolve, 8000));
+      // Wait for all retries (with delayMultiplier=0.01: ~60ms total)
+      await new Promise((resolve) => setTimeout(resolve, 150));
 
-        // Should try 3 times total (initial + 2 retries)
-        expect(attempts).toBe(3);
-      },
-      { timeout: 10000 } // Increase timeout for this test
-    );
+      // Should try 3 times total (initial + 2 retries)
+      expect(attempts).toBe(3);
+    });
   });
 
   describe("Mixed Patterns", () => {
@@ -344,21 +337,21 @@ describe("InMemoryQueue Consumer Groups", () => {
         { consumerGroup: "delay-group", maxRetries: 0 }
       );
 
-      // Enqueue with 2-second delay
+      // Enqueue with 2-second delay (becomes 20ms with delayMultiplier=0.01)
       await queue.enqueue("delayed-job", { startDelay: 2 });
 
       // Check immediately - should not be processed yet
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 10));
       expect(processedTimes.length).toBe(0);
 
-      // Wait for delay to expire
-      await new Promise((resolve) => setTimeout(resolve, 2100));
+      // Wait for delay to expire (20ms + buffer)
+      await new Promise((resolve) => setTimeout(resolve, 50));
       expect(processedTimes.length).toBe(1);
 
       // Verify it was processed after the delay
       const actualDelay = processedTimes[0] - enqueueTime;
-      expect(actualDelay).toBeGreaterThanOrEqual(1900); // Allow 100ms tolerance
-      expect(actualDelay).toBeLessThanOrEqual(2500);
+      expect(actualDelay).toBeGreaterThanOrEqual(15); // Allow tolerance
+      expect(actualDelay).toBeLessThanOrEqual(80);
     });
 
     it("should process non-delayed jobs immediately while delayed jobs wait", async () => {
@@ -371,18 +364,18 @@ describe("InMemoryQueue Consumer Groups", () => {
         { consumerGroup: "mixed-delay-group", maxRetries: 0 }
       );
 
-      // Enqueue delayed job first
+      // Enqueue delayed job first (1s delay = 10ms with multiplier)
       await queue.enqueue("delayed", { startDelay: 1 });
 
       // Enqueue immediate job
       await queue.enqueue("immediate");
 
       // Wait for immediate job
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 5));
       expect(processed).toEqual(["immediate"]);
 
-      // Wait for delayed job
-      await new Promise((resolve) => setTimeout(resolve, 1100));
+      // Wait for delayed job (10ms + buffer)
+      await new Promise((resolve) => setTimeout(resolve, 30));
       expect(processed).toEqual(["immediate", "delayed"]);
     });
 
@@ -397,6 +390,7 @@ describe("InMemoryQueue Consumer Groups", () => {
       );
 
       // Enqueue multiple delayed jobs with same delay but different priorities
+      // (1s delay = 10ms with multiplier)
       await queue.enqueue("low-priority", {
         startDelay: 1,
         priority: 1,
@@ -410,8 +404,8 @@ describe("InMemoryQueue Consumer Groups", () => {
         priority: 5,
       });
 
-      // Wait for delay to expire
-      await new Promise((resolve) => setTimeout(resolve, 1200));
+      // Wait for delay to expire (10ms + buffer)
+      await new Promise((resolve) => setTimeout(resolve, 50));
 
       // Should process in priority order (highest first)
       expect(processed).toEqual([

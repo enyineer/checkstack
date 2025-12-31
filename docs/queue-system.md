@@ -590,8 +590,59 @@ const configSchema = z.object({
     .min(1)
     .default(10_000)
     .describe('Maximum number of jobs that can be queued'),
+  delayMultiplier: z
+    .number()
+    .min(0)
+    .max(1)
+    .default(1)
+    .describe('Delay multiplier (default: 1). Only change for testing purposes - set to 0.01 for 100x faster test execution.'),
 });
 ```
+
+#### Testing Configuration: delayMultiplier
+
+The `delayMultiplier` configuration option allows tests to run significantly faster by reducing all time-based delays:
+
+**Purpose:**
+- In production, `delayMultiplier` defaults to `1` (normal delays)
+- In tests, set to `0.01` for 100x faster execution (2s delay → 20ms)
+
+**Affected delays:**
+- `startDelay` in `enqueue()` - Jobs become available sooner
+- Exponential backoff in retry logic - Retries happen faster
+- `intervalSeconds` in recurring jobs - Jobs repeat more quickly
+
+**Implementation guidance for queue plugins:**
+
+1. **Add to config schema** (optional but recommended for development/test backends):
+   ```typescript
+   delayMultiplier: z.number().min(0).max(1).default(1)
+     .describe('Delay multiplier (default: 1). Only change for testing purposes.')
+   ```
+
+2. **Apply to all delay calculations:**
+   ```typescript
+   // In enqueue()
+   const delayMs = options.startDelay * 1000 * (this.config.delayMultiplier ?? 1);
+   
+   // In retry logic
+   const retryDelay = Math.pow(2, job.attempts) * 1000 * (this.config.delayMultiplier ?? 1);
+   ```
+
+3. **Update tests to use faster delays:**
+   ```typescript
+   const queue = new InMemoryQueue('test-queue', {
+     concurrency: 10,
+     maxQueueSize: 100,
+     delayMultiplier: 0.01, // 100x faster for testing
+   });
+   
+   // Wait 50ms instead of 5s
+   await new Promise(r => setTimeout(r, 50));
+   ```
+
+> **Note:** Production queue backends like BullMQ may not need `delayMultiplier` since delays are typically handled by the external system (Redis). The option is most useful for in-process queue implementations used in development and testing.
+
 
 #### Consumer Group State Tracking
 

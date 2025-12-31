@@ -14,6 +14,18 @@ const configSchema = z.object({
     .min(1)
     .default(10_000)
     .describe("Maximum number of jobs that can be queued"),
+  /**
+   * Multiplier for all delays (retry backoff, startDelay).
+   * Default is 1 (normal). Set to 0.01 in tests for 100x faster delays.
+   */
+  delayMultiplier: z
+    .number()
+    .min(0)
+    .max(1)
+    .default(1)
+    .describe(
+      "Delay multiplier (default: 1). Only change for testing purposes - set to 0.01 for 100x faster test execution."
+    ),
 });
 
 export type InMemoryQueueConfig = z.infer<typeof configSchema>;
