@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
+import { sql } from "drizzle-orm";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import {
@@ -57,6 +58,11 @@ export function registerCoreServices({
   });
 
   // 3. Auth Factory (Scoped)
+  // Cache for anonymous permissions to avoid repeated DB queries
+  let anonymousPermissionsCache: string[] | undefined;
+  let anonymousCacheTime = 0;
+  const CACHE_TTL_MS = 60_000; // 1 minute cache
+
   registry.registerFactory(coreServices.auth, (pluginId) => {
     const authService: AuthService = {
       authenticate: async (request: Request) => {
@@ -95,6 +101,36 @@ export function registerCoreServices({
       getCredentials: async () => {
         const token = await jwtService.sign({ service: pluginId }, "5m");
         return { headers: { Authorization: `Bearer ${token}` } };
+      },
+
+      getAnonymousPermissions: async (): Promise<string[]> => {
+        const now = Date.now();
+        // Return cached value if still valid
+        if (
+          anonymousPermissionsCache !== undefined &&
+          now - anonymousCacheTime < CACHE_TTL_MS
+        ) {
+          return anonymousPermissionsCache;
+        }
+
+        // Query anonymous role permissions from database
+        // Using raw SQL because auth-backend schema is in a different package
+        try {
+          const result = await db.execute<{ permission_id: string }>(
+            sql`SELECT permission_id FROM plugin_auth_backend.role_permission WHERE role_id = 'anonymous'`
+          );
+          const permissions =
+            result.rows?.map((row) => row.permission_id) ?? [];
+
+          // Update cache
+          anonymousPermissionsCache = permissions;
+          anonymousCacheTime = now;
+
+          return permissions;
+        } catch {
+          // If table doesn't exist yet (during startup), return empty
+          return [];
+        }
       },
     };
     return authService;

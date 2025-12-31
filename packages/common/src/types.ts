@@ -11,8 +11,10 @@ export interface Permission {
   id: string;
   /** Human-readable description of what this permission allows */
   description?: string;
-  /** Whether this permission is assigned to the default "users" role */
-  isDefault?: boolean;
+  /** Whether this permission is assigned to the default "users" role (authenticated users) */
+  isAuthenticatedDefault?: boolean;
+  /** Whether this permission is assigned to the "anonymous" role (public access) */
+  isPublicDefault?: boolean;
 }
 
 /**
@@ -31,20 +33,21 @@ export interface ResourcePermission extends Permission {
  * @param resource The resource name (e.g., "catalog", "healthcheck")
  * @param action The action (e.g., "read", "manage")
  * @param description Optional human-readable description
- * @param options Additional options like isDefault
+ * @param options Additional options like isAuthenticatedDefault and isPublicDefault
  */
 export function createPermission(
   resource: string,
   action: PermissionAction,
   description?: string,
-  options?: { isDefault?: boolean }
+  options?: { isAuthenticatedDefault?: boolean; isPublicDefault?: boolean }
 ): ResourcePermission {
   return {
     id: `${resource}.${action}`,
     resource,
     action,
     description,
-    isDefault: options?.isDefault,
+    isAuthenticatedDefault: options?.isAuthenticatedDefault,
+    isPublicDefault: options?.isPublicDefault,
   };
 }
 
@@ -69,16 +72,18 @@ export function createPermission(
 export interface ProcedureMetadata {
   /**
    * Which type of caller can access this endpoint.
-   * - "anonymous": No authentication required (public endpoint)
+   * - "anonymous": No authentication required, no permission checks (fully public)
+   * - "public": Anyone can attempt, but permissions are checked (uses anonymous role for guests)
    * - "user": Only real users (frontend authenticated)
    * - "service": Only services (backend-to-backend)
-   * - "both": Either users or services, but must be authenticated (default)
+   * - "authenticated": Either users or services, but must be authenticated (default)
    */
-  userType?: "anonymous" | "user" | "service" | "both";
+  userType?: "anonymous" | "public" | "user" | "service" | "authenticated";
 
   /**
    * Permissions required to access this endpoint.
    * Only enforced for real users - services are trusted.
+   * For "public" userType, permissions are checked against the anonymous role if not authenticated.
    * User must have at least one of the listed permissions, or "*" (wildcard).
    */
   permissions?: string[];

@@ -48,7 +48,12 @@ async function syncPermissionsToDb({
 }: {
   database: NodePgDatabase<typeof schema>;
   logger: { debug: (msg: string) => void };
-  permissions: { id: string; description?: string; isDefault?: boolean }[];
+  permissions: {
+    id: string;
+    description?: string;
+    isAuthenticatedDefault?: boolean;
+    isPublicDefault?: boolean;
+  }[];
 }) {
   logger.debug(`🔑 Syncing ${permissions.length} permissions to database...`);
 
@@ -89,8 +94,15 @@ async function syncPermissionsToDb({
     }
   }
 
-  // Sync default permissions to users role
-  await syncDefaultPermissionsToUsersRole({
+  // Sync authenticated default permissions to users role
+  await syncAuthenticatedDefaultPermissionsToUsersRole({
+    database,
+    logger,
+    permissions,
+  });
+
+  // Sync public default permissions to anonymous role
+  await syncPublicDefaultPermissionsToAnonymousRole({
     database,
     logger,
     permissions,
@@ -98,32 +110,38 @@ async function syncPermissionsToDb({
 }
 
 /**
- * Sync default permissions (isDefault=true) to the "users" role.
+ * Sync authenticated default permissions (isAuthenticatedDefault=true) to the "users" role.
  * Respects admin-disabled defaults stored in disabled_default_permission table.
  */
-async function syncDefaultPermissionsToUsersRole({
+async function syncAuthenticatedDefaultPermissionsToUsersRole({
   database,
   logger,
   permissions,
 }: {
   database: NodePgDatabase<typeof schema>;
   logger: { debug: (msg: string) => void };
-  permissions: { id: string; isDefault?: boolean }[];
+  permissions: { id: string; isAuthenticatedDefault?: boolean }[];
 }) {
-  // Debug: log all permissions with their isDefault status
+  // Debug: log all permissions with their isAuthenticatedDefault status
   logger.debug(
     `[DEBUG] All permissions received (${permissions.length} total):`
   );
   for (const p of permissions) {
-    logger.debug(`   -> ${p.id}: isDefault=${p.isDefault}`);
+    logger.debug(
+      `   -> ${p.id}: isAuthenticatedDefault=${p.isAuthenticatedDefault}`
+    );
   }
 
-  const defaultPermissions = permissions.filter((p) => p.isDefault);
+  const defaultPermissions = permissions.filter(
+    (p) => p.isAuthenticatedDefault
+  );
   logger.debug(
-    `👥 Found ${defaultPermissions.length} default permissions to sync to users role`
+    `👥 Found ${defaultPermissions.length} authenticated default permissions to sync to users role`
   );
   if (defaultPermissions.length === 0) {
-    logger.debug(`   -> No default permissions found, skipping sync`);
+    logger.debug(
+      `   -> No authenticated default permissions found, skipping sync`
+    );
     return;
   }
 
@@ -142,7 +160,7 @@ async function syncDefaultPermissionsToUsersRole({
   for (const perm of defaultPermissions) {
     // Skip if admin has disabled this default
     if (disabledIds.has(perm.id)) {
-      logger.debug(`   -> Skipping disabled default: ${perm.id}`);
+      logger.debug(`   -> Skipping disabled authenticated default: ${perm.id}`);
       continue;
     }
 
@@ -156,7 +174,64 @@ async function syncDefaultPermissionsToUsersRole({
         permissionId: perm.id,
       });
       logger.debug(
-        `   -> Assigned default permission ${perm.id} to users role`
+        `   -> Assigned authenticated default permission ${perm.id} to users role`
+      );
+    }
+  }
+}
+
+/**
+ * Sync public default permissions (isPublicDefault=true) to the "anonymous" role.
+ * Respects admin-disabled defaults stored in disabled_public_default_permission table.
+ */
+async function syncPublicDefaultPermissionsToAnonymousRole({
+  database,
+  logger,
+  permissions,
+}: {
+  database: NodePgDatabase<typeof schema>;
+  logger: { debug: (msg: string) => void };
+  permissions: { id: string; isPublicDefault?: boolean }[];
+}) {
+  const publicDefaults = permissions.filter((p) => p.isPublicDefault);
+  logger.debug(
+    `🌐 Found ${publicDefaults.length} public default permissions to sync to anonymous role`
+  );
+  if (publicDefaults.length === 0) {
+    logger.debug(`   -> No public default permissions found, skipping sync`);
+    return;
+  }
+
+  // Get already disabled public defaults (admin has removed them)
+  const disabledDefaults = await database
+    .select()
+    .from(schema.disabledPublicDefaultPermission);
+  const disabledIds = new Set(disabledDefaults.map((d) => d.permissionId));
+
+  // Get current anonymous role permissions
+  const anonymousRolePermissions = await database
+    .select()
+    .from(schema.rolePermission)
+    .where(eq(schema.rolePermission.roleId, "anonymous"));
+
+  for (const perm of publicDefaults) {
+    // Skip if admin has disabled this public default
+    if (disabledIds.has(perm.id)) {
+      logger.debug(`   -> Skipping disabled public default: ${perm.id}`);
+      continue;
+    }
+
+    const hasPermission = anonymousRolePermissions.some(
+      (rp) => rp.permissionId === perm.id
+    );
+
+    if (!hasPermission) {
+      await database.insert(schema.rolePermission).values({
+        roleId: "anonymous",
+        permissionId: perm.id,
+      });
+      logger.debug(
+        `   -> Assigned public default permission ${perm.id} to anonymous role`
       );
     }
   }
@@ -406,7 +481,7 @@ export default createBackendPlugin({
         if (adminRole.length === 0) {
           await database.insert(schema.role).values({
             id: "admin",
-            name: "Administrator",
+            name: "Administrators",
             isSystem: true,
           });
           logger.info("   -> Created 'admin' role.");
@@ -425,6 +500,21 @@ export default createBackendPlugin({
             isSystem: true,
           });
           logger.info("   -> Created 'users' role.");
+        }
+
+        // Seed "anonymous" role for public access
+        const anonymousRole = await database
+          .select()
+          .from(schema.role)
+          .where(eq(schema.role.id, "anonymous"));
+        if (anonymousRole.length === 0) {
+          await database.insert(schema.role).values({
+            id: "anonymous",
+            name: "Anonymous Users",
+            description: "Permissions for unauthenticated (anonymous) users",
+            isSystem: true,
+          });
+          logger.info("   -> Created 'anonymous' role.");
         }
 
         // Initial sync of all registered permissions (after roles exist)

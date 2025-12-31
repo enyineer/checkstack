@@ -440,34 +440,36 @@ export const AuthSettingsPage: React.FC = () => {
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap flex-col gap-2">
-                            {roles.map((role) => (
-                              <div
-                                key={role.id}
-                                className="flex items-center space-x-2"
-                              >
-                                <Checkbox
-                                  id={`role-${user.id}-${role.id}`}
-                                  checked={user.roles.includes(role.id)}
-                                  disabled={
-                                    !canManageRoles.allowed ||
-                                    session.data?.user.id === user.id
-                                  }
-                                  onCheckedChange={() =>
-                                    handleToggleRole(
-                                      user.id,
-                                      role.id,
-                                      user.roles
-                                    )
-                                  }
-                                />
-                                <label
-                                  htmlFor={`role-${user.id}-${role.id}`}
-                                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                            {roles
+                              .filter((role) => role.isAssignable !== false)
+                              .map((role) => (
+                                <div
+                                  key={role.id}
+                                  className="flex items-center space-x-2"
                                 >
-                                  {role.name}
-                                </label>
-                              </div>
-                            ))}
+                                  <Checkbox
+                                    id={`role-${user.id}-${role.id}`}
+                                    checked={user.roles.includes(role.id)}
+                                    disabled={
+                                      !canManageRoles.allowed ||
+                                      session.data?.user.id === user.id
+                                    }
+                                    onCheckedChange={() =>
+                                      handleToggleRole(
+                                        user.id,
+                                        role.id,
+                                        user.roles
+                                      )
+                                    }
+                                  />
+                                  <label
+                                    htmlFor={`role-${user.id}-${role.id}`}
+                                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                  >
+                                    {role.name}
+                                  </label>
+                                </div>
+                              ))}
                           </div>
                         </TableCell>
                         <TableCell className="text-right">

@@ -59,11 +59,11 @@ const CreateIncidentInputSchema = z.object({
 // Catalog RPC Contract using oRPC's contract-first pattern
 export const catalogContract = {
   // ==========================================================================
-  // ENTITY READ ENDPOINTS (userType: "user" with read permission)
+  // ENTITY READ ENDPOINTS (userType: "public" - accessible by anyone with permission)
   // ==========================================================================
 
   getEntities: _base
-    .meta({ userType: "user", permissions: [permissions.catalogRead.id] })
+    .meta({ userType: "public", permissions: [permissions.catalogRead.id] })
     .output(
       z.object({
         systems: z.array(SystemSchema),
@@ -72,11 +72,11 @@ export const catalogContract = {
     ),
 
   getSystems: _base
-    .meta({ userType: "user", permissions: [permissions.catalogRead.id] })
+    .meta({ userType: "public", permissions: [permissions.catalogRead.id] })
     .output(z.array(SystemSchema)),
 
   getGroups: _base
-    .meta({ userType: "user", permissions: [permissions.catalogRead.id] })
+    .meta({ userType: "public", permissions: [permissions.catalogRead.id] })
     .output(z.array(GroupSchema)),
 
   // ==========================================================================

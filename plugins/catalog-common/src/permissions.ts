@@ -5,7 +5,7 @@ export const permissions = {
     "catalog",
     "read",
     "Read Catalog (Systems and Groups)",
-    { isDefault: true }
+    { isAuthenticatedDefault: true, isPublicDefault: true }
   ),
   catalogManage: createPermission(
     "catalog",

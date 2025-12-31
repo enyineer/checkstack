@@ -51,6 +51,12 @@ export type AuthUser = RealUser | ServiceUser;
 export interface AuthService {
   authenticate(request: Request): Promise<AuthUser | undefined>;
   getCredentials(): Promise<{ headers: Record<string, string> }>;
+  /**
+   * Get permissions assigned to the anonymous role.
+   * Used by autoAuthMiddleware to check permissions for unauthenticated
+   * users on "public" userType endpoints.
+   */
+  getAnonymousPermissions(): Promise<string[]>;
 }
 
 /**

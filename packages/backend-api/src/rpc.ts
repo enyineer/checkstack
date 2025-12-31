@@ -55,25 +55,65 @@ export type { ProcedureMetadata } from "@checkmate/common";
  *
  * Automatically enforces based on contract metadata:
  * 1. User type (from meta.userType):
- *    - "anonymous": No authentication required
+ *    - "anonymous": No authentication required, no permission checks
+ *    - "public": Anyone can attempt, but permissions are checked (anonymous role for guests)
  *    - "user": Only real users (frontend authenticated)
  *    - "service": Only services (backend-to-backend)
- *    - "both": Either users or services, but must be authenticated (default)
- * 2. Permissions (from meta.permissions, only for real users)
+ *    - "authenticated": Either users or services, but must be authenticated (default)
+ * 2. Permissions (from meta.permissions, only for real users or public anonymous)
  *
  * Use this in backend routers: `implement(contract).$context<RpcContext>().use(autoAuthMiddleware)`
  */
 export const autoAuthMiddleware = os.middleware(
   async ({ next, context, procedure }) => {
     const meta = procedure["~orpc"]?.meta as ProcedureMetadata | undefined;
-    const requiredUserType = meta?.userType || "both";
+    const requiredUserType = meta?.userType || "authenticated";
+    const requiredPermissions = meta?.permissions || [];
 
-    // 1. Handle anonymous endpoints - no auth required
+    // 1. Handle anonymous endpoints - no auth required, no permission checks
     if (requiredUserType === "anonymous") {
       return next({});
     }
 
-    // 2. Enforce authentication for all other cases
+    // 2. Handle public endpoints - anyone can attempt, but permissions are checked
+    if (requiredUserType === "public") {
+      if (context.user) {
+        // Authenticated user - check their permissions
+        if (context.user.type === "user" && requiredPermissions.length > 0) {
+          const userPermissions = context.user.permissions || [];
+          const hasPermission = requiredPermissions.some((p: string) => {
+            return userPermissions.includes("*") || userPermissions.includes(p);
+          });
+
+          if (!hasPermission) {
+            throw new ORPCError("FORBIDDEN", {
+              message: `Missing permission: ${requiredPermissions.join(
+                " or "
+              )}`,
+            });
+          }
+        }
+        // Services are trusted with all permissions
+      } else {
+        // Anonymous user - check anonymous role permissions
+        if (requiredPermissions.length > 0) {
+          const anonymousPermissions =
+            await context.auth.getAnonymousPermissions();
+          const hasPermission = requiredPermissions.some((p: string) => {
+            return anonymousPermissions.includes(p);
+          });
+
+          if (!hasPermission) {
+            throw new ORPCError("FORBIDDEN", {
+              message: `Anonymous access not permitted for this resource`,
+            });
+          }
+        }
+      }
+      return next({});
+    }
+
+    // 3. Enforce authentication for user/service/authenticated types
     if (!context.user) {
       throw new ORPCError("UNAUTHORIZED", {
         message: "Authentication required",
@@ -82,7 +122,7 @@ export const autoAuthMiddleware = os.middleware(
 
     const user = context.user;
 
-    // 3. Enforce user type
+    // 4. Enforce user type
     if (requiredUserType === "user" && user.type !== "user") {
       throw new ORPCError("FORBIDDEN", {
         message: "This endpoint is for users only",
@@ -94,20 +134,17 @@ export const autoAuthMiddleware = os.middleware(
       });
     }
 
-    // 4. Enforce permissions (only for real users)
-    if (user.type === "user") {
-      const requiredPermissions = meta?.permissions || [];
-      if (requiredPermissions.length > 0) {
-        const userPermissions = user.permissions || [];
-        const hasPermission = requiredPermissions.some((p: string) => {
-          return userPermissions.includes("*") || userPermissions.includes(p);
-        });
+    // 5. Enforce permissions (only for real users)
+    if (user.type === "user" && requiredPermissions.length > 0) {
+      const userPermissions = user.permissions || [];
+      const hasPermission = requiredPermissions.some((p: string) => {
+        return userPermissions.includes("*") || userPermissions.includes(p);
+      });
 
-        if (!hasPermission) {
-          throw new ORPCError("FORBIDDEN", {
-            message: `Missing permission: ${requiredPermissions.join(" or ")}`,
-          });
-        }
+      if (!hasPermission) {
+        throw new ORPCError("FORBIDDEN", {
+          message: `Missing permission: ${requiredPermissions.join(" or ")}`,
+        });
       }
     }
 

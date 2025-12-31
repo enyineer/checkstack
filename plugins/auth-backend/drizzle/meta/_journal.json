@@ -36,6 +36,13 @@
       "when": 1767186261243,
       "tag": "0004_unique_anthem",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1767198193280,
+      "tag": "0005_wonderful_hedge_knight",
+      "breakpoints": true
     }
   ]
 }

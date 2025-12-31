@@ -32,6 +32,7 @@ export function createMockRpcContext(
     auth: {
       authenticate: mock(),
       getCredentials: mock().mockResolvedValue({ headers: {} }),
+      getAnonymousPermissions: mock().mockResolvedValue([]),
     },
     healthCheckRegistry: {
       registerStrategy: mock(),

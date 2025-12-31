@@ -1,3 +1,5 @@
+import type { Permission } from "@checkmate/common";
+
 /**
  * Hook definition for type-safe event emission and subscription
  */
@@ -22,7 +24,7 @@ export const coreHooks = {
    */
   permissionsRegistered: createHook<{
     pluginId: string;
-    permissions: Array<{ id: string; description?: string }>;
+    permissions: Permission[];
   }>("core.permissions.registered"),
 
   /**

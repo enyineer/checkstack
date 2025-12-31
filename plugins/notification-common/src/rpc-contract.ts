@@ -67,7 +67,7 @@ export const notificationContract = {
   // Get all available notification groups
   getGroups: _base
     .meta({
-      userType: "both", // Services can read groups too
+      userType: "authenticated", // Services can read groups too
     })
     .output(z.array(NotificationGroupSchema)),
 

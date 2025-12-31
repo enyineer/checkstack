@@ -21,6 +21,7 @@ const RoleDtoSchema = z.object({
   description: z.string().optional().nullable(),
   permissions: z.array(z.string()),
   isSystem: z.boolean().optional(),
+  isAssignable: z.boolean().optional(), // False for anonymous role
 });
 
 const PermissionDtoSchema = z.object({
@@ -67,11 +68,11 @@ export const authContract = {
     .output(RegistrationStatusSchema),
 
   // ==========================================================================
-  // AUTHENTICATED ENDPOINTS (userType: "both" - no specific permission)
+  // AUTHENTICATED ENDPOINTS (userType: "authenticated" - no specific permission)
   // ==========================================================================
 
   permissions: _base
-    .meta({ userType: "both" }) // Any authenticated user can check their own permissions
+    .meta({ userType: "authenticated" }) // Any authenticated user can check their own permissions
     .output(z.object({ permissions: z.array(z.string()) })),
 
   // ==========================================================================

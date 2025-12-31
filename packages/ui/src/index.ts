@@ -4,6 +4,7 @@ export * from "./components/Card";
 export * from "./components/Label";
 export * from "./components/NavItem";
 export * from "./components/PermissionDenied";
+export * from "./components/PermissionGate";
 export * from "./components/SectionHeader";
 export * from "./components/StatusCard";
 export * from "./components/EmptyState";

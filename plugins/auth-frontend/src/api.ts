@@ -26,6 +26,7 @@ export interface Role {
   name: string;
   description?: string | null;
   isSystem?: boolean;
+  isAssignable?: boolean; // False for anonymous role - not assignable to users
   permissions?: string[];
 }
 

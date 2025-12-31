@@ -36,17 +36,8 @@ export interface PluginLoaderDeps {
   pluginRpcRouters: Map<string, unknown>;
   pluginHttpHandlers: Map<string, (req: Request) => Promise<Response>>;
   extensionPointManager: ExtensionPointManager;
-  registeredPermissions: {
-    pluginId: string;
-    id: string;
-    description?: string;
-    isDefault?: boolean;
-  }[];
-  getAllPermissions: () => {
-    id: string;
-    description?: string;
-    isDefault?: boolean;
-  }[];
+  registeredPermissions: (Permission & { pluginId: string })[];
+  getAllPermissions: () => Permission[];
   db: NodePgDatabase<Record<string, unknown>>;
 }
 
@@ -114,7 +105,8 @@ export function registerPlugin({
         pluginId: backendPlugin.pluginId,
         id: `${backendPlugin.pluginId}.${p.id}`,
         description: p.description,
-        isDefault: p.isDefault,
+        isAuthenticatedDefault: p.isAuthenticatedDefault,
+        isPublicDefault: p.isPublicDefault,
       }));
       deps.registeredPermissions.push(...prefixed);
       rootLogger.debug(
@@ -305,17 +297,17 @@ export async function loadPlugins({
   // Emit permission registration hooks at start of Phase 3
   // (EventBus is now available, all plugins can receive notifications)
   const eventBus = await deps.registry.get(coreServices.eventBus, "core");
-  const permissionsByPlugin = new Map<
-    string,
-    { id: string; description?: string }[]
-  >();
+  const permissionsByPlugin = new Map<string, Permission[]>();
   for (const perm of deps.registeredPermissions) {
     if (!permissionsByPlugin.has(perm.pluginId)) {
       permissionsByPlugin.set(perm.pluginId, []);
     }
-    permissionsByPlugin
-      .get(perm.pluginId)!
-      .push({ id: perm.id, description: perm.description });
+    permissionsByPlugin.get(perm.pluginId)!.push({
+      id: perm.id,
+      description: perm.description,
+      isAuthenticatedDefault: perm.isAuthenticatedDefault,
+      isPublicDefault: perm.isPublicDefault,
+    });
   }
   for (const [pluginId, permissions] of permissionsByPlugin) {
     try {

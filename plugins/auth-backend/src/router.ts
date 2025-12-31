@@ -108,7 +108,8 @@ export const createAuthRouter = (
     getPermissions: () => {
       id: string;
       description?: string;
-      isDefault?: boolean;
+      isAuthenticatedDefault?: boolean;
+      isPublicDefault?: boolean;
     }[];
   }
 ) => {
@@ -209,6 +210,8 @@ export const createAuthRouter = (
         .filter((rp) => rp.roleId === role.id)
         .map((rp) => rp.permissionId),
       isSystem: role.isSystem || false,
+      // Anonymous role cannot be assigned to users - it's for unauthenticated access
+      isAssignable: role.id !== "anonymous",
     }));
   });
 
@@ -291,14 +294,14 @@ export const createAuthRouter = (
       activePermissions.has(p)
     );
 
-    // Track disabled default permissions for "users" role
+    // Track disabled authenticated default permissions for "users" role
     if (isUsersRole && !isUserOwnRole) {
       const allPerms = permissionRegistry.getPermissions();
       const defaultPermIds = allPerms
-        .filter((p) => p.isDefault)
+        .filter((p) => p.isAuthenticatedDefault)
         .map((p) => p.id);
 
-      // Find default permissions that are being removed
+      // Find authenticated default permissions that are being removed
       const removedDefaults = defaultPermIds.filter(
         (defId) => !validPermissions.includes(defId)
       );
@@ -322,6 +325,43 @@ export const createAuthRouter = (
         await internalDb
           .delete(schema.disabledDefaultPermission)
           .where(eq(schema.disabledDefaultPermission.permissionId, permId));
+      }
+    }
+
+    // Track disabled public default permissions for "anonymous" role
+    const isAnonymousRole = id === "anonymous";
+    if (isAnonymousRole) {
+      const allPerms = permissionRegistry.getPermissions();
+      const publicDefaultPermIds = allPerms
+        .filter((p) => p.isPublicDefault)
+        .map((p) => p.id);
+
+      // Find public default permissions that are being removed
+      const removedPublicDefaults = publicDefaultPermIds.filter(
+        (defId) => !validPermissions.includes(defId)
+      );
+
+      // Insert into disabled_public_default_permission table
+      for (const permId of removedPublicDefaults) {
+        await internalDb
+          .insert(schema.disabledPublicDefaultPermission)
+          .values({
+            permissionId: permId,
+            disabledAt: new Date(),
+          })
+          .onConflictDoNothing();
+      }
+
+      // Remove from disabled table if being re-added
+      const readdedPublicDefaults = validPermissions.filter((p) =>
+        publicDefaultPermIds.includes(p)
+      );
+      for (const permId of readdedPublicDefaults) {
+        await internalDb
+          .delete(schema.disabledPublicDefaultPermission)
+          .where(
+            eq(schema.disabledPublicDefaultPermission.permissionId, permId)
+          );
       }
     }
 
@@ -408,6 +448,13 @@ export const createAuthRouter = (
       if (userId === currentUserId) {
         throw new ORPCError("FORBIDDEN", {
           message: "Cannot update your own roles",
+        });
+      }
+
+      // Prevent assignment of the "anonymous" role - it's reserved for unauthenticated users
+      if (roles.includes("anonymous")) {
+        throw new ORPCError("BAD_REQUEST", {
+          message: "The 'anonymous' role cannot be assigned to users",
         });
       }
 
