@@ -54,8 +54,9 @@ export default createBackendPlugin({
     env.registerInit({
       deps: {
         config: coreServices.config, // Inject ConfigService
+        queueManager: coreServices.queueManager,
       },
-      init: async ({ config }) => {
+      init: async ({ config, queueManager }) => {
         // Load active queue provider configuration
         const queueConfig = await config.get(
           "active",
@@ -64,7 +65,7 @@ export default createBackendPlugin({
         );
 
         if (queueConfig) {
-          await queueFactory.setActivePlugin(
+          await queueManager.setActiveBackend(
             queueConfig.pluginId,
             queueConfig.config
           );

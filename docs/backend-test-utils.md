@@ -61,7 +61,7 @@ import {
   createMockDb,
   createMockLogger,
   createMockFetch,
-  createMockQueueFactory,
+  createMockQueueManager,
 } from "@checkmate/test-utils-backend";
 
 // Import RPC context mocking
@@ -329,20 +329,20 @@ test("should handle API response", async () => {
 
 ---
 
-### createMockQueueFactory
+### createMockQueueManager
 
-Creates a mock QueueFactory that produces simple in-memory mock queues for testing.
+Creates a mock QueueManager that produces simple in-memory mock queues for testing.
 
 **Source**: [`packages/test-utils-backend/src/mock-queue-factory.ts`](file:///Users/nicoenking/Development/Projects/node/checkmate/packages/test-utils-backend/src/mock-queue-factory.ts)
 
 #### Basic Usage
 
 ```typescript
-import { createMockQueueFactory } from "@checkmate/test-utils-backend";
+import { createMockQueueManager } from "@checkmate/test-utils-backend";
 
 test("should enqueue job", async () => {
-  const mockQueueFactory = createMockQueueFactory();
-  const queue = mockQueueFactory.createQueue("my-channel");
+  const mockQueueManager = createMockQueueManager();
+  const queue = mockQueueManager.getQueue("my-channel");
 
   const jobId = await queue.enqueue({ task: "process-data" });
 
@@ -354,8 +354,8 @@ test("should enqueue job", async () => {
 
 ```typescript
 test("should process queued jobs", async () => {
-  const mockQueueFactory = createMockQueueFactory();
-  const queue = mockQueueFactory.createQueue("tasks");
+  const mockQueueManager = createMockQueueManager();
+  const queue = mockQueueManager.getQueue("tasks");
   const processedJobs: any[] = [];
 
   // Register consumer
@@ -412,7 +412,7 @@ interface RpcContext {
   auth: MockAuth;                // Authentication methods
   healthCheckRegistry: MockRegistry;
   queuePluginRegistry: MockRegistry;
-  queueFactory: MockQueueFactory;
+  queueManager: MockQueueManager; // Queue management mock
   user?: User;                   // Optional authenticated user
 }
 ```
@@ -553,15 +553,15 @@ test("should fetch entities from catalog plugin", async () => {
 
 ```typescript
 import { test, expect } from "bun:test";
-import { createMockQueueFactory, createMockLogger } from "@checkmate/test-utils-backend";
+import { createMockQueueManager, createMockLogger } from "@checkmate/test-utils-backend";
 import { EmailWorker } from "./email-worker";
 
 test("should process email jobs", async () => {
-  const mockQueueFactory = createMockQueueFactory();
+  const mockQueueManager = createMockQueueManager();
   const mockLogger = createMockLogger();
-  const worker = new EmailWorker(mockQueueFactory, mockLogger);
+  const worker = new EmailWorker(mockQueueManager, mockLogger);
 
-  const queue = mockQueueFactory.createQueue("emails");
+  const queue = mockQueueManager.getQueue("emails");
   const sentEmails: any[] = [];
 
   await queue.consume(async (job) => {
@@ -631,7 +631,7 @@ import { EventBus } from "@checkmate/backend";
 
 ```typescript
 // Import test utilities from dedicated packages
-import { createMockQueueFactory } from "@checkmate/test-utils-backend";
+import { createMockQueueManager } from "@checkmate/test-utils-backend";
 
 // Import classes directly (no side effects)
 import { EventBus } from "@checkmate/backend/event-bus";
@@ -754,7 +754,7 @@ const ctx = createMockRpcContext({
 
 **Problem**: The mock queue processes jobs immediately and synchronously.
 
-**Solution**: Remember that `createMockQueueFactory` executes consumers immediately when jobs are enqueued:
+**Solution**: Remember that `createMockQueueManager` executes consumers immediately when jobs are enqueued:
 
 ```typescript
 const results: any[] = [];
@@ -789,5 +789,5 @@ For reference implementations, see:
 - [`createMockDb`](file:///Users/nicoenking/Development/Projects/node/checkmate/packages/test-utils-backend/src/mock-db.ts)
 - [`createMockLogger`](file:///Users/nicoenking/Development/Projects/node/checkmate/packages/test-utils-backend/src/mock-logger.ts)
 - [`createMockFetch`](file:///Users/nicoenking/Development/Projects/node/checkmate/packages/test-utils-backend/src/mock-fetch.ts)
-- [`createMockQueueFactory`](file:///Users/nicoenking/Development/Projects/node/checkmate/packages/test-utils-backend/src/mock-queue-factory.ts)
+- [`createMockQueueManager`](file:///Users/nicoenking/Development/Projects/node/checkmate/packages/test-utils-backend/src/mock-queue-factory.ts)
 - [`createMockRpcContext`](file:///Users/nicoenking/Development/Projects/node/checkmate/packages/backend-api/src/test-utils.ts)

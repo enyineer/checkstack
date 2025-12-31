@@ -113,19 +113,49 @@ interface QueuePluginRegistry {
 
 Plugins are typically registered in their backend plugin's `register` lifecycle hook.
 
-#### QueueFactory
+#### QueueManager
 
-The `QueueFactory` service is responsible for creating queue instances based on the active configuration:
+The `QueueManager` service is responsible for managing queue instances and backend switching:
 
 ```typescript
-interface QueueFactory {
-  createQueue<T>(name: string): Queue<T>;
+interface QueueManager {
+  // Get or create a queue proxy (synchronous, returns stable reference)
+  getQueue<T>(name: string): Queue<T>;
+  
+  // Active backend management
   getActivePlugin(): string;
-  setActivePlugin(pluginId: string, config: unknown): Promise<void>;
+  setActiveBackend(pluginId: string, config: unknown): Promise<void>;
+  
+  // Multi-instance coordination  
+  startPolling(intervalMs?: number): void;
+  stopPolling(): void;
+  
+  // Monitoring and status
+  getInFlightJobCount(): Promise<number>;
+  listAllRecurringJobs(): Promise<RecurringJobDetails[]>;
+  
+  // Graceful shutdown
+  shutdown(): Promise<void>;
 }
 ```
 
-Applications use `QueueFactory.createQueue()` to obtain queue instances without knowing which backend is active.
+Applications use `QueueManager.getQueue()` to obtain queue references without knowing which backend is active. The returned queue is actually a `QueueProxy` that provides stable references across backend switches.
+
+#### QueueProxy
+
+The `QueueProxy` class wraps actual queue implementations to provide:
+
+- **Stable references**: The same proxy can survive backend switches
+- **Subscription replay**: When switching backends, all subscriptions are automatically re-applied
+- **Pending operation tracking**: Waits for in-flight operations before switching
+
+```typescript
+class QueueProxy<T> implements Queue<T> {
+  // All Queue methods delegate to the underlying implementation
+  // On backend switch, subscriptions are automatically replayed
+  async switchDelegate(newQueue: Queue<T>): Promise<void>;
+}
+```
 
 #### Queue Interface
 
@@ -137,8 +167,8 @@ interface Queue<T = unknown> {
     data: T,
     options?: {
       priority?: number;
-      delaySeconds?: number;  // Delay before job becomes available
-      jobId?: string;         // For deduplication
+      startDelay?: number;  // Delay before job becomes available (renamed from delaySeconds)
+      jobId?: string;       // For deduplication
     }
   ): Promise<string>;
 
@@ -147,8 +177,22 @@ interface Queue<T = unknown> {
     options: ConsumeOptions
   ): Promise<void>;
 
+  // Recurring job management (native support)
+  scheduleRecurring(
+    jobId: string,
+    data: T,
+    intervalSeconds: number,
+    options?: { startDelay?: number }
+  ): Promise<void>;
+  cancelRecurring(jobId: string): Promise<void>;
+  listRecurringJobs(): Promise<string[]>;
+  getRecurringJobDetails(jobId: string): Promise<RecurringJobDetails | undefined>;
+  
+  // Monitoring
+  getInFlightCount(): Promise<number>;
   stop(): Promise<void>;
   getStats(): Promise<QueueStats>;
+  testConnection(): Promise<void>;
 }
 ```
 
@@ -198,10 +242,10 @@ Jobs are stored in priority order (higher priority first). When multiple jobs ar
 
 ### Delayed Job Execution
 
-Jobs can be enqueued with a `delaySeconds` option:
+Jobs can be enqueued with a `startDelay` option (in seconds):
 
 ```typescript
-await queue.enqueue(data, { delaySeconds: 60 }); // Available in 60 seconds
+await queue.enqueue(data, { startDelay: 60 }); // Available in 60 seconds
 ```
 
 **Implementation:**
@@ -695,27 +739,27 @@ class RedisQueue<T> implements Queue<T> {
 
 ### Example 3: Common Usage Patterns
 
-#### Pattern 1: Periodic Health Checks
+#### Pattern 1: Periodic Health Checks (Using Native Recurring Jobs)
 
 ```typescript
 // In healthcheck-backend plugin
-async function scheduleHealthCheck(configId: string, systemId: string) {
-  const queue = queueFactory.createQueue<HealthCheckData>('health-checks');
+async function scheduleHealthCheck(queueManager: QueueManager, configId: string, systemId: string, intervalSeconds: number) {
+  const queue = queueManager.getQueue<HealthCheckData>('health-checks');
   
   // Use deterministic job ID for deduplication
   const jobId = `healthcheck:${configId}:${systemId}`;
   
-  await queue.enqueue(
+  // Schedule as recurring job - the queue handles rescheduling automatically
+  await queue.scheduleRecurring(
+    jobId,
     { configId, systemId },
-    {
-      jobId,           // Prevents duplicates on restart
-      priority: 5,     // Medium priority
-      delaySeconds: 0, // Run immediately
-    }
+    intervalSeconds,
+    { startDelay: 0 } // Run immediately the first time
   );
 }
 
 // Consumer (work-queue mode - only one instance runs each check)
+const queue = queueManager.getQueue<HealthCheckData>('health-checks');
 await queue.consume(async (job) => {
   const { configId, systemId } = job.data;
   
@@ -725,15 +769,7 @@ await queue.consume(async (job) => {
   // Store result
   await saveHealthCheckResult(systemId, result);
   
-  // Reschedule for next interval
-  const config = await getHealthCheckConfig(configId);
-  await queue.enqueue(
-    { configId, systemId },
-    {
-      jobId: `healthcheck:${configId}:${systemId}`,
-      delaySeconds: config.intervalSeconds,
-    }
-  );
+  // No need to manually reschedule - scheduleRecurring handles this!
 }, {
   consumerGroup: 'health-checks',  // Shared group = work queue
   maxRetries: 0,                    // Don't retry (next interval will run anyway)
@@ -744,7 +780,7 @@ await queue.consume(async (job) => {
 
 ```typescript
 // Broadcast pattern - all instances must sync
-const queue = queueFactory.createQueue<PermissionSyncData>('permission-sync');
+const queue = queueManager.getQueue<PermissionSyncData>('permission-sync');
 
 await queue.consume(async (job) => {
   const { userId, roles } = job.data;
@@ -765,7 +801,7 @@ await queue.enqueue({ userId: '123', roles: ['admin', 'editor'] });
 
 ```typescript
 // High-priority work queue for user-triggered exports
-const queue = queueFactory.createQueue<ExportJob>('exports');
+const queue = queueManager.getQueue<ExportJob>('exports');
 
 await queue.consume(async (job) => {
   const { userId, systemIds, format } = job.data;
