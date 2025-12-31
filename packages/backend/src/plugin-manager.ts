@@ -541,6 +541,12 @@ export class PluginManager {
     const sortedIds = this.sortPlugins(pendingInits, providedBy);
     rootLogger.debug(`✅ Initialization Order: ${sortedIds.join(" -> ")}`);
 
+    // IMPORTANT: Register /api/* route BEFORE plugin initialization
+    // This prevents race conditions where plugins make RPC calls during init
+    // before the route is registered, causing Hono to compile its router early
+    // and then fail when we try to add more routes.
+    this.registerApiRoute(rootRouter);
+
     for (const id of sortedIds) {
       const p = pendingInits.find((x) => x.pluginId === id)!;
       rootLogger.info(`🚀 Initializing ${p.pluginId}...`);
@@ -649,17 +655,28 @@ export class PluginManager {
     // Clear deferred subscriptions after processing
     this.deferredHookSubscriptions = [];
 
-    const rootRpcRouter: Record<string, unknown> = {};
-    for (const [pluginId, router] of this.pluginRpcRouters.entries()) {
-      rootRpcRouter[pluginId] = router;
-    }
+    // API route is already registered (before Phase 2)
+  }
 
-    const rpcHandler = new RPCHandler(
-      rootRpcRouter as ConstructorParameters<typeof RPCHandler>[0]
-    );
-
+  /**
+   * Register the /api/* route handler for RPC and native HTTP handlers.
+   * This uses a lazy approach - the RPC handler is built at request time
+   * to include all plugins registered during initialization.
+   */
+  private registerApiRoute(rootRouter: Hono) {
     rootRouter.all("/api/*", async (c) => {
       const pathname = new URL(c.req.raw.url).pathname;
+
+      // Build RPC handler lazily at request time
+      // This ensures all plugins registered during init are included
+      const rootRpcRouter: Record<string, unknown> = {};
+      for (const [pluginId, router] of this.pluginRpcRouters.entries()) {
+        rootRpcRouter[pluginId] = router;
+      }
+
+      const rpcHandler = new RPCHandler(
+        rootRpcRouter as ConstructorParameters<typeof RPCHandler>[0]
+      );
 
       // Resolve core services for RPC context
       const auth = await this.getService(coreServices.auth);
