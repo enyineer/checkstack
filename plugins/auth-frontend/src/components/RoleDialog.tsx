@@ -141,7 +141,7 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
               organized by plugin.
             </p>
             {isAdminRole && (
-              <Alert variant="warning" className="mb-3">
+              <Alert variant="info" className="mb-3">
                 <AlertDescription>
                   The administrator role has wildcard access to all permissions.
                   These cannot be modified.
