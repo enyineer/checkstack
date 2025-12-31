@@ -101,7 +101,15 @@ export const Dashboard: React.FC = () => {
                   </p>
                 </div>
               ) : (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div
+                  className={`grid gap-3 ${
+                    group.systems.length === 1
+                      ? "grid-cols-1"
+                      : group.systems.length === 2
+                      ? "grid-cols-1 sm:grid-cols-2"
+                      : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+                  }`}
+                >
                   {group.systems.map((system) => (
                     <SystemHealthItem
                       key={system.id}
