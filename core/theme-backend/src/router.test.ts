@@ -63,7 +63,7 @@ describe("Theme Router", () => {
 
       await expect(
         call(router.getTheme, undefined, { context })
-      ).rejects.toThrow("Unauthorized");
+      ).rejects.toThrow("Authentication required");
     });
   });
 
@@ -108,7 +108,7 @@ describe("Theme Router", () => {
 
       await expect(
         call(router.setTheme, { theme: "dark" }, { context })
-      ).rejects.toThrow("Unauthorized");
+      ).rejects.toThrow("Authentication required");
     });
 
     it("validates theme enum values", async () => {
