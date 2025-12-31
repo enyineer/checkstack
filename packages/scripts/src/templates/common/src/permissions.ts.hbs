@@ -4,6 +4,7 @@ export const permissions = {
   {{pluginNameCamel}}Read: createPermission({
     id: "{{pluginBaseName}}.read",
     description: "Read {{pluginBaseName}} data",
+    isDefault: true, // Auto-assigned to "users" role
   }),
   {{pluginNameCamel}}Manage: createPermission({
     id: "{{pluginBaseName}}.manage",
