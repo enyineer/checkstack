@@ -105,7 +105,11 @@ export const createAuthRouter = (
   reloadAuthFn: () => Promise<void>,
   configService: ConfigService,
   permissionRegistry: {
-    getPermissions: () => { id: string; description?: string }[];
+    getPermissions: () => {
+      id: string;
+      description?: string;
+      isDefault?: boolean;
+    }[];
   }
 ) => {
   // Public endpoint for enabled strategies (no authentication required)
@@ -200,6 +204,7 @@ export const createAuthRouter = (
     return roles.map((role) => ({
       id: role.id,
       name: role.name,
+      description: role.description,
       permissions: rolePermissions
         .filter((rp) => rp.roleId === role.id)
         .map((rp) => rp.permissionId),
@@ -252,15 +257,11 @@ export const createAuthRouter = (
   const updateRole = os.updateRole.handler(async ({ input, context }) => {
     const { id, name, description, permissions: inputPermissions } = input;
 
-    // Security check: prevent users from modifying their own roles
+    // Track if user has this role (for permission elevation prevention)
     const userRoles = isRealUser(context.user) ? context.user.roles || [] : [];
-    if (userRoles.includes(id)) {
-      throw new ORPCError("FORBIDDEN", {
-        message: "Cannot modify a role that you currently have",
-      });
-    }
+    const isUserOwnRole = userRoles.includes(id);
 
-    // Check if role is a system role
+    // Check if role exists
     const existingRole = await internalDb
       .select()
       .from(schema.role)
@@ -272,11 +273,13 @@ export const createAuthRouter = (
       });
     }
 
-    if (existingRole[0].isSystem) {
-      throw new ORPCError("FORBIDDEN", {
-        message: "Cannot modify system role",
-      });
-    }
+    const isUsersRole = id === "users";
+    const isAdminRole = id === "admin";
+
+    // System roles can have name/description edited, but not deleted
+    // Admin role: permissions cannot be changed (wildcard permission)
+    // Users role: permissions can be changed with default tracking
+    // User's own role: permissions cannot be changed (prevent self-elevation)
 
     // Get active permissions to filter input
     const activePermissions = new Set(
@@ -288,8 +291,42 @@ export const createAuthRouter = (
       activePermissions.has(p)
     );
 
+    // Track disabled default permissions for "users" role
+    if (isUsersRole && !isUserOwnRole) {
+      const allPerms = permissionRegistry.getPermissions();
+      const defaultPermIds = allPerms
+        .filter((p) => p.isDefault)
+        .map((p) => p.id);
+
+      // Find default permissions that are being removed
+      const removedDefaults = defaultPermIds.filter(
+        (defId) => !validPermissions.includes(defId)
+      );
+
+      // Insert into disabled_default_permission table
+      for (const permId of removedDefaults) {
+        await internalDb
+          .insert(schema.disabledDefaultPermission)
+          .values({
+            permissionId: permId,
+            disabledAt: new Date(),
+          })
+          .onConflictDoNothing();
+      }
+
+      // Remove from disabled table if being re-added
+      const readdedDefaults = validPermissions.filter((p) =>
+        defaultPermIds.includes(p)
+      );
+      for (const permId of readdedDefaults) {
+        await internalDb
+          .delete(schema.disabledDefaultPermission)
+          .where(eq(schema.disabledDefaultPermission.permissionId, permId));
+      }
+    }
+
     await internalDb.transaction(async (tx) => {
-      // Update role name/description if provided
+      // Update role name/description if provided (allowed for ALL roles including system and own roles)
       if (name !== undefined || description !== undefined) {
         const updates: { name?: string; description?: string | null } = {};
         if (name !== undefined) updates.name = name;
@@ -298,7 +335,12 @@ export const createAuthRouter = (
         await tx.update(schema.role).set(updates).where(eq(schema.role.id, id));
       }
 
-      // Replace permission mappings
+      // Skip permission changes for admin role (wildcard) or user's own role (prevent self-elevation)
+      if (isAdminRole || isUserOwnRole) {
+        return; // Don't modify permissions
+      }
+
+      // Replace permission mappings for non-admin roles
       await tx
         .delete(schema.rolePermission)
         .where(eq(schema.rolePermission.roleId, id));

@@ -11,6 +11,8 @@ export interface Permission {
   id: string;
   /** Human-readable description of what this permission allows */
   description?: string;
+  /** Whether this permission is assigned to the default "users" role */
+  isDefault?: boolean;
 }
 
 /**
@@ -29,17 +31,20 @@ export interface ResourcePermission extends Permission {
  * @param resource The resource name (e.g., "catalog", "healthcheck")
  * @param action The action (e.g., "read", "manage")
  * @param description Optional human-readable description
+ * @param options Additional options like isDefault
  */
 export function createPermission(
   resource: string,
   action: PermissionAction,
-  description?: string
+  description?: string,
+  options?: { isDefault?: boolean }
 ): ResourcePermission {
   return {
     id: `${resource}.${action}`,
     resource,
     action,
     description,
+    isDefault: options?.isDefault,
   };
 }
 

@@ -99,3 +99,18 @@ export const userRole = pgTable(
     pk: primaryKey({ columns: [t.userId, t.roleId] }),
   })
 );
+
+/**
+ * Tracks default permissions that have been disabled by admins.
+ * When a plugin registers a permission with isDefault=true, it gets assigned
+ * to the "users" role unless it's in this table.
+ */
+export const disabledDefaultPermission = pgTable(
+  "disabled_default_permission",
+  {
+    permissionId: text("permission_id")
+      .primaryKey()
+      .references(() => permission.id),
+    disabledAt: timestamp("disabled_at").notNull(),
+  }
+);

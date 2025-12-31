@@ -18,6 +18,7 @@ const UserDtoSchema = z.object({
 const RoleDtoSchema = z.object({
   id: z.string(),
   name: z.string(),
+  description: z.string().optional().nullable(),
   permissions: z.array(z.string()),
   isSystem: z.boolean().optional(),
 });

@@ -24,7 +24,7 @@ export interface AuthSession {
 export interface Role {
   id: string;
   name: string;
-  description?: string;
+  description?: string | null;
   isSystem?: boolean;
   permissions?: string[];
 }

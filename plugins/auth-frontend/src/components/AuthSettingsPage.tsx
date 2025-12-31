@@ -436,7 +436,7 @@ export const AuthSettingsPage: React.FC = () => {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="flex flex-wrap gap-2">
+                          <div className="flex flex-wrap flex-col gap-2">
                             {roles.map((role) => (
                               <div
                                 key={role.id}
@@ -560,11 +560,7 @@ export const AuthSettingsPage: React.FC = () => {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleEditRole(role)}
-                                disabled={
-                                  isSystem ||
-                                  isUserRole ||
-                                  !canUpdateRoles.allowed
-                                }
+                                disabled={!canUpdateRoles.allowed}
                               >
                                 <Edit className="h-4 w-4" />
                               </Button>
@@ -810,6 +806,13 @@ export const AuthSettingsPage: React.FC = () => {
         onOpenChange={setRoleDialogOpen}
         role={editingRole}
         permissions={permissions}
+        isUserRole={
+          editingRole
+            ? users
+                .find((u) => u.id === session.data?.user?.id)
+                ?.roles?.includes(editingRole.id) ?? false
+            : false
+        }
         onSave={handleSaveRole}
       />
 

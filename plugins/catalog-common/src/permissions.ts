@@ -4,7 +4,8 @@ export const permissions = {
   catalogRead: createPermission(
     "catalog",
     "read",
-    "Read Catalog (Systems and Groups)"
+    "Read Catalog (Systems and Groups)",
+    { isDefault: true }
   ),
   catalogManage: createPermission(
     "catalog",

@@ -109,6 +109,7 @@ export function registerPlugin({
         pluginId: backendPlugin.pluginId,
         id: `${backendPlugin.pluginId}.${p.id}`,
         description: p.description,
+        isDefault: p.isDefault,
       }));
       deps.registeredPermissions.push(...prefixed);
       rootLogger.debug(

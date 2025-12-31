@@ -21,6 +21,8 @@ interface RoleDialogProps {
   onOpenChange: (open: boolean) => void;
   role?: Role;
   permissions: Permission[];
+  /** Whether current user has this role (prevents permission elevation) */
+  isUserRole?: boolean;
   onSave: (params: {
     id?: string;
     name: string;
@@ -34,6 +36,7 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
   onOpenChange,
   role,
   permissions,
+  isUserRole = false,
   onSave,
 }) => {
   const [name, setName] = useState(role?.name || "");
@@ -43,7 +46,17 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
   );
   const [saving, setSaving] = useState(false);
 
+  // Sync state when role prop changes (e.g., opening dialog with different role)
+  React.useEffect(() => {
+    setName(role?.name || "");
+    setDescription(role?.description || "");
+    setSelectedPermissions(new Set(role?.permissions || []));
+  }, [role]);
+
   const isEditing = !!role;
+  const isAdminRole = role?.id === "admin";
+  // Disable permissions for admin (wildcard) or user's own roles (prevent elevation)
+  const permissionsDisabled = isAdminRole || isUserRole;
 
   // Group permissions by plugin
   const permissionsByPlugin: Record<string, Permission[]> = {};
@@ -146,6 +159,13 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
                       </div>
                     </AccordionTrigger>
                     <AccordionContent className="px-4">
+                      {permissionsDisabled && (
+                        <p className="text-sm text-muted-foreground py-2 mb-2 border-b">
+                          {isAdminRole
+                            ? "Administrator has all permissions (wildcard) and cannot be modified."
+                            : "You cannot modify permissions for roles you currently have."}
+                        </p>
+                      )}
                       <div className="space-y-3 pt-2">
                         {perms.map((perm) => (
                           <div
@@ -154,10 +174,13 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
                           >
                             <Checkbox
                               id={`perm-${perm.id}`}
-                              checked={selectedPermissions.has(perm.id)}
+                              checked={
+                                isAdminRole || selectedPermissions.has(perm.id)
+                              }
                               onCheckedChange={() =>
                                 handleTogglePermission(perm.id)
                               }
+                              disabled={permissionsDisabled}
                               className="mt-0.5"
                             />
                             <label

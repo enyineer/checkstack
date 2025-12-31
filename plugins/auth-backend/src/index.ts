@@ -48,7 +48,7 @@ async function syncPermissionsToDb({
 }: {
   database: NodePgDatabase<typeof schema>;
   logger: { debug: (msg: string) => void };
-  permissions: { id: string; description?: string }[];
+  permissions: { id: string; description?: string; isDefault?: boolean }[];
 }) {
   logger.debug(`🔑 Syncing ${permissions.length} permissions to database...`);
 
@@ -86,6 +86,68 @@ async function syncPermissionsToDb({
         permissionId: perm.id,
       });
       logger.debug(`   -> Assigned permission ${perm.id} to admin role`);
+    }
+  }
+
+  // Sync default permissions to users role
+  await syncDefaultPermissionsToUsersRole({
+    database,
+    logger,
+    permissions,
+  });
+}
+
+/**
+ * Sync default permissions (isDefault=true) to the "users" role.
+ * Respects admin-disabled defaults stored in disabled_default_permission table.
+ */
+async function syncDefaultPermissionsToUsersRole({
+  database,
+  logger,
+  permissions,
+}: {
+  database: NodePgDatabase<typeof schema>;
+  logger: { debug: (msg: string) => void };
+  permissions: { id: string; isDefault?: boolean }[];
+}) {
+  const defaultPermissions = permissions.filter((p) => p.isDefault);
+  if (defaultPermissions.length === 0) return;
+
+  logger.debug(
+    `👥 Syncing ${defaultPermissions.length} default permissions to users role...`
+  );
+
+  // Get already disabled defaults (admin has removed them)
+  const disabledDefaults = await database
+    .select()
+    .from(schema.disabledDefaultPermission);
+  const disabledIds = new Set(disabledDefaults.map((d) => d.permissionId));
+
+  // Get current users role permissions
+  const usersRolePermissions = await database
+    .select()
+    .from(schema.rolePermission)
+    .where(eq(schema.rolePermission.roleId, "users"));
+
+  for (const perm of defaultPermissions) {
+    // Skip if admin has disabled this default
+    if (disabledIds.has(perm.id)) {
+      logger.debug(`   -> Skipping disabled default: ${perm.id}`);
+      continue;
+    }
+
+    const hasPermission = usersRolePermissions.some(
+      (rp) => rp.permissionId === perm.id
+    );
+
+    if (!hasPermission) {
+      await database.insert(schema.rolePermission).values({
+        roleId: "users",
+        permissionId: perm.id,
+      });
+      logger.debug(
+        `   -> Assigned default permission ${perm.id} to users role`
+      );
     }
   }
 }
@@ -290,6 +352,23 @@ export default createBackendPlugin({
                     }
                     return { data: user };
                   },
+                  after: async (user) => {
+                    // Auto-assign "users" role to new users
+                    try {
+                      await database.insert(schema.userRole).values({
+                        userId: user.id,
+                        roleId: "users",
+                      });
+                      logger.debug(
+                        `[auth-backend] Assigned 'users' role to new user: ${user.id}`
+                      );
+                    } catch (error) {
+                      // Role might not exist yet on first boot, that's okay
+                      logger.debug(
+                        `[auth-backend] Could not assign 'users' role to ${user.id}: ${error}`
+                      );
+                    }
+                  },
                 },
               },
             },
@@ -308,7 +387,37 @@ export default createBackendPlugin({
           logger.info("[auth-backend] ✅ Authentication reloaded successfully");
         };
 
-        // Initial sync of all registered permissions
+        // IMPORTANT: Seed roles BEFORE syncing permissions so default perms can be assigned
+        logger.debug("🌱 Checking for initial roles...");
+        const adminRole = await database
+          .select()
+          .from(schema.role)
+          .where(eq(schema.role.id, "admin"));
+        if (adminRole.length === 0) {
+          await database.insert(schema.role).values({
+            id: "admin",
+            name: "Administrator",
+            isSystem: true,
+          });
+          logger.info("   -> Created 'admin' role.");
+        }
+
+        // Seed "users" role for default permissions
+        const usersRole = await database
+          .select()
+          .from(schema.role)
+          .where(eq(schema.role.id, "users"));
+        if (usersRole.length === 0) {
+          await database.insert(schema.role).values({
+            id: "users",
+            name: "Users",
+            description: "Default role for all authenticated users",
+            isSystem: true,
+          });
+          logger.info("   -> Created 'users' role.");
+        }
+
+        // Initial sync of all registered permissions (after roles exist)
         const allPermissions = permissionRegistry.getPermissions();
         await syncPermissionsToDb({
           database: database as NodePgDatabase<typeof schema>,
@@ -336,21 +445,7 @@ export default createBackendPlugin({
 
         // All auth management endpoints are now via oRPC (see ./router.ts)
 
-        // 4. Idempotent Seeding
-        logger.debug("🌱 Checking for initial admin user...");
-        const adminRole = await database
-          .select()
-          .from(schema.role)
-          .where(eq(schema.role.id, "admin"));
-        if (adminRole.length === 0) {
-          await database.insert(schema.role).values({
-            id: "admin",
-            name: "Administrator",
-            isSystem: true,
-          });
-          logger.info("   -> Created 'admin' role.");
-        }
-
+        // 5. Idempotent Admin User Seeding (roles already seeded above)
         const adminUser = await database
           .select()
           .from(schema.user)
@@ -390,9 +485,21 @@ export default createBackendPlugin({
 
         logger.debug("✅ Auth Backend initialized.");
       },
-      // Phase 3: Subscribe to hooks after all plugins are ready
+      // Phase 3: After all plugins are ready - sync all permissions including defaults
       afterPluginsReady: async ({ database, logger, onHook }) => {
-        // Subscribe to permission registration hook
+        // Now that all plugins are ready, sync permissions including defaults
+        // This is critical because during init, other plugins haven't registered yet
+        const allPermissions = permissionRegistry.getPermissions();
+        logger.debug(
+          `[auth-backend] afterPluginsReady: syncing ${allPermissions.length} permissions from all plugins`
+        );
+        await syncPermissionsToDb({
+          database: database as NodePgDatabase<typeof schema>,
+          logger,
+          permissions: allPermissions,
+        });
+
+        // Subscribe to permission registration hook for future registrations
         // This syncs new permissions when other plugins register them dynamically
         onHook(
           coreHooks.permissionsRegistered,
