@@ -8,6 +8,12 @@
       "import": "./src/index.ts"
     }
   },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test"
+  },
   "dependencies": {
     "@checkmate/backend-api": "workspace:*",
     "@checkmate/common": "workspace:*",

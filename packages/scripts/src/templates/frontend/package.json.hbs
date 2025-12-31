@@ -8,6 +8,12 @@
       "import": "./src/index.tsx"
     }
   },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "test:e2e": "bunx playwright test"
+  },
   "dependencies": {
     "@checkmate/frontend-api": "workspace:*",
     "@checkmate/common": "workspace:*",
@@ -19,6 +25,7 @@
   },
   "devDependencies": {
     "@types/react": "^18.3.1",
+    "@playwright/test": "^1.49.0",
     "@checkmate/test-utils-frontend": "workspace:*",
     "typescript": "^5.7.2"
   }

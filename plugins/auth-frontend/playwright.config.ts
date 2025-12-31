@@ -1,0 +1,5 @@
+import { createPlaywrightConfig } from "@checkmate/test-utils-frontend/playwright";
+
+export default createPlaywrightConfig({
+  baseURL: "http://localhost:5173",
+});
