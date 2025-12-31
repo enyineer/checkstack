@@ -1,2 +1,2 @@
-CREATE TYPE "public"."health_check_status" AS ENUM('healthy', 'unhealthy', 'degraded');--> statement-breakpoint
-ALTER TABLE "health_check_runs" ALTER COLUMN "status" SET DATA TYPE "public"."health_check_status" USING "status"::"public"."health_check_status";
+CREATE TYPE "health_check_status" AS ENUM('healthy', 'unhealthy', 'degraded');--> statement-breakpoint
+ALTER TABLE "health_check_runs" ALTER COLUMN "status" SET DATA TYPE "health_check_status" USING "status"::"health_check_status";
