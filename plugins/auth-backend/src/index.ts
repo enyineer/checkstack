@@ -94,6 +94,30 @@ async function syncPermissionsToDb({
     }
   }
 
+  // Cleanup orphan permissions (no longer registered by any plugin)
+  const registeredIds = new Set(permissions.map((p) => p.id));
+  const allDbPermissions = await database.select().from(schema.permission);
+  const orphanPermissions = allDbPermissions.filter(
+    (p) => !registeredIds.has(p.id)
+  );
+
+  if (orphanPermissions.length > 0) {
+    logger.debug(
+      `🧹 Removing ${orphanPermissions.length} orphan permission(s)...`
+    );
+    for (const orphan of orphanPermissions) {
+      // Delete role_permission entries first (FK doesn't cascade)
+      await database
+        .delete(schema.rolePermission)
+        .where(eq(schema.rolePermission.permissionId, orphan.id));
+      // Then delete the permission itself
+      await database
+        .delete(schema.permission)
+        .where(eq(schema.permission.id, orphan.id));
+      logger.debug(`   -> Removed orphan permission: ${orphan.id}`);
+    }
+  }
+
   // Sync authenticated default permissions to users role
   await syncAuthenticatedDefaultPermissionsToUsersRole({
     database,
