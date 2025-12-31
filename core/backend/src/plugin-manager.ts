@@ -6,6 +6,7 @@ import {
   ServiceRef,
   ExtensionPoint,
 } from "@checkmate/backend-api";
+import type { Permission } from "@checkmate/common";
 
 // Extracted modules
 import { registerCoreServices } from "./plugin-manager/core-services";
@@ -22,12 +23,7 @@ export class PluginManager {
   private extensionPointManager = createExtensionPointManager();
 
   // Permission registry - stores all registered permissions with pluginId for hook emission
-  private registeredPermissions: {
-    pluginId: string;
-    id: string;
-    description?: string;
-    isDefault?: boolean;
-  }[] = [];
+  private registeredPermissions: (Permission & { pluginId: string })[] = [];
 
   constructor() {
     registerCoreServices({
@@ -46,16 +42,15 @@ export class PluginManager {
     return this.extensionPointManager.getExtensionPoint(ref);
   }
 
-  getAllPermissions(): {
-    id: string;
-    description?: string;
-    isDefault?: boolean;
-  }[] {
-    return this.registeredPermissions.map(({ id, description, isDefault }) => ({
-      id,
-      description,
-      isDefault,
-    }));
+  getAllPermissions(): Permission[] {
+    return this.registeredPermissions.map(
+      ({ id, description, isAuthenticatedDefault, isPublicDefault }) => ({
+        id,
+        description,
+        isAuthenticatedDefault,
+        isPublicDefault,
+      })
+    );
   }
 
   async loadPlugins(rootRouter: Hono, manualPlugins: BackendPlugin[] = []) {
