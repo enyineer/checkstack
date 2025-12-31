@@ -118,28 +118,38 @@ export class MyFeatureService {
 
 ### 5. Update Router Procedures
 
-The router implements the contract from your common package. Update procedures as needed:
+The router implements the contract from your common package using the contract-based approach:
 
 **src/router.ts:**
 
 ```typescript
+import { implement } from "@orpc/server";
+import { autoAuthMiddleware, type RpcContext } from "@checkmate/backend-api";
+import { myFeatureContract } from "@checkmate/myfeature-common";
+
+/**
+ * Create the router using contract-based implementation.
+ * Auth and permissions are automatically enforced via autoAuthMiddleware
+ * based on the contract's meta.userType and meta.permissions.
+ */
+const os = implement(myFeatureContract)
+  .$context<RpcContext>()
+  .use(autoAuthMiddleware);
+
 export function createMyFeatureRouter({ database }: { database: Database }) {
   const service = new MyFeatureService(database);
 
-  return os.router(myFeatureContract, {
-    getItems: authedProcedure
-      .use(permissionMiddleware(permissions.myFeatureRead))
-      .handler(async () => {
-        return await service.getItems();
-      }),
+  return os.router({
+    // Handler names must match the contract procedure names
+    getItems: os.getItems.handler(async () => {
+      return await service.getItems();
+    }),
 
-    createItem: authedProcedure
-      .use(permissionMiddleware(permissions.myFeatureManage))
-      .handler(async ({ input }) => {
-        return await service.createItem(input);
-      }),
+    createItem: os.createItem.handler(async ({ input }) => {
+      return await service.createItem(input);
+    }),
 
-    // Add more procedures matching your contract
+    // Add more handlers matching your contract
   });
 }
 ```
@@ -342,73 +352,77 @@ Contracts are defined in the `-common` package using `@orpc/contract`. See [Comm
 
 ### 2. Implement Contract in Backend
 
-The backend router implements the contract using `os.router()`:
+The backend router implements the contract using the **contract-based approach** with `implement()` and `autoAuthMiddleware`:
 
 ```typescript
-import { os, authedProcedure, permissionMiddleware } from "@checkmate/backend-api";
-import { permissions } from "@checkmate/myplugin-common";
+import { implement } from "@orpc/server";
+import { autoAuthMiddleware, type RpcContext } from "@checkmate/backend-api";
+import { myPluginContract, permissionList } from "@checkmate/myplugin-common";
 
-const itemRead = permissionMiddleware(permissions.itemRead.id);
-const itemManage = permissionMiddleware(permissions.itemManage.id);
+/**
+ * Creates the router using contract-based implementation.
+ * Auth and permissions are automatically enforced via autoAuthMiddleware
+ * based on the contract's meta.userType and meta.permissions.
+ */
+const os = implement(myPluginContract)
+  .$context<RpcContext>()
+  .use(autoAuthMiddleware);
 
 export const createMyPluginRouter = (database: Database) => {
   return os.router({
-    // Each procedure name must match the contract
-    getItems: authedProcedure
-      .use(itemRead)
-      .handler(async () => {
-        // Implementation
-      }),
+    // Handler names must match contract procedure names
+    getItems: os.getItems.handler(async () => {
+      // Auth and permissions auto-enforced from contract meta
+      // Implementation
+    }),
   });
 };
 ```
 
-### 3. Security Enforcement
+### 3. Contract-Driven Security
 
-The project uses **explicit permission enforcement**:
+The project uses **contract-driven security enforcement**:
 
-- **Contracts document** required permissions via `.meta({ permissions: [...] })`
-- **Backend enforces** permissions via `authedProcedure.use(permissionMiddleware(...))`
+- **Contracts declare** auth requirements via `.meta({ userType: "user", permissions: [...] })`
+- **autoAuthMiddleware** automatically enforces these requirements at runtime
 
-This pattern ensures security is auditable and visible in the router implementation.
-
-```typescript
-// In contract (documentation):
-getItems: _base
-  .meta({ permissions: [permissions.itemRead.id] })
-  .output(z.array(ItemSchema)),
-
-// In router (enforcement):
-getItems: authedProcedure
-  .use(itemRead) // Explicit enforcement
-  .handler(async () => { /* ... */ }),
-```
-
-### 4. Base Procedures
-
-**`authedProcedure`**: Ensures the user is authenticated (has a valid session).
+This pattern ensures security is:
+- **Self-documenting**: Requirements visible in the contract
+- **Automatically enforced**: No manual middleware chaining needed
+- **Type-safe**: Contract meta determines context.user type
 
 ```typescript
-import { authedProcedure } from "@checkmate/backend-api";
+// In contract (declaration AND enforcement):
+import type { ProcedureMetadata } from "@checkmate/common";
 
-getItems: authedProcedure
-  .handler(async ({ context }) => {
-    // context.user is guaranteed to exist
-    console.log(`Request from user: ${context.user.id}`);
-  });
+const _base = oc.$meta<ProcedureMetadata>({});
+
+export const myPluginContract = {
+  // Requires authenticated user with specific permission
+  getItems: _base
+    .meta({ userType: "user", permissions: [permissions.itemRead.id] })
+    .output(z.array(ItemSchema)),
+
+  // Public endpoint (no auth required)
+  getPublicInfo: _base
+    .meta({ userType: "anonymous" })
+    .output(z.object({ version: z.string() })),
+
+  // Service-to-service endpoint
+  internalSync: _base
+    .meta({ userType: "service" })
+    .output(z.void()),
+};
 ```
 
-**Permission Middleware**: Ensures the user has the required permission.
+### 4. userType Options
 
-```typescript
-const itemRead = permissionMiddleware(permissions.itemRead.id);
-
-getItems: authedProcedure
-  .use(itemRead)
-  .handler(async ({ context }) => {
-    // User is authenticated AND has itemRead permission
-  });
-```
+| Value | Description |
+|-------|-------------|
+| `"anonymous"` | No authentication required (public endpoints) |
+| `"user"` | Only real users (frontend authenticated) |
+| `"service"` | Only services (backend-to-backend) |
+| `"both"` | Either users or services, but must be authenticated (default) |
 
 ### 5. Handler Type Inference
 
@@ -645,15 +659,15 @@ Don't put business logic directly in procedure handlers:
 
 ```typescript
 // ❌ Bad
-getItems: authedProcedure.handler(async () => {
+getItems: os.getItems.handler(async () => {
   const items = await database.select().from(schema.items);
   return items;
-});
+}),
 
 // ✅ Good
-getItems: authedProcedure.handler(async () => {
+getItems: os.getItems.handler(async () => {
   return await itemService.getItems();
-});
+}),
 ```
 
 ### 2. Generate IDs Server-Side

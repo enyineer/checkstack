@@ -36,27 +36,28 @@ const jsonSchema = toJsonSchema(mySchema);
 When exposing plugin/strategy metadata to the frontend:
 
 ```typescript
-import {
-  os,
-  authedProcedure,
-  permissionMiddleware,
-  toJsonSchema,  // ✅ Import the custom function
-} from "@checkmate/backend-api";
+import { implement } from "@orpc/server";
+import { autoAuthMiddleware, type RpcContext, toJsonSchema } from "@checkmate/backend-api";
+import { myPluginContract } from "@checkmate/myplugin-common";
+
+// Contract-based implementation with auto auth enforcement
+const os = implement(myPluginContract)
+  .$context<RpcContext>()
+  .use(autoAuthMiddleware);
 
 export const createMyPluginRouter = () => {
   return os.router({
-    getPlugins: authedProcedure
-      .use(permissionMiddleware("plugin:read"))
-      .handler(async ({ context }) => {
-        const plugins = context.myPluginRegistry.getPlugins().map((p) => ({
-          id: p.id,
-          displayName: p.displayName,
-          description: p.description,
-          configVersion: p.configVersion,
-          configSchema: toJsonSchema(p.configSchema),  // ✅ Use custom function
-        }));
-        return plugins;
-      }),
+    // Auth and permissions auto-enforced from contract meta
+    getPlugins: os.getPlugins.handler(async ({ context }) => {
+      const plugins = context.myPluginRegistry.getPlugins().map((p) => ({
+        id: p.id,
+        displayName: p.displayName,
+        description: p.description,
+        configVersion: p.configVersion,
+        configSchema: toJsonSchema(p.configSchema),  // ✅ Use custom function
+      }));
+      return plugins;
+    }),
   });
 };
 ```
@@ -171,7 +172,7 @@ When returning current configuration to the frontend for editing:
 
 ```typescript
 // ✅ CORRECT: Use getRedacted() to remove secrets
-getConfiguration: authedProcedure.handler(async ({ context }) => {
+getConfiguration: os.getConfiguration.handler(async ({ context }) => {
   const config = await context.configService.getRedacted(
     pluginId,
     plugin.configSchema,
@@ -182,7 +183,7 @@ getConfiguration: authedProcedure.handler(async ({ context }) => {
 }),
 
 // ❌ WRONG: Exposes unredacted secrets to frontend
-getConfiguration: authedProcedure.handler(async ({ context }) => {
+getConfiguration: os.getConfiguration.handler(async ({ context }) => {
   const config = await context.configService.get(...);
   return { pluginId, config };  // Security vulnerability!
 }),
