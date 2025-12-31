@@ -11,6 +11,7 @@ export function createMockRpcContext(
   overrides: Partial<RpcContext> = {}
 ): RpcContext {
   return {
+    pluginId: "test-plugin",
     db: mock() as unknown as NodePgDatabase<Record<string, unknown>>,
     logger: {
       info: mock(),

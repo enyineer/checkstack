@@ -17,6 +17,8 @@ import {
 // =============================================================================
 
 export interface RpcContext {
+  /** The plugin ID this request is being handled by (extracted from URL path) */
+  pluginId: string;
   db: NodePgDatabase<Record<string, unknown>>;
   logger: Logger;
   fetch: Fetch;
@@ -68,7 +70,13 @@ export const autoAuthMiddleware = os.middleware(
   async ({ next, context, procedure }) => {
     const meta = procedure["~orpc"]?.meta as ProcedureMetadata | undefined;
     const requiredUserType = meta?.userType || "authenticated";
-    const requiredPermissions = meta?.permissions || [];
+    const contractPermissions = meta?.permissions || [];
+
+    // Prefix contract permissions with pluginId to get fully-qualified permission IDs
+    // Contract defines: "catalog.read" -> Stored in DB as: "catalog-backend.catalog.read"
+    const requiredPermissions = contractPermissions.map(
+      (p: string) => `${context.pluginId}.${p}`
+    );
 
     // 1. Handle anonymous endpoints - no auth required, no permission checks
     if (requiredUserType === "anonymous") {

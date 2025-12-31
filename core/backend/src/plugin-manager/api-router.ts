@@ -40,6 +40,10 @@ export function createApiRouteHandler({
   return async function handleApiRequest(c: Context) {
     const pathname = new URL(c.req.raw.url).pathname;
 
+    // Extract pluginId from path: /api/{pluginId}/...
+    const pathParts = pathname.split("/").filter(Boolean);
+    const pluginId = pathParts.length >= 2 ? pathParts[1] : "";
+
     // Build RPC handler lazily at request time
     // This ensures all plugins registered during init are included
     const rootRpcRouter: Record<string, unknown> = {};
@@ -79,6 +83,7 @@ export function createApiRouteHandler({
     const user = await (auth as AuthService).authenticate(c.req.raw);
 
     const context: RpcContext = {
+      pluginId,
       auth: auth as AuthService,
       logger: logger as Logger,
       db: db as NodePgDatabase<Record<string, unknown>>,
