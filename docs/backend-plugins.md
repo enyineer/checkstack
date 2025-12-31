@@ -181,13 +181,60 @@ Register permissions that this plugin provides.
 
 ```typescript
 env.registerPermissions([
-  { id: "item.read", description: "Read items" },
+  { id: "item.read", description: "Read items", isDefault: true },
   { id: "item.manage", description: "Manage items" },
 ]);
 ```
 
 > **Note**: The core automatically prefixes permission IDs with the plugin ID.
 > `item.read` becomes `myplugin-backend.item.read`
+
+##### Permission Options
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `string` | Unique permission identifier (auto-prefixed with plugin ID) |
+| `description` | `string?` | Human-readable description |
+| `isDefault` | `boolean?` | If `true`, permission is auto-assigned to the "users" role |
+
+##### Default Permissions and the "Users" Role
+
+The platform has a built-in **"users"** system role that is automatically assigned to newly registered users. Permissions marked with `isDefault: true` are automatically synced to this role during backend startup.
+
+**How it works:**
+
+1. On startup, the `auth-backend` collects all permissions from all plugins
+2. Permissions with `isDefault: true` are synced to the "users" role
+3. Administrators can still manually remove default permissions from the "users" role
+4. Removed defaults are tracked in the `disabled_default_permission` table
+5. Re-adding a default permission via the admin UI clears the disabled flag
+
+**Example:**
+
+```typescript
+// In your permissions definition
+export const permissions = {
+  // This permission will be auto-assigned to all new users
+  itemRead: { 
+    id: "item.read", 
+    description: "Read items",
+    isDefault: true  // ✅ Granted to "users" role
+  },
+  // This permission requires manual role assignment
+  itemManage: { 
+    id: "item.manage", 
+    description: "Manage items" 
+    // isDefault: false by default
+  },
+} as const satisfies Record<string, Permission>;
+```
+
+**System Roles:**
+
+| Role | Type | Description |
+|------|------|-------------|
+| `admin` | System | Wildcard access to all permissions. Cannot delete. Permissions not editable. |
+| `users` | System | Auto-assigned to new users. Default permissions synced here. Cannot delete. |
 
 #### `env.registerInit(config)`
 

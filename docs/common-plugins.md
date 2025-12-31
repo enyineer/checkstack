@@ -566,8 +566,6 @@ This approach:
 - **Automatic enforcement**: No manual middleware chaining needed
 - **Type-safe**: Contract meta determines context.user type
 
-## Permission Export Pattern
-
 ### In Common Plugin (`catalog-common/src/permissions.ts`)
 
 ```typescript
@@ -577,6 +575,7 @@ export const permissions = {
   catalogRead: createPermission({
     id: "catalog.read",
     description: "Read catalog entities",
+    isDefault: true, // Auto-assigned to "users" role
   }),
   catalogManage: createPermission({
     id: "catalog.manage",
@@ -587,6 +586,8 @@ export const permissions = {
 // Export as array for backend registration
 export const permissionList = Object.values(permissions);
 ```
+
+> **Note**: Permissions with `isDefault: true` are automatically synced to the built-in "users" role on startup. See [Backend Plugin Development](./backend-plugins.md#default-permissions-and-the-users-role) for details.
 
 ### In Backend Plugin
 
