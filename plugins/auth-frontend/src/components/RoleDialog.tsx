@@ -13,7 +13,9 @@ import {
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
+  Badge,
 } from "@checkmate/ui";
+import { Check } from "lucide-react";
 import type { Role, Permission } from "../api";
 
 interface RoleDialogProps {
@@ -166,36 +168,88 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
                             : "You cannot modify permissions for roles you currently have."}
                         </p>
                       )}
-                      <div className="space-y-3 pt-2">
-                        {perms.map((perm) => (
-                          <div
-                            key={perm.id}
-                            className="flex items-start space-x-3 p-2 rounded-md hover:bg-muted/50 transition-colors"
-                          >
-                            <Checkbox
-                              id={`perm-${perm.id}`}
-                              checked={
-                                isAdminRole || selectedPermissions.has(perm.id)
-                              }
-                              onCheckedChange={() =>
-                                handleTogglePermission(perm.id)
-                              }
-                              disabled={permissionsDisabled}
-                              className="mt-0.5"
-                            />
-                            <label
-                              htmlFor={`perm-${perm.id}`}
-                              className="text-sm cursor-pointer flex-1 space-y-1"
-                            >
-                              <div className="font-medium">{perm.id}</div>
-                              {perm.description && (
-                                <div className="text-xs text-muted-foreground">
-                                  {perm.description}
+                      <div
+                        className={`space-y-${
+                          permissionsDisabled ? "2" : "3"
+                        } pt-2`}
+                      >
+                        {perms.map((perm) => {
+                          const isAssigned =
+                            isAdminRole || selectedPermissions.has(perm.id);
+
+                          // Use view-style design when permissions are disabled
+                          if (permissionsDisabled) {
+                            return (
+                              <div
+                                key={perm.id}
+                                className={`flex items-start space-x-3 p-3 rounded-md transition-colors ${
+                                  isAssigned
+                                    ? "bg-success/10 border border-success/20"
+                                    : "bg-muted/30"
+                                }`}
+                              >
+                                <div className="mt-0.5">
+                                  {isAssigned ? (
+                                    <Check
+                                      className="h-4 w-4 text-success"
+                                      strokeWidth={3}
+                                    />
+                                  ) : (
+                                    <div className="h-4 w-4" />
+                                  )}
                                 </div>
-                              )}
-                            </label>
-                          </div>
-                        ))}
+                                <div className="flex-1 space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <div className="font-medium text-sm">
+                                      {perm.id}
+                                    </div>
+                                    {isAssigned && (
+                                      <Badge
+                                        variant="success"
+                                        className="text-xs"
+                                      >
+                                        Assigned
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  {perm.description && (
+                                    <div className="text-xs text-muted-foreground">
+                                      {perm.description}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // Use editable checkbox design when permissions are editable
+                          return (
+                            <div
+                              key={perm.id}
+                              className="flex items-start space-x-3 p-2 rounded-md hover:bg-muted/50 transition-colors"
+                            >
+                              <Checkbox
+                                id={`perm-${perm.id}`}
+                                checked={selectedPermissions.has(perm.id)}
+                                onCheckedChange={() =>
+                                  handleTogglePermission(perm.id)
+                                }
+                                className="mt-0.5"
+                              />
+                              <label
+                                htmlFor={`perm-${perm.id}`}
+                                className="text-sm cursor-pointer flex-1 space-y-1"
+                              >
+                                <div className="font-medium">{perm.id}</div>
+                                {perm.description && (
+                                  <div className="text-xs text-muted-foreground">
+                                    {perm.description}
+                                  </div>
+                                )}
+                              </label>
+                            </div>
+                          );
+                        })}
                       </div>
                     </AccordionContent>
                   </AccordionItem>
