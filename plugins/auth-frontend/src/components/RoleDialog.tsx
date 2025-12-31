@@ -14,6 +14,8 @@ import {
   AccordionItem,
   AccordionTrigger,
   Badge,
+  Alert,
+  AlertDescription,
 } from "@checkmate/ui";
 import { Check } from "lucide-react";
 import type { Role, Permission } from "../api";
@@ -138,6 +140,22 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
               Select permissions to grant to this role. Permissions are
               organized by plugin.
             </p>
+            {isAdminRole && (
+              <Alert variant="warning" className="mb-3">
+                <AlertDescription>
+                  The administrator role has wildcard access to all permissions.
+                  These cannot be modified.
+                </AlertDescription>
+              </Alert>
+            )}
+            {!isAdminRole && isUserRole && (
+              <Alert variant="info" className="mb-3">
+                <AlertDescription>
+                  You cannot modify permissions for a role you currently have.
+                  This prevents accidental self-lockout from the system.
+                </AlertDescription>
+              </Alert>
+            )}
             <div className="border rounded-lg">
               <Accordion
                 type="multiple"
@@ -161,13 +179,6 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
                       </div>
                     </AccordionTrigger>
                     <AccordionContent className="px-4">
-                      {permissionsDisabled && (
-                        <p className="text-sm text-muted-foreground py-2 mb-2 border-b">
-                          {isAdminRole
-                            ? "Administrator has all permissions (wildcard) and cannot be modified."
-                            : "You cannot modify permissions for roles you currently have."}
-                        </p>
-                      )}
                       <div
                         className={`space-y-${
                           permissionsDisabled ? "2" : "3"
