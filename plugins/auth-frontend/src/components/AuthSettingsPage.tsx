@@ -406,6 +406,13 @@ export const AuthSettingsPage: React.FC = () => {
             <CardTitle>User Management</CardTitle>
           </CardHeader>
           <CardContent>
+            <Alert variant="info" className="mb-4">
+              <AlertDescription>
+                You cannot modify roles for your own account. This security
+                measure prevents accidental self-lockout from the system and
+                permission elevation.
+              </AlertDescription>
+            </Alert>
             {canReadUsers.allowed ? (
               users.length === 0 ? (
                 <p className="text-muted-foreground">No users found.</p>
