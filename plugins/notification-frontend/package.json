@@ -14,6 +14,7 @@
   "dependencies": {
     "@checkmate/notification-common": "workspace:*",
     "@checkmate/frontend-api": "workspace:*",
+    "@checkmate/auth-frontend": "workspace:*",
     "@checkmate/signal-frontend": "workspace:*",
     "@checkmate/common": "workspace:*",
     "@checkmate/ui": "workspace:*",

@@ -21,8 +21,11 @@ import {
   NOTIFICATION_COUNT_CHANGED,
   NOTIFICATION_READ,
 } from "@checkmate/notification-common";
+import { authApiRef } from "@checkmate/auth-frontend/api";
 
 export const NotificationBell = () => {
+  const authApi = useApi(authApiRef);
+  const { data: session, isPending: isAuthLoading } = authApi.useSession();
   const rpcApi = useApi(rpcApiRef);
   const notificationClient = rpcApi.forPlugin<NotificationClient>(
     "notification-backend"
@@ -36,15 +39,19 @@ export const NotificationBell = () => {
   const [loading, setLoading] = useState(true);
 
   const fetchUnreadCount = useCallback(async () => {
+    // Skip fetch if not authenticated
+    if (!session) return;
     try {
       const { count } = await notificationClient.getUnreadCount();
       setUnreadCount(count);
     } catch (error) {
       console.error("Failed to fetch unread count:", error);
     }
-  }, [notificationClient]);
+  }, [notificationClient, session]);
 
   const fetchRecentNotifications = useCallback(async () => {
+    // Skip fetch if not authenticated
+    if (!session) return;
     try {
       const { notifications } = await notificationClient.getNotifications({
         limit: 5,
@@ -55,16 +62,20 @@ export const NotificationBell = () => {
     } catch (error) {
       console.error("Failed to fetch notifications:", error);
     }
-  }, [notificationClient]);
+  }, [notificationClient, session]);
 
   // Initial fetch
   useEffect(() => {
+    if (!session) {
+      setLoading(false);
+      return;
+    }
     const init = async () => {
       await Promise.all([fetchUnreadCount(), fetchRecentNotifications()]);
       setLoading(false);
     };
     void init();
-  }, [fetchUnreadCount, fetchRecentNotifications]);
+  }, [fetchUnreadCount, fetchRecentNotifications, session]);
 
   // ==========================================================================
   // REALTIME SIGNAL SUBSCRIPTIONS (replaces polling)
@@ -161,6 +172,11 @@ export const NotificationBell = () => {
   const handleClose = useCallback(() => {
     setIsOpen(false);
   }, []);
+
+  // Hide notification bell for unauthenticated users
+  if (isAuthLoading || !session) {
+    return;
+  }
 
   if (loading) {
     return (
