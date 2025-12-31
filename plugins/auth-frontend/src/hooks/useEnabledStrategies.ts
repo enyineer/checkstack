@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { useApi } from "@checkmate/frontend-api";
-import { authApiRef, EnabledAuthStrategy } from "../api";
+import { useApi, rpcApiRef } from "@checkmate/frontend-api";
+import type { AuthClient } from "@checkmate/auth-common";
+import type { EnabledAuthStrategy } from "../api";
 
 export interface UseEnabledStrategiesResult {
   strategies: EnabledAuthStrategy[];
@@ -9,7 +10,9 @@ export interface UseEnabledStrategiesResult {
 }
 
 export const useEnabledStrategies = (): UseEnabledStrategiesResult => {
-  const authApi = useApi(authApiRef);
+  const rpcApi = useApi(rpcApiRef);
+  const authClient = rpcApi.forPlugin<AuthClient>("auth-backend");
+
   const [strategies, setStrategies] = useState<EnabledAuthStrategy[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error>();
@@ -20,7 +23,7 @@ export const useEnabledStrategies = (): UseEnabledStrategiesResult => {
     const fetchStrategies = async () => {
       try {
         setLoading(true);
-        const result = await authApi.getEnabledStrategies();
+        const result = await authClient.getEnabledStrategies();
         if (mounted) {
           setStrategies(result);
           setError(undefined);
@@ -45,7 +48,7 @@ export const useEnabledStrategies = (): UseEnabledStrategiesResult => {
     return () => {
       mounted = false;
     };
-  }, [authApi]);
+  }, [authClient]);
 
   return { strategies, loading, error };
 };

@@ -1,8 +1,9 @@
 import { createApiRef } from "@checkmate/frontend-api";
 
-// Re-export AuthClient for use in hooks and components
+// Re-export AuthClient type from common package for RPC usage
 export type { AuthClient } from "@checkmate/auth-common";
 
+// Types for better-auth entities
 export interface AuthUser {
   id: string;
   email: string;
@@ -52,8 +53,13 @@ export interface EnabledAuthStrategy {
   requiresManualRegistration: boolean;
 }
 
+/**
+ * AuthApi provides better-auth client methods for authentication.
+ * For RPC calls (including getEnabledStrategies, user/role/strategy management), use:
+ *   const authClient = rpcApiRef.forPlugin<AuthClient>("auth-backend");
+ */
 export interface AuthApi {
-  getEnabledStrategies(): Promise<EnabledAuthStrategy[]>;
+  // Better-auth methods (not RPC)
   signIn(
     email: string,
     password: string
@@ -66,34 +72,6 @@ export interface AuthApi {
     isPending: boolean;
     error?: Error;
   };
-
-  // Management APIs
-  getUsers(): Promise<AuthUser[] & { roles: string[] }[]>;
-  deleteUser(userId: string): Promise<void>;
-  getRoles(): Promise<Role[]>;
-  getPermissions(): Promise<Permission[]>;
-  createRole(params: {
-    name: string;
-    description?: string;
-    permissions: string[];
-  }): Promise<void>;
-  updateRole(params: {
-    id: string;
-    name?: string;
-    description?: string;
-    permissions: string[];
-  }): Promise<void>;
-  deleteRole(roleId: string): Promise<void>;
-  updateUserRoles(userId: string, roles: string[]): Promise<void>;
-  getStrategies(): Promise<AuthStrategy[]>;
-  toggleStrategy(strategyId: string, enabled: boolean): Promise<void>;
-  updateStrategy(
-    strategyId: string,
-    config: { enabled?: boolean; config?: Record<string, unknown> }
-  ): Promise<void>;
-  reloadAuth(): Promise<void>;
-  getRegistrationStatus(): Promise<{ allowRegistration: boolean }>;
-  setRegistrationStatus(allowRegistration: boolean): Promise<void>;
 }
 
 export const authApiRef = createApiRef<AuthApi>("auth.api");

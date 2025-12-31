@@ -143,13 +143,17 @@ export const authContract = {
     .output(z.object({ success: z.boolean() })),
 
   // Registration management
+  getRegistrationSchema: _base
+    .meta({ permissions: [permissions.registrationManage.id] })
+    .output(z.record(z.string(), z.unknown())),
+
   getRegistrationStatus: _base
-    .meta({ permissions: [] }) // Public endpoint
+    .meta({ permissions: [] }) // Public endpoint - used by anonymous components
     .output(RegistrationStatusSchema),
 
   setRegistrationStatus: _base
     .meta({ permissions: [permissions.registrationManage.id] })
-    .input(z.object({ allowRegistration: z.boolean() }))
+    .input(RegistrationStatusSchema)
     .output(z.object({ success: z.boolean() })),
 };
 

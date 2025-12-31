@@ -27,9 +27,13 @@ import {
   Tabs,
   TabPanel,
   PermissionDenied,
+  Toggle,
 } from "@checkmate/ui";
 import { authApiRef, AuthUser, Role, AuthStrategy, Permission } from "../api";
-import { permissions as authPermissions } from "@checkmate/auth-common";
+import {
+  permissions as authPermissions,
+  AuthClient,
+} from "@checkmate/auth-common";
 import {
   Trash2,
   Shield,
@@ -43,9 +47,12 @@ import {
 } from "lucide-react";
 import { RoleDialog } from "./RoleDialog";
 import { PermissionsViewDialog } from "./PermissionsViewDialog";
+import { rpcApiRef } from "@checkmate/frontend-api";
 
 export const AuthSettingsPage: React.FC = () => {
   const authApi = useApi(authApiRef);
+  const rpcApi = useApi(rpcApiRef);
+  const authClient = rpcApi.forPlugin<AuthClient>("auth-backend");
   const permissionApi = useApi(permissionApiRef);
   const toast = useToast();
 
@@ -101,18 +108,24 @@ export const AuthSettingsPage: React.FC = () => {
     authPermissions.registrationManage.id
   );
 
-  const [registrationEnabled, setRegistrationEnabled] = useState(true);
-  const [loadingRegistration, setLoadingRegistration] = useState(false);
+  const [registrationSchema, setRegistrationSchema] = useState<
+    Record<string, unknown> | undefined
+  >();
+  const [registrationSettings, setRegistrationSettings] = useState<
+    Record<string, unknown>
+  >({ allowRegistration: true });
+  const [loadingRegistration, setLoadingRegistration] = useState(true);
+  const [savingRegistration, setSavingRegistration] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const usersData = (await authApi.getUsers()) as (AuthUser & {
+      const usersData = (await authClient.getUsers()) as (AuthUser & {
         roles: string[];
       })[];
-      const rolesData = await authApi.getRoles();
-      const permissionsData = await authApi.getPermissions();
-      const strategiesData = await authApi.getStrategies();
+      const rolesData = await authClient.getRoles();
+      const permissionsData = await authClient.getPermissions();
+      const strategiesData = await authClient.getStrategies();
       setUsers(usersData);
       setRoles(rolesData);
       setPermissions(permissionsData);
@@ -125,12 +138,20 @@ export const AuthSettingsPage: React.FC = () => {
       }
       setStrategyConfigs(configs);
 
-      // Fetch registration status
-      try {
-        const { allowRegistration } = await authApi.getRegistrationStatus();
-        setRegistrationEnabled(allowRegistration);
-      } catch (error) {
-        console.error("Failed to fetch registration status:", error);
+      // Fetch registration schema and status
+      if (canManageRegistration.allowed) {
+        try {
+          const [schema, status] = await Promise.all([
+            authClient.getRegistrationSchema(),
+            authClient.getRegistrationStatus(),
+          ]);
+          setRegistrationSchema(schema as Record<string, unknown>);
+          setRegistrationSettings(status);
+        } catch (error) {
+          console.error("Failed to fetch registration data:", error);
+        } finally {
+          setLoadingRegistration(false);
+        }
       }
     } catch (error: unknown) {
       const message =
@@ -149,7 +170,7 @@ export const AuthSettingsPage: React.FC = () => {
   const handleDeleteUser = async () => {
     if (!userToDelete) return;
     try {
-      await authApi.deleteUser(userToDelete);
+      await authClient.deleteUser(userToDelete);
       setUsers(users.filter((u) => u.id !== userToDelete));
       setUserToDelete(undefined);
     } catch (error: unknown) {
@@ -174,7 +195,7 @@ export const AuthSettingsPage: React.FC = () => {
       : [...currentRoles, roleId];
 
     try {
-      await authApi.updateUserRoles(userId, newRoles);
+      await authClient.updateUserRoles({ userId, roles: newRoles });
       setUsers(
         users.map((u) => (u.id === userId ? { ...u, roles: newRoles } : u))
       );
@@ -187,7 +208,7 @@ export const AuthSettingsPage: React.FC = () => {
 
   const handleToggleStrategy = async (strategyId: string, enabled: boolean) => {
     try {
-      await authApi.toggleStrategy(strategyId, enabled);
+      await authClient.updateStrategy({ id: strategyId, enabled });
       setStrategies(
         strategies.map((s) => (s.id === strategyId ? { ...s, enabled } : s))
       );
@@ -206,7 +227,8 @@ export const AuthSettingsPage: React.FC = () => {
         toast.error("Strategy not found");
         return;
       }
-      await authApi.updateStrategy(strategyId, {
+      await authClient.updateStrategy({
+        id: strategyId,
         enabled: strategy.enabled,
         config,
       });
@@ -225,7 +247,7 @@ export const AuthSettingsPage: React.FC = () => {
   const handleReloadAuth = async () => {
     setReloading(true);
     try {
-      await authApi.reloadAuth();
+      await authClient.reloadAuth();
       toast.success("Authentication reloaded successfully!");
     } catch (error: unknown) {
       const message =
@@ -238,24 +260,21 @@ export const AuthSettingsPage: React.FC = () => {
     }
   };
 
-  const handleToggleRegistration = async (enabled: boolean) => {
-    setLoadingRegistration(true);
+  const handleSaveRegistration = async () => {
+    setSavingRegistration(true);
     try {
-      await authApi.setRegistrationStatus(enabled);
-      setRegistrationEnabled(enabled);
-      toast.success(
-        enabled
-          ? "User registration enabled successfully"
-          : "User registration disabled successfully"
+      await authClient.setRegistrationStatus(
+        registrationSettings as { allowRegistration: boolean }
       );
+      toast.success("Registration settings saved successfully");
     } catch (error: unknown) {
       const message =
         error instanceof Error
           ? error.message
-          : "Failed to update registration status";
+          : "Failed to update registration settings";
       toast.error(message);
     } finally {
-      setLoadingRegistration(false);
+      setSavingRegistration(false);
     }
   };
 
@@ -278,7 +297,7 @@ export const AuthSettingsPage: React.FC = () => {
     try {
       if (params.id) {
         // Update existing role - ID is required
-        await authApi.updateRole({
+        await authClient.updateRole({
           id: params.id,
           name: params.name,
           description: params.description,
@@ -287,7 +306,7 @@ export const AuthSettingsPage: React.FC = () => {
         toast.success("Role updated successfully");
       } else {
         // Create new role - No ID needed, backend generates it
-        await authApi.createRole({
+        await authClient.createRole({
           name: params.name,
           description: params.description,
           permissions: params.permissions,
@@ -306,7 +325,7 @@ export const AuthSettingsPage: React.FC = () => {
   const handleDeleteRole = async () => {
     if (!roleToDelete) return;
     try {
-      await authApi.deleteRole(roleToDelete);
+      await authClient.deleteRole(roleToDelete);
       toast.success("Role deleted successfully");
       setRoleToDelete(undefined);
       await fetchData();
@@ -575,34 +594,32 @@ export const AuthSettingsPage: React.FC = () => {
               <CardTitle>Platform Settings</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                  <label
-                    htmlFor="allow-registration"
-                    className="text-sm font-medium leading-none"
-                  >
-                    Allow User Registration
-                  </label>
-                  <p className="text-sm text-muted-foreground">
-                    Controls whether new user accounts can be created. When
-                    disabled, all user registration is blocked, including both
-                    manual registration and automatic account creation from
-                    authentication strategies (e.g., LDAP).
+              {canManageRegistration.allowed ? (
+                loadingRegistration ? (
+                  <div className="flex justify-center py-4">
+                    <LoadingSpinner />
+                  </div>
+                ) : registrationSchema ? (
+                  <div className="space-y-4">
+                    <DynamicForm
+                      schema={registrationSchema}
+                      value={registrationSettings}
+                      onChange={setRegistrationSettings}
+                    />
+                    <Button
+                      onClick={() => void handleSaveRegistration()}
+                      disabled={savingRegistration}
+                    >
+                      {savingRegistration ? "Saving..." : "Save Settings"}
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">
+                    Failed to load registration settings
                   </p>
-                </div>
-                <Checkbox
-                  id="allow-registration"
-                  checked={registrationEnabled}
-                  disabled={
-                    !canManageRegistration.allowed || loadingRegistration
-                  }
-                  onCheckedChange={(checked) =>
-                    handleToggleRegistration(!!checked)
-                  }
-                />
-              </div>
-              {!canManageRegistration.allowed && (
-                <p className="text-xs text-muted-foreground mt-4">
+                )
+              ) : (
+                <p className="text-sm text-muted-foreground">
                   You don't have permission to manage registration settings.
                 </p>
               )}
@@ -702,8 +719,7 @@ export const AuthSettingsPage: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Checkbox
-                      id={`strategy-${strategy.id}`}
+                    <Toggle
                       checked={strategy.enabled}
                       disabled={
                         !canManageStrategies.allowed ||
@@ -712,15 +728,9 @@ export const AuthSettingsPage: React.FC = () => {
                           configIsMissing(strategy))
                       }
                       onCheckedChange={(checked) =>
-                        handleToggleStrategy(strategy.id, !!checked)
+                        handleToggleStrategy(strategy.id, checked)
                       }
                     />
-                    <label
-                      htmlFor={`strategy-${strategy.id}`}
-                      className="text-sm font-medium"
-                    >
-                      {strategy.enabled ? "Enabled" : "Disabled"}
-                    </label>
                   </div>
                 </div>
               </CardHeader>

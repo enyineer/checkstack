@@ -11,7 +11,7 @@ import {
 } from "./components/LoginPage";
 import { RegisterPage } from "./components/RegisterPage";
 import { AuthErrorPage } from "./components/AuthErrorPage";
-import { authApiRef, AuthApi, AuthSession, AuthClient } from "./api";
+import { authApiRef, AuthApi, AuthSession } from "./api";
 import { authClient } from "./lib/auth-client";
 
 import { usePermissions } from "./hooks/usePermissions";
@@ -25,7 +25,7 @@ import { PermissionAction } from "@checkmate/common";
 import { useNavigate } from "react-router-dom";
 import { Settings2 } from "lucide-react";
 import { DropdownMenuItem } from "@checkmate/ui";
-import { rpcApiRef, RpcApi, useApi } from "@checkmate/frontend-api";
+import { useApi } from "@checkmate/frontend-api";
 import { AuthSettingsPage } from "./components/AuthSettingsPage";
 import { permissions as authPermissions } from "@checkmate/auth-common";
 
@@ -82,18 +82,11 @@ class AuthPermissionApi implements PermissionApi {
   }
 }
 
+/**
+ * BetterAuthApi wraps only better-auth client methods.
+ * For RPC calls, use rpcApiRef.forPlugin<AuthClient>("auth-backend") directly.
+ */
 class BetterAuthApi implements AuthApi {
-  // Management APIs
-  private get rpc(): AuthClient {
-    return this.rpcApi.forPlugin<AuthClient>("auth-backend");
-  }
-
-  constructor(private readonly rpcApi: RpcApi) {}
-
-  async getEnabledStrategies() {
-    return this.rpc.getEnabledStrategies();
-  }
-
   async signIn(email: string, password: string) {
     const res = await authClient.signIn.email({ email, password });
     if (res.error) {
@@ -163,85 +156,6 @@ class BetterAuthApi implements AuthApi {
       error: error as Error | undefined,
     };
   }
-
-  async getUsers() {
-    return this.rpc.getUsers();
-  }
-
-  async deleteUser(userId: string) {
-    return this.rpc.deleteUser(userId);
-  }
-
-  async getRoles() {
-    return this.rpc.getRoles();
-  }
-
-  async getPermissions() {
-    return this.rpc.getPermissions();
-  }
-
-  async createRole(params: {
-    id: string;
-    name: string;
-    description?: string;
-    permissions: string[];
-  }) {
-    return this.rpc.createRole(params);
-  }
-
-  async updateRole(params: {
-    id: string;
-    name?: string;
-    description?: string;
-    permissions: string[];
-  }) {
-    return this.rpc.updateRole(params);
-  }
-
-  async deleteRole(roleId: string) {
-    return this.rpc.deleteRole(roleId);
-  }
-
-  async updateUserRoles(userId: string, roles: string[]) {
-    return this.rpc.updateUserRoles({ userId, roles });
-  }
-
-  async getStrategies() {
-    return this.rpc.getStrategies();
-  }
-
-  async toggleStrategy(id: string, enabled: boolean): Promise<void> {
-    await this.rpc.updateStrategy({ id, enabled });
-  }
-
-  async updateStrategy(
-    id: string,
-    updates: { enabled?: boolean; config?: Record<string, unknown> }
-  ): Promise<void> {
-    // Build request with only provided fields
-    const request: {
-      id: string;
-      enabled?: boolean;
-      config?: Record<string, unknown>;
-    } = { id };
-    if (updates.enabled !== undefined) request.enabled = updates.enabled;
-    if (updates.config !== undefined) request.config = updates.config;
-    await this.rpc.updateStrategy(
-      request as Parameters<typeof this.rpc.updateStrategy>[0]
-    );
-  }
-
-  async reloadAuth(): Promise<void> {
-    await this.rpc.reloadAuth();
-  }
-
-  async getRegistrationStatus() {
-    return this.rpc.getRegistrationStatus();
-  }
-
-  async setRegistrationStatus(allowRegistration: boolean) {
-    await this.rpc.setRegistrationStatus({ allowRegistration });
-  }
 }
 
 export const authPlugin = createFrontendPlugin({
@@ -249,7 +163,7 @@ export const authPlugin = createFrontendPlugin({
   apis: [
     {
       ref: authApiRef as ApiRef<unknown>,
-      factory: (deps) => new BetterAuthApi(deps.get(rpcApiRef)),
+      factory: () => new BetterAuthApi(),
     },
     {
       ref: permissionApiRef as ApiRef<unknown>,

@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AlertCircle } from "lucide-react";
-import { useApi } from "@checkmate/frontend-api";
+import { useApi, rpcApiRef } from "@checkmate/frontend-api";
 import { authApiRef } from "../api";
+import type { AuthClient } from "@checkmate/auth-common";
 import {
   Button,
   Input,
@@ -31,23 +32,25 @@ export const RegisterPage = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const authApi = useApi(authApiRef);
+  const rpcApi = useApi(rpcApiRef);
+  const authRpcClient = rpcApi.forPlugin<AuthClient>("auth-backend");
   const { strategies, loading: strategiesLoading } = useEnabledStrategies();
   const [registrationAllowed, setRegistrationAllowed] = useState<boolean>(true);
   const [checkingRegistration, setCheckingRegistration] = useState(true);
 
   useEffect(() => {
-    authApi
+    authRpcClient
       .getRegistrationStatus()
       .then(({ allowRegistration }) => {
         setRegistrationAllowed(allowRegistration);
       })
-      .catch((error) => {
+      .catch((error: Error) => {
         console.error("Failed to check registration status:", error);
         // Default to allowed on error to avoid blocking
         setRegistrationAllowed(true);
       })
       .finally(() => setCheckingRegistration(false));
-  }, [authApi]);
+  }, [authRpcClient]);
 
   const handleCredentialRegister = async (e: React.FormEvent) => {
     e.preventDefault();

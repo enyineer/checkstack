@@ -417,6 +417,10 @@ export const createAuthRouter = (
     return { success: true };
   });
 
+  const getRegistrationSchema = os.getRegistrationSchema.handler(() => {
+    return toJsonSchema(platformRegistrationConfigV1);
+  });
+
   const getRegistrationStatus = os.getRegistrationStatus.handler(async () => {
     const allowRegistration = await isRegistrationAllowed(configService);
     return { allowRegistration };
@@ -450,6 +454,7 @@ export const createAuthRouter = (
     getStrategies,
     updateStrategy,
     reloadAuth,
+    getRegistrationSchema,
     getRegistrationStatus,
     setRegistrationStatus,
   });
