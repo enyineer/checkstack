@@ -105,7 +105,7 @@ describe("extractPluginMetadata", () => {
     expect(result).toBeUndefined();
   });
 
-  it("should return undefined for non-plugin packages (wrong suffix)", () => {
+  it("should return undefined for non-plugin core (wrong suffix)", () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         name: "@checkmate/not-a-plugin",
@@ -138,10 +138,10 @@ describe("discoverLocalPlugins", () => {
     mockExistsSync.mockReturnValue(true);
   });
 
-  it("should discover all valid backend plugins from both packages/ and plugins/", () => {
-    // Mock different contents for packages/ and plugins/ directories
+  it("should discover all valid backend plugins from both core/ and plugins/", () => {
+    // Mock different contents for core/ and plugins/ directories
     mockReaddirSync.mockImplementation(((dirPath: string) => {
-      if (dirPath.includes("packages")) {
+      if (dirPath.includes("core")) {
         return [
           { isDirectory: () => true, name: "auth-backend" },
           { isDirectory: () => false, name: "README.md" }, // File, should skip
@@ -182,9 +182,9 @@ describe("discoverLocalPlugins", () => {
   });
 
   it("should filter plugins by type when type parameter is provided", () => {
-    // Mock: packages/ has backend and frontend, plugins/ has common
+    // Mock: core/ has backend and frontend, plugins/ has common
     mockReaddirSync.mockImplementation(((dirPath: string) => {
-      if (dirPath.includes("packages")) {
+      if (dirPath.includes("core")) {
         return [
           { isDirectory: () => true, name: "auth-backend" },
           { isDirectory: () => true, name: "auth-frontend" },
@@ -224,7 +224,7 @@ describe("discoverLocalPlugins", () => {
     expect(frontendResult[0].type).toBe("frontend");
   });
 
-  it("should return empty array if neither packages/ nor plugins/ directory exists", () => {
+  it("should return empty array if neither core/ nor plugins/ directory exists", () => {
     mockExistsSync.mockReturnValue(false);
 
     const result = discoverLocalPlugins({ workspaceRoot: "/fake/workspace" });
@@ -234,15 +234,15 @@ describe("discoverLocalPlugins", () => {
 
   it("should skip directories without valid package.json", () => {
     mockReaddirSync.mockImplementation(((dirPath: string) => {
-      if (dirPath.includes("packages")) {
+      if (dirPath.includes("core")) {
         return [{ isDirectory: () => true, name: "broken-backend" }];
       }
       return [];
     }) as typeof mockReaddirSync);
 
     mockExistsSync.mockImplementation(((filePath: string) => {
-      // packages/ and plugins/ directories exist
-      if (filePath.endsWith("packages") || filePath.endsWith("plugins")) {
+      // core/ and plugins/ directories exist
+      if (filePath.endsWith("core") || filePath.endsWith("plugins")) {
         return true;
       }
       // package.json doesn't exist for broken-backend

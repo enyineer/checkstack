@@ -20,7 +20,7 @@
         "typescript-eslint": "^8.50.0",
       },
     },
-    "packages/auth-backend": {
+    "core/auth-backend": {
       "name": "@checkmate/auth-backend",
       "version": "0.0.1",
       "dependencies": {
@@ -42,7 +42,7 @@
         "typescript": "^5.0.0",
       },
     },
-    "packages/auth-common": {
+    "core/auth-common": {
       "name": "@checkmate/auth-common",
       "version": "0.0.1",
       "dependencies": {
@@ -56,7 +56,7 @@
         "typescript": "^5.7.2",
       },
     },
-    "packages/auth-frontend": {
+    "core/auth-frontend": {
       "name": "@checkmate/auth-frontend",
       "version": "0.0.1",
       "dependencies": {
@@ -78,7 +78,7 @@
         "typescript": "^5.0.0",
       },
     },
-    "packages/backend": {
+    "core/backend": {
       "name": "@checkmate/backend",
       "version": "0.0.1",
       "dependencies": {
@@ -109,7 +109,7 @@
         "drizzle-kit": "^0.31.8",
       },
     },
-    "packages/backend-api": {
+    "core/backend-api": {
       "name": "@checkmate/backend-api",
       "version": "0.0.1",
       "dependencies": {
@@ -134,7 +134,7 @@
         "hono": "^4.0.0",
       },
     },
-    "packages/catalog-backend": {
+    "core/catalog-backend": {
       "name": "@checkmate/catalog-backend",
       "version": "0.0.1",
       "dependencies": {
@@ -157,7 +157,7 @@
         "typescript": "^5.0.0",
       },
     },
-    "packages/catalog-common": {
+    "core/catalog-common": {
       "name": "@checkmate/catalog-common",
       "version": "0.0.1",
       "dependencies": {
@@ -171,7 +171,7 @@
         "typescript": "^5.7.2",
       },
     },
-    "packages/catalog-frontend": {
+    "core/catalog-frontend": {
       "name": "@checkmate/catalog-frontend",
       "version": "0.0.1",
       "dependencies": {
@@ -191,7 +191,7 @@
         "typescript": "^5.0.0",
       },
     },
-    "packages/common": {
+    "core/common": {
       "name": "@checkmate/common",
       "version": "0.0.1",
       "dependencies": {
@@ -203,7 +203,7 @@
         "typescript": "^5.7.2",
       },
     },
-    "packages/dashboard-frontend": {
+    "core/dashboard-frontend": {
       "name": "@checkmate/dashboard-frontend",
       "version": "0.0.1",
       "dependencies": {
@@ -223,7 +223,7 @@
         "typescript": "^5.0.0",
       },
     },
-    "packages/frontend": {
+    "core/frontend": {
       "name": "@checkmate/frontend",
       "version": "0.0.1",
       "dependencies": {
@@ -256,7 +256,7 @@
         "vite": "^5.1.6",
       },
     },
-    "packages/frontend-api": {
+    "core/frontend-api": {
       "name": "@checkmate/frontend-api",
       "version": "0.0.1",
       "dependencies": {
@@ -274,7 +274,7 @@
         "react": "^18.0.0",
       },
     },
-    "packages/healthcheck-backend": {
+    "core/healthcheck-backend": {
       "name": "@checkmate/healthcheck-backend",
       "version": "0.0.1",
       "dependencies": {
@@ -297,7 +297,7 @@
         "typescript": "^5.0.0",
       },
     },
-    "packages/healthcheck-common": {
+    "core/healthcheck-common": {
       "name": "@checkmate/healthcheck-common",
       "version": "0.0.1",
       "dependencies": {
@@ -310,7 +310,7 @@
         "typescript": "^5.7.2",
       },
     },
-    "packages/healthcheck-frontend": {
+    "core/healthcheck-frontend": {
       "name": "@checkmate/healthcheck-frontend",
       "version": "0.0.1",
       "dependencies": {
@@ -336,7 +336,7 @@
         "typescript": "^5.0.0",
       },
     },
-    "packages/notification-backend": {
+    "core/notification-backend": {
       "name": "@checkmate/notification-backend",
       "version": "0.0.1",
       "dependencies": {
@@ -357,7 +357,7 @@
         "typescript": "^5.0.0",
       },
     },
-    "packages/notification-common": {
+    "core/notification-common": {
       "name": "@checkmate/notification-common",
       "version": "0.0.1",
       "dependencies": {
@@ -372,7 +372,7 @@
         "typescript": "^5.7.2",
       },
     },
-    "packages/notification-frontend": {
+    "core/notification-frontend": {
       "name": "@checkmate/notification-frontend",
       "version": "0.0.1",
       "dependencies": {
@@ -393,7 +393,7 @@
         "typescript": "^5.0.0",
       },
     },
-    "packages/queue-api": {
+    "core/queue-api": {
       "name": "@checkmate/queue-api",
       "version": "0.1.0",
       "dependencies": {
@@ -405,7 +405,7 @@
         "@checkmate/tsconfig": "workspace:*",
       },
     },
-    "packages/queue-backend": {
+    "core/queue-backend": {
       "name": "@checkmate/queue-backend",
       "version": "0.0.1",
       "dependencies": {
@@ -423,7 +423,7 @@
         "typescript": "^5.7.2",
       },
     },
-    "packages/queue-common": {
+    "core/queue-common": {
       "name": "@checkmate/queue-common",
       "version": "0.0.1",
       "dependencies": {
@@ -437,7 +437,7 @@
         "typescript": "^5.7.2",
       },
     },
-    "packages/queue-frontend": {
+    "core/queue-frontend": {
       "name": "@checkmate/queue-frontend",
       "version": "0.0.1",
       "dependencies": {
@@ -461,7 +461,7 @@
         "typescript": "^5.7.2",
       },
     },
-    "packages/scripts": {
+    "core/scripts": {
       "name": "@checkmate/scripts",
       "version": "1.0.0",
       "bin": {
@@ -478,7 +478,7 @@
         "typescript": "^5.0.0",
       },
     },
-    "packages/signal-backend": {
+    "core/signal-backend": {
       "name": "@checkmate/signal-backend",
       "version": "0.0.1",
       "dependencies": {
@@ -493,7 +493,7 @@
         "zod": "^4.0.0",
       },
     },
-    "packages/signal-common": {
+    "core/signal-common": {
       "name": "@checkmate/signal-common",
       "version": "0.0.1",
       "dependencies": {
@@ -505,7 +505,7 @@
         "typescript": "^5.7.2",
       },
     },
-    "packages/signal-frontend": {
+    "core/signal-frontend": {
       "name": "@checkmate/signal-frontend",
       "version": "0.0.1",
       "dependencies": {
@@ -521,7 +521,7 @@
         "react": "^18.0.0",
       },
     },
-    "packages/test-utils-backend": {
+    "core/test-utils-backend": {
       "name": "@checkmate/test-utils-backend",
       "version": "0.0.1",
       "dependencies": {
@@ -536,7 +536,7 @@
         "zod": "^4.0.0",
       },
     },
-    "packages/test-utils-frontend": {
+    "core/test-utils-frontend": {
       "name": "@checkmate/test-utils-frontend",
       "version": "0.0.1",
       "dependencies": {
@@ -556,7 +556,7 @@
         "react": "^18.0.0",
       },
     },
-    "packages/theme-backend": {
+    "core/theme-backend": {
       "name": "@checkmate/theme-backend",
       "version": "0.0.1",
       "dependencies": {
@@ -575,7 +575,7 @@
         "typescript": "^5.0.0",
       },
     },
-    "packages/theme-common": {
+    "core/theme-common": {
       "name": "@checkmate/theme-common",
       "version": "0.0.1",
       "dependencies": {
@@ -589,7 +589,7 @@
         "typescript": "^5.7.2",
       },
     },
-    "packages/theme-frontend": {
+    "core/theme-frontend": {
       "name": "@checkmate/theme-frontend",
       "version": "0.0.1",
       "dependencies": {
@@ -607,14 +607,14 @@
         "typescript": "^5.0.0",
       },
     },
-    "packages/tsconfig": {
+    "core/tsconfig": {
       "name": "@checkmate/tsconfig",
       "version": "1.0.0",
       "devDependencies": {
         "@checkmate/scripts": "workspace:*",
       },
     },
-    "packages/ui": {
+    "core/ui": {
       "name": "@checkmate/ui",
       "version": "0.0.1",
       "dependencies": {
@@ -845,87 +845,87 @@
 
     "@changesets/write": ["@changesets/write@0.4.0", "", { "dependencies": { "@changesets/types": "^6.1.0", "fs-extra": "^7.0.1", "human-id": "^4.1.1", "prettier": "^2.7.1" } }, "sha512-CdTLvIOPiCNuH71pyDu3rA+Q0n65cmAbXnwWH84rKGiFumFzkmHNT8KHTMEchcxN+Kl8I54xGUhJ7l3E7X396Q=="],
 
-    "@checkmate/auth-backend": ["@checkmate/auth-backend@workspace:packages/auth-backend"],
+    "@checkmate/auth-backend": ["@checkmate/auth-backend@workspace:core/auth-backend"],
 
-    "@checkmate/auth-common": ["@checkmate/auth-common@workspace:packages/auth-common"],
+    "@checkmate/auth-common": ["@checkmate/auth-common@workspace:core/auth-common"],
 
     "@checkmate/auth-credential-backend": ["@checkmate/auth-credential-backend@workspace:plugins/auth-credential-backend"],
 
-    "@checkmate/auth-frontend": ["@checkmate/auth-frontend@workspace:packages/auth-frontend"],
+    "@checkmate/auth-frontend": ["@checkmate/auth-frontend@workspace:core/auth-frontend"],
 
     "@checkmate/auth-github-backend": ["@checkmate/auth-github-backend@workspace:plugins/auth-github-backend"],
 
     "@checkmate/auth-ldap-backend": ["@checkmate/auth-ldap-backend@workspace:plugins/auth-ldap-backend"],
 
-    "@checkmate/backend": ["@checkmate/backend@workspace:packages/backend"],
+    "@checkmate/backend": ["@checkmate/backend@workspace:core/backend"],
 
-    "@checkmate/backend-api": ["@checkmate/backend-api@workspace:packages/backend-api"],
+    "@checkmate/backend-api": ["@checkmate/backend-api@workspace:core/backend-api"],
 
-    "@checkmate/catalog-backend": ["@checkmate/catalog-backend@workspace:packages/catalog-backend"],
+    "@checkmate/catalog-backend": ["@checkmate/catalog-backend@workspace:core/catalog-backend"],
 
-    "@checkmate/catalog-common": ["@checkmate/catalog-common@workspace:packages/catalog-common"],
+    "@checkmate/catalog-common": ["@checkmate/catalog-common@workspace:core/catalog-common"],
 
-    "@checkmate/catalog-frontend": ["@checkmate/catalog-frontend@workspace:packages/catalog-frontend"],
+    "@checkmate/catalog-frontend": ["@checkmate/catalog-frontend@workspace:core/catalog-frontend"],
 
-    "@checkmate/common": ["@checkmate/common@workspace:packages/common"],
+    "@checkmate/common": ["@checkmate/common@workspace:core/common"],
 
-    "@checkmate/dashboard-frontend": ["@checkmate/dashboard-frontend@workspace:packages/dashboard-frontend"],
+    "@checkmate/dashboard-frontend": ["@checkmate/dashboard-frontend@workspace:core/dashboard-frontend"],
 
-    "@checkmate/frontend": ["@checkmate/frontend@workspace:packages/frontend"],
+    "@checkmate/frontend": ["@checkmate/frontend@workspace:core/frontend"],
 
-    "@checkmate/frontend-api": ["@checkmate/frontend-api@workspace:packages/frontend-api"],
+    "@checkmate/frontend-api": ["@checkmate/frontend-api@workspace:core/frontend-api"],
 
-    "@checkmate/healthcheck-backend": ["@checkmate/healthcheck-backend@workspace:packages/healthcheck-backend"],
+    "@checkmate/healthcheck-backend": ["@checkmate/healthcheck-backend@workspace:core/healthcheck-backend"],
 
-    "@checkmate/healthcheck-common": ["@checkmate/healthcheck-common@workspace:packages/healthcheck-common"],
+    "@checkmate/healthcheck-common": ["@checkmate/healthcheck-common@workspace:core/healthcheck-common"],
 
-    "@checkmate/healthcheck-frontend": ["@checkmate/healthcheck-frontend@workspace:packages/healthcheck-frontend"],
+    "@checkmate/healthcheck-frontend": ["@checkmate/healthcheck-frontend@workspace:core/healthcheck-frontend"],
 
     "@checkmate/healthcheck-http-backend": ["@checkmate/healthcheck-http-backend@workspace:plugins/healthcheck-http-backend"],
 
-    "@checkmate/notification-backend": ["@checkmate/notification-backend@workspace:packages/notification-backend"],
+    "@checkmate/notification-backend": ["@checkmate/notification-backend@workspace:core/notification-backend"],
 
-    "@checkmate/notification-common": ["@checkmate/notification-common@workspace:packages/notification-common"],
+    "@checkmate/notification-common": ["@checkmate/notification-common@workspace:core/notification-common"],
 
-    "@checkmate/notification-frontend": ["@checkmate/notification-frontend@workspace:packages/notification-frontend"],
+    "@checkmate/notification-frontend": ["@checkmate/notification-frontend@workspace:core/notification-frontend"],
 
-    "@checkmate/queue-api": ["@checkmate/queue-api@workspace:packages/queue-api"],
+    "@checkmate/queue-api": ["@checkmate/queue-api@workspace:core/queue-api"],
 
-    "@checkmate/queue-backend": ["@checkmate/queue-backend@workspace:packages/queue-backend"],
+    "@checkmate/queue-backend": ["@checkmate/queue-backend@workspace:core/queue-backend"],
 
     "@checkmate/queue-bullmq-backend": ["@checkmate/queue-bullmq-backend@workspace:plugins/queue-bullmq-backend"],
 
     "@checkmate/queue-bullmq-common": ["@checkmate/queue-bullmq-common@workspace:plugins/queue-bullmq-common"],
 
-    "@checkmate/queue-common": ["@checkmate/queue-common@workspace:packages/queue-common"],
+    "@checkmate/queue-common": ["@checkmate/queue-common@workspace:core/queue-common"],
 
-    "@checkmate/queue-frontend": ["@checkmate/queue-frontend@workspace:packages/queue-frontend"],
+    "@checkmate/queue-frontend": ["@checkmate/queue-frontend@workspace:core/queue-frontend"],
 
     "@checkmate/queue-memory-backend": ["@checkmate/queue-memory-backend@workspace:plugins/queue-memory-backend"],
 
     "@checkmate/queue-memory-common": ["@checkmate/queue-memory-common@workspace:plugins/queue-memory-common"],
 
-    "@checkmate/scripts": ["@checkmate/scripts@workspace:packages/scripts"],
+    "@checkmate/scripts": ["@checkmate/scripts@workspace:core/scripts"],
 
-    "@checkmate/signal-backend": ["@checkmate/signal-backend@workspace:packages/signal-backend"],
+    "@checkmate/signal-backend": ["@checkmate/signal-backend@workspace:core/signal-backend"],
 
-    "@checkmate/signal-common": ["@checkmate/signal-common@workspace:packages/signal-common"],
+    "@checkmate/signal-common": ["@checkmate/signal-common@workspace:core/signal-common"],
 
-    "@checkmate/signal-frontend": ["@checkmate/signal-frontend@workspace:packages/signal-frontend"],
+    "@checkmate/signal-frontend": ["@checkmate/signal-frontend@workspace:core/signal-frontend"],
 
-    "@checkmate/test-utils-backend": ["@checkmate/test-utils-backend@workspace:packages/test-utils-backend"],
+    "@checkmate/test-utils-backend": ["@checkmate/test-utils-backend@workspace:core/test-utils-backend"],
 
-    "@checkmate/test-utils-frontend": ["@checkmate/test-utils-frontend@workspace:packages/test-utils-frontend"],
+    "@checkmate/test-utils-frontend": ["@checkmate/test-utils-frontend@workspace:core/test-utils-frontend"],
 
-    "@checkmate/theme-backend": ["@checkmate/theme-backend@workspace:packages/theme-backend"],
+    "@checkmate/theme-backend": ["@checkmate/theme-backend@workspace:core/theme-backend"],
 
-    "@checkmate/theme-common": ["@checkmate/theme-common@workspace:packages/theme-common"],
+    "@checkmate/theme-common": ["@checkmate/theme-common@workspace:core/theme-common"],
 
-    "@checkmate/theme-frontend": ["@checkmate/theme-frontend@workspace:packages/theme-frontend"],
+    "@checkmate/theme-frontend": ["@checkmate/theme-frontend@workspace:core/theme-frontend"],
 
-    "@checkmate/tsconfig": ["@checkmate/tsconfig@workspace:packages/tsconfig"],
+    "@checkmate/tsconfig": ["@checkmate/tsconfig@workspace:core/tsconfig"],
 
-    "@checkmate/ui": ["@checkmate/ui@workspace:packages/ui"],
+    "@checkmate/ui": ["@checkmate/ui@workspace:core/ui"],
 
     "@colors/colors": ["@colors/colors@1.6.0", "", {}, "sha512-Ir+AOibqzrIsL6ajt3Rz3LskB7OiMVHqltZmspbW/TJuTVuyOMirVqAkjfY6JISiLHgyNqicAC8AyHHGzNd/dA=="],
 
