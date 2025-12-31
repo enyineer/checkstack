@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   validatePluginName,
   pluginExists,
+  packageExists,
   extractBaseName,
 } from "../utils/validation";
 import {
@@ -20,6 +21,25 @@ interface PluginTypeChoice {
   value: string;
   description: string;
 }
+
+interface LocationChoice {
+  name: string;
+  value: "packages" | "plugins";
+  description: string;
+}
+
+const PACKAGE_LOCATIONS: LocationChoice[] = [
+  {
+    name: "packages/ - Core platform component (essential, non-replaceable)",
+    value: "packages",
+    description: "Core platform component",
+  },
+  {
+    name: "plugins/  - Replaceable provider (optional, swappable)",
+    value: "plugins",
+    description: "Replaceable provider plugin",
+  },
+];
 
 const PLUGIN_TYPES: PluginTypeChoice[] = [
   {
@@ -50,17 +70,46 @@ const PLUGIN_TYPES: PluginTypeChoice[] = [
 ];
 
 export async function createCommand() {
-  console.log("\n🚀 Checkmate Plugin Generator\n");
+  console.log("\n🚀 Checkmate Package Generator\n");
 
   // Register Handlebars helpers
   registerHelpers();
+
+  // Prompt for package location
+  const { packageLocation } = await inquirer.prompt<{
+    packageLocation: "packages" | "plugins";
+  }>([
+    {
+      type: "list",
+      name: "packageLocation",
+      message: "Where should the package be created?",
+      choices: PACKAGE_LOCATIONS,
+    },
+  ]);
+
+  // Show guidance based on choice
+  if (packageLocation === "packages") {
+    console.log(
+      "\n📦 Core packages are essential platform components that cannot be removed."
+    );
+    console.log(
+      "   Examples: auth, catalog, notifications, queue, healthcheck, theme\n"
+    );
+  } else {
+    console.log(
+      "\n🔌 Plugins are replaceable providers that can be swapped or removed."
+    );
+    console.log(
+      "   Examples: auth-github, auth-ldap, queue-bullmq, healthcheck-http\n"
+    );
+  }
 
   // Prompt for plugin type
   const { pluginType } = await inquirer.prompt<{ pluginType: string }>([
     {
       type: "list",
       name: "pluginType",
-      message: "What type of plugin do you want to create?",
+      message: "What type of package do you want to create?",
       choices: PLUGIN_TYPES,
     },
   ]);
@@ -70,7 +119,7 @@ export async function createCommand() {
     {
       type: "input",
       name: "pluginBaseName",
-      message: `Plugin name (e.g., 'catalog' for 'catalog-${pluginType}'):`,
+      message: `Package name (e.g., 'catalog' for 'catalog-${pluginType}'):`,
       validate: (input: string) => {
         const extracted = extractBaseName(input);
         const validation = validatePluginName(extracted);
@@ -82,9 +131,21 @@ export async function createCommand() {
 
   // Check if plugin already exists
   const rootDir = process.cwd();
-  if (pluginExists({ baseName: pluginBaseName, pluginType, rootDir })) {
+  const existsInPlugins = pluginExists({
+    baseName: pluginBaseName,
+    pluginType,
+    rootDir,
+  });
+  const existsInPackages = packageExists({
+    baseName: pluginBaseName,
+    pluginType,
+    rootDir,
+  });
+
+  if (existsInPlugins || existsInPackages) {
+    const existingLocation = existsInPackages ? "packages" : "plugins";
     console.error(
-      `\n❌ Error: Plugin '${pluginBaseName}-${pluginType}' already exists!\n`
+      `\n❌ Error: '${pluginBaseName}-${pluginType}' already exists in ${existingLocation}/!\n`
     );
     process.exit(1);
   }
@@ -94,10 +155,10 @@ export async function createCommand() {
     {
       type: "input",
       name: "description",
-      message: "Plugin description (optional):",
+      message: "Package description (optional):",
       default: `${
         pluginBaseName.charAt(0).toUpperCase() + pluginBaseName.slice(1)
-      } plugin`,
+      } ${packageLocation === "packages" ? "package" : "plugin"}`,
     },
   ]);
 
@@ -109,25 +170,32 @@ export async function createCommand() {
   });
 
   // Confirm before generation
+  const locationLabel = packageLocation === "packages" ? "package" : "plugin";
   const { confirmed } = await inquirer.prompt<{ confirmed: boolean }>([
     {
       type: "confirm",
       name: "confirmed",
-      message: `Create ${pluginType} plugin '${templateData.pluginName}'?`,
+      message: `Create ${pluginType} ${locationLabel} '${templateData.pluginName}' in ${packageLocation}/?`,
       default: true,
     },
   ]);
 
   if (!confirmed) {
-    console.log("\n❌ Plugin creation cancelled.\n");
+    console.log("\n❌ Creation cancelled.\n");
     process.exit(0);
   }
 
   // Generate plugin from template
-  console.log(`\n📦 Creating ${pluginType} plugin: ${templateData.pluginName}`);
+  console.log(
+    `\n📦 Creating ${pluginType} ${locationLabel}: ${templateData.pluginName}`
+  );
 
   const templateDir = path.join(__dirname, "..", "templates", pluginType);
-  const targetDir = path.join(rootDir, "plugins", templateData.pluginName);
+  const targetDir = path.join(
+    rootDir,
+    packageLocation,
+    templateData.pluginName
+  );
 
   try {
     const createdFiles = copyTemplate({
@@ -136,7 +204,9 @@ export async function createCommand() {
       data: templateData,
     });
 
-    console.log(`  ✓ Created directory: plugins/${templateData.pluginName}`);
+    console.log(
+      `  ✓ Created directory: ${packageLocation}/${templateData.pluginName}`
+    );
 
     // Show created files
     const relativeFiles = createdFiles.map((file) =>
@@ -147,9 +217,13 @@ export async function createCommand() {
     }
 
     // Success message with next steps
-    console.log(`\n✅ Plugin created successfully!\n`);
+    console.log(
+      `\n✅ ${
+        locationLabel.charAt(0).toUpperCase() + locationLabel.slice(1)
+      } created successfully!\n`
+    );
     console.log("Next steps:");
-    console.log(`  1. cd plugins/${templateData.pluginName}`);
+    console.log(`  1. cd ${packageLocation}/${templateData.pluginName}`);
     console.log(`  2. bun install`);
 
     // Type-specific instructions
@@ -176,7 +250,7 @@ export async function createCommand() {
 
     console.log(`  6. Review the initial changeset in .changeset/initial.md\n`);
   } catch (error) {
-    console.error(`\n❌ Error creating plugin: ${error}\n`);
+    console.error(`\n❌ Error creating ${locationLabel}: ${error}\n`);
     process.exit(1);
   }
 }

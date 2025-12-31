@@ -59,7 +59,32 @@ This tool will:
 
 ## 3. Creating a New Package
 
-When creating a new package or plugin:
+Use the interactive CLI to create new packages or plugins:
+
+```bash
+# From the root of the monorepo
+bun run cli create
+```
+
+The CLI will guide you through:
+
+1. **Location choice**: `packages/` (core components) or `plugins/` (replaceable providers)
+2. **Package type**: backend, frontend, common, node, or react
+3. **Package name**: Base name for your package (e.g., "auth" for "auth-backend")
+4. **Description**: Optional description for your package
+
+### Package Location Guidelines
+
+| Location | Use For |
+|----------|---------|
+| `packages/` | Core platform components that are essential and non-replaceable |
+| `plugins/` | Replaceable providers that can be swapped (auth providers, queue backends) |
+
+See [Packages vs Plugins Architecture](../architecture/packages-vs-plugins.md) for detailed decision criteria.
+
+### Manual Setup Alternative
+
+If the CLI doesn't work in your environment:
 
 1. Create a minimal `package.json` with a `name` and `version`.
 2. Create a minimal `tsconfig.json`.

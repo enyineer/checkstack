@@ -77,6 +77,23 @@ export function pluginExists({
 }
 
 /**
+ * Check if a package already exists in packages/
+ */
+export function packageExists({
+  baseName,
+  pluginType,
+  rootDir,
+}: {
+  baseName: string;
+  pluginType: string;
+  rootDir: string;
+}): boolean {
+  const packageName = `${baseName}-${pluginType}`;
+  const packagePath = path.join(rootDir, "packages", packageName);
+  return existsSync(packagePath);
+}
+
+/**
  * Extract base name from full plugin name if provided
  * e.g., "catalog-backend" -> "catalog"
  */
