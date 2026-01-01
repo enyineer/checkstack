@@ -33,3 +33,28 @@ export function createSlot<TContext = undefined>(
 ): SlotDefinition<TContext> {
   return { id } as SlotDefinition<TContext>;
 }
+
+/**
+ * Core layout slots - no context required
+ */
+export const DashboardSlot = createSlot("dashboard");
+export const NavbarSlot = createSlot("core.layout.navbar");
+export const NavbarMainSlot = createSlot("core.layout.navbar.main");
+export const UserMenuItemsSlot = createSlot(
+  "core.layout.navbar.user-menu.items"
+);
+export const UserMenuItemsBottomSlot = createSlot(
+  "core.layout.navbar.user-menu.items.bottom"
+);
+
+// Legacy string exports for backward compatibility during migration
+/** @deprecated Use DashboardSlot instead */
+export const SLOT_DASHBOARD = DashboardSlot.id;
+/** @deprecated Use NavbarSlot instead */
+export const SLOT_NAVBAR = NavbarSlot.id;
+/** @deprecated Use NavbarMainSlot instead */
+export const SLOT_NAVBAR_MAIN = NavbarMainSlot.id;
+/** @deprecated Use UserMenuItemsSlot instead */
+export const SLOT_USER_MENU_ITEMS = UserMenuItemsSlot.id;
+/** @deprecated Use UserMenuItemsBottomSlot instead */
+export const SLOT_USER_MENU_ITEMS_BOTTOM = UserMenuItemsBottomSlot.id;

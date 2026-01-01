@@ -1,5 +1,8 @@
-import { createFrontendPlugin } from "@checkmate/frontend-api";
-import { SLOT_NAVBAR, SLOT_USER_MENU_ITEMS } from "@checkmate/common";
+import {
+  createFrontendPlugin,
+  NavbarSlot,
+  UserMenuItemsSlot,
+} from "@checkmate/frontend-api";
 import { notificationRoutes } from "@checkmate/notification-common";
 import { NotificationBell } from "./components/NotificationBell";
 import { NotificationsPage } from "./pages/NotificationsPage";
@@ -21,12 +24,12 @@ export const notificationPlugin = createFrontendPlugin({
   extensions: [
     {
       id: "notification.navbar.bell",
-      slotId: SLOT_NAVBAR,
+      slotId: NavbarSlot.id,
       component: NotificationBell,
     },
     {
       id: "notification.user.setting",
-      slotId: SLOT_USER_MENU_ITEMS,
+      slotId: UserMenuItemsSlot.id,
       component: NotificationUserMenuItems,
     },
   ],

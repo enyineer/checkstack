@@ -1,5 +1,7 @@
-import { createFrontendPlugin } from "@checkmate/frontend-api";
-import { SLOT_USER_MENU_ITEMS_BOTTOM } from "@checkmate/common";
+import {
+  createFrontendPlugin,
+  UserMenuItemsBottomSlot,
+} from "@checkmate/frontend-api";
 import { ThemeToggleMenuItem } from "./components/ThemeToggleMenuItem";
 
 export const themePlugin = createFrontendPlugin({
@@ -8,7 +10,7 @@ export const themePlugin = createFrontendPlugin({
   extensions: [
     {
       id: "theme.user-menu.toggle",
-      slotId: SLOT_USER_MENU_ITEMS_BOTTOM,
+      slotId: UserMenuItemsBottomSlot.id,
       component: ThemeToggleMenuItem,
     },
   ],

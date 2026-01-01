@@ -6,8 +6,9 @@ import {
   ExtensionSlot,
   pluginRegistry,
   rpcApiRef,
+  UserMenuItemsSlot,
+  UserMenuItemsBottomSlot,
 } from "@checkmate/frontend-api";
-import { authApiRef } from "../api";
 import type { AuthClient } from "@checkmate/auth-common";
 import { authRoutes } from "@checkmate/auth-common";
 import { resolveRoute } from "@checkmate/common";
@@ -35,10 +36,7 @@ import {
   InfoBannerTitle,
   InfoBannerDescription,
 } from "@checkmate/ui";
-import {
-  SLOT_USER_MENU_ITEMS,
-  SLOT_USER_MENU_ITEMS_BOTTOM,
-} from "@checkmate/common";
+import { authApiRef } from "../api";
 import { useEnabledStrategies } from "../hooks/useEnabledStrategies";
 import { SocialProviderButton } from "./SocialProviderButton";
 import { useEffect } from "react";
@@ -273,15 +271,15 @@ export const LoginNavbarAction = () => {
   if (session?.user) {
     // Check if we have any bottom items to decide if we need a separator
     const bottomExtensions = pluginRegistry.getExtensions(
-      SLOT_USER_MENU_ITEMS_BOTTOM
+      UserMenuItemsBottomSlot.id
     );
     const hasBottomItems = bottomExtensions.length > 0;
 
     return (
       <UserMenu user={session.user}>
-        <ExtensionSlot id={SLOT_USER_MENU_ITEMS} />
+        <ExtensionSlot slot={UserMenuItemsSlot} />
         {hasBottomItems && <DropdownMenuSeparator />}
-        <ExtensionSlot id={SLOT_USER_MENU_ITEMS_BOTTOM} />
+        <ExtensionSlot slot={UserMenuItemsBottomSlot} />
       </UserMenu>
     );
   }

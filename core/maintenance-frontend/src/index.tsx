@@ -3,8 +3,8 @@ import {
   createSlotExtension,
   rpcApiRef,
   type ApiRef,
+  UserMenuItemsSlot,
 } from "@checkmate/frontend-api";
-import { SLOT_USER_MENU_ITEMS } from "@checkmate/common";
 import { maintenanceApiRef, type MaintenanceApi } from "./api";
 import { maintenanceRoutes } from "@checkmate/maintenance-common";
 import {
@@ -50,7 +50,7 @@ export default createFrontendPlugin({
   extensions: [
     {
       id: "maintenance.user-menu.items",
-      slotId: SLOT_USER_MENU_ITEMS,
+      slotId: UserMenuItemsSlot.id,
       component: MaintenanceMenuItems,
     },
     createSlotExtension(SystemStateBadgesSlot, {

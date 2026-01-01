@@ -3,6 +3,9 @@ import {
   permissionApiRef,
   PermissionApi,
   createFrontendPlugin,
+  NavbarSlot,
+  UserMenuItemsSlot,
+  UserMenuItemsBottomSlot,
 } from "@checkmate/frontend-api";
 import {
   LoginPage,
@@ -15,11 +18,6 @@ import { authApiRef, AuthApi, AuthSession } from "./api";
 import { authClient } from "./lib/auth-client";
 
 import { usePermissions } from "./hooks/usePermissions";
-import {
-  SLOT_NAVBAR,
-  SLOT_USER_MENU_ITEMS,
-  SLOT_USER_MENU_ITEMS_BOTTOM,
-} from "@checkmate/common";
 
 import { PermissionAction } from "@checkmate/common";
 import { useNavigate } from "react-router-dom";
@@ -197,12 +195,12 @@ export const authPlugin = createFrontendPlugin({
   extensions: [
     {
       id: "auth.navbar.action",
-      slotId: SLOT_NAVBAR,
+      slotId: NavbarSlot.id,
       component: LoginNavbarAction,
     },
     {
       id: "auth.user-menu.settings",
-      slotId: SLOT_USER_MENU_ITEMS,
+      slotId: UserMenuItemsSlot.id,
       component: () => {
         // Use a wrapper component to use hooks
         const navigate = useNavigate();
@@ -225,7 +223,7 @@ export const authPlugin = createFrontendPlugin({
     },
     {
       id: "auth.user-menu.logout",
-      slotId: SLOT_USER_MENU_ITEMS_BOTTOM,
+      slotId: UserMenuItemsBottomSlot.id,
       component: LogoutMenuItem,
     },
   ],

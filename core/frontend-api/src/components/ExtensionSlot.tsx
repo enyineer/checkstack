@@ -1,17 +1,32 @@
-import React from "react";
 import { pluginRegistry } from "../plugin-registry";
+import type { SlotDefinition } from "../slots";
 
-interface ExtensionSlotProps {
-  id: string; // The slot ID, e.g., 'core.layout.navbar'
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  context?: any; // Context data to pass to extensions
-}
+/**
+ * Type-safe props for ExtensionSlot.
+ * When TContext is undefined, no context prop is needed.
+ * When TContext is defined, context is required with the correct type.
+ */
+type ExtensionSlotProps<TContext> = TContext extends undefined
+  ? { slot: SlotDefinition<TContext>; context?: undefined }
+  : { slot: SlotDefinition<TContext>; context: TContext };
 
-export const ExtensionSlot: React.FC<ExtensionSlotProps> = ({
-  id,
+/**
+ * Renders all extensions registered for the given slot.
+ *
+ * @example
+ * ```tsx
+ * // Slot with context - context is required and type-checked
+ * <ExtensionSlot slot={SystemDetailsSlot} context={{ system }} />
+ *
+ * // Slot without context
+ * <ExtensionSlot slot={NavbarSlot} />
+ * ```
+ */
+export function ExtensionSlot<TContext = undefined>({
+  slot,
   context,
-}) => {
-  const extensions = pluginRegistry.getExtensions(id);
+}: ExtensionSlotProps<TContext>) {
+  const extensions = pluginRegistry.getExtensions(slot.id);
 
   if (extensions.length === 0) {
     return <></>;
@@ -20,8 +35,8 @@ export const ExtensionSlot: React.FC<ExtensionSlotProps> = ({
   return (
     <>
       {extensions.map((ext) => (
-        <ext.component key={ext.id} {...context} />
+        <ext.component key={ext.id} {...(context as object)} />
       ))}
     </>
   );
-};
+}

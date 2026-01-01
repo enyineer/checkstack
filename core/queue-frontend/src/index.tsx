@@ -1,5 +1,4 @@
-import { rpcApiRef, ApiRef } from "@checkmate/frontend-api";
-import { SLOT_USER_MENU_ITEMS } from "@checkmate/common";
+import { rpcApiRef, ApiRef, UserMenuItemsSlot } from "@checkmate/frontend-api";
 import { queueApiRef, type QueueApi } from "./api";
 import { createFrontendPlugin } from "@checkmate/frontend-api";
 import { QueueConfigPage } from "./pages/QueueConfigPage";
@@ -27,7 +26,7 @@ export const queuePlugin = createFrontendPlugin({
   extensions: [
     {
       id: "queue.user-menu.items",
-      slotId: SLOT_USER_MENU_ITEMS,
+      slotId: UserMenuItemsSlot.id,
       component: QueueUserMenuItems,
     },
   ],

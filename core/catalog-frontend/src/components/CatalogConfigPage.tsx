@@ -281,7 +281,7 @@ export const CatalogConfigPage = () => {
                           className="font-medium text-foreground"
                         />
                         <ExtensionSlot
-                          id={CatalogSystemActionsSlot.id}
+                          slot={CatalogSystemActionsSlot}
                           context={{
                             systemId: system.id,
                             systemName: system.name,

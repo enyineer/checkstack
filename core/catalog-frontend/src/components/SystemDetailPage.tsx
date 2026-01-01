@@ -195,7 +195,7 @@ export const SystemDetailPage: React.FC = () => {
       </div>
 
       {/* Top Extension Slot for urgent items like maintenance alerts */}
-      <ExtensionSlot id={SystemDetailsTopSlot.id} context={{ system }} />
+      <ExtensionSlot slot={SystemDetailsTopSlot} context={{ system }} />
 
       {/* System Status Card - displays plugin-provided state badges */}
       <Card className="border-border shadow-sm">
@@ -209,7 +209,7 @@ export const SystemDetailPage: React.FC = () => {
         </CardHeader>
         <CardContent className="p-6">
           <div className="flex flex-wrap items-center gap-2">
-            <ExtensionSlot id={SystemStateBadgesSlot.id} context={{ system }} />
+            <ExtensionSlot slot={SystemStateBadgesSlot} context={{ system }} />
           </div>
         </CardContent>
       </Card>
@@ -320,7 +320,7 @@ export const SystemDetailPage: React.FC = () => {
         )}
 
       {/* Extension Slot for System Details */}
-      <ExtensionSlot id={SystemDetailsSlot.id} context={{ system }} />
+      <ExtensionSlot slot={SystemDetailsSlot} context={{ system }} />
     </div>
   );
 };

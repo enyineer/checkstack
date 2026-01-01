@@ -10,17 +10,15 @@ import {
   useApi,
   ExtensionSlot,
   pluginRegistry,
+  DashboardSlot,
+  NavbarSlot,
+  NavbarMainSlot,
 } from "@checkmate/frontend-api";
 import { ConsoleLoggerApi } from "./apis/logger-api";
 import { CoreFetchApi } from "./apis/fetch-api";
 import { CoreRpcApi } from "./apis/rpc-api";
 import { PermissionDenied, LoadingSpinner, ToastProvider } from "@checkmate/ui";
 import { SignalProvider } from "@checkmate/signal-frontend";
-import {
-  SLOT_DASHBOARD,
-  SLOT_NAVBAR,
-  SLOT_NAVBAR_MAIN,
-} from "@checkmate/common";
 import { usePluginLifecycle } from "./hooks/usePluginLifecycle";
 
 const RouteGuard: React.FC<{
@@ -65,11 +63,11 @@ function AppContent() {
               <h1 className="text-xl font-bold text-primary">Checkmate</h1>
             </Link>
             <nav className="hidden md:flex gap-1">
-              <ExtensionSlot id={SLOT_NAVBAR_MAIN} />
+              <ExtensionSlot slot={NavbarMainSlot} />
             </nav>
           </div>
           <div className="flex gap-2">
-            <ExtensionSlot id={SLOT_NAVBAR} />
+            <ExtensionSlot slot={NavbarSlot} />
           </div>
         </header>
         <main className="p-8 max-w-7xl mx-auto">
@@ -78,7 +76,7 @@ function AppContent() {
               path="/"
               element={
                 <div className="space-y-6">
-                  <ExtensionSlot id={SLOT_DASHBOARD} />
+                  <ExtensionSlot slot={DashboardSlot} />
                 </div>
               }
             />

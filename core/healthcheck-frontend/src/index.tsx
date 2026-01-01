@@ -3,6 +3,7 @@ import {
   createSlotExtension,
   rpcApiRef,
   type ApiRef,
+  UserMenuItemsSlot,
 } from "@checkmate/frontend-api";
 import { healthCheckApiRef, type HealthCheckApi } from "./api";
 import { HealthCheckConfigPage } from "./pages/HealthCheckConfigPage";
@@ -11,7 +12,6 @@ import { HealthCheckSystemOverview } from "./components/HealthCheckSystemOvervie
 import { SystemHealthCheckAssignment } from "./components/SystemHealthCheckAssignment";
 import { SystemHealthBadge } from "./components/SystemHealthBadge";
 
-import { SLOT_USER_MENU_ITEMS } from "@checkmate/common";
 import {
   SystemDetailsSlot,
   CatalogSystemActionsSlot,
@@ -42,7 +42,7 @@ export default createFrontendPlugin({
   extensions: [
     {
       id: "healthcheck.user-menu.items",
-      slotId: SLOT_USER_MENU_ITEMS,
+      slotId: UserMenuItemsSlot.id,
       component: HealthCheckMenuItems,
     },
     createSlotExtension(SystemStateBadgesSlot, {
