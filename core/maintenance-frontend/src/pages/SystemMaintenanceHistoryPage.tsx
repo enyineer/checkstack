@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useApi, rpcApiRef, wrapInSuspense } from "@checkmate/frontend-api";
 import { resolveRoute } from "@checkmate/common";
 import { maintenanceApiRef } from "../api";
@@ -148,23 +148,21 @@ const SystemMaintenanceHistoryPageContent: React.FC = () => {
                     <TableRow
                       key={m.id}
                       className="cursor-pointer hover:bg-muted/50"
+                      onClick={() =>
+                        navigate(
+                          resolveRoute(maintenanceRoutes.routes.detail, {
+                            maintenanceId: m.id,
+                          })
+                        )
+                      }
                     >
                       <TableCell>
-                        <Link
-                          to={resolveRoute(maintenanceRoutes.routes.detail, {
-                            maintenanceId: m.id,
-                          })}
-                          className="block"
-                        >
-                          <p className="font-medium text-foreground hover:underline">
-                            {m.title}
+                        <p className="font-medium text-foreground">{m.title}</p>
+                        {m.description && (
+                          <p className="text-sm text-muted-foreground truncate max-w-xs">
+                            {m.description}
                           </p>
-                          {m.description && (
-                            <p className="text-sm text-muted-foreground truncate max-w-xs">
-                              {m.description}
-                            </p>
-                          )}
-                        </Link>
+                        )}
                       </TableCell>
                       <TableCell>{getStatusBadge(m.status)}</TableCell>
                       <TableCell>

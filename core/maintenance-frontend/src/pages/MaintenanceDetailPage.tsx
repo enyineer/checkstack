@@ -228,38 +228,46 @@ const MaintenanceDetailPageContent: React.FC = () => {
                   <div className="absolute left-4 top-2 bottom-2 w-0.5 bg-border" />
 
                   <div className="space-y-6">
-                    {maintenance.updates.map((update, index) => (
-                      <div key={update.id} className="relative pl-10">
-                        {/* Timeline dot */}
-                        <div
-                          className={`absolute left-2.5 w-3 h-3 rounded-full border-2 border-background ${
-                            index === 0
-                              ? "bg-primary"
-                              : "bg-muted-foreground/30"
-                          }`}
-                        />
+                    {maintenance.updates
+                      .toSorted(
+                        (a, b) =>
+                          new Date(b.createdAt).getTime() -
+                          new Date(a.createdAt).getTime()
+                      )
+                      .map((update, index) => (
+                        <div key={update.id} className="relative pl-10">
+                          {/* Timeline dot */}
+                          <div
+                            className={`absolute left-2.5 w-3 h-3 rounded-full border-2 border-background ${
+                              index === 0
+                                ? "bg-primary"
+                                : "bg-muted-foreground/30"
+                            }`}
+                          />
 
-                        <div className="p-4 rounded-lg border border-border bg-muted/20">
-                          <div className="flex items-start justify-between gap-2 mb-2">
-                            <p className="text-foreground">{update.message}</p>
-                            {update.statusChange && (
-                              <div className="shrink-0">
-                                {getStatusBadge(update.statusChange)}
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Calendar className="h-3 w-3" />
-                            <span>
-                              {format(
-                                new Date(update.createdAt),
-                                "MMM d, yyyy 'at' HH:mm"
+                          <div className="p-4 rounded-lg border border-border bg-muted/20">
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <p className="text-foreground">
+                                {update.message}
+                              </p>
+                              {update.statusChange && (
+                                <div className="shrink-0">
+                                  {getStatusBadge(update.statusChange)}
+                                </div>
                               )}
-                            </span>
+                            </div>
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Calendar className="h-3 w-3" />
+                              <span>
+                                {format(
+                                  new Date(update.createdAt),
+                                  "MMM d, yyyy 'at' HH:mm"
+                                )}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
                   </div>
                 </div>
               )}
