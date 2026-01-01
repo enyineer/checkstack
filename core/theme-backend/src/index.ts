@@ -16,7 +16,7 @@ export default createBackendPlugin({
       init: async ({ database, rpc }) => {
         // Create and register the theme router
         const router = createThemeRouter(database);
-        rpc.registerRouter("theme-backend", router);
+        rpc.registerRouter(router);
       },
     });
   },

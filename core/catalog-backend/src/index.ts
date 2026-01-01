@@ -34,9 +34,8 @@ export default createBackendPlugin({
         const typedDb = database as NodePgDatabase<typeof schema>;
 
         // Get notification client for group management (will be used in router & afterPluginsReady)
-        const notificationClient = rpcClient.forPlugin<NotificationClient>(
-          "notification-backend"
-        );
+        const notificationClient =
+          rpcClient.forPlugin<NotificationClient>("notification");
 
         // Register oRPC router with notification client
         const catalogRouter = createCatalogRouter(
@@ -44,16 +43,15 @@ export default createBackendPlugin({
           notificationClient,
           PLUGIN_ID
         );
-        rpc.registerRouter("catalog-backend", catalogRouter);
+        rpc.registerRouter(catalogRouter);
 
         logger.debug("✅ Catalog Backend initialized.");
       },
       // Phase 3: Safe to make RPC calls after all plugins are ready
       afterPluginsReady: async ({ database, rpcClient, logger }) => {
         const typedDb = database as NodePgDatabase<typeof schema>;
-        const notificationClient = rpcClient.forPlugin<NotificationClient>(
-          "notification-backend"
-        );
+        const notificationClient =
+          rpcClient.forPlugin<NotificationClient>("notification");
 
         // Bootstrap: Create notification groups for existing systems and groups
         await bootstrapNotificationGroups(typedDb, notificationClient, logger);

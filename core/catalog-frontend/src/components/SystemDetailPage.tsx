@@ -35,9 +35,7 @@ export const SystemDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const catalogApi = useApi(catalogApiRef);
   const rpcApi = useApi(rpcApiRef);
-  const notificationApi = rpcApi.forPlugin<NotificationClient>(
-    "notification-backend"
-  );
+  const notificationApi = rpcApi.forPlugin<NotificationClient>("notification");
   const toast = useToast();
 
   const [system, setSystem] = useState<System | undefined>();

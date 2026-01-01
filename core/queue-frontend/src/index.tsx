@@ -12,7 +12,7 @@ export const queuePlugin = createFrontendPlugin({
       ref: queueApiRef,
       factory: (deps: { get: <T>(ref: ApiRef<T>) => T }): QueueApi => {
         const rpcApi = deps.get(rpcApiRef);
-        return rpcApi.forPlugin<QueueApi>("queue-backend");
+        return rpcApi.forPlugin<QueueApi>("queue");
       },
     },
   ],

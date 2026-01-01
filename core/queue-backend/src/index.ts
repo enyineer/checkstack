@@ -18,7 +18,7 @@ export default createBackendPlugin({
 
         // 4. Register oRPC router
         const queueRouter = createQueueRouter(config);
-        rpc.registerRouter("queue-backend", queueRouter);
+        rpc.registerRouter(queueRouter);
       },
     });
   },

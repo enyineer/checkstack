@@ -11,7 +11,7 @@ type ThemeClient = ContractRouterClient<typeof themeContract>;
 export const ThemeToggleMenuItem = () => {
   const { theme, setTheme } = useTheme();
   const rpcApi = useApi(rpcApiRef);
-  const themeClient = rpcApi.forPlugin<ThemeClient>("theme-backend");
+  const themeClient = rpcApi.forPlugin<ThemeClient>("theme");
 
   const [loading, setLoading] = useState(true);
   const [isDark, setIsDark] = useState(false);

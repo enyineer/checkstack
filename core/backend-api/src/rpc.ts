@@ -1,4 +1,5 @@
-import { os as baseOs, ORPCError } from "@orpc/server";
+import { os as baseOs, ORPCError, Router } from "@orpc/server";
+import { AnyContractRouter } from "@orpc/contract";
 import { HealthCheckRegistry } from "./health-check";
 import { QueuePluginRegistry, QueueManager } from "@checkmate/queue-api";
 import { ProcedureMetadata } from "@checkmate/common";
@@ -319,17 +320,26 @@ export type PermissionMetadata = ProcedureMetadata;
  */
 export interface RpcService {
   /**
-   * Registers an oRPC router for a specific plugin.
+   * Registers an oRPC router for this plugin.
+   * Routes are automatically prefixed with /api/{pluginName}/
+   * @param router - The oRPC router instance
+   * @param subpath - Optional subpath (defaults to "/")
    */
-  registerRouter(pluginId: string, router: unknown): void;
+  registerRouter<C extends AnyContractRouter>(
+    router: Router<C, RpcContext>,
+    subpath?: string
+  ): void;
 
   /**
-   * Registers a raw HTTP handler for a specific subpath.
+   * Registers a raw HTTP handler for this plugin.
+   * Routes are automatically prefixed with /api/{pluginName}/
    * This is useful for third-party libraries that provide their own handlers (e.g. Better Auth).
+   * @param handler - The HTTP request handler
+   * @param path - Optional path within plugin namespace (defaults to "/")
    */
   registerHttpHandler(
-    path: string,
-    handler: (req: Request) => Promise<Response>
+    handler: (req: Request) => Promise<Response>,
+    path?: string
   ): void;
 }
 

@@ -35,7 +35,7 @@ export default createFrontendPlugin({
       factory: (deps: { get: <T>(ref: ApiRef<T>) => T }): HealthCheckApi => {
         const rpcApi = deps.get(rpcApiRef);
         // HealthCheckApi is just the RPC contract - return it directly
-        return rpcApi.forPlugin<HealthCheckApi>("healthcheck-backend");
+        return rpcApi.forPlugin<HealthCheckApi>("healthcheck");
       },
     },
   ],

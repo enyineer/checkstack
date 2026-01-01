@@ -20,9 +20,8 @@ import type {
 
 export const NotificationsPage = () => {
   const rpcApi = useApi(rpcApiRef);
-  const notificationClient = rpcApi.forPlugin<NotificationClient>(
-    "notification-backend"
-  );
+  const notificationClient =
+    rpcApi.forPlugin<NotificationClient>("notification");
   const toast = useToast();
 
   const [notifications, setNotifications] = useState<Notification[]>([]);

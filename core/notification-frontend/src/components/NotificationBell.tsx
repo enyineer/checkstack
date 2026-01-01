@@ -29,9 +29,8 @@ export const NotificationBell = () => {
   const authApi = useApi(authApiRef);
   const { data: session, isPending: isAuthLoading } = authApi.useSession();
   const rpcApi = useApi(rpcApiRef);
-  const notificationClient = rpcApi.forPlugin<NotificationClient>(
-    "notification-backend"
-  );
+  const notificationClient =
+    rpcApi.forPlugin<NotificationClient>("notification");
 
   const [unreadCount, setUnreadCount] = useState(0);
   const [recentNotifications, setRecentNotifications] = useState<

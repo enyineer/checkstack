@@ -24,7 +24,7 @@ export default createBackendPlugin({
           database as NodePgDatabase<typeof schema>
         );
         const router = createRouter(service, signalService);
-        rpc.registerRouter("maintenance-backend", router);
+        rpc.registerRouter(router);
 
         logger.debug("✅ Maintenance Backend initialized.");
       },

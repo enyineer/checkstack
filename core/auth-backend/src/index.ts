@@ -450,7 +450,7 @@ export default createBackendPlugin({
               disableSignUp: !registrationAllowed, // Disable signup when registration is not allowed
             },
             socialProviders,
-            basePath: "/api/auth-backend",
+            basePath: "/api/auth",
             baseURL: process.env.VITE_API_BASE_URL || "http://localhost:3000",
             trustedOrigins: [
               process.env.VITE_FRONTEND_URL || "http://localhost:5173",
@@ -560,12 +560,10 @@ export default createBackendPlugin({
           config,
           permissionRegistry
         );
-        rpc.registerRouter("auth-backend", authRouter);
+        rpc.registerRouter(authRouter);
 
         // 5. Register Better Auth native handler
-        rpc.registerHttpHandler("/api/auth-backend", (req) =>
-          auth!.handler(req)
-        );
+        rpc.registerHttpHandler((req: Request) => auth!.handler(req));
 
         // All auth management endpoints are now via oRPC (see ./router.ts)
 

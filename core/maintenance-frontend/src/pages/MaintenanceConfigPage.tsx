@@ -45,7 +45,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
   const permissionApi = useApi(permissionApiRef);
 
   const catalogApi = useMemo(
-    () => rpcApi.forPlugin<CatalogClient>("catalog-backend"),
+    () => rpcApi.forPlugin<CatalogClient>("catalog"),
     [rpcApi]
   );
   const toast = useToast();

@@ -19,7 +19,7 @@ describe("RPC REST Compatibility", () => {
     app = new Hono();
   });
 
-  it("should handle GET /api/auth-backend/permissions via oRPC router", async () => {
+  it("should handle GET /api/auth/permissions via oRPC router", async () => {
     // 1. Setup a mock auth router
     const authRouter = os.router({
       permissions: os.handler(async () => {
@@ -27,9 +27,12 @@ describe("RPC REST Compatibility", () => {
       }),
     });
 
-    // 2. Register it in plugin manager
+    // 2. Register it in plugin manager (now using new pattern - router only, no pluginId)
+    // Note: In real usage, the path is derived from pluginId. For test, we manually set it.
     const rpcService = await pluginManager.getService(coreServices.rpc);
-    rpcService?.registerRouter("auth-backend", authRouter);
+    // The new API auto-prefixes based on pluginId, but for test we need to manually set the map key
+    // Since we're testing the router handler directly, we use the derived name "auth"
+    rpcService?.registerRouter(authRouter);
 
     // 3. Mock the auth service to skip real authentication
     const mockAuth: any = {
@@ -58,8 +61,8 @@ describe("RPC REST Compatibility", () => {
     // 4. Mount the plugins
     await pluginManager.loadPlugins(app);
 
-    // 5. Simulate the request that frontend makes
-    const res = await app.request("/api/auth-backend/permissions", {
+    // 5. Simulate the request that frontend makes (now /api/auth instead of /api/auth-backend)
+    const res = await app.request("/api/auth/permissions", {
       method: "GET",
     });
 

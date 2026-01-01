@@ -43,7 +43,7 @@ export default createFrontendPlugin({
       ref: maintenanceApiRef,
       factory: (deps: { get: <T>(ref: ApiRef<T>) => T }): MaintenanceApi => {
         const rpcApi = deps.get(rpcApiRef);
-        return rpcApi.forPlugin<MaintenanceApi>("maintenance-backend");
+        return rpcApi.forPlugin<MaintenanceApi>("maintenance");
       },
     },
   ],

@@ -40,7 +40,7 @@ export default createBackendPlugin({
 
         // Create and register the notification router
         const router = createNotificationRouter(db, config);
-        rpc.registerRouter("notification-backend", router);
+        rpc.registerRouter(router);
 
         logger.debug("✅ Notification Backend initialized.");
       },

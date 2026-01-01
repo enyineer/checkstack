@@ -18,7 +18,7 @@ export const usePermissions = () => {
 
     const fetchPermissions = async () => {
       try {
-        const authRpc = rpcApi.forPlugin<AuthClient>("auth-backend");
+        const authRpc = rpcApi.forPlugin<AuthClient>("auth");
         const data = await authRpc.permissions();
         if (Array.isArray(data.permissions)) {
           setPermissions(data.permissions);

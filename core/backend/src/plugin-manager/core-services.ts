@@ -116,7 +116,7 @@ export function registerCoreServices({
         // Use RPC client to call auth-backend's getAnonymousPermissions endpoint
         try {
           const rpcClient = await registry.get(coreServices.rpcClient, "core");
-          const authClient = rpcClient.forPlugin<AuthClient>("auth-backend");
+          const authClient = rpcClient.forPlugin<AuthClient>("auth");
           const permissions = await authClient.getAnonymousPermissions();
 
           // Update cache
@@ -226,24 +226,31 @@ export function registerCoreServices({
     () => healthCheckRegistry
   );
 
-  // 7. RPC Service (Global Singleton)
-  registry.registerFactory(
-    coreServices.rpc,
-    () =>
-      ({
-        registerRouter: (pluginId: string, router: unknown): void => {
-          pluginRpcRouters.set(pluginId, router);
-          rootLogger.debug(`   -> Registered oRPC router for '${pluginId}'`);
-        },
-        registerHttpHandler: (
-          path: string,
-          handler: (req: Request) => Promise<Response>
-        ): void => {
-          pluginHttpHandlers.set(path, handler);
-          rootLogger.debug(`   -> Registered HTTP handler for path '${path}'`);
-        },
-      } satisfies RpcService)
-  );
+  // 7. RPC Service (Scoped Factory - uses pluginId for path derivation)
+  registry.registerFactory(coreServices.rpc, (pluginId) => {
+    // Derive the API path from plugin ID (remove -backend suffix)
+    const pluginName = pluginId.replace(/-backend$/, "");
+
+    return {
+      registerRouter: (router: unknown, subpath?: string): void => {
+        const fullPath = subpath ? `${pluginName}${subpath}` : pluginName;
+        pluginRpcRouters.set(fullPath, router);
+        rootLogger.debug(
+          `   -> Registered oRPC router for '${pluginId}' at '/api/${fullPath}'`
+        );
+      },
+      registerHttpHandler: (
+        handler: (req: Request) => Promise<Response>,
+        path = "/"
+      ): void => {
+        const fullPath = `/api/${pluginName}${path === "/" ? "" : path}`;
+        pluginHttpHandlers.set(fullPath, handler);
+        rootLogger.debug(
+          `   -> Registered HTTP handler for '${pluginId}' at '${fullPath}'`
+        );
+      },
+    } satisfies RpcService;
+  });
 
   // 8. Config Service (Scoped Factory)
   registry.registerFactory(coreServices.config, async (pluginId) => {

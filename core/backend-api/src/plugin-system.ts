@@ -3,6 +3,9 @@ import { ServiceRef } from "./service-ref";
 import { ExtensionPoint } from "./extension-point";
 import type { Permission } from "@checkmate/common";
 import type { Hook, HookSubscribeOptions, HookUnsubscribe } from "./hooks";
+import { Router } from "@orpc/server";
+import { RpcContext } from "./rpc";
+import { AnyContractRouter } from "@orpc/contract";
 
 export type Deps = Record<string, ServiceRef<unknown>>;
 
@@ -68,7 +71,9 @@ export type BackendPluginRegistry = {
   registerExtensionPoint: <T>(ref: ExtensionPoint<T>, impl: T) => void;
   getExtensionPoint: <T>(ref: ExtensionPoint<T>) => T;
   registerPermissions: (permissions: Permission[]) => void;
-  registerRouter: (router: unknown) => void;
+  registerRouter: <C extends AnyContractRouter>(
+    router: Router<C, RpcContext>
+  ) => void;
   /**
    * Register cleanup logic to be called when the plugin is deregistered.
    * Multiple cleanup handlers can be registered; they run in LIFO order.

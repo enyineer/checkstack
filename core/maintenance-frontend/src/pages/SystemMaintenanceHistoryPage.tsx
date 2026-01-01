@@ -36,7 +36,7 @@ const SystemMaintenanceHistoryPageContent: React.FC = () => {
   const rpcApi = useApi(rpcApiRef);
 
   const catalogApi = useMemo(
-    () => rpcApi.forPlugin<CatalogClient>("catalog-backend"),
+    () => rpcApi.forPlugin<CatalogClient>("catalog"),
     [rpcApi]
   );
 

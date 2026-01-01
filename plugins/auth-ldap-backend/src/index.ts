@@ -397,76 +397,72 @@ export default createBackendPlugin({
         };
 
         // Register custom HTTP handler for LDAP login
-        rpc.registerHttpHandler(
-          "/api/auth-backend/ldap/login",
-          async (req: Request) => {
-            try {
-              const body = await req.json();
-              const { username, password } = body;
+        // Path /ldap/login will resolve to /api/auth-ldap/ldap/login
+        rpc.registerHttpHandler(async (req: Request) => {
+          try {
+            const body = await req.json();
+            const { username, password } = body;
 
-              if (!username || !password) {
-                return redirectToAuthError(
-                  "Username and password are required"
-                );
-              }
-
-              // Authenticate with LDAP
-              const authResult = await authenticateLdap(username, password);
-
-              if (!authResult.success) {
-                return redirectToAuthError(
-                  authResult.error || "Authentication failed"
-                );
-              }
-
-              // Sync user to database
-              const { userId, email, name } = await syncUser(
-                username,
-                authResult.userAttributes!
-              );
-
-              // Create session via RPC
-              const sessionToken = crypto.randomUUID();
-              const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-
-              await authClient.createSession({
-                userId,
-                token: sessionToken,
-                expiresAt,
-              });
-
-              logger.info(`Created session for LDAP user: ${email}`);
-
-              // Return session token in cookie format
-              return Response.json(
-                {
-                  success: true,
-                  user: {
-                    id: userId,
-                    email,
-                    name,
-                  },
-                },
-                {
-                  status: 200,
-                  headers: {
-                    "Content-Type": "application/json",
-                    "Set-Cookie": `better-auth.session_token=${sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${
-                      7 * 24 * 60 * 60
-                    }`,
-                  },
-                }
-              );
-            } catch (error) {
-              logger.error("LDAP login error:", error);
-              const message =
-                error instanceof Error
-                  ? error.message
-                  : "Authentication failed. Please try again.";
-              return redirectToAuthError(message);
+            if (!username || !password) {
+              return redirectToAuthError("Username and password are required");
             }
+
+            // Authenticate with LDAP
+            const authResult = await authenticateLdap(username, password);
+
+            if (!authResult.success) {
+              return redirectToAuthError(
+                authResult.error || "Authentication failed"
+              );
+            }
+
+            // Sync user to database
+            const { userId, email, name } = await syncUser(
+              username,
+              authResult.userAttributes!
+            );
+
+            // Create session via RPC
+            const sessionToken = crypto.randomUUID();
+            const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+            await authClient.createSession({
+              userId,
+              token: sessionToken,
+              expiresAt,
+            });
+
+            logger.info(`Created session for LDAP user: ${email}`);
+
+            // Return session token in cookie format
+            return Response.json(
+              {
+                success: true,
+                user: {
+                  id: userId,
+                  email,
+                  name,
+                },
+              },
+              {
+                status: 200,
+                headers: {
+                  "Content-Type": "application/json",
+                  "Set-Cookie": `better-auth.session_token=${sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${
+                    7 * 24 * 60 * 60
+                  }`,
+                },
+              }
+            );
+          } catch (error) {
+            logger.error("LDAP login error:", error);
+            const message =
+              error instanceof Error
+                ? error.message
+                : "Authentication failed. Please try again.";
+            return redirectToAuthError(message);
           }
-        );
+        });
 
         logger.debug("✅ LDAP authentication initialized");
       },

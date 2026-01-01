@@ -38,9 +38,7 @@ interface GroupWithSystems extends Group {
 export const Dashboard: React.FC = () => {
   const catalogApi = useApi(catalogApiRef);
   const rpcApi = useApi(rpcApiRef);
-  const notificationApi = rpcApi.forPlugin<NotificationClient>(
-    "notification-backend"
-  );
+  const notificationApi = rpcApi.forPlugin<NotificationClient>("notification");
   const navigate = useNavigate();
   const toast = useToast();
 

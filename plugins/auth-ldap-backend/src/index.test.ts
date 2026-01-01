@@ -82,14 +82,11 @@ describe("LDAP Authentication Strategy", () => {
 
   describe("HTTP Login Endpoint", () => {
     it("should return 400 when username is missing", async () => {
-      const request = new Request(
-        "http://localhost/api/auth-backend/ldap/login",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password: "test123" }),
-        }
-      );
+      const request = new Request("http://localhost/api/auth-ldap/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "test123" }),
+      });
 
       // We'll test this with the actual handler in integration tests
       const body = await request.json();
@@ -98,14 +95,11 @@ describe("LDAP Authentication Strategy", () => {
     });
 
     it("should return 400 when password is missing", async () => {
-      const request = new Request(
-        "http://localhost/api/auth-backend/ldap/login",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username: "testuser" }),
-        }
-      );
+      const request = new Request("http://localhost/api/auth-ldap/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "testuser" }),
+      });
 
       const body = await request.json();
       expect(body.username).toBe("testuser");
@@ -113,17 +107,14 @@ describe("LDAP Authentication Strategy", () => {
     });
 
     it("should parse valid login request body", async () => {
-      const request = new Request(
-        "http://localhost/api/auth-backend/ldap/login",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            username: "testuser",
-            password: "test123",
-          }),
-        }
-      );
+      const request = new Request("http://localhost/api/auth-ldap/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: "testuser",
+          password: "test123",
+        }),
+      });
 
       const body = await request.json();
       expect(body.username).toBe("testuser");

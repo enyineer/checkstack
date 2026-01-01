@@ -16,7 +16,7 @@ export const catalogPlugin = createFrontendPlugin({
       factory: (deps: { get: <T>(ref: ApiRef<T>) => T }): CatalogApi => {
         const rpcApi = deps.get(rpcApiRef);
         // CatalogApi is derived from the contract type
-        return rpcApi.forPlugin<CatalogApi>("catalog-backend");
+        return rpcApi.forPlugin<CatalogApi>("catalog");
       },
     },
   ],

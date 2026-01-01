@@ -16,6 +16,7 @@ import {
   ResolvedDeps,
   coreHooks,
   HookSubscribeOptions,
+  RpcContext,
 } from "@checkmate/backend-api";
 import type { Permission } from "@checkmate/common";
 import { rootLogger } from "../logger";
@@ -30,6 +31,8 @@ import type { InitCallback, PendingInit } from "./types";
 import { sortPlugins } from "./dependency-sorter";
 import { createApiRouteHandler, registerApiRoute } from "./api-router";
 import type { ExtensionPointManager } from "./extension-points";
+import { Router } from "@orpc/server";
+import { AnyContractRouter } from "@orpc/contract";
 
 export interface PluginLoaderDeps {
   registry: ServiceRegistry;
@@ -117,8 +120,13 @@ export function registerPlugin({
         `   -> Registered ${prefixed.length} permissions for ${backendPlugin.pluginId}`
       );
     },
-    registerRouter: (router: unknown) => {
-      deps.pluginRpcRouters.set(backendPlugin.pluginId, router);
+    registerRouter: (
+      router: Router<AnyContractRouter, RpcContext>,
+      subpath?: string
+    ) => {
+      const pluginName = backendPlugin.pluginId.replace(/-backend$/, "");
+      const fullPath = subpath ? `${pluginName}${subpath}` : pluginName;
+      deps.pluginRpcRouters.set(fullPath, router);
     },
     registerCleanup: (cleanup: () => Promise<void>) => {
       const existing = deps.cleanupHandlers.get(backendPlugin.pluginId) || [];

@@ -18,9 +18,8 @@ import { permissions } from "@checkmate/notification-common";
 export const NotificationSettingsPage = () => {
   const rpcApi = useApi(rpcApiRef);
   const permissionApi = useApi(permissionApiRef);
-  const notificationClient = rpcApi.forPlugin<NotificationClient>(
-    "notification-backend"
-  );
+  const notificationClient =
+    rpcApi.forPlugin<NotificationClient>("notification");
   const toast = useToast();
 
   // Check if user has admin permission

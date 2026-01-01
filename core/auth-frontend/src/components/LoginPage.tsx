@@ -48,7 +48,7 @@ export const LoginPage = () => {
   const navigate = useNavigate();
   const authApi = useApi(authApiRef);
   const rpcApi = useApi(rpcApiRef);
-  const authRpcClient = rpcApi.forPlugin<AuthClient>("auth-backend");
+  const authRpcClient = rpcApi.forPlugin<AuthClient>("auth");
   const { strategies, loading: strategiesLoading } = useEnabledStrategies();
   const [registrationAllowed, setRegistrationAllowed] = useState<boolean>(true);
 

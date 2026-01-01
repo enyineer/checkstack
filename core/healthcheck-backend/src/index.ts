@@ -47,7 +47,7 @@ export default createBackendPlugin({
         const healthCheckRouter = createHealthCheckRouter(
           database as NodePgDatabase<typeof schema>
         );
-        rpc.registerRouter("healthcheck-backend", healthCheckRouter);
+        rpc.registerRouter(healthCheckRouter);
 
         logger.debug("✅ Health Check Backend initialized.");
       },

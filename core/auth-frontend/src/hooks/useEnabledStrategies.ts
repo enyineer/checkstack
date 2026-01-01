@@ -11,7 +11,7 @@ export interface UseEnabledStrategiesResult {
 
 export const useEnabledStrategies = (): UseEnabledStrategiesResult => {
   const rpcApi = useApi(rpcApiRef);
-  const authClient = rpcApi.forPlugin<AuthClient>("auth-backend");
+  const authClient = rpcApi.forPlugin<AuthClient>("auth");
 
   const [strategies, setStrategies] = useState<EnabledAuthStrategy[]>([]);
   const [loading, setLoading] = useState(true);

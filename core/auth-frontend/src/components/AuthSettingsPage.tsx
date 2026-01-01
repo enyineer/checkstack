@@ -51,7 +51,7 @@ import { rpcApiRef } from "@checkmate/frontend-api";
 export const AuthSettingsPage: React.FC = () => {
   const authApi = useApi(authApiRef);
   const rpcApi = useApi(rpcApiRef);
-  const authClient = rpcApi.forPlugin<AuthClient>("auth-backend");
+  const authClient = rpcApi.forPlugin<AuthClient>("auth");
   const permissionApi = useApi(permissionApiRef);
   const toast = useToast();
 
