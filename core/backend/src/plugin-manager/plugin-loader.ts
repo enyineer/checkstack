@@ -213,6 +213,7 @@ export async function loadPlugins({
     } catch (error) {
       rootLogger.error(`❌ Failed to load module for ${plugin.name}:`, error);
       rootLogger.error(`   Expected path: ${plugin.path}`);
+      throw new Error(`Failed to load plugin ${plugin.name}`, { cause: error });
     }
   }
 
@@ -264,6 +265,9 @@ export async function loadPlugins({
             `❌ Failed migration of plugin ${p.pluginId}:`,
             error
           );
+          throw new Error(`Failed to migrate plugin ${p.pluginId}`, {
+            cause: error,
+          });
         }
       } else {
         rootLogger.debug(
@@ -294,12 +298,18 @@ export async function loadPlugins({
         rootLogger.debug(`   -> Initialized ${p.pluginId}`);
       } catch (error) {
         rootLogger.error(`❌ Failed to initialize ${p.pluginId}:`, error);
+        throw new Error(`Failed to initialize plugin ${p.pluginId}`, {
+          cause: error,
+        });
       }
     } catch (error) {
       rootLogger.error(
         `❌ Critical error loading plugin ${p.pluginId}:`,
         error
       );
+      throw new Error(`Critical error loading plugin ${p.pluginId}`, {
+        cause: error,
+      });
     }
   }
 
@@ -390,6 +400,9 @@ export async function loadPlugins({
           `❌ Failed afterPluginsReady for ${p.pluginId}:`,
           error
         );
+        throw new Error(`Failed afterPluginsReady for plugin ${p.pluginId}`, {
+          cause: error,
+        });
       }
     }
   }
