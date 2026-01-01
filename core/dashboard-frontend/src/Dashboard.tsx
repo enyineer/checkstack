@@ -6,6 +6,8 @@ import {
   Group,
   System,
 } from "@checkmate/catalog-frontend-plugin";
+import { catalogRoutes } from "@checkmate/catalog-common";
+import { resolveRoute } from "@checkmate/common";
 import type {
   NotificationClient,
   EnrichedSubscription,
@@ -87,7 +89,7 @@ export const Dashboard: React.FC = () => {
   }, [catalogApi, notificationApi]);
 
   const handleSystemClick = (systemId: string) => {
-    navigate(`/catalog/system/${systemId}`);
+    navigate(resolveRoute(catalogRoutes.routes.systemDetail, { systemId }));
   };
 
   const isSubscribed = (groupId: string) => {

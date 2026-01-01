@@ -12,6 +12,7 @@ import {
 } from "@checkmate/ui";
 import { useApi, rpcApiRef } from "@checkmate/frontend-api";
 import { useSignal } from "@checkmate/signal-frontend";
+import { resolveRoute } from "@checkmate/common";
 import type {
   Notification,
   NotificationClient,
@@ -20,6 +21,7 @@ import {
   NOTIFICATION_RECEIVED,
   NOTIFICATION_COUNT_CHANGED,
   NOTIFICATION_READ,
+  notificationRoutes,
 } from "@checkmate/notification-common";
 import { authApiRef } from "@checkmate/auth-frontend/api";
 
@@ -281,7 +283,7 @@ export const NotificationBell = () => {
           }}
         >
           <Link
-            to="/notification/"
+            to={resolveRoute(notificationRoutes.routes.home)}
             className="w-full text-center text-sm text-primary"
           >
             View all notifications

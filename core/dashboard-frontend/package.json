@@ -12,6 +12,7 @@
     "@checkmate/frontend-api": "workspace:*",
     "@checkmate/common": "workspace:*",
     "@checkmate/notification-common": "workspace:*",
+    "@checkmate/catalog-common": "workspace:*",
     "@checkmate/ui": "workspace:*",
     "@checkmate/catalog-frontend": "workspace:*",
     "react": "^18.2.0",

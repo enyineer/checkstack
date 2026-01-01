@@ -110,9 +110,17 @@ export function createRoutes<T extends Record<string, string>>(
  * // Returns: "/maintenance/detail/123"
  * ```
  */
+// Overload: no params needed for routes without path parameters
+export function resolveRoute(route: RouteDefinition<never>): string;
+// Overload: params required for routes with path parameters
 export function resolveRoute<TParams extends string>(
   route: RouteDefinition<TParams>,
-  params?: [TParams] extends [never] ? undefined : Record<TParams, string>
+  params: Record<TParams, string>
+): string;
+// Implementation
+export function resolveRoute<TParams extends string>(
+  route: RouteDefinition<TParams>,
+  params?: Record<string, string>
 ): string {
   const basePath = `/${route.pluginId}${
     route.path.startsWith("/") ? route.path : `/${route.path}`
@@ -125,7 +133,7 @@ export function resolveRoute<TParams extends string>(
   // Substitute path parameters (e.g., :id -> actual value)
   let result = basePath;
   for (const [key, value] of Object.entries(params)) {
-    result = result.replace(`:${key}`, value as string);
+    result = result.replace(`:${key}`, value);
   }
   return result;
 }

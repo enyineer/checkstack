@@ -4,6 +4,8 @@ import { AlertCircle } from "lucide-react";
 import { useApi, rpcApiRef } from "@checkmate/frontend-api";
 import { authApiRef } from "../api";
 import type { AuthClient } from "@checkmate/auth-common";
+import { authRoutes } from "@checkmate/auth-common";
+import { resolveRoute } from "@checkmate/common";
 import {
   Button,
   Input,
@@ -122,7 +124,7 @@ export const RegisterPage = () => {
                   New user registration has been disabled by the system
                   administrator. If you already have an account, please{" "}
                   <Link
-                    to="/auth/login"
+                    to={resolveRoute(authRoutes.routes.login)}
                     className="underline text-primary hover:text-primary/90 font-medium"
                   >
                     sign in
@@ -294,7 +296,7 @@ export const RegisterPage = () => {
           <div className="text-sm">
             Already have an account?{" "}
             <Link
-              to="/auth/login"
+              to={resolveRoute(authRoutes.routes.login)}
               className="underline text-primary hover:text-primary/90 font-medium"
             >
               Sign in

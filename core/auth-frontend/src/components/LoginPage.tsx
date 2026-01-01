@@ -9,6 +9,8 @@ import {
 } from "@checkmate/frontend-api";
 import { authApiRef } from "../api";
 import type { AuthClient } from "@checkmate/auth-common";
+import { authRoutes } from "@checkmate/auth-common";
+import { resolveRoute } from "@checkmate/common";
 import {
   Button,
   Input,
@@ -234,7 +236,7 @@ export const LoginPage = () => {
               <div className="text-sm">
                 Don't have an account?{" "}
                 <Link
-                  to="/auth/register"
+                  to={resolveRoute(authRoutes.routes.register)}
                   className="underline text-primary hover:text-primary/90 font-medium"
                 >
                   Sign up
@@ -285,7 +287,7 @@ export const LoginNavbarAction = () => {
   }
 
   return (
-    <Link to="/auth/login">
+    <Link to={resolveRoute(authRoutes.routes.login)}>
       <Button variant="outline" className="flex items-center rounded-full px-5">
         <LogIn className="mr-2 h-4 w-4" />
         Login

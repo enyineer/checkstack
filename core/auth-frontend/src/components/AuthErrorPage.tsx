@@ -1,5 +1,7 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { AlertCircle, Home, LogIn } from "lucide-react";
+import { authRoutes } from "@checkmate/auth-common";
+import { resolveRoute } from "@checkmate/common";
 import {
   Button,
   Card,
@@ -73,7 +75,7 @@ export const AuthErrorPage = () => {
           </Alert>
         </CardContent>
         <CardFooter className="flex gap-2 justify-center">
-          <Link to="/auth/login">
+          <Link to={resolveRoute(authRoutes.routes.login)}>
             <Button variant="primary">
               <LogIn className="mr-2 h-4 w-4" />
               Try Again

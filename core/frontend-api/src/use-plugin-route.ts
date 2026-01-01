@@ -54,7 +54,11 @@ export function usePluginRoute(): {
         return pluginRegistry.resolveRoute(routeOrId, params);
       }
       // Resolve using route definition directly
-      return resolveRoute(routeOrId as RouteDefinition<string>, params);
+      // Cast needed because overload signatures hide implementation details
+      if (params) {
+        return resolveRoute(routeOrId as RouteDefinition<string>, params);
+      }
+      return resolveRoute(routeOrId as RouteDefinition<never>);
     },
     []
   ) as ReturnType<typeof usePluginRoute>;

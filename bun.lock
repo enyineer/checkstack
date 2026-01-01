@@ -209,6 +209,7 @@
       "name": "@checkmate/dashboard-frontend",
       "version": "0.0.1",
       "dependencies": {
+        "@checkmate/catalog-common": "workspace:*",
         "@checkmate/catalog-frontend": "workspace:*",
         "@checkmate/common": "workspace:*",
         "@checkmate/frontend-api": "workspace:*",
