@@ -196,7 +196,7 @@ const init = async () => {
       rootLogger.debug(`Broadcasting PLUGIN_INSTALLED signal for: ${pluginId}`);
       await signalService.broadcast(PLUGIN_INSTALLED, { pluginId });
     },
-    { mode: "work-queue", workerGroup: "frontend-signal" }
+    { mode: "work-queue", workerGroup: "frontend-signal-installed" }
   );
   await eventBus.subscribe(
     "core",
@@ -214,7 +214,7 @@ const init = async () => {
       );
       await signalService.broadcast(PLUGIN_DEREGISTERED, { pluginId });
     },
-    { mode: "work-queue", workerGroup: "frontend-signal" }
+    { mode: "work-queue", workerGroup: "frontend-signal-deregistered" }
   );
 
   // 11. Create WebSocket handler for realtime signals
