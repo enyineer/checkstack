@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useApi, rpcApiRef } from "@checkmate/frontend-api";
+import { useApi, rpcApiRef, ExtensionSlot } from "@checkmate/frontend-api";
 import {
   catalogApiRef,
   Group,
   System,
 } from "@checkmate/catalog-frontend-plugin";
-import { catalogRoutes } from "@checkmate/catalog-common";
+import {
+  catalogRoutes,
+  SystemStateBadgesSlot,
+} from "@checkmate/catalog-common";
 import { resolveRoute } from "@checkmate/common";
 import type {
   NotificationClient,
@@ -206,6 +209,10 @@ export const Dashboard: React.FC = () => {
                           {system.name}
                         </p>
                       </div>
+                      <ExtensionSlot
+                        id={SystemStateBadgesSlot.id}
+                        context={{ system }}
+                      />
                       <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                     </button>
                   ))}
