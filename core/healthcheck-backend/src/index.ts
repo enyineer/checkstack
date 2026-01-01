@@ -19,7 +19,6 @@ export default createBackendPlugin({
         logger: coreServices.logger,
         healthCheckRegistry: coreServices.healthCheckRegistry,
         rpc: coreServices.rpc,
-        fetch: coreServices.fetch,
         queueManager: coreServices.queueManager,
       },
       // Phase 2: Register router and setup worker
@@ -28,7 +27,6 @@ export default createBackendPlugin({
         database,
         healthCheckRegistry,
         rpc,
-        fetch,
         queueManager,
       }) => {
         logger.debug("🏥 Initializing Health Check Backend...");
@@ -38,7 +36,6 @@ export default createBackendPlugin({
           db: database as unknown as NodePgDatabase<typeof schema>,
           registry: healthCheckRegistry,
           logger,
-          fetch,
           queueManager,
         });
 

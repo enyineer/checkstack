@@ -6,6 +6,7 @@ import { ExtensionSlot } from "@checkmate/frontend-api";
 import {
   SystemDetailsSlot,
   SystemDetailsTopSlot,
+  SystemStateBadgesSlot,
 } from "@checkmate/catalog-common";
 import type { NotificationClient } from "@checkmate/notification-common";
 import {
@@ -14,7 +15,6 @@ import {
   CardTitle,
   CardContent,
   LoadingSpinner,
-  HealthBadge,
   SubscribeButton,
   useToast,
 } from "@checkmate/ui";
@@ -167,12 +167,6 @@ export const SystemDetailPage: React.FC = () => {
     );
   }
 
-  // Placeholder for real metadata if we decide to fetch latest runs here
-  const metadata = {
-    latency: "N/A",
-    lastCheck: "N/A",
-  };
-
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Header */}
@@ -203,34 +197,19 @@ export const SystemDetailPage: React.FC = () => {
       {/* Top Extension Slot for urgent items like maintenance alerts */}
       <ExtensionSlot id={SystemDetailsTopSlot.id} context={{ system }} />
 
-      {/* Health Overview Card */}
+      {/* System Status Card - displays plugin-provided state badges */}
       <Card className="border-border shadow-sm">
         <CardHeader className="border-b border-border bg-muted/30">
           <div className="flex items-center gap-2">
             <Activity className="h-5 w-5 text-muted-foreground" />
             <CardTitle className="text-lg font-semibold">
-              Health Overview
+              System Status
             </CardTitle>
           </div>
         </CardHeader>
         <CardContent className="p-6">
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-sm text-muted-foreground">Current Status</p>
-              <HealthBadge status={system.status} />
-            </div>
-            <div className="text-right space-y-1">
-              <p className="text-sm text-muted-foreground">Response Time</p>
-              <p className="text-2xl font-semibold text-foreground">
-                {String(metadata.latency)}
-              </p>
-            </div>
-            <div className="text-right space-y-1">
-              <p className="text-sm text-muted-foreground">Last Checked</p>
-              <p className="text-base font-medium text-foreground">
-                {String(metadata.lastCheck)}
-              </p>
-            </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <ExtensionSlot id={SystemStateBadgesSlot.id} context={{ system }} />
           </div>
         </CardContent>
       </Card>

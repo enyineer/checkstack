@@ -7,11 +7,15 @@ import {
 import { SLOT_USER_MENU_ITEMS } from "@checkmate/common";
 import { maintenanceApiRef, type MaintenanceApi } from "./api";
 import { maintenanceRoutes } from "@checkmate/maintenance-common";
-import { SystemDetailsTopSlot } from "@checkmate/catalog-common";
+import {
+  SystemDetailsTopSlot,
+  SystemStateBadgesSlot,
+} from "@checkmate/catalog-common";
 import { MaintenanceConfigPage } from "./pages/MaintenanceConfigPage";
 import { SystemMaintenanceHistoryPage } from "./pages/SystemMaintenanceHistoryPage";
 import { MaintenanceDetailPage } from "./pages/MaintenanceDetailPage";
 import { SystemMaintenancePanel } from "./components/SystemMaintenancePanel";
+import { SystemMaintenanceBadge } from "./components/SystemMaintenanceBadge";
 import { MaintenanceMenuItems } from "./components/MaintenanceMenuItems";
 
 export default createFrontendPlugin({
@@ -49,6 +53,10 @@ export default createFrontendPlugin({
       slotId: SLOT_USER_MENU_ITEMS,
       component: MaintenanceMenuItems,
     },
+    createSlotExtension(SystemStateBadgesSlot, {
+      id: "maintenance.system-maintenance-badge",
+      component: SystemMaintenanceBadge,
+    }),
     createSlotExtension(SystemDetailsTopSlot, {
       id: "maintenance.system-details-top.panel",
       component: SystemMaintenancePanel,

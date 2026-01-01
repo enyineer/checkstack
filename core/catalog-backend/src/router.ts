@@ -112,7 +112,6 @@ export const createCatalogRouter = (
       name: string;
       description?: string;
       owner?: string;
-      status?: "healthy" | "degraded" | "unhealthy";
       metadata?: Record<string, unknown>;
     }> = {};
     if (input.data.name !== undefined) cleanData.name = input.data.name;
@@ -120,11 +119,6 @@ export const createCatalogRouter = (
       cleanData.description = input.data.description ?? undefined;
     if (input.data.owner !== undefined)
       cleanData.owner = input.data.owner ?? undefined;
-    if (input.data.status !== undefined)
-      cleanData.status = input.data.status as
-        | "healthy"
-        | "degraded"
-        | "unhealthy";
     if (input.data.metadata !== undefined)
       cleanData.metadata = input.data.metadata ?? undefined;
 

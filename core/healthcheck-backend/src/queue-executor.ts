@@ -1,4 +1,4 @@
-import { HealthCheckRegistry, Logger, Fetch } from "@checkmate/backend-api";
+import { HealthCheckRegistry, Logger } from "@checkmate/backend-api";
 import { QueueManager } from "@checkmate/queue-api";
 import {
   healthCheckConfigurations,
@@ -6,7 +6,7 @@ import {
   healthCheckRuns,
 } from "./schema";
 import * as schema from "./schema";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 
 type Db = NodePgDatabase<typeof schema>;
@@ -77,9 +77,8 @@ async function executeHealthCheckJob(props: {
   db: Db;
   registry: HealthCheckRegistry;
   logger: Logger;
-  fetch: Fetch;
 }): Promise<void> {
-  const { payload, db, registry, logger, fetch } = props;
+  const { payload, db, registry, logger } = props;
   const { configId, systemId } = payload;
 
   try {
@@ -138,9 +137,6 @@ async function executeHealthCheckJob(props: {
       `Ran health check ${configId} for system ${systemId}: ${result.status}`
     );
 
-    // Propagate status to catalog
-    await propagateStatus({ systemId, db, logger, fetch });
-
     // Note: No manual rescheduling needed - recurring job handles it automatically
   } catch (error) {
     logger.error(
@@ -156,97 +152,8 @@ async function executeHealthCheckJob(props: {
       result: { error: String(error) } as Record<string, unknown>,
     });
 
-    // Propagate status even on failure
-    await propagateStatus({ systemId, db, logger, fetch });
-
     // Note: No manual rescheduling needed - recurring job handles it automatically
   }
-}
-
-/**
- * Propagate health status to catalog backend
- */
-async function propagateStatus(props: {
-  systemId: string;
-  db: Db;
-  logger: Logger;
-  fetch: Fetch;
-}): Promise<void> {
-  const { systemId, db, logger, fetch } = props;
-
-  try {
-    const aggregateStatus = await calculateAggregateStatus(systemId, db);
-
-    logger.info(
-      `Propagating status '${aggregateStatus}' for system ${systemId}`
-    );
-
-    const response = await fetch
-      .forPlugin("catalog-backend")
-      .put(`/entities/systems/${systemId}`, { status: aggregateStatus });
-
-    if (!response.ok) {
-      const text = await response.text();
-      logger.error(
-        `Failed to propagate status for system ${systemId}: ${response.status} ${text}`
-      );
-    }
-  } catch (error) {
-    logger.error(`Error propagating status for system ${systemId}`, error);
-  }
-}
-
-/**
- * Calculate aggregate health status for a system
- */
-async function calculateAggregateStatus(
-  systemId: string,
-  db: Db
-): Promise<string> {
-  // 1. Get all enabled checks for this system
-  const checks = await db
-    .select({ configId: systemHealthChecks.configurationId })
-    .from(systemHealthChecks)
-    .where(
-      and(
-        eq(systemHealthChecks.systemId, systemId),
-        eq(systemHealthChecks.enabled, true)
-      )
-    );
-
-  if (checks.length === 0) return "healthy";
-
-  const statuses: string[] = [];
-
-  // 2. Get the latest run for each check
-  for (const check of checks) {
-    const latestRun = await db
-      .select({ status: healthCheckRuns.status })
-      .from(healthCheckRuns)
-      .where(
-        and(
-          eq(healthCheckRuns.systemId, systemId),
-          eq(healthCheckRuns.configurationId, check.configId)
-        )
-      )
-      .orderBy(desc(healthCheckRuns.timestamp))
-      .limit(1);
-
-    if (latestRun.length > 0) {
-      statuses.push(latestRun[0].status);
-    }
-  }
-
-  if (statuses.length === 0) return "healthy";
-
-  // Aggregation logic:
-  // - Any 'unhealthy' -> 'unhealthy'
-  // - Any 'degraded' -> 'degraded' (if no unhealthy)
-  // - All 'healthy' -> 'healthy'
-
-  if (statuses.includes("unhealthy")) return "unhealthy";
-  if (statuses.includes("degraded")) return "degraded";
-  return "healthy";
 }
 
 /**
@@ -256,10 +163,9 @@ export async function setupHealthCheckWorker(props: {
   db: Db;
   registry: HealthCheckRegistry;
   logger: Logger;
-  fetch: Fetch;
   queueManager: QueueManager;
 }): Promise<void> {
-  const { db, registry, logger, fetch, queueManager } = props;
+  const { db, registry, logger, queueManager } = props;
 
   const queue =
     queueManager.getQueue<HealthCheckJobPayload>(HEALTH_CHECK_QUEUE);
@@ -272,7 +178,6 @@ export async function setupHealthCheckWorker(props: {
         db,
         registry,
         logger,
-        fetch,
       });
     },
     {

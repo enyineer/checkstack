@@ -53,3 +53,22 @@ export const CatalogSystemActionsSlot = createSlot<{
   systemId: string;
   systemName: string;
 }>("plugin.catalog.system-actions");
+
+/**
+ * Slot for displaying system state badges.
+ * Plugins use this to contribute state indicators (e.g., health status, maintenance status).
+ * Extensions receive the system and should render badge components.
+ *
+ * @example
+ * // In your plugin
+ * import { SystemStateBadgesSlot } from "@checkmate/catalog-common";
+ *
+ * extensions: [{
+ *   id: "my-plugin.system-state-badge",
+ *   slotId: SystemStateBadgesSlot.id,
+ *   component: ({ system }) => <MyStatusBadge systemId={system.id} />,
+ * }]
+ */
+export const SystemStateBadgesSlot = createSlot<{ system: System }>(
+  "plugin.catalog.system-state-badges"
+);

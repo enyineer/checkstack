@@ -8,7 +8,6 @@ type NewSystem = {
   name: string;
   description?: string;
   owner?: string;
-  status?: "healthy" | "degraded" | "unhealthy";
   metadata?: Record<string, unknown>;
 };
 

@@ -21,11 +21,10 @@ import {
   StatusCard,
   EmptyState,
   LoadingSpinner,
-  SystemHealthItem,
   SubscribeButton,
   useToast,
 } from "@checkmate/ui";
-import { LayoutGrid, Info, Server, Activity } from "lucide-react";
+import { LayoutGrid, Info, Server, Activity, ChevronRight } from "lucide-react";
 
 const CATALOG_PLUGIN_ID = "catalog-backend";
 
@@ -196,13 +195,19 @@ export const Dashboard: React.FC = () => {
                   }`}
                 >
                   {group.systems.map((system) => (
-                    <SystemHealthItem
+                    <button
                       key={system.id}
-                      name={system.name}
-                      status={system.status}
-                      metadata={{}}
                       onClick={() => handleSystemClick(system.id)}
-                    />
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 transition-all cursor-pointer hover:border-border/80 hover:shadow-sm text-left"
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <Activity className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <p className="text-sm font-medium text-foreground truncate">
+                          {system.name}
+                        </p>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    </button>
                   ))}
                 </div>
               )}

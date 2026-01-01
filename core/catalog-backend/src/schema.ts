@@ -4,22 +4,13 @@ import {
   timestamp,
   json,
   primaryKey,
-  pgEnum,
 } from "drizzle-orm/pg-core";
-
-// Define the status enum
-export const systemStatusEnum = pgEnum("system_status", [
-  "healthy",
-  "degraded",
-  "unhealthy",
-]);
 
 export const systems = pgTable("systems", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
   owner: text("owner"), // user_id or group_id reference? Keeping as text for now.
-  status: systemStatusEnum("status").notNull().default("healthy"),
   metadata: json("metadata").default({}),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

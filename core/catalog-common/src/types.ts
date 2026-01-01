@@ -9,7 +9,6 @@ export const SystemSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   owner: z.string().nullable(),
-  status: z.enum(["healthy", "degraded", "unhealthy"]), // Proper enum for type safety
   metadata: z.record(z.string(), z.unknown()).nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),

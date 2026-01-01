@@ -9,7 +9,6 @@ import {
   createMockLogger,
   createMockQueueManager,
   createMockDb,
-  createMockFetch,
 } from "@checkmate/test-utils-backend";
 import type { HealthCheckRegistry } from "@checkmate/backend-api";
 import { mock } from "bun:test";
@@ -82,14 +81,12 @@ describe("Queue-Based Health Check Executor", () => {
       const mockDb = createMockDb();
       const mockRegistry = createMockRegistry();
       const mockLogger = createMockLogger();
-      const mockFetch = createMockFetch();
       const mockQueueManager = createMockQueueManager();
 
       await setupHealthCheckWorker({
         db: mockDb as any,
         registry: mockRegistry,
         logger: mockLogger,
-        fetch: mockFetch,
         queueManager: mockQueueManager,
       });
 

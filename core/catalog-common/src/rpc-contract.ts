@@ -13,7 +13,6 @@ const CreateSystemInputSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   owner: z.string().optional(),
-  status: z.enum(["healthy", "degraded", "unhealthy"]).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -23,7 +22,6 @@ const UpdateSystemInputSchema = z.object({
     name: z.string().optional(),
     description: z.string().nullable().optional(), // Allow nullable for updates
     owner: z.string().nullable().optional(),
-    status: z.string().optional(),
     metadata: z.record(z.string(), z.unknown()).nullable().optional(), // Allow nullable
   }),
 });

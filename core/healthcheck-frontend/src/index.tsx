@@ -9,11 +9,13 @@ import { HealthCheckConfigPage } from "./pages/HealthCheckConfigPage";
 import { HealthCheckMenuItems } from "./components/HealthCheckMenuItems";
 import { HealthCheckHistory } from "./components/HealthCheckHistory";
 import { SystemHealthCheckAssignment } from "./components/SystemHealthCheckAssignment";
+import { SystemHealthBadge } from "./components/SystemHealthBadge";
 
 import { SLOT_USER_MENU_ITEMS } from "@checkmate/common";
 import {
   SystemDetailsSlot,
   CatalogSystemActionsSlot,
+  SystemStateBadgesSlot,
 } from "@checkmate/catalog-common";
 import { healthcheckRoutes } from "@checkmate/healthcheck-common";
 
@@ -43,6 +45,10 @@ export default createFrontendPlugin({
       slotId: SLOT_USER_MENU_ITEMS,
       component: HealthCheckMenuItems,
     },
+    createSlotExtension(SystemStateBadgesSlot, {
+      id: "healthcheck.system-health-badge",
+      component: SystemHealthBadge,
+    }),
     createSlotExtension(SystemDetailsSlot, {
       id: "healthcheck.system-details.history",
       component: HealthCheckHistory,
