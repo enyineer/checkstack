@@ -16,7 +16,7 @@ export const QueueUserMenuItems = () => {
   }
 
   return (
-    <Link to="/queue">
+    <Link to="/queue/config">
       <DropdownMenuItem icon={<ListOrdered className="h-4 w-4" />}>
         Queue Settings
       </DropdownMenuItem>

@@ -340,6 +340,63 @@
         "typescript": "^5.0.0",
       },
     },
+    "core/maintenance-backend": {
+      "name": "@checkmate/maintenance-backend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate/backend-api": "workspace:*",
+        "@checkmate/catalog-common": "workspace:*",
+        "@checkmate/maintenance-common": "workspace:*",
+        "@checkmate/notification-common": "workspace:*",
+        "drizzle-orm": "^0.45.1",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
+        "@checkmate/test-utils-backend": "workspace:*",
+        "@checkmate/tsconfig": "workspace:*",
+        "@orpc/server": "^1.13.2",
+        "@types/bun": "^1.0.0",
+        "drizzle-kit": "^0.31.8",
+        "typescript": "^5.0.0",
+      },
+    },
+    "core/maintenance-common": {
+      "name": "@checkmate/maintenance-common",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate/common": "workspace:*",
+        "@checkmate/frontend-api": "workspace:*",
+        "@orpc/contract": "^1.13.2",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
+        "@checkmate/tsconfig": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
+    "core/maintenance-frontend": {
+      "name": "@checkmate/maintenance-frontend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate/catalog-common": "workspace:*",
+        "@checkmate/common": "workspace:*",
+        "@checkmate/frontend-api": "workspace:*",
+        "@checkmate/maintenance-common": "workspace:*",
+        "@checkmate/ui": "workspace:*",
+        "date-fns": "^4.1.0",
+        "lucide-react": "^0.344.0",
+        "react": "^18.2.0",
+        "react-router-dom": "^6.20.0",
+      },
+      "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
+        "@checkmate/tsconfig": "workspace:*",
+        "@types/react": "^18.2.0",
+        "typescript": "^5.0.0",
+      },
+    },
     "core/notification-backend": {
       "name": "@checkmate/notification-backend",
       "version": "0.0.1",
@@ -631,6 +688,7 @@
         "ajv-formats": "^3.0.1",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.0",
+        "date-fns": "^4.1.0",
         "lucide-react": "^0.344.0",
         "prismjs": "^1.29.0",
         "react": "^18.2.0",
@@ -886,6 +944,12 @@
     "@checkmate/healthcheck-frontend": ["@checkmate/healthcheck-frontend@workspace:core/healthcheck-frontend"],
 
     "@checkmate/healthcheck-http-backend": ["@checkmate/healthcheck-http-backend@workspace:plugins/healthcheck-http-backend"],
+
+    "@checkmate/maintenance-backend": ["@checkmate/maintenance-backend@workspace:core/maintenance-backend"],
+
+    "@checkmate/maintenance-common": ["@checkmate/maintenance-common@workspace:core/maintenance-common"],
+
+    "@checkmate/maintenance-frontend": ["@checkmate/maintenance-frontend@workspace:core/maintenance-frontend"],
 
     "@checkmate/notification-backend": ["@checkmate/notification-backend@workspace:core/notification-backend"],
 

@@ -1,0 +1,6 @@
+{
+  "extends": "@checkmate/tsconfig/frontend.json",
+  "include": [
+    "src"
+  ]
+}

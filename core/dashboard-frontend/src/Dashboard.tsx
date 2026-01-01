@@ -87,7 +87,7 @@ export const Dashboard: React.FC = () => {
   }, [catalogApi, notificationApi]);
 
   const handleSystemClick = (systemId: string) => {
-    navigate(`/system/${systemId}`);
+    navigate(`/catalog/system/${systemId}`);
   };
 
   const isSubscribed = (groupId: string) => {

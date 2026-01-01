@@ -3,7 +3,10 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useApi, rpcApiRef } from "@checkmate/frontend-api";
 import { catalogApiRef, System, Group } from "../api";
 import { ExtensionSlot } from "@checkmate/frontend-api";
-import { SystemDetailsSlot } from "@checkmate/catalog-common";
+import {
+  SystemDetailsSlot,
+  SystemDetailsTopSlot,
+} from "@checkmate/catalog-common";
 import type { NotificationClient } from "@checkmate/notification-common";
 import {
   Card,
@@ -196,6 +199,9 @@ export const SystemDetailPage: React.FC = () => {
           loading={subscriptionLoading}
         />
       </div>
+
+      {/* Top Extension Slot for urgent items like maintenance alerts */}
+      <ExtensionSlot id={SystemDetailsTopSlot.id} context={{ system }} />
 
       {/* Health Overview Card */}
       <Card className="border-border shadow-sm">

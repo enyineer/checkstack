@@ -22,11 +22,11 @@ export const catalogPlugin = createFrontendPlugin({
   ],
   routes: [
     {
-      path: "/catalog",
+      path: "/",
       element: <CatalogPage />,
     },
     {
-      path: "/catalog/config",
+      path: "/config",
       element: <CatalogConfigPage />,
       permission: "catalog.manage",
     },

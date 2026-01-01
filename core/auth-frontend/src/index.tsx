@@ -172,19 +172,19 @@ export const authPlugin = createFrontendPlugin({
   ],
   routes: [
     {
-      path: "/auth/login",
+      path: "/login",
       element: <LoginPage />,
     },
     {
-      path: "/auth/register",
+      path: "/register",
       element: <RegisterPage />,
     },
     {
-      path: "/auth/error",
+      path: "/error",
       element: <AuthErrorPage />,
     },
     {
-      path: "/settings/auth",
+      path: "/settings",
       element: <AuthSettingsPage />,
     },
   ],
@@ -209,7 +209,7 @@ export const authPlugin = createFrontendPlugin({
 
         return (
           <DropdownMenuItem
-            onClick={() => navigate("/settings/auth")}
+            onClick={() => navigate("/auth/settings")}
             icon={<Settings2 className="h-4 w-4" />}
           >
             Auth Settings

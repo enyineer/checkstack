@@ -18,7 +18,7 @@ export const queuePlugin = createFrontendPlugin({
   ],
   routes: [
     {
-      path: "/queue",
+      path: "/config",
       element: <QueueConfigPage />,
       permission: "queue.read",
     },

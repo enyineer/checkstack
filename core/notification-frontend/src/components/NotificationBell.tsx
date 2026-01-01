@@ -281,7 +281,7 @@ export const NotificationBell = () => {
           }}
         >
           <Link
-            to="/notifications"
+            to="/notification/"
             className="w-full text-center text-sm text-primary"
           >
             View all notifications

@@ -142,7 +142,7 @@ export const myFeaturePlugin = createFrontendPlugin({
   // Register routes
   routes: [
     {
-      path: "/myfeature",
+      path: "/",
       element: <MyFeaturePage />,
       permission: permissions.myFeatureRead.id,
     },
@@ -212,7 +212,7 @@ Register pages and their routes.
 ```typescript
 routes: [
   {
-    path: "/items",
+    path: "/",
     element: <ItemListPage />,
     title: "Items", // Optional: page title
     permission: permissions.itemRead.id, // Optional: required permission
@@ -393,7 +393,7 @@ import { permissions } from "@checkmate/myplugin-common";
 
 routes: [
   {
-    path: "/items/config",
+    path: "/config",
     element: <ItemConfigPage />,
     permission: permissions.itemManage.id,
   },

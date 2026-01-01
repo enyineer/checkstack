@@ -4,7 +4,7 @@ import { DropdownMenuItem } from "@checkmate/ui";
 
 export const NotificationUserMenuItems = () => {
   return (
-    <Link to="/settings/notifications">
+    <Link to="/notification/settings">
       <DropdownMenuItem icon={<Bell className="h-4 w-4" />}>
         Notification Settings
       </DropdownMenuItem>

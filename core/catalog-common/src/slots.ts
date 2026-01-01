@@ -2,6 +2,22 @@ import { createSlot } from "@checkmate/frontend-api";
 import type { System } from "./types";
 
 /**
+ * Slot for extending the top of the System Details page.
+ * Use for important alerts like active maintenances that should be shown prominently.
+ * Extensions receive the full system object.
+ *
+ * @example
+ * extensions: [{
+ *   id: "my-plugin.system-details-top",
+ *   slotId: SystemDetailsTopSlot.id,
+ *   component: ({ system }) => <MaintenanceAlert system={system} />,
+ * }]
+ */
+export const SystemDetailsTopSlot = createSlot<{ system: System }>(
+  "plugin.catalog.system-details-top"
+);
+
+/**
  * Slot for extending the System Details page with additional content.
  * Extensions receive the full system object.
  *

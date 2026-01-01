@@ -9,11 +9,11 @@ export const notificationPlugin = createFrontendPlugin({
   name: "notification-frontend",
   routes: [
     {
-      path: "/notifications",
+      path: "/",
       element: <NotificationsPage />,
     },
     {
-      path: "/settings/notifications",
+      path: "/settings",
       element: <NotificationSettingsPage />,
     },
   ],

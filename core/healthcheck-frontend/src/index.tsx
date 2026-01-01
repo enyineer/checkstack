@@ -20,7 +20,7 @@ export default createFrontendPlugin({
   name: "healthcheck-frontend",
   routes: [
     {
-      path: "/healthcheck/config",
+      path: "/config",
       element: <HealthCheckConfigPage />,
       title: "Health Checks",
       permission: "healthcheck.read",

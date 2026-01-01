@@ -89,8 +89,25 @@ class PluginRegistry {
     return (this.extensions.get(slotId) as Extension<T>[]) || [];
   }
 
+  /**
+   * Get the URL-friendly base name for a plugin.
+   * Strips common suffixes like "-frontend" for cleaner URLs.
+   */
+  private getPluginBaseName(pluginName: string): string {
+    return pluginName.replace(/-frontend$/, "");
+  }
+
   getAllRoutes() {
-    return this.plugins.flatMap((p) => p.routes || []);
+    return this.plugins.flatMap((plugin) => {
+      const baseName = this.getPluginBaseName(plugin.name);
+      return (plugin.routes || []).map((route) => ({
+        ...route,
+        // Auto-prefix with plugin base name for consistent namespacing
+        path: `/${baseName}${
+          route.path.startsWith("/") ? route.path : `/${route.path}`
+        }`,
+      }));
+    });
   }
 
   /**

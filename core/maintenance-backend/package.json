@@ -1,0 +1,29 @@
+{
+  "name": "@checkmate/maintenance-backend",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "generate": "drizzle-kit generate",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@checkmate/backend-api": "workspace:*",
+    "@checkmate/maintenance-common": "workspace:*",
+    "@checkmate/notification-common": "workspace:*",
+    "@checkmate/catalog-common": "workspace:*",
+    "drizzle-orm": "^0.45.1",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@checkmate/scripts": "workspace:*",
+    "@checkmate/test-utils-backend": "workspace:*",
+    "@checkmate/tsconfig": "workspace:*",
+    "@orpc/server": "^1.13.2",
+    "@types/bun": "^1.0.0",
+    "drizzle-kit": "^0.31.8",
+    "typescript": "^5.0.0"
+  }
+}
