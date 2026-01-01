@@ -460,19 +460,45 @@ export const oauthStrategy: AuthenticationStrategy<OAuthConfig> = {
 
 ### Slots
 
-Inject UI components into predefined locations.
+Slots allow plugins to inject UI components into predefined locations. Plugins can either:
+1. Register extensions to **core slots** defined in `@checkmate/common`
+2. Register extensions to **plugin-defined slots** exported from plugin common packages
 
-#### Available Slots
+#### Core Slots (from `@checkmate/common`)
 
 ```typescript
-// From @checkmate/common
-export const SLOT_USER_MENU_ITEMS = "core.user-menu.items";
-export const SLOT_DASHBOARD_WIDGETS = "core.dashboard.widgets";
-export const SLOT_SYSTEM_DETAIL_TABS = "core.system-detail.tabs";
+export const SLOT_DASHBOARD = "dashboard";
+export const SLOT_NAVBAR = "core.layout.navbar";
+export const SLOT_NAVBAR_MAIN = "core.layout.navbar.main";
+export const SLOT_USER_MENU_ITEMS = "core.layout.navbar.user-menu.items";
+export const SLOT_USER_MENU_ITEMS_BOTTOM = "core.layout.navbar.user-menu.items.bottom";
 ```
 
-#### Registering Extensions
+#### Plugin-Defined Slots
 
+Plugins can expose their own slots using the `createSlot` utility from `@checkmate/frontend-api`. This allows other plugins to extend specific areas of your plugin's UI.
+
+**Example: Catalog plugin exposing slots (from `@checkmate/catalog-common`)**
+
+```typescript
+import { createSlot } from "@checkmate/frontend-api";
+import type { System } from "./types";
+
+// Slot for extending the System Details page
+export const SystemDetailsSlot = createSlot<{ system: System }>(
+  "plugin.catalog.system-details"
+);
+
+// Slot for adding actions to the system configuration page
+export const CatalogSystemActionsSlot = createSlot<{
+  systemId: string;
+  systemName: string;
+}>("plugin.catalog.system-actions");
+```
+
+#### Registering Extensions to Slots
+
+**To a core slot:**
 ```typescript
 import { SLOT_USER_MENU_ITEMS } from "@checkmate/common";
 
@@ -483,6 +509,22 @@ export const myPlugin = createFrontendPlugin({
       id: "myplugin.user-menu.items",
       slotId: SLOT_USER_MENU_ITEMS,
       component: MyUserMenuItems,
+    },
+  ],
+});
+```
+
+**To a plugin-defined slot:**
+```typescript
+import { SystemDetailsSlot } from "@checkmate/catalog-common";
+
+export const myPlugin = createFrontendPlugin({
+  name: "myplugin-frontend",
+  extensions: [
+    {
+      id: "myplugin.system-details",
+      slotId: SystemDetailsSlot.id,
+      component: MySystemDetailsExtension, // Receives { system: System }
     },
   ],
 });
@@ -582,33 +624,54 @@ registry.register(myStrategy);
 
 ### Frontend Extension Point (Slot)
 
+To expose a slot from your plugin that other plugins can extend:
+
 ```typescript
-// 1. Define the slot ID in @checkmate/common
-export const SLOT_MY_CUSTOM_SLOT = "core.my-custom.slot";
+// 1. Define the slot in your plugin's -common package
+// e.g., in @checkmate/myplugin-common/src/slots.ts
+import { createSlot } from "@checkmate/frontend-api";
 
-// 2. Use the slot in a component
-import { useExtensions } from "@checkmate/frontend-api";
+// Define with typed context that extensions will receive
+export const MyPluginCustomSlot = createSlot<{ itemId: string }>(
+  "myplugin.custom.slot"
+);
 
-export const MyComponent = () => {
-  const extensions = useExtensions(SLOT_MY_CUSTOM_SLOT);
+// 2. Export from your common package index
+export * from "./slots";
 
+// 3. Use the slot in your plugin's frontend component
+import { ExtensionSlot } from "@checkmate/frontend-api";
+import { MyPluginCustomSlot } from "@checkmate/myplugin-common";
+
+export const MyComponent = ({ itemId }: { itemId: string }) => {
   return (
     <div>
-      {extensions.map((ext) => (
-        <ext.component key={ext.id} />
-      ))}
+      {/* Your plugin's content */}
+      <h1>My Component</h1>
+      
+      {/* Extension point for other plugins */}
+      <ExtensionSlot
+        id={MyPluginCustomSlot.id}
+        context={{ itemId }}
+      />
     </div>
   );
 };
 
-// 3. Plugins can register extensions
-extensions: [
-  {
-    id: "myplugin.my-custom.extension",
-    slotId: SLOT_MY_CUSTOM_SLOT,
-    component: MyExtensionComponent,
-  },
-]
+// 4. Other plugins can now register extensions
+// e.g., in @checkmate/other-plugin-frontend
+import { MyPluginCustomSlot } from "@checkmate/myplugin-common";
+
+export default createFrontendPlugin({
+  name: "other-plugin-frontend",
+  extensions: [
+    {
+      id: "other-plugin.myplugin-extension",
+      slotId: MyPluginCustomSlot.id,
+      component: ({ itemId }) => <MyExtension itemId={itemId} />,
+    },
+  ],
+});
 ```
 
 ## Best Practices

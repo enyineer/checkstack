@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@checkmate/common": "workspace:*",
+    "@checkmate/frontend-api": "workspace:*",
     "@orpc/contract": "^1.13.2",
     "zod": "^4.2.1"
   },

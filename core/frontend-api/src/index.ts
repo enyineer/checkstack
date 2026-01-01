@@ -5,3 +5,4 @@ export * from "./plugin";
 export * from "./plugin-registry";
 export * from "./components/ExtensionSlot";
 export * from "./utils";
+export * from "./slots";

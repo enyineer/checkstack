@@ -163,6 +163,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@checkmate/common": "workspace:*",
+        "@checkmate/frontend-api": "workspace:*",
         "@orpc/contract": "^1.13.2",
         "zod": "^4.2.1",
       },
@@ -316,6 +317,7 @@
       "name": "@checkmate/healthcheck-frontend",
       "version": "0.0.1",
       "dependencies": {
+        "@checkmate/catalog-common": "workspace:*",
         "@checkmate/common": "workspace:*",
         "@checkmate/frontend-api": "workspace:*",
         "@checkmate/healthcheck-common": "workspace:*",

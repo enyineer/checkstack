@@ -5,7 +5,7 @@ import {
   ExtensionSlot,
 } from "@checkmate/frontend-api";
 import { catalogApiRef, System, Group } from "../api";
-import { SLOT_CATALOG_SYSTEM_ACTIONS } from "@checkmate/common";
+import { CatalogSystemActionsSlot } from "@checkmate/catalog-common";
 import {
   SectionHeader,
   Card,
@@ -281,8 +281,11 @@ export const CatalogConfigPage = () => {
                           className="font-medium text-foreground"
                         />
                         <ExtensionSlot
-                          id={SLOT_CATALOG_SYSTEM_ACTIONS}
-                          context={{ system }}
+                          id={CatalogSystemActionsSlot.id}
+                          context={{
+                            systemId: system.id,
+                            systemName: system.name,
+                          }}
                         />
                       </div>
                       <EditableText

@@ -9,11 +9,11 @@ import { HealthCheckMenuItems } from "./components/HealthCheckMenuItems";
 import { HealthCheckHistory } from "./components/HealthCheckHistory";
 import { SystemHealthCheckAssignment } from "./components/SystemHealthCheckAssignment";
 
+import { SLOT_USER_MENU_ITEMS } from "@checkmate/common";
 import {
-  SLOT_USER_MENU_ITEMS,
-  SLOT_SYSTEM_DETAILS,
-  SLOT_CATALOG_SYSTEM_ACTIONS,
-} from "@checkmate/common";
+  SystemDetailsSlot,
+  CatalogSystemActionsSlot,
+} from "@checkmate/catalog-common";
 
 export default createFrontendPlugin({
   name: "healthcheck-frontend",
@@ -43,12 +43,12 @@ export default createFrontendPlugin({
     },
     {
       id: "healthcheck.system-details.history",
-      slotId: SLOT_SYSTEM_DETAILS,
+      slotId: SystemDetailsSlot.id,
       component: HealthCheckHistory,
     },
     {
       id: "healthcheck.catalog.system-actions",
-      slotId: SLOT_CATALOG_SYSTEM_ACTIONS,
+      slotId: CatalogSystemActionsSlot.id,
       component: SystemHealthCheckAssignment,
     },
   ],

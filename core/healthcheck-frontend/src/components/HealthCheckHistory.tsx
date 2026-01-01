@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useApi } from "@checkmate/frontend-api";
 import { healthCheckApiRef, HealthCheckRun } from "../api";
+import type { System } from "@checkmate/catalog-common";
 import {
   Table,
   TableHeader,
@@ -13,16 +14,17 @@ import {
 } from "@checkmate/ui";
 import { formatDistanceToNow } from "date-fns";
 
-// Use partial to be compatible with ExtensionSlot which passes context
+// Props from ExtensionSlot context - uses System object from SystemDetailsSlot
 interface Props {
-  systemId?: string;
+  system?: System;
   configurationId?: string;
   limit?: number;
   [key: string]: unknown;
 }
 
 export const HealthCheckHistory: React.FC<unknown> = (context) => {
-  const { systemId, configurationId, limit } = context as Props;
+  const { system, configurationId, limit } = context as Props;
+  const systemId = system?.id;
 
   const healthCheckApi = useApi(healthCheckApiRef);
   const [history, setHistory] = useState<HealthCheckRun[]>([]);

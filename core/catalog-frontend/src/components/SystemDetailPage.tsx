@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useApi, rpcApiRef } from "@checkmate/frontend-api";
 import { catalogApiRef, System, Group } from "../api";
 import { ExtensionSlot } from "@checkmate/frontend-api";
-import { SLOT_SYSTEM_DETAILS } from "@checkmate/common";
+import { SystemDetailsSlot } from "@checkmate/catalog-common";
 import type { NotificationClient } from "@checkmate/notification-common";
 import {
   Card,
@@ -335,10 +335,7 @@ export const SystemDetailPage: React.FC = () => {
         )}
 
       {/* Extension Slot for System Details */}
-      <ExtensionSlot
-        id={SLOT_SYSTEM_DETAILS}
-        context={{ systemId: system.id }}
-      />
+      <ExtensionSlot id={SystemDetailsSlot.id} context={{ system }} />
     </div>
   );
 };
