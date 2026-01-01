@@ -161,6 +161,42 @@ export class HealthCheckService {
   }
 
   /**
+   * Get system associations with their threshold configurations.
+   */
+  async getSystemAssociations(systemId: string) {
+    const rows = await this.db
+      .select({
+        configurationId: systemHealthChecks.configurationId,
+        configName: healthCheckConfigurations.name,
+        enabled: systemHealthChecks.enabled,
+        stateThresholds: systemHealthChecks.stateThresholds,
+      })
+      .from(systemHealthChecks)
+      .innerJoin(
+        healthCheckConfigurations,
+        eq(systemHealthChecks.configurationId, healthCheckConfigurations.id)
+      )
+      .where(eq(systemHealthChecks.systemId, systemId));
+
+    // Migrate and extract thresholds for each association
+    const results = [];
+    for (const row of rows) {
+      let thresholds: StateThresholds | undefined;
+      if (row.stateThresholds) {
+        const migrated = await migrateStateThresholds(row.stateThresholds);
+        thresholds = migrated.data;
+      }
+      results.push({
+        configurationId: row.configurationId,
+        configurationName: row.configName,
+        enabled: row.enabled,
+        stateThresholds: thresholds,
+      });
+    }
+    return results;
+  }
+
+  /**
    * Get the evaluated health status for a system based on configured thresholds.
    * Aggregates status from all health check configurations for this system.
    */

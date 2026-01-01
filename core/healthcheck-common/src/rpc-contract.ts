@@ -11,6 +11,7 @@ import {
   AssociateHealthCheckSchema,
   HealthCheckRunSchema,
   HealthCheckStatusSchema,
+  StateThresholdsSchema,
 } from "./schemas";
 
 // Base builder with full metadata support
@@ -78,6 +79,24 @@ export const healthCheckContract = {
     .meta({ userType: "user", permissions: [permissions.healthCheckRead.id] })
     .input(z.string())
     .output(z.array(HealthCheckConfigurationSchema)),
+
+  /**
+   * Get system associations with their threshold configurations.
+   * Returns full association data including enabled state and thresholds.
+   */
+  getSystemAssociations: _base
+    .meta({ userType: "user", permissions: [permissions.healthCheckRead.id] })
+    .input(z.object({ systemId: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          configurationId: z.string(),
+          configurationName: z.string(),
+          enabled: z.boolean(),
+          stateThresholds: StateThresholdsSchema.optional(),
+        })
+      )
+    ),
 
   associateSystem: _base
     .meta({ userType: "user", permissions: [permissions.healthCheckManage.id] })

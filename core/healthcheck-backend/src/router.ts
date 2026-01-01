@@ -18,6 +18,9 @@ import * as schema from "./schema";
 export const createHealthCheckRouter = (
   database: NodePgDatabase<typeof schema>
 ) => {
+  // Create service instance once - shared across all handlers
+  const service = new HealthCheckService(database);
+
   // Create contract implementer with context type AND auto auth middleware
   const os = implement(healthCheckContract)
     .$context<RpcContext>()
@@ -34,17 +37,14 @@ export const createHealthCheckRouter = (
     }),
 
     getConfigurations: os.getConfigurations.handler(async () => {
-      const service = new HealthCheckService(database);
       return service.getConfigurations();
     }),
 
     createConfiguration: os.createConfiguration.handler(async ({ input }) => {
-      const service = new HealthCheckService(database);
       return service.createConfiguration(input);
     }),
 
     updateConfiguration: os.updateConfiguration.handler(async ({ input }) => {
-      const service = new HealthCheckService(database);
       const config = await service.updateConfiguration(input.id, input.body);
       if (!config) {
         throw new ORPCError("NOT_FOUND", {
@@ -55,19 +55,22 @@ export const createHealthCheckRouter = (
     }),
 
     deleteConfiguration: os.deleteConfiguration.handler(async ({ input }) => {
-      const service = new HealthCheckService(database);
       await service.deleteConfiguration(input);
     }),
 
     getSystemConfigurations: os.getSystemConfigurations.handler(
       async ({ input }) => {
-        const service = new HealthCheckService(database);
         return service.getSystemConfigurations(input);
       }
     ),
 
+    getSystemAssociations: os.getSystemAssociations.handler(
+      async ({ input }) => {
+        return service.getSystemAssociations(input.systemId);
+      }
+    ),
+
     associateSystem: os.associateSystem.handler(async ({ input, context }) => {
-      const service = new HealthCheckService(database);
       await service.associateSystem({
         systemId: input.systemId,
         configurationId: input.body.configurationId,
@@ -95,12 +98,10 @@ export const createHealthCheckRouter = (
     }),
 
     disassociateSystem: os.disassociateSystem.handler(async ({ input }) => {
-      const service = new HealthCheckService(database);
       await service.disassociateSystem(input.systemId, input.configId);
     }),
 
     getHistory: os.getHistory.handler(async ({ input }) => {
-      const service = new HealthCheckService(database);
       const history = await service.getHistory(input);
       // Schema now uses pgEnum and typed jsonb - no manual casting needed
       return history.map((run) => ({
@@ -115,7 +116,6 @@ export const createHealthCheckRouter = (
 
     getSystemHealthStatus: os.getSystemHealthStatus.handler(
       async ({ input }) => {
-        const service = new HealthCheckService(database);
         return service.getSystemHealthStatus(input.systemId);
       }
     ),

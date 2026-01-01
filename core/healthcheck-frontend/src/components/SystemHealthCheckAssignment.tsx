@@ -3,19 +3,36 @@ import { useApi, type SlotContext } from "@checkmate/frontend-api";
 import { healthCheckApiRef, HealthCheckConfiguration } from "../api";
 import {
   Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-  DropdownMenuLabel,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
   Checkbox,
   Label,
   LoadingSpinner,
   useToast,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Input,
+  Tooltip,
 } from "@checkmate/ui";
-import { Activity } from "lucide-react";
+import { Activity, Settings2 } from "lucide-react";
 import { CatalogSystemActionsSlot } from "@checkmate/catalog-common";
+import type { StateThresholds } from "@checkmate/healthcheck-common";
+import { DEFAULT_STATE_THRESHOLDS } from "@checkmate/healthcheck-common";
 
 type Props = SlotContext<typeof CatalogSystemActionsSlot>;
+
+interface AssociationState {
+  configurationId: string;
+  configurationName: string;
+  enabled: boolean;
+  stateThresholds?: StateThresholds;
+}
 
 export const SystemHealthCheckAssignment: React.FC<Props> = ({
   systemId,
@@ -23,156 +40,481 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
 }) => {
   const api = useApi(healthCheckApiRef);
   const [configs, setConfigs] = useState<HealthCheckConfiguration[]>([]);
-  const [assignedIds, setAssignedIds] = useState<string[]>([]);
+  const [associations, setAssociations] = useState<AssociationState[]>([]);
   const [loading, setLoading] = useState(true);
-  const [updating, setUpdating] = useState<string | undefined>();
+  const [saving, setSaving] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [selectedConfig, setSelectedConfig] = useState<string>();
   const toast = useToast();
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [allConfigs, systemConfigs] = await Promise.all([
+      const [allConfigs, systemAssociations] = await Promise.all([
         api.getConfigurations(),
-        api.getSystemConfigurations(systemId),
+        api.getSystemAssociations({ systemId }),
       ]);
       setConfigs(allConfigs);
-      setAssignedIds(systemConfigs.map((c) => c.id));
+      setAssociations(systemAssociations);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to load assignments";
+        error instanceof Error ? error.message : "Failed to load data";
       toast.error(message);
-      console.error("Failed to load assignments:", error);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadData();
+    if (isOpen) {
+      loadData();
+    }
   }, [systemId, isOpen]);
 
-  const handleToggle = async (
+  const handleToggleAssignment = async (
     configId: string,
     isCurrentlyAssigned: boolean
   ) => {
-    // Optimistic Update
-    const previousAssignedIds = [...assignedIds];
-    if (isCurrentlyAssigned) {
-      setAssignedIds((prev) => prev.filter((id) => id !== configId));
-    } else {
-      setAssignedIds((prev) => [...prev, configId]);
-    }
+    const config = configs.find((c) => c.id === configId);
+    if (!config) return;
 
-    setUpdating(configId);
+    setSaving(true);
     try {
-      await (isCurrentlyAssigned
-        ? api.disassociateSystem({ systemId: systemId, configId })
-        : api.associateSystem({
-            systemId: systemId,
-            body: {
-              configurationId: configId,
-              enabled: true,
-            },
-          }));
+      if (isCurrentlyAssigned) {
+        await api.disassociateSystem({ systemId, configId });
+        setAssociations((prev) =>
+          prev.filter((a) => a.configurationId !== configId)
+        );
+      } else {
+        await api.associateSystem({
+          systemId,
+          body: {
+            configurationId: configId,
+            enabled: true,
+            stateThresholds: DEFAULT_STATE_THRESHOLDS,
+          },
+        });
+        setAssociations((prev) => [
+          ...prev,
+          {
+            configurationId: configId,
+            configurationName: config.name,
+            enabled: true,
+            stateThresholds: DEFAULT_STATE_THRESHOLDS,
+          },
+        ]);
+      }
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to toggle assignment";
+        error instanceof Error ? error.message : "Failed to update";
       toast.error(message);
-      console.error("Failed to toggle assignment:", error);
-      // Rollback on error
-      setAssignedIds(previousAssignedIds);
     } finally {
-      setUpdating(undefined);
+      setSaving(false);
     }
   };
 
-  const renderContent = () => {
-    if (loading) {
-      return (
-        <div className="flex justify-center py-4">
-          <LoadingSpinner />
-        </div>
-      );
-    }
+  const handleThresholdChange = (
+    configId: string,
+    thresholds: StateThresholds
+  ) => {
+    setAssociations((prev) =>
+      prev.map((a) =>
+        a.configurationId === configId
+          ? { ...a, stateThresholds: thresholds }
+          : a
+      )
+    );
+  };
 
-    if (configs.length === 0) {
-      return (
-        <p className="text-[11px] text-muted-foreground text-center py-2 italic">
-          No health checks configured.
-        </p>
-      );
+  const handleSaveThresholds = async (configId: string) => {
+    const assoc = associations.find((a) => a.configurationId === configId);
+    if (!assoc) return;
+
+    setSaving(true);
+    try {
+      await api.associateSystem({
+        systemId,
+        body: {
+          configurationId: configId,
+          enabled: assoc.enabled,
+          stateThresholds: assoc.stateThresholds,
+        },
+      });
+      toast.success("Thresholds saved");
+      setSelectedConfig(undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save";
+      toast.error(message);
+    } finally {
+      setSaving(false);
     }
+  };
+
+  const assignedIds = associations.map((a) => a.configurationId);
+
+  const renderThresholdEditor = (assoc: AssociationState) => {
+    const thresholds = assoc.stateThresholds || DEFAULT_STATE_THRESHOLDS;
 
     return (
-      <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-        {configs.map((config) => {
-          const isAssigned = (assignedIds || []).includes(config.id);
-          const isUpdating = updating === config.id;
+      <div className="mt-4 space-y-4">
+        {/* Mode Selector */}
+        <div className="p-4 bg-muted/50 rounded-lg border">
+          <div className="flex items-center gap-2 mb-2">
+            <Label className="text-sm font-medium">Evaluation Mode</Label>
+            <Tooltip content="How health status is calculated based on check results" />
+          </div>
+          <Select
+            value={thresholds.mode}
+            onValueChange={(value: "consecutive" | "window") => {
+              if (value === "consecutive") {
+                handleThresholdChange(assoc.configurationId, {
+                  mode: "consecutive",
+                  healthy: { minSuccessCount: 1 },
+                  degraded: { minFailureCount: 2 },
+                  unhealthy: { minFailureCount: 5 },
+                });
+              } else {
+                handleThresholdChange(assoc.configurationId, {
+                  mode: "window",
+                  windowSize: 10,
+                  degraded: { minFailureCount: 3 },
+                  unhealthy: { minFailureCount: 7 },
+                });
+              }
+            }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="consecutive">
+                Consecutive (streak-based)
+              </SelectItem>
+              <SelectItem value="window">
+                Window (count in last N runs)
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground mt-2">
+            {thresholds.mode === "consecutive"
+              ? "Status changes when a streak of consecutive results is reached."
+              : "Status is based on how many failures occur within a rolling window."}
+          </p>
+        </div>
 
-          return (
-            <div
-              key={config.id}
-              className="flex items-center space-x-2 rounded-md p-1.5 transition-colors hover:bg-accent cursor-pointer"
-              onClick={() => !updating && handleToggle(config.id, isAssigned)}
-            >
-              <Checkbox
-                id={`check-${config.id}`}
-                checked={isAssigned}
-                onCheckedChange={() => {}} // Handled by div click
-                disabled={!!updating}
-              />
-              <Label
-                htmlFor={`check-${config.id}`}
-                className="flex-1 cursor-pointer text-[12px] font-medium text-foreground truncate"
-                onClick={(e) => e.preventDefault()} // Let parent div handle it
-              >
-                {config.name}
-              </Label>
-              {isUpdating && <LoadingSpinner className="h-3 w-3" />}
+        {/* Threshold Configuration Cards */}
+        {thresholds.mode === "consecutive" ? (
+          <div className="space-y-3">
+            {/* Healthy Threshold */}
+            <div className="p-3 rounded-lg border border-success/30 bg-success/5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-success" />
+                  <span className="text-sm font-medium text-success">
+                    Healthy
+                  </span>
+                  <Tooltip content="System returns to healthy after this many consecutive successful checks" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={thresholds.healthy.minSuccessCount}
+                    onChange={(e) =>
+                      handleThresholdChange(assoc.configurationId, {
+                        ...thresholds,
+                        healthy: {
+                          minSuccessCount: Number.parseInt(e.target.value) || 1,
+                        },
+                      })
+                    }
+                    className="h-8 w-16 text-center"
+                  />
+                  <span className="text-xs text-muted-foreground w-20">
+                    consecutive ✓
+                  </span>
+                </div>
+              </div>
             </div>
-          );
-        })}
+
+            {/* Degraded Threshold */}
+            <div className="p-3 rounded-lg border border-warning/30 bg-warning/5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-warning" />
+                  <span className="text-sm font-medium text-warning">
+                    Degraded
+                  </span>
+                  <Tooltip content="System becomes degraded after this many consecutive failures" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={thresholds.degraded.minFailureCount}
+                    onChange={(e) =>
+                      handleThresholdChange(assoc.configurationId, {
+                        ...thresholds,
+                        degraded: {
+                          minFailureCount: Number.parseInt(e.target.value) || 1,
+                        },
+                      })
+                    }
+                    className="h-8 w-16 text-center"
+                  />
+                  <span className="text-xs text-muted-foreground w-20">
+                    consecutive ✗
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Unhealthy Threshold */}
+            <div className="p-3 rounded-lg border border-destructive/30 bg-destructive/5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-destructive" />
+                  <span className="text-sm font-medium text-destructive">
+                    Unhealthy
+                  </span>
+                  <Tooltip content="System becomes unhealthy after this many consecutive failures" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={thresholds.unhealthy.minFailureCount}
+                    onChange={(e) =>
+                      handleThresholdChange(assoc.configurationId, {
+                        ...thresholds,
+                        unhealthy: {
+                          minFailureCount: Number.parseInt(e.target.value) || 1,
+                        },
+                      })
+                    }
+                    className="h-8 w-16 text-center"
+                  />
+                  <span className="text-xs text-muted-foreground w-20">
+                    consecutive ✗
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Window Size */}
+            <div className="p-3 rounded-lg border bg-muted/30">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">Window Size</span>
+                  <Tooltip content="How many recent runs to analyze when calculating status" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={3}
+                    max={100}
+                    value={thresholds.windowSize}
+                    onChange={(e) =>
+                      handleThresholdChange(assoc.configurationId, {
+                        ...thresholds,
+                        windowSize: Number.parseInt(e.target.value) || 10,
+                      })
+                    }
+                    className="h-8 w-16 text-center"
+                  />
+                  <span className="text-xs text-muted-foreground">runs</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Degraded Threshold */}
+            <div className="p-3 rounded-lg border border-warning/30 bg-warning/5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-warning" />
+                  <span className="text-sm font-medium text-warning">
+                    Degraded
+                  </span>
+                  <Tooltip content="System becomes degraded when failures in the window reach this count" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">≥</span>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={thresholds.degraded.minFailureCount}
+                    onChange={(e) =>
+                      handleThresholdChange(assoc.configurationId, {
+                        ...thresholds,
+                        degraded: {
+                          minFailureCount: Number.parseInt(e.target.value) || 1,
+                        },
+                      })
+                    }
+                    className="h-8 w-16 text-center"
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    failures
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Unhealthy Threshold */}
+            <div className="p-3 rounded-lg border border-destructive/30 bg-destructive/5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-destructive" />
+                  <span className="text-sm font-medium text-destructive">
+                    Unhealthy
+                  </span>
+                  <Tooltip content="System becomes unhealthy when failures in the window reach this count" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">≥</span>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={thresholds.unhealthy.minFailureCount}
+                    onChange={(e) =>
+                      handleThresholdChange(assoc.configurationId, {
+                        ...thresholds,
+                        unhealthy: {
+                          minFailureCount: Number.parseInt(e.target.value) || 1,
+                        },
+                      })
+                    }
+                    className="h-8 w-16 text-center"
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    failures
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        <div className="flex justify-end gap-2 pt-2 border-t">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSelectedConfig(undefined)}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => handleSaveThresholds(assoc.configurationId)}
+            disabled={saving}
+          >
+            {saving ? "Saving..." : "Save Thresholds"}
+          </Button>
+        </div>
       </div>
     );
   };
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger onClick={() => setIsOpen(!isOpen)}>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 gap-1.5 border-dashed border-input hover:border-primary/30 hover:bg-primary/5"
-        >
-          <Activity className="h-3.5 w-3.5 text-primary" />
-          <span className="text-xs font-medium">Checks</span>
-          {assignedIds.length > 0 && (
-            <span className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
-              {assignedIds.length}
-            </span>
-          )}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        isOpen={isOpen}
-        onClose={() => setIsOpen(false)}
-        className="w-64 p-3"
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setIsOpen(true)}
+        className="h-8 gap-1.5 border-dashed border-input hover:border-primary/30 hover:bg-primary/5"
       >
-        <div className="space-y-3">
-          <DropdownMenuLabel>
-            <div className="flex items-center justify-between border-b border-border pb-2">
-              <h4 className="text-xs font-semibold text-foreground">
-                Health Checks
-              </h4>
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">
-                Assign
-              </span>
+        <Activity className="h-3.5 w-3.5 text-primary" />
+        <span className="text-xs font-medium">Health Checks</span>
+        {assignedIds.length > 0 && (
+          <span className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+            {assignedIds.length}
+          </span>
+        )}
+      </Button>
+
+      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Health Check Assignments</DialogTitle>
+          </DialogHeader>
+
+          {loading ? (
+            <div className="flex justify-center py-8">
+              <LoadingSpinner />
             </div>
-          </DropdownMenuLabel>
-          {renderContent()}
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          ) : configs.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4 italic">
+              No health checks configured.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {configs.map((config) => {
+                const assoc = associations.find(
+                  (a) => a.configurationId === config.id
+                );
+                const isAssigned = !!assoc;
+                const isExpanded = selectedConfig === config.id;
+
+                return (
+                  <div
+                    key={config.id}
+                    className="rounded-lg border bg-card p-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Checkbox
+                          checked={isAssigned}
+                          onCheckedChange={() =>
+                            handleToggleAssignment(config.id, isAssigned)
+                          }
+                          disabled={saving}
+                        />
+                        <div>
+                          <div className="font-medium text-sm">
+                            {config.name}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {config.strategyId} • every {config.intervalSeconds}
+                            s
+                          </div>
+                        </div>
+                      </div>
+                      {isAssigned && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setSelectedConfig(
+                              isExpanded ? undefined : config.id
+                            )
+                          }
+                          className="h-7 px-2"
+                        >
+                          <Settings2 className="h-4 w-4" />
+                          <span className="ml-1 text-xs">Thresholds</span>
+                        </Button>
+                      )}
+                    </div>
+                    {isAssigned &&
+                      isExpanded &&
+                      assoc &&
+                      renderThresholdEditor(assoc)}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
