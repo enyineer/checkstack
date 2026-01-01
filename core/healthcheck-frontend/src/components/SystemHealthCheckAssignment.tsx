@@ -65,6 +65,12 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
     }
   };
 
+  // Load association count on mount (for button badge)
+  useEffect(() => {
+    api.getSystemAssociations({ systemId }).then(setAssociations);
+  }, [api, systemId]);
+
+  // Load full data when dialog opens
   useEffect(() => {
     if (isOpen) {
       loadData();

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 
 /**
  * Pagination parameters passed to the fetch function
@@ -134,6 +134,19 @@ export function usePagination<TResponse, TItem, TExtraParams = object>({
   const [limit, setLimitState] = useState(defaultLimit);
   const [total, setTotal] = useState(0);
 
+  // Use refs for callback functions to avoid re-creating fetchData when they change
+  // This is better DX - callers don't need to memoize their functions
+  const fetchFnRef = useRef(fetchFn);
+  const getItemsRef = useRef(getItems);
+  const getTotalRef = useRef(getTotal);
+  const extraParamsRef = useRef(extraParams);
+
+  // Update refs when functions change
+  fetchFnRef.current = fetchFn;
+  getItemsRef.current = getItems;
+  getTotalRef.current = getTotal;
+  extraParamsRef.current = extraParams;
+
   // Memoize extraParams to detect changes
   const extraParamsKey = useMemo(
     () => JSON.stringify(extraParams ?? {}),
@@ -149,19 +162,19 @@ export function usePagination<TResponse, TItem, TExtraParams = object>({
       const params = {
         limit,
         offset,
-        ...extraParams,
+        ...extraParamsRef.current,
       } as PaginationParams & TExtraParams;
 
-      const response = await fetchFn(params);
-      setItems(getItems(response));
-      setTotal(getTotal(response));
+      const response = await fetchFnRef.current(params);
+      setItems(getItemsRef.current(response));
+      setTotal(getTotalRef.current(response));
     } catch (error_) {
       setError(error_ instanceof Error ? error_ : new Error(String(error_)));
       setItems([]);
     } finally {
       setLoading(false);
     }
-  }, [fetchFn, getItems, getTotal, page, limit, extraParamsKey]);
+  }, [page, limit, extraParamsKey]);
 
   // Fetch on mount and when dependencies change
   useEffect(() => {

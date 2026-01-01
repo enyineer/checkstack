@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import { useApi, type SlotContext } from "@checkmate/frontend-api";
 import { healthCheckApiRef } from "../api";
 import { SystemDetailsSlot } from "@checkmate/catalog-common";
@@ -40,12 +40,6 @@ interface HealthCheckOverviewItem {
   }>;
 }
 
-interface RunItem {
-  id: string;
-  status: HealthCheckStatus;
-  timestamp: Date;
-}
-
 interface ExpandedRowProps {
   item: HealthCheckOverviewItem;
   systemId: string;
@@ -53,17 +47,14 @@ interface ExpandedRowProps {
 
 const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
   const api = useApi(healthCheckApiRef);
-  const configurationId = item.configurationId;
 
-  // Memoize extraParams to prevent re-render loops
-  const extraParams = useMemo(
-    () => ({ systemId, configurationId }),
-    [systemId, configurationId]
-  );
-
-  // Memoize fetchFn to prevent re-creation
-  const fetchFn = useCallback(
-    (params: {
+  // usePagination now uses refs internally - no memoization needed
+  const {
+    items: runs,
+    loading,
+    pagination,
+  } = usePagination({
+    fetchFn: (params: {
       limit: number;
       offset: number;
       systemId: string;
@@ -75,22 +66,9 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
         limit: params.limit,
         offset: params.offset,
       }),
-    [api]
-  );
-
-  const {
-    items: runs,
-    loading,
-    pagination,
-  } = usePagination<
-    { runs: RunItem[]; total: number },
-    RunItem,
-    { systemId: string; configurationId: string }
-  >({
-    fetchFn,
     getItems: (response) => response.runs,
     getTotal: (response) => response.total,
-    extraParams,
+    extraParams: { systemId, configurationId: item.configurationId },
     defaultLimit: 10,
   });
 
