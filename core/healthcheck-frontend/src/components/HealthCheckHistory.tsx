@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { useApi } from "@checkmate/frontend-api";
+import { useApi, type SlotContext } from "@checkmate/frontend-api";
 import { healthCheckApiRef, HealthCheckRun } from "../api";
-import type { System } from "@checkmate/catalog-common";
+import { SystemDetailsSlot } from "@checkmate/catalog-common";
 import {
   Table,
   TableHeader,
@@ -14,16 +14,15 @@ import {
 } from "@checkmate/ui";
 import { formatDistanceToNow } from "date-fns";
 
-// Props from ExtensionSlot context - uses System object from SystemDetailsSlot
-interface Props {
-  system?: System;
+// Props inferred from SystemDetailsSlot context, with optional additional props
+type SlotProps = SlotContext<typeof SystemDetailsSlot>;
+interface Props extends SlotProps {
   configurationId?: string;
   limit?: number;
-  [key: string]: unknown;
 }
 
-export const HealthCheckHistory: React.FC<unknown> = (context) => {
-  const { system, configurationId, limit } = context as Props;
+export const HealthCheckHistory: React.FC<SlotProps> = (props) => {
+  const { system, configurationId, limit } = props as Props;
   const systemId = system?.id;
 
   const healthCheckApi = useApi(healthCheckApiRef);

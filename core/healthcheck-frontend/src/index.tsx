@@ -1,5 +1,6 @@
 import {
   createFrontendPlugin,
+  createSlotExtension,
   rpcApiRef,
   type ApiRef,
 } from "@checkmate/frontend-api";
@@ -41,15 +42,13 @@ export default createFrontendPlugin({
       slotId: SLOT_USER_MENU_ITEMS,
       component: HealthCheckMenuItems,
     },
-    {
+    createSlotExtension(SystemDetailsSlot, {
       id: "healthcheck.system-details.history",
-      slotId: SystemDetailsSlot.id,
       component: HealthCheckHistory,
-    },
-    {
+    }),
+    createSlotExtension(CatalogSystemActionsSlot, {
       id: "healthcheck.catalog.system-actions",
-      slotId: CatalogSystemActionsSlot.id,
       component: SystemHealthCheckAssignment,
-    },
+    }),
   ],
 });

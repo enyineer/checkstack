@@ -9,7 +9,7 @@ export interface LoggerApi {
 }
 
 export interface FetchApi {
-  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+  fetch(input: string | URL, init?: RequestInit): Promise<Response>;
   forPlugin(pluginId: string): {
     fetch(path: string, init?: RequestInit): Promise<Response>;
   };

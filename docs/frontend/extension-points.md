@@ -530,6 +530,49 @@ export const myPlugin = createFrontendPlugin({
 });
 ```
 
+#### Type-Safe Extension Registration (Recommended)
+
+For strict typing that infers component props directly from the slot definition, use the `createSlotExtension` helper and `SlotContext` type.
+
+**Using `createSlotExtension` for registration:**
+```typescript
+import { createFrontendPlugin, createSlotExtension } from "@checkmate/frontend-api";
+import { SystemDetailsSlot, CatalogSystemActionsSlot } from "@checkmate/catalog-common";
+
+export default createFrontendPlugin({
+  name: "myplugin-frontend",
+  extensions: [
+    // Type-safe: component props are inferred from SystemDetailsSlot
+    createSlotExtension(SystemDetailsSlot, {
+      id: "myplugin.system-details",
+      component: MySystemDetailsPanel, // Must accept { system: System }
+    }),
+    createSlotExtension(CatalogSystemActionsSlot, {
+      id: "myplugin.system-actions",
+      component: MySystemAction, // Must accept { systemId: string; systemName: string }
+    }),
+  ],
+});
+```
+
+**Using `SlotContext` for component typing:**
+```typescript
+import type { SlotContext } from "@checkmate/frontend-api";
+import { CatalogSystemActionsSlot } from "@checkmate/catalog-common";
+
+// Props inferred directly from the slot definition - no manual interface needed!
+type Props = SlotContext<typeof CatalogSystemActionsSlot>;
+// Equivalent to: { systemId: string; systemName: string }
+
+export const MySystemAction: React.FC<Props> = ({ systemId, systemName }) => {
+  // Full type safety - no casting, no unknown!
+  return <Button onClick={() => doSomething(systemId)}>Action for {systemName}</Button>;
+};
+```
+
+> [!TIP]
+> Using `SlotContext` and `createSlotExtension` ensures compile-time type checking. If the slot definition changes, TypeScript will immediately flag any component prop mismatches.
+
 #### Example: User Menu Extension
 
 ```typescript

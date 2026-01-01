@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useApi } from "@checkmate/frontend-api";
+import { useApi, type SlotContext } from "@checkmate/frontend-api";
 import { healthCheckApiRef, HealthCheckConfiguration } from "../api";
 import {
   Button,
@@ -13,16 +13,14 @@ import {
   useToast,
 } from "@checkmate/ui";
 import { Activity } from "lucide-react";
+import { CatalogSystemActionsSlot } from "@checkmate/catalog-common";
 
-interface Props {
-  system: {
-    id: string;
-    name: string;
-  };
-}
+type Props = SlotContext<typeof CatalogSystemActionsSlot>;
 
-export const SystemHealthCheckAssignment: React.FC<unknown> = (props) => {
-  const { system } = props as Props;
+export const SystemHealthCheckAssignment: React.FC<Props> = ({
+  systemId,
+  systemName: _systemName,
+}) => {
   const api = useApi(healthCheckApiRef);
   const [configs, setConfigs] = useState<HealthCheckConfiguration[]>([]);
   const [assignedIds, setAssignedIds] = useState<string[]>([]);
@@ -36,7 +34,7 @@ export const SystemHealthCheckAssignment: React.FC<unknown> = (props) => {
     try {
       const [allConfigs, systemConfigs] = await Promise.all([
         api.getConfigurations(),
-        api.getSystemConfigurations(system.id),
+        api.getSystemConfigurations(systemId),
       ]);
       setConfigs(allConfigs);
       setAssignedIds(systemConfigs.map((c) => c.id));
@@ -52,7 +50,7 @@ export const SystemHealthCheckAssignment: React.FC<unknown> = (props) => {
 
   useEffect(() => {
     loadData();
-  }, [system.id, isOpen]);
+  }, [systemId, isOpen]);
 
   const handleToggle = async (
     configId: string,
@@ -69,9 +67,9 @@ export const SystemHealthCheckAssignment: React.FC<unknown> = (props) => {
     setUpdating(configId);
     try {
       await (isCurrentlyAssigned
-        ? api.disassociateSystem({ systemId: system.id, configId })
+        ? api.disassociateSystem({ systemId: systemId, configId })
         : api.associateSystem({
-            systemId: system.id,
+            systemId: systemId,
             body: {
               configurationId: configId,
               enabled: true,
