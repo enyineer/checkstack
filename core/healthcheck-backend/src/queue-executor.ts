@@ -6,7 +6,7 @@ import {
   healthCheckRuns,
 } from "./schema";
 import * as schema from "./schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, max } from "drizzle-orm";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 
 type Db = NodePgDatabase<typeof schema>;
@@ -199,56 +199,69 @@ export async function bootstrapHealthChecks(props: {
 }): Promise<void> {
   const { db, queueManager, logger } = props;
 
-  // Subquery to get the latest run timestamp per check (efficient, no in-memory grouping)
-  const latestRuns = db
-    .select({
-      systemId: healthCheckRuns.systemId,
-      configurationId: healthCheckRuns.configurationId,
-      maxTimestamp: sql<Date>`MAX(${healthCheckRuns.timestamp})`
-        // eslint-disable-next-line unicorn/no-null
-        .mapWith((v) => (v ? new Date(v) : null))
-        .as("max_timestamp"),
-    })
-    .from(healthCheckRuns)
-    .groupBy(healthCheckRuns.systemId, healthCheckRuns.configurationId)
-    .as("latest_runs");
-
-  // Get all enabled health checks with their latest run time (one row per check)
+  // Get all enabled health checks
   const enabledChecks = await db
     .select({
       systemId: systemHealthChecks.systemId,
       configId: healthCheckConfigurations.id,
       interval: healthCheckConfigurations.intervalSeconds,
-      lastRun: latestRuns.maxTimestamp,
     })
     .from(systemHealthChecks)
     .innerJoin(
       healthCheckConfigurations,
       eq(systemHealthChecks.configurationId, healthCheckConfigurations.id)
     )
-    .leftJoin(
-      latestRuns,
-      and(
-        eq(latestRuns.systemId, systemHealthChecks.systemId),
-        eq(latestRuns.configurationId, systemHealthChecks.configurationId)
-      )
-    )
     .where(eq(systemHealthChecks.enabled, true));
+
+  // Get latest run timestamp for each system+config pair
+  // Using Drizzle's max() function for proper timestamp handling (no raw SQL)
+  const latestRuns = await db
+    .select({
+      systemId: healthCheckRuns.systemId,
+      configurationId: healthCheckRuns.configurationId,
+      maxTimestamp: max(healthCheckRuns.timestamp),
+    })
+    .from(healthCheckRuns)
+    .groupBy(healthCheckRuns.systemId, healthCheckRuns.configurationId);
+
+  // Create a lookup map for fast access
+  const lastRunMap = new Map<string, Date>();
+  for (const run of latestRuns) {
+    if (run.maxTimestamp) {
+      const key = `${run.systemId}:${run.configurationId}`;
+      lastRunMap.set(key, run.maxTimestamp);
+    }
+  }
 
   logger.debug(`Bootstrapping ${enabledChecks.length} health checks`);
 
   for (const check of enabledChecks) {
+    // Look up the last run from the map
+    const lastRunKey = `${check.systemId}:${check.configId}`;
+    const lastRun = lastRunMap.get(lastRunKey);
+
     // Calculate delay for first run based on time since last run
     let startDelay = 0;
-    if (check.lastRun) {
+    if (lastRun) {
       const elapsedSeconds = Math.floor(
-        (Date.now() - check.lastRun.getTime()) / 1000
+        (Date.now() - lastRun.getTime()) / 1000
       );
       if (elapsedSeconds < check.interval) {
         // Not overdue yet - schedule with remaining time
         startDelay = check.interval - elapsedSeconds;
       }
       // Otherwise it's overdue - run immediately (startDelay = 0)
+      logger.debug(
+        `Health check ${check.configId}:${
+          check.systemId
+        } - lastRun: ${lastRun.toISOString()}, elapsed: ${elapsedSeconds}s, interval: ${
+          check.interval
+        }s, startDelay: ${startDelay}s`
+      );
+    } else {
+      logger.debug(
+        `Health check ${check.configId}:${check.systemId} - no lastRun found, running immediately`
+      );
     }
 
     await scheduleHealthCheck({
