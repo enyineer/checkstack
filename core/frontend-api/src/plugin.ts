@@ -10,21 +10,13 @@ export type SlotContext<T> = T extends SlotDefinition<infer C> ? C : never;
 
 /**
  * Type-safe extension that infers component props from the slot definition.
- * Use this when registering extensions for type safety.
  */
-export interface SlotExtension<TSlot extends SlotDefinition<unknown>> {
+export interface Extension<
+  TSlot extends SlotDefinition<unknown> = SlotDefinition<unknown>
+> {
   id: string;
-  slotId: TSlot["id"];
+  slot: TSlot;
   component: React.ComponentType<SlotContext<TSlot>>;
-}
-
-/**
- * Extension interface for slot registration.
- */
-export interface Extension<T = unknown> {
-  id: string;
-  slotId: string;
-  component: React.ComponentType<T>;
 }
 
 /**
@@ -33,16 +25,13 @@ export interface Extension<T = unknown> {
  */
 export function createSlotExtension<TSlot extends SlotDefinition<unknown>>(
   slot: TSlot,
-  extension: Omit<SlotExtension<TSlot>, "slotId">
-): SlotExtension<TSlot> {
+  extension: Omit<Extension<TSlot>, "slot">
+): Extension<TSlot> {
   return {
     ...extension,
-    slotId: slot.id,
+    slot,
   };
 }
-
-// Type that accepts both Extension and SlotExtension
-type AnyExtension = Extension<unknown> | SlotExtension<SlotDefinition<unknown>>;
 
 /**
  * Route configuration for a frontend plugin.
@@ -64,7 +53,7 @@ export interface PluginRoute {
 
 export interface FrontendPlugin {
   name: string;
-  extensions?: AnyExtension[];
+  extensions?: Extension[];
   apis?: {
     ref: ApiRef<unknown>;
     factory: (deps: { get: <T>(ref: ApiRef<T>) => T }) => unknown;

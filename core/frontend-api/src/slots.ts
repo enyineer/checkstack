@@ -46,15 +46,3 @@ export const UserMenuItemsSlot = createSlot(
 export const UserMenuItemsBottomSlot = createSlot(
   "core.layout.navbar.user-menu.items.bottom"
 );
-
-// Legacy string exports for backward compatibility during migration
-/** @deprecated Use DashboardSlot instead */
-export const SLOT_DASHBOARD = DashboardSlot.id;
-/** @deprecated Use NavbarSlot instead */
-export const SLOT_NAVBAR = NavbarSlot.id;
-/** @deprecated Use NavbarMainSlot instead */
-export const SLOT_NAVBAR_MAIN = NavbarMainSlot.id;
-/** @deprecated Use UserMenuItemsSlot instead */
-export const SLOT_USER_MENU_ITEMS = UserMenuItemsSlot.id;
-/** @deprecated Use UserMenuItemsBottomSlot instead */
-export const SLOT_USER_MENU_ITEMS_BOTTOM = UserMenuItemsBottomSlot.id;

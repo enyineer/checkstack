@@ -100,10 +100,10 @@ class PluginRegistry {
 
     if (plugin.extensions) {
       for (const extension of plugin.extensions) {
-        if (!this.extensions.has(extension.slotId)) {
-          this.extensions.set(extension.slotId, []);
+        if (!this.extensions.has(extension.slot.id)) {
+          this.extensions.set(extension.slot.id, []);
         }
-        this.extensions.get(extension.slotId)!.push(extension);
+        this.extensions.get(extension.slot.id)!.push(extension);
       }
     }
 
@@ -131,7 +131,7 @@ class PluginRegistry {
     // Remove extensions
     if (plugin.extensions) {
       for (const extension of plugin.extensions) {
-        const slotExtensions = this.extensions.get(extension.slotId);
+        const slotExtensions = this.extensions.get(extension.slot.id);
         if (slotExtensions) {
           const extIndex = slotExtensions.findIndex(
             (e) => e.id === extension.id
@@ -159,8 +159,8 @@ class PluginRegistry {
     return this.plugins;
   }
 
-  getExtensions<T>(slotId: string): Extension<T>[] {
-    return (this.extensions.get(slotId) as Extension<T>[]) || [];
+  getExtensions(slotId: string): Extension[] {
+    return this.extensions.get(slotId) || [];
   }
 
   /**

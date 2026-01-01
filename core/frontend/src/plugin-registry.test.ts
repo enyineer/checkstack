@@ -1,8 +1,12 @@
 import { describe, it, expect, beforeEach } from "bun:test";
-import { pluginRegistry } from "@checkmate/frontend-api";
+import { pluginRegistry, createSlot } from "@checkmate/frontend-api";
 import { FrontendPlugin } from "@checkmate/frontend-api";
 import { createRoutes } from "@checkmate/common";
 import React from "react";
+
+// Create test slots
+const slotA = createSlot("slot-a");
+const sharedSlot = createSlot("shared-slot");
 
 // Create test routes using the new pattern
 const testRoutes = createRoutes("test", {
@@ -29,7 +33,7 @@ describe("PluginRegistry", () => {
     extensions: [
       {
         id: "extension-1",
-        slotId: "slot-a",
+        slot: slotA,
         component: () => React.createElement("div", null, "Hello"),
       },
     ],
@@ -45,7 +49,7 @@ describe("PluginRegistry", () => {
     pluginRegistry.register(mockPlugin);
 
     expect(pluginRegistry.getPlugins()).toContain(mockPlugin);
-    const extensions = pluginRegistry.getExtensions("slot-a");
+    const extensions = pluginRegistry.getExtensions(slotA.id);
     expect(extensions).toHaveLength(1);
     expect(extensions[0].id).toBe("extension-1");
   });
@@ -76,7 +80,7 @@ describe("PluginRegistry", () => {
       extensions: [
         {
           id: "ext-a",
-          slotId: "shared-slot",
+          slot: sharedSlot,
           component: () => React.createElement("div", null, "A"),
         },
       ],
@@ -87,7 +91,7 @@ describe("PluginRegistry", () => {
       extensions: [
         {
           id: "ext-b",
-          slotId: "shared-slot",
+          slot: sharedSlot,
           component: () => React.createElement("div", null, "B"),
         },
       ],
@@ -96,7 +100,7 @@ describe("PluginRegistry", () => {
     pluginRegistry.register(pluginA);
     pluginRegistry.register(pluginB);
 
-    const extensions = pluginRegistry.getExtensions("shared-slot");
+    const extensions = pluginRegistry.getExtensions(sharedSlot.id);
     expect(extensions).toHaveLength(2);
     expect(extensions.map((e) => e.id)).toContain("ext-a");
     expect(extensions.map((e) => e.id)).toContain("ext-b");

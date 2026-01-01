@@ -6,7 +6,7 @@ export const dashboardPlugin: FrontendPlugin = {
   extensions: [
     {
       id: "dashboard-main",
-      slotId: DashboardSlot.id,
+      slot: DashboardSlot,
       component: Dashboard as React.ComponentType<unknown>,
     },
   ],

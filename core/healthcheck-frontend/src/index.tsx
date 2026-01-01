@@ -42,7 +42,7 @@ export default createFrontendPlugin({
   extensions: [
     {
       id: "healthcheck.user-menu.items",
-      slotId: UserMenuItemsSlot.id,
+      slot: UserMenuItemsSlot,
       component: HealthCheckMenuItems,
     },
     createSlotExtension(SystemStateBadgesSlot, {

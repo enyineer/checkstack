@@ -26,7 +26,7 @@ export const queuePlugin = createFrontendPlugin({
   extensions: [
     {
       id: "queue.user-menu.items",
-      slotId: UserMenuItemsSlot.id,
+      slot: UserMenuItemsSlot,
       component: QueueUserMenuItems,
     },
   ],

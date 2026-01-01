@@ -10,7 +10,7 @@ export const themePlugin = createFrontendPlugin({
   extensions: [
     {
       id: "theme.user-menu.toggle",
-      slotId: UserMenuItemsBottomSlot.id,
+      slot: UserMenuItemsBottomSlot,
       component: ThemeToggleMenuItem,
     },
   ],

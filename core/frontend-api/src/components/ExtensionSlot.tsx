@@ -34,9 +34,11 @@ export function ExtensionSlot<TContext = undefined>({
 
   return (
     <>
-      {extensions.map((ext) => (
-        <ext.component key={ext.id} {...(context as object)} />
-      ))}
+      {extensions.map((ext) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const Component = ext.component as React.ComponentType<any>;
+        return <Component key={ext.id} {...(context ?? {})} />;
+      })}
     </>
   );
 }

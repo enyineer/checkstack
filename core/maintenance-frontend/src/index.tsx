@@ -50,7 +50,7 @@ export default createFrontendPlugin({
   extensions: [
     {
       id: "maintenance.user-menu.items",
-      slotId: UserMenuItemsSlot.id,
+      slot: UserMenuItemsSlot,
       component: MaintenanceMenuItems,
     },
     createSlotExtension(SystemStateBadgesSlot, {

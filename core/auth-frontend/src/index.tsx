@@ -195,12 +195,12 @@ export const authPlugin = createFrontendPlugin({
   extensions: [
     {
       id: "auth.navbar.action",
-      slotId: NavbarSlot.id,
+      slot: NavbarSlot,
       component: LoginNavbarAction,
     },
     {
       id: "auth.user-menu.settings",
-      slotId: UserMenuItemsSlot.id,
+      slot: UserMenuItemsSlot,
       component: () => {
         // Use a wrapper component to use hooks
         const navigate = useNavigate();
@@ -223,7 +223,7 @@ export const authPlugin = createFrontendPlugin({
     },
     {
       id: "auth.user-menu.logout",
-      slotId: UserMenuItemsBottomSlot.id,
+      slot: UserMenuItemsBottomSlot,
       component: LogoutMenuItem,
     },
   ],

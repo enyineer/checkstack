@@ -38,7 +38,7 @@ export const catalogPlugin = createFrontendPlugin({
   extensions: [
     {
       id: "catalog.user-menu.items",
-      slotId: UserMenuItemsSlot.id,
+      slot: UserMenuItemsSlot,
       component: CatalogUserMenuItems,
     },
   ],

@@ -24,12 +24,12 @@ export const notificationPlugin = createFrontendPlugin({
   extensions: [
     {
       id: "notification.navbar.bell",
-      slotId: NavbarSlot.id,
+      slot: NavbarSlot,
       component: NotificationBell,
     },
     {
       id: "notification.user.setting",
-      slotId: UserMenuItemsSlot.id,
+      slot: UserMenuItemsSlot,
       component: NotificationUserMenuItems,
     },
   ],

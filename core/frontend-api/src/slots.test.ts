@@ -52,7 +52,7 @@ describe("Cross-Plugin Slot Usage", () => {
       extensions: [
         {
           id: "plugin-b.extension-for-plugin-a",
-          slotId: PluginASlot.id, // Using the slot's id property
+          slot: PluginASlot, // Using the SlotDefinition directly
           component: MockComponent,
         },
       ],
@@ -76,7 +76,7 @@ describe("Cross-Plugin Slot Usage", () => {
       extensions: [
         {
           id: "plugin-b.extension",
-          slotId: PluginASlot.id,
+          slot: PluginASlot,
           component: MockComponentB,
         },
       ],
@@ -87,7 +87,7 @@ describe("Cross-Plugin Slot Usage", () => {
       extensions: [
         {
           id: "plugin-c.extension",
-          slotId: PluginASlot.id,
+          slot: PluginASlot,
           component: MockComponentC,
         },
       ],
@@ -108,7 +108,7 @@ describe("Cross-Plugin Slot Usage", () => {
       extensions: [
         {
           id: "plugin-b.extension",
-          slotId: PluginASlot.id,
+          slot: PluginASlot,
           component: MockComponent,
         },
       ],
@@ -134,7 +134,7 @@ describe("Cross-Plugin Slot Usage", () => {
       extensions: [
         {
           id: "plugin-b.ext1",
-          slotId: slot1.id,
+          slot: slot1,
           component: MockComponent,
         },
       ],
@@ -145,7 +145,7 @@ describe("Cross-Plugin Slot Usage", () => {
       extensions: [
         {
           id: "plugin-c.ext2",
-          slotId: slot2.id,
+          slot: slot2,
           component: MockComponent,
         },
       ],
