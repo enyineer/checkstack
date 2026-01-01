@@ -345,16 +345,22 @@ export const MaintenanceEditor: React.FC<Props> = ({
                   <div className="grid gap-2">
                     <Label>Change Status (Optional)</Label>
                     <Select
-                      value={newUpdateStatus}
+                      value={newUpdateStatus || "__keep_current__"}
                       onValueChange={(v) =>
-                        setNewUpdateStatus(v as MaintenanceStatus | "")
+                        setNewUpdateStatus(
+                          v === "__keep_current__"
+                            ? ""
+                            : (v as MaintenanceStatus)
+                        )
                       }
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Keep current status" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">Keep Current</SelectItem>
+                        <SelectItem value="__keep_current__">
+                          Keep Current
+                        </SelectItem>
                         <SelectItem value="in_progress">In Progress</SelectItem>
                         <SelectItem value="completed">Completed</SelectItem>
                         <SelectItem value="cancelled">Cancelled</SelectItem>
