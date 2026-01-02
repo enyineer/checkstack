@@ -588,6 +588,7 @@
       "name": "@checkmate/signal-common",
       "version": "0.0.1",
       "dependencies": {
+        "@checkmate/common": "workspace:*",
         "zod": "^4.0.0",
       },
       "devDependencies": {

@@ -256,6 +256,20 @@ export const authContract = {
     .meta({ userType: "service" })
     .input(CreateSessionInputSchema)
     .output(z.object({ sessionId: z.string() })),
+
+  /**
+   * Filter a list of user IDs to only those who have a specific permission.
+   * Used by SignalService to send signals only to authorized users.
+   */
+  filterUsersByPermission: _base
+    .meta({ userType: "service" })
+    .input(
+      z.object({
+        userIds: z.array(z.string()),
+        permission: z.string(), // Fully-qualified permission ID
+      })
+    )
+    .output(z.array(z.string())), // Returns filtered user IDs
 };
 
 // Export contract type

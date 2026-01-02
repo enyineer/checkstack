@@ -125,6 +125,37 @@ await signalService.sendToUsers(NOTIFICATION_RECEIVED, [user1, user2], {
 });
 ```
 
+#### To Authorized Users Only (Permission-Based)
+
+For sensitive signals that should only reach users with specific permissions:
+
+```mermaid
+sequenceDiagram
+    participant Plugin as Backend Plugin
+    participant Signal as SignalService
+    participant Auth as AuthApi (RPC)
+    participant WS as WebSocket
+
+    Plugin->>Signal: sendToAuthorizedUsers(signal, userIds, payload, permission)
+    Signal->>Auth: filterUsersByPermission(userIds, permission)
+    Auth-->>Signal: authorizedUserIds[]
+    Signal->>WS: sendToUsers(signal, authorizedUserIds, payload)
+```
+
+```typescript
+import { HEALTH_STATE_CHANGED, permissions } from "@checkmate/healthcheck-common";
+
+// Only users with the permission receive the signal
+await signalService.sendToAuthorizedUsers(
+  HEALTH_STATE_CHANGED,
+  subscriberUserIds,
+  { systemId, newState: "degraded" },
+  permissions.healthcheckStatusRead  // Typed Permission object
+);
+```
+
+> **Note**: This method uses S2S RPC to filter users via the `auth` plugin's `filterUsersByPermission` endpoint. Users with the `admin` role receive the signal because all permissions are synced to the admin role.
+
 ---
 
 ## Frontend Usage
@@ -421,6 +452,12 @@ interface SignalService {
   broadcast<T>(signal: Signal<T>, payload: T): Promise<void>;
   sendToUser<T>(signal: Signal<T>, userId: string, payload: T): Promise<void>;
   sendToUsers<T>(signal: Signal<T>, userIds: string[], payload: T): Promise<void>;
+  sendToAuthorizedUsers<T>(
+    signal: Signal<T>,
+    userIds: string[],
+    payload: T,
+    permission: { id: string }
+  ): Promise<void>;
 }
 ```
 

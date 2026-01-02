@@ -8,6 +8,7 @@
     }
   },
   "dependencies": {
+    "@checkmate/common": "workspace:*",
     "zod": "^4.0.0"
   },
   "devDependencies": {

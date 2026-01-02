@@ -10,7 +10,7 @@ import {
 } from "@checkmate/backend-api";
 import { authContract } from "@checkmate/auth-common";
 import * as schema from "./schema";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, and } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 
 /**
@@ -574,6 +574,33 @@ export const createAuthRouter = (
     }
   );
 
+  const filterUsersByPermission = os.filterUsersByPermission.handler(
+    async ({ input }) => {
+      const { userIds, permission } = input;
+
+      if (userIds.length === 0) return [];
+
+      // Single efficient query: join user_role with role_permission
+      // and filter by both userIds AND the specific permission
+      const usersWithPermission = await internalDb
+        .select({ userId: schema.userRole.userId })
+        .from(schema.userRole)
+        .innerJoin(
+          schema.rolePermission,
+          eq(schema.userRole.roleId, schema.rolePermission.roleId)
+        )
+        .where(
+          and(
+            inArray(schema.userRole.userId, userIds),
+            eq(schema.rolePermission.permissionId, permission)
+          )
+        )
+        .groupBy(schema.userRole.userId);
+
+      return usersWithPermission.map((row) => row.userId);
+    }
+  );
+
   // ==========================================================================
   // SERVICE-TO-SERVICE ENDPOINTS (for external auth providers like LDAP)
   // ==========================================================================
@@ -691,6 +718,7 @@ export const createAuthRouter = (
     getRegistrationStatus,
     setRegistrationStatus,
     getAnonymousPermissions,
+    filterUsersByPermission,
     findUserByEmail,
     upsertExternalUser,
     createSession,

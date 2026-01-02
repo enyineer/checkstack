@@ -6,8 +6,9 @@ import type { SignalService, Signal } from "@checkmate/signal-common";
 export interface RecordedSignal<T = unknown> {
   signal: Signal<T>;
   payload: T;
-  targetType: "broadcast" | "user" | "users";
+  targetType: "broadcast" | "user" | "users" | "authorized";
   userIds?: string[];
+  permission?: string; // For authorized signals
   timestamp: Date;
 }
 
@@ -44,6 +45,14 @@ export interface MockSignalService extends SignalService {
    * Check if a specific signal was sent to a user.
    */
   wasSignalSentToUser(signalId: string, userId: string): boolean;
+
+  /**
+   * Set a permission filter function for sendToAuthorizedUsers testing.
+   * If not set, sendToAuthorizedUsers will pass through all users.
+   */
+  setPermissionFilter(
+    filter: (userIds: string[], permission: string) => string[]
+  ): void;
 }
 
 /**
@@ -69,6 +78,9 @@ export interface MockSignalService extends SignalService {
  */
 export function createMockSignalService(): MockSignalService {
   const recordedSignals: RecordedSignal[] = [];
+  let permissionFilter:
+    | ((userIds: string[], permission: string) => string[])
+    | undefined;
 
   return {
     async broadcast<T>(signal: Signal<T>, payload: T): Promise<void> {
@@ -137,6 +149,37 @@ export function createMockSignalService(): MockSignalService {
         (r) =>
           r.signal.id === signalId && r.userIds && r.userIds.includes(userId)
       );
+    },
+
+    async sendToAuthorizedUsers<T>(
+      signal: Signal<T>,
+      userIds: string[],
+      payload: T,
+      pluginMetadata: { pluginId: string },
+      permission: { id: string }
+    ): Promise<void> {
+      // Construct fully-qualified permission ID
+      const qualifiedPermission = `${pluginMetadata.pluginId}.${permission.id}`;
+
+      // Apply permission filter if set
+      const filteredUserIds = permissionFilter
+        ? permissionFilter(userIds, qualifiedPermission)
+        : userIds;
+
+      recordedSignals.push({
+        signal: signal as Signal<unknown>,
+        payload,
+        targetType: "authorized",
+        userIds: filteredUserIds,
+        permission: qualifiedPermission,
+        timestamp: new Date(),
+      });
+    },
+
+    setPermissionFilter(
+      filter: (userIds: string[], permission: string) => string[]
+    ): void {
+      permissionFilter = filter;
     },
   };
 }

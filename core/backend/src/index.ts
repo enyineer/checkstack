@@ -163,7 +163,23 @@ const init = async () => {
   // 3. Load Plugins
   await pluginManager.loadPlugins(app);
 
-  // 4. Register plugin admin router (core admin endpoints)
+  // 4. Wire up auth client for permission-based signal filtering
+  // This must happen AFTER plugins load so auth-backend is available
+  const rpcClient = await pluginManager.getService(coreServices.rpcClient);
+  if (rpcClient) {
+    const { AuthApi } = await import("@checkmate/auth-common");
+    const authClient = rpcClient.forPlugin(AuthApi);
+    signalService.setAuthClient(authClient);
+    rootLogger.debug(
+      "SignalService: Auth client configured for permission filtering"
+    );
+  } else {
+    rootLogger.warn(
+      "SignalService: RpcClient not available, sendToAuthorizedUsers will be disabled"
+    );
+  }
+
+  // 5. Register plugin admin router (core admin endpoints)
   const pluginAdminRouter = createPluginAdminRouter({
     pluginManager,
     installer,
