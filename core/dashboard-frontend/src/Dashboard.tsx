@@ -59,14 +59,14 @@ export const Dashboard: React.FC = () => {
   >({});
 
   useEffect(() => {
-    Promise.all([
-      catalogApi.getGroups(),
-      catalogApi.getSystems(),
-      notificationApi
-        .getSubscriptions()
-        .catch(() => [] as EnrichedSubscription[]),
-    ])
-      .then(([groups, systems, subs]) => {
+    if (session) {
+      notificationApi.getSubscriptions().then(setSubscriptions);
+    }
+  }, [session, notificationApi]);
+
+  useEffect(() => {
+    Promise.all([catalogApi.getGroups(), catalogApi.getSystems()])
+      .then(([groups, systems]) => {
         // Create a map of system IDs to systems
         const systemMap = new Map(systems.map((s) => [s.id, s]));
 
@@ -83,11 +83,10 @@ export const Dashboard: React.FC = () => {
         });
 
         setGroupsWithSystems(groupsData);
-        setSubscriptions(subs);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [catalogApi, notificationApi]);
+  }, [catalogApi]);
 
   const handleSystemClick = (systemId: string) => {
     navigate(resolveRoute(catalogRoutes.routes.systemDetail, { systemId }));
