@@ -289,7 +289,6 @@ export const MaintenanceEditor: React.FC<Props> = ({
                       <Checkbox
                         id={`system-${system.id}`}
                         checked={selectedSystemIds.has(system.id)}
-                        onCheckedChange={() => handleSystemToggle(system.id)}
                       />
                       <Label
                         htmlFor={`system-${system.id}`}
