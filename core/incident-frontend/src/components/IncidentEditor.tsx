@@ -3,7 +3,6 @@ import { useApi } from "@checkmate/frontend-api";
 import { incidentApiRef } from "../api";
 import type {
   IncidentWithSystems,
-  IncidentStatus,
   IncidentSeverity,
   IncidentUpdate,
 } from "@checkmate/incident-common";
@@ -20,22 +19,16 @@ import {
   Textarea,
   Checkbox,
   useToast,
-  Badge,
   Select,
   SelectTrigger,
   SelectValue,
   SelectContent,
   SelectItem,
+  StatusUpdateTimeline,
 } from "@checkmate/ui";
-import {
-  Plus,
-  MessageSquare,
-  Calendar,
-  Loader2,
-  AlertCircle,
-} from "lucide-react";
-import { format } from "date-fns";
+import { Plus, MessageSquare, Loader2, AlertCircle } from "lucide-react";
 import { IncidentUpdateForm } from "./IncidentUpdateForm";
+import { getIncidentStatusBadge } from "../utils/badges";
 
 interface Props {
   open: boolean;
@@ -163,29 +156,6 @@ export const IncidentEditor: React.FC<Props> = ({
     setShowUpdateForm(false);
     // Notify parent to refresh list (status may have changed)
     onSave();
-  };
-
-  const getStatusBadge = (status: IncidentStatus) => {
-    switch (status) {
-      case "investigating": {
-        return <Badge variant="destructive">Investigating</Badge>;
-      }
-      case "identified": {
-        return <Badge variant="warning">Identified</Badge>;
-      }
-      case "fixing": {
-        return <Badge variant="warning">Fixing</Badge>;
-      }
-      case "monitoring": {
-        return <Badge variant="info">Monitoring</Badge>;
-      }
-      case "resolved": {
-        return <Badge variant="success">Resolved</Badge>;
-      }
-      default: {
-        return <Badge>{status}</Badge>;
-      }
-    }
   };
 
   return (
@@ -316,29 +286,12 @@ export const IncidentEditor: React.FC<Props> = ({
                   <p className="text-sm">No status updates yet</p>
                 </div>
               ) : (
-                <div className="space-y-3 max-h-48 overflow-y-auto">
-                  {updates.map((update) => (
-                    <div
-                      key={update.id}
-                      className="p-3 bg-muted/20 rounded-lg border text-sm"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-foreground">{update.message}</p>
-                        {update.statusChange && (
-                          <div className="shrink-0">
-                            {getStatusBadge(update.statusChange)}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
-                        <Calendar className="h-3 w-3" />
-                        <span>
-                          {format(new Date(update.createdAt), "MMM d, HH:mm")}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <StatusUpdateTimeline
+                  updates={updates}
+                  renderStatusBadge={getIncidentStatusBadge}
+                  showTimeline={false}
+                  maxHeight="max-h-48"
+                />
               )}
             </div>
           )}

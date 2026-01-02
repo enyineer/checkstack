@@ -13,7 +13,6 @@ import {
   incidentRoutes,
   INCIDENT_UPDATED,
   type IncidentDetail,
-  type IncidentStatus,
 } from "@checkmate/incident-common";
 import { CatalogApi, type System } from "@checkmate/catalog-common";
 import {
@@ -26,6 +25,7 @@ import {
   LoadingSpinner,
   BackLink,
   useToast,
+  StatusUpdateTimeline,
 } from "@checkmate/ui";
 import {
   AlertTriangle,
@@ -38,6 +38,10 @@ import {
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { IncidentUpdateForm } from "../components/IncidentUpdateForm";
+import {
+  getIncidentStatusBadge,
+  getIncidentSeverityBadge,
+} from "../utils/badges";
 
 const IncidentDetailPageContent: React.FC = () => {
   const { incidentId } = useParams<{ incidentId: string }>();
@@ -105,43 +109,6 @@ const IncidentDetailPageContent: React.FC = () => {
     }
   };
 
-  const getStatusBadge = (status: IncidentStatus) => {
-    switch (status) {
-      case "investigating": {
-        return <Badge variant="destructive">Investigating</Badge>;
-      }
-      case "identified": {
-        return <Badge variant="warning">Identified</Badge>;
-      }
-      case "fixing": {
-        return <Badge variant="warning">Fixing</Badge>;
-      }
-      case "monitoring": {
-        return <Badge variant="info">Monitoring</Badge>;
-      }
-      case "resolved": {
-        return <Badge variant="success">Resolved</Badge>;
-      }
-      default: {
-        return <Badge>{status}</Badge>;
-      }
-    }
-  };
-
-  const getSeverityBadge = (severity: string) => {
-    switch (severity) {
-      case "critical": {
-        return <Badge variant="destructive">Critical</Badge>;
-      }
-      case "major": {
-        return <Badge variant="warning">Major</Badge>;
-      }
-      default: {
-        return <Badge variant="secondary">Minor</Badge>;
-      }
-    }
-  };
-
   if (loading) {
     return (
       <div className="p-12 flex justify-center">
@@ -199,8 +166,8 @@ const IncidentDetailPageContent: React.FC = () => {
               <div>
                 <CardTitle className="text-xl">{incident.title}</CardTitle>
                 <div className="flex items-center gap-2 mt-2">
-                  {getSeverityBadge(incident.severity)}
-                  {getStatusBadge(incident.status)}
+                  {getIncidentSeverityBadge(incident.severity)}
+                  {getIncidentStatusBadge(incident.status)}
                 </div>
               </div>
             </div>
@@ -288,45 +255,12 @@ const IncidentDetailPageContent: React.FC = () => {
             </div>
           )}
 
-          {/* Updates Timeline */}
-          {incident.updates.length === 0 ? (
-            <p className="text-center text-muted-foreground py-6">
-              No status updates yet
-            </p>
-          ) : (
-            <div className="space-y-4">
-              {incident.updates.map((update) => (
-                <div
-                  key={update.id}
-                  className="relative pl-6 pb-4 border-l-2 border-border last:border-l-0 last:pb-0"
-                >
-                  <div className="absolute left-[-9px] top-0 w-4 h-4 rounded-full bg-background border-2 border-primary" />
-                  <div className="bg-muted/20 rounded-lg p-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-foreground">{update.message}</p>
-                      {update.statusChange && (
-                        <div className="shrink-0">
-                          {getStatusBadge(update.statusChange)}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-                      <Calendar className="h-3 w-3" />
-                      <span>
-                        {format(new Date(update.createdAt), "MMM d, HH:mm")}
-                      </span>
-                      {update.createdBy && (
-                        <>
-                          <span>•</span>
-                          <span>by {update.createdBy}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          <StatusUpdateTimeline
+            updates={incident.updates}
+            renderStatusBadge={getIncidentStatusBadge}
+            emptyTitle="No status updates"
+            emptyDescription="No status updates have been posted yet."
+          />
         </CardContent>
       </Card>
     </div>

@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useApi } from "@checkmate/frontend-api";
 import { maintenanceApiRef } from "../api";
 import type {
   MaintenanceWithSystems,
-  MaintenanceStatus,
   MaintenanceUpdate,
 } from "@checkmate/maintenance-common";
 import type { System } from "@checkmate/catalog-common";
@@ -20,21 +19,11 @@ import {
   Checkbox,
   useToast,
   DateTimePicker,
-  Badge,
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
+  StatusUpdateTimeline,
 } from "@checkmate/ui";
-import {
-  Plus,
-  MessageSquare,
-  Calendar,
-  Loader2,
-  AlertCircle,
-} from "lucide-react";
-import { format } from "date-fns";
+import { Plus, MessageSquare, Loader2, AlertCircle } from "lucide-react";
+import { MaintenanceUpdateForm } from "./MaintenanceUpdateForm";
+import { getMaintenanceStatusBadge } from "../utils/badges";
 
 interface Props {
   open: boolean;
@@ -67,12 +56,24 @@ export const MaintenanceEditor: React.FC<Props> = ({
   // Status update fields
   const [updates, setUpdates] = useState<MaintenanceUpdate[]>([]);
   const [loadingUpdates, setLoadingUpdates] = useState(false);
-  const [newUpdateMessage, setNewUpdateMessage] = useState("");
-  const [newUpdateStatus, setNewUpdateStatus] = useState<
-    MaintenanceStatus | ""
-  >("");
-  const [postingUpdate, setPostingUpdate] = useState(false);
   const [showUpdateForm, setShowUpdateForm] = useState(false);
+
+  const loadMaintenanceDetails = useCallback(
+    async (id: string) => {
+      setLoadingUpdates(true);
+      try {
+        const detail = await api.getMaintenance({ id });
+        if (detail) {
+          setUpdates(detail.updates);
+        }
+      } catch (error) {
+        console.error("Failed to load maintenance details:", error);
+      } finally {
+        setLoadingUpdates(false);
+      }
+    },
+    [api]
+  );
 
   // Reset form when maintenance changes
   useEffect(() => {
@@ -97,24 +98,7 @@ export const MaintenanceEditor: React.FC<Props> = ({
       setUpdates([]);
       setShowUpdateForm(false);
     }
-    // Reset update form
-    setNewUpdateMessage("");
-    setNewUpdateStatus("");
-  }, [maintenance, open]);
-
-  const loadMaintenanceDetails = async (id: string) => {
-    setLoadingUpdates(true);
-    try {
-      const detail = await api.getMaintenance({ id });
-      if (detail) {
-        setUpdates(detail.updates);
-      }
-    } catch (error) {
-      console.error("Failed to load maintenance details:", error);
-    } finally {
-      setLoadingUpdates(false);
-    }
-  };
+  }, [maintenance, open, loadMaintenanceDetails]);
 
   const handleSystemToggle = (systemId: string) => {
     setSelectedSystemIds((prev) => {
@@ -173,55 +157,13 @@ export const MaintenanceEditor: React.FC<Props> = ({
     }
   };
 
-  const handlePostUpdate = async () => {
-    if (!newUpdateMessage.trim()) {
-      toast.error("Update message is required");
-      return;
+  const handleUpdateSuccess = () => {
+    if (maintenance) {
+      loadMaintenanceDetails(maintenance.id);
     }
-    if (!maintenance) return;
-
-    setPostingUpdate(true);
-    try {
-      await api.addUpdate({
-        maintenanceId: maintenance.id,
-        message: newUpdateMessage,
-        statusChange: newUpdateStatus || undefined,
-      });
-      toast.success("Update posted");
-      // Reload updates
-      await loadMaintenanceDetails(maintenance.id);
-      setNewUpdateMessage("");
-      setNewUpdateStatus("");
-      setShowUpdateForm(false);
-      // Notify parent to refresh list (status may have changed)
-      onSave();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to post update";
-      toast.error(message);
-    } finally {
-      setPostingUpdate(false);
-    }
-  };
-
-  const getStatusBadge = (status: MaintenanceStatus) => {
-    switch (status) {
-      case "in_progress": {
-        return <Badge variant="warning">In Progress</Badge>;
-      }
-      case "scheduled": {
-        return <Badge variant="info">Scheduled</Badge>;
-      }
-      case "completed": {
-        return <Badge variant="success">Completed</Badge>;
-      }
-      case "cancelled": {
-        return <Badge variant="secondary">Cancelled</Badge>;
-      }
-      default: {
-        return <Badge>{status}</Badge>;
-      }
-    }
+    setShowUpdateForm(false);
+    // Notify parent to refresh list (status may have changed)
+    onSave();
   };
 
   return (
@@ -330,69 +272,12 @@ export const MaintenanceEditor: React.FC<Props> = ({
 
               {/* Add Update Form */}
               {showUpdateForm && (
-                <div className="mb-4 p-4 bg-muted/30 rounded-lg border space-y-3">
-                  <div className="grid gap-2">
-                    <Label htmlFor="updateMessage">Update Message</Label>
-                    <Textarea
-                      id="updateMessage"
-                      value={newUpdateMessage}
-                      onChange={(e) => setNewUpdateMessage(e.target.value)}
-                      placeholder="Describe the status update..."
-                      rows={2}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Change Status (Optional)</Label>
-                    <Select
-                      value={newUpdateStatus || "__keep_current__"}
-                      onValueChange={(v) =>
-                        setNewUpdateStatus(
-                          v === "__keep_current__"
-                            ? ""
-                            : (v as MaintenanceStatus)
-                        )
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Keep current status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__keep_current__">
-                          Keep Current
-                        </SelectItem>
-                        <SelectItem value="in_progress">In Progress</SelectItem>
-                        <SelectItem value="completed">Completed</SelectItem>
-                        <SelectItem value="cancelled">Cancelled</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex gap-2 justify-end">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setShowUpdateForm(false);
-                        setNewUpdateMessage("");
-                        setNewUpdateStatus("");
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={handlePostUpdate}
-                      disabled={postingUpdate || !newUpdateMessage.trim()}
-                    >
-                      {postingUpdate ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                          Posting...
-                        </>
-                      ) : (
-                        "Post Update"
-                      )}
-                    </Button>
-                  </div>
+                <div className="mb-4">
+                  <MaintenanceUpdateForm
+                    maintenanceId={maintenance.id}
+                    onSuccess={handleUpdateSuccess}
+                    onCancel={() => setShowUpdateForm(false)}
+                  />
                 </div>
               )}
 
@@ -407,29 +292,12 @@ export const MaintenanceEditor: React.FC<Props> = ({
                   <p className="text-sm">No status updates yet</p>
                 </div>
               ) : (
-                <div className="space-y-3 max-h-48 overflow-y-auto">
-                  {updates.map((update) => (
-                    <div
-                      key={update.id}
-                      className="p-3 bg-muted/20 rounded-lg border text-sm"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-foreground">{update.message}</p>
-                        {update.statusChange && (
-                          <div className="shrink-0">
-                            {getStatusBadge(update.statusChange)}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
-                        <Calendar className="h-3 w-3" />
-                        <span>
-                          {format(new Date(update.createdAt), "MMM d, HH:mm")}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <StatusUpdateTimeline
+                  updates={updates}
+                  renderStatusBadge={getMaintenanceStatusBadge}
+                  showTimeline={false}
+                  maxHeight="max-h-48"
+                />
               )}
             </div>
           )}

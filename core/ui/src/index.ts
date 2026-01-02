@@ -40,3 +40,4 @@ export * from "./components/PaginatedList";
 export * from "./hooks/usePagination";
 export * from "./components/DateTimePicker";
 export * from "./components/BackLink";
+export * from "./components/StatusUpdateTimeline";

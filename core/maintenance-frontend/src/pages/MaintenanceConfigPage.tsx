@@ -17,7 +17,6 @@ import {
   CardTitle,
   CardContent,
   Button,
-  Badge,
   LoadingSpinner,
   EmptyState,
   Table,
@@ -35,9 +34,18 @@ import {
   ConfirmationModal,
   PageLayout,
 } from "@checkmate/ui";
-import { Plus, Wrench, Calendar, Trash2, Edit2, Clock } from "lucide-react";
+import {
+  Plus,
+  Wrench,
+  Calendar,
+  Trash2,
+  Edit2,
+  Clock,
+  CheckCircle2,
+} from "lucide-react";
 import { format } from "date-fns";
 import { MaintenanceEditor } from "../components/MaintenanceEditor";
+import { getMaintenanceStatusBadge } from "../utils/badges";
 
 const MaintenanceConfigPageContent: React.FC = () => {
   const api = useApi(maintenanceApiRef);
@@ -68,6 +76,10 @@ const MaintenanceConfigPageContent: React.FC = () => {
   // Delete confirmation state
   const [deleteId, setDeleteId] = useState<string | undefined>();
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Complete confirmation state
+  const [completeId, setCompleteId] = useState<string | undefined>();
+  const [isCompleting, setIsCompleting] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -120,29 +132,27 @@ const MaintenanceConfigPageContent: React.FC = () => {
     }
   };
 
+  const handleComplete = async () => {
+    if (!completeId) return;
+
+    setIsCompleting(true);
+    try {
+      await api.closeMaintenance({ id: completeId });
+      toast.success("Maintenance completed");
+      loadData();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to complete";
+      toast.error(message);
+    } finally {
+      setIsCompleting(false);
+      setCompleteId(undefined);
+    }
+  };
+
   const handleSave = () => {
     setEditorOpen(false);
     loadData();
-  };
-
-  const getStatusBadge = (status: MaintenanceStatus) => {
-    switch (status) {
-      case "in_progress": {
-        return <Badge variant="warning">In Progress</Badge>;
-      }
-      case "scheduled": {
-        return <Badge variant="info">Scheduled</Badge>;
-      }
-      case "completed": {
-        return <Badge variant="success">Completed</Badge>;
-      }
-      case "cancelled": {
-        return <Badge variant="secondary">Cancelled</Badge>;
-      }
-      default: {
-        return <Badge>{status}</Badge>;
-      }
-    }
   };
 
   const getSystemNames = (systemIds: string[]): string => {
@@ -154,6 +164,9 @@ const MaintenanceConfigPageContent: React.FC = () => {
     }
     return names.join(", ");
   };
+
+  const canComplete = (status: MaintenanceStatus) =>
+    status !== "completed" && status !== "cancelled";
 
   return (
     <PageLayout
@@ -212,7 +225,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
                   <TableHead>Status</TableHead>
                   <TableHead>Systems</TableHead>
                   <TableHead>Schedule</TableHead>
-                  <TableHead className="w-24">Actions</TableHead>
+                  <TableHead className="w-32">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -228,7 +241,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>{getStatusBadge(m.status)}</TableCell>
+                    <TableCell>{getMaintenanceStatusBadge(m.status)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {getSystemNames(m.systemIds)}
                     </TableCell>
@@ -257,6 +270,15 @@ const MaintenanceConfigPageContent: React.FC = () => {
                         >
                           <Edit2 className="h-4 w-4" />
                         </Button>
+                        {canComplete(m.status) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setCompleteId(m.id)}
+                          >
+                            <CheckCircle2 className="h-4 w-4 text-success" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -291,6 +313,17 @@ const MaintenanceConfigPageContent: React.FC = () => {
         variant="danger"
         onConfirm={handleDelete}
         isLoading={isDeleting}
+      />
+
+      <ConfirmationModal
+        isOpen={!!completeId}
+        onClose={() => setCompleteId(undefined)}
+        title="Complete Maintenance"
+        message="Are you sure you want to mark this maintenance as completed?"
+        confirmText="Complete"
+        variant="info"
+        onConfirm={handleComplete}
+        isLoading={isCompleting}
       />
     </PageLayout>
   );

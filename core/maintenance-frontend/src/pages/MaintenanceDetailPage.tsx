@@ -9,10 +9,7 @@ import {
 import { resolveRoute } from "@checkmate/common";
 import { maintenanceApiRef } from "../api";
 import { maintenanceRoutes } from "@checkmate/maintenance-common";
-import type {
-  MaintenanceDetail,
-  MaintenanceStatus,
-} from "@checkmate/maintenance-common";
+import type { MaintenanceDetail } from "@checkmate/maintenance-common";
 import {
   catalogRoutes,
   CatalogApi,
@@ -29,17 +26,21 @@ import {
   PageLayout,
   BackLink,
   Button,
+  StatusUpdateTimeline,
+  useToast,
 } from "@checkmate/ui";
 import {
   Calendar,
   Clock,
-  MessageSquare,
   Wrench,
   Server,
   Plus,
+  MessageSquare,
+  CheckCircle2,
 } from "lucide-react";
 import { format } from "date-fns";
 import { MaintenanceUpdateForm } from "../components/MaintenanceUpdateForm";
+import { getMaintenanceStatusBadge } from "../utils/badges";
 
 const MaintenanceDetailPageContent: React.FC = () => {
   const { maintenanceId } = useParams<{ maintenanceId: string }>();
@@ -47,6 +48,7 @@ const MaintenanceDetailPageContent: React.FC = () => {
   const api = useApi(maintenanceApiRef);
   const rpcApi = useApi(rpcApiRef);
   const permissionApi = useApi(permissionApiRef);
+  const toast = useToast();
 
   const catalogApi = useMemo(() => rpcApi.forPlugin(CatalogApi), [rpcApi]);
 
@@ -87,23 +89,17 @@ const MaintenanceDetailPageContent: React.FC = () => {
     loadData();
   };
 
-  const getStatusBadge = (status: MaintenanceStatus) => {
-    switch (status) {
-      case "in_progress": {
-        return <Badge variant="warning">In Progress</Badge>;
-      }
-      case "scheduled": {
-        return <Badge variant="info">Scheduled</Badge>;
-      }
-      case "completed": {
-        return <Badge variant="success">Completed</Badge>;
-      }
-      case "cancelled": {
-        return <Badge variant="secondary">Cancelled</Badge>;
-      }
-      default: {
-        return <Badge>{status}</Badge>;
-      }
+  const handleComplete = async () => {
+    if (!maintenanceId) return;
+
+    try {
+      await api.closeMaintenance({ id: maintenanceId });
+      toast.success("Maintenance completed");
+      await loadData();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to complete";
+      toast.error(message);
     }
   };
 
@@ -139,6 +135,10 @@ const MaintenanceDetailPageContent: React.FC = () => {
 
   // Get first system for "back" navigation
   const primarySystemId = maintenance.systemIds[0];
+  const canComplete =
+    canManage &&
+    maintenance.status !== "completed" &&
+    maintenance.status !== "cancelled";
 
   return (
     <div className="space-y-6">
@@ -171,7 +171,19 @@ const MaintenanceDetailPageContent: React.FC = () => {
                   <Wrench className="h-5 w-5 text-muted-foreground" />
                   <CardTitle>Maintenance Details</CardTitle>
                 </div>
-                {getStatusBadge(maintenance.status)}
+                <div className="flex items-center gap-2">
+                  {getMaintenanceStatusBadge(maintenance.status)}
+                  {canComplete && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleComplete}
+                    >
+                      <CheckCircle2 className="h-4 w-4 mr-1" />
+                      Complete
+                    </Button>
+                  )}
+                </div>
               </div>
             </CardHeader>
             <CardContent className="p-6 space-y-4">
@@ -263,60 +275,12 @@ const MaintenanceDetailPageContent: React.FC = () => {
                 </div>
               )}
 
-              {maintenance.updates.length === 0 ? (
-                <EmptyState
-                  title="No status updates"
-                  description="No status updates have been posted for this maintenance."
-                />
-              ) : (
-                <div className="relative">
-                  {/* Timeline line */}
-                  <div className="absolute left-4 top-2 bottom-2 w-0.5 bg-border" />
-
-                  <div className="space-y-6">
-                    {maintenance.updates
-                      .toSorted(
-                        (a, b) =>
-                          new Date(b.createdAt).getTime() -
-                          new Date(a.createdAt).getTime()
-                      )
-                      .map((update, index) => (
-                        <div key={update.id} className="relative pl-10">
-                          {/* Timeline dot */}
-                          <div
-                            className={`absolute left-2.5 w-3 h-3 rounded-full border-2 border-background ${
-                              index === 0
-                                ? "bg-primary"
-                                : "bg-muted-foreground/30"
-                            }`}
-                          />
-
-                          <div className="p-4 rounded-lg border border-border bg-muted/20">
-                            <div className="flex items-start justify-between gap-2 mb-2">
-                              <p className="text-foreground">
-                                {update.message}
-                              </p>
-                              {update.statusChange && (
-                                <div className="shrink-0">
-                                  {getStatusBadge(update.statusChange)}
-                                </div>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                              <Calendar className="h-3 w-3" />
-                              <span>
-                                {format(
-                                  new Date(update.createdAt),
-                                  "MMM d, yyyy 'at' HH:mm"
-                                )}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              )}
+              <StatusUpdateTimeline
+                updates={maintenance.updates}
+                renderStatusBadge={getMaintenanceStatusBadge}
+                emptyTitle="No status updates"
+                emptyDescription="No status updates have been posted for this maintenance."
+              />
             </CardContent>
           </Card>
         </div>
