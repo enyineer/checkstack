@@ -20,6 +20,7 @@ const createMockRegistry = (): HealthCheckRegistry => ({
     id,
     displayName: "Mock Strategy",
     description: "Mock",
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Mock registry doesn't need real Zod schema
     configSchema: {} as any,
     configVersion: 1,
     execute: mock(async () => ({
@@ -30,6 +31,25 @@ const createMockRegistry = (): HealthCheckRegistry => ({
   })),
   register: mock(() => {}),
   getStrategies: mock(() => []),
+});
+
+// Helper to create mock catalog client for notification delegation
+const createMockCatalogClient = () => ({
+  notifySystemSubscribers: mock(async () => ({ notifiedCount: 0 })),
+  // Other methods not used in queue-executor
+  getEntities: mock(async () => ({ systems: [], groups: [] })),
+  getSystems: mock(async () => []),
+  getGroups: mock(async () => []),
+  createSystem: mock(async () => ({})),
+  updateSystem: mock(async () => ({})),
+  deleteSystem: mock(async () => ({ success: true })),
+  createGroup: mock(async () => ({})),
+  updateGroup: mock(async () => ({})),
+  deleteGroup: mock(async () => ({ success: true })),
+  addSystemToGroup: mock(async () => ({ success: true })),
+  removeSystemFromGroup: mock(async () => ({ success: true })),
+  getViews: mock(async () => []),
+  createView: mock(async () => ({})),
 });
 
 describe("Queue-Based Health Check Executor", () => {
@@ -83,13 +103,19 @@ describe("Queue-Based Health Check Executor", () => {
       const mockRegistry = createMockRegistry();
       const mockLogger = createMockLogger();
       const mockQueueManager = createMockQueueManager();
+      const mockCatalogClient = createMockCatalogClient();
 
       await setupHealthCheckWorker({
-        db: mockDb as any,
+        db: mockDb as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["db"],
         registry: mockRegistry,
         logger: mockLogger,
         queueManager: mockQueueManager,
         signalService: createMockSignalService(),
+        catalogClient: mockCatalogClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["catalogClient"],
       });
 
       expect(mockLogger.debug).toHaveBeenCalledWith(

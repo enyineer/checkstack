@@ -9,9 +9,16 @@ import * as schema from "./schema";
 import { eq, and, max } from "drizzle-orm";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { type SignalService } from "@checkmate/signal-common";
-import { HEALTH_CHECK_STATE_CHANGED } from "@checkmate/healthcheck-common";
+import {
+  HEALTH_CHECK_STATE_CHANGED,
+  type HealthCheckStatus,
+} from "@checkmate/healthcheck-common";
+import { CatalogApi, catalogRoutes } from "@checkmate/catalog-common";
+import { resolveRoute, type InferClient } from "@checkmate/common";
+import { HealthCheckService } from "./service";
 
 type Db = NodePgDatabase<typeof schema>;
+type CatalogClient = InferClient<typeof CatalogApi>;
 
 /**
  * Payload for health check queue jobs
@@ -72,6 +79,78 @@ export async function scheduleHealthCheck(props: {
 }
 
 /**
+ * Notify system subscribers about a health state change.
+ */
+async function notifyStateChange(props: {
+  systemId: string;
+  previousStatus: HealthCheckStatus;
+  newStatus: HealthCheckStatus;
+  catalogClient: CatalogClient;
+  logger: Logger;
+}): Promise<void> {
+  const { systemId, previousStatus, newStatus, catalogClient, logger } = props;
+
+  // Only notify on actual state changes
+  if (newStatus === previousStatus) {
+    return;
+  }
+
+  const isRecovery = newStatus === "healthy" && previousStatus !== "healthy";
+  const isDegraded = newStatus === "degraded";
+  const isUnhealthy = newStatus === "unhealthy";
+
+  let title: string;
+  let description: string;
+  let importance: "info" | "warning" | "critical";
+
+  if (isRecovery) {
+    title = "System health restored";
+    description =
+      "All health checks are now passing. The system has returned to normal operation.";
+    importance = "info";
+  } else if (isUnhealthy) {
+    title = "System health critical";
+    description =
+      "Health checks indicate the system is unhealthy and may be down.";
+    importance = "critical";
+  } else if (isDegraded) {
+    title = "System health degraded";
+    description =
+      "Some health checks are failing. The system may be experiencing issues.";
+    importance = "warning";
+  } else {
+    // No notification for healthy → healthy (if somehow missed above)
+    return;
+  }
+
+  const systemDetailPath = resolveRoute(catalogRoutes.routes.systemDetail, {
+    systemId,
+  });
+
+  try {
+    await catalogClient.notifySystemSubscribers({
+      systemId,
+      title,
+      description,
+      importance,
+      actions: [
+        { label: "View System", href: systemDetailPath, variant: "primary" },
+      ],
+      includeGroupSubscribers: true,
+    });
+    logger.debug(
+      `Notified subscribers: ${previousStatus} → ${newStatus} for system ${systemId}`
+    );
+  } catch (error) {
+    // Log but don't fail the operation - notifications are best-effort
+    logger.warn(
+      `Failed to notify subscribers for health state change on system ${systemId}:`,
+      error
+    );
+  }
+}
+
+/**
  * Execute a health check job
  */
 async function executeHealthCheckJob(props: {
@@ -80,9 +159,17 @@ async function executeHealthCheckJob(props: {
   registry: HealthCheckRegistry;
   logger: Logger;
   signalService: SignalService;
+  catalogClient: CatalogClient;
 }): Promise<void> {
-  const { payload, db, registry, logger, signalService } = props;
+  const { payload, db, registry, logger, signalService, catalogClient } = props;
   const { configId, systemId } = payload;
+
+  // Create service for aggregated state evaluation
+  const service = new HealthCheckService(db);
+
+  // Capture aggregated state BEFORE this run for comparison
+  const previousState = await service.getSystemHealthStatus(systemId);
+  const previousStatus = previousState.status;
 
   try {
     // Fetch configuration
@@ -147,6 +234,18 @@ async function executeHealthCheckJob(props: {
       status: result.status,
     });
 
+    // Check if aggregated state changed and notify subscribers
+    const newState = await service.getSystemHealthStatus(systemId);
+    if (newState.status !== previousStatus) {
+      await notifyStateChange({
+        systemId,
+        previousStatus,
+        newStatus: newState.status,
+        catalogClient,
+        logger,
+      });
+    }
+
     // Note: No manual rescheduling needed - recurring job handles it automatically
   } catch (error) {
     logger.error(
@@ -169,6 +268,18 @@ async function executeHealthCheckJob(props: {
       status: "unhealthy",
     });
 
+    // Check if aggregated state changed and notify subscribers
+    const newState = await service.getSystemHealthStatus(systemId);
+    if (newState.status !== previousStatus) {
+      await notifyStateChange({
+        systemId,
+        previousStatus,
+        newStatus: newState.status,
+        catalogClient,
+        logger,
+      });
+    }
+
     // Note: No manual rescheduling needed - recurring job handles it automatically
   }
 }
@@ -182,8 +293,10 @@ export async function setupHealthCheckWorker(props: {
   logger: Logger;
   queueManager: QueueManager;
   signalService: SignalService;
+  catalogClient: CatalogClient;
 }): Promise<void> {
-  const { db, registry, logger, queueManager, signalService } = props;
+  const { db, registry, logger, queueManager, signalService, catalogClient } =
+    props;
 
   const queue =
     queueManager.getQueue<HealthCheckJobPayload>(HEALTH_CHECK_QUEUE);
@@ -197,6 +310,7 @@ export async function setupHealthCheckWorker(props: {
         registry,
         logger,
         signalService,
+        catalogClient,
       });
     },
     {

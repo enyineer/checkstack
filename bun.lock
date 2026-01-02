@@ -299,6 +299,7 @@
       "dependencies": {
         "@checkmate/backend-api": "workspace:*",
         "@checkmate/catalog-backend": "workspace:*",
+        "@checkmate/catalog-common": "workspace:*",
         "@checkmate/common": "workspace:*",
         "@checkmate/healthcheck-common": "workspace:*",
         "@checkmate/queue-api": "workspace:*",

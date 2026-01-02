@@ -9,6 +9,7 @@ import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
 import { createHealthCheckRouter } from "./router";
 import { HealthCheckService } from "./service";
 import { catalogHooks } from "@checkmate/catalog-backend";
+import { CatalogApi } from "@checkmate/catalog-common";
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
@@ -21,6 +22,7 @@ export default createBackendPlugin({
         logger: coreServices.logger,
         healthCheckRegistry: coreServices.healthCheckRegistry,
         rpc: coreServices.rpc,
+        rpcClient: coreServices.rpcClient,
         queueManager: coreServices.queueManager,
         signalService: coreServices.signalService,
       },
@@ -30,10 +32,14 @@ export default createBackendPlugin({
         database,
         healthCheckRegistry,
         rpc,
+        rpcClient,
         queueManager,
         signalService,
       }) => {
         logger.debug("🏥 Initializing Health Check Backend...");
+
+        // Create catalog client for notification delegation
+        const catalogClient = rpcClient.forPlugin(CatalogApi);
 
         // Setup queue-based health check worker
         await setupHealthCheckWorker({
@@ -42,6 +48,7 @@ export default createBackendPlugin({
           logger,
           queueManager,
           signalService,
+          catalogClient,
         });
 
         const healthCheckRouter = createHealthCheckRouter(
