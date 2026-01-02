@@ -1,12 +1,12 @@
 {
-  "id": "d38bcd71-a1e8-434f-8fd0-2f0a19a91192",
+  "id": "74a6fab2-e8df-4d0f-a2af-669d072ecdf5",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "plugin_healthcheck.health_check_configurations": {
+    "public.health_check_configurations": {
       "name": "health_check_configurations",
-      "schema": "plugin_healthcheck",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
@@ -69,9 +69,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "plugin_healthcheck.health_check_runs": {
+    "public.health_check_runs": {
       "name": "health_check_runs",
-      "schema": "plugin_healthcheck",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
@@ -95,7 +95,7 @@
         "status": {
           "name": "status",
           "type": "health_check_status",
-          "typeSchema": "plugin_healthcheck",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": true
         },
@@ -119,7 +119,6 @@
           "name": "health_check_runs_configuration_id_health_check_configurations_id_fk",
           "tableFrom": "health_check_runs",
           "tableTo": "health_check_configurations",
-          "schemaTo": "plugin_healthcheck",
           "columnsFrom": [
             "configuration_id"
           ],
@@ -136,9 +135,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "plugin_healthcheck.system_health_checks": {
+    "public.system_health_checks": {
       "name": "system_health_checks",
-      "schema": "plugin_healthcheck",
+      "schema": "",
       "columns": {
         "system_id": {
           "name": "system_id",
@@ -186,7 +185,6 @@
           "name": "system_health_checks_configuration_id_health_check_configurations_id_fk",
           "tableFrom": "system_health_checks",
           "tableTo": "health_check_configurations",
-          "schemaTo": "plugin_healthcheck",
           "columnsFrom": [
             "configuration_id"
           ],
@@ -213,9 +211,9 @@
     }
   },
   "enums": {
-    "plugin_healthcheck.health_check_status": {
+    "public.health_check_status": {
       "name": "health_check_status",
-      "schema": "plugin_healthcheck",
+      "schema": "public",
       "values": [
         "healthy",
         "unhealthy",

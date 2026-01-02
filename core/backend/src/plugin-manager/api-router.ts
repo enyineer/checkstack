@@ -34,7 +34,7 @@ export function createApiRouteHandler({
     T: T;
   }): Promise<T | undefined> {
     try {
-      return await registry.get(ref, "core");
+      return await registry.get(ref, { pluginId: "core" });
     } catch {
       return undefined;
     }

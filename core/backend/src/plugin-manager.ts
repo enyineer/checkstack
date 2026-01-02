@@ -104,7 +104,9 @@ export class PluginManager {
 
     // 1. Emit pluginDeregistering hook locally (instance-local, not distributed)
     // This lets other plugins on THIS instance cleanup dependencies
-    const eventBus = await this.registry.get(coreServices.eventBus, "core");
+    const eventBus = await this.registry.get(coreServices.eventBus, {
+      pluginId: "core",
+    });
     await eventBus.emitLocal(coreHooks.pluginDeregistering, {
       pluginId,
       reason: "uninstall" as const,
@@ -186,7 +188,9 @@ export class PluginManager {
     rootLogger.info(`📢 Broadcasting deregistration request for: ${pluginId}`);
 
     // Emit broadcast hook - all instances receive and perform local cleanup
-    const eventBus = await this.registry.get(coreServices.eventBus, "core");
+    const eventBus = await this.registry.get(coreServices.eventBus, {
+      pluginId: "core",
+    });
     await eventBus.emit(coreHooks.pluginDeregistrationRequested, {
       pluginId,
       deleteSchema: options.deleteSchema,
@@ -207,7 +211,9 @@ export class PluginManager {
     rootLogger.info(`📢 Broadcasting installation request for: ${pluginId}`);
 
     // Emit broadcast hook - all instances receive and load the plugin
-    const eventBus = await this.registry.get(coreServices.eventBus, "core");
+    const eventBus = await this.registry.get(coreServices.eventBus, {
+      pluginId: "core",
+    });
     await eventBus.emit(coreHooks.pluginInstallationRequested, {
       pluginId,
       pluginPath,
@@ -221,7 +227,9 @@ export class PluginManager {
    * Must be called after EventBus is available (after loadPlugins).
    */
   async setupLifecycleListeners(): Promise<void> {
-    const eventBus = await this.registry.get(coreServices.eventBus, "core");
+    const eventBus = await this.registry.get(coreServices.eventBus, {
+      pluginId: "core",
+    });
 
     // Listen for deregistration broadcasts (from any instance)
     await eventBus.subscribe(
@@ -250,7 +258,7 @@ export class PluginManager {
 
   async getService<T>(ref: ServiceRef<T>): Promise<T | undefined> {
     try {
-      return await this.registry.get(ref, "core");
+      return await this.registry.get(ref, { pluginId: "core" });
     } catch {
       return undefined;
     }
@@ -272,7 +280,9 @@ export class PluginManager {
     rootLogger.info(`🔌 Loading plugin at runtime: ${pluginId}`);
 
     // Emit instance-local installing hook
-    const eventBus = await this.registry.get(coreServices.eventBus, "core");
+    const eventBus = await this.registry.get(coreServices.eventBus, {
+      pluginId: "core",
+    });
     await eventBus.emitLocal(coreHooks.pluginInstalling, { pluginId });
 
     try {
@@ -294,7 +304,7 @@ export class PluginManager {
 
           const installer = await this.registry.get(
             coreServices.pluginInstaller,
-            "core"
+            { pluginId: "core" }
           );
           const result = await installer.install(pluginId);
 
@@ -331,7 +341,7 @@ export class PluginManager {
               for (const [key, ref] of Object.entries(args.deps)) {
                 resolvedDeps[key] = await this.registry.get(
                   ref as ServiceRef<unknown>,
-                  metaPluginId
+                  backendPlugin.metadata
                 );
               }
               await args.init(resolvedDeps as never);

@@ -18,6 +18,18 @@ import { db } from "../db";
 import { jwtService } from "../services/jwt";
 import { CoreHealthCheckRegistry } from "../services/health-check-registry";
 import { EventBus } from "../services/event-bus.js";
+import { getPluginSchemaName } from "@checkmate/drizzle-helper";
+
+/**
+ * Check if a PostgreSQL schema exists.
+ */
+async function schemaExists(pool: Pool, schemaName: string): Promise<boolean> {
+  const result = await pool.query(
+    "SELECT 1 FROM information_schema.schemata WHERE schema_name = $1",
+    [schemaName]
+  );
+  return result.rows.length > 0;
+}
 
 /**
  * Registers all core services with the service registry.
@@ -35,10 +47,30 @@ export function registerCoreServices({
   pluginHttpHandlers: Map<string, (req: Request) => Promise<Response>>;
 }) {
   // 1. Database Factory (Scoped)
-  registry.registerFactory(coreServices.database, async (pluginId) => {
-    const assignedSchema = `plugin_${pluginId}`;
+  registry.registerFactory(coreServices.database, async (metadata) => {
+    const { pluginId, previousPluginIds } = metadata;
+    const assignedSchema = getPluginSchemaName(pluginId);
 
-    // Ensure Schema Exists
+    // Pre-flight: Check if this is a schema rename scenario
+    if (previousPluginIds && previousPluginIds.length > 0) {
+      for (const oldId of previousPluginIds) {
+        const oldSchema = getPluginSchemaName(oldId);
+        const oldExists = await schemaExists(adminPool, oldSchema);
+        const newExists = await schemaExists(adminPool, assignedSchema);
+
+        if (oldExists && !newExists) {
+          rootLogger.info(
+            `🔄 Renaming schema ${oldSchema} → ${assignedSchema} for plugin ${pluginId}`
+          );
+          await adminPool.query(
+            `ALTER SCHEMA "${oldSchema}" RENAME TO "${assignedSchema}"`
+          );
+          break; // Only one rename needed
+        }
+      }
+    }
+
+    // Ensure Schema Exists (creates if not already renamed/created)
     await adminPool.query(`CREATE SCHEMA IF NOT EXISTS "${assignedSchema}"`);
 
     // Create Scoped Connection
@@ -53,8 +85,8 @@ export function registerCoreServices({
   });
 
   // 2. Logger Factory
-  registry.registerFactory(coreServices.logger, (pluginId) => {
-    return rootLogger.child({ plugin: pluginId });
+  registry.registerFactory(coreServices.logger, (metadata) => {
+    return rootLogger.child({ plugin: metadata.pluginId });
   });
 
   // 3. Auth Factory (Scoped)
@@ -63,7 +95,8 @@ export function registerCoreServices({
   let anonymousCacheTime = 0;
   const CACHE_TTL_MS = 60_000; // 1 minute cache
 
-  registry.registerFactory(coreServices.auth, (pluginId) => {
+  registry.registerFactory(coreServices.auth, (metadata) => {
+    const { pluginId } = metadata;
     const authService: AuthService = {
       authenticate: async (request: Request) => {
         const authHeader = request.headers.get("Authorization");
@@ -85,7 +118,7 @@ export function registerCoreServices({
         try {
           const authStrategy = await registry.get(
             authenticationStrategyServiceRef,
-            pluginId
+            metadata
           );
           if (authStrategy) {
             // AuthenticationStrategy.validate() returns RealUser | undefined
@@ -115,7 +148,9 @@ export function registerCoreServices({
 
         // Use RPC client to call auth-backend's getAnonymousPermissions endpoint
         try {
-          const rpcClient = await registry.get(coreServices.rpcClient, "core");
+          const rpcClient = await registry.get(coreServices.rpcClient, {
+            pluginId: "core",
+          });
           const authClient = rpcClient.forPlugin<AuthClient>("auth");
           const permissions = await authClient.getAnonymousPermissions();
 
@@ -137,8 +172,8 @@ export function registerCoreServices({
   });
 
   // 4. Fetch Factory (Scoped)
-  registry.registerFactory(coreServices.fetch, async (pluginId) => {
-    const auth = await registry.get(coreServices.auth, pluginId);
+  registry.registerFactory(coreServices.fetch, async (metadata) => {
+    const auth = await registry.get(coreServices.auth, metadata);
     const apiBaseUrl = process.env.API_BASE_URL || "http://localhost:3000";
 
     const fetchWithAuth = async (
@@ -198,8 +233,8 @@ export function registerCoreServices({
   });
 
   // 5. RPC Client Factory (Scoped, Typed)
-  registry.registerFactory(coreServices.rpcClient, async (pluginId) => {
-    const fetchService = await registry.get(coreServices.fetch, pluginId);
+  registry.registerFactory(coreServices.rpcClient, async (metadata) => {
+    const fetchService = await registry.get(coreServices.fetch, metadata);
     const apiBaseUrl = process.env.API_BASE_URL || "http://localhost:3000";
 
     // Create RPC Link using the fetch service (already has auth)
@@ -227,7 +262,8 @@ export function registerCoreServices({
   );
 
   // 7. RPC Service (Scoped Factory - uses pluginId for path derivation)
-  registry.registerFactory(coreServices.rpc, (pluginId) => {
+  registry.registerFactory(coreServices.rpc, (metadata) => {
+    const { pluginId } = metadata;
     return {
       registerRouter: (router: unknown, subpath?: string): void => {
         const fullPath = subpath ? `${pluginId}${subpath}` : pluginId;
@@ -250,20 +286,21 @@ export function registerCoreServices({
   });
 
   // 8. Config Service (Scoped Factory)
-  registry.registerFactory(coreServices.config, async (pluginId) => {
+  registry.registerFactory(coreServices.config, async (metadata) => {
     const { ConfigServiceImpl } = await import("../services/config-service.js");
-    return new ConfigServiceImpl(pluginId, db);
+    return new ConfigServiceImpl(metadata.pluginId, db);
   });
 
   // 9. EventBus (Global Singleton)
   let eventBusInstance: IEventBus | undefined;
   registry.registerFactory(coreServices.eventBus, async () => {
     if (!eventBusInstance) {
-      const queueManager = await registry.get(
-        coreServices.queueManager,
-        "core"
-      );
-      const logger = await registry.get(coreServices.logger, "core");
+      const queueManager = await registry.get(coreServices.queueManager, {
+        pluginId: "core",
+      });
+      const logger = await registry.get(coreServices.logger, {
+        pluginId: "core",
+      });
       eventBusInstance = new EventBus(queueManager, logger);
     }
     return eventBusInstance;

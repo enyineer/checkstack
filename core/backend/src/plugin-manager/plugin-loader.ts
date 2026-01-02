@@ -23,6 +23,7 @@ import { getPluginSchemaName } from "@checkmate/drizzle-helper";
 import { rootLogger } from "../logger";
 import type { ServiceRegistry } from "../services/service-registry";
 import { plugins } from "../schema";
+import { stripPublicSchemaFromMigrations } from "../utils/strip-public-schema";
 import {
   discoverLocalPlugins,
   syncPluginsToDatabase,
@@ -89,7 +90,7 @@ export function registerPlugin({
       ) => Promise<void>;
     }) => {
       pendingInits.push({
-        pluginId: pluginId,
+        metadata: backendPlugin.metadata,
         pluginPath: pluginPath,
         deps: args.deps,
         init: args.init as InitCallback,
@@ -236,7 +237,9 @@ export async function loadPlugins({
   }
 
   // Phase 2: Initialize Plugins (Topological Sort)
-  const logger = await deps.registry.get(coreServices.logger, "core");
+  const logger = await deps.registry.get(coreServices.logger, {
+    pluginId: "core",
+  });
   const sortedIds = sortPlugins({ pendingInits, providedBy, logger });
   rootLogger.debug(`✅ Initialization Order: ${sortedIds.join(" -> ")}`);
 
@@ -249,36 +252,38 @@ export async function loadPlugins({
   registerApiRoute(rootRouter, apiHandler);
 
   for (const id of sortedIds) {
-    const p = pendingInits.find((x) => x.pluginId === id)!;
-    rootLogger.info(`🚀 Initializing ${p.pluginId}...`);
+    const p = pendingInits.find((x) => x.metadata.pluginId === id)!;
+    rootLogger.info(`🚀 Initializing ${p.metadata.pluginId}...`);
 
     try {
       const pluginDb = await deps.registry.get(
         coreServices.database,
-        p.pluginId
+        p.metadata
       );
 
       // Run Migrations
       const migrationsFolder = path.join(p.pluginPath, "drizzle");
-      const migrationsSchema = getPluginSchemaName(p.pluginId);
+      const migrationsSchema = getPluginSchemaName(p.metadata.pluginId);
       if (fs.existsSync(migrationsFolder)) {
         try {
+          // Strip "public". schema references from migration SQL at runtime
+          stripPublicSchemaFromMigrations(migrationsFolder);
           rootLogger.debug(
-            `   -> Running migrations for ${p.pluginId} from ${migrationsFolder}`
+            `   -> Running migrations for ${p.metadata.pluginId} from ${migrationsFolder}`
           );
           await migrate(pluginDb, { migrationsFolder, migrationsSchema });
         } catch (error) {
           rootLogger.error(
-            `❌ Failed migration of plugin ${p.pluginId}:`,
+            `❌ Failed migration of plugin ${p.metadata.pluginId}:`,
             error
           );
-          throw new Error(`Failed to migrate plugin ${p.pluginId}`, {
+          throw new Error(`Failed to migrate plugin ${p.metadata.pluginId}`, {
             cause: error,
           });
         }
       } else {
         rootLogger.debug(
-          `   -> No migrations found for ${p.pluginId} (skipping)`
+          `   -> No migrations found for ${p.metadata.pluginId} (skipping)`
         );
       }
 
@@ -287,14 +292,14 @@ export async function loadPlugins({
       for (const [key, ref] of Object.entries(p.deps)) {
         resolvedDeps[key] = await deps.registry.get(
           ref as ServiceRef<unknown>,
-          p.pluginId
+          p.metadata
         );
       }
 
       // Inject Schema-aware Database if schema is provided
       if (p.schema) {
         const baseUrl = process.env.DATABASE_URL;
-        const assignedSchema = `plugin_${p.pluginId}`;
+        const assignedSchema = getPluginSchemaName(p.metadata.pluginId);
         const scopedUrl = `${baseUrl}?options=-c%20search_path%3D${assignedSchema}`;
         const pluginPool = new Pool({ connectionString: scopedUrl });
         resolvedDeps["database"] = drizzle(pluginPool, { schema: p.schema });
@@ -302,19 +307,22 @@ export async function loadPlugins({
 
       try {
         await p.init(resolvedDeps);
-        rootLogger.debug(`   -> Initialized ${p.pluginId}`);
+        rootLogger.debug(`   -> Initialized ${p.metadata.pluginId}`);
       } catch (error) {
-        rootLogger.error(`❌ Failed to initialize ${p.pluginId}:`, error);
-        throw new Error(`Failed to initialize plugin ${p.pluginId}`, {
+        rootLogger.error(
+          `❌ Failed to initialize ${p.metadata.pluginId}:`,
+          error
+        );
+        throw new Error(`Failed to initialize plugin ${p.metadata.pluginId}`, {
           cause: error,
         });
       }
     } catch (error) {
       rootLogger.error(
-        `❌ Critical error loading plugin ${p.pluginId}:`,
+        `❌ Critical error loading plugin ${p.metadata.pluginId}:`,
         error
       );
-      throw new Error(`Critical error loading plugin ${p.pluginId}`, {
+      throw new Error(`Critical error loading plugin ${p.metadata.pluginId}`, {
         cause: error,
       });
     }
@@ -322,15 +330,17 @@ export async function loadPlugins({
 
   // Emit pluginInitialized hooks for all plugins after Phase 2 completes
   // (EventBus is now available)
-  const eventBus = await deps.registry.get(coreServices.eventBus, "core");
+  const eventBus = await deps.registry.get(coreServices.eventBus, {
+    pluginId: "core",
+  });
   for (const p of pendingInits) {
     try {
       await eventBus.emit(coreHooks.pluginInitialized, {
-        pluginId: p.pluginId,
+        pluginId: p.metadata.pluginId,
       });
     } catch (error) {
       rootLogger.error(
-        `Failed to emit pluginInitialized hook for ${p.pluginId}:`,
+        `Failed to emit pluginInitialized hook for ${p.metadata.pluginId}:`,
         error
       );
     }
@@ -373,25 +383,32 @@ export async function loadPlugins({
         for (const [key, ref] of Object.entries(p.deps)) {
           resolvedDeps[key] = await deps.registry.get(
             ref as ServiceRef<unknown>,
-            p.pluginId
+            p.metadata
           );
         }
 
         if (p.schema) {
           const baseUrl = process.env.DATABASE_URL;
-          const assignedSchema = `plugin_${p.pluginId}`;
+          const assignedSchema = getPluginSchemaName(p.metadata.pluginId);
           const scopedUrl = `${baseUrl}?options=-c%20search_path%3D${assignedSchema}`;
           const pluginPool = new Pool({ connectionString: scopedUrl });
           resolvedDeps["database"] = drizzle(pluginPool, { schema: p.schema });
         }
 
-        const eventBus = await deps.registry.get(coreServices.eventBus, "core");
+        const eventBus = await deps.registry.get(coreServices.eventBus, {
+          pluginId: "core",
+        });
         resolvedDeps["onHook"] = <T>(
           hook: { id: string },
           listener: (payload: T) => Promise<void>,
           options?: HookSubscribeOptions
         ) => {
-          return eventBus.subscribe(p.pluginId, hook, listener, options);
+          return eventBus.subscribe(
+            p.metadata.pluginId,
+            hook,
+            listener,
+            options
+          );
         };
         resolvedDeps["emitHook"] = async <T>(
           hook: { id: string },
@@ -401,15 +418,20 @@ export async function loadPlugins({
         };
 
         await p.afterPluginsReady(resolvedDeps);
-        rootLogger.debug(`   -> ${p.pluginId} afterPluginsReady complete`);
+        rootLogger.debug(
+          `   -> ${p.metadata.pluginId} afterPluginsReady complete`
+        );
       } catch (error) {
         rootLogger.error(
-          `❌ Failed afterPluginsReady for ${p.pluginId}:`,
+          `❌ Failed afterPluginsReady for ${p.metadata.pluginId}:`,
           error
         );
-        throw new Error(`Failed afterPluginsReady for plugin ${p.pluginId}`, {
-          cause: error,
-        });
+        throw new Error(
+          `Failed afterPluginsReady for plugin ${p.metadata.pluginId}`,
+          {
+            cause: error,
+          }
+        );
       }
     }
   }

@@ -1,24 +1,25 @@
-import { pgSchema, text, timestamp, primaryKey } from "drizzle-orm/pg-core";
-import { getPluginSchemaName } from "@checkmate/drizzle-helper";
-import { pluginMetadata } from "./plugin-metadata";
-
-// Get the schema name from the plugin's pluginId
-const maintenanceSchema = pgSchema(
-  getPluginSchemaName(pluginMetadata.pluginId)
-);
+import {
+  pgTable,
+  pgEnum,
+  text,
+  timestamp,
+  primaryKey,
+} from "drizzle-orm/pg-core";
 
 /**
  * Maintenance status enum
  */
-export const maintenanceStatusEnum = maintenanceSchema.enum(
-  "maintenance_status",
-  ["scheduled", "in_progress", "completed", "cancelled"]
-);
+export const maintenanceStatusEnum = pgEnum("maintenance_status", [
+  "scheduled",
+  "in_progress",
+  "completed",
+  "cancelled",
+]);
 
 /**
  * Main maintenance table
  */
-export const maintenances = maintenanceSchema.table("maintenances", {
+export const maintenances = pgTable("maintenances", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   description: text("description"),
@@ -32,7 +33,7 @@ export const maintenances = maintenanceSchema.table("maintenances", {
 /**
  * Junction table for maintenance-system many-to-many relationship
  */
-export const maintenanceSystems = maintenanceSchema.table(
+export const maintenanceSystems = pgTable(
   "maintenance_systems",
   {
     maintenanceId: text("maintenance_id")
@@ -48,16 +49,13 @@ export const maintenanceSystems = maintenanceSchema.table(
 /**
  * Status updates for maintenances
  */
-export const maintenanceUpdates = maintenanceSchema.table(
-  "maintenance_updates",
-  {
-    id: text("id").primaryKey(),
-    maintenanceId: text("maintenance_id")
-      .notNull()
-      .references(() => maintenances.id, { onDelete: "cascade" }),
-    message: text("message").notNull(),
-    statusChange: maintenanceStatusEnum("status_change"),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-    createdBy: text("created_by"),
-  }
-);
+export const maintenanceUpdates = pgTable("maintenance_updates", {
+  id: text("id").primaryKey(),
+  maintenanceId: text("maintenance_id")
+    .notNull()
+    .references(() => maintenances.id, { onDelete: "cascade" }),
+  message: text("message").notNull(),
+  statusChange: maintenanceStatusEnum("status_change"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdBy: text("created_by"),
+});

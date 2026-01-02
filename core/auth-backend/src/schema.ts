@@ -1,18 +1,14 @@
 import {
-  pgSchema,
+  pgTable,
   text,
   boolean,
   timestamp,
   primaryKey,
 } from "drizzle-orm/pg-core";
-import { getPluginSchemaName } from "@checkmate/drizzle-helper";
-import { pluginMetadata } from "./plugin-metadata";
-
-// Get the schema name from the plugin's pluginId
-const authSchema = pgSchema(getPluginSchemaName(pluginMetadata.pluginId));
 
 // --- Better Auth Schema ---
-export const user = authSchema.table("user", {
+// Tables use pgTable (schemaless) - runtime schema is set via search_path
+export const user = pgTable("user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
@@ -22,7 +18,7 @@ export const user = authSchema.table("user", {
   updatedAt: timestamp("updated_at").notNull(),
 });
 
-export const session = authSchema.table("session", {
+export const session = pgTable("session", {
   id: text("id").primaryKey(),
   expiresAt: timestamp("expires_at").notNull(),
   token: text("token").notNull().unique(),
@@ -35,7 +31,7 @@ export const session = authSchema.table("session", {
     .references(() => user.id),
 });
 
-export const account = authSchema.table("account", {
+export const account = pgTable("account", {
   id: text("id").primaryKey(),
   accountId: text("account_id").notNull(),
   providerId: text("provider_id").notNull(),
@@ -53,7 +49,7 @@ export const account = authSchema.table("account", {
   updatedAt: timestamp("updated_at").notNull(),
 });
 
-export const verification = authSchema.table("verification", {
+export const verification = pgTable("verification", {
   id: text("id").primaryKey(),
   identifier: text("identifier").notNull(),
   value: text("value").notNull(),
@@ -63,19 +59,19 @@ export const verification = authSchema.table("verification", {
 });
 
 // --- RBAC Schema ---
-export const role = authSchema.table("role", {
+export const role = pgTable("role", {
   id: text("id").primaryKey(), // 'admin', 'user', 'anonymous'
   name: text("name").notNull(),
   description: text("description"),
   isSystem: boolean("is_system").default(false), // Prevent deletion of core roles
 });
 
-export const permission = authSchema.table("permission", {
+export const permission = pgTable("permission", {
   id: text("id").primaryKey(), // 'core.manage-users', etc.
   description: text("description"),
 });
 
-export const rolePermission = authSchema.table(
+export const rolePermission = pgTable(
   "role_permission",
   {
     roleId: text("role_id")
@@ -90,7 +86,7 @@ export const rolePermission = authSchema.table(
   })
 );
 
-export const userRole = authSchema.table(
+export const userRole = pgTable(
   "user_role",
   {
     userId: text("user_id")
@@ -110,7 +106,7 @@ export const userRole = authSchema.table(
  * When a plugin registers a permission with isAuthenticatedDefault=true, it gets assigned
  * to the "users" role unless it's in this table.
  */
-export const disabledDefaultPermission = authSchema.table(
+export const disabledDefaultPermission = pgTable(
   "disabled_default_permission",
   {
     permissionId: text("permission_id")
@@ -125,7 +121,7 @@ export const disabledDefaultPermission = authSchema.table(
  * When a plugin registers a permission with isPublicDefault=true, it gets assigned
  * to the "anonymous" role unless it's in this table.
  */
-export const disabledPublicDefaultPermission = authSchema.table(
+export const disabledPublicDefaultPermission = pgTable(
   "disabled_public_default_permission",
   {
     permissionId: text("permission_id")

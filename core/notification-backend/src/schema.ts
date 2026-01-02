@@ -1,5 +1,5 @@
 import {
-  pgSchema,
+  pgTable,
   text,
   boolean,
   uuid,
@@ -8,16 +8,9 @@ import {
   primaryKey,
 } from "drizzle-orm/pg-core";
 import type { NotificationAction } from "@checkmate/notification-common";
-import { getPluginSchemaName } from "@checkmate/drizzle-helper";
-import { pluginMetadata } from "./plugin-metadata";
-
-// Get the schema name from the plugin's pluginId
-const notificationSchema = pgSchema(
-  getPluginSchemaName(pluginMetadata.pluginId)
-);
 
 // User notifications table
-export const notifications = notificationSchema.table("notifications", {
+export const notifications = pgTable("notifications", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id").notNull(), // No FK - cross-schema limitation
   title: text("title").notNull(),
@@ -31,19 +24,16 @@ export const notifications = notificationSchema.table("notifications", {
 
 // Notification groups (created by plugins)
 // ID is namespaced: "pluginId.groupName"
-export const notificationGroups = notificationSchema.table(
-  "notification_groups",
-  {
-    id: text("id").primaryKey(), // Namespaced: "pluginId.groupName"
-    name: text("name").notNull(),
-    description: text("description").notNull(),
-    ownerPlugin: text("owner_plugin").notNull(),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-  }
-);
+export const notificationGroups = pgTable("notification_groups", {
+  id: text("id").primaryKey(), // Namespaced: "pluginId.groupName"
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  ownerPlugin: text("owner_plugin").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
 // User-group subscriptions
-export const notificationSubscriptions = notificationSchema.table(
+export const notificationSubscriptions = pgTable(
   "notification_subscriptions",
   {
     userId: text("user_id").notNull(),

@@ -1,12 +1,12 @@
 {
-  "id": "d8fe3275-33a5-4142-bf8c-da33b09f865a",
+  "id": "36cfd7db-c663-4378-a04e-496ccafb177a",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "plugin_auth.account": {
+    "public.account": {
       "name": "account",
-      "schema": "plugin_auth",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
@@ -93,7 +93,6 @@
           "name": "account_user_id_user_id_fk",
           "tableFrom": "account",
           "tableTo": "user",
-          "schemaTo": "plugin_auth",
           "columnsFrom": [
             "user_id"
           ],
@@ -110,9 +109,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "plugin_auth.disabled_default_permission": {
+    "public.disabled_default_permission": {
       "name": "disabled_default_permission",
-      "schema": "plugin_auth",
+      "schema": "",
       "columns": {
         "permission_id": {
           "name": "permission_id",
@@ -133,7 +132,6 @@
           "name": "disabled_default_permission_permission_id_permission_id_fk",
           "tableFrom": "disabled_default_permission",
           "tableTo": "permission",
-          "schemaTo": "plugin_auth",
           "columnsFrom": [
             "permission_id"
           ],
@@ -150,9 +148,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "plugin_auth.disabled_public_default_permission": {
+    "public.disabled_public_default_permission": {
       "name": "disabled_public_default_permission",
-      "schema": "plugin_auth",
+      "schema": "",
       "columns": {
         "permission_id": {
           "name": "permission_id",
@@ -173,7 +171,6 @@
           "name": "disabled_public_default_permission_permission_id_permission_id_fk",
           "tableFrom": "disabled_public_default_permission",
           "tableTo": "permission",
-          "schemaTo": "plugin_auth",
           "columnsFrom": [
             "permission_id"
           ],
@@ -190,9 +187,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "plugin_auth.permission": {
+    "public.permission": {
       "name": "permission",
-      "schema": "plugin_auth",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
@@ -215,9 +212,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "plugin_auth.role": {
+    "public.role": {
       "name": "role",
-      "schema": "plugin_auth",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
@@ -253,9 +250,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "plugin_auth.role_permission": {
+    "public.role_permission": {
       "name": "role_permission",
-      "schema": "plugin_auth",
+      "schema": "",
       "columns": {
         "role_id": {
           "name": "role_id",
@@ -276,7 +273,6 @@
           "name": "role_permission_role_id_role_id_fk",
           "tableFrom": "role_permission",
           "tableTo": "role",
-          "schemaTo": "plugin_auth",
           "columnsFrom": [
             "role_id"
           ],
@@ -290,7 +286,6 @@
           "name": "role_permission_permission_id_permission_id_fk",
           "tableFrom": "role_permission",
           "tableTo": "permission",
-          "schemaTo": "plugin_auth",
           "columnsFrom": [
             "permission_id"
           ],
@@ -315,9 +310,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "plugin_auth.session": {
+    "public.session": {
       "name": "session",
-      "schema": "plugin_auth",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
@@ -374,7 +369,6 @@
           "name": "session_user_id_user_id_fk",
           "tableFrom": "session",
           "tableTo": "user",
-          "schemaTo": "plugin_auth",
           "columnsFrom": [
             "user_id"
           ],
@@ -399,9 +393,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "plugin_auth.user": {
+    "public.user": {
       "name": "user",
-      "schema": "plugin_auth",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
@@ -462,9 +456,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "plugin_auth.user_role": {
+    "public.user_role": {
       "name": "user_role",
-      "schema": "plugin_auth",
+      "schema": "",
       "columns": {
         "user_id": {
           "name": "user_id",
@@ -485,7 +479,6 @@
           "name": "user_role_user_id_user_id_fk",
           "tableFrom": "user_role",
           "tableTo": "user",
-          "schemaTo": "plugin_auth",
           "columnsFrom": [
             "user_id"
           ],
@@ -499,7 +492,6 @@
           "name": "user_role_role_id_role_id_fk",
           "tableFrom": "user_role",
           "tableTo": "role",
-          "schemaTo": "plugin_auth",
           "columnsFrom": [
             "role_id"
           ],
@@ -524,9 +516,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "plugin_auth.verification": {
+    "public.verification": {
       "name": "verification",
-      "schema": "plugin_auth",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",

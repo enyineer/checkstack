@@ -52,14 +52,9 @@ export default createBackendPlugin({
 
 ```typescript
 // plugins/my-feature-backend/src/schema.ts
-import { text, timestamp, uuid } from "drizzle-orm/pg-core";
-import { pgSchema } from "drizzle-orm/pg-core";
-import { getPluginSchemaName } from "@checkmate/drizzle-helper";
-import { pluginMetadata } from "./plugin-metadata";
+import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-const myFeatureSchema = pgSchema(getPluginSchemaName(pluginMetadata.pluginId));
-
-export const items = myFeatureSchema.table("items", {
+export const items = pgTable("items", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),

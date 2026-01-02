@@ -1,6 +1,7 @@
 import { ServiceRef } from "@checkmate/backend-api";
+import type { PluginMetadata } from "@checkmate/common";
 
-type ServiceFactory<T> = (pluginId: string) => T | Promise<T>;
+type ServiceFactory<T> = (metadata: PluginMetadata) => T | Promise<T>;
 
 export class ServiceRegistry {
   private services = new Map<string, unknown>();
@@ -14,11 +15,11 @@ export class ServiceRegistry {
     this.factories.set(ref.id, factory as ServiceFactory<unknown>);
   }
 
-  async get<T>(ref: ServiceRef<T>, pluginId: string): Promise<T> {
+  async get<T>(ref: ServiceRef<T>, metadata: PluginMetadata): Promise<T> {
     // 1. Try Factory (Scoped)
     const factory = this.factories.get(ref.id);
     if (factory) {
-      return (await factory(pluginId)) as T;
+      return (await factory(metadata)) as T;
     }
 
     // 2. Try Global Service
@@ -27,6 +28,8 @@ export class ServiceRegistry {
       return service as T;
     }
 
-    throw new Error(`Service '${ref.id}' not found for plugin '${pluginId}'`);
+    throw new Error(
+      `Service '${ref.id}' not found for plugin '${metadata.pluginId}'`
+    );
   }
 }

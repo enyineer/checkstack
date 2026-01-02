@@ -9,6 +9,13 @@
 export interface PluginMetadata {
   /** The unique identifier for this plugin */
   pluginId: string;
+
+  /**
+   * Previous plugin IDs that this plugin was known by.
+   * Used during schema migrations to rename old schemas to the new name.
+   * Only needed when renaming a plugin that has already been deployed.
+   */
+  previousPluginIds?: string[];
 }
 
 /**

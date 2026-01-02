@@ -1,4 +1,5 @@
 import type { ServiceRef, Logger } from "@checkmate/backend-api";
+import type { PluginMetadata } from "@checkmate/common";
 import { coreServices } from "@checkmate/backend-api";
 
 /**
@@ -11,7 +12,7 @@ export function sortPlugins({
   logger,
 }: {
   pendingInits: {
-    pluginId: string;
+    metadata: PluginMetadata;
     deps: Record<string, ServiceRef<unknown>>;
   }[];
   providedBy: Map<string, string>;
@@ -23,8 +24,8 @@ export function sortPlugins({
   const graph = new Map<string, string[]>();
 
   for (const p of pendingInits) {
-    inDegree.set(p.pluginId, 0);
-    graph.set(p.pluginId, []);
+    inDegree.set(p.metadata.pluginId, 0);
+    graph.set(p.metadata.pluginId, []);
   }
 
   // Track queue plugin providers (plugins that depend on queuePluginRegistry)
@@ -32,14 +33,14 @@ export function sortPlugins({
   for (const p of pendingInits) {
     for (const [, ref] of Object.entries(p.deps)) {
       if (ref.id === coreServices.queuePluginRegistry.id) {
-        queuePluginProviders.add(p.pluginId);
+        queuePluginProviders.add(p.metadata.pluginId);
       }
     }
   }
 
   // Build dependency graph
   for (const p of pendingInits) {
-    const consumerId = p.pluginId;
+    const consumerId = p.metadata.pluginId;
     for (const [, ref] of Object.entries(p.deps)) {
       const serviceId = ref.id;
       const providerId = providedBy.get(serviceId);

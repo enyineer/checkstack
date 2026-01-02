@@ -65,14 +65,9 @@ The generated plugin is a fully functional example. Customize it for your domain
 **src/schema.ts:**
 
 ```typescript
-import { text, timestamp, uuid } from "drizzle-orm/pg-core";
-import { pgSchema } from "drizzle-orm/pg-core";
-import { getPluginSchemaName } from "@checkmate/drizzle-helper";
-import { pluginMetadata } from "./plugin-metadata";
+import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-const myFeatureSchema = pgSchema(getPluginSchemaName(pluginMetadata.pluginId));
-
-export const myItems = myFeatureSchema.table("items", {
+export const myItems = pgTable("items", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   description: text("description"),
@@ -612,14 +607,9 @@ oRPC automatically infers types from the procedure chain. **Do not** add explici
 **src/schema.ts:**
 
 ```typescript
-import { text, timestamp } from "drizzle-orm/pg-core";
-import { pgSchema } from "drizzle-orm/pg-core";
-import { getPluginSchemaName } from "@checkmate/drizzle-helper";
-import { pluginMetadata } from "./plugin-metadata";
+import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
-const mySchema = pgSchema(getPluginSchemaName(pluginMetadata.pluginId));
-
-export const items = mySchema.table("items", {
+export const items = pgTable("items", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),

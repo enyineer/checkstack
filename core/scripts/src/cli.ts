@@ -9,6 +9,7 @@ if (!command) {
   console.log("\nCommands:");
   console.log("  create      - Create a new plugin interactively");
   console.log("  sync        - Synchronize package configurations");
+  console.log("  generate    - Generate migrations and strip public schema");
   console.log("  typecheck   - Run TypeScript type checking");
   console.log("  lint        - Run linting checks");
   process.exit(1);
@@ -19,7 +20,7 @@ const rootDir = process.cwd();
 if (command === "sync") {
   const result = spawnSync(
     "bun",
-    ["run", path.join(rootDir, "packages/scripts/src/sync.ts")],
+    ["run", path.join(rootDir, "core/scripts/src/sync.ts")],
     {
       stdio: "inherit",
     }
@@ -30,8 +31,20 @@ if (command === "sync") {
 if (command === "create") {
   const result = spawnSync(
     "bun",
-    ["run", path.join(rootDir, "packages/scripts/src/commands/create.ts")],
+    ["run", path.join(rootDir, "core/scripts/src/commands/create.ts")],
     {
+      stdio: "inherit",
+    }
+  );
+  process.exit(result.status ?? 0);
+}
+
+if (command === "generate") {
+  const result = spawnSync(
+    "bun",
+    [path.join(rootDir, "core/scripts/src/commands/generate.ts")],
+    {
+      cwd: rootDir, // Keep cwd as root, script will handle paths
       stdio: "inherit",
     }
   );

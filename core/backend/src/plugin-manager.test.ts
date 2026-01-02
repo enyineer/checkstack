@@ -94,15 +94,15 @@ describe("PluginManager", () => {
 
       const pendingInits = [
         {
-          pluginId: "consumer",
+          metadata: { pluginId: "consumer" },
           deps: { d1: s1, d2: s2 } as Record<string, ServiceRef<unknown>>,
         },
         {
-          pluginId: "provider-1",
+          metadata: { pluginId: "provider-1" },
           deps: {} as Record<string, ServiceRef<unknown>>,
         },
         {
-          pluginId: "provider-2",
+          metadata: { pluginId: "provider-2" },
           deps: { d1: s1 } as Record<string, ServiceRef<unknown>>,
         },
       ];
@@ -136,8 +136,8 @@ describe("PluginManager", () => {
       const s2 = createServiceRef<any>("service-2");
 
       const pendingInits = [
-        { pluginId: "p1", deps: { d: s2 } },
-        { pluginId: "p2", deps: { d: s1 } },
+        { metadata: { pluginId: "p1" }, deps: { d: s2 } },
+        { metadata: { pluginId: "p2" }, deps: { d: s1 } },
       ];
 
       const providedBy = new Map([
@@ -161,14 +161,14 @@ describe("PluginManager", () => {
 
         const pendingInits = [
           {
-            pluginId: "queue-consumer",
+            metadata: { pluginId: "queue-consumer" },
             deps: { queueManager: queueManagerRef } as Record<
               string,
               ServiceRef<unknown>
             >,
           },
           {
-            pluginId: "queue-provider",
+            metadata: { pluginId: "queue-provider" },
             deps: { queuePluginRegistry: queueRegistryRef } as Record<
               string,
               ServiceRef<unknown>
@@ -200,35 +200,35 @@ describe("PluginManager", () => {
 
         const pendingInits = [
           {
-            pluginId: "consumer-1",
+            metadata: { pluginId: "consumer-1" },
             deps: { queueManager: queueManagerRef } as Record<
               string,
               ServiceRef<unknown>
             >,
           },
           {
-            pluginId: "provider-1",
+            metadata: { pluginId: "provider-1" },
             deps: { queuePluginRegistry: queueRegistryRef } as Record<
               string,
               ServiceRef<unknown>
             >,
           },
           {
-            pluginId: "consumer-2",
+            metadata: { pluginId: "consumer-2" },
             deps: { queueManager: queueManagerRef } as Record<
               string,
               ServiceRef<unknown>
             >,
           },
           {
-            pluginId: "provider-2",
+            metadata: { pluginId: "provider-2" },
             deps: { queuePluginRegistry: queueRegistryRef } as Record<
               string,
               ServiceRef<unknown>
             >,
           },
           {
-            pluginId: "unrelated",
+            metadata: { pluginId: "unrelated" },
             deps: { logger: loggerRef } as Record<string, ServiceRef<unknown>>,
           },
         ];
@@ -264,21 +264,21 @@ describe("PluginManager", () => {
 
         const pendingInits = [
           {
-            pluginId: "queue-consumer",
+            metadata: { pluginId: "queue-consumer" },
             deps: {
               queueManager: queueManagerRef,
               customService: customServiceRef,
             } as Record<string, ServiceRef<unknown>>,
           },
           {
-            pluginId: "queue-provider",
+            metadata: { pluginId: "queue-provider" },
             deps: { queuePluginRegistry: queueRegistryRef } as Record<
               string,
               ServiceRef<unknown>
             >,
           },
           {
-            pluginId: "provider-plugin",
+            metadata: { pluginId: "provider-plugin" },
             deps: { logger: loggerRef } as Record<string, ServiceRef<unknown>>,
           },
         ];
@@ -313,14 +313,14 @@ describe("PluginManager", () => {
 
         const pendingInits = [
           {
-            pluginId: "dual-plugin",
+            metadata: { pluginId: "dual-plugin" },
             deps: {
               queuePluginRegistry: queueRegistryRef,
               queueManager: queueManagerRef,
             } as Record<string, ServiceRef<unknown>>,
           },
           {
-            pluginId: "consumer-only",
+            metadata: { pluginId: "consumer-only" },
             deps: { queueManager: queueManagerRef } as Record<
               string,
               ServiceRef<unknown>
@@ -351,14 +351,14 @@ describe("PluginManager", () => {
 
         const pendingInits = [
           {
-            pluginId: "queue-provider",
+            metadata: { pluginId: "queue-provider" },
             deps: { queuePluginRegistry: queueRegistryRef } as Record<
               string,
               ServiceRef<unknown>
             >,
           },
           {
-            pluginId: "queue-consumer",
+            metadata: { pluginId: "queue-consumer" },
             deps: { queueManager: queueManagerRef } as Record<
               string,
               ServiceRef<unknown>

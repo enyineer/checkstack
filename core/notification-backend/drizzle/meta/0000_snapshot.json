@@ -1,12 +1,12 @@
 {
-  "id": "2a4114cd-e49f-4875-b053-643f83295215",
+  "id": "3c779341-b676-429f-a7b3-a8e08728f95a",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "plugin_notification.notification_groups": {
+    "public.notification_groups": {
       "name": "notification_groups",
-      "schema": "plugin_notification",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
@@ -48,9 +48,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "plugin_notification.notification_subscriptions": {
+    "public.notification_subscriptions": {
       "name": "notification_subscriptions",
-      "schema": "plugin_notification",
+      "schema": "",
       "columns": {
         "user_id": {
           "name": "user_id",
@@ -78,7 +78,6 @@
           "name": "notification_subscriptions_group_id_notification_groups_id_fk",
           "tableFrom": "notification_subscriptions",
           "tableTo": "notification_groups",
-          "schemaTo": "plugin_notification",
           "columnsFrom": [
             "group_id"
           ],
@@ -103,9 +102,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "plugin_notification.notifications": {
+    "public.notifications": {
       "name": "notifications",
-      "schema": "plugin_notification",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
