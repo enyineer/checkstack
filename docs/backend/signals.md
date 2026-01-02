@@ -181,7 +181,7 @@ Check connection status:
 import { useSignalConnection } from "@checkmate/signal-frontend";
 
 function ConnectionIndicator() {
-  const isConnected = useSignalConnection();
+  const { isConnected } = useSignalConnection();
 
   return (
     <div className={isConnected ? "text-green-500" : "text-red-500"}>
@@ -316,7 +316,7 @@ The SignalProvider auto-reconnects, but components should handle the gap:
 
 ```tsx
 function NotificationBell() {
-  const isConnected = useSignalConnection();
+  const { isConnected } = useSignalConnection();
   
   // Refetch on reconnection to catch missed signals
   useEffect(() => {
@@ -440,7 +440,7 @@ function useSignal<T>(
 ): void;
 
 // Get connection status
-function useSignalConnection(): boolean;
+function useSignalConnection(): { isConnected: boolean };
 ```
 
 ---

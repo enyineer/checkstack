@@ -198,7 +198,7 @@ env.registerPermissions([
 ```
 
 > **Note**: The core automatically prefixes permission IDs with the plugin ID.
-> `item.read` becomes `myplugin-backend.item.read`
+> `item.read` becomes `myplugin.item.read`
 
 ##### Permission Options
 
@@ -790,7 +790,7 @@ import plugin from "./index";
 
 describe("MyPlugin Backend", () => {
   test("exports plugin", () => {
-    expect(plugin.pluginId).toBe("myplugin-backend");
+    expect(plugin.pluginId).toBe("myplugin");
     expect(plugin.register).toBeFunction();
   });
 });

@@ -57,7 +57,7 @@ export interface EnabledAuthStrategy {
 /**
  * AuthApi provides better-auth client methods for authentication.
  * For RPC calls (including getEnabledStrategies, user/role/strategy management), use:
- *   const authClient = rpcApiRef.forPlugin<AuthClient>("auth-backend");
+ *   const authClient = rpcApiRef.forPlugin<AuthClient>("auth");
  */
 export interface AuthApi {
   // Better-auth methods (not RPC)

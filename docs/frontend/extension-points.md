@@ -461,17 +461,21 @@ export const oauthStrategy: AuthenticationStrategy<OAuthConfig> = {
 ### Slots
 
 Slots allow plugins to inject UI components into predefined locations. Plugins can either:
-1. Register extensions to **core slots** defined in `@checkmate/common`
+1. Register extensions to **core slots** defined in `@checkmate/frontend-api`
 2. Register extensions to **plugin-defined slots** exported from plugin common packages
 
-#### Core Slots (from `@checkmate/common`)
+#### Core Slots (from `@checkmate/frontend-api`)
+
+Core slots are defined using the `createSlot` utility and exported as `SlotDefinition` objects:
 
 ```typescript
-export const SLOT_DASHBOARD = "dashboard";
-export const SLOT_NAVBAR = "core.layout.navbar";
-export const SLOT_NAVBAR_MAIN = "core.layout.navbar.main";
-export const SLOT_USER_MENU_ITEMS = "core.layout.navbar.user-menu.items";
-export const SLOT_USER_MENU_ITEMS_BOTTOM = "core.layout.navbar.user-menu.items.bottom";
+import {
+  DashboardSlot,
+  NavbarSlot,
+  NavbarMainSlot,
+  UserMenuItemsSlot,
+  UserMenuItemsBottomSlot,
+} from "@checkmate/frontend-api";
 ```
 
 #### Plugin-Defined Slots
@@ -498,16 +502,18 @@ export const CatalogSystemActionsSlot = createSlot<{
 
 #### Registering Extensions to Slots
 
+Extensions use the `slot:` property with a `SlotDefinition` object:
+
 **To a core slot:**
 ```typescript
-import { SLOT_USER_MENU_ITEMS } from "@checkmate/common";
+import { UserMenuItemsSlot } from "@checkmate/frontend-api";
 
 export const myPlugin = createFrontendPlugin({
   name: "myplugin-frontend",
   extensions: [
     {
       id: "myplugin.user-menu.items",
-      slotId: SLOT_USER_MENU_ITEMS,
+      slot: UserMenuItemsSlot,
       component: MyUserMenuItems,
     },
   ],
@@ -523,7 +529,7 @@ export const myPlugin = createFrontendPlugin({
   extensions: [
     {
       id: "myplugin.system-details",
-      slotId: SystemDetailsSlot.id,
+      slot: SystemDetailsSlot,
       component: MySystemDetailsExtension, // Receives { system: System }
     },
   ],
@@ -694,7 +700,7 @@ export const MyComponent = ({ itemId }: { itemId: string }) => {
       
       {/* Extension point for other plugins */}
       <ExtensionSlot
-        id={MyPluginCustomSlot.id}
+        slot={MyPluginCustomSlot}
         context={{ itemId }}
       />
     </div>
@@ -710,7 +716,7 @@ export default createFrontendPlugin({
   extensions: [
     {
       id: "other-plugin.myplugin-extension",
-      slotId: MyPluginCustomSlot.id,
+      slot: MyPluginCustomSlot,
       component: ({ itemId }) => <MyExtension itemId={itemId} />,
     },
   ],

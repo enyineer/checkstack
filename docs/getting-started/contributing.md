@@ -286,7 +286,7 @@ import plugin from "./index";
 
 describe("MyPlugin Integration", () => {
   test("registers correctly", () => {
-    expect(plugin.pluginId).toBe("myplugin-backend");
+    expect(plugin.pluginId).toBe("myplugin");
     expect(plugin.register).toBeFunction();
   });
 });

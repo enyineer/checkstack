@@ -90,7 +90,7 @@ export interface RpcClient {
    * @returns Typed client for the plugin's RPC endpoints
    *
    * @example
-   * const authClient = rpcClient.forPlugin<AuthClient>("auth-backend");
+   * const authClient = rpcClient.forPlugin<AuthClient>("auth");
    * const result = await authClient.getRegistrationStatus();
    */
   forPlugin<T>(pluginId: string): T;

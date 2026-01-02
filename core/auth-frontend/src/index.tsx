@@ -86,7 +86,7 @@ class AuthPermissionApi implements PermissionApi {
 
 /**
  * BetterAuthApi wraps only better-auth client methods.
- * For RPC calls, use rpcApiRef.forPlugin<AuthClient>("auth-backend") directly.
+ * For RPC calls, use rpcApiRef.forPlugin<AuthClient>("auth") directly.
  */
 class BetterAuthApi implements AuthApi {
   async signIn(email: string, password: string) {

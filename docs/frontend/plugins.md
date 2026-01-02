@@ -199,7 +199,7 @@ apis: [
     ref: myPluginApiRef,
     factory: (deps) => {
       const rpcApi = deps.get(rpcApiRef);
-      return rpcApi.forPlugin<MyPluginApi>("myplugin-backend");
+      return rpcApi.forPlugin<MyPluginApi>("myplugin");
     },
   },
 ]
@@ -239,10 +239,12 @@ navItems: [
 Register components to inject into extension slots.
 
 ```typescript
+import { UserMenuItemsSlot } from "@checkmate/frontend-api";
+
 extensions: [
   {
     id: "myplugin.user-menu.items",
-    slotId: SLOT_USER_MENU_ITEMS,
+    slot: UserMenuItemsSlot,
     component: MyUserMenuItems,
   },
 ]
@@ -293,14 +295,14 @@ export const myPlugin = createFrontendPlugin({
         const rpcApi = deps.get(rpcApiRef);
         // Create a client for the backend plugin
         // The plugin ID must match the backend router registration name
-        return rpcApi.forPlugin<MyPluginApi>("myplugin-backend");
+        return rpcApi.forPlugin<MyPluginApi>("myplugin");
       },
     },
   ],
 });
 ```
 
-**Critical**: The plugin ID passed to `forPlugin` must exactly match the name used in the backend's `rpc.registerRouter()` call.
+**Critical**: The plugin ID passed to `forPlugin` uses the **short name without the `-backend` suffix**. For example, if the backend package is `myplugin-backend`, use `"myplugin"` when calling `forPlugin()`.
 
 ### Step 3: Use in Components
 
@@ -353,7 +355,7 @@ The oRPC client factory for creating type-safe plugin clients.
 const rpcApi = useApi(rpcApiRef);
 
 // Create a client for a specific backend plugin
-const client = rpcApi.forPlugin<MyPluginApi>("myplugin-backend");
+const client = rpcApi.forPlugin<MyPluginApi>("myplugin");
 ```
 
 ### `permissionApiRef`
@@ -474,20 +476,29 @@ export const ItemForm = () => {
 
 ### Available Slots
 
+Core slots are available from `@checkmate/frontend-api`:
+
 ```typescript
 import {
-  SLOT_USER_MENU_ITEMS,
-  SLOT_DASHBOARD_WIDGETS,
-} from "@checkmate/common";
+  DashboardSlot,
+  UserMenuItemsSlot,
+  UserMenuItemsBottomSlot,
+  NavbarSlot,
+  NavbarMainSlot,
+} from "@checkmate/frontend-api";
 ```
 
 ### Injecting into Slots
 
+Use the `slot:` property with a `SlotDefinition` object:
+
 ```typescript
+import { UserMenuItemsSlot } from "@checkmate/frontend-api";
+
 extensions: [
   {
     id: "myplugin.user-menu.items",
-    slotId: SLOT_USER_MENU_ITEMS,
+    slot: UserMenuItemsSlot,
     component: MyUserMenuItems,
   },
 ]
@@ -973,11 +984,11 @@ export class MyPluginClient implements MyPluginApi {
   constructor(private fetchApi: FetchApi) {}
 
   async getItems(): Promise<Item[]> {
-    return this.fetchApi.fetch("/api/myplugin-backend/items");
+    return this.fetchApi.fetch("/api/myplugin/items");
   }
 
   async createItem(data: CreateItem): Promise<Item> {
-    return this.fetchApi.fetch("/api/myplugin-backend/items", {
+    return this.fetchApi.fetch("/api/myplugin/items", {
       method: "POST",
       body: JSON.stringify(data),
     });
@@ -1001,7 +1012,7 @@ apis: [
     ref: myPluginApiRef,
     factory: (deps) => {
       const rpcApi = deps.get(rpcApiRef);
-      return rpcApi.forPlugin<MyPluginApi>("myplugin-backend");
+      return rpcApi.forPlugin<MyPluginApi>("myplugin");
     },
   },
 ]
