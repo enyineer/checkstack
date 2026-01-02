@@ -123,7 +123,10 @@ export const healthCheckContract = {
   // ==========================================================================
 
   getHistory: _base
-    .meta({ userType: "user", permissions: [permissions.healthCheckRead.id] })
+    .meta({
+      userType: "public",
+      permissions: [permissions.healthCheckStatusRead.id],
+    })
     .input(
       z.object({
         systemId: z.string().optional(),
@@ -144,7 +147,10 @@ export const healthCheckContract = {
    * Aggregates all health check statuses for the system.
    */
   getSystemHealthStatus: _base
-    .meta({ userType: "user", permissions: [permissions.healthCheckRead.id] })
+    .meta({
+      userType: "public",
+      permissions: [permissions.healthCheckStatusRead.id],
+    })
     .input(z.object({ systemId: z.string() }))
     .output(SystemHealthStatusResponseSchema),
 
@@ -153,7 +159,10 @@ export const healthCheckContract = {
    * Returns all health checks with their last 25 runs for sparkline visualization.
    */
   getSystemHealthOverview: _base
-    .meta({ userType: "user", permissions: [permissions.healthCheckRead.id] })
+    .meta({
+      userType: "public",
+      permissions: [permissions.healthCheckStatusRead.id],
+    })
     .input(z.object({ systemId: z.string() }))
     .output(
       z.object({
