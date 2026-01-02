@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { createSlot, SlotDefinition } from "./slots";
 import { pluginRegistry } from "./plugin-registry";
 import { createFrontendPlugin } from "./plugin";
@@ -39,6 +39,10 @@ describe("Cross-Plugin Slot Usage", () => {
   const MockComponent = () => null;
 
   beforeEach(() => {
+    pluginRegistry.reset();
+  });
+
+  afterEach(() => {
     pluginRegistry.reset();
   });
 
