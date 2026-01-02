@@ -1,4 +1,5 @@
 import type { ContractRouterClient, AnyContractRouter } from "@orpc/contract";
+import type { PluginMetadata } from "./plugin-metadata";
 
 /**
  * A client definition that bundles an RPC contract type with its plugin metadata.
@@ -7,7 +8,7 @@ import type { ContractRouterClient, AnyContractRouter } from "@orpc/contract";
  * @example
  * ```typescript
  * // Define in auth-common
- * export const AuthApi = createClientDefinition(authContract, { pluginId: "auth" });
+ * export const AuthApi = createClientDefinition(authContract, pluginMetadata);
  *
  * // Use in frontend/backend
  * const authClient = rpcApi.forPlugin(AuthApi);  // Fully typed!
@@ -40,21 +41,20 @@ export type InferClient<T extends ClientDefinition> =
 /**
  * Create a typed client definition for a plugin's RPC contract.
  *
- * This bundles the contract type with the plugin ID, enabling type-safe
+ * This bundles the contract type with the plugin metadata, enabling type-safe
  * forPlugin() calls without manual type annotations.
  *
  * @param _contract - The RPC contract object (used only for type inference)
- * @param options - Configuration including the plugin ID
+ * @param metadata - The plugin metadata from the plugin's plugin-metadata.ts
  * @returns A ClientDefinition object that can be passed to forPlugin()
  *
  * @example
  * ```typescript
  * // In @checkmate/auth-common
  * import { authContract } from "./rpc-contract";
+ * import { pluginMetadata } from "./plugin-metadata";
  *
- * export const AuthApi = createClientDefinition(authContract, {
- *   pluginId: "auth",
- * });
+ * export const AuthApi = createClientDefinition(authContract, pluginMetadata);
  *
  * // In consumer (frontend or backend)
  * const authClient = rpcApi.forPlugin(AuthApi);
@@ -63,9 +63,9 @@ export type InferClient<T extends ClientDefinition> =
  */
 export function createClientDefinition<TContract extends AnyContractRouter>(
   _contract: TContract,
-  options: { pluginId: string }
+  metadata: PluginMetadata
 ): ClientDefinition<TContract> {
   return {
-    pluginId: options.pluginId,
+    pluginId: metadata.pluginId,
   } as ClientDefinition<TContract>;
 }

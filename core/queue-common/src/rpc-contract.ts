@@ -40,6 +40,4 @@ export type QueueContract = typeof queueContract;
 
 // Export client definition for type-safe forPlugin usage
 // Use: const client = rpcApi.forPlugin(QueueApi);
-export const QueueApi = createClientDefinition(queueContract, {
-  pluginId: pluginMetadata.pluginId,
-});
+export const QueueApi = createClientDefinition(queueContract, pluginMetadata);

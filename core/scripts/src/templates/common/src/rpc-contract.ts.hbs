@@ -54,6 +54,7 @@ export type {{pluginNamePascal}}Contract = typeof {{pluginNameCamel}}Contract;
 
 // Export client definition for type-safe forPlugin usage
 // Use: const client = rpcApi.forPlugin({{pluginNamePascal}}Api);
-export const {{pluginNamePascal}}Api = createClientDefinition({{pluginNameCamel}}Contract, {
-  pluginId: pluginMetadata.pluginId,
-});
+export const {{pluginNamePascal}}Api = createClientDefinition(
+  {{pluginNameCamel}}Contract,
+  pluginMetadata
+);

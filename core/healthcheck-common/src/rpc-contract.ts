@@ -222,6 +222,7 @@ export type HealthCheckContract = typeof healthCheckContract;
 
 // Export client definition for type-safe forPlugin usage
 // Use: const client = rpcApi.forPlugin(HealthCheckApi);
-export const HealthCheckApi = createClientDefinition(healthCheckContract, {
-  pluginId: pluginMetadata.pluginId,
-});
+export const HealthCheckApi = createClientDefinition(
+  healthCheckContract,
+  pluginMetadata
+);

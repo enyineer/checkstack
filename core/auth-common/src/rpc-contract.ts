@@ -263,6 +263,4 @@ export type AuthContract = typeof authContract;
 
 // Export client definition for type-safe forPlugin usage
 // Use: const client = rpcApi.forPlugin(AuthApi);
-export const AuthApi = createClientDefinition(authContract, {
-  pluginId: pluginMetadata.pluginId,
-});
+export const AuthApi = createClientDefinition(authContract, pluginMetadata);

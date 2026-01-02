@@ -96,10 +96,8 @@ export const authContract = {
 };
 
 // Create typed Api definition for type-safe forPlugin usage
-export const AuthApi = createClientDefinition({
-  pluginId: pluginMetadata.pluginId,
-  contract: authContract,
-});
+// Pass pluginMetadata directly - enforces using the centralized metadata
+export const AuthApi = createClientDefinition(authContract, pluginMetadata);
 ```
 
 ### Step 2: Implement Backend (Backend Plugin)
@@ -197,11 +195,10 @@ export default createBackendPlugin({
    ```typescript
    // my-plugin-common/src/rpc-contract.ts
    import { createClientDefinition } from "@checkmate/common";
+   import { pluginMetadata } from "./plugin-metadata";
    
-   export const MyApi = createClientDefinition({
-     pluginId: pluginMetadata.pluginId,
-     contract: myContract,
-   });
+   // Pass pluginMetadata directly - enforces centralized metadata
+   export const MyApi = createClientDefinition(myContract, pluginMetadata);
    ```
 
 3. **Handle errors gracefully**

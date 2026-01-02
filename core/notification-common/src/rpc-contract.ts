@@ -232,6 +232,7 @@ export type NotificationContract = typeof notificationContract;
 
 // Export client definition for type-safe forPlugin usage
 // Use: const client = rpcApi.forPlugin(NotificationApi);
-export const NotificationApi = createClientDefinition(notificationContract, {
-  pluginId: pluginMetadata.pluginId,
-});
+export const NotificationApi = createClientDefinition(
+  notificationContract,
+  pluginMetadata
+);

@@ -40,6 +40,4 @@ export type ThemeContract = typeof themeContract;
 
 // Export client definition for type-safe forPlugin usage
 // Use: const client = rpcApi.forPlugin(ThemeApi);
-export const ThemeApi = createClientDefinition(themeContract, {
-  pluginId: pluginMetadata.pluginId,
-});
+export const ThemeApi = createClientDefinition(themeContract, pluginMetadata);

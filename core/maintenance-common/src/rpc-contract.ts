@@ -104,6 +104,7 @@ export type MaintenanceContract = typeof maintenanceContract;
 
 // Export client definition for type-safe forPlugin usage
 // Use: const client = rpcApi.forPlugin(MaintenanceApi);
-export const MaintenanceApi = createClientDefinition(maintenanceContract, {
-  pluginId: pluginMetadata.pluginId,
-});
+export const MaintenanceApi = createClientDefinition(
+  maintenanceContract,
+  pluginMetadata
+);

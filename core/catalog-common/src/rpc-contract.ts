@@ -196,6 +196,7 @@ export type CatalogContract = typeof catalogContract;
 
 // Export client definition for type-safe forPlugin usage
 // Use: const client = rpcApi.forPlugin(CatalogApi);
-export const CatalogApi = createClientDefinition(catalogContract, {
-  pluginId: pluginMetadata.pluginId,
-});
+export const CatalogApi = createClientDefinition(
+  catalogContract,
+  pluginMetadata
+);
