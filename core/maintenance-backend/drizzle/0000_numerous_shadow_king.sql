@@ -1,4 +1,4 @@
-CREATE TYPE "public"."maintenance_status" AS ENUM('scheduled', 'in_progress', 'completed', 'cancelled');--> statement-breakpoint
+CREATE TYPE "maintenance_status" AS ENUM('scheduled', 'in_progress', 'completed', 'cancelled');--> statement-breakpoint
 CREATE TABLE "maintenance_systems" (
 	"maintenance_id" text NOT NULL,
 	"system_id" text NOT NULL,
@@ -25,5 +25,5 @@ CREATE TABLE "maintenances" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "maintenance_systems" ADD CONSTRAINT "maintenance_systems_maintenance_id_maintenances_id_fk" FOREIGN KEY ("maintenance_id") REFERENCES "public"."maintenances"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "maintenance_updates" ADD CONSTRAINT "maintenance_updates_maintenance_id_maintenances_id_fk" FOREIGN KEY ("maintenance_id") REFERENCES "public"."maintenances"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "maintenance_systems" ADD CONSTRAINT "maintenance_systems_maintenance_id_maintenances_id_fk" FOREIGN KEY ("maintenance_id") REFERENCES "maintenances"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "maintenance_updates" ADD CONSTRAINT "maintenance_updates_maintenance_id_maintenances_id_fk" FOREIGN KEY ("maintenance_id") REFERENCES "maintenances"("id") ON DELETE cascade ON UPDATE no action;

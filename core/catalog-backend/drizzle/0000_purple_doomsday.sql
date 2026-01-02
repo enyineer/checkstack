@@ -31,5 +31,5 @@ CREATE TABLE "views" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "systems_groups" ADD CONSTRAINT "systems_groups_system_id_systems_id_fk" FOREIGN KEY ("system_id") REFERENCES "public"."systems"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "systems_groups" ADD CONSTRAINT "systems_groups_group_id_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."groups"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "systems_groups" ADD CONSTRAINT "systems_groups_system_id_systems_id_fk" FOREIGN KEY ("system_id") REFERENCES "systems"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "systems_groups" ADD CONSTRAINT "systems_groups_group_id_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "groups"("id") ON DELETE cascade ON UPDATE no action;
