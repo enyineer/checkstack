@@ -1,6 +1,11 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { useApi, rpcApiRef, wrapInSuspense } from "@checkmate/frontend-api";
+import {
+  useApi,
+  rpcApiRef,
+  wrapInSuspense,
+  permissionApiRef,
+} from "@checkmate/frontend-api";
 import { resolveRoute } from "@checkmate/common";
 import { maintenanceApiRef } from "../api";
 import { maintenanceRoutes } from "@checkmate/maintenance-common";
@@ -23,43 +28,64 @@ import {
   EmptyState,
   PageLayout,
   BackLink,
+  Button,
 } from "@checkmate/ui";
-import { Calendar, Clock, MessageSquare, Wrench, Server } from "lucide-react";
+import {
+  Calendar,
+  Clock,
+  MessageSquare,
+  Wrench,
+  Server,
+  Plus,
+} from "lucide-react";
 import { format } from "date-fns";
+import { MaintenanceUpdateForm } from "../components/MaintenanceUpdateForm";
 
 const MaintenanceDetailPageContent: React.FC = () => {
   const { maintenanceId } = useParams<{ maintenanceId: string }>();
   const navigate = useNavigate();
   const api = useApi(maintenanceApiRef);
   const rpcApi = useApi(rpcApiRef);
+  const permissionApi = useApi(permissionApiRef);
 
   const catalogApi = useMemo(() => rpcApi.forPlugin(CatalogApi), [rpcApi]);
+
+  const { allowed: canManage } = permissionApi.useResourcePermission(
+    "maintenance",
+    "manage"
+  );
 
   const [maintenance, setMaintenance] = useState<MaintenanceDetail>();
   const [systems, setSystems] = useState<System[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showUpdateForm, setShowUpdateForm] = useState(false);
 
-  useEffect(() => {
+  const loadData = useCallback(async () => {
     if (!maintenanceId) return;
 
-    const loadData = async () => {
-      setLoading(true);
-      try {
-        const [maintenanceData, systemList] = await Promise.all([
-          api.getMaintenance({ id: maintenanceId }),
-          catalogApi.getSystems(),
-        ]);
-        setMaintenance(maintenanceData ?? undefined);
-        setSystems(systemList);
-      } catch (error) {
-        console.error("Failed to load maintenance details:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadData();
+    setLoading(true);
+    try {
+      const [maintenanceData, systemList] = await Promise.all([
+        api.getMaintenance({ id: maintenanceId }),
+        catalogApi.getSystems(),
+      ]);
+      setMaintenance(maintenanceData ?? undefined);
+      setSystems(systemList);
+    } catch (error) {
+      console.error("Failed to load maintenance details:", error);
+    } finally {
+      setLoading(false);
+    }
   }, [maintenanceId, api, catalogApi]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleUpdateSuccess = () => {
+    setShowUpdateForm(false);
+    loadData();
+  };
 
   const getStatusBadge = (status: MaintenanceStatus) => {
     switch (status) {
@@ -208,12 +234,35 @@ const MaintenanceDetailPageContent: React.FC = () => {
           {/* Status Updates Timeline */}
           <Card>
             <CardHeader className="border-b border-border">
-              <div className="flex items-center gap-2">
-                <MessageSquare className="h-5 w-5 text-muted-foreground" />
-                <CardTitle>Status Updates</CardTitle>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle>Status Updates</CardTitle>
+                </div>
+                {canManage && !showUpdateForm && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowUpdateForm(true)}
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add Update
+                  </Button>
+                )}
               </div>
             </CardHeader>
             <CardContent className="p-6">
+              {/* Add Update Form */}
+              {showUpdateForm && (
+                <div className="mb-6">
+                  <MaintenanceUpdateForm
+                    maintenanceId={maintenanceId}
+                    onSuccess={handleUpdateSuccess}
+                    onCancel={() => setShowUpdateForm(false)}
+                  />
+                </div>
+              )}
+
               {maintenance.updates.length === 0 ? (
                 <EmptyState
                   title="No status updates"

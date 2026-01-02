@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useApi } from "@checkmate/frontend-api";
 import { incidentApiRef } from "../api";
 import type {
@@ -35,6 +35,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { format } from "date-fns";
+import { IncidentUpdateForm } from "./IncidentUpdateForm";
 
 interface Props {
   open: boolean;
@@ -66,12 +67,24 @@ export const IncidentEditor: React.FC<Props> = ({
   // Status update fields
   const [updates, setUpdates] = useState<IncidentUpdate[]>([]);
   const [loadingUpdates, setLoadingUpdates] = useState(false);
-  const [newUpdateMessage, setNewUpdateMessage] = useState("");
-  const [newUpdateStatus, setNewUpdateStatus] = useState<IncidentStatus | "">(
-    ""
-  );
-  const [postingUpdate, setPostingUpdate] = useState(false);
   const [showUpdateForm, setShowUpdateForm] = useState(false);
+
+  const loadIncidentDetails = useCallback(
+    async (id: string) => {
+      setLoadingUpdates(true);
+      try {
+        const detail = await api.getIncident({ id });
+        if (detail) {
+          setUpdates(detail.updates);
+        }
+      } catch (error) {
+        console.error("Failed to load incident details:", error);
+      } finally {
+        setLoadingUpdates(false);
+      }
+    },
+    [api]
+  );
 
   // Reset form when incident changes
   useEffect(() => {
@@ -90,24 +103,7 @@ export const IncidentEditor: React.FC<Props> = ({
       setUpdates([]);
       setShowUpdateForm(false);
     }
-    // Reset update form
-    setNewUpdateMessage("");
-    setNewUpdateStatus("");
-  }, [incident, open]);
-
-  const loadIncidentDetails = async (id: string) => {
-    setLoadingUpdates(true);
-    try {
-      const detail = await api.getIncident({ id });
-      if (detail) {
-        setUpdates(detail.updates);
-      }
-    } catch (error) {
-      console.error("Failed to load incident details:", error);
-    } finally {
-      setLoadingUpdates(false);
-    }
-  };
+  }, [incident, open, loadIncidentDetails]);
 
   const handleSystemToggle = (systemId: string) => {
     setSelectedSystemIds((prev) => {
@@ -160,35 +156,13 @@ export const IncidentEditor: React.FC<Props> = ({
     }
   };
 
-  const handlePostUpdate = async () => {
-    if (!newUpdateMessage.trim()) {
-      toast.error("Update message is required");
-      return;
+  const handleUpdateSuccess = () => {
+    if (incident) {
+      loadIncidentDetails(incident.id);
     }
-    if (!incident) return;
-
-    setPostingUpdate(true);
-    try {
-      await api.addUpdate({
-        incidentId: incident.id,
-        message: newUpdateMessage,
-        statusChange: newUpdateStatus || undefined,
-      });
-      toast.success("Update posted");
-      // Reload updates
-      await loadIncidentDetails(incident.id);
-      setNewUpdateMessage("");
-      setNewUpdateStatus("");
-      setShowUpdateForm(false);
-      // Notify parent to refresh list (status may have changed)
-      onSave();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to post update";
-      toast.error(message);
-    } finally {
-      setPostingUpdate(false);
-    }
+    setShowUpdateForm(false);
+    // Notify parent to refresh list (status may have changed)
+    onSave();
   };
 
   const getStatusBadge = (status: IncidentStatus) => {
@@ -322,71 +296,12 @@ export const IncidentEditor: React.FC<Props> = ({
 
               {/* Add Update Form */}
               {showUpdateForm && (
-                <div className="mb-4 p-4 bg-muted/30 rounded-lg border space-y-3">
-                  <div className="grid gap-2">
-                    <Label htmlFor="updateMessage">Update Message</Label>
-                    <Textarea
-                      id="updateMessage"
-                      value={newUpdateMessage}
-                      onChange={(e) => setNewUpdateMessage(e.target.value)}
-                      placeholder="Describe the status update..."
-                      rows={2}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Change Status (Optional)</Label>
-                    <Select
-                      value={newUpdateStatus || "__keep_current__"}
-                      onValueChange={(v) =>
-                        setNewUpdateStatus(
-                          v === "__keep_current__" ? "" : (v as IncidentStatus)
-                        )
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Keep current status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__keep_current__">
-                          Keep Current
-                        </SelectItem>
-                        <SelectItem value="investigating">
-                          Investigating
-                        </SelectItem>
-                        <SelectItem value="identified">Identified</SelectItem>
-                        <SelectItem value="fixing">Fixing</SelectItem>
-                        <SelectItem value="monitoring">Monitoring</SelectItem>
-                        <SelectItem value="resolved">Resolved</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex gap-2 justify-end">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setShowUpdateForm(false);
-                        setNewUpdateMessage("");
-                        setNewUpdateStatus("");
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={handlePostUpdate}
-                      disabled={postingUpdate || !newUpdateMessage.trim()}
-                    >
-                      {postingUpdate ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                          Posting...
-                        </>
-                      ) : (
-                        "Post Update"
-                      )}
-                    </Button>
-                  </div>
+                <div className="mb-4">
+                  <IncidentUpdateForm
+                    incidentId={incident.id}
+                    onSuccess={handleUpdateSuccess}
+                    onCancel={() => setShowUpdateForm(false)}
+                  />
                 </div>
               )}
 

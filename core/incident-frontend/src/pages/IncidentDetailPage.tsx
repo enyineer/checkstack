@@ -26,13 +26,6 @@ import {
   LoadingSpinner,
   BackLink,
   useToast,
-  Textarea,
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-  Label,
 } from "@checkmate/ui";
 import {
   AlertTriangle,
@@ -40,10 +33,11 @@ import {
   Calendar,
   MessageSquare,
   CheckCircle2,
-  Loader2,
   Server,
+  Plus,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
+import { IncidentUpdateForm } from "../components/IncidentUpdateForm";
 
 const IncidentDetailPageContent: React.FC = () => {
   const { incidentId } = useParams<{ incidentId: string }>();
@@ -62,12 +56,7 @@ const IncidentDetailPageContent: React.FC = () => {
   const [incident, setIncident] = useState<IncidentDetail | undefined>();
   const [systems, setSystems] = useState<System[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // Update form state
   const [showUpdateForm, setShowUpdateForm] = useState(false);
-  const [updateMessage, setUpdateMessage] = useState("");
-  const [updateStatus, setUpdateStatus] = useState<IncidentStatus | "">("");
-  const [postingUpdate, setPostingUpdate] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!incidentId) return;
@@ -97,31 +86,9 @@ const IncidentDetailPageContent: React.FC = () => {
     }
   });
 
-  const handlePostUpdate = async () => {
-    if (!updateMessage.trim() || !incidentId) {
-      toast.error("Update message is required");
-      return;
-    }
-
-    setPostingUpdate(true);
-    try {
-      await api.addUpdate({
-        incidentId,
-        message: updateMessage,
-        statusChange: updateStatus || undefined,
-      });
-      toast.success("Update posted");
-      setUpdateMessage("");
-      setUpdateStatus("");
-      setShowUpdateForm(false);
-      await loadData();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to post update";
-      toast.error(message);
-    } finally {
-      setPostingUpdate(false);
-    }
+  const handleUpdateSuccess = () => {
+    setShowUpdateForm(false);
+    loadData();
   };
 
   const handleResolve = async () => {
@@ -303,6 +270,7 @@ const IncidentDetailPageContent: React.FC = () => {
                 size="sm"
                 onClick={() => setShowUpdateForm(true)}
               >
+                <Plus className="h-4 w-4 mr-1" />
                 Add Update
               </Button>
             )}
@@ -310,70 +278,13 @@ const IncidentDetailPageContent: React.FC = () => {
         </CardHeader>
         <CardContent className="p-4">
           {/* Add Update Form */}
-          {showUpdateForm && (
-            <div className="mb-4 p-4 bg-muted/30 rounded-lg border space-y-3">
-              <div className="grid gap-2">
-                <Label htmlFor="updateMessage">Update Message</Label>
-                <Textarea
-                  id="updateMessage"
-                  value={updateMessage}
-                  onChange={(e) => setUpdateMessage(e.target.value)}
-                  placeholder="Describe the current status..."
-                  rows={2}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Change Status (Optional)</Label>
-                <Select
-                  value={updateStatus || "__keep_current__"}
-                  onValueChange={(v) =>
-                    setUpdateStatus(
-                      v === "__keep_current__" ? "" : (v as IncidentStatus)
-                    )
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Keep current status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__keep_current__">
-                      Keep Current
-                    </SelectItem>
-                    <SelectItem value="investigating">Investigating</SelectItem>
-                    <SelectItem value="identified">Identified</SelectItem>
-                    <SelectItem value="fixing">Fixing</SelectItem>
-                    <SelectItem value="monitoring">Monitoring</SelectItem>
-                    <SelectItem value="resolved">Resolved</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex gap-2 justify-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setShowUpdateForm(false);
-                    setUpdateMessage("");
-                    setUpdateStatus("");
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handlePostUpdate}
-                  disabled={postingUpdate || !updateMessage.trim()}
-                >
-                  {postingUpdate ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                      Posting...
-                    </>
-                  ) : (
-                    "Post Update"
-                  )}
-                </Button>
-              </div>
+          {showUpdateForm && incidentId && (
+            <div className="mb-4">
+              <IncidentUpdateForm
+                incidentId={incidentId}
+                onSuccess={handleUpdateSuccess}
+                onCancel={() => setShowUpdateForm(false)}
+              />
             </div>
           )}
 
