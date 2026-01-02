@@ -46,6 +46,16 @@ CREATE TABLE "plugin_my_feature"."items" (
 
 This ensures tables are always created in the correct schema, regardless of the database connection's `search_path`.
 
+## Migration Tracking
+
+> [!IMPORTANT]
+> Each plugin's migrations are tracked in its own `plugin_{id}.__drizzle_migrations` table. This is configured automatically by the plugin loader using the `migrationsSchema` option when calling Drizzle's `migrate()` function.
+
+This per-plugin tracking ensures:
+- Migrations for plugin A don't affect plugin B
+- Each plugin's migration history is isolated
+- Baseline regeneration for one plugin doesn't impact others
+
 ## Plugin Metadata Pattern
 
 Every backend plugin must define its metadata in a separate file:

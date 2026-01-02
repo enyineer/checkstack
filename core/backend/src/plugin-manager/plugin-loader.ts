@@ -19,6 +19,7 @@ import {
   RpcContext,
 } from "@checkmate/backend-api";
 import type { Permission } from "@checkmate/common";
+import { getPluginSchemaName } from "@checkmate/drizzle-helper";
 import { rootLogger } from "../logger";
 import type { ServiceRegistry } from "../services/service-registry";
 import { plugins } from "../schema";
@@ -259,12 +260,13 @@ export async function loadPlugins({
 
       // Run Migrations
       const migrationsFolder = path.join(p.pluginPath, "drizzle");
+      const migrationsSchema = getPluginSchemaName(p.pluginId);
       if (fs.existsSync(migrationsFolder)) {
         try {
           rootLogger.debug(
             `   -> Running migrations for ${p.pluginId} from ${migrationsFolder}`
           );
-          await migrate(pluginDb, { migrationsFolder });
+          await migrate(pluginDb, { migrationsFolder, migrationsSchema });
         } catch (error) {
           rootLogger.error(
             `❌ Failed migration of plugin ${p.pluginId}:`,
