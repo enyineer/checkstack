@@ -1,8 +1,7 @@
 import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
-import { permissionList } from "@checkmate/{{pluginBaseName}}-common";
+import { permissionList, pluginMetadata } from "@checkmate/{{pluginBaseName}}-common";
 import * as schema from "./schema";
 import { create{{pluginNamePascal}}Router } from "./router";
-import { pluginMetadata } from "./plugin-metadata";
 
 export default createBackendPlugin({
   metadata: pluginMetadata,

@@ -1,5 +1,6 @@
 import { createApiRef } from "@checkmate/frontend-api";
-import { {{pluginNamePascal}}Client } from "@checkmate/{{pluginBaseName}}-common";
+import type { InferClient } from "@checkmate/common";
+import { {{pluginNamePascal}}Api } from "@checkmate/{{pluginBaseName}}-common";
 
 // Re-export types for convenience
 export type {
@@ -8,7 +9,7 @@ export type {
   Update{{pluginNamePascal}}Item,
 } from "@checkmate/{{pluginBaseName}}-common";
 
-// {{pluginNamePascal}}Api is the client type from the common package
-export type {{pluginNamePascal}}Api = {{pluginNamePascal}}Client;
+// {{pluginNamePascal}}ApiClient is the client type inferred from the Api definition
+export type {{pluginNamePascal}}ApiClient = InferClient<typeof {{pluginNamePascal}}Api>;
 
-export const {{pluginNameCamel}}ApiRef = createApiRef<{{pluginNamePascal}}Api>("{{pluginBaseName}}-api");
+export const {{pluginNameCamel}}ApiRef = createApiRef<{{pluginNamePascal}}ApiClient>("{{pluginBaseName}}-api");

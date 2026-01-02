@@ -1,6 +1,5 @@
 import { oc } from "@orpc/contract";
-import type { ContractRouterClient } from "@orpc/contract";
-import type { ProcedureMetadata } from "@checkmate/common";
+import { createClientDefinition, type ProcedureMetadata } from "@checkmate/common";
 import { z } from "zod";
 import {
   {{pluginNamePascal}}ItemSchema,
@@ -8,6 +7,7 @@ import {
   Update{{pluginNamePascal}}ItemSchema,
 } from "./schemas";
 import { permissions } from "./permissions";
+import { pluginMetadata } from "./plugin-metadata";
 
 // Create base builder with ProcedureMetadata support
 // See: https://docs.checkmate.dev/common-plugins#contract-based-auth-enforcement
@@ -49,8 +49,11 @@ export const {{pluginNameCamel}}Contract = {
     .output(z.void()),
 };
 
-// Export contract type for frontend
+// Export contract type
 export type {{pluginNamePascal}}Contract = typeof {{pluginNameCamel}}Contract;
 
-// Export typed client for backend-to-backend communication
-export type {{pluginNamePascal}}Client = ContractRouterClient<typeof {{pluginNameCamel}}Contract>;
+// Export client definition for type-safe forPlugin usage
+// Use: const client = rpcApi.forPlugin({{pluginNamePascal}}Api);
+export const {{pluginNamePascal}}Api = createClientDefinition({{pluginNameCamel}}Contract, {
+  pluginId: pluginMetadata.pluginId,
+});

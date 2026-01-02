@@ -1,7 +1,7 @@
 import { createFrontendPlugin, rpcApiRef, type ApiRef } from "@checkmate/frontend-api";
-import { {{pluginNameCamel}}ApiRef, type {{pluginNamePascal}}Api } from "./api";
+import { {{pluginNameCamel}}ApiRef, type {{pluginNamePascal}}ApiClient } from "./api";
 import { {{pluginNamePascal}}ListPage } from "./components/{{pluginNamePascal}}ListPage";
-import { {{pluginNameCamel}}Routes } from "@checkmate/{{pluginBaseName}}-common";
+import { {{pluginNameCamel}}Routes, {{pluginNamePascal}}Api } from "@checkmate/{{pluginBaseName}}-common";
 import { ListIcon } from "lucide-react";
 
 export default createFrontendPlugin({
@@ -21,10 +21,10 @@ export default createFrontendPlugin({
   apis: [
     {
       ref: {{pluginNameCamel}}ApiRef,
-      factory: (deps: { get: <T>(ref: ApiRef<T>) => T }): {{pluginNamePascal}}Api => {
+      factory: (deps: { get: <T>(ref: ApiRef<T>) => T }): {{pluginNamePascal}}ApiClient => {
         const rpcApi = deps.get(rpcApiRef);
-        // Create type-safe client for the backend plugin
-        return rpcApi.forPlugin<{{pluginNamePascal}}Api>("{{pluginBaseName}}");
+        // Create type-safe client using the plugin's Api definition
+        return rpcApi.forPlugin({{pluginNamePascal}}Api);
       },
     },
   ],
