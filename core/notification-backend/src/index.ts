@@ -1,24 +1,9 @@
 import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
-import { createServiceRef } from "@checkmate/backend-api";
 import { permissionList } from "@checkmate/notification-common";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import * as schema from "./schema";
 import { createNotificationRouter } from "./router";
-import { NotificationService } from "./service";
 import { pluginMetadata } from "./plugin-metadata";
-
-// Export service ref for other plugins to depend on
-export const notificationServiceRef = createServiceRef<NotificationService>(
-  "notification.service"
-);
-
-// Re-export types for convenience
-export { NotificationService, createNotificationService } from "./service";
-export type {
-  NotifyUserOptions,
-  NotifyGroupOptions,
-  CreateGroupOptions,
-} from "./service";
 
 export default createBackendPlugin({
   metadata: pluginMetadata,

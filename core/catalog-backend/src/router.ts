@@ -3,9 +3,10 @@ import { autoAuthMiddleware, type RpcContext } from "@checkmate/backend-api";
 import { catalogContract } from "@checkmate/catalog-common";
 import { EntityService } from "./services/entity-service";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import type * as schema from "./schema";
+import * as schema from "./schema";
 import type { NotificationClient } from "@checkmate/notification-common";
 import { catalogHooks } from "./hooks";
+import { eq } from "drizzle-orm";
 
 /**
  * Creates the catalog router using contract-based implementation.
@@ -17,11 +18,17 @@ const os = implement(catalogContract)
   .$context<RpcContext>()
   .use(autoAuthMiddleware);
 
-export const createCatalogRouter = (
-  database: NodePgDatabase<typeof schema>,
-  notificationClient: NotificationClient,
-  pluginId: string
-) => {
+export interface CatalogRouterDeps {
+  database: NodePgDatabase<typeof schema>;
+  notificationClient: NotificationClient;
+  pluginId: string;
+}
+
+export const createCatalogRouter = ({
+  database,
+  notificationClient,
+  pluginId,
+}: CatalogRouterDeps) => {
   const entityService = new EntityService(database);
 
   // Helper to create notification group for an entity
@@ -222,6 +229,51 @@ export const createCatalogRouter = (
     });
   });
 
+  /**
+   * Notify all users subscribed to a system (and optionally its groups).
+   * Delegates deduplication to notification-backend via notifyGroups RPC.
+   */
+  const notifySystemSubscribers = os.notifySystemSubscribers.handler(
+    async ({ input }) => {
+      const {
+        systemId,
+        title,
+        description,
+        importance,
+        actions,
+        includeGroupSubscribers,
+      } = input;
+
+      // Collect all notification group IDs to notify
+      // Start with the system's notification group
+      const groupIds = [`${pluginId}.system.${systemId}`];
+
+      // If includeGroupSubscribers is true, add groups containing this system
+      if (includeGroupSubscribers) {
+        const systemGroups = await database
+          .select({ groupId: schema.systemsGroups.groupId })
+          .from(schema.systemsGroups)
+          .where(eq(schema.systemsGroups.systemId, systemId));
+
+        // Spread to avoid mutation
+        groupIds.push(
+          ...systemGroups.map(({ groupId }) => `${pluginId}.group.${groupId}`)
+        );
+      }
+
+      // 3. Send to notification-backend, which handles deduplication
+      const result = await notificationClient.notifyGroups({
+        groupIds,
+        title,
+        description,
+        importance: importance ?? "info",
+        actions,
+      });
+
+      return { notifiedCount: result.notifiedCount };
+    }
+  );
+
   // Build and return the router
   return os.router({
     getEntities,
@@ -237,6 +289,7 @@ export const createCatalogRouter = (
     removeSystemFromGroup,
     getViews,
     createView,
+    notifySystemSubscribers,
   });
 };
 

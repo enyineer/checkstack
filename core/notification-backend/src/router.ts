@@ -196,6 +196,69 @@ export const createNotificationRouter = (
 
       return { success: (result.rowCount ?? 0) > 0 };
     }),
+
+    getGroupSubscribers: os.getGroupSubscribers.handler(async ({ input }) => {
+      const { eq } = await import("drizzle-orm");
+
+      const subscribers = await database
+        .select({ userId: schema.notificationSubscriptions.userId })
+        .from(schema.notificationSubscriptions)
+        .where(eq(schema.notificationSubscriptions.groupId, input.groupId));
+
+      return { userIds: subscribers.map((s) => s.userId) };
+    }),
+
+    notifyUsers: os.notifyUsers.handler(async ({ input }) => {
+      const { userIds, title, description, importance, actions } = input;
+
+      if (userIds.length === 0) {
+        return { notifiedCount: 0 };
+      }
+
+      const notificationValues = userIds.map((userId) => ({
+        userId,
+        title,
+        description,
+        actions,
+        importance: importance ?? "info",
+      }));
+
+      await database.insert(schema.notifications).values(notificationValues);
+
+      return { notifiedCount: userIds.length };
+    }),
+
+    // Notify all subscribers of multiple groups with internal deduplication
+    notifyGroups: os.notifyGroups.handler(async ({ input }) => {
+      const { groupIds, title, description, importance, actions } = input;
+      const { inArray } = await import("drizzle-orm");
+
+      if (groupIds.length === 0) {
+        return { notifiedCount: 0 };
+      }
+
+      // Get all subscribers for all groups, deduplicated
+      const subscribers = await database
+        .selectDistinct({ userId: schema.notificationSubscriptions.userId })
+        .from(schema.notificationSubscriptions)
+        .where(inArray(schema.notificationSubscriptions.groupId, groupIds));
+
+      if (subscribers.length === 0) {
+        return { notifiedCount: 0 };
+      }
+
+      const notificationValues = subscribers.map((sub) => ({
+        userId: sub.userId,
+        title,
+        description,
+        actions,
+        importance: importance ?? "info",
+      }));
+
+      await database.insert(schema.notifications).values(notificationValues);
+
+      return { notifiedCount: subscribers.length };
+    }),
   });
 };
 

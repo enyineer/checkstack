@@ -2,18 +2,74 @@ import { implement, ORPCError } from "@orpc/server";
 import {
   maintenanceContract,
   MAINTENANCE_UPDATED,
+  maintenanceRoutes,
 } from "@checkmate/maintenance-common";
-import { autoAuthMiddleware, type RpcContext } from "@checkmate/backend-api";
+import {
+  autoAuthMiddleware,
+  Logger,
+  type RpcContext,
+} from "@checkmate/backend-api";
 import type { SignalService } from "@checkmate/signal-common";
 import type { MaintenanceService } from "./service";
+import type { CatalogClient } from "@checkmate/catalog-common";
+import { resolveRoute } from "@checkmate/common";
 
 export function createRouter(
   service: MaintenanceService,
-  signalService: SignalService
+  signalService: SignalService,
+  catalogClient: CatalogClient,
+  logger: Logger
 ) {
   const os = implement(maintenanceContract)
     .$context<RpcContext>()
     .use(autoAuthMiddleware);
+
+  /**
+   * Helper to notify subscribers of affected systems about a maintenance event.
+   * Each system triggers a separate notification call, but within each call
+   * the subscribers are deduplicated (system + its groups).
+   */
+  const notifyAffectedSystems = async (props: {
+    maintenanceId: string;
+    maintenanceTitle: string;
+    systemIds: string[];
+    action: "created" | "updated";
+  }) => {
+    const { maintenanceId, maintenanceTitle, systemIds, action } = props;
+
+    const actionText = action === "created" ? "scheduled" : "updated";
+    const maintenanceDetailPath = resolveRoute(
+      maintenanceRoutes.routes.detail,
+      {
+        maintenanceId,
+      }
+    );
+
+    for (const systemId of systemIds) {
+      try {
+        await catalogClient.notifySystemSubscribers({
+          systemId,
+          title: `Maintenance ${actionText}`,
+          description: `A maintenance "${maintenanceTitle}" has been ${actionText} for a system you're subscribed to.`,
+          importance: "info",
+          actions: [
+            {
+              label: "View Maintenance",
+              href: maintenanceDetailPath,
+              variant: "primary",
+            },
+          ],
+          includeGroupSubscribers: true,
+        });
+      } catch (error) {
+        // Log but don't fail the operation - notifications are best-effort
+        logger.warn(
+          `Failed to notify subscribers for system ${systemId}:`,
+          error
+        );
+      }
+    }
+  };
 
   return os.router({
     listMaintenances: os.listMaintenances.handler(async ({ input }) => {
@@ -34,12 +90,22 @@ export function createRouter(
 
     createMaintenance: os.createMaintenance.handler(async ({ input }) => {
       const result = await service.createMaintenance(input);
+
       // Broadcast signal for realtime updates
       await signalService.broadcast(MAINTENANCE_UPDATED, {
         maintenanceId: result.id,
         systemIds: result.systemIds,
         action: "created",
       });
+
+      // Send notifications to system subscribers
+      await notifyAffectedSystems({
+        maintenanceId: result.id,
+        maintenanceTitle: result.title,
+        systemIds: result.systemIds,
+        action: "created",
+      });
+
       return result;
     }),
 
@@ -48,12 +114,22 @@ export function createRouter(
       if (!result) {
         throw new ORPCError("NOT_FOUND", { message: "Maintenance not found" });
       }
+
       // Broadcast signal for realtime updates
       await signalService.broadcast(MAINTENANCE_UPDATED, {
         maintenanceId: result.id,
         systemIds: result.systemIds,
         action: "updated",
       });
+
+      // Send notifications to system subscribers
+      await notifyAffectedSystems({
+        maintenanceId: result.id,
+        maintenanceTitle: result.title,
+        systemIds: result.systemIds,
+        action: "updated",
+      });
+
       return result;
     }),
 

@@ -158,6 +158,70 @@ export const notificationContract = {
       })
     )
     .output(z.object({ success: z.boolean() })),
+
+  // Get subscribers for a specific notification group
+  getGroupSubscribers: _base
+    .meta({ userType: "service" })
+    .input(
+      z.object({
+        groupId: z
+          .string()
+          .describe("Full namespaced group ID (e.g., 'catalog.system.123')"),
+      })
+    )
+    .output(z.object({ userIds: z.array(z.string()) })),
+
+  // Send notifications to a list of users (deduplicated by caller)
+  notifyUsers: _base
+    .meta({ userType: "service" })
+    .input(
+      z.object({
+        userIds: z.array(z.string()),
+        title: z.string(),
+        description: z.string(),
+        importance: z.enum(["info", "warning", "critical"]).optional(),
+        actions: z
+          .array(
+            z.object({
+              label: z.string(),
+              href: z.string(),
+              variant: z
+                .enum(["primary", "secondary", "destructive"])
+                .optional(),
+            })
+          )
+          .optional(),
+      })
+    )
+    .output(z.object({ notifiedCount: z.number() })),
+
+  // Notify all subscribers of multiple groups (deduplicates internally)
+  // Use this when an event affects multiple groups and you want to avoid
+  // duplicate notifications for users subscribed to multiple affected groups.
+  notifyGroups: _base
+    .meta({ userType: "service" })
+    .input(
+      z.object({
+        groupIds: z
+          .array(z.string())
+          .describe("Full namespaced group IDs to notify"),
+        title: z.string(),
+        description: z.string(),
+        importance: z.enum(["info", "warning", "critical"]).optional(),
+        actions: z
+          .array(
+            z.object({
+              label: z.string(),
+              href: z.string(),
+              variant: z
+                .enum(["primary", "secondary", "destructive"])
+                .optional(),
+            })
+          )
+          .optional(),
+      })
+    )
+    .output(z.object({ notifiedCount: z.number() })),
 };
 
 // Export contract type for frontend

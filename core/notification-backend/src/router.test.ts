@@ -34,7 +34,6 @@ describe("Notification Backend Module", () => {
   it("exports plugin default", async () => {
     const plugin = await import("./index");
     expect(plugin.default).toBeDefined();
-    expect(plugin.notificationServiceRef).toBeDefined();
   });
 });
 

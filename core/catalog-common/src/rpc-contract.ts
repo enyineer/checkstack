@@ -142,6 +142,50 @@ export const catalogContract = {
     .meta({ userType: "user", permissions: [permissions.catalogManage.id] })
     .input(CreateViewInputSchema)
     .output(ViewSchema),
+
+  // ==========================================================================
+  // SERVICE INTERFACE (userType: "service" - backend-to-backend only)
+  // ==========================================================================
+
+  /**
+   * Notify all users subscribed to a system (and optionally its groups).
+   * This is used by other plugins (e.g., maintenance) to send notifications
+   * to system subscribers without needing direct access to the notification service.
+   *
+   * Deduplication: If includeGroupSubscribers is true, subscribers are
+   * deduplicated so users subscribed to both the system AND its groups
+   * receive only one notification.
+   */
+  notifySystemSubscribers: _base
+    .meta({ userType: "service" })
+    .input(
+      z.object({
+        systemId: z
+          .string()
+          .describe("The system ID to notify subscribers for"),
+        title: z.string().describe("Notification title"),
+        description: z.string().describe("Notification description"),
+        importance: z.enum(["info", "warning", "critical"]).optional(),
+        actions: z
+          .array(
+            z.object({
+              label: z.string(),
+              href: z.string(),
+              variant: z
+                .enum(["primary", "secondary", "destructive"])
+                .optional(),
+            })
+          )
+          .optional(),
+        includeGroupSubscribers: z
+          .boolean()
+          .optional()
+          .describe(
+            "If true, also notify subscribers of groups that contain this system"
+          ),
+      })
+    )
+    .output(z.object({ notifiedCount: z.number() })),
 };
 
 // Export contract type for frontend
