@@ -182,6 +182,7 @@
       "name": "@checkmate/catalog-frontend",
       "version": "0.0.1",
       "dependencies": {
+        "@checkmate/auth-frontend": "workspace:*",
         "@checkmate/catalog-common": "workspace:*",
         "@checkmate/common": "workspace:*",
         "@checkmate/frontend-api": "workspace:*",
@@ -214,6 +215,7 @@
       "name": "@checkmate/dashboard-frontend",
       "version": "0.0.1",
       "dependencies": {
+        "@checkmate/auth-frontend": "workspace:*",
         "@checkmate/catalog-common": "workspace:*",
         "@checkmate/catalog-frontend": "workspace:*",
         "@checkmate/common": "workspace:*",

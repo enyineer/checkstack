@@ -26,6 +26,7 @@ import {
   useToast,
 } from "@checkmate/ui";
 import { LayoutGrid, Info, Server, Activity, ChevronRight } from "lucide-react";
+import { authApiRef } from "@checkmate/auth-frontend/api";
 
 const CATALOG_PLUGIN_ID = "catalog";
 
@@ -41,6 +42,8 @@ export const Dashboard: React.FC = () => {
   const notificationApi = rpcApi.forPlugin<NotificationClient>("notification");
   const navigate = useNavigate();
   const toast = useToast();
+  const authApi = useApi(authApiRef);
+  const { data: session } = authApi.useSession();
 
   const [groupsWithSystems, setGroupsWithSystems] = useState<
     GroupWithSystems[]
@@ -168,12 +171,14 @@ export const Dashboard: React.FC = () => {
                   {group.systems.length}{" "}
                   {group.systems.length === 1 ? "system" : "systems"}
                 </span>
-                <SubscribeButton
-                  isSubscribed={isSubscribed(group.id)}
-                  onSubscribe={() => handleSubscribe(group.id)}
-                  onUnsubscribe={() => handleUnsubscribe(group.id)}
-                  loading={subscriptionLoading[group.id] || false}
-                />
+                {session && (
+                  <SubscribeButton
+                    isSubscribed={isSubscribed(group.id)}
+                    onSubscribe={() => handleSubscribe(group.id)}
+                    onUnsubscribe={() => handleUnsubscribe(group.id)}
+                    loading={subscriptionLoading[group.id] || false}
+                  />
+                )}
               </div>
             </CardHeader>
             <CardContent className="p-4">

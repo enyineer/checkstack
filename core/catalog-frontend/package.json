@@ -11,6 +11,7 @@
   "dependencies": {
     "@checkmate/catalog-common": "workspace:*",
     "@checkmate/frontend-api": "workspace:*",
+    "@checkmate/auth-frontend": "workspace:*",
     "@checkmate/common": "workspace:*",
     "@checkmate/notification-common": "workspace:*",
     "@checkmate/ui": "workspace:*",

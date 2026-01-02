@@ -18,6 +18,7 @@ import {
   SubscribeButton,
   useToast,
 } from "@checkmate/ui";
+import { authApiRef } from "@checkmate/auth-frontend/api";
 
 import {
   ArrowLeft,
@@ -37,6 +38,8 @@ export const SystemDetailPage: React.FC = () => {
   const rpcApi = useApi(rpcApiRef);
   const notificationApi = rpcApi.forPlugin<NotificationClient>("notification");
   const toast = useToast();
+  const authApi = useApi(authApiRef);
+  const { data: session } = authApi.useSession();
 
   const [system, setSystem] = useState<System | undefined>();
   const [groups, setGroups] = useState<Group[]>([]);
@@ -184,12 +187,14 @@ export const SystemDetailPage: React.FC = () => {
           <Activity className="h-8 w-8 text-primary" />
           <h1 className="text-3xl font-bold text-foreground">{system.name}</h1>
         </div>
-        <SubscribeButton
-          isSubscribed={isSubscribed}
-          onSubscribe={handleSubscribe}
-          onUnsubscribe={handleUnsubscribe}
-          loading={subscriptionLoading}
-        />
+        {session && (
+          <SubscribeButton
+            isSubscribed={isSubscribed}
+            onSubscribe={handleSubscribe}
+            onUnsubscribe={handleUnsubscribe}
+            loading={subscriptionLoading}
+          />
+        )}
       </div>
 
       {/* Top Extension Slot for urgent items like maintenance alerts */}
