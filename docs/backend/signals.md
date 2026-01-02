@@ -143,14 +143,15 @@ sequenceDiagram
 ```
 
 ```typescript
-import { HEALTH_STATE_CHANGED, permissions } from "@checkmate/healthcheck-common";
+import { pluginMetadata, permissions, HEALTH_STATE_CHANGED } from "@checkmate/healthcheck-common";
 
 // Only users with the permission receive the signal
 await signalService.sendToAuthorizedUsers(
   HEALTH_STATE_CHANGED,
   subscriberUserIds,
   { systemId, newState: "degraded" },
-  permissions.healthcheckStatusRead  // Typed Permission object
+  pluginMetadata,  // Typed PluginMetadata from common package
+  permissions.healthcheckStatusRead
 );
 ```
 
@@ -456,7 +457,8 @@ interface SignalService {
     signal: Signal<T>,
     userIds: string[],
     payload: T,
-    permission: { id: string }
+    pluginMetadata: PluginMetadata,
+    permission: Permission
   ): Promise<void>;
 }
 ```
