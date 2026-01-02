@@ -34,6 +34,7 @@ import { createApiRouteHandler, registerApiRoute } from "./api-router";
 import type { ExtensionPointManager } from "./extension-points";
 import { Router } from "@orpc/server";
 import { AnyContractRouter } from "@orpc/contract";
+import type { PluginMetadata } from "@checkmate/common";
 
 export interface PluginLoaderDeps {
   registry: ServiceRegistry;
@@ -43,6 +44,10 @@ export interface PluginLoaderDeps {
   registeredPermissions: (Permission & { pluginId: string })[];
   getAllPermissions: () => Permission[];
   db: NodePgDatabase<Record<string, unknown>>;
+  /**
+   * Map of pluginId -> PluginMetadata for request-time context injection.
+   */
+  pluginMetadataRegistry: Map<string, PluginMetadata>;
   /**
    * Map of pluginId -> cleanup handlers (stored in registration order, executed LIFO)
    */
@@ -75,6 +80,9 @@ export function registerPlugin({
   }
 
   const pluginId = backendPlugin.metadata.pluginId;
+
+  // Store metadata for request-time context injection
+  deps.pluginMetadataRegistry.set(pluginId, backendPlugin.metadata);
 
   // Execute Register
   backendPlugin.register({
@@ -248,6 +256,7 @@ export async function loadPlugins({
     registry: deps.registry,
     pluginRpcRouters: deps.pluginRpcRouters,
     pluginHttpHandlers: deps.pluginHttpHandlers,
+    pluginMetadataRegistry: deps.pluginMetadataRegistry,
   });
   registerApiRoute(rootRouter, apiHandler);
 

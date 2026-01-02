@@ -1,3 +1,4 @@
+import { qualifyPermissionId } from "@checkmate/common";
 import type { SignalService, Signal } from "@checkmate/signal-common";
 
 /**
@@ -159,7 +160,10 @@ export function createMockSignalService(): MockSignalService {
       permission: { id: string }
     ): Promise<void> {
       // Construct fully-qualified permission ID
-      const qualifiedPermission = `${pluginMetadata.pluginId}.${permission.id}`;
+      const qualifiedPermission = qualifyPermissionId(
+        pluginMetadata,
+        permission
+      );
 
       // Apply permission filter if set
       const filteredUserIds = permissionFilter

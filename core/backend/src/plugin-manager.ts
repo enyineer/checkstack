@@ -9,7 +9,7 @@ import {
   coreHooks,
   HookUnsubscribe,
 } from "@checkmate/backend-api";
-import type { Permission } from "@checkmate/common";
+import type { Permission, PluginMetadata } from "@checkmate/common";
 
 // Extracted modules
 import { registerCoreServices } from "./plugin-manager/core-services";
@@ -32,6 +32,9 @@ export class PluginManager {
 
   // Permission registry - stores all registered permissions with pluginId for hook emission
   private registeredPermissions: (Permission & { pluginId: string })[] = [];
+
+  // Plugin metadata registry - stores PluginMetadata for request-time context injection
+  private pluginMetadataRegistry = new Map<string, PluginMetadata>();
 
   // Cleanup handlers registered by plugins (LIFO execution)
   private cleanupHandlers = new Map<string, Array<() => Promise<void>>>();
@@ -87,6 +90,7 @@ export class PluginManager {
         registeredPermissions: this.registeredPermissions,
         getAllPermissions: () => this.getAllPermissions(),
         db,
+        pluginMetadataRegistry: this.pluginMetadataRegistry,
         cleanupHandlers: this.cleanupHandlers,
       },
     });
@@ -326,6 +330,9 @@ export class PluginManager {
       }
 
       const metaPluginId = backendPlugin.metadata.pluginId;
+
+      // Store metadata for request-time context injection
+      this.pluginMetadataRegistry.set(metaPluginId, backendPlugin.metadata);
 
       // 2. Register plugin (Phase 1)
       const pendingInits: { pluginId: string; init: () => Promise<void> }[] =

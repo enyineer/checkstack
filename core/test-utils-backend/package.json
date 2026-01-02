@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@checkmate/backend-api": "workspace:*",
+    "@checkmate/common": "workspace:*",
     "@checkmate/queue-api": "workspace:*",
     "@checkmate/signal-common": "workspace:*"
   },

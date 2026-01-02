@@ -2,7 +2,7 @@ import { os as baseOs, ORPCError, Router } from "@orpc/server";
 import { AnyContractRouter } from "@orpc/contract";
 import { HealthCheckRegistry } from "./health-check";
 import { QueuePluginRegistry, QueueManager } from "@checkmate/queue-api";
-import { ProcedureMetadata } from "@checkmate/common";
+import { ProcedureMetadata, qualifyPermissionId } from "@checkmate/common";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import {
   Logger,
@@ -12,6 +12,7 @@ import {
   RealUser,
   ServiceUser,
 } from "./types";
+import type { PluginMetadata } from "@checkmate/common";
 import type { Hook } from "./hooks";
 
 // =============================================================================
@@ -24,8 +25,12 @@ import type { Hook } from "./hooks";
 export type EmitHookFn = <T>(hook: Hook<T>, payload: T) => Promise<void>;
 
 export interface RpcContext {
-  /** The plugin ID this request is being handled by (extracted from URL path) */
-  pluginId: string;
+  /**
+   * The plugin metadata for this request.
+   * Use this to access pluginId and other plugin configuration.
+   */
+  pluginMetadata: PluginMetadata;
+
   db: NodePgDatabase<Record<string, unknown>>;
   logger: Logger;
   fetch: Fetch;
@@ -82,9 +87,9 @@ export const autoAuthMiddleware = os.middleware(
     const contractPermissions = meta?.permissions || [];
 
     // Prefix contract permissions with pluginId to get fully-qualified permission IDs
-    // Contract defines: "catalog.read" -> Stored in DB as: "catalog-backend.catalog.read"
-    const requiredPermissions = contractPermissions.map(
-      (p: string) => `${context.pluginId}.${p}`
+    // Contract defines: "catalog.read" -> Stored in DB as: "catalog.catalog.read"
+    const requiredPermissions = contractPermissions.map((p: string) =>
+      qualifyPermissionId(context.pluginMetadata, { id: p })
     );
 
     // Helper to wrap next() with error logging

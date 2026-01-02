@@ -125,18 +125,18 @@ export const myFeatureContract = {
 import { createPermission } from "@checkmate/common";
 
 export const permissions = {
-  read: createPermission({
-    id: "read",
-    displayName: "Read Items",
-    description: "View items",
-    isAuthenticatedDefault: true,
-  }),
+  read: createPermission(
+    "myfeature",
+    "read",
+    "View items",
+    { isAuthenticatedDefault: true }
+  ),
   
-  manage: createPermission({
-    id: "manage",
-    displayName: "Manage Items",
-    description: "Create, update, delete items",
-  }),
+  manage: createPermission(
+    "myfeature",
+    "manage",
+    "Create, update, delete items"
+  ),
 };
 
 export const permissionList = Object.values(permissions);

@@ -574,6 +574,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@checkmate/backend-api": "workspace:*",
+        "@checkmate/common": "workspace:*",
         "@checkmate/signal-common": "workspace:*",
       },
       "devDependencies": {
@@ -618,6 +619,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@checkmate/backend-api": "workspace:*",
+        "@checkmate/common": "workspace:*",
         "@checkmate/queue-api": "workspace:*",
         "@checkmate/signal-common": "workspace:*",
       },

@@ -8,6 +8,7 @@
     }
   },
   "dependencies": {
+    "@checkmate/common": "workspace:*",
     "@checkmate/signal-common": "workspace:*",
     "@checkmate/backend-api": "workspace:*"
   },

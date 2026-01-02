@@ -14,6 +14,7 @@ import {
 import type { QueuePluginRegistry, QueueManager } from "@checkmate/queue-api";
 import type { ServiceRegistry } from "../services/service-registry";
 import type { EventBus } from "@checkmate/backend-api";
+import type { PluginMetadata } from "@checkmate/common";
 
 /**
  * Creates the API route handler for Hono.
@@ -23,10 +24,12 @@ export function createApiRouteHandler({
   registry,
   pluginRpcRouters,
   pluginHttpHandlers,
+  pluginMetadataRegistry,
 }: {
   registry: ServiceRegistry;
   pluginRpcRouters: Map<string, unknown>;
   pluginHttpHandlers: Map<string, (req: Request) => Promise<Response>>;
+  pluginMetadataRegistry: Map<string, PluginMetadata>;
 }) {
   // Helper to get service from registry
   async function getService<T>(ref: {
@@ -90,8 +93,16 @@ export function createApiRouteHandler({
       await (eventBus as EventBus).emit(hook, payload);
     };
 
+    // Lookup plugin metadata from registry
+    const pluginMetadata: PluginMetadata | undefined =
+      pluginMetadataRegistry.get(pluginId);
+
+    if (!pluginMetadata) {
+      return c.json({ error: "Plugin metadata not found in registry" }, 500);
+    }
+
     const context: RpcContext = {
-      pluginId,
+      pluginMetadata,
       auth: auth as AuthService,
       logger: logger as Logger,
       db: db as NodePgDatabase<Record<string, unknown>>,

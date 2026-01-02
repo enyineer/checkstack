@@ -1,4 +1,5 @@
 import type { EventBus, Logger } from "@checkmate/backend-api";
+import { qualifyPermissionId } from "@checkmate/common";
 import type {
   Signal,
   SignalMessage,
@@ -92,7 +93,7 @@ export class SignalServiceImpl implements SignalService {
     }
 
     // Construct fully-qualified permission ID: ${pluginMetadata.pluginId}.${permission.id}
-    const qualifiedPermission = `${pluginMetadata.pluginId}.${permission.id}`;
+    const qualifiedPermission = qualifyPermissionId(pluginMetadata, permission);
 
     // Filter users via auth RPC
     const authorizedIds = await this.authClient.filterUsersByPermission({

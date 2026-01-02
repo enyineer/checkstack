@@ -136,14 +136,16 @@ The generated plugin is a working example. Customize it for your domain:
 import { createPermission } from "@checkmate/common";
 
 export const permissions = {
-  myFeatureRead: createPermission({
-    id: "myfeature.read",
-    description: "Read myfeature data",
-  }),
-  myFeatureManage: createPermission({
-    id: "myfeature.manage",
-    description: "Manage myfeature data",
-  }),
+  myFeatureRead: createPermission(
+    "myfeature",
+    "read",
+    "Read myfeature data"
+  ),
+  myFeatureManage: createPermission(
+    "myfeature",
+    "manage",
+    "Manage myfeature data"
+  ),
 };
 
 export const permissionList = Object.values(permissions);
@@ -220,10 +222,11 @@ That's it! Your common package is ready to be consumed by backend and frontend p
 
 ## The `@checkmate/common` Core Package
 
-The `@checkmate/common` package is a special core package located in `core/common/` that provides shared type definitions used across the entire codebase. This is the foundation that all common plugins can depend on.
+The `@checkmate/common` package is a special core package located in `core/common/` that provides shared type definitions and utilities used across the entire codebase. This is the foundation that all common plugins can depend on.
 
 **What it contains:**
-- Core type definitions (e.g., `Permission` type)
+- Core type definitions (e.g., `Permission`, `PluginMetadata`)
+- Permission utilities (`createPermission`, `qualifyPermissionId`)
 - Fundamental interfaces used across plugins
 - Zero runtime dependencies
 
@@ -233,19 +236,62 @@ The `@checkmate/common` package is a special core package located in `core/commo
 - ✅ Frontend API packages (like `@checkmate/frontend-api`)
 - ✅ Backend and frontend plugins (when they need core types)
 
-**Example - `core/common/src/types.ts`:**
+### Permission Types
+
 ```typescript
-/**
- * Represents a permission that can be assigned to roles.
- * The id will be prefixed with the plugin name when registered.
- */
-export type Permission = {
-  /** Permission identifier (e.g., "read-things", will become "pluginId.read-things") */
+import type { Permission, ResourcePermission, PermissionAction } from "@checkmate/common";
+
+// PermissionAction: "read" | "manage"
+
+// Permission interface
+interface Permission {
   id: string;
-  /** Human-readable description of what this permission allows */
   description?: string;
-};
+  isAuthenticatedDefault?: boolean;
+  isPublicDefault?: boolean;
+}
+
+// ResourcePermission extends Permission with resource and action
+interface ResourcePermission extends Permission {
+  resource: string;
+  action: PermissionAction;
+}
 ```
+
+### createPermission
+
+Creates a standardized resource permission with automatic ID generation:
+
+```typescript
+import { createPermission } from "@checkmate/common";
+
+const permission = createPermission(
+  "catalog",           // resource name
+  "read",              // action ("read" | "manage")
+  "Read catalog data", // optional description
+  {                    // optional options
+    isAuthenticatedDefault: true,  // assign to default "users" role
+    isPublicDefault: false,        // assign to "anonymous" role
+  }
+);
+
+// Result: { id: "catalog.read", resource: "catalog", action: "read", ... }
+```
+
+### qualifyPermissionId
+
+Creates a fully-qualified permission ID by prefixing with the plugin ID. This is used internally by the RPC middleware and SignalService for authorization checks:
+
+```typescript
+import { qualifyPermissionId } from "@checkmate/common";
+import { pluginMetadata } from "./plugin-metadata";
+import { permissions } from "./permissions";
+
+const qualifiedId = qualifyPermissionId(pluginMetadata, permissions.catalogRead);
+// Result: "catalog.catalog.read" (format: ${pluginId}.${permission.id})
+```
+
+> **Note:** You typically don't need to call `qualifyPermissionId` directly. The platform handles permission namespacing automatically during registration and authorization checks.
 
 This ensures that all packages can reference core types without creating circular dependencies or violating the architecture rules.
 
@@ -359,14 +405,16 @@ import { permissions, SystemSchema } from "./index";
 import { createPermission } from "@checkmate/common";
 
 export const permissions = {
-  catalogRead: createPermission({
-    id: "catalog.read",
-    description: "Read catalog entities",
-  }),
-  catalogManage: createPermission({
-    id: "catalog.manage",
-    description: "Manage catalog entities",
-  }),
+  catalogRead: createPermission(
+    "catalog",
+    "read",
+    "Read catalog entities"
+  ),
+  catalogManage: createPermission(
+    "catalog",
+    "manage",
+    "Manage catalog entities"
+  ),
 };
 
 export const permissionList = Object.values(permissions);
@@ -574,15 +622,17 @@ This approach:
 import { createPermission } from "@checkmate/common";
 
 export const permissions = {
-  catalogRead: createPermission({
-    id: "catalog.read",
-    description: "Read catalog entities",
-    isDefault: true, // Auto-assigned to "users" role
-  }),
-  catalogManage: createPermission({
-    id: "catalog.manage",
-    description: "Manage catalog entities",
-  }),
+  catalogRead: createPermission(
+    "catalog",
+    "read",
+    "Read catalog entities",
+    { isAuthenticatedDefault: true } // Auto-assigned to "users" role
+  ),
+  catalogManage: createPermission(
+    "catalog",
+    "manage",
+    "Manage catalog entities"
+  ),
 };
 
 // Export as array for backend registration
