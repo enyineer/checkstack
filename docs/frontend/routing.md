@@ -32,13 +32,13 @@ Import the routes and use them with the `route` field:
 ```tsx
 // In your-plugin-frontend/src/index.tsx
 import { createFrontendPlugin } from "@checkmate/frontend-api";
-import { yourPluginRoutes } from "@checkmate/your-plugin-common";
+import { yourPluginRoutes, pluginMetadata } from "@checkmate/your-plugin-common";
 import { HomePage } from "./pages/HomePage";
 import { ConfigPage } from "./pages/ConfigPage";
 import { DetailPage } from "./pages/DetailPage";
 
 export default createFrontendPlugin({
-  name: "your-plugin-frontend",
+  metadata: pluginMetadata,
   routes: [
     {
       route: yourPluginRoutes.routes.home,

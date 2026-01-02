@@ -426,7 +426,7 @@ export const oauthStrategy: AuthenticationStrategy<OAuthConfig> = {
 > **Example:**
 > ```typescript
 > import { coreServices } from "@checkmate/backend-api";
-> import type { AuthClient } from "@checkmate/auth-common";
+> import { AuthApi } from "@checkmate/auth-common";
 >
 > env.registerInit({
 >   deps: {
@@ -436,7 +436,7 @@ export const oauthStrategy: AuthenticationStrategy<OAuthConfig> = {
 >   init: async ({ rpcClient, logger }) => {
 >     // In your user sync/creation logic:
 >     try {
->       const authClient = rpcClient.forPlugin<AuthClient>("auth-backend");
+>       const authClient = rpcClient.forPlugin(AuthApi);
 >       const { allowRegistration } = await authClient.getRegistrationStatus();
 >       
 >       if (!allowRegistration) {

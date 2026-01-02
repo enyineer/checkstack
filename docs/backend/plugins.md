@@ -258,6 +258,8 @@ Register the plugin's initialization function.
 - `afterPluginsReady`: Async function called after all plugins initialized (Phase 3, optional)
 
 ```typescript
+import { OtherApi } from "@checkmate/other-common";
+
 env.registerInit({
   schema: mySchema,
   deps: {
@@ -274,8 +276,8 @@ env.registerInit({
   // Phase 3: Called after ALL plugins are initialized
   // Safe to make RPC calls and subscribe to hooks
   afterPluginsReady: async ({ database, rpcClient, onHook, emitHook }) => {
-    // Call other plugins via RPC
-    const otherClient = rpcClient.forPlugin<OtherClient>("other-backend");
+    // Call other plugins via RPC using their Api definition
+    const otherClient = rpcClient.forPlugin(OtherApi);
     await otherClient.someMethod({ ... });
     
     // Subscribe to hooks

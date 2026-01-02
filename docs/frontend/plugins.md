@@ -114,46 +114,35 @@ export const MyFeaturePage = () => {
 };
 ```
 
-#### Register Routes and Navigation
+#### Register Routes
 
 **src/index.tsx:**
 
 ```typescript
-import { createFrontendPlugin, rpcApiRef } from "@checkmate/frontend-api";
-import { myFeatureApiRef, type MyFeatureApi } from "./api";
+import { createFrontendPlugin, rpcApiRef, type ApiRef } from "@checkmate/frontend-api";
+import { myFeatureApiRef, type MyFeatureApiClient } from "./api";
 import { MyFeaturePage } from "./components/MyFeaturePage";
-import { permissions } from "@checkmate/myfeature-common";
-import { ListIcon } from "lucide-react";
+import { myFeatureRoutes, MyFeatureApi, pluginMetadata } from "@checkmate/myfeature-common";
 
 export const myFeaturePlugin = createFrontendPlugin({
-  name: "myfeature-frontend",
+  metadata: pluginMetadata,
 
-  // Register client API
+  // Register client API using Api definition
   apis: [
     {
       ref: myFeatureApiRef,
-      factory: (deps) => {
+      factory: (deps: { get: <T>(ref: ApiRef<T>) => T }): MyFeatureApiClient => {
         const rpcApi = deps.get(rpcApiRef);
-        return rpcApi.forPlugin<MyFeatureApi>("myfeature-backend");
+        return rpcApi.forPlugin(MyFeatureApi);
       },
     },
   ],
 
-  // Register routes
+  // Register routes using typed route definitions
   routes: [
     {
-      path: "/",
+      route: myFeatureRoutes.routes.home,
       element: <MyFeaturePage />,
-      permission: permissions.myFeatureRead.id,
-    },
-  ],
-
-  // Register navigation
-  navItems: [
-    {
-      title: "My Feature",
-      path: "/myfeature",
-      icon: <ListIcon />,
     },
   ],
 });
@@ -181,12 +170,14 @@ Creates a frontend plugin with the specified configuration.
 
 **Parameters:**
 
-#### `name` (required)
+#### `metadata` (required)
 
-Unique identifier for the plugin.
+Plugin metadata from the common package (contains pluginId).
 
 ```typescript
-name: "myplugin-frontend"
+import { pluginMetadata } from "@checkmate/myplugin-common";
+
+metadata: pluginMetadata
 ```
 
 #### `apis` (optional)
@@ -194,12 +185,17 @@ name: "myplugin-frontend"
 Register client-side APIs that components can use.
 
 ```typescript
+import { MyPluginApi } from "@checkmate/myplugin-common";
+import type { InferClient } from "@checkmate/common";
+
+export type MyPluginApiClient = InferClient<typeof MyPluginApi>;
+
 apis: [
   {
     ref: myPluginApiRef,
-    factory: (deps) => {
+    factory: (deps): MyPluginApiClient => {
       const rpcApi = deps.get(rpcApiRef);
-      return rpcApi.forPlugin<MyPluginApi>("myplugin");
+      return rpcApi.forPlugin(MyPluginApi);
     },
   },
 ]
@@ -207,29 +203,17 @@ apis: [
 
 #### `routes` (optional)
 
-Register pages and their routes.
+Register pages and their routes using RouteDefinitions from the common package.
 
 ```typescript
+import { myRoutes } from "@checkmate/myplugin-common";
+
 routes: [
   {
-    path: "/",
+    route: myRoutes.routes.home,
     element: <ItemListPage />,
     title: "Items", // Optional: page title
     permission: permissions.itemRead.id, // Optional: required permission
-  },
-]
-```
-
-#### `navItems` (optional)
-
-Register navigation menu items.
-
-```typescript
-navItems: [
-  {
-    title: "Items",
-    path: "/items",
-    icon: <ListIcon />, // Optional: icon component
   },
 ]
 ```
@@ -252,29 +236,30 @@ extensions: [
 
 ## Contract-Based Client API Pattern
 
-The frontend consumes contracts defined in `-common` packages to get type-safe RPC clients.
+The frontend consumes Api definitions from `-common` packages to get type-safe RPC clients with automatic type inference.
 
-### Step 1: Import Client Type
+### Step 1: Import Api and Create Client Type
 
 **src/api.ts:**
 
 ```typescript
 import { createApiRef } from "@checkmate/frontend-api";
-import { MyPluginClient } from "@checkmate/myplugin-common";
+import { MyPluginApi } from "@checkmate/myplugin-common";
+import type { InferClient } from "@checkmate/common";
 
 // Re-export types from common for convenience
 export type { Item, CreateItem, UpdateItem } from "@checkmate/myplugin-common";
 
-// Use the client type from the common package
-export type MyPluginApi = MyPluginClient;
+// Derive client type from Api definition
+export type MyPluginApiClient = InferClient<typeof MyPluginApi>;
 
-export const myPluginApiRef = createApiRef<MyPluginApi>("myplugin-api");
+export const myPluginApiRef = createApiRef<MyPluginApiClient>("myplugin-api");
 ```
 
-**Why import from common?**
-- Client type is defined once in the common package
+**Why import Api from common?**
+- Api definition contains pluginId and contract bundled together
 - Provides compile-time type safety for all RPC calls
-- Eliminates duplicate derivations that can drift
+- No string plugin IDs - automatic type inference
 - Usable by both frontend and backend for type-safe calls
 
 ### Step 2: Register API Factory
@@ -282,27 +267,31 @@ export const myPluginApiRef = createApiRef<MyPluginApi>("myplugin-api");
 **src/index.tsx:**
 
 ```typescript
-import { rpcApiRef } from "@checkmate/frontend-api";
-import { myPluginApiRef, type MyPluginApi } from "./api";
+import { rpcApiRef, type ApiRef } from "@checkmate/frontend-api";
+import { myPluginApiRef, type MyPluginApiClient } from "./api";
+import { MyPluginApi, pluginMetadata } from "@checkmate/myplugin-common";
 
 export const myPlugin = createFrontendPlugin({
-  name: "myplugin-frontend",
+  metadata: pluginMetadata,
   
   apis: [
     {
       ref: myPluginApiRef,
-      factory: (deps) => {
+      factory: (deps: { get: <T>(ref: ApiRef<T>) => T }): MyPluginApiClient => {
         const rpcApi = deps.get(rpcApiRef);
-        // Create a client for the backend plugin
-        // The plugin ID must match the backend router registration name
-        return rpcApi.forPlugin<MyPluginApi>("myplugin");
+        // Create a client using the Api definition
+        // The pluginId is automatically extracted from MyPluginApi
+        return rpcApi.forPlugin(MyPluginApi);
       },
     },
   ],
 });
 ```
 
-**Critical**: The plugin ID passed to `forPlugin` uses the **short name without the `-backend` suffix**. For example, if the backend package is `myplugin-backend`, use `"myplugin"` when calling `forPlugin()`.
+**Key changes from legacy pattern:**
+- Uses `metadata: pluginMetadata` instead of `name: "..."`
+- Uses `forPlugin(MyPluginApi)` instead of `forPlugin<Type>("pluginId")`
+- Type inference is automatic - no explicit type parameter needed
 
 ### Step 3: Use in Components
 
@@ -352,10 +341,12 @@ The core provides these APIs for use in components:
 The oRPC client factory for creating type-safe plugin clients.
 
 ```typescript
+import { MyPluginApi } from "@checkmate/myplugin-common";
+
 const rpcApi = useApi(rpcApiRef);
 
-// Create a client for a specific backend plugin
-const client = rpcApi.forPlugin<MyPluginApi>("myplugin");
+// Create a client for a specific backend plugin using its Api definition
+const client = rpcApi.forPlugin(MyPluginApi);
 ```
 
 ### `permissionApiRef`
@@ -941,14 +932,14 @@ test("create item", async ({ page }) => {
 Check that:
 1. API is registered in plugin `apis` array
 2. API ref is created with `createApiRef`
-3. Factory function uses `rpcApi.forPlugin<T>()` with correct plugin ID
-4. Plugin ID matches backend router registration name
+3. Factory function uses `rpcApi.forPlugin(*Api)` with the Api definition from common
+4. Api definition's `pluginId` matches backend router registration name
 
 ### Type Errors with Contract
 
 If TypeScript complains about contract types:
 1. Ensure you're importing from the `-common` package
-2. Verify the contract is exported from `src/index.ts` using named exports
+2. Verify the `*Api` definition and contract are exported from `src/index.ts`
 3. Clear TypeScript cache: `rm -rf tsconfig.tsbuildinfo`
 4. Restart the TypeScript language server
 
@@ -956,7 +947,7 @@ If TypeScript complains about contract types:
 
 Check that:
 1. Routes are registered in plugin `routes` array
-2. Path starts with `/`
+2. Route definitions use `route:` with RouteDefinition from common
 3. Element is a valid React component
 
 ### Permission Errors
@@ -970,7 +961,7 @@ Check that:
 
 If RPC calls return 404:
 1. Verify backend router is registered with correct plugin ID
-2. Ensure frontend `forPlugin()` uses matching plugin ID
+2. Ensure frontend uses the correct Api definition that matches backend pluginId
 3. Check backend plugin is loaded (check backend logs)
 
 ## Migrating from Legacy REST Clients
@@ -1000,19 +991,20 @@ export class MyPluginClient implements MyPluginApi {
 
 ```typescript
 // src/api.ts
-import type { ContractRouterClient } from "@orpc/contract";
-import { myPluginContract } from "@checkmate/myplugin-common";
+import { createApiRef } from "@checkmate/frontend-api";
+import { MyPluginApi } from "@checkmate/myplugin-common";
+import type { InferClient } from "@checkmate/common";
 
-export type MyPluginApi = ContractRouterClient<typeof myPluginContract>;
-export const myPluginApiRef = createApiRef<MyPluginApi>("myplugin-api");
+export type MyPluginApiClient = InferClient<typeof MyPluginApi>;
+export const myPluginApiRef = createApiRef<MyPluginApiClient>("myplugin-api");
 
 // src/index.tsx
 apis: [
   {
     ref: myPluginApiRef,
-    factory: (deps) => {
+    factory: (deps): MyPluginApiClient => {
       const rpcApi = deps.get(rpcApiRef);
-      return rpcApi.forPlugin<MyPluginApi>("myplugin");
+      return rpcApi.forPlugin(MyPluginApi);
     },
   },
 ]
@@ -1020,8 +1012,8 @@ apis: [
 
 **Benefits:**
 - No manual client class needed
-- No hardcoded URLs
-- Automatic type inference
+- No hardcoded URLs or plugin IDs
+- Automatic type inference from Api definition
 - Compile-time contract validation
 
 ## Dynamic Plugin Loading

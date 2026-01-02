@@ -162,13 +162,12 @@ export const myFeatureRoutes = createRoutes("my-feature", {
 ```typescript
 // plugins/my-feature-frontend/src/index.tsx
 import { createFrontendPlugin, rpcApiRef, type ApiRef } from "@checkmate/frontend-api";
-import { myFeatureApiRef, type MyFeatureApi } from "./api";
+import { myFeatureApiRef, type MyFeatureApiClient } from "./api";
 import { ItemsPage } from "./components/ItemsPage";
-import { myFeatureRoutes } from "@checkmate/my-feature-common";
-import { ListIcon } from "lucide-react";
+import { myFeatureRoutes, MyFeatureApi, pluginMetadata } from "@checkmate/my-feature-common";
 
 export default createFrontendPlugin({
-  name: "my-feature",
+  metadata: pluginMetadata,
 
   routes: [
     {
@@ -182,18 +181,10 @@ export default createFrontendPlugin({
   apis: [
     {
       ref: myFeatureApiRef,
-      factory: (deps: { get: <T>(ref: ApiRef<T>) => T }): MyFeatureApi => {
+      factory: (deps: { get: <T>(ref: ApiRef<T>) => T }): MyFeatureApiClient => {
         const rpcApi = deps.get(rpcApiRef);
-        return rpcApi.forPlugin<MyFeatureApi>("my-feature");
+        return rpcApi.forPlugin(MyFeatureApi);
       },
-    },
-  ],
-
-  navItems: [
-    {
-      title: "Items",
-      route: myFeatureRoutes.routes.home,
-      icon: <ListIcon />,
     },
   ],
 });

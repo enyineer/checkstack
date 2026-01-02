@@ -132,8 +132,10 @@ try {
 For strategies that auto-create users, check if registration is allowed:
 
 ```typescript
+import { AuthApi } from "@checkmate/auth-common";
+
 // Check platform registration status
-const authClient = rpcClient.forPlugin<AuthClient>("auth-backend");
+const authClient = rpcClient.forPlugin(AuthApi);
 const { allowRegistration } = await authClient.getRegistrationStatus();
 
 if (!allowRegistration) {
