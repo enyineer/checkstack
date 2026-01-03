@@ -12,6 +12,7 @@ import { authContract } from "@checkmate/auth-common";
 import * as schema from "./schema";
 import { eq, inArray, and } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { authHooks } from "./hooks";
 
 /**
  * Type guard to check if user is a RealUser (not a service).
@@ -172,7 +173,7 @@ export const createAuthRouter = (
     }));
   });
 
-  const deleteUser = os.deleteUser.handler(async ({ input: id }) => {
+  const deleteUser = os.deleteUser.handler(async ({ input: id, context }) => {
     if (id === "initial-admin-id") {
       throw new ORPCError("FORBIDDEN", {
         message: "Cannot delete initial admin",
@@ -194,6 +195,9 @@ export const createAuthRouter = (
       // Finally, delete the user
       await tx.delete(schema.user).where(eq(schema.user.id, id));
     });
+
+    // Emit hook for cross-plugin cleanup (notifications, theme preferences, etc.)
+    await context.emitHook(authHooks.userDeleted, { userId: id });
   });
 
   const getRoles = os.getRoles.handler(async () => {

@@ -490,6 +490,7 @@
       "name": "@checkmate/notification-backend",
       "version": "0.0.1",
       "dependencies": {
+        "@checkmate/auth-backend": "workspace:*",
         "@checkmate/backend-api": "workspace:*",
         "@checkmate/common": "workspace:*",
         "@checkmate/notification-common": "workspace:*",
@@ -716,6 +717,7 @@
       "name": "@checkmate/theme-backend",
       "version": "0.0.1",
       "dependencies": {
+        "@checkmate/auth-backend": "workspace:*",
         "@checkmate/backend-api": "workspace:*",
         "@checkmate/common": "workspace:*",
         "@checkmate/theme-common": "workspace:*",

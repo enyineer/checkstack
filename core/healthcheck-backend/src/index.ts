@@ -43,7 +43,7 @@ export default createBackendPlugin({
 
         // Setup queue-based health check worker
         await setupHealthCheckWorker({
-          db: database as unknown as NodePgDatabase<typeof schema>,
+          db: database,
           registry: healthCheckRegistry,
           logger,
           queueManager,
@@ -60,17 +60,15 @@ export default createBackendPlugin({
       },
       // Phase 3: Bootstrap health checks and subscribe to catalog events
       afterPluginsReady: async ({ database, queueManager, logger, onHook }) => {
-        const typedDb = database as unknown as NodePgDatabase<typeof schema>;
-
         // Bootstrap all enabled health checks
         await bootstrapHealthChecks({
-          db: typedDb,
+          db: database,
           queueManager,
           logger,
         });
 
         // Subscribe to catalog system deletion to clean up associations
-        const service = new HealthCheckService(typedDb);
+        const service = new HealthCheckService(database);
         onHook(
           catalogHooks.systemDeleted,
           async (payload) => {

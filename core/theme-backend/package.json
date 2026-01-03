@@ -14,6 +14,7 @@
   "dependencies": {
     "@checkmate/theme-common": "workspace:*",
     "@checkmate/backend-api": "workspace:*",
+    "@checkmate/auth-backend": "workspace:*",
     "drizzle-orm": "^0.45.1",
     "zod": "^4.2.1",
     "@checkmate/common": "workspace:*"
