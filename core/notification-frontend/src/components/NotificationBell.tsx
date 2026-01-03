@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Bell } from "lucide-react";
+import { Bell, CheckCheck } from "lucide-react";
 import {
   Badge,
   DropdownMenu,
@@ -54,7 +54,7 @@ export const NotificationBell = () => {
       const { notifications } = await notificationClient.getNotifications({
         limit: 5,
         offset: 0,
-        unreadOnly: false,
+        unreadOnly: true, // Only show unread notifications in the dropdown
       });
       setRecentNotifications(notifications);
     } catch (error) {
@@ -115,18 +115,14 @@ export const NotificationBell = () => {
     NOTIFICATION_READ,
     useCallback((payload) => {
       if (payload.notificationId) {
-        // Single notification marked as read
+        // Single notification marked as read - remove from list
         setRecentNotifications((prev) =>
-          prev.map((n) =>
-            n.id === payload.notificationId ? { ...n, isRead: true } : n
-          )
+          prev.filter((n) => n.id !== payload.notificationId)
         );
         setUnreadCount((prev) => Math.max(0, prev - 1));
       } else {
-        // All marked as read
-        setRecentNotifications((prev) =>
-          prev.map((n) => ({ ...n, isRead: true }))
-        );
+        // All marked as read - clear the list
+        setRecentNotifications([]);
         setUnreadCount(0);
       }
     }, [])
@@ -145,25 +141,9 @@ export const NotificationBell = () => {
     try {
       await notificationClient.markAsRead({});
       setUnreadCount(0);
-      setRecentNotifications((prev) =>
-        prev.map((n) => ({ ...n, isRead: true }))
-      );
+      setRecentNotifications([]);
     } catch (error) {
       console.error("Failed to mark all as read:", error);
-    }
-  };
-
-  const getImportanceColor = (importance: Notification["importance"]) => {
-    switch (importance) {
-      case "critical": {
-        return "text-destructive";
-      }
-      case "warning": {
-        return "text-warning-foreground";
-      }
-      default: {
-        return "text-foreground";
-      }
     }
   };
 
@@ -191,15 +171,18 @@ export const NotificationBell = () => {
           setIsOpen(!isOpen);
         }}
       >
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
+        <Button variant="ghost" size="icon" className="relative group">
+          <Bell className="h-5 w-5 transition-transform group-hover:scale-110" />
           {unreadCount > 0 && (
-            <Badge
-              variant="destructive"
-              className="absolute -top-1 -right-1 h-5 min-w-[20px] flex items-center justify-center p-0 text-xs"
-            >
-              {unreadCount > 99 ? "99+" : unreadCount}
-            </Badge>
+            <span className="absolute -top-1 -right-1 flex h-5 min-w-[20px] items-center justify-center">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
+              <Badge
+                variant="destructive"
+                className="relative h-5 min-w-[20px] flex items-center justify-center p-0 text-xs font-bold"
+              >
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </Badge>
+            </span>
           )}
         </Button>
       </DropdownMenuTrigger>
@@ -208,7 +191,8 @@ export const NotificationBell = () => {
         onClose={handleClose}
         className="w-80"
       >
-        <div className="flex items-center justify-between px-3 py-2 border-b">
+        {/* Header */}
+        <div className="flex items-center justify-between px-3 py-2 border-b border-border">
           <span className="font-semibold text-sm">Notifications</span>
           {unreadCount > 0 && (
             <Button
@@ -219,60 +203,74 @@ export const NotificationBell = () => {
                 void handleMarkAllAsRead();
               }}
             >
+              <CheckCheck className="h-3 w-3 mr-1" />
               Mark all read
             </Button>
           )}
         </div>
 
-        {recentNotifications.length === 0 ? (
-          <div className="px-3 py-6 text-center text-sm text-muted-foreground">
-            No notifications
-          </div>
-        ) : (
-          <>
-            {recentNotifications.map((notification) => (
-              <DropdownMenuItem
-                key={notification.id}
-                className={`flex flex-col items-start gap-1 px-3 py-2 cursor-pointer ${
-                  notification.isRead ? "" : "bg-muted/50"
-                }`}
-              >
-                <div
-                  className={`font-medium text-sm ${getImportanceColor(
-                    notification.importance
-                  )}`}
+        {/* Notification List */}
+        <div className="max-h-[400px] overflow-y-auto">
+          {recentNotifications.length === 0 ? (
+            <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+              No unread notifications
+            </div>
+          ) : (
+            <>
+              {recentNotifications.map((notification) => (
+                <DropdownMenuItem
+                  key={notification.id}
+                  className={`flex flex-col items-start gap-1 px-3 py-2 cursor-pointer ${
+                    notification.importance === "critical"
+                      ? "border-l-2 border-l-destructive"
+                      : notification.importance === "warning"
+                      ? "border-l-2 border-l-warning"
+                      : ""
+                  }`}
                 >
-                  {notification.title}
-                </div>
-                <div className="text-xs text-muted-foreground line-clamp-2">
-                  {notification.description}
-                </div>
-                {notification.actions && notification.actions.length > 0 && (
-                  <div className="flex gap-2 mt-1">
-                    {notification.actions.slice(0, 2).map((action, idx) => (
-                      <Link
-                        key={idx}
-                        to={action.href}
-                        className={`text-xs ${
-                          action.variant === "destructive"
-                            ? "text-destructive"
-                            : "text-primary"
-                        } hover:underline`}
-                        onClick={(e: React.MouseEvent) => {
-                          e.stopPropagation();
-                        }}
-                      >
-                        {action.label}
-                      </Link>
-                    ))}
+                  <div
+                    className={`font-medium text-sm ${
+                      notification.importance === "critical"
+                        ? "text-destructive"
+                        : notification.importance === "warning"
+                        ? "text-warning"
+                        : "text-foreground"
+                    }`}
+                  >
+                    {notification.title}
                   </div>
-                )}
-              </DropdownMenuItem>
-            ))}
-          </>
-        )}
+                  <div className="text-xs text-muted-foreground line-clamp-2">
+                    {notification.description}
+                  </div>
+                  {notification.actions && notification.actions.length > 0 && (
+                    <div className="flex gap-2 mt-1">
+                      {notification.actions.slice(0, 2).map((action, idx) => (
+                        <Link
+                          key={idx}
+                          to={action.href}
+                          className={`text-xs ${
+                            action.variant === "destructive"
+                              ? "text-destructive"
+                              : "text-primary"
+                          } hover:underline`}
+                          onClick={(e: React.MouseEvent) => {
+                            e.stopPropagation();
+                          }}
+                        >
+                          {action.label}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </>
+          )}
+        </div>
 
         <DropdownMenuSeparator />
+
+        {/* Footer */}
         <DropdownMenuItem
           onClick={() => {
             handleClose();
