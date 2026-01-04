@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { Power, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
-import { Card, Button, Badge, DynamicForm, cn } from "@checkmate/ui";
-import { DynamicIcon } from "./DynamicIcon";
+import {
+  Card,
+  Button,
+  Badge,
+  DynamicForm,
+  cn,
+  DynamicIcon,
+} from "@checkmate/ui";
 
 /**
  * Strategy data from getDeliveryStrategies endpoint

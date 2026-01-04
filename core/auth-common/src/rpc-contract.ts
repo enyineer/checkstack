@@ -36,6 +36,7 @@ const StrategyDtoSchema = z.object({
   id: z.string(),
   displayName: z.string(),
   description: z.string().optional(),
+  icon: z.string().optional(), // Lucide icon name
   enabled: z.boolean(),
   configVersion: z.number(),
   configSchema: z.record(z.string(), z.unknown()), // JSON Schema representation

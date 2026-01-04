@@ -36,6 +36,7 @@ export interface AuthStrategy {
   id: string;
   displayName: string;
   description?: string;
+  icon?: string; // Lucide icon name
   enabled: boolean;
   configVersion: number;
   configSchema: Record<string, unknown>; // JSON Schema

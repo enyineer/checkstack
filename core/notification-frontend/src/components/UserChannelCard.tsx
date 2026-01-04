@@ -8,8 +8,14 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-import { Card, Button, Badge, DynamicForm, cn } from "@checkmate/ui";
-import { DynamicIcon } from "./DynamicIcon";
+import {
+  Card,
+  Button,
+  Badge,
+  DynamicForm,
+  cn,
+  DynamicIcon,
+} from "@checkmate/ui";
 
 /**
  * User channel data from getUserDeliveryChannels endpoint

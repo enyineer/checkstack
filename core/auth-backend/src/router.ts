@@ -501,6 +501,7 @@ export const createAuthRouter = (
           id: strategy.id,
           displayName: strategy.displayName,
           description: strategy.description,
+          icon: strategy.icon,
           enabled,
           configVersion: strategy.configVersion,
           configSchema: jsonSchema,

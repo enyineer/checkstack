@@ -28,6 +28,7 @@ import {
   TabPanel,
   PermissionDenied,
   Toggle,
+  DynamicIcon,
 } from "@checkmate/ui";
 import { authApiRef, AuthUser, Role, AuthStrategy, Permission } from "../api";
 import {
@@ -711,6 +712,10 @@ export const AuthSettingsPage: React.FC = () => {
                       </button>
                       <div>
                         <div className="flex items-center gap-2">
+                          <DynamicIcon
+                            name={strategy.icon}
+                            className="h-5 w-5 text-muted-foreground"
+                          />
                           <CardTitle>{strategy.displayName}</CardTitle>
                           {schemaHasProperties(strategy.configSchema) &&
                             configIsMissing(strategy) && (
