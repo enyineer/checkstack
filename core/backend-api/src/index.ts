@@ -16,3 +16,5 @@ export * from "./event-bus-types";
 export * from "./plugin-admin-contract";
 export * from "./notification-strategy";
 export * from "./oauth-handler";
+export * from "./markdown";
+export * from "./email-layout";

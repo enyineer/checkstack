@@ -164,6 +164,13 @@ export function UserChannelCard({
                 Connected {new Date(channel.linkedAt).toLocaleDateString()}
               </p>
             )}
+            {/* Warning for OAuth strategies about shared targets */}
+            {requiresOAuth && isLinked && (
+              <p className="text-xs text-amber-600 mt-1">
+                ⚠️ Avoid shared targets (group chats) — transactional messages
+                (e.g., password resets) may also be sent here.
+              </p>
+            )}
           </div>
         </div>
 

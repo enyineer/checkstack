@@ -27,7 +27,7 @@ export interface NotificationStrategyExtensionPoint {
    * The strategy will be namespaced by the plugin's ID automatically.
    */
   addStrategy(
-    strategy: NotificationStrategy<unknown, unknown>,
+    strategy: NotificationStrategy<unknown, unknown, unknown>,
     pluginMetadata: PluginMetadata
   ): void;
 }
@@ -53,7 +53,7 @@ function createNotificationStrategyRegistry(): NotificationStrategyRegistry & {
 } {
   const strategies = new Map<
     string,
-    RegisteredNotificationStrategy<unknown, unknown>
+    RegisteredNotificationStrategy<unknown, unknown, unknown>
   >();
   const newPermissions: Array<{
     id: string;
@@ -63,13 +63,17 @@ function createNotificationStrategyRegistry(): NotificationStrategyRegistry & {
 
   return {
     register(
-      strategy: NotificationStrategy<unknown, unknown>,
+      strategy: NotificationStrategy<unknown, unknown, unknown>,
       metadata: PluginMetadata
     ): void {
       const qualifiedId = `${metadata.pluginId}.${strategy.id}`;
       const permissionId = `${metadata.pluginId}.strategy.${strategy.id}.use`;
 
-      const registered: RegisteredNotificationStrategy<unknown, unknown> = {
+      const registered: RegisteredNotificationStrategy<
+        unknown,
+        unknown,
+        unknown
+      > = {
         ...strategy,
         qualifiedId,
         ownerPluginId: metadata.pluginId,
@@ -88,17 +92,21 @@ function createNotificationStrategyRegistry(): NotificationStrategyRegistry & {
 
     getStrategy(
       qualifiedId: string
-    ): RegisteredNotificationStrategy<unknown, unknown> | undefined {
+    ): RegisteredNotificationStrategy<unknown, unknown, unknown> | undefined {
       return strategies.get(qualifiedId);
     },
 
-    getStrategies(): RegisteredNotificationStrategy<unknown, unknown>[] {
+    getStrategies(): RegisteredNotificationStrategy<
+      unknown,
+      unknown,
+      unknown
+    >[] {
       return [...strategies.values()];
     },
 
     getStrategiesForUser(
       userPermissions: Set<string>
-    ): RegisteredNotificationStrategy<unknown, unknown>[] {
+    ): RegisteredNotificationStrategy<unknown, unknown, unknown>[] {
       return [...strategies.values()].filter((s) =>
         userPermissions.has(s.permissionId)
       );

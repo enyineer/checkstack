@@ -9,6 +9,22 @@ import { DynamicIcon } from "./DynamicIcon";
 import { cn } from "../utils";
 
 /**
+ * A configuration section that can be displayed in the card
+ */
+export interface ConfigSection {
+  /** Unique identifier for this section */
+  id: string;
+  /** Section title (e.g., "Configuration", "Layout Settings") */
+  title: string;
+  /** JSON Schema for the configuration form */
+  schema: Record<string, unknown>;
+  /** Current configuration values */
+  value?: Record<string, unknown>;
+  /** Called when configuration is saved */
+  onSave?: (config: Record<string, unknown>) => Promise<void>;
+}
+
+/**
  * Base strategy data that can be displayed in the card
  */
 export interface StrategyConfigCardData {
@@ -22,25 +38,21 @@ export interface StrategyConfigCardData {
   icon?: string;
   /** Whether the strategy is currently enabled */
   enabled: boolean;
-  /** JSON Schema for the configuration form */
-  configSchema: Record<string, unknown>;
-  /** Current configuration values */
-  config?: Record<string, unknown>;
 }
 
 export interface StrategyConfigCardProps {
   /** The strategy data to display */
   strategy: StrategyConfigCardData;
   /**
+   * Configuration sections to display when expanded.
+   * Each section has its own schema, values, and save handler.
+   */
+  configSections?: ConfigSection[];
+  /**
    * Called when the enabled state changes
    * @returns Promise that resolves when the update is complete
    */
   onToggle?: (id: string, enabled: boolean) => Promise<void>;
-  /**
-   * Called when the configuration is saved
-   * @returns Promise that resolves when the save is complete
-   */
-  onSaveConfig?: (id: string, config: Record<string, unknown>) => Promise<void>;
   /** Whether save/toggle operations are in progress */
   saving?: boolean;
   /** Additional badges to show after the title */
@@ -71,12 +83,12 @@ export interface StrategyConfigCardProps {
 /**
  * Shared component for configuring strategies (auth, notification, etc.)
  * Provides a consistent accordion-style card with enable/disable toggle,
- * expandable configuration form, and save functionality.
+ * expandable configuration sections, and save functionality.
  */
 export function StrategyConfigCard({
   strategy,
+  configSections = [],
   onToggle,
-  onSaveConfig,
   saving,
   badges = [],
   disabledWarning,
@@ -89,10 +101,18 @@ export function StrategyConfigCard({
 }: StrategyConfigCardProps) {
   // Internal state for uncontrolled mode
   const [internalExpanded, setInternalExpanded] = useState(false);
-  const [config, setConfig] = useState<Record<string, unknown>>(
-    strategy.config ?? {}
-  );
   const [localEnabled, setLocalEnabled] = useState(strategy.enabled);
+
+  // Section-specific state for form values
+  const [sectionValues, setSectionValues] = useState<
+    Record<string, Record<string, unknown>>
+  >(() => {
+    const initial: Record<string, Record<string, unknown>> = {};
+    for (const section of configSections) {
+      initial[section.id] = section.value ?? {};
+    }
+    return initial;
+  });
 
   // Determine if we're in controlled or uncontrolled mode
   const isControlled = controlledExpanded !== undefined;
@@ -101,11 +121,8 @@ export function StrategyConfigCard({
     ? (value: boolean) => onExpandedChange?.(value)
     : setInternalExpanded;
 
-  // Check if there are config fields to show
-  const hasConfigFields =
-    strategy.configSchema &&
-    "properties" in strategy.configSchema &&
-    Object.keys(strategy.configSchema.properties as object).length > 0;
+  // Check if there are sections to show
+  const hasSections = configSections.length > 0;
 
   // Build final badges array - add "Needs Configuration" if config is missing
   const finalBadges = [
@@ -125,14 +142,21 @@ export function StrategyConfigCard({
     }
   };
 
-  const handleSaveConfig = async () => {
-    if (onSaveConfig) {
-      await onSaveConfig(strategy.id, config);
-    }
-  };
-
   const handleExpandClick = () => {
     setExpanded(!expanded);
+  };
+
+  const handleSectionValueChange = (
+    sectionId: string,
+    value: Record<string, unknown>
+  ) => {
+    setSectionValues((prev) => ({ ...prev, [sectionId]: value }));
+  };
+
+  const handleSaveSection = async (section: ConfigSection) => {
+    if (section.onSave) {
+      await section.onSave(sectionValues[section.id] ?? {});
+    }
   };
 
   return (
@@ -146,7 +170,7 @@ export function StrategyConfigCard({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 flex-1">
             {/* Expand/Collapse button */}
-            {hasConfigFields && (
+            {hasSections && (
               <button
                 onClick={handleExpandClick}
                 className="text-muted-foreground hover:text-foreground transition-colors"
@@ -220,31 +244,55 @@ export function StrategyConfigCard({
         </div>
       </CardHeader>
 
-      {/* Expanded configuration form */}
-      {expanded && hasConfigFields && (
-        <CardContent className="border-t bg-muted/30 p-4">
+      {/* Expanded configuration sections */}
+      {expanded && hasSections && (
+        <CardContent className="border-t bg-muted/30 p-4 space-y-6">
           {!localEnabled && disabledWarning && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4 p-2 bg-muted rounded">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground p-2 bg-muted rounded">
               <AlertCircle className="h-4 w-4 shrink-0" />
               {disabledWarning}
             </div>
           )}
-          <DynamicForm
-            schema={strategy.configSchema}
-            value={config}
-            onChange={setConfig}
-          />
-          {onSaveConfig && (
-            <div className="mt-4 flex justify-end">
-              <Button
-                onClick={() => void handleSaveConfig()}
-                disabled={saving}
-                size="sm"
-              >
-                {saving ? "Saving..." : "Save Configuration"}
-              </Button>
-            </div>
-          )}
+
+          {configSections
+            .filter((section) => {
+              // Check if section has fields
+              return (
+                section.schema &&
+                "properties" in section.schema &&
+                Object.keys(section.schema.properties as object).length > 0
+              );
+            })
+            .map((section) => (
+              <div key={section.id}>
+                {/* Section title (only show if multiple sections) */}
+                {configSections.length > 1 && (
+                  <h4 className="text-sm font-medium text-muted-foreground mb-3">
+                    {section.title}
+                  </h4>
+                )}
+
+                <DynamicForm
+                  schema={section.schema}
+                  value={sectionValues[section.id] ?? {}}
+                  onChange={(value) =>
+                    handleSectionValueChange(section.id, value)
+                  }
+                />
+
+                {section.onSave && (
+                  <div className="mt-4 flex justify-end">
+                    <Button
+                      onClick={() => void handleSaveSection(section)}
+                      disabled={saving}
+                      size="sm"
+                    >
+                      {saving ? "Saving..." : `Save ${section.title}`}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
         </CardContent>
       )}
     </Card>

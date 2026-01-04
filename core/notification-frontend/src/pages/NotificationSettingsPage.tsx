@@ -181,7 +181,8 @@ export const NotificationSettingsPage = () => {
   const handleStrategyUpdate = async (
     strategyId: string,
     enabled: boolean,
-    config?: Record<string, unknown>
+    config?: Record<string, unknown>,
+    layoutConfig?: Record<string, unknown>
   ) => {
     try {
       setStrategySaving(strategyId);
@@ -189,11 +190,14 @@ export const NotificationSettingsPage = () => {
         strategyId,
         enabled,
         config,
+        layoutConfig,
       });
       // Update local state
       setStrategies((prev) =>
         prev.map((s) =>
-          s.qualifiedId === strategyId ? { ...s, enabled, config } : s
+          s.qualifiedId === strategyId
+            ? { ...s, enabled, config, layoutConfig }
+            : s
         )
       );
       toast.success(`${enabled ? "Enabled" : "Disabled"} delivery channel`);

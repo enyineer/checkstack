@@ -18,6 +18,8 @@ import type * as schema from "./schema";
 // Config ID patterns (module-level for lint compliance)
 const strategyConfigId = (strategyId: string): string =>
   `strategy.${strategyId}.config`;
+const strategyLayoutConfigId = (strategyId: string): string =>
+  `strategy.${strategyId}.layoutConfig`;
 const strategyMetaId = (strategyId: string): string =>
   `strategy.${strategyId}.meta`;
 const userPreferenceId = (userId: string, strategyId: string): string =>
@@ -98,6 +100,17 @@ export interface StrategyService {
 
   /** Set strategy config (stored via ConfigService) */
   setStrategyConfig<T>(strategyId: string, config: T): Promise<void>;
+
+  /** Get layout config (parsed via strategy's layoutConfig schema) */
+  getLayoutConfig<T>(strategyId: string): Promise<T | undefined>;
+
+  /** Get layout config redacted (for frontend - secrets stripped) */
+  getLayoutConfigRedacted<T>(
+    strategyId: string
+  ): Promise<Partial<T> | undefined>;
+
+  /** Set layout config (stored via ConfigService) */
+  setLayoutConfig<T>(strategyId: string, config: T): Promise<void>;
 
   // ─────────────────────────────────────────────────────────────────────────
   // User Preferences
@@ -263,6 +276,54 @@ export function createStrategyService(
       const versioned = strategy.config;
       await configService.set(
         strategyConfigId(strategyId),
+        versioned.schema,
+        versioned.version,
+        config,
+        versioned.migrations
+      );
+    },
+
+    async getLayoutConfig<T>(strategyId: string): Promise<T | undefined> {
+      const strategy = strategyRegistry.getStrategy(strategyId);
+      if (!strategy?.layoutConfig) return undefined;
+
+      const versioned = strategy.layoutConfig;
+      const config = await configService.get(
+        strategyLayoutConfigId(strategyId),
+        versioned.schema,
+        versioned.version,
+        versioned.migrations
+      );
+      return config as T | undefined;
+    },
+
+    async getLayoutConfigRedacted<T>(
+      strategyId: string
+    ): Promise<Partial<T> | undefined> {
+      const strategy = strategyRegistry.getStrategy(strategyId);
+      if (!strategy?.layoutConfig) return undefined;
+
+      const versioned = strategy.layoutConfig;
+      const config = await configService.getRedacted(
+        strategyLayoutConfigId(strategyId),
+        versioned.schema,
+        versioned.version,
+        versioned.migrations
+      );
+      return config as Partial<T> | undefined;
+    },
+
+    async setLayoutConfig<T>(strategyId: string, config: T): Promise<void> {
+      const strategy = strategyRegistry.getStrategy(strategyId);
+      if (!strategy?.layoutConfig) {
+        throw new Error(
+          `Strategy ${strategyId} does not support layout configuration`
+        );
+      }
+
+      const versioned = strategy.layoutConfig;
+      await configService.set(
+        strategyLayoutConfigId(strategyId),
         versioned.schema,
         versioned.version,
         config,

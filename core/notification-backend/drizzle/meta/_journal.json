@@ -29,6 +29,13 @@
       "when": 1767552186415,
       "tag": "0003_tiny_wendell_vaughn",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1767566076200,
+      "tag": "0004_regular_corsair",
+      "breakpoints": true
     }
   ]
 }

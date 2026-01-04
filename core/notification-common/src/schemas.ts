@@ -7,8 +7,7 @@ export type Importance = z.infer<typeof ImportanceSchema>;
 // Notification action for CTA buttons
 export const NotificationActionSchema = z.object({
   label: z.string(),
-  href: z.string(),
-  variant: z.enum(["primary", "secondary", "destructive"]).optional(),
+  url: z.string(),
 });
 export type NotificationAction = z.infer<typeof NotificationActionSchema>;
 
@@ -17,8 +16,10 @@ export const NotificationSchema = z.object({
   id: z.string().uuid(),
   userId: z.string(),
   title: z.string(),
-  description: z.string(),
-  actions: z.array(NotificationActionSchema).optional(),
+  /** Notification body (supports markdown) */
+  body: z.string(),
+  /** Primary action button */
+  action: NotificationActionSchema.optional(),
   importance: ImportanceSchema,
   isRead: z.boolean(),
   groupId: z.string().optional(),
@@ -68,8 +69,10 @@ export type RetentionSettings = z.infer<typeof RetentionSettingsSchema>;
 export const CreateNotificationInputSchema = z.object({
   userId: z.string(),
   title: z.string(),
-  description: z.string(),
-  actions: z.array(NotificationActionSchema).optional(),
+  /** Notification body (supports markdown) */
+  body: z.string(),
+  /** Primary action button */
+  action: NotificationActionSchema.optional(),
   importance: ImportanceSchema.default("info"),
 });
 export type CreateNotificationInput = z.infer<
@@ -148,9 +151,16 @@ export type UserNotificationPreference = z.infer<
 // External notification payload
 export const ExternalNotificationPayloadSchema = z.object({
   title: z.string(),
-  description: z.string().optional(),
+  /** Markdown-formatted body content */
+  body: z.string().optional(),
   importance: ImportanceSchema.default("info"),
-  actionUrl: z.string().optional(),
+  /** Optional call-to-action */
+  action: z
+    .object({
+      label: z.string(),
+      url: z.string(),
+    })
+    .optional(),
   /** Source type for filtering (e.g., "healthcheck.alert", "password-reset") */
   type: z.string(),
 });

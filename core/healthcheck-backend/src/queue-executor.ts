@@ -100,22 +100,21 @@ async function notifyStateChange(props: {
   const isUnhealthy = newStatus === "unhealthy";
 
   let title: string;
-  let description: string;
+  let body: string;
   let importance: "info" | "warning" | "critical";
 
   if (isRecovery) {
     title = "System health restored";
-    description =
+    body =
       "All health checks are now passing. The system has returned to normal operation.";
     importance = "info";
   } else if (isUnhealthy) {
     title = "System health critical";
-    description =
-      "Health checks indicate the system is unhealthy and may be down.";
+    body = "Health checks indicate the system is unhealthy and may be down.";
     importance = "critical";
   } else if (isDegraded) {
     title = "System health degraded";
-    description =
+    body =
       "Some health checks are failing. The system may be experiencing issues.";
     importance = "warning";
   } else {
@@ -131,11 +130,9 @@ async function notifyStateChange(props: {
     await catalogClient.notifySystemSubscribers({
       systemId,
       title,
-      description,
+      body,
       importance,
-      actions: [
-        { label: "View System", href: systemDetailPath, variant: "primary" },
-      ],
+      action: { label: "View System", url: systemDetailPath },
       includeGroupSubscribers: true,
     });
     logger.debug(

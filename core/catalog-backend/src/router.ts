@@ -239,9 +239,9 @@ export const createCatalogRouter = ({
       const {
         systemId,
         title,
-        description,
+        body,
         importance,
-        actions,
+        action,
         includeGroupSubscribers,
       } = input;
 
@@ -266,9 +266,9 @@ export const createCatalogRouter = ({
       const result = await notificationClient.notifyGroups({
         groupIds,
         title,
-        description,
+        body,
         importance: importance ?? "info",
-        actions,
+        action,
       });
 
       return { notifiedCount: result.notifiedCount };

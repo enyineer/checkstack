@@ -14,8 +14,10 @@ export const notifications = pgTable("notifications", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id").notNull(), // No FK - cross-schema limitation
   title: text("title").notNull(),
-  description: text("description").notNull(),
-  actions: jsonb("actions").$type<NotificationAction[]>(),
+  /** Notification body content (supports markdown) */
+  body: text("body").notNull(),
+  /** Single primary action button */
+  action: jsonb("action").$type<NotificationAction | null>(),
   importance: text("importance").notNull().default("info"), // 'info' | 'warning' | 'critical'
   isRead: boolean("is_read").notNull().default(false),
   groupId: text("group_id"), // Namespaced: "pluginId.groupName"

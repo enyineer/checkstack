@@ -91,7 +91,7 @@ export const NotificationBell = () => {
         {
           id: payload.id,
           title: payload.title,
-          description: payload.description,
+          body: payload.body,
           importance: payload.importance,
           userId: "", // Not needed for display
           isRead: false,
@@ -240,26 +240,19 @@ export const NotificationBell = () => {
                     {notification.title}
                   </div>
                   <div className="text-xs text-muted-foreground line-clamp-2">
-                    {notification.description}
+                    {notification.body}
                   </div>
-                  {notification.actions && notification.actions.length > 0 && (
+                  {notification.action && (
                     <div className="flex gap-2 mt-1">
-                      {notification.actions.slice(0, 2).map((action, idx) => (
-                        <Link
-                          key={idx}
-                          to={action.href}
-                          className={`text-xs ${
-                            action.variant === "destructive"
-                              ? "text-destructive"
-                              : "text-primary"
-                          } hover:underline`}
-                          onClick={(e: React.MouseEvent) => {
-                            e.stopPropagation();
-                          }}
-                        >
-                          {action.label}
-                        </Link>
-                      ))}
+                      <Link
+                        to={notification.action.url}
+                        className="text-xs text-primary hover:underline"
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                        }}
+                      >
+                        {notification.action.label}
+                      </Link>
                     </div>
                   )}
                 </DropdownMenuItem>

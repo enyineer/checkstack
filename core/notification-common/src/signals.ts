@@ -11,7 +11,7 @@ export const NOTIFICATION_RECEIVED = createSignal(
   z.object({
     id: z.string(),
     title: z.string(),
-    description: z.string(),
+    body: z.string(),
     importance: ImportanceSchema,
   })
 );

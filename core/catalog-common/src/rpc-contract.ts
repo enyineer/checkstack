@@ -167,18 +167,15 @@ export const catalogContract = {
           .string()
           .describe("The system ID to notify subscribers for"),
         title: z.string().describe("Notification title"),
-        description: z.string().describe("Notification description"),
+        /** Notification body in markdown format */
+        body: z.string().describe("Notification body (supports markdown)"),
         importance: z.enum(["info", "warning", "critical"]).optional(),
-        actions: z
-          .array(
-            z.object({
-              label: z.string(),
-              href: z.string(),
-              variant: z
-                .enum(["primary", "secondary", "destructive"])
-                .optional(),
-            })
-          )
+        /** Primary action button */
+        action: z
+          .object({
+            label: z.string(),
+            url: z.string(),
+          })
           .optional(),
         includeGroupSubscribers: z
           .boolean()

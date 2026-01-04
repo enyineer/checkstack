@@ -66,15 +66,9 @@ export function createRouter(
         await catalogClient.notifySystemSubscribers({
           systemId,
           title: `Incident ${actionText}`,
-          description: `Incident "${incidentTitle}" has been ${actionText} for a system you're subscribed to.`,
+          body: `Incident **"${incidentTitle}"** has been ${actionText} for a system you're subscribed to.`,
           importance: importance as "info" | "warning" | "critical",
-          actions: [
-            {
-              label: "View Incident",
-              href: incidentDetailPath,
-              variant: "primary",
-            },
-          ],
+          action: { label: "View Incident", url: incidentDetailPath },
           includeGroupSubscribers: true,
         });
       } catch (error) {

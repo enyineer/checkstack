@@ -51,15 +51,9 @@ export function createRouter(
         await catalogClient.notifySystemSubscribers({
           systemId,
           title: `Maintenance ${actionText}`,
-          description: `A maintenance "${maintenanceTitle}" has been ${actionText} for a system you're subscribed to.`,
+          body: `A maintenance **"${maintenanceTitle}"** has been ${actionText} for a system you're subscribed to.`,
           importance: "info",
-          actions: [
-            {
-              label: "View Maintenance",
-              href: maintenanceDetailPath,
-              variant: "primary",
-            },
-          ],
+          action: { label: "View Maintenance", url: maintenanceDetailPath },
           includeGroupSubscribers: true,
         });
       } catch (error) {

@@ -80,8 +80,8 @@ export const createNotificationRouter = (
             id: n.id,
             userId: n.userId,
             title: n.title,
-            description: n.description,
-            actions: n.actions ?? undefined,
+            body: n.body,
+            action: n.action ?? undefined,
             importance: n.importance as "info" | "warning" | "critical",
             isRead: n.isRead,
             groupId: n.groupId ?? undefined,
@@ -240,7 +240,7 @@ export const createNotificationRouter = (
     }),
 
     notifyUsers: os.notifyUsers.handler(async ({ input }) => {
-      const { userIds, title, description, importance, actions } = input;
+      const { userIds, title, body, importance, action } = input;
 
       if (userIds.length === 0) {
         return { notifiedCount: 0 };
@@ -249,8 +249,8 @@ export const createNotificationRouter = (
       const notificationValues = userIds.map((userId) => ({
         userId,
         title,
-        description,
-        actions,
+        body,
+        action,
         importance: importance ?? "info",
       }));
 
@@ -270,7 +270,7 @@ export const createNotificationRouter = (
           {
             id: notification.id,
             title,
-            description,
+            body,
             importance: importance ?? "info",
           }
         );
@@ -281,7 +281,7 @@ export const createNotificationRouter = (
 
     // Notify all subscribers of multiple groups with internal deduplication
     notifyGroups: os.notifyGroups.handler(async ({ input }) => {
-      const { groupIds, title, description, importance, actions } = input;
+      const { groupIds, title, body, importance, action } = input;
       const { inArray } = await import("drizzle-orm");
 
       if (groupIds.length === 0) {
@@ -301,8 +301,8 @@ export const createNotificationRouter = (
       const notificationValues = subscribers.map((sub) => ({
         userId: sub.userId,
         title,
-        description,
-        actions,
+        body,
+        action,
         importance: importance ?? "info",
       }));
 
@@ -322,7 +322,7 @@ export const createNotificationRouter = (
           {
             id: notification.id,
             title,
-            description,
+            body,
             importance: importance ?? "info",
           }
         );
@@ -350,6 +350,11 @@ export const createNotificationRouter = (
             strategy.qualifiedId
           );
 
+          // Get redacted layout config (if strategy supports it)
+          const layoutConfig = await strategyService.getLayoutConfigRedacted(
+            strategy.qualifiedId
+          );
+
           // Determine if strategy requires user config or OAuth
           const requiresUserConfig = !!strategy.userConfig;
           const requiresOAuthLink =
@@ -359,6 +364,9 @@ export const createNotificationRouter = (
           const configSchema = toJsonSchema(strategy.config.schema);
           const userConfigSchema = strategy.userConfig
             ? toJsonSchema(strategy.userConfig.schema)
+            : undefined;
+          const layoutConfigSchema = strategy.layoutConfig
+            ? toJsonSchema(strategy.layoutConfig.schema)
             : undefined;
 
           return {
@@ -381,8 +389,10 @@ export const createNotificationRouter = (
             requiresOAuthLink,
             configSchema,
             userConfigSchema,
+            layoutConfigSchema,
             enabled: meta.enabled,
             config: config as Record<string, unknown> | undefined,
+            layoutConfig: layoutConfig as Record<string, unknown> | undefined,
           };
         })
       );
@@ -392,7 +402,7 @@ export const createNotificationRouter = (
 
     updateDeliveryStrategy: os.updateDeliveryStrategy.handler(
       async ({ input }) => {
-        const { strategyId, enabled, config } = input;
+        const { strategyId, enabled, config, layoutConfig } = input;
 
         const strategy = strategyRegistry.getStrategy(strategyId);
         if (!strategy) {
@@ -407,6 +417,11 @@ export const createNotificationRouter = (
         // Update config if provided
         if (config !== undefined) {
           await strategyService.setStrategyConfig(strategyId, config);
+        }
+
+        // Update layout config if provided
+        if (layoutConfig !== undefined && strategy.layoutConfig) {
+          await strategyService.setLayoutConfig(strategyId, layoutConfig);
         }
       }
     ),

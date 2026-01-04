@@ -181,18 +181,15 @@ export const notificationContract = {
       z.object({
         userIds: z.array(z.string()),
         title: z.string(),
-        description: z.string(),
+        /** Notification body in markdown format */
+        body: z.string().describe("Notification body (supports markdown)"),
         importance: z.enum(["info", "warning", "critical"]).optional(),
-        actions: z
-          .array(
-            z.object({
-              label: z.string(),
-              href: z.string(),
-              variant: z
-                .enum(["primary", "secondary", "destructive"])
-                .optional(),
-            })
-          )
+        /** Primary action button */
+        action: z
+          .object({
+            label: z.string(),
+            url: z.string(),
+          })
           .optional(),
       })
     )
@@ -209,18 +206,15 @@ export const notificationContract = {
           .array(z.string())
           .describe("Full namespaced group IDs to notify"),
         title: z.string(),
-        description: z.string(),
+        /** Notification body in markdown format */
+        body: z.string().describe("Notification body (supports markdown)"),
         importance: z.enum(["info", "warning", "critical"]).optional(),
-        actions: z
-          .array(
-            z.object({
-              label: z.string(),
-              href: z.string(),
-              variant: z
-                .enum(["primary", "secondary", "destructive"])
-                .optional(),
-            })
-          )
+        /** Primary action button */
+        action: z
+          .object({
+            label: z.string(),
+            url: z.string(),
+          })
           .optional(),
       })
     )
@@ -259,8 +253,12 @@ export const notificationContract = {
           requiresOAuthLink: z.boolean(),
           configSchema: z.record(z.string(), z.unknown()),
           userConfigSchema: z.record(z.string(), z.unknown()).optional(),
+          /** Layout config schema for admin customization (logo, colors, etc.) */
+          layoutConfigSchema: z.record(z.string(), z.unknown()).optional(),
           enabled: z.boolean(),
           config: z.record(z.string(), z.unknown()).optional(),
+          /** Current layout config values */
+          layoutConfig: z.record(z.string(), z.unknown()).optional(),
         })
       )
     ),
@@ -276,6 +274,8 @@ export const notificationContract = {
         strategyId: z.string().describe("Qualified strategy ID"),
         enabled: z.boolean(),
         config: z.record(z.string(), z.unknown()).optional(),
+        /** Layout customization (logo, colors, footer) */
+        layoutConfig: z.record(z.string(), z.unknown()).optional(),
       })
     )
     .output(z.void()),

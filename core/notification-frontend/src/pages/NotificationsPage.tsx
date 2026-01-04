@@ -222,28 +222,18 @@ export const NotificationsPage = () => {
                       {notification.title}
                     </h3>
                     <p className="text-sm text-muted-foreground mt-1">
-                      {notification.description}
+                      {notification.body}
                     </p>
-                    {notification.actions &&
-                      notification.actions.length > 0 && (
-                        <div className="flex gap-2 mt-2">
-                          {notification.actions.map((action, idx) => (
-                            <Link
-                              key={idx}
-                              to={action.href}
-                              className={`text-sm ${
-                                action.variant === "destructive"
-                                  ? "text-destructive hover:text-destructive/80"
-                                  : action.variant === "secondary"
-                                  ? "text-muted-foreground hover:text-foreground"
-                                  : "text-primary hover:text-primary/80"
-                              }`}
-                            >
-                              {action.label}
-                            </Link>
-                          ))}
-                        </div>
-                      )}
+                    {notification.action && (
+                      <div className="flex gap-2 mt-2">
+                        <Link
+                          to={notification.action.url}
+                          className="text-sm text-primary hover:text-primary/80"
+                        >
+                          {notification.action.label}
+                        </Link>
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-1">
                     {!notification.isRead && (

@@ -25,12 +25,22 @@ export type NotificationContactResolution =
 export interface NotificationPayload {
   /** Notification title/subject */
   title: string;
-  /** Notification body/description */
-  description?: string;
+  /**
+   * Markdown-formatted body content.
+   * Strategies that support rich rendering will parse this.
+   * Strategies that don't (e.g., SMS) will convert to plain text.
+   */
+  body?: string;
   /** Importance level for visual differentiation */
   importance: "info" | "warning" | "critical";
-  /** Optional deep link URL */
-  actionUrl?: string;
+  /**
+   * Optional call-to-action with custom label.
+   * Strategies will render this appropriately (button for email, link for text).
+   */
+  action?: {
+    label: string;
+    url: string;
+  };
   /**
    * Source type identifier for filtering and templates.
    * Examples: "password-reset", "healthcheck.alert", "maintenance.reminder"
@@ -59,7 +69,11 @@ export interface NotificationDeliveryResult {
 /**
  * Context passed to the strategy's send() method.
  */
-export interface NotificationSendContext<TConfig, TUserConfig = undefined> {
+export interface NotificationSendContext<
+  TConfig,
+  TUserConfig = undefined,
+  TLayoutConfig = undefined
+> {
   /** Full user identity from auth system */
   user: {
     userId: string;
@@ -74,6 +88,8 @@ export interface NotificationSendContext<TConfig, TUserConfig = undefined> {
   strategyConfig: TConfig;
   /** User-specific settings (if userConfig schema is defined) */
   userConfig: TUserConfig | undefined;
+  /** Admin-configured layout settings (if strategy defines layoutConfig) */
+  layoutConfig: TLayoutConfig | undefined;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -209,7 +225,8 @@ export interface StrategyOAuthConfig {
  */
 export interface NotificationStrategy<
   TConfig = unknown,
-  TUserConfig = undefined
+  TUserConfig = undefined,
+  TLayoutConfig = undefined
 > {
   /**
    * Unique identifier within the owning plugin's namespace.
@@ -244,6 +261,27 @@ export interface NotificationStrategy<
   userConfig?: Versioned<TUserConfig>;
 
   /**
+   * Layout configuration for admin customization (optional).
+   *
+   * Only applicable for strategies that support rich layouts (e.g., email).
+   * If defined, admins can customize branding (logo, colors, footer) via
+   * the settings UI and the layout is passed to send() as `layoutConfig`.
+   *
+   * @example
+   * ```typescript
+   * layoutConfig: new Versioned({
+   *   version: 1,
+   *   schema: z.object({
+   *     logoUrl: z.string().url().optional(),
+   *     primaryColor: z.string().default("#3b82f6"),
+   *     footerText: z.string().default("Sent by Checkmate"),
+   *   }),
+   * })
+   * ```
+   */
+  layoutConfig?: Versioned<TLayoutConfig>;
+
+  /**
    * How this strategy resolves user contact information.
    */
   contactResolution: NotificationContactResolution;
@@ -255,7 +293,7 @@ export interface NotificationStrategy<
    * @returns Result indicating success/failure
    */
   send(
-    context: NotificationSendContext<TConfig, TUserConfig>
+    context: NotificationSendContext<TConfig, TUserConfig, TLayoutConfig>
   ): Promise<NotificationDeliveryResult>;
 
   /**
@@ -290,8 +328,9 @@ export interface NotificationStrategy<
  */
 export interface RegisteredNotificationStrategy<
   TConfig = unknown,
-  TUserConfig = undefined
-> extends NotificationStrategy<TConfig, TUserConfig> {
+  TUserConfig = undefined,
+  TLayoutConfig = undefined
+> extends NotificationStrategy<TConfig, TUserConfig, TLayoutConfig> {
   /** Fully qualified ID: `{pluginId}.{id}` */
   qualifiedId: string;
   /** Plugin that registered this strategy */
@@ -316,7 +355,7 @@ export interface NotificationStrategyRegistry {
    * @param pluginMetadata - Plugin metadata for namespacing
    */
   register(
-    strategy: NotificationStrategy<unknown, unknown>,
+    strategy: NotificationStrategy<unknown, unknown, unknown>,
     pluginMetadata: PluginMetadata
   ): void;
 
@@ -327,12 +366,12 @@ export interface NotificationStrategyRegistry {
    */
   getStrategy(
     qualifiedId: string
-  ): RegisteredNotificationStrategy<unknown, unknown> | undefined;
+  ): RegisteredNotificationStrategy<unknown, unknown, unknown> | undefined;
 
   /**
    * Get all registered strategies.
    */
-  getStrategies(): RegisteredNotificationStrategy<unknown, unknown>[];
+  getStrategies(): RegisteredNotificationStrategy<unknown, unknown, unknown>[];
 
   /**
    * Get all strategies that a user has permission to use.
@@ -341,7 +380,7 @@ export interface NotificationStrategyRegistry {
    */
   getStrategiesForUser(
     userPermissions: Set<string>
-  ): RegisteredNotificationStrategy<unknown, unknown>[];
+  ): RegisteredNotificationStrategy<unknown, unknown, unknown>[];
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

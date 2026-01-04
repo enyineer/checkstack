@@ -3,6 +3,9 @@ import {
   type NotificationStrategy,
   Versioned,
   secret,
+  markdownToHtml,
+  markdownToPlainText,
+  wrapInEmailLayout,
 } from "@checkmate/backend-api";
 import { notificationStrategyExtensionPoint } from "@checkmate/notification-backend";
 import { z } from "zod";
@@ -30,93 +33,42 @@ const smtpConfigSchemaV1 = z.object({
 type SmtpConfig = z.infer<typeof smtpConfigSchemaV1>;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Email Template Rendering
+// Email Layout Configuration Schema (Admin-Customizable)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-interface NotificationContent {
-  title: string;
-  description?: string;
-  importance: "info" | "warning" | "critical";
-  actionUrl?: string;
-}
-
 /**
- * Render a notification as HTML email.
+ * Layout configuration for email styling.
+ * Admins can customize branding via the settings UI.
  */
-function renderNotificationEmail(notification: NotificationContent): string {
-  const importanceColors = {
-    info: "#3b82f6",
-    warning: "#f59e0b",
-    critical: "#ef4444",
-  };
+const smtpLayoutConfigSchemaV1 = z.object({
+  logoUrl: z.string().url().optional().describe("Logo URL (max 200px wide)"),
+  primaryColor: z
+    .string()
+    .regex(/^#[0-9A-Fa-f]{6}$/)
+    .default("#3b82f6")
+    .describe("Primary brand color (hex)"),
+  accentColor: z
+    .string()
+    .regex(/^#[0-9A-Fa-f]{6}$/)
+    .optional()
+    .describe("Accent color for buttons"),
+  footerText: z
+    .string()
+    .default("This is an automated notification.")
+    .describe("Footer text"),
+});
 
-  const color = importanceColors[notification.importance];
-
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background-color: #f4f4f5; }
-    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-    .card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
-    .header { background: ${color}; color: white; padding: 16px 20px; }
-    .header h1 { margin: 0; font-size: 18px; font-weight: 600; }
-    .body { padding: 20px; }
-    .body p { margin: 0 0 16px 0; color: #374151; line-height: 1.6; }
-    .button { display: inline-block; background: ${color}; color: white; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: 500; }
-    .footer { padding: 16px 20px; background: #f9fafb; color: #6b7280; font-size: 12px; text-align: center; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="card">
-      <div class="header">
-        <h1>${escapeHtml(notification.title)}</h1>
-      </div>
-      <div class="body">
-        ${
-          notification.description
-            ? `<p>${escapeHtml(notification.description)}</p>`
-            : ""
-        }
-        ${
-          notification.actionUrl
-            ? `<a href="${escapeHtml(
-                notification.actionUrl
-              )}" class="button">View Details</a>`
-            : ""
-        }
-      </div>
-      <div class="footer">
-        This is an automated notification from Checkmate.
-      </div>
-    </div>
-  </div>
-</body>
-</html>
-  `.trim();
-}
-
-/**
- * Simple HTML escaping for security.
- */
-function escapeHtml(text: string): string {
-  return text
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
+type SmtpLayoutConfig = z.infer<typeof smtpLayoutConfigSchemaV1>;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SMTP Strategy Implementation
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const smtpStrategy: NotificationStrategy<SmtpConfig> = {
+const smtpStrategy: NotificationStrategy<
+  SmtpConfig,
+  undefined,
+  SmtpLayoutConfig
+> = {
   id: "smtp",
   displayName: "Email (SMTP)",
   description: "Send notifications via email using SMTP",
@@ -127,9 +79,14 @@ const smtpStrategy: NotificationStrategy<SmtpConfig> = {
     schema: smtpConfigSchemaV1,
   }),
 
+  layoutConfig: new Versioned({
+    version: 1,
+    schema: smtpLayoutConfigSchemaV1,
+  }),
+
   contactResolution: { type: "auth-email" },
 
-  async send({ contact, notification, strategyConfig }) {
+  async send({ contact, notification, strategyConfig, layoutConfig }) {
     // Validate required config
     if (!strategyConfig.host || !strategyConfig.fromAddress) {
       return {
@@ -156,18 +113,33 @@ const smtpStrategy: NotificationStrategy<SmtpConfig> = {
       ? `"${strategyConfig.fromName}" <${strategyConfig.fromAddress}>`
       : strategyConfig.fromAddress;
 
+    // Convert markdown body to HTML (if provided)
+    const bodyHtml = notification.body ? markdownToHtml(notification.body) : "";
+
+    // Generate plain text fallback
+    const plainText = notification.body
+      ? markdownToPlainText(notification.body)
+      : notification.title;
+
+    // Wrap content in the email layout with admin customizations
+    const html = wrapInEmailLayout({
+      title: notification.title,
+      bodyHtml,
+      importance: notification.importance,
+      action: notification.action,
+      logoUrl: layoutConfig?.logoUrl,
+      primaryColor: layoutConfig?.primaryColor,
+      accentColor: layoutConfig?.accentColor,
+      footerText: layoutConfig?.footerText,
+    });
+
     try {
       const result = await transporter.sendMail({
         from,
         to: contact,
         subject: notification.title,
-        text: notification.description ?? notification.title,
-        html: renderNotificationEmail({
-          title: notification.title,
-          description: notification.description,
-          importance: notification.importance,
-          actionUrl: notification.actionUrl,
-        }),
+        text: plainText,
+        html,
       });
 
       return {

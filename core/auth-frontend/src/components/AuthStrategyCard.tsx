@@ -1,4 +1,4 @@
-import { StrategyConfigCard } from "@checkmate/ui";
+import { StrategyConfigCard, type ConfigSection } from "@checkmate/ui";
 import type { AuthStrategy } from "../api";
 
 export interface AuthStrategyCardProps {
@@ -36,6 +36,20 @@ export function AuthStrategyCard({
   // Config is missing if schema has properties but no saved config
   const configMissing = hasConfigSchema && strategy.config === undefined;
 
+  // Build config sections
+  const configSections: ConfigSection[] = [];
+  if (hasConfigSchema) {
+    configSections.push({
+      id: "config",
+      title: "Configuration",
+      schema: strategy.configSchema,
+      value: config ?? strategy.config,
+      onSave: async (newConfig) => {
+        await onSaveConfig(strategy.id, newConfig);
+      },
+    });
+  }
+
   return (
     <StrategyConfigCard
       strategy={{
@@ -44,11 +58,9 @@ export function AuthStrategyCard({
         description: strategy.description,
         icon: strategy.icon,
         enabled: strategy.enabled,
-        configSchema: strategy.configSchema,
-        config: config ?? strategy.config,
       }}
+      configSections={configSections}
       onToggle={onToggle}
-      onSaveConfig={onSaveConfig}
       saving={saving}
       toggleDisabled={disabled}
       useToggleSwitch={true}

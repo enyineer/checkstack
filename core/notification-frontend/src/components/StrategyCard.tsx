@@ -1,4 +1,4 @@
-import { StrategyConfigCard } from "@checkmate/ui";
+import { StrategyConfigCard, type ConfigSection } from "@checkmate/ui";
 
 /**
  * Strategy data from getDeliveryStrategies endpoint
@@ -23,8 +23,12 @@ export interface DeliveryStrategy {
   requiresOAuthLink: boolean;
   configSchema: Record<string, unknown>;
   userConfigSchema?: Record<string, unknown>;
+  /** Layout config schema for admin customization (logo, colors, etc.) */
+  layoutConfigSchema?: Record<string, unknown>;
   enabled: boolean;
   config?: Record<string, unknown>;
+  /** Current layout config values */
+  layoutConfig?: Record<string, unknown>;
 }
 
 export interface StrategyCardProps {
@@ -32,7 +36,8 @@ export interface StrategyCardProps {
   onUpdate: (
     strategyId: string,
     enabled: boolean,
-    config?: Record<string, unknown>
+    config?: Record<string, unknown>,
+    layoutConfig?: Record<string, unknown>
   ) => Promise<void>;
   saving?: boolean;
 }
@@ -88,15 +93,47 @@ export function StrategyCard({
   const configMissing = hasConfigSchema && strategy.config === undefined;
 
   const handleToggle = async (id: string, enabled: boolean) => {
-    await onUpdate(id, enabled, strategy.config);
+    await onUpdate(id, enabled, strategy.config, strategy.layoutConfig);
   };
 
-  const handleSaveConfig = async (
-    id: string,
-    config: Record<string, unknown>
-  ) => {
-    await onUpdate(id, strategy.enabled, config);
-  };
+  // Build config sections array
+  const configSections: ConfigSection[] = [];
+
+  // Main configuration section
+  if (hasConfigSchema) {
+    configSections.push({
+      id: "config",
+      title: "Configuration",
+      schema: strategy.configSchema,
+      value: strategy.config,
+      onSave: async (config) => {
+        await onUpdate(
+          strategy.qualifiedId,
+          strategy.enabled,
+          config,
+          strategy.layoutConfig
+        );
+      },
+    });
+  }
+
+  // Layout configuration section (if strategy supports it)
+  if (strategy.layoutConfigSchema) {
+    configSections.push({
+      id: "layout",
+      title: "Email Layout",
+      schema: strategy.layoutConfigSchema,
+      value: strategy.layoutConfig,
+      onSave: async (layoutConfig) => {
+        await onUpdate(
+          strategy.qualifiedId,
+          strategy.enabled,
+          strategy.config,
+          layoutConfig
+        );
+      },
+    });
+  }
 
   return (
     <StrategyConfigCard
@@ -106,11 +143,9 @@ export function StrategyCard({
         description: strategy.description,
         icon: strategy.icon,
         enabled: strategy.enabled,
-        configSchema: strategy.configSchema,
-        config: strategy.config,
       }}
+      configSections={configSections}
       onToggle={handleToggle}
-      onSaveConfig={handleSaveConfig}
       saving={saving}
       badges={badges}
       subtitle={`From: ${strategy.ownerPluginId}`}
