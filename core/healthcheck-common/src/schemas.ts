@@ -179,10 +179,11 @@ export const DEFAULT_RETENTION_CONFIG: RetentionConfig = {
 // --- Aggregated Bucket Schema ---
 
 /**
- * Schema for aggregated health check data buckets.
- * Used for long-term storage and visualization of historical data.
+ * Base schema for aggregated health check data buckets.
+ * Contains core metrics only (no strategy-specific data).
+ * Used by getAggregatedHistory endpoint (healthCheckStatusRead permission).
  */
-export const AggregatedBucketSchema = z.object({
+export const AggregatedBucketBaseSchema = z.object({
   bucketStart: z.date(),
   bucketSize: z.enum(["hourly", "daily"]),
   runCount: z.number(),
@@ -194,6 +195,15 @@ export const AggregatedBucketSchema = z.object({
   minLatencyMs: z.number().optional(),
   maxLatencyMs: z.number().optional(),
   p95LatencyMs: z.number().optional(),
+});
+
+export type AggregatedBucketBase = z.infer<typeof AggregatedBucketBaseSchema>;
+
+/**
+ * Extended schema with strategy-specific aggregated result.
+ * Used by getDetailedAggregatedHistory endpoint (healthCheckDetailsRead permission).
+ */
+export const AggregatedBucketSchema = AggregatedBucketBaseSchema.extend({
   aggregatedResult: z.record(z.string(), z.unknown()).optional(),
 });
 

@@ -57,13 +57,16 @@ describe("HealthCheckService.getAggregatedHistory", () => {
       const startDate = new Date("2024-01-01T00:00:00Z");
       const endDate = new Date("2024-01-07T00:00:00Z");
 
-      const result = await service.getAggregatedHistory({
-        systemId: "sys-1",
-        configurationId: "config-1",
-        startDate,
-        endDate,
-        bucketSize: "auto",
-      });
+      const result = await service.getAggregatedHistory(
+        {
+          systemId: "sys-1",
+          configurationId: "config-1",
+          startDate,
+          endDate,
+          bucketSize: "auto",
+        },
+        { includeAggregatedResult: true }
+      );
 
       expect(result.buckets).toEqual([]);
     });
@@ -72,13 +75,16 @@ describe("HealthCheckService.getAggregatedHistory", () => {
       const startDate = new Date("2024-01-01T00:00:00Z");
       const endDate = new Date("2024-01-15T00:00:00Z");
 
-      const result = await service.getAggregatedHistory({
-        systemId: "sys-1",
-        configurationId: "config-1",
-        startDate,
-        endDate,
-        bucketSize: "auto",
-      });
+      const result = await service.getAggregatedHistory(
+        {
+          systemId: "sys-1",
+          configurationId: "config-1",
+          startDate,
+          endDate,
+          bucketSize: "auto",
+        },
+        { includeAggregatedResult: true }
+      );
 
       expect(result.buckets).toEqual([]);
     });
@@ -129,13 +135,16 @@ describe("HealthCheckService.getAggregatedHistory", () => {
         Promise.resolve({ id: "config-1", strategyId: "http" })
       );
 
-      const result = await service.getAggregatedHistory({
-        systemId: "sys-1",
-        configurationId: "config-1",
-        startDate: new Date("2024-01-01T00:00:00Z"),
-        endDate: new Date("2024-01-01T23:59:59Z"),
-        bucketSize: "hourly",
-      });
+      const result = await service.getAggregatedHistory(
+        {
+          systemId: "sys-1",
+          configurationId: "config-1",
+          startDate: new Date("2024-01-01T00:00:00Z"),
+          endDate: new Date("2024-01-01T23:59:59Z"),
+          bucketSize: "hourly",
+        },
+        { includeAggregatedResult: true }
+      );
 
       expect(result.buckets).toHaveLength(2);
 
@@ -185,13 +194,16 @@ describe("HealthCheckService.getAggregatedHistory", () => {
         Promise.resolve({ id: "config-1", strategyId: "http" })
       );
 
-      const result = await service.getAggregatedHistory({
-        systemId: "sys-1",
-        configurationId: "config-1",
-        startDate: new Date("2024-01-01T00:00:00Z"),
-        endDate: new Date("2024-01-01T23:59:59Z"),
-        bucketSize: "hourly",
-      });
+      const result = await service.getAggregatedHistory(
+        {
+          systemId: "sys-1",
+          configurationId: "config-1",
+          startDate: new Date("2024-01-01T00:00:00Z"),
+          endDate: new Date("2024-01-01T23:59:59Z"),
+          bucketSize: "hourly",
+        },
+        { includeAggregatedResult: true }
+      );
 
       expect(result.buckets).toHaveLength(1);
       expect(result.buckets[0].p95LatencyMs).toBe(190); // 95th percentile of 100-195
@@ -224,15 +236,19 @@ describe("HealthCheckService.getAggregatedHistory", () => {
         Promise.resolve({ id: "config-1", strategyId: "http" })
       );
 
-      const result = await service.getAggregatedHistory({
-        systemId: "sys-1",
-        configurationId: "config-1",
-        startDate: new Date("2024-01-01T00:00:00Z"),
-        endDate: new Date("2024-01-01T23:59:59Z"),
-        bucketSize: "hourly",
-      });
+      const result = await service.getAggregatedHistory(
+        {
+          systemId: "sys-1",
+          configurationId: "config-1",
+          startDate: new Date("2024-01-01T00:00:00Z"),
+          endDate: new Date("2024-01-01T23:59:59Z"),
+          bucketSize: "hourly",
+        },
+        { includeAggregatedResult: true }
+      );
 
-      expect(result.buckets[0].aggregatedResult).toEqual({
+      const bucket = result.buckets[0];
+      expect("aggregatedResult" in bucket && bucket.aggregatedResult).toEqual({
         totalRuns: 1,
         customMetric: "aggregated",
       });
@@ -267,15 +283,21 @@ describe("HealthCheckService.getAggregatedHistory", () => {
         Promise.resolve(null)
       );
 
-      const result = await service.getAggregatedHistory({
-        systemId: "sys-1",
-        configurationId: "config-1",
-        startDate: new Date("2024-01-01T00:00:00Z"),
-        endDate: new Date("2024-01-01T23:59:59Z"),
-        bucketSize: "hourly",
-      });
+      const result = await service.getAggregatedHistory(
+        {
+          systemId: "sys-1",
+          configurationId: "config-1",
+          startDate: new Date("2024-01-01T00:00:00Z"),
+          endDate: new Date("2024-01-01T23:59:59Z"),
+          bucketSize: "hourly",
+        },
+        { includeAggregatedResult: true }
+      );
 
-      expect(result.buckets[0].aggregatedResult).toBeUndefined();
+      const bucket = result.buckets[0];
+      expect(
+        "aggregatedResult" in bucket ? bucket.aggregatedResult : undefined
+      ).toBeUndefined();
     });
   });
 
@@ -323,13 +345,16 @@ describe("HealthCheckService.getAggregatedHistory", () => {
         Promise.resolve({ id: "config-1", strategyId: "http" })
       );
 
-      const result = await service.getAggregatedHistory({
-        systemId: "sys-1",
-        configurationId: "config-1",
-        startDate: new Date("2024-01-01T00:00:00Z"),
-        endDate: new Date("2024-01-03T00:00:00Z"),
-        bucketSize: "daily",
-      });
+      const result = await service.getAggregatedHistory(
+        {
+          systemId: "sys-1",
+          configurationId: "config-1",
+          startDate: new Date("2024-01-01T00:00:00Z"),
+          endDate: new Date("2024-01-03T00:00:00Z"),
+          bucketSize: "daily",
+        },
+        { includeAggregatedResult: true }
+      );
 
       expect(result.buckets).toHaveLength(2);
 

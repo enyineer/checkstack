@@ -537,13 +537,16 @@ export class HealthCheckService {
    * Currently aggregates raw data on-the-fly. Will merge with stored aggregates
    * once the retention job populates historical data.
    */
-  async getAggregatedHistory(props: {
-    systemId: string;
-    configurationId: string;
-    startDate: Date;
-    endDate: Date;
-    bucketSize: "hourly" | "daily" | "auto";
-  }) {
+  async getAggregatedHistory(
+    props: {
+      systemId: string;
+      configurationId: string;
+      startDate: Date;
+      endDate: Date;
+      bucketSize: "hourly" | "daily" | "auto";
+    },
+    options: { includeAggregatedResult: boolean }
+  ) {
     const { systemId, configurationId, startDate, endDate } = props;
     let bucketSize = props.bucketSize;
 
@@ -559,9 +562,9 @@ export class HealthCheckService {
       where: eq(healthCheckConfigurations.id, configurationId),
     });
 
-    // Look up strategy for aggregateMetadata function
+    // Look up strategy for aggregateResult function (only if needed)
     const strategy =
-      config && this.registry
+      options.includeAggregatedResult && config && this.registry
         ? this.registry.getStrategy(config.strategyId)
         : undefined;
 
@@ -636,16 +639,8 @@ export class HealthCheckService {
           ? this.calculatePercentile(latencies, 95)
           : undefined;
 
-      // Aggregate strategy-specific result if strategy is available
-      let aggregatedResult: Record<string, unknown> | undefined;
-      if (strategy) {
-        aggregatedResult = strategy.aggregateResult(bucket.runs) as Record<
-          string,
-          unknown
-        >;
-      }
-
-      return {
+      // Build base bucket (always included)
+      const baseBucket = {
         bucketStart: bucket.bucketStart,
         bucketSize: bucketSize as "hourly" | "daily",
         runCount,
@@ -657,8 +652,20 @@ export class HealthCheckService {
         minLatencyMs,
         maxLatencyMs,
         p95LatencyMs,
-        aggregatedResult,
       };
+
+      // Only include aggregatedResult if requested and strategy is available
+      if (options.includeAggregatedResult && strategy) {
+        return {
+          ...baseBucket,
+          aggregatedResult: strategy.aggregateResult(bucket.runs) as Record<
+            string,
+            unknown
+          >,
+        };
+      }
+
+      return baseBucket;
     });
 
     return { buckets };

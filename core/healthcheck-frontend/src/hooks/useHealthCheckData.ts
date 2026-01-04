@@ -179,8 +179,9 @@ export function useHealthCheckData({
     setAggregatedLoading(true);
     // Use daily buckets for ranges > 30 days, hourly otherwise
     const bucketSize = dateRangeDays > 30 ? "daily" : "hourly";
+    // Use detailed endpoint to get aggregatedResult since we have permission
     api
-      .getAggregatedHistory({
+      .getDetailedAggregatedHistory({
         systemId,
         configurationId,
         startDate: dateRange.startDate,

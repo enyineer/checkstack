@@ -17,6 +17,7 @@ import {
   HealthCheckStatusSchema,
   StateThresholdsSchema,
   RetentionConfigSchema,
+  AggregatedBucketBaseSchema,
   AggregatedBucketSchema,
 } from "./schemas";
 
@@ -207,13 +208,38 @@ export const healthCheckContract = {
 
   /**
    * Get aggregated health check history for long-term analysis.
-   * Returns pre-computed buckets with metrics and aggregated metadata.
-   * For timespans with raw data available, aggregates on-the-fly.
+   * Returns pre-computed buckets with core metrics only (no strategy-specific data).
+   * For strategy-specific aggregated results, use getDetailedAggregatedHistory.
    */
   getAggregatedHistory: _base
     .meta({
       userType: "public",
       permissions: [permissions.healthCheckStatusRead.id],
+    })
+    .input(
+      z.object({
+        systemId: z.string(),
+        configurationId: z.string(),
+        startDate: z.date(),
+        endDate: z.date(),
+        bucketSize: z.enum(["hourly", "daily", "auto"]),
+      })
+    )
+    .output(
+      z.object({
+        buckets: z.array(AggregatedBucketBaseSchema),
+      })
+    ),
+
+  /**
+   * Get detailed aggregated health check history including strategy-specific data.
+   * Returns buckets with core metrics AND aggregatedResult from strategy.
+   * Requires healthCheckDetailsRead permission.
+   */
+  getDetailedAggregatedHistory: _base
+    .meta({
+      userType: "public",
+      permissions: [permissions.healthCheckDetailsRead.id],
     })
     .input(
       z.object({

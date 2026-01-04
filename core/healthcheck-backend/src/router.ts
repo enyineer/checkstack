@@ -126,8 +126,18 @@ export const createHealthCheckRouter = (
     }),
 
     getAggregatedHistory: os.getAggregatedHistory.handler(async ({ input }) => {
-      return service.getAggregatedHistory(input);
+      return service.getAggregatedHistory(input, {
+        includeAggregatedResult: false,
+      });
     }),
+
+    getDetailedAggregatedHistory: os.getDetailedAggregatedHistory.handler(
+      async ({ input }) => {
+        return service.getAggregatedHistory(input, {
+          includeAggregatedResult: true,
+        });
+      }
+    ),
     getSystemHealthStatus: os.getSystemHealthStatus.handler(
       async ({ input }) => {
         return service.getSystemHealthStatus(input.systemId);
