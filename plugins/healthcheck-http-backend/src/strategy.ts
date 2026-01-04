@@ -3,6 +3,7 @@ import {
   HealthCheckStrategy,
   HealthCheckResult,
   HealthCheckRunForAggregation,
+  Versioned,
   z,
 } from "@checkmate/backend-api";
 
@@ -78,20 +79,20 @@ export class HttpHealthCheckStrategy
   displayName = "HTTP Health Check";
   description = "Performs HTTP requests to check endpoint health";
 
-  config = {
+  config: Versioned<HttpHealthCheckConfig> = new Versioned({
     version: 1,
     schema: httpHealthCheckConfigSchema,
-  };
+  });
 
-  result = {
+  result: Versioned<HttpResultMetadata> = new Versioned({
     version: 1,
     schema: httpResultMetadataSchema,
-  };
+  });
 
-  aggregatedResult = {
+  aggregatedResult: Versioned<HttpAggregatedMetadata> = new Versioned({
     version: 1,
     schema: httpAggregatedMetadataSchema,
-  };
+  });
 
   aggregateResult(
     runs: HealthCheckRunForAggregation<HttpResultMetadata>[]
@@ -116,7 +117,7 @@ export class HttpHealthCheckStrategy
     config: HttpHealthCheckConfig
   ): Promise<HealthCheckResult<HttpResultMetadata>> {
     // Validate and apply defaults from schema
-    const validatedConfig = this.config.schema.parse(config);
+    const validatedConfig = this.config.validate(config);
 
     const start = performance.now();
     try {

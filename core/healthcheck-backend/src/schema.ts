@@ -11,13 +11,13 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import type { StateThresholds } from "@checkmate/healthcheck-common";
-import type { VersionedData } from "@checkmate/backend-api";
+import type { VersionedRecord } from "@checkmate/backend-api";
 
 /**
  * Type alias for versioned state thresholds stored in the database.
- * Uses VersionedData generic base for migration support.
+ * Uses VersionedRecord generic base for migration support.
  */
-export type VersionedStateThresholds = VersionedData<StateThresholds>;
+export type VersionedStateThresholds = VersionedRecord<StateThresholds>;
 
 /**
  * Health check status enum for type-safe status values.

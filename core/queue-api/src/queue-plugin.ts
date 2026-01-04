@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Queue } from "./queue";
-import type { MigrationChain } from "@checkmate/backend-api";
+import type { Migration } from "@checkmate/backend-api";
 
 export interface QueuePlugin<Config = unknown> {
   id: string;
@@ -14,7 +14,7 @@ export interface QueuePlugin<Config = unknown> {
   configSchema: z.ZodType<Config>;
 
   /** Optional migrations for backward compatibility */
-  migrations?: MigrationChain<Config>;
+  migrations?: Migration<unknown, unknown>[];
 
   createQueue<T>(name: string, config: Config): Queue<T>;
 }

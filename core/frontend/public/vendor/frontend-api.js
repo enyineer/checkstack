@@ -70,24 +70,25 @@ class cn {
    * Validate and register routes from a plugin.
    */
   registerRoutes(n) {
+    var r;
     if (!n.routes) return;
     const t = n.metadata.pluginId;
-    for (const r of n.routes) {
-      if (r.route.pluginId !== t)
+    for (const o of n.routes) {
+      if (o.route.pluginId !== t)
         throw console.error(
-          `❌ Route pluginId mismatch: route "${r.route.id}" has pluginId "${r.route.pluginId}" but plugin is "${t}"`
+          `❌ Route pluginId mismatch: route "${o.route.id}" has pluginId "${o.route.pluginId}" but plugin is "${t}"`
         ), new Error(
-          `Route pluginId "${r.route.pluginId}" doesn't match plugin "${t}"`
+          `Route pluginId "${o.route.pluginId}" doesn't match plugin "${t}"`
         );
-      const o = `/${r.route.pluginId}${r.route.path.startsWith("/") ? r.route.path : `/${r.route.path}`}`, s = {
-        id: r.route.id,
-        path: o,
-        pluginId: r.route.pluginId,
-        element: r.element,
-        title: r.title,
-        permission: r.permission
+      const s = `/${o.route.pluginId}${o.route.path.startsWith("/") ? o.route.path : `/${o.route.path}`}`, i = {
+        id: o.route.id,
+        path: s,
+        pluginId: o.route.pluginId,
+        element: o.element,
+        title: o.title,
+        permission: (r = o.permission) == null ? void 0 : r.id
       };
-      this.routeMap.set(r.route.id, s);
+      this.routeMap.set(o.route.id, i);
     }
   }
   /**
@@ -148,12 +149,15 @@ class cn {
    * Get all routes for rendering in the router.
    */
   getAllRoutes() {
-    return this.plugins.flatMap((n) => (n.routes || []).map((t) => ({
-      path: `/${t.route.pluginId}${t.route.path.startsWith("/") ? t.route.path : `/${t.route.path}`}`,
-      element: t.element,
-      title: t.title,
-      permission: t.permission
-    })));
+    return this.plugins.flatMap((n) => (n.routes || []).map((t) => {
+      var o;
+      return {
+        path: `/${t.route.pluginId}${t.route.path.startsWith("/") ? t.route.path : `/${t.route.path}`}`,
+        element: t.element,
+        title: t.title,
+        permission: (o = t.permission) == null ? void 0 : o.id
+      };
+    }));
   }
   /**
    * Resolve a route by its ID to get the full path.

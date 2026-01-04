@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ConfigMigration } from "./config-versioning";
+import type { Migration } from "./config-versioning";
 
 /**
  * WeakSet to track which schemas are secrets.
@@ -37,10 +37,7 @@ export function isSecretSchema(schema: z.ZodTypeAny): boolean {
 /**
  * Migration chain for auth strategy configurations.
  */
-export type AuthStrategyMigrationChain<_T> = ConfigMigration<
-  unknown,
-  unknown
->[];
+export type AuthStrategyMigrationChain<_T> = Migration<unknown, unknown>[];
 
 /**
  * Defines an authentication strategy for better-auth integration.

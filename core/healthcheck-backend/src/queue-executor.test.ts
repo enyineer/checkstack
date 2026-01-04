@@ -11,7 +11,7 @@ import {
   createMockDb,
   createMockSignalService,
 } from "@checkmate/test-utils-backend";
-import type { HealthCheckRegistry } from "@checkmate/backend-api";
+import { type HealthCheckRegistry, Versioned, z } from "@checkmate/backend-api";
 import { mock } from "bun:test";
 
 // Helper to create mock health check registry
@@ -20,16 +20,14 @@ const createMockRegistry = (): HealthCheckRegistry => ({
     id,
     displayName: "Mock Strategy",
     description: "Mock",
-    config: {
+    config: new Versioned({
       version: 1,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Mock registry doesn't need real Zod schema
-      schema: {} as any,
-    },
-    aggregatedResult: {
+      schema: z.object({}),
+    }),
+    aggregatedResult: new Versioned({
       version: 1,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Mock registry doesn't need real Zod schema
-      schema: {} as any,
-    },
+      schema: z.object({}),
+    }),
     execute: mock(async () => ({
       status: "healthy" as const,
       message: "Mock check passed",

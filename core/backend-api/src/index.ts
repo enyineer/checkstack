@@ -7,7 +7,6 @@ export * from "./auth-strategy";
 export * from "./encryption";
 export * from "./schema-utils";
 export * from "./config-service";
-export * from "./config-migration";
 export * from "zod";
 export * from "./config-versioning";
 export * from "./rpc";

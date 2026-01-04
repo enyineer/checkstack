@@ -1,4 +1,4 @@
-import { VersionedSchema } from "./config-versioning";
+import { Versioned } from "./config-versioning";
 
 /**
  * Health check result with typed metadata.
@@ -38,13 +38,13 @@ export interface HealthCheckStrategy<
   description?: string;
 
   /** Configuration schema with versioning and migrations */
-  config: VersionedSchema<TConfig>;
+  config: Versioned<TConfig>;
 
   /** Optional result schema with versioning and migrations */
-  result?: VersionedSchema<TResult>;
+  result?: Versioned<TResult>;
 
   /** Aggregated result schema for long-term bucket storage */
-  aggregatedResult: VersionedSchema<TAggregatedResult>;
+  aggregatedResult: Versioned<TAggregatedResult>;
 
   execute(config: TConfig): Promise<HealthCheckResult<TResult>>;
 

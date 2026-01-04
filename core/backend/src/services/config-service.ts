@@ -3,23 +3,21 @@ import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import {
   ConfigService,
-  VersionedConfig,
-  ConfigMigration,
+  VersionedPluginRecord,
+  Migration,
+  Versioned,
   encrypt,
   decrypt,
   isEncrypted,
   isSecretSchema,
 } from "@checkmate/backend-api";
 import { pluginConfigs } from "../schema";
-import { ConfigMigrationRunner } from "./config-migration-runner";
 
 /**
  * Implementation of ConfigService.
  * Provides plugin-scoped configuration management with automatic secret handling.
  */
 export class ConfigServiceImpl implements ConfigService {
-  private readonly migrationRunner = new ConfigMigrationRunner();
-
   constructor(
     private readonly pluginId: string,
     private readonly db: NodePgDatabase<Record<string, unknown>>
@@ -155,7 +153,7 @@ export class ConfigServiceImpl implements ConfigService {
     schema: z.ZodType<T>,
     version: number,
     data: T,
-    _migrations?: ConfigMigration<unknown, unknown>[]
+    _migrations?: Migration<unknown, unknown>[]
   ): Promise<void> {
     // Get existing config if any
     const existing = await this.db
@@ -169,13 +167,13 @@ export class ConfigServiceImpl implements ConfigService {
       )
       .limit(1);
 
-    const existingVersionedConfig = existing[0]?.data as
-      | VersionedConfig<Record<string, unknown>>
+    const existingRecord = existing[0]?.data as
+      | VersionedPluginRecord<Record<string, unknown>>
       | undefined;
 
     // Merge with existing secrets (preserve unchanged secrets)
     let processedData = data as Record<string, unknown>;
-    if (existingVersionedConfig && "shape" in schema) {
+    if (existingRecord && "shape" in schema) {
       const objectSchema = schema as z.ZodObject<z.ZodRawShape>;
       const result: Record<string, unknown> = { ...processedData };
 
@@ -185,9 +183,9 @@ export class ConfigServiceImpl implements ConfigService {
 
           if (typeof newValue === "string" && newValue.trim() !== "") {
             // New secret value provided - will be encrypted below
-          } else if (existingVersionedConfig.data[key]) {
+          } else if (existingRecord.data[key]) {
             // Preserve existing encrypted value
-            result[key] = existingVersionedConfig.data[key];
+            result[key] = existingRecord.data[key];
           }
         }
       }
@@ -198,8 +196,8 @@ export class ConfigServiceImpl implements ConfigService {
     // Encrypt secrets
     const encryptedData = this.encryptSecrets(schema, processedData);
 
-    // Create versioned config
-    const versionedConfig: VersionedConfig<Record<string, unknown>> = {
+    // Create versioned plugin record
+    const versionedRecord: VersionedPluginRecord<Record<string, unknown>> = {
       version,
       pluginId: this.pluginId,
       data: encryptedData,
@@ -211,13 +209,13 @@ export class ConfigServiceImpl implements ConfigService {
       .values({
         pluginId: this.pluginId,
         configId,
-        data: versionedConfig as unknown as Record<string, unknown>,
+        data: versionedRecord as unknown as Record<string, unknown>,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
         target: [pluginConfigs.pluginId, pluginConfigs.configId],
         set: {
-          data: versionedConfig as unknown as Record<string, unknown>,
+          data: versionedRecord as unknown as Record<string, unknown>,
           updatedAt: new Date(),
         },
       });
@@ -227,7 +225,7 @@ export class ConfigServiceImpl implements ConfigService {
     configId: string,
     schema: z.ZodType<T>,
     version: number,
-    migrations?: ConfigMigration<unknown, unknown>[]
+    migrations?: Migration<unknown, unknown>[]
   ): Promise<T | undefined> {
     const result = await this.db
       .select()
@@ -242,21 +240,22 @@ export class ConfigServiceImpl implements ConfigService {
 
     if (result.length === 0) return undefined;
 
-    let versionedConfig = result[0].data as VersionedConfig<
+    const storedRecord = result[0].data as VersionedPluginRecord<
       Record<string, unknown>
     >;
 
-    // Run migrations if needed
-    if (migrations && versionedConfig.version !== version) {
-      versionedConfig = (await this.migrationRunner.migrate(
-        versionedConfig as VersionedConfig,
-        version,
-        migrations
-      )) as VersionedConfig<Record<string, unknown>>;
-    }
+    // Create a Versioned instance for parsing/migration
+    const versioned = new Versioned<Record<string, unknown>>({
+      version,
+      schema: z.record(z.string(), z.unknown()),
+      migrations,
+    });
+
+    // Parse and migrate the stored record
+    const migratedData = await versioned.parse(storedRecord);
 
     // Decrypt secrets
-    const decryptedData = this.decryptSecrets(schema, versionedConfig.data);
+    const decryptedData = this.decryptSecrets(schema, migratedData);
 
     // Validate with schema
     return schema.parse(decryptedData);
@@ -266,7 +265,7 @@ export class ConfigServiceImpl implements ConfigService {
     configId: string,
     schema: z.ZodType<T>,
     version: number,
-    migrations?: ConfigMigration<unknown, unknown>[]
+    migrations?: Migration<unknown, unknown>[]
   ): Promise<Partial<T> | undefined> {
     const result = await this.db
       .select()
@@ -281,21 +280,22 @@ export class ConfigServiceImpl implements ConfigService {
 
     if (result.length === 0) return undefined;
 
-    let versionedConfig = result[0].data as VersionedConfig<
+    const storedRecord = result[0].data as VersionedPluginRecord<
       Record<string, unknown>
     >;
 
-    // Run migrations if needed
-    if (migrations && versionedConfig.version !== version) {
-      versionedConfig = (await this.migrationRunner.migrate(
-        versionedConfig as VersionedConfig,
-        version,
-        migrations
-      )) as VersionedConfig<Record<string, unknown>>;
-    }
+    // Create a Versioned instance for parsing/migration
+    const versioned = new Versioned<Record<string, unknown>>({
+      version,
+      schema: z.record(z.string(), z.unknown()),
+      migrations,
+    });
+
+    // Parse and migrate the stored record
+    const migratedData = await versioned.parse(storedRecord);
 
     // Redact secrets (don't decrypt)
-    const redactedData = this.redactSecrets(schema, versionedConfig.data);
+    const redactedData = this.redactSecrets(schema, migratedData);
 
     return redactedData as Partial<T>;
   }

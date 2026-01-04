@@ -4,6 +4,7 @@ import {
   coreServices,
   createBackendPlugin,
   HealthCheckStrategy,
+  Versioned,
 } from "@checkmate/backend-api";
 import { z } from "zod";
 import { createMockDbModule } from "@checkmate/test-utils-backend";
@@ -38,14 +39,14 @@ describe("HealthCheck Plugin Integration", () => {
       id: "test-strategy",
       displayName: "Test Strategy",
       description: "A test strategy for integration testing",
-      config: {
+      config: new Versioned({
         version: 1,
-        schema: z.any(),
-      },
-      aggregatedResult: {
+        schema: z.object({}),
+      }),
+      aggregatedResult: new Versioned({
         version: 1,
-        schema: z.any(),
-      },
+        schema: z.record(z.string(), z.unknown()),
+      }),
       execute: mockExecute,
       aggregateResult: mock(() => ({})),
     };

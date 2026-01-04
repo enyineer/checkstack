@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { CoreHealthCheckRegistry } from "./health-check-registry";
-import { HealthCheckStrategy } from "@checkmate/backend-api";
+import { HealthCheckStrategy, Versioned } from "@checkmate/backend-api";
 import { createMockLogger } from "@checkmate/test-utils-backend";
 import { z } from "zod";
 
@@ -17,14 +17,14 @@ describe("CoreHealthCheckRegistry", () => {
     id: "test-strategy-1",
     displayName: "Test Strategy 1",
     description: "A test strategy",
-    config: {
+    config: new Versioned({
       version: 1,
-      schema: z.any(),
-    },
-    aggregatedResult: {
+      schema: z.object({}),
+    }),
+    aggregatedResult: new Versioned({
       version: 1,
-      schema: z.any(),
-    },
+      schema: z.record(z.string(), z.unknown()),
+    }),
     execute: mock(() => Promise.resolve({ status: "healthy" as const })),
     aggregateResult: mock(() => ({})),
   };
@@ -33,14 +33,14 @@ describe("CoreHealthCheckRegistry", () => {
     id: "test-strategy-2",
     displayName: "Test Strategy 2",
     description: "Another test strategy",
-    config: {
+    config: new Versioned({
       version: 1,
-      schema: z.any(),
-    },
-    aggregatedResult: {
+      schema: z.object({}),
+    }),
+    aggregatedResult: new Versioned({
       version: 1,
-      schema: z.any(),
-    },
+      schema: z.record(z.string(), z.unknown()),
+    }),
     execute: mock(() =>
       Promise.resolve({ status: "unhealthy" as const, message: "Failed" })
     ),

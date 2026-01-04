@@ -17,10 +17,7 @@ import { eq, and, InferSelectModel, desc, gte, lte } from "drizzle-orm";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { ORPCError } from "@orpc/server";
 import { evaluateHealthStatus } from "./state-evaluator";
-import {
-  STATE_THRESHOLDS_VERSION,
-  migrateStateThresholds,
-} from "./state-thresholds-migrations";
+import { stateThresholds } from "./state-thresholds-migrations";
 import type { HealthCheckRegistry } from "@checkmate/backend-api";
 
 // Drizzle type helper
@@ -105,14 +102,12 @@ export class HealthCheckService {
       systemId,
       configurationId,
       enabled = true,
-      stateThresholds,
+      stateThresholds: stateThresholds_,
     } = props;
 
     // Wrap thresholds in versioned config if provided
     const versionedThresholds: VersionedStateThresholds | undefined =
-      stateThresholds
-        ? { version: STATE_THRESHOLDS_VERSION, data: stateThresholds }
-        : undefined;
+      stateThresholds_ ? stateThresholds.create(stateThresholds_) : undefined;
 
     await this.db
       .insert(systemHealthChecks)
@@ -256,8 +251,7 @@ export class HealthCheckService {
     for (const row of rows) {
       let thresholds: StateThresholds | undefined;
       if (row.stateThresholds) {
-        const migrated = await migrateStateThresholds(row.stateThresholds);
-        thresholds = migrated.data;
+        thresholds = await stateThresholds.parse(row.stateThresholds);
       }
       results.push({
         configurationId: row.configurationId,
@@ -328,8 +322,7 @@ export class HealthCheckService {
       // Extract and migrate thresholds from versioned config
       let thresholds: StateThresholds | undefined;
       if (assoc.stateThresholds) {
-        const migrated = await migrateStateThresholds(assoc.stateThresholds);
-        thresholds = migrated.data;
+        thresholds = await stateThresholds.parse(assoc.stateThresholds);
       }
 
       const status = evaluateHealthStatus({ runs, thresholds });
@@ -409,8 +402,7 @@ export class HealthCheckService {
       // Migrate and extract thresholds
       let thresholds: StateThresholds | undefined;
       if (assoc.stateThresholds) {
-        const migrated = await migrateStateThresholds(assoc.stateThresholds);
-        thresholds = migrated.data;
+        thresholds = await stateThresholds.parse(assoc.stateThresholds);
       }
 
       // Evaluate current status

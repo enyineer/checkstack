@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ConfigMigration } from "./config-versioning";
+import type { Migration } from "./config-versioning";
 
 /**
  * Service for managing plugin configurations with automatic secret handling.
@@ -20,7 +20,7 @@ export interface ConfigService {
     schema: z.ZodType<T>,
     version: number,
     data: T,
-    migrations?: ConfigMigration<unknown, unknown>[]
+    migrations?: Migration<unknown, unknown>[]
   ): Promise<void>;
 
   /**
@@ -36,7 +36,7 @@ export interface ConfigService {
     configId: string,
     schema: z.ZodType<T>,
     version: number,
-    migrations?: ConfigMigration<unknown, unknown>[]
+    migrations?: Migration<unknown, unknown>[]
   ): Promise<T | undefined>;
 
   /**
@@ -52,7 +52,7 @@ export interface ConfigService {
     configId: string,
     schema: z.ZodType<T>,
     version: number,
-    migrations?: ConfigMigration<unknown, unknown>[]
+    migrations?: Migration<unknown, unknown>[]
   ): Promise<Partial<T> | undefined>;
 
   /**
