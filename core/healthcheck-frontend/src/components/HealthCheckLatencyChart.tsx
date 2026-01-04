@@ -120,19 +120,27 @@ export const HealthCheckLatencyChart: React.FC<HealthCheckLatencyChartProps> = (
           fontSize={12}
           tickFormatter={(v: number) => `${v}ms`}
         />
-        <Tooltip
-          contentStyle={{
-            backgroundColor: "hsl(var(--popover))",
-            border: "1px solid hsl(var(--border))",
-            borderRadius: "var(--radius)",
+        <Tooltip<number, "latencyMs">
+          content={({ active, payload }) => {
+            if (!active || !payload?.length) return;
+            // Note: payload[0].payload is typed as `any` in recharts - this is a recharts limitation.
+            // The Payload.payload property holds our data row but recharts can't infer its shape.
+            const data = payload[0].payload as (typeof chartData)[number];
+            return (
+              <div
+                className="rounded-md border bg-popover p-2 text-sm shadow-md"
+                style={{
+                  backgroundColor: "hsl(var(--popover))",
+                  border: "1px solid hsl(var(--border))",
+                }}
+              >
+                <p className="text-muted-foreground">
+                  {format(new Date(data.timestamp), "MMM d, HH:mm:ss")}
+                </p>
+                <p className="font-medium">{data.latencyMs}ms</p>
+              </div>
+            );
           }}
-          labelFormatter={(ts: number) =>
-            format(new Date(ts), "MMM d, HH:mm:ss")
-          }
-          formatter={(value: number | undefined) => [
-            `${value ?? 0}ms`,
-            "Latency",
-          ]}
         />
         {showAverage && (
           <ReferenceLine

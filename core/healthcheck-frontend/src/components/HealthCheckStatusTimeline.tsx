@@ -94,21 +94,31 @@ export const HealthCheckStatusTimeline: React.FC<
             fontSize={10}
           />
           <Tooltip
-            contentStyle={{
-              backgroundColor: "hsl(var(--popover))",
-              border: "1px solid hsl(var(--border))",
-              borderRadius: "var(--radius)",
+            content={({ active, payload }) => {
+              if (!active || !payload?.length) return;
+              // Note: payload[0].payload is typed as `any` in recharts - this is a recharts limitation.
+              const data = payload[0].payload as (typeof chartData)[number];
+              return (
+                <div
+                  className="rounded-md border bg-popover p-2 text-sm shadow-md"
+                  style={{
+                    backgroundColor: "hsl(var(--popover))",
+                    border: "1px solid hsl(var(--border))",
+                  }}
+                >
+                  <p className="text-muted-foreground mb-1">
+                    {format(new Date(data.timestamp), "MMM d, HH:mm")}
+                  </p>
+                  <div className="space-y-0.5">
+                    <p className="text-success">Healthy: {data.healthy}</p>
+                    <p className="text-warning">Degraded: {data.degraded}</p>
+                    <p className="text-destructive">
+                      Unhealthy: {data.unhealthy}
+                    </p>
+                  </div>
+                </div>
+              );
             }}
-            labelFormatter={(ts: number) =>
-              format(new Date(ts), "MMM d, HH:mm")
-            }
-            formatter={(
-              value: number | undefined,
-              name: string | undefined
-            ) => [
-              value ?? 0,
-              (name ?? "").charAt(0).toUpperCase() + (name ?? "").slice(1),
-            ]}
           />
           <Bar dataKey="healthy" stackId="status" fill={statusColors.healthy} />
           <Bar
@@ -146,19 +156,25 @@ export const HealthCheckStatusTimeline: React.FC<
           fontSize={10}
         />
         <Tooltip
-          contentStyle={{
-            backgroundColor: "hsl(var(--popover))",
-            border: "1px solid hsl(var(--border))",
-            borderRadius: "var(--radius)",
+          content={({ active, payload }) => {
+            if (!active || !payload?.length) return;
+            // Note: payload[0].payload is typed as `any` in recharts - this is a recharts limitation.
+            const data = payload[0].payload as (typeof chartData)[number];
+            return (
+              <div
+                className="rounded-md border bg-popover p-2 text-sm shadow-md"
+                style={{
+                  backgroundColor: "hsl(var(--popover))",
+                  border: "1px solid hsl(var(--border))",
+                }}
+              >
+                <p className="text-muted-foreground">
+                  {format(new Date(data.timestamp), "MMM d, HH:mm:ss")}
+                </p>
+                <p className="font-medium capitalize">{data.status}</p>
+              </div>
+            );
           }}
-          labelFormatter={(ts: number) =>
-            format(new Date(ts), "MMM d, HH:mm:ss")
-          }
-          formatter={(
-            _value: number | undefined,
-            _name: string | undefined,
-            props: { payload?: { status: string } }
-          ) => [props.payload?.status ?? "unknown", "Status"]}
         />
         <Bar dataKey="value" radius={[2, 2, 0, 0]}>
           {chartData.map((entry, index) => (

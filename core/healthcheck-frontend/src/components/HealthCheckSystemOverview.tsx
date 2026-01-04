@@ -1,16 +1,9 @@
 import React, { useEffect, useState, useCallback } from "react";
-import {
-  useApi,
-  type SlotContext,
-  permissionApiRef,
-} from "@checkmate/frontend-api";
+import { useApi, type SlotContext } from "@checkmate/frontend-api";
 import { useSignal } from "@checkmate/signal-frontend";
 import { healthCheckApiRef } from "../api";
 import { SystemDetailsSlot } from "@checkmate/catalog-common";
-import {
-  HEALTH_CHECK_STATE_CHANGED,
-  permissions,
-} from "@checkmate/healthcheck-common";
+import { HEALTH_CHECK_STATE_CHANGED } from "@checkmate/healthcheck-common";
 import {
   HealthBadge,
   LoadingSpinner,
@@ -24,14 +17,13 @@ import {
   Pagination,
   usePagination,
   DateRangeFilter,
-  Button,
 } from "@checkmate/ui";
 import { formatDistanceToNow } from "date-fns";
-import { ChevronDown, ChevronRight, Settings } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { HealthCheckSparkline } from "./HealthCheckSparkline";
 import { HealthCheckLatencyChart } from "./HealthCheckLatencyChart";
 import { HealthCheckStatusTimeline } from "./HealthCheckStatusTimeline";
-import { RetentionConfigDialog } from "./RetentionConfigDialog";
+
 import type {
   StateThresholds,
   HealthCheckStatus,
@@ -62,15 +54,6 @@ interface ExpandedRowProps {
 
 const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
   const api = useApi(healthCheckApiRef);
-  const permissionApi = useApi(permissionApiRef);
-
-  // Check if user has permission to manage health checks (for retention config)
-  const { allowed: canManage } = permissionApi.usePermission(
-    permissions.healthCheckManage.id
-  );
-
-  // Retention config dialog state
-  const [retentionDialogOpen, setRetentionDialogOpen] = useState(false);
 
   // Date range state for filtering
   const [dateRange, setDateRange] = useState<{
@@ -140,32 +123,11 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
         </div>
       </div>
 
-      {/* Date Range Filter and Actions */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Time Range:</span>
-          <DateRangeFilter value={dateRange} onChange={setDateRange} />
-        </div>
-        {canManage && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setRetentionDialogOpen(true)}
-          >
-            <Settings className="h-4 w-4 mr-1" />
-            Retention
-          </Button>
-        )}
+      {/* Date Range Filter */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">Time Range:</span>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
       </div>
-
-      {/* Retention Config Dialog */}
-      <RetentionConfigDialog
-        systemId={systemId}
-        configurationId={item.configurationId}
-        configurationName={item.configurationName}
-        open={retentionDialogOpen}
-        onOpenChange={setRetentionDialogOpen}
-      />
 
       {/* Charts Section - always render if we have run data */}
       {runs.length > 0 && (

@@ -24,7 +24,7 @@ import {
   Input,
   Tooltip,
 } from "@checkmate/ui";
-import { Activity, Settings2, History } from "lucide-react";
+import { Activity, Settings2, History, Database } from "lucide-react";
 import { Link } from "react-router-dom";
 import { CatalogSystemActionsSlot } from "@checkmate/catalog-common";
 import type { StateThresholds } from "@checkmate/healthcheck-common";
@@ -33,6 +33,7 @@ import {
   healthcheckRoutes,
 } from "@checkmate/healthcheck-common";
 import { resolveRoute } from "@checkmate/common";
+import { RetentionConfigDialog } from "./RetentionConfigDialog";
 
 type Props = SlotContext<typeof CatalogSystemActionsSlot>;
 
@@ -59,6 +60,7 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
   const [saving, setSaving] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [selectedConfig, setSelectedConfig] = useState<string>();
+  const [retentionConfigId, setRetentionConfigId] = useState<string>();
   const toast = useToast();
 
   const loadData = async () => {
@@ -537,6 +539,15 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
                             <Settings2 className="h-4 w-4" />
                             <span className="ml-1 text-xs">Thresholds</span>
                           </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setRetentionConfigId(config.id)}
+                            className="h-7 px-2"
+                          >
+                            <Database className="h-4 w-4" />
+                            <span className="ml-1 text-xs">Retention</span>
+                          </Button>
                         </div>
                       )}
                     </div>
@@ -557,6 +568,19 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Retention Config Dialog - rendered when retentionConfigId is set */}
+      {retentionConfigId && (
+        <RetentionConfigDialog
+          systemId={systemId}
+          configurationId={retentionConfigId}
+          configurationName={
+            configs.find((c) => c.id === retentionConfigId)?.name ?? ""
+          }
+          open={true}
+          onOpenChange={(open) => !open && setRetentionConfigId(undefined)}
+        />
+      )}
     </>
   );
 };
