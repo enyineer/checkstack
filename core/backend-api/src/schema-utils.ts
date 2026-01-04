@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { isSecretSchema } from "./auth-strategy";
+import { isSecretSchema, isColorSchema } from "./branded-types";
 
 /**
- * Adds x-secret metadata to JSON Schema for fields marked as secret in Zod schema.
+ * Adds x-secret and x-color metadata to JSON Schema for branded Zod fields.
  * This is used internally by toJsonSchema.
  */
-function addSecretMetadata(
+function addSchemaMetadata(
   zodSchema: z.ZodTypeAny,
   jsonSchema: Record<string, unknown>
 ): void {
@@ -23,19 +23,22 @@ function addSecretMetadata(
     if (isSecretSchema(fieldSchema as z.ZodTypeAny) && properties[key]) {
       properties[key]["x-secret"] = true;
     }
+    if (isColorSchema(fieldSchema as z.ZodTypeAny) && properties[key]) {
+      properties[key]["x-color"] = true;
+    }
   }
 }
 
 /**
- * Converts a Zod schema to JSON Schema with automatic x-secret metadata.
+ * Converts a Zod schema to JSON Schema with automatic branded metadata.
  * Uses Zod v4's native toJSONSchema() method.
  *
- * The x-secret metadata enables DynamicForm to automatically render
- * password input fields for secret properties.
+ * The branded metadata enables DynamicForm to automatically render
+ * specialized input fields (password for secrets, color picker for colors).
  */
 export function toJsonSchema(zodSchema: z.ZodTypeAny): Record<string, unknown> {
   // Use Zod's native JSON Schema conversion
   const jsonSchema = zodSchema.toJSONSchema() as Record<string, unknown>;
-  addSecretMetadata(zodSchema, jsonSchema);
+  addSchemaMetadata(zodSchema, jsonSchema);
   return jsonSchema;
 }

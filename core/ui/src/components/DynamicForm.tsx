@@ -19,6 +19,7 @@ import {
   Textarea,
   EmptyState,
   Toggle,
+  ColorPicker,
 } from "../index";
 
 const ajv = new Ajv({ allErrors: true, strict: false });
@@ -35,6 +36,7 @@ export interface JsonSchemaProperty {
   format?: string;
   default?: unknown;
   "x-secret"?: boolean; // Custom metadata for secret fields
+  "x-color"?: boolean; // Custom metadata for color fields
 }
 
 export interface JsonSchema {
@@ -286,6 +288,36 @@ const FormField: React.FC<{
               Leave empty to keep existing value
             </p>
           )}
+        </div>
+      );
+    }
+
+    // Color picker field
+    const isColor = (
+      propSchema as JsonSchemaProperty & { "x-color"?: boolean }
+    )["x-color"];
+
+    if (isColor) {
+      return (
+        <div className="space-y-2">
+          <div>
+            <Label htmlFor={id}>
+              {label} {isRequired && "*"}
+            </Label>
+            {cleanDesc && (
+              <p className="text-sm text-muted-foreground mt-0.5">
+                {cleanDesc}
+              </p>
+            )}
+          </div>
+          <ColorPicker
+            id={id}
+            value={(value as string) || ""}
+            onChange={(val) => onChange(val)}
+            placeholder={
+              propSchema.default ? String(propSchema.default) : "#000000"
+            }
+          />
         </div>
       );
     }

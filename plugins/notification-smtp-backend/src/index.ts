@@ -3,6 +3,7 @@ import {
   type NotificationStrategy,
   Versioned,
   secret,
+  color,
   markdownToHtml,
   markdownToPlainText,
   wrapInEmailLayout,
@@ -42,16 +43,8 @@ type SmtpConfig = z.infer<typeof smtpConfigSchemaV1>;
  */
 const smtpLayoutConfigSchemaV1 = z.object({
   logoUrl: z.string().url().optional().describe("Logo URL (max 200px wide)"),
-  primaryColor: z
-    .string()
-    .regex(/^#[0-9A-Fa-f]{6}$/)
-    .default("#3b82f6")
-    .describe("Primary brand color (hex)"),
-  accentColor: z
-    .string()
-    .regex(/^#[0-9A-Fa-f]{6}$/)
-    .optional()
-    .describe("Accent color for buttons"),
+  primaryColor: color("#3b82f6").describe("Primary brand color (hex)"),
+  accentColor: color().optional().describe("Accent color for buttons"),
   footerText: z
     .string()
     .default("This is an automated notification.")

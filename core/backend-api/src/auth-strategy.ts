@@ -2,39 +2,6 @@ import { z } from "zod";
 import type { Migration } from "./config-versioning";
 
 /**
- * WeakSet to track which schemas are secrets.
- * Using WeakSet avoids memory leaks and doesn't rely on fragile internal APIs.
- */
-const secretSchemas = new WeakSet<z.ZodTypeAny>();
-
-/**
- * Custom Zod type for secret fields.
- * Uses branded type for TypeScript + WeakSet for runtime detection.
- */
-export const secret = () => {
-  const schema = z.string().brand<"secret">();
-  secretSchemas.add(schema);
-  return schema;
-};
-
-export type Secret = z.infer<ReturnType<typeof secret>>;
-
-/**
- * Runtime check for secret-branded schemas.
- * Automatically unwraps ZodOptional to check the inner schema.
- */
-export function isSecretSchema(schema: z.ZodTypeAny): boolean {
-  let unwrappedSchema = schema;
-
-  // Unwrap ZodOptional to check the inner schema
-  if (unwrappedSchema instanceof z.ZodOptional) {
-    unwrappedSchema = unwrappedSchema.unwrap() as z.ZodTypeAny;
-  }
-
-  return secretSchemas.has(unwrappedSchema);
-}
-
-/**
  * Migration chain for auth strategy configurations.
  */
 export type AuthStrategyMigrationChain<_T> = Migration<unknown, unknown>[];

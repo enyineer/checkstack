@@ -4,8 +4,10 @@ export * from "./core-services";
 export * from "./plugin-system";
 export * from "./health-check";
 export * from "./auth-strategy";
+export * from "./branded-types";
 export * from "./encryption";
 export * from "./schema-utils";
+
 export * from "./config-service";
 export * from "zod";
 export * from "./config-versioning";
