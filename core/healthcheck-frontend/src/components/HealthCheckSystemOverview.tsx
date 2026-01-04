@@ -23,14 +23,14 @@ import {
   Tooltip,
   Pagination,
   usePagination,
-  HealthCheckLatencyChart,
-  HealthCheckStatusTimeline,
   DateRangeFilter,
   Button,
 } from "@checkmate/ui";
 import { formatDistanceToNow } from "date-fns";
 import { ChevronDown, ChevronRight, Settings } from "lucide-react";
 import { HealthCheckSparkline } from "./HealthCheckSparkline";
+import { HealthCheckLatencyChart } from "./HealthCheckLatencyChart";
+import { HealthCheckStatusTimeline } from "./HealthCheckStatusTimeline";
 import { RetentionConfigDialog } from "./RetentionConfigDialog";
 import type {
   StateThresholds,

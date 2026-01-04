@@ -42,5 +42,3 @@ export * from "./components/DateTimePicker";
 export * from "./components/DateRangeFilter";
 export * from "./components/BackLink";
 export * from "./components/StatusUpdateTimeline";
-export * from "./components/HealthCheckLatencyChart";
-export * from "./components/HealthCheckStatusTimeline";
