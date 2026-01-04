@@ -1,14 +1,16 @@
 import { pluginRegistry } from "../plugin-registry";
+import type { SlotContext } from "../plugin";
 import type { SlotDefinition } from "../slots";
 
 /**
  * Type-safe props for ExtensionSlot.
- * When TContext is undefined, no context prop is needed.
- * When TContext is defined, context is required with the correct type.
+ * Extracts the context type from the slot definition itself,
+ * ensuring the context matches what the slot expects.
  */
-type ExtensionSlotProps<TContext> = TContext extends undefined
-  ? { slot: SlotDefinition<TContext>; context?: undefined }
-  : { slot: SlotDefinition<TContext>; context: TContext };
+type ExtensionSlotProps<TSlot extends SlotDefinition<unknown>> =
+  SlotContext<TSlot> extends undefined
+    ? { slot: TSlot; context?: undefined }
+    : { slot: TSlot; context: SlotContext<TSlot> };
 
 /**
  * Renders all extensions registered for the given slot.
@@ -22,10 +24,10 @@ type ExtensionSlotProps<TContext> = TContext extends undefined
  * <ExtensionSlot slot={NavbarSlot} />
  * ```
  */
-export function ExtensionSlot<TContext = undefined>({
+export function ExtensionSlot<TSlot extends SlotDefinition<unknown>>({
   slot,
   context,
-}: ExtensionSlotProps<TContext>) {
+}: ExtensionSlotProps<TSlot>) {
   const extensions = pluginRegistry.getExtensions(slot.id);
 
   if (extensions.length === 0) {

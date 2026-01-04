@@ -30,8 +30,16 @@ import {
 export {
   HealthCheckDiagramSlot,
   createStrategyDiagramExtension,
+  createDiagramExtensionFactory,
   type HealthCheckDiagramSlotContext,
+  type RawDiagramContext,
+  type AggregatedDiagramContext,
+  type TypedHealthCheckRun,
+  type TypedAggregatedBucket,
 } from "./slots";
+
+// Export hooks for reusable data fetching
+export { useHealthCheckData } from "./hooks";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,

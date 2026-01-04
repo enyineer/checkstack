@@ -17,6 +17,7 @@ import {
   HealthCheckStatusSchema,
   StateThresholdsSchema,
   RetentionConfigSchema,
+  AggregatedBucketSchema,
 } from "./schemas";
 
 // Base builder with full metadata support
@@ -225,22 +226,7 @@ export const healthCheckContract = {
     )
     .output(
       z.object({
-        buckets: z.array(
-          z.object({
-            bucketStart: z.date(),
-            bucketSize: z.enum(["hourly", "daily"]),
-            runCount: z.number(),
-            healthyCount: z.number(),
-            degradedCount: z.number(),
-            unhealthyCount: z.number(),
-            successRate: z.number(),
-            avgLatencyMs: z.number().optional(),
-            minLatencyMs: z.number().optional(),
-            maxLatencyMs: z.number().optional(),
-            p95LatencyMs: z.number().optional(),
-            aggregatedResult: z.record(z.string(), z.unknown()).optional(),
-          })
-        ),
+        buckets: z.array(AggregatedBucketSchema),
       })
     ),
 

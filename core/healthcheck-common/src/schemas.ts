@@ -175,3 +175,26 @@ export const DEFAULT_RETENTION_CONFIG: RetentionConfig = {
   hourlyRetentionDays: 30,
   dailyRetentionDays: 365,
 };
+
+// --- Aggregated Bucket Schema ---
+
+/**
+ * Schema for aggregated health check data buckets.
+ * Used for long-term storage and visualization of historical data.
+ */
+export const AggregatedBucketSchema = z.object({
+  bucketStart: z.date(),
+  bucketSize: z.enum(["hourly", "daily"]),
+  runCount: z.number(),
+  healthyCount: z.number(),
+  degradedCount: z.number(),
+  unhealthyCount: z.number(),
+  successRate: z.number(),
+  avgLatencyMs: z.number().optional(),
+  minLatencyMs: z.number().optional(),
+  maxLatencyMs: z.number().optional(),
+  p95LatencyMs: z.number().optional(),
+  aggregatedResult: z.record(z.string(), z.unknown()).optional(),
+});
+
+export type AggregatedBucket = z.infer<typeof AggregatedBucketSchema>;

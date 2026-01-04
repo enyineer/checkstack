@@ -2,7 +2,6 @@ import React, { useEffect, useState, useCallback } from "react";
 import {
   useApi,
   type SlotContext,
-  ExtensionSlot,
   permissionApiRef,
 } from "@checkmate/frontend-api";
 import { useSignal } from "@checkmate/signal-frontend";
@@ -26,7 +25,6 @@ import {
   usePagination,
   HealthCheckLatencyChart,
   HealthCheckStatusTimeline,
-  InfoBanner,
   DateRangeFilter,
   Button,
 } from "@checkmate/ui";
@@ -38,7 +36,7 @@ import type {
   StateThresholds,
   HealthCheckStatus,
 } from "@checkmate/healthcheck-common";
-import { HealthCheckDiagramSlot } from "../slots";
+import { HealthCheckDiagram } from "./HealthCheckDiagram";
 
 type SlotProps = SlotContext<typeof SystemDetailsSlot>;
 
@@ -66,10 +64,6 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
   const api = useApi(healthCheckApiRef);
   const permissionApi = useApi(permissionApiRef);
 
-  // Check if user has permission to view detailed run data (with metadata)
-  const { allowed: canViewDetails, loading: permissionLoading } =
-    permissionApi.usePermission(permissions.healthCheckDetailsRead.id);
-
   // Check if user has permission to manage health checks (for retention config)
   const { allowed: canManage } = permissionApi.usePermission(
     permissions.healthCheckManage.id
@@ -89,18 +83,6 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
     start.setHours(start.getHours() - 24);
     return { startDate: start, endDate: end };
   });
-
-  // State for detailed runs with metadata (only fetched if user has permission)
-  const [detailedRuns, setDetailedRuns] = useState<
-    Array<{
-      id: string;
-      status: HealthCheckStatus;
-      timestamp: Date;
-      latencyMs?: number;
-      result: Record<string, unknown>;
-    }>
-  >([]);
-  const [detailedLoading, setDetailedLoading] = useState(false);
 
   // usePagination now uses refs internally - no memoization needed
   const {
@@ -134,43 +116,6 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
     },
     defaultLimit: 10,
   });
-
-  // Fetch detailed runs with metadata when user has permission
-  useEffect(() => {
-    if (!canViewDetails || permissionLoading) return;
-
-    setDetailedLoading(true);
-    api
-      .getDetailedHistory({
-        systemId,
-        configurationId: item.configurationId,
-        limit: pagination.limit,
-        offset: pagination.page * pagination.limit - pagination.limit,
-        startDate: dateRange.startDate,
-        endDate: dateRange.endDate,
-      })
-      .then((response) => {
-        setDetailedRuns(
-          response.runs.map((r) => ({
-            id: r.id,
-            status: r.status,
-            timestamp: r.timestamp,
-            latencyMs: r.latencyMs,
-            result: r.result,
-          }))
-        );
-      })
-      .finally(() => setDetailedLoading(false));
-  }, [
-    api,
-    systemId,
-    item.configurationId,
-    canViewDetails,
-    permissionLoading,
-    pagination.limit,
-    pagination.page,
-    dateRange,
-  ]);
 
   const thresholdDescription = item.stateThresholds
     ? item.stateThresholds.mode === "consecutive"
@@ -256,35 +201,14 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
           )}
 
           {/* Extension Slot for custom strategy-specific diagrams */}
-          {/* Only show when user has permission to view detailed metadata */}
-          {permissionLoading ? (
-            <LoadingSpinner />
-          ) : canViewDetails ? (
-            detailedLoading ? (
-              <LoadingSpinner />
-            ) : (
-              <ExtensionSlot
-                slot={HealthCheckDiagramSlot}
-                context={{
-                  systemId,
-                  configurationId: item.configurationId,
-                  strategyId: item.strategyId,
-                  runs: detailedRuns.map((r) => ({
-                    id: r.id,
-                    status: r.status,
-                    timestamp: new Date(r.timestamp),
-                    latencyMs: r.latencyMs,
-                    metadata: r.result,
-                  })),
-                }}
-              />
-            )
-          ) : (
-            <InfoBanner variant="info">
-              Additional strategy-specific visualizations are available with the
-              &quot;Read Health Check Details&quot; permission.
-            </InfoBanner>
-          )}
+          <HealthCheckDiagram
+            systemId={systemId}
+            configurationId={item.configurationId}
+            strategyId={item.strategyId}
+            dateRange={dateRange}
+            limit={pagination.limit}
+            offset={pagination.page * pagination.limit - pagination.limit}
+          />
         </div>
       )}
 
