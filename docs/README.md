@@ -27,6 +27,7 @@ Building backend plugins and services:
 - **[Signals](./backend/signals.md)** - Realtime server-to-client communication
 - **[Versioned Configs](./backend/versioned-configs.md)** - Schema evolution and migrations
 - **[Drizzle Schema](./backend/drizzle-schema.md)** - Database schema isolation
+- **[Health Check Data Management](./backend/healthcheck-data-management.md)** - Tiered storage, aggregation, and retention
 
 ## Frontend Development
 
@@ -36,6 +37,7 @@ Building frontend plugins and UI:
 - **[Extension Points](./frontend/extension-points.md)** - UI slots and extension system
 - **[Theming](./frontend/theming.md)** - Design tokens and theme customization
 - **[Config Schemas](./frontend/config-schemas.md)** - Sending configuration schemas to frontend
+- **[Health Check Custom Charts](./frontend/healthcheck-charts.md)** - Strategy-specific visualizations
 
 ## Common Packages
 
