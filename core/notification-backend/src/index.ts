@@ -144,10 +144,18 @@ export default createBackendPlugin({
       deps: {
         logger: coreServices.logger,
         rpc: coreServices.rpc,
+        rpcClient: coreServices.rpcClient,
         config: coreServices.config,
         signalService: coreServices.signalService,
       },
-      init: async ({ logger, database, rpc, config, signalService }) => {
+      init: async ({
+        logger,
+        database,
+        rpc,
+        rpcClient,
+        config,
+        signalService,
+      }) => {
         logger.debug("🔔 Initializing Notification Backend...");
 
         const db = database;
@@ -171,7 +179,8 @@ export default createBackendPlugin({
           db,
           config,
           signalService,
-          strategyRegistry
+          strategyRegistry,
+          rpcClient
         );
         rpc.registerRouter(router);
 

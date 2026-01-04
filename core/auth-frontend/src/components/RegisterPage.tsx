@@ -1,9 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AlertCircle } from "lucide-react";
 import { useApi, rpcApiRef } from "@checkmate/frontend-api";
 import { authApiRef } from "../api";
-import { AuthApi, authRoutes } from "@checkmate/auth-common";
+import { AuthApi, authRoutes, passwordSchema } from "@checkmate/auth-common";
 import { resolveRoute } from "@checkmate/common";
 import {
   Button,
@@ -24,13 +24,13 @@ import {
 import { useEnabledStrategies } from "../hooks/useEnabledStrategies";
 import { SocialProviderButton } from "./SocialProviderButton";
 import { authClient } from "../lib/auth-client";
-import { useEffect } from "react";
 
 export const RegisterPage = () => {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const navigate = useNavigate();
   const authApi = useApi(authApiRef);
   const rpcApi = useApi(rpcApiRef);
@@ -38,6 +38,20 @@ export const RegisterPage = () => {
   const { strategies, loading: strategiesLoading } = useEnabledStrategies();
   const [registrationAllowed, setRegistrationAllowed] = useState<boolean>(true);
   const [checkingRegistration, setCheckingRegistration] = useState(true);
+
+  // Validate password on change
+  useEffect(() => {
+    if (password) {
+      const result = passwordSchema.safeParse(password);
+      if (result.success) {
+        setValidationErrors([]);
+      } else {
+        setValidationErrors(result.error.issues.map((issue) => issue.message));
+      }
+    } else {
+      setValidationErrors([]);
+    }
+  }, [password]);
 
   useEffect(() => {
     authRpcClient
@@ -55,6 +69,13 @@ export const RegisterPage = () => {
 
   const handleCredentialRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validate password before submitting
+    const result = passwordSchema.safeParse(password);
+    if (!result.success) {
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await authClient.signUp.email({ name, email, password });
@@ -255,8 +276,24 @@ export const RegisterPage = () => {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                   />
+                  {validationErrors.length > 0 && (
+                    <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-1">
+                      {validationErrors.map((validationError, i) => (
+                        <li key={i} className="text-destructive">
+                          {validationError}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    At least 8 characters with uppercase, lowercase, and number
+                  </p>
                 </div>
-                <Button type="submit" className="w-full" disabled={loading}>
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={loading || validationErrors.length > 0}
+                >
                   {loading ? "Creating Account..." : "Create Account"}
                 </Button>
               </form>

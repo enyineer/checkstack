@@ -9,6 +9,7 @@ import {
   type AuthStrategy,
 } from "@checkmate/backend-api";
 import { pluginMetadata, permissionList } from "@checkmate/auth-common";
+import { NotificationApi } from "@checkmate/notification-common";
 import * as schema from "./schema";
 import { eq } from "drizzle-orm";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -340,11 +341,19 @@ export default createBackendPlugin({
       deps: {
         database: coreServices.database,
         rpc: coreServices.rpc,
+        rpcClient: coreServices.rpcClient,
         logger: coreServices.logger,
         auth: coreServices.auth,
         config: coreServices.config,
       },
-      init: async ({ database, rpc, logger, auth: _auth, config }) => {
+      init: async ({
+        database,
+        rpc,
+        rpcClient,
+        logger,
+        auth: _auth,
+        config,
+      }) => {
         logger.debug("[auth-backend] Initializing Auth Backend...");
 
         db = database;
@@ -435,7 +444,36 @@ export default createBackendPlugin({
             }),
             emailAndPassword: {
               enabled: credentialEnabled,
-              disableSignUp: !registrationAllowed, // Disable signup when registration is not allowed
+              disableSignUp: !registrationAllowed,
+              minPasswordLength: 8,
+              maxPasswordLength: 128,
+              sendResetPassword: async ({ user, url }) => {
+                // Send password reset notification via all enabled strategies
+                // Using void to prevent timing attacks revealing email existence
+                const notificationClient = rpcClient.forPlugin(NotificationApi);
+                const frontendUrl =
+                  process.env.VITE_FRONTEND_URL || "http://localhost:5173";
+                const resetUrl = `${frontendUrl}/auth/reset-password?token=${
+                  url.split("token=")[1] ?? ""
+                }`;
+
+                void notificationClient.sendTransactional({
+                  userId: user.id,
+                  notification: {
+                    title: "Password Reset Request",
+                    body: `You requested to reset your password. Click the button below to set a new password. This link will expire in 1 hour.\n\nIf you didn't request this, please ignore this message or contact support if you're concerned.`,
+                    action: {
+                      label: "Reset Password",
+                      url: resetUrl,
+                    },
+                  },
+                });
+
+                logger.debug(
+                  `[auth-backend] Password reset email sent to user: ${user.id}`
+                );
+              },
+              resetPasswordTokenExpiresIn: 60 * 60, // 1 hour
             },
             socialProviders,
             basePath: "/api/auth",

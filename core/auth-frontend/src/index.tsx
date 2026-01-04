@@ -14,6 +14,8 @@ import {
 } from "./components/LoginPage";
 import { RegisterPage } from "./components/RegisterPage";
 import { AuthErrorPage } from "./components/AuthErrorPage";
+import { ForgotPasswordPage } from "./components/ForgotPasswordPage";
+import { ResetPasswordPage } from "./components/ResetPasswordPage";
 import { authApiRef, AuthApi, AuthSession } from "./api";
 import { authClient } from "./lib/auth-client";
 
@@ -191,6 +193,14 @@ export const authPlugin = createFrontendPlugin({
     {
       route: authRoutes.routes.settings,
       element: <AuthSettingsPage />,
+    },
+    {
+      route: authRoutes.routes.forgotPassword,
+      element: <ForgotPasswordPage />,
+    },
+    {
+      route: authRoutes.routes.resetPassword,
+      element: <ResetPasswordPage />,
     },
   ],
   extensions: [

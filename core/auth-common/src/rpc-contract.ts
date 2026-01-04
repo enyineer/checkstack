@@ -259,6 +259,23 @@ export const authContract = {
     .output(z.object({ sessionId: z.string() })),
 
   /**
+   * Get a user by their ID.
+   * Used by notification backend to fetch user email for contact resolution.
+   */
+  getUserById: _base
+    .meta({ userType: "service" })
+    .input(z.object({ userId: z.string() }))
+    .output(
+      z
+        .object({
+          id: z.string(),
+          email: z.string(),
+          name: z.string().nullable(),
+        })
+        .optional()
+    ),
+
+  /**
    * Filter a list of user IDs to only those who have a specific permission.
    * Used by SignalService to send signals only to authorized users.
    */

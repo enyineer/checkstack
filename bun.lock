@@ -27,6 +27,7 @@
         "@checkmate/auth-common": "workspace:*",
         "@checkmate/backend-api": "workspace:*",
         "@checkmate/common": "workspace:*",
+        "@checkmate/notification-common": "workspace:*",
         "better-auth": "^1.4.7",
         "drizzle-orm": "^0.45.1",
         "hono": "^4.0.0",
@@ -493,6 +494,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@checkmate/auth-backend": "workspace:*",
+        "@checkmate/auth-common": "workspace:*",
         "@checkmate/backend-api": "workspace:*",
         "@checkmate/common": "workspace:*",
         "@checkmate/notification-common": "workspace:*",

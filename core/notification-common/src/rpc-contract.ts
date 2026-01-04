@@ -220,6 +220,41 @@ export const notificationContract = {
     )
     .output(z.object({ notifiedCount: z.number() })),
 
+  // Send transactional notification via ALL enabled strategies (no internal notification created)
+  // For security-critical messages like password reset, 2FA, account verification, etc.
+  // Unlike regular notifications, this bypasses user preferences and does not create a bell notification.
+  sendTransactional: _base
+    .meta({ userType: "service" })
+    .input(
+      z.object({
+        userId: z.string().describe("User to notify"),
+        notification: z.object({
+          title: z.string(),
+          body: z.string().describe("Notification body (supports markdown)"),
+          action: z
+            .object({
+              label: z.string(),
+              url: z.string(),
+            })
+            .optional(),
+        }),
+      })
+    )
+    .output(
+      z.object({
+        deliveredCount: z
+          .number()
+          .describe("Number of strategies that delivered successfully"),
+        results: z.array(
+          z.object({
+            strategyId: z.string(),
+            success: z.boolean(),
+            error: z.string().optional(),
+          })
+        ),
+      })
+    ),
+
   // ==========================================================================
   // DELIVERY STRATEGY ADMIN ENDPOINTS (userType: "user" with admin permissions)
   // ==========================================================================

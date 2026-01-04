@@ -8,4 +8,6 @@ export const authRoutes = createRoutes("auth", {
   register: "/register",
   error: "/error",
   settings: "/settings",
+  forgotPassword: "/forgot-password",
+  resetPassword: "/reset-password",
 });

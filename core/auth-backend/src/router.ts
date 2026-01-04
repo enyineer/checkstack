@@ -610,6 +610,20 @@ export const createAuthRouter = (
   // SERVICE-TO-SERVICE ENDPOINTS (for external auth providers like LDAP)
   // ==========================================================================
 
+  const getUserById = os.getUserById.handler(async ({ input }) => {
+    const users = await internalDb
+      .select({
+        id: schema.user.id,
+        email: schema.user.email,
+        name: schema.user.name,
+      })
+      .from(schema.user)
+      .where(eq(schema.user.id, input.userId))
+      .limit(1);
+
+    return users.length > 0 ? users[0] : undefined;
+  });
+
   const findUserByEmail = os.findUserByEmail.handler(async ({ input }) => {
     const users = await internalDb
       .select({ id: schema.user.id })
@@ -723,6 +737,7 @@ export const createAuthRouter = (
     getRegistrationStatus,
     setRegistrationStatus,
     getAnonymousPermissions,
+    getUserById,
     filterUsersByPermission,
     findUserByEmail,
     upsertExternalUser,

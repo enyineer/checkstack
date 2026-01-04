@@ -6,12 +6,16 @@ import {
   type ConfigService,
   toJsonSchema,
   type NotificationStrategyRegistry,
+  type RpcClient,
+  type NotificationPayload,
+  type NotificationSendContext,
 } from "@checkmate/backend-api";
 import {
   notificationContract,
   NOTIFICATION_RECEIVED,
   NOTIFICATION_READ,
 } from "@checkmate/notification-common";
+import { AuthApi } from "@checkmate/auth-common";
 import type { SignalService } from "@checkmate/signal-common";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import * as schema from "./schema";
@@ -45,7 +49,8 @@ export const createNotificationRouter = (
   database: NodePgDatabase<typeof schema>,
   configService: ConfigService,
   signalService: SignalService,
-  strategyRegistry: NotificationStrategyRegistry
+  strategyRegistry: NotificationStrategyRegistry,
+  rpcApi: RpcClient
 ) => {
   // Create strategy service for config management
   const strategyService: StrategyService = createStrategyService({
@@ -335,6 +340,175 @@ export const createNotificationRouter = (
       }
 
       return { notifiedCount: subscribers.length };
+    }),
+
+    // Send transactional notification via ALL enabled strategies
+    // No internal notification created - sent directly via external channels
+    sendTransactional: os.sendTransactional.handler(async ({ input }) => {
+      const { userId, notification } = input;
+
+      // Get all strategies
+      const allStrategies = strategyRegistry.getStrategies();
+
+      // Get user info from auth backend
+      const authClient = rpcApi.forPlugin(AuthApi);
+      const user = await authClient.getUserById({ userId });
+
+      if (!user) {
+        return {
+          deliveredCount: 0,
+          results: [
+            {
+              strategyId: "none",
+              success: false,
+              error: "User not found",
+            },
+          ],
+        };
+      }
+
+      // Build results for each strategy
+      const results: Array<{
+        strategyId: string;
+        success: boolean;
+        error?: string;
+      }> = [];
+
+      for (const strategy of allStrategies) {
+        // Check if strategy is enabled
+        const meta = await strategyService.getStrategyMeta(
+          strategy.qualifiedId
+        );
+        if (!meta.enabled) {
+          continue; // Skip disabled strategies
+        }
+
+        // Resolve contact based on contactResolution type
+        let contact: string | undefined;
+        const resType = strategy.contactResolution.type;
+
+        switch (resType) {
+          case "auth-email": {
+            contact = user.email;
+            break;
+          }
+          case "auth-provider": {
+            // Use email - would need provider lookup for more specific handling
+            contact = user.email;
+            break;
+          }
+          case "oauth-link": {
+            // Get user preference to find their linked external ID
+            const pref = await strategyService.getUserPreference(
+              userId,
+              strategy.qualifiedId
+            );
+            if (pref?.externalId) {
+              contact = pref.externalId;
+            }
+            break;
+          }
+          case "user-config": {
+            // Get user config field
+            const pref = await strategyService.getUserPreference(
+              userId,
+              strategy.qualifiedId
+            );
+            const fieldName =
+              "field" in strategy.contactResolution
+                ? strategy.contactResolution.field
+                : undefined;
+            if (pref?.userConfig && fieldName) {
+              contact = String(
+                (pref.userConfig as Record<string, unknown>)[fieldName]
+              );
+            }
+            break;
+          }
+          case "custom": {
+            // Custom strategies handle their own resolution - skip for transactional
+            continue;
+          }
+        }
+
+        if (!contact) {
+          // Cannot resolve contact for this strategy, skip
+          results.push({
+            strategyId: strategy.qualifiedId,
+            success: false,
+            error: "Could not resolve user contact for this channel",
+          });
+          continue;
+        }
+
+        // Get strategy config
+        const strategyConfig = await strategyService.getStrategyConfig(
+          strategy.qualifiedId
+        );
+        if (!strategyConfig) {
+          results.push({
+            strategyId: strategy.qualifiedId,
+            success: false,
+            error: "Strategy not configured",
+          });
+          continue;
+        }
+
+        // Get layout config if supported
+        const layoutConfig = await strategyService.getLayoutConfig(
+          strategy.qualifiedId
+        );
+
+        // Get user config if strategy supports it
+        const userPref = await strategyService.getUserPreference(
+          userId,
+          strategy.qualifiedId
+        );
+
+        // Build notification payload
+        const payload: NotificationPayload = {
+          title: notification.title,
+          body: notification.body,
+          importance: "critical", // Transactional messages are always critical
+          action: notification.action,
+          type: "transactional",
+        };
+
+        // Build send context
+        const sendContext: NotificationSendContext<unknown, unknown, unknown> =
+          {
+            user: {
+              userId: user.id,
+              email: user.email,
+              displayName: user.name ?? undefined,
+            },
+            contact,
+            notification: payload,
+            strategyConfig,
+            userConfig: userPref?.userConfig,
+            layoutConfig,
+          };
+
+        // Send via strategy
+        try {
+          const result = await strategy.send(sendContext);
+          results.push({
+            strategyId: strategy.qualifiedId,
+            success: result.success,
+            error: result.error,
+          });
+        } catch (error) {
+          results.push({
+            strategyId: strategy.qualifiedId,
+            success: false,
+            error: error instanceof Error ? error.message : "Unknown error",
+          });
+        }
+      }
+
+      const deliveredCount = results.filter((r) => r.success).length;
+
+      return { deliveredCount, results };
     }),
 
     // ==========================================================================
