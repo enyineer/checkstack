@@ -1,13 +1,4 @@
-import { useState } from "react";
-import { Power, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
-import {
-  Card,
-  Button,
-  Badge,
-  DynamicForm,
-  cn,
-  DynamicIcon,
-} from "@checkmate/ui";
+import { StrategyConfigCard } from "@checkmate/ui";
 
 /**
  * Strategy data from getDeliveryStrategies endpoint
@@ -47,148 +38,84 @@ export interface StrategyCardProps {
 }
 
 /**
+ * Get contact resolution type badge for notification strategies
+ */
+function getResolutionBadge(
+  type: DeliveryStrategy["contactResolution"]["type"]
+) {
+  switch (type) {
+    case "auth-email": {
+      return { label: "User Email", variant: "secondary" as const };
+    }
+    case "auth-provider": {
+      return { label: "Auth Provider", variant: "secondary" as const };
+    }
+    case "user-config": {
+      return { label: "User Config Required", variant: "outline" as const };
+    }
+    case "oauth-link": {
+      return { label: "OAuth Link", variant: "default" as const };
+    }
+    default: {
+      return { label: "Custom", variant: "outline" as const };
+    }
+  }
+}
+
+/**
  * Admin card for configuring a delivery strategy.
- * Shows enable/disable toggle and expandable config form.
+ * Uses the shared StrategyConfigCard component.
  */
 export function StrategyCard({
   strategy,
   onUpdate,
   saving,
 }: StrategyCardProps) {
-  const [expanded, setExpanded] = useState(false);
-  const [config, setConfig] = useState<Record<string, unknown>>(
-    strategy.config ?? {}
-  );
-  const [localEnabled, setLocalEnabled] = useState(strategy.enabled);
+  // Build badges array from strategy properties
+  const badges = [
+    getResolutionBadge(strategy.contactResolution.type),
+    ...(strategy.requiresOAuthLink
+      ? [{ label: "OAuth", variant: "outline" as const, className: "text-xs" }]
+      : []),
+  ];
 
-  // Get contact resolution type badge
-  const getResolutionBadge = () => {
-    switch (strategy.contactResolution.type) {
-      case "auth-email": {
-        return <Badge variant="secondary">User Email</Badge>;
-      }
-      case "auth-provider": {
-        return <Badge variant="secondary">Auth Provider</Badge>;
-      }
-      case "user-config": {
-        return <Badge variant="outline">User Config Required</Badge>;
-      }
-      case "oauth-link": {
-        return <Badge variant="default">OAuth Link</Badge>;
-      }
-      default: {
-        return <Badge variant="outline">Custom</Badge>;
-      }
-    }
+  // Check if config is missing - has schema properties but no saved config
+  const hasConfigSchema =
+    strategy.configSchema &&
+    "properties" in strategy.configSchema &&
+    Object.keys(strategy.configSchema.properties as Record<string, unknown>)
+      .length > 0;
+  const configMissing = hasConfigSchema && strategy.config === undefined;
+
+  const handleToggle = async (id: string, enabled: boolean) => {
+    await onUpdate(id, enabled, strategy.config);
   };
 
-  const handleEnableToggle = async () => {
-    const newEnabled = !localEnabled;
-    setLocalEnabled(newEnabled);
-    await onUpdate(strategy.qualifiedId, newEnabled, config);
+  const handleSaveConfig = async (
+    id: string,
+    config: Record<string, unknown>
+  ) => {
+    await onUpdate(id, strategy.enabled, config);
   };
-
-  const handleSaveConfig = async () => {
-    await onUpdate(strategy.qualifiedId, localEnabled, config);
-  };
-
-  const hasConfigFields = Object.keys(strategy.configSchema).length > 0;
 
   return (
-    <Card
-      className={cn(
-        "overflow-hidden transition-colors",
-        localEnabled ? "border-primary/30" : "opacity-75"
-      )}
-    >
-      {/* Header - always visible */}
-      <div className="flex items-center justify-between p-4">
-        <div className="flex items-center gap-3">
-          <DynamicIcon
-            name={strategy.icon}
-            className="h-5 w-5 text-muted-foreground"
-          />
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-medium">{strategy.displayName}</span>
-              {getResolutionBadge()}
-              {strategy.requiresOAuthLink && (
-                <Badge variant="outline" className="text-xs">
-                  OAuth
-                </Badge>
-              )}
-            </div>
-            {strategy.description && (
-              <p className="text-sm text-muted-foreground mt-0.5">
-                {strategy.description}
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground mt-1">
-              From: {strategy.ownerPluginId}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Enable/Disable toggle button */}
-          <Button
-            variant={localEnabled ? "primary" : "outline"}
-            size="sm"
-            onClick={() => void handleEnableToggle()}
-            disabled={saving}
-            className="min-w-[90px]"
-          >
-            <Power
-              className={cn(
-                "h-4 w-4 mr-1",
-                localEnabled ? "text-green-300" : "text-muted-foreground"
-              )}
-            />
-            {localEnabled ? "Enabled" : "Disabled"}
-          </Button>
-
-          {/* Expand button for config */}
-          {hasConfigFields && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setExpanded(!expanded)}
-            >
-              {expanded ? (
-                <ChevronUp className="h-4 w-4" />
-              ) : (
-                <ChevronDown className="h-4 w-4" />
-              )}
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Expanded config form */}
-      {expanded && hasConfigFields && (
-        <div className="border-t p-4 bg-muted/30">
-          {!localEnabled && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4 p-2 bg-muted rounded">
-              <AlertCircle className="h-4 w-4" />
-              Enable this channel to allow users to receive notifications
-            </div>
-          )}
-          <DynamicForm
-            schema={strategy.configSchema}
-            value={config}
-            onChange={setConfig}
-          />
-          <div className="mt-4 flex justify-end">
-            <Button
-              onClick={() => void handleSaveConfig()}
-              disabled={saving}
-              size="sm"
-            >
-              {saving ? "Saving..." : "Save Configuration"}
-            </Button>
-          </div>
-        </div>
-      )}
-    </Card>
+    <StrategyConfigCard
+      strategy={{
+        id: strategy.qualifiedId,
+        displayName: strategy.displayName,
+        description: strategy.description,
+        icon: strategy.icon,
+        enabled: strategy.enabled,
+        configSchema: strategy.configSchema,
+        config: strategy.config,
+      }}
+      onToggle={handleToggle}
+      onSaveConfig={handleSaveConfig}
+      saving={saving}
+      badges={badges}
+      subtitle={`From: ${strategy.ownerPluginId}`}
+      disabledWarning="Enable this channel to allow users to receive notifications"
+      configMissing={configMissing}
+    />
   );
 }

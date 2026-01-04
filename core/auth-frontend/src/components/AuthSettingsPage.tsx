@@ -27,8 +27,6 @@ import {
   Tabs,
   TabPanel,
   PermissionDenied,
-  Toggle,
-  DynamicIcon,
 } from "@checkmate/ui";
 import { authApiRef, AuthUser, Role, AuthStrategy, Permission } from "../api";
 import {
@@ -41,12 +39,11 @@ import {
   Settings2,
   Users,
   RefreshCw,
-  ChevronDown,
-  ChevronRight,
   Plus,
   Edit,
 } from "lucide-react";
 import { RoleDialog } from "./RoleDialog";
+import { AuthStrategyCard } from "./AuthStrategyCard";
 import { rpcApiRef } from "@checkmate/frontend-api";
 
 export const AuthSettingsPage: React.FC = () => {
@@ -360,19 +357,6 @@ export const AuthSettingsPage: React.FC = () => {
   if (!hasAnyPermission) {
     return <PermissionDenied />;
   }
-
-  const schemaHasProperties = (
-    schema: Record<string, unknown> & { properties?: Record<string, unknown> }
-  ) => {
-    if (schema.properties) {
-      return Object.keys(schema.properties).length > 0;
-    }
-    return false;
-  };
-
-  const configIsMissing = (strategy: AuthStrategy) => {
-    return strategy.config === undefined;
-  };
 
   return (
     <PageLayout title="Authentication Settings">
@@ -689,100 +673,27 @@ export const AuthSettingsPage: React.FC = () => {
           </Alert>
 
           {strategies.map((strategy) => (
-            <Card key={strategy.id}>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() =>
-                          setExpandedStrategy(
-                            expandedStrategy === strategy.id
-                              ? undefined
-                              : strategy.id
-                          )
-                        }
-                        className="text-muted-foreground hover:text-foreground"
-                      >
-                        {expandedStrategy === strategy.id ? (
-                          <ChevronDown className="h-5 w-5" />
-                        ) : (
-                          <ChevronRight className="h-5 w-5" />
-                        )}
-                      </button>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <DynamicIcon
-                            name={strategy.icon}
-                            className="h-5 w-5 text-muted-foreground"
-                          />
-                          <CardTitle>{strategy.displayName}</CardTitle>
-                          {schemaHasProperties(strategy.configSchema) &&
-                            configIsMissing(strategy) && (
-                              <Badge variant="warning">
-                                Needs Configuration
-                              </Badge>
-                            )}
-                        </div>
-                        {strategy.description && (
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {strategy.description}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Toggle
-                      checked={strategy.enabled}
-                      disabled={
-                        !canManageStrategies.allowed ||
-                        // Disable if strategy needs config (has schema properties) but doesn't have any saved
-                        (schemaHasProperties(strategy.configSchema) &&
-                          configIsMissing(strategy))
-                      }
-                      onCheckedChange={(checked) =>
-                        handleToggleStrategy(strategy.id, checked)
-                      }
-                    />
-                  </div>
-                </div>
-              </CardHeader>
-
-              {expandedStrategy === strategy.id && (
-                <CardContent>
-                  <div className="space-y-4">
-                    <DynamicForm
-                      schema={{
-                        ...strategy.configSchema,
-                        properties: Object.fromEntries(
-                          Object.entries(
-                            strategy.configSchema.properties || {}
-                          ).filter(([key]) => key !== "enabled")
-                        ),
-                      }}
-                      value={strategyConfigs[strategy.id] || {}}
-                      onChange={(newConfig) => {
-                        setStrategyConfigs({
-                          ...strategyConfigs,
-                          [strategy.id]: newConfig,
-                        });
-                      }}
-                    />
-                    {schemaHasProperties(strategy.configSchema) && (
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          onClick={() => handleSaveStrategyConfig(strategy.id)}
-                          disabled={!canManageStrategies.allowed}
-                        >
-                          Save Configuration
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              )}
-            </Card>
+            <AuthStrategyCard
+              key={strategy.id}
+              strategy={strategy}
+              onToggle={async (id, enabled) => {
+                await handleToggleStrategy(id, enabled);
+              }}
+              onSaveConfig={async (id, config) => {
+                // Update local config state and save
+                setStrategyConfigs({
+                  ...strategyConfigs,
+                  [id]: config,
+                });
+                await handleSaveStrategyConfig(id);
+              }}
+              disabled={!canManageStrategies.allowed}
+              expanded={expandedStrategy === strategy.id}
+              onExpandedChange={(isExpanded) => {
+                setExpandedStrategy(isExpanded ? strategy.id : undefined);
+              }}
+              config={strategyConfigs[strategy.id]}
+            />
           ))}
 
           {!canManageStrategies.allowed && (

@@ -43,3 +43,4 @@ export * from "./components/DateRangeFilter";
 export * from "./components/BackLink";
 export * from "./components/StatusUpdateTimeline";
 export * from "./components/DynamicIcon";
+export * from "./components/StrategyConfigCard";
