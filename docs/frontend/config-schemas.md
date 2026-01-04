@@ -101,35 +101,84 @@ import { PluginConfigForm } from "@checkmate/ui";
 
 ### Backend: Schema Conversion Process
 
-The `toJsonSchema()` function in [`schema-utils.ts`](file:///Users/nicoenking/Development/Projects/node/checkmate/core/backend-api/src/schema-utils.ts):
+The `toJsonSchema()` function in [`schema-utils.ts`](/core/backend-api/src/schema-utils.ts):
 
 1. Calls Zod's native `toJSONSchema()` to get the base JSON Schema
-2. Traverses the Zod schema to identify fields created with `secret()`
-3. Adds `x-secret: true` metadata to those fields in the JSON Schema
+2. Traverses the Zod schema to identify fields created with branded types (`secret()`, `color()`)
+3. Adds `x-secret: true` or `x-color: true` metadata to those fields
 4. Returns the enhanced JSON Schema
 
 ```typescript
 // Simplified implementation
 function toJsonSchema(zodSchema: z.ZodTypeAny): Record<string, unknown> {
   const jsonSchema = zodSchema.toJSONSchema();
-  addSecretMetadata(zodSchema, jsonSchema);  // Adds x-secret: true
+  addSchemaMetadata(zodSchema, jsonSchema);  // Adds x-secret, x-color
   return jsonSchema;
 }
 ```
 
-### Frontend: Password Field Rendering
+### Frontend: Specialized Field Rendering
 
-The `DynamicForm` component in [`DynamicForm.tsx`](file:///Users/nicoenking/Development/Projects/node/checkmate/core/ui/src/components/DynamicForm.tsx) detects secret fields:
+The `DynamicForm` component in [`DynamicForm.tsx`](/core/ui/src/components/DynamicForm.tsx) detects branded fields:
 
 ```typescript
 // Detect secret fields from x-secret metadata
 const isSecret = propSchema["x-secret"];
-
 if (isSecret) {
   // Render password input with show/hide toggle
   return <Input type={showPassword ? "text" : "password"} ... />;
 }
+
+// Detect color fields from x-color metadata
+const isColor = propSchema["x-color"];
+if (isColor) {
+  // Render color picker with swatch and text input
+  return <ColorPicker value={value} onChange={onChange} />;
+}
 ```
+
+## Branded Types Reference
+
+The platform provides two branded Zod types for specialized field rendering:
+
+### `secret()` - Sensitive Data
+
+Use for passwords, API keys, tokens, and other sensitive data:
+
+```typescript
+import { secret } from "@checkmate/backend-api";
+
+const schema = z.object({
+  apiKey: secret().describe("API authentication key"),
+  password: secret().optional().describe("Optional password"),
+});
+```
+
+**Features:**
+- Renders as password input with show/hide toggle
+- Values are encrypted at rest via `ConfigService`
+- Redacted when returning config to frontend
+
+### `color()` - Hex Colors
+
+Use for hex color values (e.g., brand colors, theme colors):
+
+```typescript
+import { color } from "@checkmate/backend-api";
+
+const schema = z.object({
+  // With default value
+  primaryColor: color("#3b82f6").describe("Primary brand color"),
+  // Optional without default
+  accentColor: color().optional().describe("Accent color"),
+});
+```
+
+**Features:**
+- Renders as color picker with swatch + text input
+- Validates hex format (`#RGB` or `#RRGGBB`)
+- Supports optional default values
+
 
 ## Secret Handling Best Practices
 
@@ -244,9 +293,9 @@ configSchema: toJsonSchema(p.configSchema)
 ## Reference Implementations
 
 **Good examples to follow:**
-- [`auth-backend/router.ts`](file:///Users/nicoenking/Development/Projects/node/checkmate/plugins/auth-backend/src/router.ts#L273-281) - Uses `toJsonSchema` and `getRedacted`
-- [`queue-backend/router.ts`](file:///Users/nicoenking/Development/Projects/node/checkmate/plugins/queue-backend/src/router.ts#L24) - Uses `toJsonSchema`
-- [`auth-ldap-backend/strategy.ts`](file:///Users/nicoenking/Development/Projects/node/checkmate/plugins/auth-ldap-backend/src/strategy.ts) - Uses `secret()` helper
+- [`auth-backend/router.ts`](/plugins/auth-backend/src/router.ts) - Uses `toJsonSchema` and `getRedacted`
+- [`queue-backend/router.ts`](/plugins/queue-backend/src/router.ts) - Uses `toJsonSchema`
+- [`auth-ldap-backend/strategy.ts`](/plugins/auth-ldap-backend/src/strategy.ts) - Uses `secret()` helper
 
 ## Summary
 

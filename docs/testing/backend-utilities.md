@@ -99,7 +99,7 @@ describe("MyService", () => {
 
 Creates a mock Drizzle database instance with support for the most common query patterns.
 
-**Source**: [`core/test-utils-backend/src/mock-db.ts`](file:///Users/nicoenking/Development/Projects/node/checkmate/core/test-utils-backend/src/mock-db.ts)
+**Source**: [`core/test-utils-backend/src/mock-db.ts`](/core/test-utils-backend/src/mock-db.ts)
 
 #### Supported Query Patterns
 
@@ -193,7 +193,7 @@ import { db } from "./db"; // This is mocked
 
 Creates a mock logger instance with support for all standard logging levels and child logger creation.
 
-**Source**: [`core/test-utils-backend/src/mock-logger.ts`](file:///Users/nicoenking/Development/Projects/node/checkmate/core/test-utils-backend/src/mock-logger.ts)
+**Source**: [`core/test-utils-backend/src/mock-logger.ts`](/core/test-utils-backend/src/mock-logger.ts)
 
 #### Basic Usage
 
@@ -256,7 +256,7 @@ import { rootLogger } from "./logger"; // This is mocked
 
 Creates a mock Fetch service for testing HTTP requests and inter-plugin communication.
 
-**Source**: [`core/test-utils-backend/src/mock-fetch.ts`](file:///Users/nicoenking/Development/Projects/node/checkmate/core/test-utils-backend/src/mock-fetch.ts)
+**Source**: [`core/test-utils-backend/src/mock-fetch.ts`](/core/test-utils-backend/src/mock-fetch.ts)
 
 #### Basic Usage
 
@@ -335,7 +335,7 @@ test("should handle API response", async () => {
 
 Creates a mock QueueManager that produces simple in-memory mock queues for testing.
 
-**Source**: [`core/test-utils-backend/src/mock-queue-factory.ts`](file:///Users/nicoenking/Development/Projects/node/checkmate/core/test-utils-backend/src/mock-queue-factory.ts)
+**Source**: [`core/test-utils-backend/src/mock-queue-factory.ts`](/core/test-utils-backend/src/mock-queue-factory.ts)
 
 #### Basic Usage
 
@@ -386,7 +386,7 @@ test("should process queued jobs", async () => {
 
 Creates a complete mock RPC context with all dependencies pre-configured.
 
-**Source**: [`core/backend-api/src/test-utils.ts`](file:///Users/nicoenking/Development/Projects/node/checkmate/core/backend-api/src/test-utils.ts)
+**Source**: [`core/backend-api/src/test-utils.ts`](/core/backend-api/src/test-utils.ts)
 
 #### Basic Usage
 
@@ -788,8 +788,8 @@ The Checkmate backend test utilities provide:
 Always use these utilities from their dedicated packages (`@checkmate/test-utils-backend`, `@checkmate/backend-api/test-utils`) to ensure clean, maintainable, and reliable tests.
 
 For reference implementations, see:
-- [`createMockDb`](file:///Users/nicoenking/Development/Projects/node/checkmate/core/test-utils-backend/src/mock-db.ts)
-- [`createMockLogger`](file:///Users/nicoenking/Development/Projects/node/checkmate/core/test-utils-backend/src/mock-logger.ts)
-- [`createMockFetch`](file:///Users/nicoenking/Development/Projects/node/checkmate/core/test-utils-backend/src/mock-fetch.ts)
-- [`createMockQueueManager`](file:///Users/nicoenking/Development/Projects/node/checkmate/core/test-utils-backend/src/mock-queue-factory.ts)
-- [`createMockRpcContext`](file:///Users/nicoenking/Development/Projects/node/checkmate/core/backend-api/src/test-utils.ts)
+- [`createMockDb`](/core/test-utils-backend/src/mock-db.ts)
+- [`createMockLogger`](/core/test-utils-backend/src/mock-logger.ts)
+- [`createMockFetch`](/core/test-utils-backend/src/mock-fetch.ts)
+- [`createMockQueueManager`](/core/test-utils-backend/src/mock-queue-factory.ts)
+- [`createMockRpcContext`](/core/backend-api/src/test-utils.ts)

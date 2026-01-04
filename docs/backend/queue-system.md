@@ -892,6 +892,6 @@ The Checkmate Queue system provides a powerful, flexible foundation for asynchro
 By implementing the `QueuePlugin` interface, you can integrate any backend (Redis, RabbitMQ, AWS SQS, etc.) while maintaining a consistent API for the rest of your application.
 
 For reference implementations, see:
-- [`InMemoryQueue`](file:///Users/nicoenking/Development/Projects/node/checkmate/plugins/queue-memory-backend/src/memory-queue.ts) - Complete working example
-- [`Queue API`](file:///Users/nicoenking/Development/Projects/node/checkmate/core/queue-api/src/queue.ts) - Core interfaces
-- [`QueuePlugin Interface`](file:///Users/nicoenking/Development/Projects/node/checkmate/core/queue-api/src/queue-plugin.ts) - Plugin contract
+- [`InMemoryQueue`](/plugins/queue-memory-backend/src/memory-queue.ts) - Complete working example
+- [`Queue API`](/core/queue-api/src/queue.ts) - Core interfaces
+- [`QueuePlugin Interface`](/core/queue-api/src/queue-plugin.ts) - Plugin contract

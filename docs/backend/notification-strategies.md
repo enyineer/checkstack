@@ -85,12 +85,15 @@ plugins/notification-smtp-backend/
     └── index.ts
 ```
 
-### 2. Define Configuration Schema
+### 2. Define Configuration Schemas
+
+Strategies can have up to three configuration layers:
 
 ```typescript
 import { z } from "zod";
-import { secret, Versioned } from "@checkmate/backend-api";
+import { secret, color, Versioned } from "@checkmate/backend-api";
 
+// Infrastructure config (SMTP server, API keys)
 const smtpConfigSchemaV1 = z.object({
   host: z.string().describe("SMTP server hostname"),
   port: z.number().default(587).describe("SMTP server port"),
@@ -101,37 +104,64 @@ const smtpConfigSchemaV1 = z.object({
   fromName: z.string().optional().describe("Sender display name"),
 });
 
-type SmtpConfig = z.infer<typeof smtpConfigSchemaV1>;
+// Layout config (admin-customizable branding)
+const smtpLayoutConfigSchemaV1 = z.object({
+  logoUrl: z.string().url().optional().describe("Logo URL (max 200px wide)"),
+  primaryColor: color("#3b82f6").describe("Primary brand color"),
+  accentColor: color().optional().describe("Accent color for buttons"),
+  footerText: z.string().default("This is an automated notification.").describe("Footer text"),
+});
 ```
+
+> **💡 Tip:** Use `color()` for hex color fields and `secret()` for sensitive data. These render as specialized inputs in the admin UI (color picker, password field).
 
 ### 3. Implement the Strategy Interface
 
 ```typescript
-import { NotificationStrategy, Versioned } from "@checkmate/backend-api";
+import { 
+  NotificationStrategy, 
+  Versioned,
+  markdownToHtml,
+  markdownToPlainText,
+  wrapInEmailLayout,
+} from "@checkmate/backend-api";
 
-const smtpStrategy: NotificationStrategy<SmtpConfig> = {
+const smtpStrategy: NotificationStrategy<SmtpConfig, undefined, SmtpLayoutConfig> = {
   id: "smtp",
   displayName: "Email (SMTP)",
   description: "Send notifications via email using SMTP",
   icon: "mail",
 
-  config: new Versioned({
-    version: 1,
-    schema: smtpConfigSchemaV1,
-  }),
+  config: new Versioned({ version: 1, schema: smtpConfigSchemaV1 }),
+  layoutConfig: new Versioned({ version: 1, schema: smtpLayoutConfigSchemaV1 }),
 
   contactResolution: { type: "auth-email" },
 
-  async send({ contact, notification, strategyConfig }) {
-    // contact = user's email address (resolved from auth)
-    // notification = { title, description, importance, actionUrl, type }
-    // strategyConfig = admin-configured SMTP settings
+  async send({ contact, notification, strategyConfig, layoutConfig }) {
+    // Convert markdown body to HTML (see "Semantic Body" section below)
+    const bodyHtml = notification.body ? markdownToHtml(notification.body) : "";
+    const plainText = notification.body 
+      ? markdownToPlainText(notification.body) 
+      : notification.title;
+
+    // Wrap in email layout with admin branding
+    const html = wrapInEmailLayout({
+      title: notification.title,
+      bodyHtml,
+      importance: notification.importance,
+      action: notification.action,
+      logoUrl: layoutConfig?.logoUrl,
+      primaryColor: layoutConfig?.primaryColor,
+      accentColor: layoutConfig?.accentColor,
+      footerText: layoutConfig?.footerText,
+    });
 
     await transporter.sendMail({
       from: strategyConfig.fromAddress,
       to: contact,
       subject: notification.title,
-      text: notification.description,
+      text: plainText,
+      html,
     });
 
     return { success: true };
@@ -158,6 +188,111 @@ export default createBackendPlugin({
   },
 });
 ```
+
+## Semantic Notification Body
+
+Notifications use **semantic Markdown content** that strategies convert to their native format. This ensures content is authored once and renders appropriately across all channels.
+
+### The Pattern
+
+```typescript
+// Plugin sending a notification
+await notificationApi.notifyUsers({
+  userIds: ["user-1"],
+  notification: {
+    title: "Health Check Failed",
+    body: "**System:** api-server\n\nThe system is now in **degraded** state.\n\n[View Details](https://...)",
+    importance: "critical",
+    action: { label: "View Dashboard", url: "https://..." },
+    type: "healthcheck.alert",
+  },
+});
+```
+
+### Conversion Utilities
+
+The platform provides utilities for converting markdown to target formats:
+
+| Utility | Output | Use Case |
+|---------|--------|----------|
+| `markdownToHtml()` | HTML | Email body content |
+| `markdownToPlainText()` | Plain text | SMS, fallback content |
+| `markdownToSlackMrkdwn()` | Slack mrkdwn | Slack messages |
+
+```typescript
+import { 
+  markdownToHtml, 
+  markdownToPlainText, 
+  markdownToSlackMrkdwn 
+} from "@checkmate/backend-api";
+
+// Email strategy
+const bodyHtml = markdownToHtml(notification.body);
+
+// SMS strategy  
+const bodyText = markdownToPlainText(notification.body);
+
+// Slack strategy
+const mrkdwn = markdownToSlackMrkdwn(notification.body);
+```
+
+### Action Rendering
+
+The `action` field provides a semantic call-to-action:
+
+| Strategy | Rendering |
+|----------|-----------|
+| Email | Styled button with label and URL |
+| SMS | Appended as plain-text link |
+| Slack | Block Kit button |
+| Push | Deep link in notification tap |
+
+## Layout Configuration
+
+Rich-content strategies (email) can support admin-customizable layouts:
+
+### Defining Layout Config
+
+```typescript
+const layoutConfigSchema = z.object({
+  logoUrl: z.string().url().optional().describe("Company logo URL"),
+  primaryColor: color("#3b82f6").describe("Header/accent color"),
+  accentColor: color().optional().describe("Button color"),
+  footerText: z.string().default("Sent by Checkmate").describe("Footer text"),
+});
+
+const strategy: NotificationStrategy<Config, undefined, LayoutConfig> = {
+  // ...other fields
+  layoutConfig: new Versioned({ version: 1, schema: layoutConfigSchema }),
+};
+```
+
+### Using wrapInEmailLayout()
+
+The `wrapInEmailLayout()` utility generates a responsive HTML email template:
+
+```typescript
+import { wrapInEmailLayout } from "@checkmate/backend-api";
+
+const html = wrapInEmailLayout({
+  title: notification.title,
+  bodyHtml: markdownToHtml(notification.body),
+  importance: notification.importance,  // Affects header color
+  action: notification.action,          // Renders as button
+  // Admin-configurable branding:
+  logoUrl: layoutConfig.logoUrl,
+  primaryColor: layoutConfig.primaryColor,
+  accentColor: layoutConfig.accentColor,
+  footerText: layoutConfig.footerText,
+});
+```
+
+**Features:**
+- Responsive design (works on mobile)
+- Compatible with major email clients
+- Importance-based default colors (blue/amber/red)
+- Optional logo, customizable colors, footer links
+
 
 ## Strategy Interface
 
@@ -292,17 +427,54 @@ async send(context) {
 }
 ```
 
-### 3. Use Secrets for Sensitive Data
+### 3. Use Branded Types for Special Fields
 
-Use `secret()` for passwords and API keys:
+Use platform branded types for specialized UI and validation:
 
 ```typescript
+import { secret, color } from "@checkmate/backend-api";
+
 const config = z.object({
+  // Secrets: rendered as password inputs, encrypted at rest
   apiKey: secret().describe("API key for service"),
+  
+  // Colors: rendered as color picker, validated as hex
+  brandColor: color("#3b82f6").describe("Primary brand color"),
+  accentColor: color().optional().describe("Optional accent"),
 });
 ```
 
-### 4. Provide User-Friendly Icons
+### 4. Convert Markdown to Native Formats
+
+Always use the platform utilities for converting notification body content:
+
+```typescript
+import { markdownToHtml, markdownToPlainText } from "@checkmate/backend-api";
+
+// Rich content (email)
+const html = markdownToHtml(notification.body);
+
+// Plain text (SMS, plain text email fallback)
+const text = markdownToPlainText(notification.body);
+```
+
+### 5. Use Email Layout Wrapper
+
+For email strategies, use `wrapInEmailLayout()` for consistent, responsive emails:
+
+```typescript
+import { wrapInEmailLayout } from "@checkmate/backend-api";
+
+const html = wrapInEmailLayout({
+  title: notification.title,
+  bodyHtml: markdownToHtml(notification.body),
+  importance: notification.importance,
+  action: notification.action,
+  ...layoutConfig,  // Admin branding
+});
+```
+
+### 6. Provide User-Friendly Icons
 
 Use Lucide icon names for consistent UI:
 
@@ -320,4 +492,5 @@ const strategy = {
 - [Plugin Development](./plugins.md)
 - [Configuration Service](./config-service.md)
 - [Versioned Configs](./versioned-configs.md)
+- [Config Schemas (Frontend)](../frontend/config-schemas.md)
 - [Signals](./signals.md)
