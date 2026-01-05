@@ -27,6 +27,11 @@ import {
   Tabs,
   TabPanel,
   PermissionDenied,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
 } from "@checkmate/ui";
 import { authApiRef, AuthUser, Role, AuthStrategy, Permission } from "../api";
 import {
@@ -41,6 +46,9 @@ import {
   RefreshCw,
   Plus,
   Edit,
+  Key,
+  Copy,
+  RotateCcw,
 } from "lucide-react";
 import { RoleDialog } from "./RoleDialog";
 import { AuthStrategyCard } from "./AuthStrategyCard";
@@ -56,9 +64,9 @@ export const AuthSettingsPage: React.FC = () => {
 
   const session = authApi.useSession();
 
-  const [activeTab, setActiveTab] = useState<"users" | "roles" | "strategies">(
-    "users"
-  );
+  const [activeTab, setActiveTab] = useState<
+    "users" | "roles" | "strategies" | "applications"
+  >("users");
   const [users, setUsers] = useState<(AuthUser & { roles: string[] })[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
@@ -106,6 +114,9 @@ export const AuthSettingsPage: React.FC = () => {
   const canManageRegistration = permissionApi.usePermission(
     authPermissions.registrationManage.id
   );
+  const canManageApplications = permissionApi.usePermission(
+    authPermissions.applicationsManage.id
+  );
 
   const [registrationSchema, setRegistrationSchema] = useState<
     Record<string, unknown> | undefined
@@ -115,6 +126,28 @@ export const AuthSettingsPage: React.FC = () => {
   >({ allowRegistration: true });
   const [loadingRegistration, setLoadingRegistration] = useState(true);
   const [savingRegistration, setSavingRegistration] = useState(false);
+
+  // Applications state
+  type Application = {
+    id: string;
+    name: string;
+    description?: string | null;
+    roles: string[];
+    createdById: string;
+    createdAt: Date;
+    lastUsedAt?: Date | null;
+  };
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [loadingApplications, setLoadingApplications] = useState(true);
+  const [applicationToDelete, setApplicationToDelete] = useState<string>();
+  const [newSecretDialog, setNewSecretDialog] = useState<{
+    open: boolean;
+    secret: string;
+    applicationName: string;
+  }>({ open: false, secret: "", applicationName: "" });
+  const [createAppDialogOpen, setCreateAppDialogOpen] = useState(false);
+  const [newAppName, setNewAppName] = useState("");
+  const [newAppDescription, setNewAppDescription] = useState("");
 
   const fetchData = async () => {
     setLoading(true);
@@ -363,6 +396,112 @@ export const AuthSettingsPage: React.FC = () => {
     }
   };
 
+  // ==========================================================================
+  // APPLICATION HANDLERS
+  // ==========================================================================
+
+  const fetchApplications = async () => {
+    setLoadingApplications(true);
+    try {
+      const apps = await authClient.getApplications();
+      setApplications(apps);
+    } catch (error) {
+      console.error("Failed to fetch applications:", error);
+    } finally {
+      setLoadingApplications(false);
+    }
+  };
+
+  // Fetch applications when permission becomes available
+  useEffect(() => {
+    if (canManageApplications.allowed && !canManageApplications.loading) {
+      fetchApplications();
+    } else if (!canManageApplications.loading) {
+      setLoadingApplications(false);
+    }
+  }, [canManageApplications.allowed, canManageApplications.loading]);
+
+  const handleCreateApplication = async () => {
+    if (!newAppName.trim()) {
+      toast.error("Application name is required");
+      return;
+    }
+    try {
+      const result = await authClient.createApplication({
+        name: newAppName.trim(),
+        description: newAppDescription.trim() || undefined,
+      });
+      setApplications([...applications, result.application]);
+      setCreateAppDialogOpen(false);
+      setNewAppName("");
+      setNewAppDescription("");
+      // Show the secret
+      setNewSecretDialog({
+        open: true,
+        secret: result.secret,
+        applicationName: result.application.name,
+      });
+      toast.success("Application created successfully");
+    } catch (error: unknown) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create application"
+      );
+    }
+  };
+
+  const handleToggleApplicationRole = async (
+    appId: string,
+    roleId: string,
+    currentRoles: string[]
+  ) => {
+    const newRoles = currentRoles.includes(roleId)
+      ? currentRoles.filter((r) => r !== roleId)
+      : [...currentRoles, roleId];
+    try {
+      await authClient.updateApplication({ id: appId, roles: newRoles });
+      setApplications(
+        applications.map((app) =>
+          app.id === appId ? { ...app, roles: newRoles } : app
+        )
+      );
+      toast.success("Application roles updated");
+    } catch (error: unknown) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update roles"
+      );
+    }
+  };
+
+  const handleDeleteApplication = async () => {
+    if (!applicationToDelete) return;
+    try {
+      await authClient.deleteApplication(applicationToDelete);
+      setApplications(applications.filter((a) => a.id !== applicationToDelete));
+      setApplicationToDelete(undefined);
+      toast.success("Application deleted");
+    } catch (error: unknown) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete application"
+      );
+    }
+  };
+
+  const handleRegenerateSecret = async (appId: string, appName: string) => {
+    try {
+      const result = await authClient.regenerateApplicationSecret(appId);
+      setNewSecretDialog({
+        open: true,
+        secret: result.secret,
+        applicationName: appName,
+      });
+      toast.success("Secret regenerated");
+    } catch (error: unknown) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to regenerate secret"
+      );
+    }
+  };
+
   if (loading) return <LoadingSpinner />;
 
   // Check if user is authenticated and has any permission to view this page
@@ -374,7 +513,10 @@ export const AuthSettingsPage: React.FC = () => {
 
   // Check if user has permission to view at least one tab
   const hasAnyPermission =
-    canReadUsers.allowed || canReadRoles.allowed || canManageStrategies.allowed;
+    canReadUsers.allowed ||
+    canReadRoles.allowed ||
+    canManageStrategies.allowed ||
+    canManageApplications.allowed;
 
   if (!hasAnyPermission) {
     return <PermissionDenied />;
@@ -399,10 +541,17 @@ export const AuthSettingsPage: React.FC = () => {
             label: "Authentication Strategies",
             icon: <Settings2 size={18} />,
           },
+          {
+            id: "applications",
+            label: "Applications",
+            icon: <Key size={18} />,
+          },
         ]}
         activeTab={activeTab}
         onTabChange={(tabId) =>
-          setActiveTab(tabId as "users" | "roles" | "strategies")
+          setActiveTab(
+            tabId as "users" | "roles" | "strategies" | "applications"
+          )
         }
         className="mb-6"
       />
@@ -732,6 +881,267 @@ export const AuthSettingsPage: React.FC = () => {
           )}
         </div>
       </TabPanel>
+
+      <TabPanel id="applications" activeTab={activeTab}>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>External Applications</CardTitle>
+            {canManageApplications.allowed && (
+              <Button onClick={() => setCreateAppDialogOpen(true)} size="sm">
+                <Plus className="h-4 w-4 mr-2" />
+                Create Application
+              </Button>
+            )}
+          </CardHeader>
+          <CardContent>
+            <Alert variant="info" className="mb-4">
+              <AlertDescription>
+                External applications use API keys to authenticate with the
+                Checkmate API. The secret is only shown once when created—store
+                it securely.
+              </AlertDescription>
+            </Alert>
+
+            {loadingApplications ? (
+              <div className="flex justify-center py-4">
+                <LoadingSpinner />
+              </div>
+            ) : applications.length === 0 ? (
+              <p className="text-muted-foreground">
+                No external applications configured yet.
+              </p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Application</TableHead>
+                    <TableHead>Roles</TableHead>
+                    <TableHead>Last Used</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {applications.map((app) => (
+                    <TableRow key={app.id}>
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{app.name}</span>
+                          {app.description && (
+                            <span className="text-xs text-muted-foreground">
+                              {app.description}
+                            </span>
+                          )}
+                          <span className="text-xs text-muted-foreground font-mono">
+                            ID: {app.id}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap flex-col gap-2">
+                          {roles
+                            .filter((role) => role.isAssignable !== false)
+                            .map((role) => (
+                              <div
+                                key={role.id}
+                                className="flex items-center space-x-2"
+                              >
+                                <Checkbox
+                                  id={`app-role-${app.id}-${role.id}`}
+                                  checked={app.roles.includes(role.id)}
+                                  disabled={!canManageApplications.allowed}
+                                  onCheckedChange={() =>
+                                    handleToggleApplicationRole(
+                                      app.id,
+                                      role.id,
+                                      app.roles
+                                    )
+                                  }
+                                />
+                                <label
+                                  htmlFor={`app-role-${app.id}-${role.id}`}
+                                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                >
+                                  {role.name}
+                                </label>
+                              </div>
+                            ))}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {app.lastUsedAt ? (
+                          <span className="text-sm">
+                            {new Date(app.lastUsedAt).toLocaleDateString()}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            Never
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              handleRegenerateSecret(app.id, app.name)
+                            }
+                            title="Regenerate Secret"
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setApplicationToDelete(app.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+
+            {!canManageApplications.allowed && (
+              <p className="text-xs text-muted-foreground mt-4">
+                You don't have permission to manage applications.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </TabPanel>
+
+      {/* Delete Application Confirmation */}
+      <ConfirmationModal
+        isOpen={!!applicationToDelete}
+        onClose={() => setApplicationToDelete(undefined)}
+        onConfirm={handleDeleteApplication}
+        title="Delete Application"
+        message="Are you sure you want to delete this application? Its API key will stop working immediately."
+      />
+
+      {/* New Secret Display Dialog */}
+      <Dialog
+        open={newSecretDialog.open}
+        onOpenChange={(open) => {
+          if (!open) {
+            setNewSecretDialog({
+              open: false,
+              secret: "",
+              applicationName: "",
+            });
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Application Secret: {newSecretDialog.applicationName}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Alert variant="warning">
+              <AlertDescription>
+                Copy this secret now—it will never be shown again!
+              </AlertDescription>
+            </Alert>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 bg-muted p-2 rounded font-mono text-sm break-all">
+                {newSecretDialog.secret}
+              </code>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  navigator.clipboard.writeText(newSecretDialog.secret);
+                  toast.success("Secret copied to clipboard");
+                }}
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() =>
+                setNewSecretDialog({
+                  open: false,
+                  secret: "",
+                  applicationName: "",
+                })
+              }
+            >
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Application Dialog */}
+      <Dialog
+        open={createAppDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCreateAppDialogOpen(false);
+            setNewAppName("");
+            setNewAppDescription("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Application</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Name</label>
+              <input
+                type="text"
+                value={newAppName}
+                onChange={(e) => setNewAppName(e.target.value)}
+                className="w-full px-3 py-2 border rounded-md bg-background"
+                placeholder="My Application"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Description (optional)
+              </label>
+              <input
+                type="text"
+                value={newAppDescription}
+                onChange={(e) => setNewAppDescription(e.target.value)}
+                className="w-full px-3 py-2 border rounded-md bg-background"
+                placeholder="What does this application do?"
+              />
+            </div>
+            <Alert variant="info">
+              <AlertDescription>
+                New applications are assigned the "Applications" role by
+                default. You can manage roles after creation.
+              </AlertDescription>
+            </Alert>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setCreateAppDialogOpen(false);
+                setNewAppName("");
+                setNewAppDescription("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={() => void handleCreateApplication()}>
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmationModal
         isOpen={!!userToDelete}

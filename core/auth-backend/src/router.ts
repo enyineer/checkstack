@@ -852,7 +852,7 @@ export const createAuthRouter = (
 
   const createApplication = os.createApplication.handler(
     async ({ input, context }) => {
-      const { name, description, roles } = input;
+      const { name, description } = input;
 
       const userId = isRealUser(context.user) ? context.user.id : undefined;
       if (!userId) {
@@ -867,6 +867,9 @@ export const createAuthRouter = (
       const secretHash = await hashPassword(secret);
       const now = new Date();
 
+      // Default role for all applications
+      const defaultRole = "applications";
+
       await internalDb.transaction(async (tx) => {
         // Create application
         await tx.insert(schema.application).values({
@@ -879,15 +882,11 @@ export const createAuthRouter = (
           updatedAt: now,
         });
 
-        // Assign roles
-        if (roles.length > 0) {
-          await tx.insert(schema.applicationRole).values(
-            roles.map((roleId) => ({
-              applicationId: id,
-              roleId,
-            }))
-          );
-        }
+        // Assign default "applications" role
+        await tx.insert(schema.applicationRole).values({
+          applicationId: id,
+          roleId: defaultRole,
+        });
       });
 
       context.logger.info(
@@ -899,7 +898,7 @@ export const createAuthRouter = (
           id,
           name,
           description: description ?? undefined,
-          roles,
+          roles: [defaultRole],
           createdById: userId,
           createdAt: now,
         },
