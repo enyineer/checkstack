@@ -41,9 +41,9 @@ export const UserPreferenceConfigSchema = z.object({
   /** External user ID from OAuth linking (e.g., Slack user ID) */
   externalId: z.string().optional(),
   /** Encrypted access token for OAuth strategies */
-  accessToken: secret().optional(),
+  accessToken: secret({ description: "Access token" }).optional(),
   /** Encrypted refresh token for OAuth strategies */
-  refreshToken: secret().optional(),
+  refreshToken: secret({ description: "Refresh token" }).optional(),
   /** Token expiration timestamp (ISO string) */
   tokenExpiresAt: z.string().optional(),
   /** When the external account was linked (ISO string) */

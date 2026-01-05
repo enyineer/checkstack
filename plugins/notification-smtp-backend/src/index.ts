@@ -25,8 +25,8 @@ const smtpConfigSchemaV1 = z.object({
   host: z.string().optional().describe("SMTP server hostname"),
   port: z.number().default(587).describe("SMTP server port"),
   secure: z.boolean().default(false).describe("Use TLS/SSL (port 465)"),
-  username: secret().optional().describe("SMTP username"),
-  password: secret().optional().describe("SMTP password"),
+  username: secret({ description: "SMTP username" }).optional(),
+  password: secret({ description: "SMTP password" }).optional(),
   fromAddress: z.string().email().optional().describe("Sender email address"),
   fromName: z.string().optional().describe("Sender display name"),
 });
@@ -43,8 +43,11 @@ type SmtpConfig = z.infer<typeof smtpConfigSchemaV1>;
  */
 const smtpLayoutConfigSchemaV1 = z.object({
   logoUrl: z.string().url().optional().describe("Logo URL (max 200px wide)"),
-  primaryColor: color("#3b82f6").describe("Primary brand color (hex)"),
-  accentColor: color().optional().describe("Accent color for buttons"),
+  primaryColor: color({
+    description: "Primary brand color (hex)",
+    defaultValue: "#3b82f6",
+  }),
+  accentColor: color({ description: "Accent color for buttons" }).optional(),
   footerText: z
     .string()
     .default("This is an automated notification.")

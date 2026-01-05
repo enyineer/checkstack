@@ -6,7 +6,7 @@ import { BullMQQueue } from "./bullmq-queue";
 const configSchema = z.object({
   host: z.string().default("localhost").describe("Redis host"),
   port: z.number().min(1).max(65_535).default(6379).describe("Redis port"),
-  password: secret().optional().describe("Redis password (optional)"),
+  password: secret({ description: "Redis password (optional)" }).optional(),
   db: z.number().min(0).default(0).describe("Redis database number"),
   keyPrefix: z
     .string()

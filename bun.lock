@@ -896,7 +896,7 @@
         "@checkmate/common": "workspace:*",
         "@checkmate/notification-backend": "workspace:*",
         "grammy": "^1.35.0",
-        "zod": "^4.0.0",
+        "zod": "^4.2.1",
       },
       "devDependencies": {
         "@checkmate/tsconfig": "workspace:*",

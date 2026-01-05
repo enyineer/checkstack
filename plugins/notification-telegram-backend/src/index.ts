@@ -19,7 +19,7 @@ import { pluginMetadata } from "./plugin-metadata";
  * Admin configuration for Telegram strategy.
  */
 const telegramConfigSchemaV1 = z.object({
-  botToken: secret().describe("Telegram Bot API Token from @BotFather"),
+  botToken: secret({ description: "Telegram Bot API Token from @BotFather" }),
 });
 
 type TelegramConfig = z.infer<typeof telegramConfigSchemaV1>;

@@ -28,7 +28,7 @@ const _ldapConfigV1 = z.object({
     .describe(
       "Service account DN for searching (e.g., cn=admin,dc=example,dc=com)"
     ),
-  bindPassword: secret().optional().describe("Service account password"),
+  bindPassword: secret({ description: "Service account password" }).optional(),
   baseDN: z
     .string()
     .default("ou=users,dc=example,dc=com")
@@ -73,7 +73,9 @@ const _ldapConfigV1 = z.object({
         .boolean()
         .default(true)
         .describe("Reject unauthorized SSL certificates"),
-      ca: secret().optional().describe("Custom CA certificate (PEM format)"),
+      ca: secret({
+        description: "Custom CA certificate (PEM format)",
+      }).optional(),
     })
     .default({ rejectUnauthorized: true })
     .describe("TLS/SSL configuration"),
@@ -104,7 +106,7 @@ const ldapConfigV2 = z.object({
     .describe(
       "Service account DN for searching (e.g., cn=admin,dc=example,dc=com)"
     ),
-  bindPassword: secret().optional().describe("Service account password"),
+  bindPassword: secret({ description: "Service account password" }).optional(),
   baseDN: z
     .string()
     .default("ou=users,dc=example,dc=com")
@@ -149,7 +151,9 @@ const ldapConfigV2 = z.object({
         .boolean()
         .default(true)
         .describe("Reject unauthorized SSL certificates"),
-      ca: secret().optional().describe("Custom CA certificate (PEM format)"),
+      ca: secret({
+        description: "Custom CA certificate (PEM format)",
+      }).optional(),
     })
     .default({ rejectUnauthorized: true })
     .describe("TLS/SSL configuration"),

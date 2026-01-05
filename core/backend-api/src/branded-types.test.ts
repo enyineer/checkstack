@@ -94,7 +94,7 @@ describe("Branded Types", () => {
     });
 
     test("color() with default value creates schema with default", () => {
-      const colorSchema = color("#3b82f6");
+      const colorSchema = color({ defaultValue: "#3b82f6" });
       const result = colorSchema.safeParse(undefined);
       expect(result.success).toBe(true);
       if (result.success) {
@@ -103,12 +103,12 @@ describe("Branded Types", () => {
     });
 
     test("isColorSchema unwraps default schemas", () => {
-      const colorSchema = color("#3b82f6");
+      const colorSchema = color({ defaultValue: "#3b82f6" });
       expect(isColorSchema(colorSchema)).toBe(true);
     });
 
     test("color() with default still validates explicit values", () => {
-      const colorSchema = color("#3b82f6");
+      const colorSchema = color({ defaultValue: "#3b82f6" });
       const result = colorSchema.safeParse("#ff0000");
       expect(result.success).toBe(true);
       if (result.success) {

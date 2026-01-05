@@ -13,13 +13,17 @@ import { pluginMetadata } from "./plugin-metadata";
  */
 const _githubConfigV1 = z.object({
   enabled: z.boolean().default(false),
-  clientId: secret().optional().describe("GitHub OAuth App Client ID"),
-  clientSecret: secret().optional().describe("GitHub OAuth App Client Secret"),
+  clientId: secret({ description: "GitHub OAuth App Client ID" }).optional(),
+  clientSecret: secret({
+    description: "GitHub OAuth App Client Secret",
+  }).optional(),
 });
 
 const githubConfigV2 = z.object({
-  clientId: secret().optional().describe("GitHub OAuth App Client ID"),
-  clientSecret: secret().optional().describe("GitHub OAuth App Client Secret"),
+  clientId: secret({ description: "GitHub OAuth App Client ID" }).optional(),
+  clientSecret: secret({
+    description: "GitHub OAuth App Client Secret",
+  }).optional(),
 });
 
 const githubStrategy: AuthStrategy<z.infer<typeof githubConfigV2>> = {

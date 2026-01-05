@@ -7,14 +7,48 @@ import { z } from "zod";
 const secretSchemas = new WeakSet<z.ZodTypeAny>();
 
 /**
+ * Options for custom branded types.
+ */
+export interface BrandedTypeOptions {
+  /** Description for the field (shown in UI) */
+  description?: string;
+  /** Default value (makes the field optional with a default) */
+  defaultValue?: string;
+}
+
+/**
  * Custom Zod type for secret fields.
  * Uses branded type for TypeScript + WeakSet for runtime detection.
+ *
+ * DO NOT chain .describe() or .default() after this function.
+ * Pass options instead to ensure WeakSet tracking works correctly.
+ *
+ * @example
+ * // Required secret with description:
+ * botToken: secret({ description: "API Token" }),
+ *
+ * // Optional secret:
+ * password: secret({ description: "Password" }).optional(),
+ *
+ * // Secret with default (not common for secrets):
+ * key: secret({ description: "API Key", defaultValue: "default" }),
  */
-export const secret = () => {
-  const schema = z.string().brand<"secret">();
+export function secret(options?: BrandedTypeOptions) {
+  const base = z.string().brand<"secret">();
+  let schema: z.ZodTypeAny = options?.description
+    ? base.describe(options.description)
+    : base;
+
+  // Track the final schema (after describe)
   secretSchemas.add(schema);
-  return schema;
-};
+
+  // Apply default if provided
+  if (options?.defaultValue !== undefined) {
+    schema = (schema as z.ZodString).default(options.defaultValue);
+  }
+
+  return schema as z.ZodType<string & z.$brand<"secret">>;
+}
 
 export type Secret = z.infer<ReturnType<typeof secret>>;
 
@@ -52,6 +86,7 @@ function unwrapSchema(schema: z.ZodTypeAny): z.ZodTypeAny {
 export function isSecretSchema(schema: z.ZodTypeAny): boolean {
   return secretSchemas.has(unwrapSchema(schema));
 }
+
 /**
  * WeakSet to track which schemas are colors.
  * Using WeakSet avoids memory leaks and doesn't rely on fragile internal APIs.
@@ -69,21 +104,38 @@ const HEX_COLOR_REGEX = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/;
  * Uses branded type for TypeScript + WeakSet for runtime detection.
  * Validates that the value is a valid hex color (#RGB or #RRGGBB).
  *
- * @param defaultValue - Optional default hex color value (e.g., "#3b82f6")
+ * DO NOT chain .describe() or .default() after this function.
+ * Pass options instead to ensure WeakSet tracking works correctly.
+ *
+ * @example
+ * // Required color with description:
+ * primaryColor: color({ description: "Primary brand color" }),
+ *
+ * // Color with default value:
+ * accentColor: color({ description: "Accent color", defaultValue: "#3b82f6" }),
+ *
+ * // Optional color:
+ * backgroundColor: color({ description: "Background" }).optional(),
  */
-export function color(defaultValue?: string) {
-  const schema = z
+export function color(options?: BrandedTypeOptions) {
+  const base = z
     .string()
     .regex(HEX_COLOR_REGEX, "Invalid hex color format. Use #RGB or #RRGGBB")
     .brand<"color">();
+
+  let schema: z.ZodTypeAny = options?.description
+    ? base.describe(options.description)
+    : base;
+
+  // Track the final schema (after describe)
   colorSchemas.add(schema);
 
-  if (defaultValue !== undefined) {
-    // Cast the default value to the branded type
-    return schema.default(defaultValue as string & z.$brand<"color">);
+  // Apply default if provided
+  if (options?.defaultValue !== undefined) {
+    schema = (schema as z.ZodString).default(options.defaultValue);
   }
 
-  return schema;
+  return schema as z.ZodType<string & z.$brand<"color">>;
 }
 
 export type Color = z.infer<ReturnType<typeof color>>;
