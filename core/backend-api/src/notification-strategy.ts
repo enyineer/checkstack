@@ -317,6 +317,32 @@ export interface NotificationStrategy<
    * ```
    */
   oauth?: StrategyOAuthConfig;
+
+  /**
+   * Markdown instructions shown when admins configure platform-wide strategy settings.
+   * Displayed in the StrategyConfigCard before the configuration form.
+   *
+   * Use this to provide setup guidance (e.g., how to create API keys, register apps).
+   *
+   * @example
+   * ```typescript
+   * adminInstructions: `
+   * ## Setup a Telegram Bot
+   * 1. Open [@BotFather](https://t.me/BotFather) in Telegram
+   * 2. Send \`/newbot\` and follow the prompts
+   * 3. Copy the bot token
+   * `
+   * ```
+   */
+  adminInstructions?: string;
+
+  /**
+   * Markdown instructions shown when users configure their personal settings.
+   * Displayed in the UserChannelCard when connecting/configuring.
+   *
+   * Use this to guide users through linking their account or setting up the channel.
+   */
+  userInstructions?: string;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

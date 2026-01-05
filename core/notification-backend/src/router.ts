@@ -573,6 +573,7 @@ export const createNotificationRouter = (
             enabled: meta.enabled,
             config: config as Record<string, unknown> | undefined,
             layoutConfig: layoutConfig as Record<string, unknown> | undefined,
+            adminInstructions: strategy.adminInstructions,
           };
         })
       );
@@ -677,6 +678,7 @@ export const createNotificationRouter = (
               enabled: pref?.enabled ?? true,
               isConfigured,
               linkedAt: pref?.linkedAt ? new Date(pref.linkedAt) : undefined,
+              userInstructions: strategy.userInstructions,
             };
           });
 

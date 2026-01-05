@@ -6,6 +6,7 @@ import { Badge, type BadgeProps } from "./Badge";
 import { Toggle } from "./Toggle";
 import { DynamicForm } from "./DynamicForm";
 import { DynamicIcon } from "./DynamicIcon";
+import { MarkdownBlock } from "./Markdown";
 import { cn } from "../utils";
 
 /**
@@ -78,6 +79,11 @@ export interface StrategyConfigCardProps {
    * When true, shows "Needs Configuration" badge and disables toggle.
    */
   configMissing?: boolean;
+  /**
+   * Markdown instructions to show when expanded.
+   * Rendered before the configuration sections.
+   */
+  instructions?: string;
 }
 
 /**
@@ -98,6 +104,7 @@ export function StrategyConfigCard({
   subtitle,
   useToggleSwitch = false,
   configMissing = false,
+  instructions,
 }: StrategyConfigCardProps) {
   // Internal state for uncontrolled mode
   const [internalExpanded, setInternalExpanded] = useState(false);
@@ -251,6 +258,13 @@ export function StrategyConfigCard({
             <div className="flex items-center gap-2 text-sm text-muted-foreground p-2 bg-muted rounded">
               <AlertCircle className="h-4 w-4 shrink-0" />
               {disabledWarning}
+            </div>
+          )}
+
+          {/* Instructions block */}
+          {instructions && (
+            <div className="p-4 bg-muted/50 rounded-lg border border-border/50">
+              <MarkdownBlock size="sm">{instructions}</MarkdownBlock>
             </div>
           )}
 

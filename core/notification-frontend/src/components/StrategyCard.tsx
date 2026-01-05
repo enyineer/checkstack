@@ -29,6 +29,8 @@ export interface DeliveryStrategy {
   config?: Record<string, unknown>;
   /** Current layout config values */
   layoutConfig?: Record<string, unknown>;
+  /** Markdown instructions for admins (setup guides, etc.) */
+  adminInstructions?: string;
 }
 
 export interface StrategyCardProps {
@@ -151,6 +153,7 @@ export function StrategyCard({
       subtitle={`From: ${strategy.ownerPluginId}`}
       disabledWarning="Enable this channel to allow users to receive notifications"
       configMissing={configMissing}
+      instructions={strategy.adminInstructions}
     />
   );
 }

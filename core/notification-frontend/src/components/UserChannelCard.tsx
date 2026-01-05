@@ -15,6 +15,7 @@ import {
   DynamicForm,
   cn,
   DynamicIcon,
+  MarkdownBlock,
 } from "@checkmate/ui";
 
 /**
@@ -38,6 +39,8 @@ export interface UserDeliveryChannel {
   linkedAt?: Date;
   userConfigSchema?: Record<string, unknown>;
   userConfig?: Record<string, unknown>;
+  /** Markdown instructions for users (connection guides, etc.) */
+  userInstructions?: string;
 }
 
 export interface UserChannelCardProps {
@@ -250,7 +253,16 @@ export function UserChannelCard({
 
       {/* User config form */}
       {expanded && hasUserConfigSchema && channel.userConfigSchema && (
-        <div className="border-t p-4 bg-muted/30">
+        <div className="border-t p-4 bg-muted/30 space-y-4">
+          {/* User instructions block */}
+          {channel.userInstructions && (
+            <div className="p-4 bg-muted/50 rounded-lg border border-border/50">
+              <MarkdownBlock size="sm">
+                {channel.userInstructions}
+              </MarkdownBlock>
+            </div>
+          )}
+
           <DynamicForm
             schema={channel.userConfigSchema}
             value={userConfig}
@@ -267,6 +279,15 @@ export function UserChannelCard({
           </div>
         </div>
       )}
+
+      {/* User instructions when not connected (for custom/oauth-link channels) */}
+      {!isLinked &&
+        channel.userInstructions &&
+        (requiresOAuth || channel.contactResolution.type === "custom") && (
+          <div className="border-t p-4 bg-muted/30">
+            <MarkdownBlock size="sm">{channel.userInstructions}</MarkdownBlock>
+          </div>
+        )}
     </Card>
   );
 }

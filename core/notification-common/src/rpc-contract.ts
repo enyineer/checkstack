@@ -294,6 +294,8 @@ export const notificationContract = {
           config: z.record(z.string(), z.unknown()).optional(),
           /** Current layout config values */
           layoutConfig: z.record(z.string(), z.unknown()).optional(),
+          /** Markdown instructions for admins (setup guides, etc.) */
+          adminInstructions: z.string().optional(),
         })
       )
     ),
@@ -339,6 +341,8 @@ export const notificationContract = {
         enabled: z.boolean(),
         isConfigured: z.boolean(),
         linkedAt: z.coerce.date().optional(),
+        /** Markdown instructions for users (connection guides, etc.) */
+        userInstructions: z.string().optional(),
       })
     )
   ),
