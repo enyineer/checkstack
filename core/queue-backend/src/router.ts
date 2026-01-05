@@ -1,22 +1,19 @@
 import {
-  os,
-  authedProcedure,
-  permissionMiddleware,
   toJsonSchema,
   ConfigService,
+  RpcContext,
+  autoAuthMiddleware,
 } from "@checkmate/backend-api";
-import {
-  permissions,
-  UpdateQueueConfigurationSchema,
-} from "@checkmate/queue-common";
-import { ORPCError } from "@orpc/server";
+import { queueContract } from "@checkmate/queue-common";
+import { implement, ORPCError } from "@orpc/server";
 
-const queueRead = permissionMiddleware(permissions.queueRead.id);
-const queueManage = permissionMiddleware(permissions.queueManage.id);
+const os = implement(queueContract)
+  .$context<RpcContext>()
+  .use(autoAuthMiddleware);
 
 export const createQueueRouter = (configService: ConfigService) => {
   return os.router({
-    getPlugins: authedProcedure.use(queueRead).handler(async ({ context }) => {
+    getPlugins: os.getPlugins.handler(async ({ context }) => {
       const plugins = context.queuePluginRegistry.getPlugins().map((p) => ({
         id: p.id,
         displayName: p.displayName,
@@ -27,33 +24,29 @@ export const createQueueRouter = (configService: ConfigService) => {
       return plugins;
     }),
 
-    getConfiguration: authedProcedure
-      .use(queueRead)
-      .handler(async ({ context }) => {
-        const activePluginId = context.queueManager.getActivePlugin();
-        const plugin = context.queuePluginRegistry.getPlugin(activePluginId);
+    getConfiguration: os.getConfiguration.handler(async ({ context }) => {
+      const activePluginId = context.queueManager.getActivePlugin();
+      const plugin = context.queuePluginRegistry.getPlugin(activePluginId);
 
-        if (!plugin) {
-          throw new Error("Active queue plugin not found");
-        }
+      if (!plugin) {
+        throw new Error("Active queue plugin not found");
+      }
 
-        // Get redacted config from ConfigService using plugin's schema
-        const config = await configService.getRedacted(
-          activePluginId,
-          plugin.configSchema,
-          plugin.configVersion
-        );
+      // Get redacted config from ConfigService using plugin's schema
+      const config = await configService.getRedacted(
+        activePluginId,
+        plugin.configSchema,
+        plugin.configVersion
+      );
 
-        return {
-          pluginId: activePluginId,
-          config: config || {},
-        };
-      }),
+      return {
+        pluginId: activePluginId,
+        config: config || {},
+      };
+    }),
 
-    updateConfiguration: authedProcedure
-      .use(queueManage)
-      .input(UpdateQueueConfigurationSchema)
-      .handler(async ({ input, context }) => {
+    updateConfiguration: os.updateConfiguration.handler(
+      async ({ input, context }) => {
         const { pluginId, config } = input;
         try {
           await context.queueManager.setActiveBackend(pluginId, config);
@@ -72,6 +65,7 @@ export const createQueueRouter = (configService: ConfigService) => {
           pluginId,
           config,
         };
-      }),
+      }
+    ),
   });
 };
