@@ -11,10 +11,10 @@ import {
 import { pluginMetadata, permissionList } from "@checkmate/auth-common";
 import { NotificationApi } from "@checkmate/notification-common";
 import * as schema from "./schema";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { User } from "better-auth/types";
-import { hashPassword } from "better-auth/crypto";
+import { hashPassword, verifyPassword } from "better-auth/crypto";
 import { createExtensionPoint } from "@checkmate/backend-api";
 import { enrichUser } from "./utils/user";
 import { createAuthRouter } from "./router";
@@ -322,11 +322,98 @@ export default createBackendPlugin({
     // 2. Register Authentication Strategy (used by Core AuthService)
     env.registerService(authenticationStrategyServiceRef, {
       validate: async (request: Request) => {
+        if (!db) {
+          return; // Not initialized yet
+        }
+
+        // Check for API key authentication (Bearer ck_<appId>_<secret>)
+        const authHeader = request.headers.get("authorization");
+        if (authHeader?.startsWith("Bearer ck_")) {
+          const token = authHeader.slice(7); // Remove "Bearer "
+          const parts = token.split("_");
+          // Token format: ck_<uuid>_<secret>
+          // Split: ["ck", "uuid-with-dashes", "secret"]
+          // UUID has dashes, so we need to handle properly
+          if (parts.length >= 3 && parts[0] === "ck") {
+            // The UUID is parts[1] and potentially includes more parts if UUID has dashes
+            // For a UUID like "abc-def-ghi", after "ck_", we get the rest split by _
+            // Safer approach: find the application ID by parsing
+            const tokenWithoutPrefix = token.slice(3); // Remove "ck_"
+            // UUID is 36 chars, secret is 32 chars
+            const applicationId = tokenWithoutPrefix.slice(0, 36);
+            const secret = tokenWithoutPrefix.slice(37); // Skip the _ separator
+
+            if (applicationId && secret) {
+              // Look up application
+              const apps = await db
+                .select()
+                .from(schema.application)
+                .where(eq(schema.application.id, applicationId))
+                .limit(1);
+
+              if (apps.length > 0) {
+                const app = apps[0];
+                // Verify secret using bcrypt
+                const isValid = await verifyPassword({
+                  hash: app.secretHash,
+                  password: secret,
+                });
+
+                if (isValid) {
+                  // Update lastUsedAt timestamp (fire-and-forget)
+                  db.update(schema.application)
+                    .set({ lastUsedAt: new Date() })
+                    .where(eq(schema.application.id, applicationId))
+                    .execute()
+                    .catch(() => {
+                      // Ignore errors from lastUsedAt update
+                    });
+
+                  // Fetch roles and compute permissions for the application
+                  const appRoles = await db
+                    .select({ roleId: schema.applicationRole.roleId })
+                    .from(schema.applicationRole)
+                    .where(
+                      eq(schema.applicationRole.applicationId, applicationId)
+                    );
+
+                  const roleIds = appRoles.map((r) => r.roleId);
+
+                  // Get permissions for these roles
+                  let permissions: string[] = [];
+                  if (roleIds.length > 0) {
+                    const rolePerms = await db
+                      .select({
+                        permissionId: schema.rolePermission.permissionId,
+                      })
+                      .from(schema.rolePermission)
+                      .where(inArray(schema.rolePermission.roleId, roleIds));
+
+                    permissions = [
+                      ...new Set(rolePerms.map((rp) => rp.permissionId)),
+                    ];
+                  }
+
+                  // Return ApplicationUser
+                  return {
+                    type: "application" as const,
+                    id: app.id,
+                    name: app.name,
+                    roles: roleIds,
+                    permissions,
+                  };
+                }
+              }
+            }
+          }
+          return; // Invalid API key
+        }
+
+        // Fall back to session-based authentication (better-auth)
         if (!auth) {
           return; // Not initialized yet
         }
 
-        // better-auth needs headers to validate session
         const session = await auth.api.getSession({
           headers: request.headers,
         });
