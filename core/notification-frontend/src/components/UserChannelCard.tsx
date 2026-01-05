@@ -7,6 +7,7 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
+  Send,
 } from "lucide-react";
 import {
   Card,
@@ -47,8 +48,10 @@ export interface UserChannelCardProps {
     strategyId: string,
     config: Record<string, unknown>
   ) => Promise<void>;
+  onTest: (strategyId: string) => Promise<{ success: boolean; error?: string }>;
   saving?: boolean;
   connecting?: boolean;
+  testing?: boolean;
 }
 
 /**
@@ -61,8 +64,10 @@ export function UserChannelCard({
   onConnect,
   onDisconnect,
   onSaveConfig,
+  onTest,
   saving,
   connecting,
+  testing,
 }: UserChannelCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [userConfig, setUserConfig] = useState<Record<string, unknown>>(
@@ -225,6 +230,23 @@ export function UserChannelCard({
                   <X className="h-4 w-4 mr-1" />
                   Disabled
                 </>
+              )}
+            </Button>
+          )}
+
+          {/* Test notification button - only show when channel is configured */}
+          {channel.isConfigured && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void onTest(channel.strategyId)}
+              disabled={testing || saving}
+              title="Send test notification"
+            >
+              {testing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
               )}
             </Button>
           )}

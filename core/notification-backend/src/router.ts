@@ -957,6 +957,137 @@ export const createNotificationRouter = (
         await strategyService.clearOAuthTokens(userId, strategyId);
       }
     ),
+
+    // Send a test notification to the current user via a specific strategy
+    sendTestNotification: os.sendTestNotification.handler(
+      async ({ input, context }) => {
+        const userId = (context.user as RealUser).id;
+        const { strategyId } = input;
+
+        const strategy = strategyRegistry.getStrategy(strategyId);
+        if (!strategy) {
+          return { success: false, error: `Strategy not found: ${strategyId}` };
+        }
+
+        // Check strategy is enabled
+        const meta = await strategyService.getStrategyMeta(strategyId);
+        if (!meta.enabled) {
+          return {
+            success: false,
+            error: "This channel is not enabled by your administrator",
+          };
+        }
+
+        // Get user info
+        const authClient = rpcApi.forPlugin(AuthApi);
+        const user = await authClient.getUserById({ userId });
+        if (!user) {
+          return { success: false, error: "User not found" };
+        }
+
+        // Get user preference to resolve contact
+        const pref = await strategyService.getUserPreference(
+          userId,
+          strategyId
+        );
+        let contact: string | undefined;
+
+        const resType = strategy.contactResolution.type;
+        switch (resType) {
+          case "auth-email":
+          case "auth-provider": {
+            contact = user.email;
+            break;
+          }
+          case "oauth-link": {
+            if (pref?.externalId) contact = pref.externalId;
+            break;
+          }
+          case "user-config": {
+            const fieldName =
+              "field" in strategy.contactResolution
+                ? strategy.contactResolution.field
+                : undefined;
+            if (pref?.userConfig && fieldName) {
+              contact = String(
+                (pref.userConfig as Record<string, unknown>)[fieldName]
+              );
+            }
+            break;
+          }
+        }
+
+        if (!contact) {
+          return {
+            success: false,
+            error:
+              "Channel not configured - please set up your contact information first",
+          };
+        }
+
+        // Get strategy config
+        const strategyConfig = await strategyService.getStrategyConfig(
+          strategyId
+        );
+        if (!strategyConfig) {
+          return {
+            success: false,
+            error: "Channel not configured by administrator",
+          };
+        }
+
+        const layoutConfig = await strategyService.getLayoutConfig(strategyId);
+
+        // Build test notification with markdown and action
+        const testNotification: NotificationPayload = {
+          title: "🧪 Test Notification",
+          body: `This is a **test notification** from Checkmate!\n\nIf you're seeing this, your *${strategy.displayName}* channel is working correctly.\n\n✅ Markdown formatting\n✅ Emoji support\n✅ Action buttons (below)`,
+          importance: "info",
+          action: {
+            label: "Open Notification Settings",
+            url: "/notification/settings",
+          },
+          type: "notification",
+        };
+
+        // Get base URL for action
+        const baseUrl = process.env.VITE_FRONTEND_URL;
+        if (baseUrl && testNotification.action) {
+          testNotification.action.url = `${baseUrl.replace(/\/$/, "")}${
+            testNotification.action.url
+          }`;
+        }
+
+        // Build send context
+        const sendContext: NotificationSendContext<unknown, unknown, unknown> =
+          {
+            user: {
+              userId: user.id,
+              email: user.email,
+              displayName: user.name ?? undefined,
+            },
+            contact,
+            notification: testNotification,
+            strategyConfig,
+            userConfig: pref?.userConfig,
+            layoutConfig,
+          };
+
+        // Send via strategy
+        try {
+          const result = await strategy.send(sendContext);
+          return { success: result.success, error: result.error };
+        } catch (error) {
+          return {
+            success: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to send test notification",
+          };
+        }
+      }
+    ),
   });
 };
 

@@ -378,6 +378,17 @@ export const notificationContract = {
     .meta({ userType: "user" })
     .input(z.object({ strategyId: z.string() }))
     .output(z.void()),
+
+  // Send a test notification to the current user via a specific strategy
+  sendTestNotification: _base
+    .meta({ userType: "user" })
+    .input(z.object({ strategyId: z.string() }))
+    .output(
+      z.object({
+        success: z.boolean(),
+        error: z.string().optional(),
+      })
+    ),
 };
 
 // Export contract type

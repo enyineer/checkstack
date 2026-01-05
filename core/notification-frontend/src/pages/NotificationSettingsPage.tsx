@@ -62,6 +62,7 @@ export const NotificationSettingsPage = () => {
   const [channelConnecting, setChannelConnecting] = useState<
     string | undefined
   >();
+  const [channelTesting, setChannelTesting] = useState<string | undefined>();
 
   // Fetch retention settings and schema (admin only)
   const fetchRetentionData = useCallback(async () => {
@@ -335,8 +336,24 @@ export const NotificationSettingsPage = () => {
                   onConnect={handleChannelConnect}
                   onDisconnect={handleChannelDisconnect}
                   onSaveConfig={handleChannelConfigSave}
+                  onTest={async (strategyId) => {
+                    setChannelTesting(strategyId);
+                    try {
+                      const result =
+                        await notificationClient.sendTestNotification({
+                          strategyId,
+                        });
+                      if (!result.success) {
+                        alert(`Test failed: ${result.error}`);
+                      }
+                      return result;
+                    } finally {
+                      setChannelTesting(undefined);
+                    }
+                  }}
                   saving={channelSaving === channel.strategyId}
                   connecting={channelConnecting === channel.strategyId}
+                  testing={channelTesting === channel.strategyId}
                 />
               ))}
             </div>
