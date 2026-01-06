@@ -203,4 +203,29 @@ describe("HttpHealthCheckStrategy Assertions", () => {
     const result = await strategy.execute(config);
     expect(result.status).toBe("healthy");
   });
+
+  it("should send custom headers with request", async () => {
+    let capturedHeaders: Record<string, string> | undefined;
+    spyOn(globalThis, "fetch").mockImplementation((async (
+      _url: RequestInfo | URL,
+      options?: RequestInit
+    ) => {
+      capturedHeaders = options?.headers as Record<string, string>;
+      return new Response(null, { status: 200 });
+    }) as unknown as typeof fetch);
+
+    const config: HttpHealthCheckConfig = {
+      ...defaultConfig,
+      headers: [
+        { name: "Authorization", value: "Bearer my-token" },
+        { name: "X-Custom-Header", value: "custom-value" },
+      ],
+    };
+
+    const result = await strategy.execute(config);
+    expect(result.status).toBe("healthy");
+    expect(capturedHeaders).toBeDefined();
+    expect(capturedHeaders?.["Authorization"]).toBe("Bearer my-token");
+    expect(capturedHeaders?.["X-Custom-Header"]).toBe("custom-value");
+  });
 });

@@ -7,6 +7,14 @@ import {
   z,
 } from "@checkmate-monitor/backend-api";
 
+/**
+ * Header configuration for custom HTTP headers.
+ */
+export const httpHeaderSchema = z.object({
+  name: z.string().min(1).describe("Header name"),
+  value: z.string().describe("Header value"),
+});
+
 export const httpHealthCheckAssertionSchema = z.object({
   path: z.string().describe("JSONPath to extract value (e.g. $.status)"),
   operator: z.enum(["equals", "contains", "matches", "exists", "notEquals"]),
@@ -20,9 +28,9 @@ export const httpHealthCheckConfigSchema = z.object({
     .default("GET")
     .describe("The HTTP method to use for the request."),
   headers: z
-    .record(z.string(), z.string())
+    .array(httpHeaderSchema)
     .optional()
-    .describe("Custom HTTP headers to send with the request (JSON object)."),
+    .describe("Custom HTTP headers to send with the request."),
   timeout: z
     .number()
     .min(100)
@@ -121,9 +129,17 @@ export class HttpHealthCheckStrategy
 
     const start = performance.now();
     try {
+      // Convert headers array to Record for fetch API
+      const headersRecord: Record<string, string> = {};
+      if (validatedConfig.headers) {
+        for (const header of validatedConfig.headers) {
+          headersRecord[header.name] = header.value;
+        }
+      }
+
       const response = await fetch(validatedConfig.url, {
         method: validatedConfig.method,
-        headers: validatedConfig.headers,
+        headers: headersRecord,
         body: validatedConfig.body,
         signal: AbortSignal.timeout(validatedConfig.timeout),
       });
