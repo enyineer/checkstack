@@ -107,9 +107,16 @@ export async function generateOpenApiSpec({
     >;
   };
 
-  // Post-process: Add x-orpc-meta to each operation
+  // Post-process: Add x-orpc-meta to each operation and prefix paths with /api
   if (spec.paths) {
-    for (const methods of Object.values(spec.paths)) {
+    const prefixedPaths: typeof spec.paths = {};
+
+    for (const [path, methods] of Object.entries(spec.paths)) {
+      // Prefix path with /api
+      const prefixedPath = `/api${path.startsWith("/") ? path : `/${path}`}`;
+      prefixedPaths[prefixedPath] = methods;
+
+      // Add metadata to each operation
       for (const operation of Object.values(methods)) {
         if (operation.operationId) {
           const meta = metadataLookup.get(operation.operationId);
@@ -119,6 +126,8 @@ export async function generateOpenApiSpec({
         }
       }
     }
+
+    spec.paths = prefixedPaths;
   }
 
   return spec as Record<string, unknown>;
