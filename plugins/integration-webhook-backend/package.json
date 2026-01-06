@@ -1,0 +1,24 @@
+{
+  "name": "@checkmate-monitor/integration-webhook-backend",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@checkmate-monitor/backend-api": "workspace:*",
+    "@checkmate-monitor/integration-backend": "workspace:*",
+    "@checkmate-monitor/integration-common": "workspace:*",
+    "@checkmate-monitor/common": "workspace:*",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.0.0",
+    "typescript": "^5.0.0",
+    "@checkmate-monitor/tsconfig": "workspace:*",
+    "@checkmate-monitor/scripts": "workspace:*"
+  }
+}

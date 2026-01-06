@@ -962,6 +962,23 @@
         "typescript": "^5.0.0",
       },
     },
+    "plugins/integration-webhook-backend": {
+      "name": "@checkmate-monitor/integration-webhook-backend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate-monitor/backend-api": "workspace:*",
+        "@checkmate-monitor/common": "workspace:*",
+        "@checkmate-monitor/integration-backend": "workspace:*",
+        "@checkmate-monitor/integration-common": "workspace:*",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkmate-monitor/scripts": "workspace:*",
+        "@checkmate-monitor/tsconfig": "workspace:*",
+        "@types/bun": "^1.0.0",
+        "typescript": "^5.0.0",
+      },
+    },
     "plugins/notification-smtp-backend": {
       "name": "@checkmate-monitor/notification-smtp-backend",
       "version": "0.0.1",
@@ -1252,6 +1269,8 @@
     "@checkmate-monitor/integration-common": ["@checkmate-monitor/integration-common@workspace:core/integration-common"],
 
     "@checkmate-monitor/integration-frontend": ["@checkmate-monitor/integration-frontend@workspace:core/integration-frontend"],
+
+    "@checkmate-monitor/integration-webhook-backend": ["@checkmate-monitor/integration-webhook-backend@workspace:plugins/integration-webhook-backend"],
 
     "@checkmate-monitor/maintenance-backend": ["@checkmate-monitor/maintenance-backend@workspace:core/maintenance-backend"],
 
