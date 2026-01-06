@@ -17,6 +17,7 @@ import {
   type IntegrationProviderInfo,
   type IntegrationEventInfo,
 } from "@checkmate-monitor/integration-common";
+import { ProviderDocumentation } from "./ProviderDocumentation";
 
 interface CreateSubscriptionDialogProps {
   open: boolean;
@@ -193,6 +194,11 @@ export const CreateSubscriptionDialog = ({
                   />
                 </div>
               </div>
+            )}
+
+            {/* Provider Documentation */}
+            {selectedProvider && (
+              <ProviderDocumentation provider={selectedProvider} />
             )}
 
             {/* Event Filter */}

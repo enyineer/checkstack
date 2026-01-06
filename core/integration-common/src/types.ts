@@ -113,6 +113,20 @@ export interface VersionedConfig<T> {
 }
 
 /**
+ * Documentation that helps users implement their endpoint for this provider.
+ */
+export interface ProviderDocumentation {
+  /** Brief setup instructions (rendered as markdown) */
+  setupGuide?: string;
+  /** Example request body (JSON string for syntax highlighting) */
+  examplePayload?: string;
+  /** HTTP headers that will be sent with each request */
+  headers?: Array<{ name: string; description: string }>;
+  /** Link to external documentation */
+  externalDocsUrl?: string;
+}
+
+/**
  * Integration provider definition.
  * Providers define how to deliver events to specific external systems.
  */
@@ -138,6 +152,12 @@ export interface IntegrationProvider<TConfig = unknown> {
    * Event IDs are fully qualified: {pluginId}.{hookId}
    */
   supportedEvents?: string[];
+
+  /**
+   * Optional documentation to help users configure their endpoints.
+   * Displayed in the UI when creating/editing subscriptions.
+   */
+  documentation?: ProviderDocumentation;
 
   /**
    * Transform and deliver the event to the external system.

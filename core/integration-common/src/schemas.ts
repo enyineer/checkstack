@@ -107,6 +107,27 @@ export type DeliveryLogQueryInput = z.infer<typeof DeliveryLogQueryInputSchema>;
 // Integration Provider Schemas
 // =============================================================================
 
+/** Documentation schema for provider setup help */
+export const ProviderDocumentationSchema = z
+  .object({
+    /** Brief setup instructions (rendered as markdown) */
+    setupGuide: z.string().optional(),
+    /** Example request body (JSON string for syntax highlighting) */
+    examplePayload: z.string().optional(),
+    /** HTTP headers that will be sent with each request */
+    headers: z
+      .array(
+        z.object({
+          name: z.string(),
+          description: z.string(),
+        })
+      )
+      .optional(),
+    /** Link to external documentation */
+    externalDocsUrl: z.string().url().optional(),
+  })
+  .optional();
+
 /** Provider info for API responses */
 export const IntegrationProviderInfoSchema = z.object({
   /** Qualified ID: {pluginId}.{providerId} */
@@ -123,6 +144,8 @@ export const IntegrationProviderInfoSchema = z.object({
   supportedEvents: z.array(z.string()).optional(),
   /** JSON Schema for provider config (for DynamicForm) */
   configSchema: z.record(z.string(), z.unknown()),
+  /** Optional documentation to help users configure their endpoints */
+  documentation: ProviderDocumentationSchema,
 });
 export type IntegrationProviderInfo = z.infer<
   typeof IntegrationProviderInfoSchema

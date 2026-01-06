@@ -35,6 +35,7 @@ export type {
   IntegrationDeliveryResult,
   TestConnectionResult,
   VersionedConfig,
+  ProviderDocumentation,
   IntegrationProvider,
   RegisteredIntegrationProvider,
   RegisteredIntegrationEvent,

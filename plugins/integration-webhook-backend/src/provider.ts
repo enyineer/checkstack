@@ -89,6 +89,49 @@ export const webhookProvider: IntegrationProvider<WebhookConfig> = {
     schema: webhookConfigSchemaV1,
   }) as VersionedConfig<WebhookConfig>,
 
+  documentation: {
+    setupGuide: `Your endpoint will receive HTTP POST requests with JSON payloads.
+
+Configure your server to:
+1. Accept POST requests at your configured URL
+2. Return a 2xx status code on success
+3. Optionally return a JSON response with an \`id\` field for tracking`,
+    examplePayload: JSON.stringify(
+      {
+        id: "del_abc123",
+        eventType: "incident.created",
+        timestamp: "2024-01-15T10:30:00.000Z",
+        subscription: {
+          id: "sub_xyz",
+          name: "My Webhook",
+        },
+        data: {
+          incidentId: "inc_123",
+          title: "API degraded performance",
+          severity: "warning",
+        },
+      },
+      // eslint-disable-next-line unicorn/no-null
+      null,
+      2
+    ),
+    headers: [
+      {
+        name: "Content-Type",
+        description: "application/json (or application/x-www-form-urlencoded)",
+      },
+      {
+        name: "X-Delivery-Id",
+        description: "Unique ID for this delivery attempt",
+      },
+      {
+        name: "X-Event-Type",
+        description: "The event type (e.g., incident.created)",
+      },
+      { name: "User-Agent", description: "Checkmate-Integration/1.0" },
+    ],
+  },
+
   async deliver(
     context: IntegrationDeliveryContext<WebhookConfig>
   ): Promise<IntegrationDeliveryResult> {

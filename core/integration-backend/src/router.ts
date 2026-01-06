@@ -305,6 +305,7 @@ export function createIntegrationRouter(deps: RouterDeps) {
         supportedEvents: p.supportedEvents,
         configSchema:
           providerRegistry.getProviderConfigSchema(p.qualifiedId) ?? {},
+        documentation: p.documentation,
       }));
     }),
 
