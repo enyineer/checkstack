@@ -61,7 +61,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 transition-opacity"
+      className="fixed inset-0 z-[100] !m-0 flex items-center justify-center bg-black bg-opacity-50 transition-opacity"
       onClick={handleBackdropClick}
     >
       <div
