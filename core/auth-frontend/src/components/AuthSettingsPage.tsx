@@ -140,6 +140,8 @@ export const AuthSettingsPage: React.FC = () => {
   const [applications, setApplications] = useState<Application[]>([]);
   const [loadingApplications, setLoadingApplications] = useState(true);
   const [applicationToDelete, setApplicationToDelete] = useState<string>();
+  const [applicationToRegenerateSecret, setApplicationToRegenerateSecret] =
+    useState<{ id: string; name: string }>();
   const [newSecretDialog, setNewSecretDialog] = useState<{
     open: boolean;
     secret: string;
@@ -486,14 +488,18 @@ export const AuthSettingsPage: React.FC = () => {
     }
   };
 
-  const handleRegenerateSecret = async (appId: string, appName: string) => {
+  const handleRegenerateSecret = async () => {
+    if (!applicationToRegenerateSecret) return;
     try {
-      const result = await authClient.regenerateApplicationSecret(appId);
+      const result = await authClient.regenerateApplicationSecret(
+        applicationToRegenerateSecret.id
+      );
       setNewSecretDialog({
         open: true,
         secret: result.secret,
-        applicationName: appName,
+        applicationName: applicationToRegenerateSecret.name,
       });
+      setApplicationToRegenerateSecret(undefined);
       toast.success("Secret regenerated");
     } catch (error: unknown) {
       toast.error(
@@ -984,7 +990,10 @@ export const AuthSettingsPage: React.FC = () => {
                             variant="ghost"
                             size="sm"
                             onClick={() =>
-                              handleRegenerateSecret(app.id, app.name)
+                              setApplicationToRegenerateSecret({
+                                id: app.id,
+                                name: app.name,
+                              })
                             }
                             title="Regenerate Secret"
                           >
@@ -1021,6 +1030,17 @@ export const AuthSettingsPage: React.FC = () => {
         onConfirm={handleDeleteApplication}
         title="Delete Application"
         message="Are you sure you want to delete this application? Its API key will stop working immediately."
+      />
+
+      {/* Regenerate Secret Confirmation */}
+      <ConfirmationModal
+        isOpen={!!applicationToRegenerateSecret}
+        onClose={() => setApplicationToRegenerateSecret(undefined)}
+        onConfirm={() => void handleRegenerateSecret()}
+        title="Regenerate Application Secret"
+        message={`Are you sure you want to regenerate the secret for "${
+          applicationToRegenerateSecret?.name ?? ""
+        }"? The current secret will stop working immediately and all calling applications will break until updated.`}
       />
 
       {/* New Secret Display Dialog */}
