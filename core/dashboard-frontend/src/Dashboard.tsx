@@ -5,7 +5,7 @@ import {
   rpcApiRef,
   ExtensionSlot,
 } from "@checkmate-monitor/frontend-api";
-import { catalogApiRef } from "@checkmate-monitor/catalog-frontend-plugin";
+import { catalogApiRef } from "@checkmate-monitor/catalog-frontend";
 import {
   catalogRoutes,
   SystemStateBadgesSlot,
