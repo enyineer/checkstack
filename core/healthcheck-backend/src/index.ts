@@ -4,7 +4,11 @@ import {
 } from "./queue-executor";
 import * as schema from "./schema";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { permissionList, pluginMetadata } from "@checkmate/healthcheck-common";
+import {
+  permissionList,
+  pluginMetadata,
+  healthCheckContract,
+} from "@checkmate/healthcheck-common";
 import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
 import { createHealthCheckRouter } from "./router";
 import { HealthCheckService } from "./service";
@@ -55,7 +59,7 @@ export default createBackendPlugin({
           database as NodePgDatabase<typeof schema>,
           healthCheckRegistry
         );
-        rpc.registerRouter(healthCheckRouter);
+        rpc.registerRouter(healthCheckRouter, healthCheckContract);
 
         logger.debug("✅ Health Check Backend initialized.");
       },

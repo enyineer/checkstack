@@ -1,6 +1,10 @@
 import * as schema from "./schema";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { permissionList, pluginMetadata } from "@checkmate/incident-common";
+import {
+  permissionList,
+  pluginMetadata,
+  incidentContract,
+} from "@checkmate/incident-common";
 import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
 import { IncidentService } from "./service";
 import { createRouter } from "./router";
@@ -34,7 +38,7 @@ export default createBackendPlugin({
           catalogClient,
           logger
         );
-        rpc.registerRouter(router);
+        rpc.registerRouter(router, incidentContract);
 
         logger.debug("✅ Incident Backend initialized.");
       },

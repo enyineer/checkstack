@@ -1,5 +1,5 @@
 import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
-import { pluginMetadata } from "@checkmate/theme-common";
+import { pluginMetadata, themeContract } from "@checkmate/theme-common";
 import { eq } from "drizzle-orm";
 import * as schema from "./schema";
 import { createThemeRouter } from "./router";
@@ -20,7 +20,7 @@ export default createBackendPlugin({
       init: async ({ database, rpc }) => {
         // Create and register the theme router
         const router = createThemeRouter(database);
-        rpc.registerRouter(router);
+        rpc.registerRouter(router, themeContract);
       },
       afterPluginsReady: async ({ database, logger, onHook }) => {
         const db = database;

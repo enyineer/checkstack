@@ -8,7 +8,11 @@ import {
   authenticationStrategyServiceRef,
   type AuthStrategy,
 } from "@checkmate/backend-api";
-import { pluginMetadata, permissionList } from "@checkmate/auth-common";
+import {
+  pluginMetadata,
+  permissionList,
+  authContract,
+} from "@checkmate/auth-common";
 import { NotificationApi } from "@checkmate/notification-common";
 import * as schema from "./schema";
 import { eq, inArray } from "drizzle-orm";
@@ -688,7 +692,7 @@ export default createBackendPlugin({
           config,
           permissionRegistry
         );
-        rpc.registerRouter(authRouter);
+        rpc.registerRouter(authRouter, authContract);
 
         // 5. Register Better Auth native handler
         rpc.registerHttpHandler((req: Request) => auth!.handler(req));

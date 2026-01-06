@@ -1,6 +1,10 @@
 import * as schema from "./schema";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { permissionList, pluginMetadata } from "@checkmate/maintenance-common";
+import {
+  permissionList,
+  pluginMetadata,
+  maintenanceContract,
+} from "@checkmate/maintenance-common";
 import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
 import { MaintenanceService } from "./service";
 import { createRouter } from "./router";
@@ -33,7 +37,7 @@ export default createBackendPlugin({
           catalogClient,
           logger
         );
-        rpc.registerRouter(router);
+        rpc.registerRouter(router, maintenanceContract);
 
         logger.debug("✅ Maintenance Backend initialized.");
       },

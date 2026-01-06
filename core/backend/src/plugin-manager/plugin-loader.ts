@@ -52,6 +52,10 @@ export interface PluginLoaderDeps {
    * Map of pluginId -> cleanup handlers (stored in registration order, executed LIFO)
    */
   cleanupHandlers: Map<string, Array<() => Promise<void>>>;
+  /**
+   * Map of pluginId -> contract for OpenAPI generation.
+   */
+  pluginContractRegistry: Map<string, AnyContractRouter>;
 }
 
 /**
@@ -133,10 +137,11 @@ export function registerPlugin({
     },
     registerRouter: (
       router: Router<AnyContractRouter, RpcContext>,
-      subpath?: string
+      contract: AnyContractRouter
     ) => {
-      const fullPath = subpath ? `${pluginId}${subpath}` : pluginId;
-      deps.pluginRpcRouters.set(fullPath, router);
+      deps.pluginRpcRouters.set(pluginId, router);
+      deps.pluginContractRegistry.set(pluginId, contract);
+      rootLogger.debug(`   -> Registered router and contract for ${pluginId}`);
     },
     registerCleanup: (cleanup: () => Promise<void>) => {
       const existing = deps.cleanupHandlers.get(pluginId) || [];

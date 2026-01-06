@@ -1,7 +1,11 @@
 import { createBackendPlugin } from "@checkmate/backend-api";
 import { type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { coreServices } from "@checkmate/backend-api";
-import { permissionList, pluginMetadata } from "@checkmate/catalog-common";
+import {
+  permissionList,
+  pluginMetadata,
+  catalogContract,
+} from "@checkmate/catalog-common";
 import { createCatalogRouter } from "./router";
 import { NotificationApi } from "@checkmate/notification-common";
 import type { InferClient } from "@checkmate/common";
@@ -41,7 +45,7 @@ export default createBackendPlugin({
           notificationClient,
           pluginId: pluginMetadata.pluginId,
         });
-        rpc.registerRouter(catalogRouter);
+        rpc.registerRouter(catalogRouter, catalogContract);
 
         logger.debug("✅ Catalog Backend initialized.");
       },

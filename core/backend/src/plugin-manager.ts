@@ -9,6 +9,7 @@ import {
   coreHooks,
   HookUnsubscribe,
 } from "@checkmate/backend-api";
+import type { AnyContractRouter } from "@orpc/contract";
 import type { Permission, PluginMetadata } from "@checkmate/common";
 
 // Extracted modules
@@ -39,6 +40,9 @@ export class PluginManager {
   // Cleanup handlers registered by plugins (LIFO execution)
   private cleanupHandlers = new Map<string, Array<() => Promise<void>>>();
 
+  // Contract registry - stores plugin contracts for OpenAPI generation
+  private pluginContractRegistry = new Map<string, AnyContractRouter>();
+
   // Hook subscriptions per plugin (for bulk unsubscribe)
   private hookSubscriptions = new Map<string, HookUnsubscribe[]>();
 
@@ -48,6 +52,7 @@ export class PluginManager {
       adminPool,
       pluginRpcRouters: this.pluginRpcRouters,
       pluginHttpHandlers: this.pluginHttpHandlers,
+      pluginContractRegistry: this.pluginContractRegistry,
     });
   }
 
@@ -78,6 +83,14 @@ export class PluginManager {
     );
   }
 
+  /**
+   * Get all registered contracts for OpenAPI generation.
+   * Returns a map of pluginId -> contract.
+   */
+  getAllContracts(): Map<string, AnyContractRouter> {
+    return new Map(this.pluginContractRegistry);
+  }
+
   async loadPlugins(rootRouter: Hono, manualPlugins: BackendPlugin[] = []) {
     await loadPluginsImpl({
       rootRouter,
@@ -92,6 +105,7 @@ export class PluginManager {
         db,
         pluginMetadataRegistry: this.pluginMetadataRegistry,
         cleanupHandlers: this.cleanupHandlers,
+        pluginContractRegistry: this.pluginContractRegistry,
       },
     });
   }
@@ -138,10 +152,11 @@ export class PluginManager {
     }
     this.hookSubscriptions.delete(pluginId);
 
-    // 4. Remove from router maps
+    // 4. Remove from router maps and contract registry
     this.pluginRpcRouters.delete(pluginId);
     this.pluginHttpHandlers.delete(pluginId);
-    rootLogger.debug(`   -> Removed routers for ${pluginId}`);
+    this.pluginContractRegistry.delete(pluginId);
+    rootLogger.debug(`   -> Removed routers and contracts for ${pluginId}`);
 
     // 5. Remove permissions from registry
     const beforeCount = this.registeredPermissions.length;
@@ -382,8 +397,9 @@ export class PluginManager {
         },
         getExtensionPoint: <T>(ref: ExtensionPoint<T>) =>
           this.extensionPointManager.getExtensionPoint(ref),
-        registerRouter: (router: unknown) => {
+        registerRouter: (router: unknown, contract: AnyContractRouter) => {
           this.pluginRpcRouters.set(metaPluginId, router);
+          this.pluginContractRegistry.set(metaPluginId, contract);
         },
         pluginManager: {
           getAllPermissions: () => this.getAllPermissions(),

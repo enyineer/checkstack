@@ -71,8 +71,13 @@ export type BackendPluginRegistry = {
   registerExtensionPoint: <T>(ref: ExtensionPoint<T>, impl: T) => void;
   getExtensionPoint: <T>(ref: ExtensionPoint<T>) => T;
   registerPermissions: (permissions: Permission[]) => void;
+  /**
+   * Registers an oRPC router and its contract for this plugin.
+   * The contract is used for OpenAPI generation.
+   */
   registerRouter: <C extends AnyContractRouter>(
-    router: Router<C, RpcContext>
+    router: Router<C, RpcContext>,
+    contract: C
   ) => void;
   /**
    * Register cleanup logic to be called when the plugin is deregistered.

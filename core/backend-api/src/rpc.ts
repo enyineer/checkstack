@@ -250,14 +250,15 @@ export const baseContractBuilder = os.use(autoAuthMiddleware).meta({});
  */
 export interface RpcService {
   /**
-   * Registers an oRPC router for this plugin.
+   * Registers an oRPC router and its contract for this plugin.
    * Routes are automatically prefixed with /api/{pluginName}/
+   * The contract is used for OpenAPI generation.
    * @param router - The oRPC router instance
-   * @param subpath - Optional subpath (defaults to "/")
+   * @param contract - The oRPC contract definition (from *-common package)
    */
   registerRouter<C extends AnyContractRouter>(
     router: Router<C, RpcContext>,
-    subpath?: string
+    contract: C
   ): void;
 
   /**

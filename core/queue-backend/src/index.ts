@@ -1,5 +1,9 @@
 import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
-import { permissionList, pluginMetadata } from "@checkmate/queue-common";
+import {
+  permissionList,
+  pluginMetadata,
+  queueContract,
+} from "@checkmate/queue-common";
 import { createQueueRouter } from "./router";
 
 export default createBackendPlugin({
@@ -18,7 +22,7 @@ export default createBackendPlugin({
 
         // 4. Register oRPC router
         const queueRouter = createQueueRouter(config);
-        rpc.registerRouter(queueRouter);
+        rpc.registerRouter(queueRouter, queueContract);
       },
     });
   },

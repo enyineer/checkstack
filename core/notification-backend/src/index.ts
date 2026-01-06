@@ -7,7 +7,11 @@ import {
   type RegisteredNotificationStrategy,
   type NotificationStrategyRegistry,
 } from "@checkmate/backend-api";
-import { permissionList, pluginMetadata } from "@checkmate/notification-common";
+import {
+  permissionList,
+  pluginMetadata,
+  notificationContract,
+} from "@checkmate/notification-common";
 import type { PluginMetadata } from "@checkmate/common";
 import { eq } from "drizzle-orm";
 
@@ -183,7 +187,7 @@ export default createBackendPlugin({
           rpcClient,
           logger
         );
-        rpc.registerRouter(router);
+        rpc.registerRouter(router, notificationContract);
 
         // Register OAuth callback handler for strategy OAuth flows
         const oauthHandler = createOAuthCallbackHandler({

@@ -40,11 +40,13 @@ export function registerCoreServices({
   adminPool,
   pluginRpcRouters,
   pluginHttpHandlers,
+  pluginContractRegistry,
 }: {
   registry: ServiceRegistry;
   adminPool: Pool;
   pluginRpcRouters: Map<string, unknown>;
   pluginHttpHandlers: Map<string, (req: Request) => Promise<Response>>;
+  pluginContractRegistry: Map<string, unknown>;
 }) {
   // 1. Database Factory (Scoped)
   registry.registerFactory(coreServices.database, async (metadata) => {
@@ -267,11 +269,11 @@ export function registerCoreServices({
   registry.registerFactory(coreServices.rpc, (metadata) => {
     const { pluginId } = metadata;
     return {
-      registerRouter: (router: unknown, subpath?: string): void => {
-        const fullPath = subpath ? `${pluginId}${subpath}` : pluginId;
-        pluginRpcRouters.set(fullPath, router);
+      registerRouter: (router: unknown, contract: unknown): void => {
+        pluginRpcRouters.set(pluginId, router);
+        pluginContractRegistry.set(pluginId, contract);
         rootLogger.debug(
-          `   -> Registered oRPC router for '${pluginId}' at '/api/${fullPath}'`
+          `   -> Registered oRPC router and contract for '${pluginId}' at '/api/${pluginId}'`
         );
       },
       registerHttpHandler: (

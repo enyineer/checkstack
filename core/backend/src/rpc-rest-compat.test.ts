@@ -27,12 +27,13 @@ describe("RPC REST Compatibility", () => {
       }),
     });
 
-    // 2. Register it in plugin manager (now using new pattern - router only, no pluginId)
+    // 2. Register it in plugin manager (now using new pattern - router AND contract required)
     // Note: In real usage, the path is derived from pluginId. For test, we manually set it.
     const rpcService = await pluginManager.getService(coreServices.rpc);
     // The new API auto-prefixes based on pluginId, but for test we need to manually set the map key
     // Since we're testing the router handler directly, we use the derived name "auth"
-    rpcService?.registerRouter(authRouter);
+    // Second argument is the contract (for OpenAPI generation) - using a mock object for test
+    rpcService?.registerRouter(authRouter, { permissions: {} });
 
     // 3. Mock the auth service to skip real authentication
     const mockAuth: any = {

@@ -20,6 +20,25 @@
         "typescript-eslint": "^8.50.0",
       },
     },
+    "core/api-docs-frontend": {
+      "name": "@checkmate/api-docs-frontend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate/auth-common": "workspace:*",
+        "@checkmate/common": "workspace:*",
+        "@checkmate/frontend-api": "workspace:*",
+        "@checkmate/ui": "workspace:*",
+        "lucide-react": "^0.344.0",
+        "react": "^18.2.0",
+        "react-router-dom": "^6.22.0",
+      },
+      "devDependencies": {
+        "@checkmate/scripts": "workspace:*",
+        "@checkmate/tsconfig": "workspace:*",
+        "@types/react": "^18.2.0",
+        "typescript": "^5.0.0",
+      },
+    },
     "core/auth-backend": {
       "name": "@checkmate/auth-backend",
       "version": "0.0.1",
@@ -1106,6 +1125,8 @@
     "@changesets/types": ["@changesets/types@6.1.0", "", {}, "sha512-rKQcJ+o1nKNgeoYRHKOS07tAMNd3YSN0uHaJOZYjBAgxfV7TUE7JE+z4BzZdQwb5hKaYbayKN5KrYV7ODb2rAA=="],
 
     "@changesets/write": ["@changesets/write@0.4.0", "", { "dependencies": { "@changesets/types": "^6.1.0", "fs-extra": "^7.0.1", "human-id": "^4.1.1", "prettier": "^2.7.1" } }, "sha512-CdTLvIOPiCNuH71pyDu3rA+Q0n65cmAbXnwWH84rKGiFumFzkmHNT8KHTMEchcxN+Kl8I54xGUhJ7l3E7X396Q=="],
+
+    "@checkmate/api-docs-frontend": ["@checkmate/api-docs-frontend@workspace:core/api-docs-frontend"],
 
     "@checkmate/auth-backend": ["@checkmate/auth-backend@workspace:core/auth-backend"],
 
