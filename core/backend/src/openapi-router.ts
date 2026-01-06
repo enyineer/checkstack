@@ -9,7 +9,7 @@ import { OpenAPIGenerator } from "@orpc/openapi";
 import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 import type { AnyContractRouter } from "@orpc/contract";
 import type { PluginManager } from "./plugin-manager";
-import type { AuthService } from "@checkmate/backend-api";
+import type { AuthService } from "@checkmate-monitor/backend-api";
 
 /**
  * Check if a user has a specific permission.

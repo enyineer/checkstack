@@ -10,7 +10,7 @@ Routes are defined in **common packages** using `createRoutes`, which establishe
 
 ```typescript
 // In your-plugin-common/src/routes.ts
-import { createRoutes } from "@checkmate/common";
+import { createRoutes } from "@checkmate-monitor/common";
 
 export const yourPluginRoutes = createRoutes("your-plugin", {
   home: "/",
@@ -31,8 +31,8 @@ Import the routes and use them with the `route` field:
 
 ```tsx
 // In your-plugin-frontend/src/index.tsx
-import { createFrontendPlugin } from "@checkmate/frontend-api";
-import { yourPluginRoutes, pluginMetadata } from "@checkmate/your-plugin-common";
+import { createFrontendPlugin } from "@checkmate-monitor/frontend-api";
+import { yourPluginRoutes, pluginMetadata } from "@checkmate-monitor/your-plugin-common";
 import { HomePage } from "./pages/HomePage";
 import { ConfigPage } from "./pages/ConfigPage";
 import { DetailPage } from "./pages/DetailPage";
@@ -59,12 +59,12 @@ export default createFrontendPlugin({
 
 ## Route Resolution
 
-Routes can be resolved using `resolveRoute` from `@checkmate/common`:
+Routes can be resolved using `resolveRoute` from `@checkmate-monitor/common`:
 
 ### In Components
 ```tsx
-import { resolveRoute } from "@checkmate/common";
-import { catalogRoutes } from "@checkmate/catalog-common";
+import { resolveRoute } from "@checkmate-monitor/common";
+import { catalogRoutes } from "@checkmate-monitor/catalog-common";
 
 // Simple route
 const configPath = resolveRoute(catalogRoutes.routes.config);
@@ -77,8 +77,8 @@ const detailPath = resolveRoute(catalogRoutes.routes.systemDetail, { systemId: "
 
 ### Using the Hook
 ```tsx
-import { usePluginRoute } from "@checkmate/frontend-api";
-import { maintenanceRoutes } from "@checkmate/maintenance-common";
+import { usePluginRoute } from "@checkmate-monitor/frontend-api";
+import { maintenanceRoutes } from "@checkmate-monitor/maintenance-common";
 
 function MyComponent() {
   const getRoute = usePluginRoute();

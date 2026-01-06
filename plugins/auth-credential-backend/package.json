@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/auth-credential-backend",
+  "name": "@checkmate-monitor/auth-credential-backend",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -11,13 +11,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@checkmate/backend-api": "workspace:*",
-    "@checkmate/auth-backend": "workspace:*",
+    "@checkmate-monitor/backend-api": "workspace:*",
+    "@checkmate-monitor/auth-backend": "workspace:*",
     "zod": "^4.2.1",
-    "@checkmate/common": "workspace:*"
+    "@checkmate-monitor/common": "workspace:*"
   },
   "devDependencies": {
-    "@checkmate/tsconfig": "workspace:*",
+    "@checkmate-monitor/tsconfig": "workspace:*",
     "typescript": "^5.9.3"
   }
 }

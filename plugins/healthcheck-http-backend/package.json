@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/healthcheck-http-backend",
+  "name": "@checkmate-monitor/healthcheck-http-backend",
   "version": "0.0.1",
   "type": "module",
   "main": "src/index.ts",
@@ -9,15 +9,15 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "@checkmate/backend-api": "workspace:*",
+    "@checkmate-monitor/backend-api": "workspace:*",
     "jsonpath-plus": "^10.3.0",
-    "@checkmate/common": "workspace:*"
+    "@checkmate-monitor/common": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "^1.0.0",
     "drizzle-kit": "^0.31.8",
     "typescript": "^5.0.0",
-    "@checkmate/tsconfig": "workspace:*",
-    "@checkmate/scripts": "workspace:*"
+    "@checkmate-monitor/tsconfig": "workspace:*",
+    "@checkmate-monitor/scripts": "workspace:*"
   }
 }

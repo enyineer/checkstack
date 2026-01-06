@@ -1,6 +1,6 @@
 import { describe, it, expect, mock } from "bun:test";
 import { createAuthRouter } from "./router";
-import { createMockRpcContext } from "@checkmate/backend-api";
+import { createMockRpcContext } from "@checkmate-monitor/backend-api";
 import { call } from "@orpc/server";
 import { z } from "zod";
 import * as schema from "./schema";

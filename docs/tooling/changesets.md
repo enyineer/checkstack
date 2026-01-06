@@ -40,8 +40,8 @@ A new markdown file will be created in `.changeset/` with a random name. The fil
 
 ```markdown
 ---
-"@checkmate/auth-backend": patch
-"@checkmate/auth-frontend": patch
+"@checkmate-monitor/auth-backend": patch
+"@checkmate-monitor/auth-frontend": patch
 ---
 
 Fixed authentication token refresh bug that caused users to be logged out unexpectedly
@@ -129,10 +129,10 @@ Changesets follow [semantic versioning (semver)](https://semver.org/):
 ```bash
 $ bun changeset
 🦋  Which packages would you like to include?
-◉ @checkmate/healthcheck-backend
+◉ @checkmate-monitor/healthcheck-backend
 
 🦋  Which packages should have a patch bump?
-◉ @checkmate/healthcheck-backend
+◉ @checkmate-monitor/healthcheck-backend
 
 🦋  Please enter a summary for this change:
 Fixed health check timeout handling to prevent false negatives
@@ -143,12 +143,12 @@ Fixed health check timeout handling to prevent false negatives
 ```bash
 $ bun changeset
 🦋  Which packages would you like to include?
-◉ @checkmate/catalog-frontend
-◉ @checkmate/catalog-backend
+◉ @checkmate-monitor/catalog-frontend
+◉ @checkmate-monitor/catalog-backend
 
 🦋  Which packages should have a minor bump?
-◉ @checkmate/catalog-frontend
-◉ @checkmate/catalog-backend
+◉ @checkmate-monitor/catalog-frontend
+◉ @checkmate-monitor/catalog-backend
 
 🦋  Please enter a summary for this change:
 Added ability to archive systems and groups in the catalog
@@ -159,10 +159,10 @@ Added ability to archive systems and groups in the catalog
 ```bash
 $ bun changeset
 🦋  Which packages would you like to include?
-◉ @checkmate/backend-api
+◉ @checkmate-monitor/backend-api
 
 🦋  Which packages should have a major bump?
-◉ @checkmate/backend-api
+◉ @checkmate-monitor/backend-api
 
 🦋  Please enter a summary for this change:
 BREAKING: Changed PluginContext interface to require logger instance

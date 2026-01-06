@@ -17,7 +17,7 @@ import {
   cn,
   DynamicIcon,
   MarkdownBlock,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 
 /**
  * User channel data from getUserDeliveryChannels endpoint

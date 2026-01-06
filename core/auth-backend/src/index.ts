@@ -7,19 +7,19 @@ import {
   coreHooks,
   authenticationStrategyServiceRef,
   type AuthStrategy,
-} from "@checkmate/backend-api";
+} from "@checkmate-monitor/backend-api";
 import {
   pluginMetadata,
   permissionList,
   authContract,
-} from "@checkmate/auth-common";
-import { NotificationApi } from "@checkmate/notification-common";
+} from "@checkmate-monitor/auth-common";
+import { NotificationApi } from "@checkmate-monitor/notification-common";
 import * as schema from "./schema";
 import { eq, inArray } from "drizzle-orm";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { User } from "better-auth/types";
 import { hashPassword, verifyPassword } from "better-auth/crypto";
-import { createExtensionPoint } from "@checkmate/backend-api";
+import { createExtensionPoint } from "@checkmate-monitor/backend-api";
 import { enrichUser } from "./utils/user";
 import { createAuthRouter } from "./router";
 import { validateStrategySchema } from "./utils/validate-schema";
@@ -703,14 +703,14 @@ export default createBackendPlugin({
         const adminUser = await database
           .select()
           .from(schema.user)
-          .where(eq(schema.user.email, "admin@checkmate.local"));
+          .where(eq(schema.user.email, "admin@checkmate-monitor.com"));
 
         if (adminUser.length === 0) {
           const adminId = "initial-admin-id";
           await database.insert(schema.user).values({
             id: adminId,
             name: "Admin",
-            email: "admin@checkmate.local",
+            email: "admin@checkmate-monitor.com",
             emailVerified: true,
             createdAt: new Date(),
             updatedAt: new Date(),
@@ -719,7 +719,7 @@ export default createBackendPlugin({
           const hashedAdminPassword = await hashPassword("admin");
           await database.insert(schema.account).values({
             id: "initial-admin-account-id",
-            accountId: "admin@checkmate.local",
+            accountId: "admin@checkmate-monitor.com",
             providerId: "credential",
             userId: adminId,
             password: hashedAdminPassword,
@@ -733,7 +733,7 @@ export default createBackendPlugin({
           });
 
           logger.info(
-            "   -> Created initial admin user (admin@checkmate.local : admin)"
+            "   -> Created initial admin user (admin@checkmate-monitor.com : admin)"
           );
         }
 

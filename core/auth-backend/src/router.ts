@@ -7,8 +7,8 @@ import {
   type AuthStrategy,
   type ConfigService,
   toJsonSchema,
-} from "@checkmate/backend-api";
-import { authContract, passwordSchema } from "@checkmate/auth-common";
+} from "@checkmate-monitor/backend-api";
+import { authContract, passwordSchema } from "@checkmate-monitor/auth-common";
 import { hashPassword } from "better-auth/crypto";
 import * as schema from "./schema";
 import { eq, inArray, and } from "drizzle-orm";

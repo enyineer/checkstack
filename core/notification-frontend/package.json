@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/notification-frontend",
+  "name": "@checkmate-monitor/notification-frontend",
   "version": "0.0.1",
   "type": "module",
   "main": "src/index.tsx",
@@ -12,12 +12,12 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "@checkmate/notification-common": "workspace:*",
-    "@checkmate/frontend-api": "workspace:*",
-    "@checkmate/auth-frontend": "workspace:*",
-    "@checkmate/signal-frontend": "workspace:*",
-    "@checkmate/common": "workspace:*",
-    "@checkmate/ui": "workspace:*",
+    "@checkmate-monitor/notification-common": "workspace:*",
+    "@checkmate-monitor/frontend-api": "workspace:*",
+    "@checkmate-monitor/auth-frontend": "workspace:*",
+    "@checkmate-monitor/signal-frontend": "workspace:*",
+    "@checkmate-monitor/common": "workspace:*",
+    "@checkmate-monitor/ui": "workspace:*",
     "react": "^18.2.0",
     "react-router-dom": "^6.22.0",
     "lucide-react": "^0.344.0"
@@ -25,7 +25,7 @@
   "devDependencies": {
     "typescript": "^5.0.0",
     "@types/react": "^18.2.0",
-    "@checkmate/tsconfig": "workspace:*",
-    "@checkmate/scripts": "workspace:*"
+    "@checkmate-monitor/tsconfig": "workspace:*",
+    "@checkmate-monitor/scripts": "workspace:*"
   }
 }

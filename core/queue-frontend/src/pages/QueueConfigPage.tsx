@@ -3,9 +3,9 @@ import {
   useApi,
   wrapInSuspense,
   permissionApiRef,
-} from "@checkmate/frontend-api";
+} from "@checkmate-monitor/frontend-api";
 import { queueApiRef } from "../api";
-import { QueuePluginDto } from "@checkmate/queue-common";
+import { QueuePluginDto } from "@checkmate-monitor/queue-common";
 import {
   Button,
   Alert,
@@ -19,7 +19,7 @@ import {
   CardHeader,
   CardTitle,
   useToast,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import { AlertTriangle, Save } from "lucide-react";
 
 const QueueConfigPageContent = () => {
@@ -60,7 +60,6 @@ const QueueConfigPageContent = () => {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast.error(`Failed to save configuration: ${message}`);
-
     } finally {
       setIsSaving(false);
     }

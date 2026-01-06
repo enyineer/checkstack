@@ -1,15 +1,15 @@
 {
-  "name": "@checkmate/queue-api",
+  "name": "@checkmate-monitor/queue-api",
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
-    "@checkmate/backend-api": "workspace:*",
+    "@checkmate-monitor/backend-api": "workspace:*",
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@checkmate/tsconfig": "workspace:*",
-    "@checkmate/scripts": "workspace:*"
+    "@checkmate-monitor/tsconfig": "workspace:*",
+    "@checkmate-monitor/scripts": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

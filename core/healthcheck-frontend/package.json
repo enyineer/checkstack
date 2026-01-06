@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/healthcheck-frontend",
+  "name": "@checkmate-monitor/healthcheck-frontend",
   "version": "0.0.1",
   "type": "module",
   "main": "src/index.tsx",
@@ -9,12 +9,12 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "@checkmate/catalog-common": "workspace:*",
-    "@checkmate/common": "workspace:*",
-    "@checkmate/frontend-api": "workspace:*",
-    "@checkmate/healthcheck-common": "workspace:*",
-    "@checkmate/signal-frontend": "workspace:*",
-    "@checkmate/ui": "workspace:*",
+    "@checkmate-monitor/catalog-common": "workspace:*",
+    "@checkmate-monitor/common": "workspace:*",
+    "@checkmate-monitor/frontend-api": "workspace:*",
+    "@checkmate-monitor/healthcheck-common": "workspace:*",
+    "@checkmate-monitor/signal-frontend": "workspace:*",
+    "@checkmate-monitor/ui": "workspace:*",
     "@types/prismjs": "^1.26.5",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
@@ -30,7 +30,7 @@
   "devDependencies": {
     "typescript": "^5.0.0",
     "@types/react": "^18.2.0",
-    "@checkmate/tsconfig": "workspace:*",
-    "@checkmate/scripts": "workspace:*"
+    "@checkmate-monitor/tsconfig": "workspace:*",
+    "@checkmate-monitor/scripts": "workspace:*"
   }
 }

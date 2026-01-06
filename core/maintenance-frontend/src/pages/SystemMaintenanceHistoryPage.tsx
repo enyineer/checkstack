@@ -1,14 +1,18 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useApi, rpcApiRef, wrapInSuspense } from "@checkmate/frontend-api";
-import { resolveRoute } from "@checkmate/common";
+import {
+  useApi,
+  rpcApiRef,
+  wrapInSuspense,
+} from "@checkmate-monitor/frontend-api";
+import { resolveRoute } from "@checkmate-monitor/common";
 import { maintenanceApiRef } from "../api";
-import { maintenanceRoutes } from "@checkmate/maintenance-common";
+import { maintenanceRoutes } from "@checkmate-monitor/maintenance-common";
 import type {
   MaintenanceWithSystems,
   MaintenanceStatus,
-} from "@checkmate/maintenance-common";
-import { catalogRoutes, CatalogApi } from "@checkmate/catalog-common";
+} from "@checkmate-monitor/maintenance-common";
+import { catalogRoutes, CatalogApi } from "@checkmate-monitor/catalog-common";
 import {
   Card,
   CardHeader,
@@ -25,7 +29,7 @@ import {
   TableCell,
   PageLayout,
   BackLink,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import { Calendar, Clock, History } from "lucide-react";
 import { format } from "date-fns";
 

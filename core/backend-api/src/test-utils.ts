@@ -2,7 +2,10 @@ import { mock } from "bun:test";
 import { RpcContext, EmitHookFn } from "./rpc";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { HealthCheckRegistry } from "./health-check";
-import { QueuePluginRegistry, QueueManager } from "@checkmate/queue-api";
+import {
+  QueuePluginRegistry,
+  QueueManager,
+} from "@checkmate-monitor/queue-api";
 
 /**
  * Creates a mocked oRPC context for testing.

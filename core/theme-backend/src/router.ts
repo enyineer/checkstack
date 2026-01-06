@@ -3,8 +3,8 @@ import {
   autoAuthMiddleware,
   type RpcContext,
   type RealUser,
-} from "@checkmate/backend-api";
-import { themeContract } from "@checkmate/theme-common";
+} from "@checkmate-monitor/backend-api";
+import { themeContract } from "@checkmate-monitor/theme-common";
 import * as schema from "./schema";
 import { eq } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";

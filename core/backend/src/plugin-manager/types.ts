@@ -1,5 +1,5 @@
-import type { ServiceRef } from "@checkmate/backend-api";
-import type { PluginMetadata } from "@checkmate/common";
+import type { ServiceRef } from "@checkmate-monitor/backend-api";
+import type { PluginMetadata } from "@checkmate-monitor/common";
 
 /** Erased callback type used in PendingInit storage */
 export type InitCallback = (deps: Record<string, unknown>) => Promise<void>;

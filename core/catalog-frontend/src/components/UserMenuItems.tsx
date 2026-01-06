@@ -1,10 +1,10 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { Settings } from "lucide-react";
-import { useApi, permissionApiRef } from "@checkmate/frontend-api";
-import { DropdownMenuItem } from "@checkmate/ui";
-import { resolveRoute } from "@checkmate/common";
-import { catalogRoutes } from "@checkmate/catalog-common";
+import { useApi, permissionApiRef } from "@checkmate-monitor/frontend-api";
+import { DropdownMenuItem } from "@checkmate-monitor/ui";
+import { resolveRoute } from "@checkmate-monitor/common";
+import { catalogRoutes } from "@checkmate-monitor/catalog-common";
 
 export const CatalogUserMenuItems = () => {
   const permissionApi = useApi(permissionApiRef);

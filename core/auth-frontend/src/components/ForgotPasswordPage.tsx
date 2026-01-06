@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { Mail, ArrowLeft, CheckCircle } from "lucide-react";
-import { authRoutes } from "@checkmate/auth-common";
-import { resolveRoute } from "@checkmate/common";
+import { authRoutes } from "@checkmate-monitor/auth-common";
+import { resolveRoute } from "@checkmate-monitor/common";
 import {
   Button,
   Input,
@@ -13,7 +13,7 @@ import {
   CardDescription,
   CardContent,
   CardFooter,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import { authClient } from "../lib/auth-client";
 
 export const ForgotPasswordPage = () => {

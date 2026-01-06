@@ -10,9 +10,9 @@ import {
   secret,
   type ConfigService,
   type Secret,
-} from "@checkmate/backend-api";
+} from "@checkmate-monitor/backend-api";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import type { NotificationStrategyRegistry } from "@checkmate/backend-api";
+import type { NotificationStrategyRegistry } from "@checkmate-monitor/backend-api";
 import type * as schema from "./schema";
 
 // Config ID patterns (module-level for lint compliance)

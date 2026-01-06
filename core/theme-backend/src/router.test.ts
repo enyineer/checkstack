@@ -1,7 +1,7 @@
 import { describe, it, expect, mock } from "bun:test";
 import { createThemeRouter } from "./router";
-import { createMockRpcContext } from "@checkmate/backend-api";
-import { createMockDb } from "@checkmate/test-utils-backend";
+import { createMockRpcContext } from "@checkmate-monitor/backend-api";
+import { createMockDb } from "@checkmate-monitor/test-utils-backend";
 import { call } from "@orpc/server";
 
 describe("Theme Router", () => {

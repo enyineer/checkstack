@@ -10,7 +10,7 @@ Minimal examples for creating Checkmate plugins. See full guides: [Backend](../b
 
 ```typescript
 // plugins/my-feature-backend/src/plugin-metadata.ts
-import { definePluginMetadata } from "@checkmate/common";
+import { definePluginMetadata } from "@checkmate-monitor/common";
 
 export const pluginMetadata = definePluginMetadata({
   pluginId: "my-feature",
@@ -21,8 +21,8 @@ export const pluginMetadata = definePluginMetadata({
 
 ```typescript
 // plugins/my-feature-backend/src/index.ts
-import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
-import { permissionList } from "@checkmate/my-feature-common";
+import { createBackendPlugin, coreServices } from "@checkmate-monitor/backend-api";
+import { permissionList } from "@checkmate-monitor/my-feature-common";
 import { createMyFeatureRouter } from "./router";
 import { pluginMetadata } from "./plugin-metadata";
 import * as schema from "./schema";
@@ -70,8 +70,8 @@ export type Item = typeof items.$inferSelect;
 ```typescript
 // plugins/my-feature-backend/src/router.ts
 import { implement } from "@orpc/server";
-import { autoAuthMiddleware, type RpcContext } from "@checkmate/backend-api";
-import { myFeatureContract } from "@checkmate/my-feature-common";
+import { autoAuthMiddleware, type RpcContext } from "@checkmate-monitor/backend-api";
+import { myFeatureContract } from "@checkmate-monitor/my-feature-common";
 
 const os = implement(myFeatureContract)
   .$context<RpcContext>()
@@ -98,7 +98,7 @@ export function createMyFeatureRouter({ database }) {
 ```typescript
 // plugins/my-feature-common/src/rpc-contract.ts
 import { oc } from "@orpc/contract";
-import type { ProcedureMetadata } from "@checkmate/common";
+import type { ProcedureMetadata } from "@checkmate-monitor/common";
 import { z } from "zod";
 import { permissions } from "./permissions";
 
@@ -122,7 +122,7 @@ export const myFeatureContract = {
 
 ```typescript
 // plugins/my-feature-common/src/permissions.ts
-import { createPermission } from "@checkmate/common";
+import { createPermission } from "@checkmate-monitor/common";
 
 export const permissions = {
   read: createPermission(
@@ -148,7 +148,7 @@ export const permissionList = Object.values(permissions);
 
 ```typescript
 // plugins/my-feature-common/src/routes.ts
-import { createRoutes } from "@checkmate/common";
+import { createRoutes } from "@checkmate-monitor/common";
 
 export const myFeatureRoutes = createRoutes("my-feature", {
   home: "/",
@@ -161,10 +161,10 @@ export const myFeatureRoutes = createRoutes("my-feature", {
 
 ```typescript
 // plugins/my-feature-frontend/src/index.tsx
-import { createFrontendPlugin, rpcApiRef, type ApiRef } from "@checkmate/frontend-api";
+import { createFrontendPlugin, rpcApiRef, type ApiRef } from "@checkmate-monitor/frontend-api";
 import { myFeatureApiRef, type MyFeatureApiClient } from "./api";
 import { ItemsPage } from "./components/ItemsPage";
-import { myFeatureRoutes, MyFeatureApi, pluginMetadata } from "@checkmate/my-feature-common";
+import { myFeatureRoutes, MyFeatureApi, pluginMetadata } from "@checkmate-monitor/my-feature-common";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,

@@ -8,9 +8,9 @@ import {
   coreServices,
   coreHooks,
   HookUnsubscribe,
-} from "@checkmate/backend-api";
+} from "@checkmate-monitor/backend-api";
 import type { AnyContractRouter } from "@orpc/contract";
-import type { Permission, PluginMetadata } from "@checkmate/common";
+import type { Permission, PluginMetadata } from "@checkmate-monitor/common";
 
 // Extracted modules
 import { registerCoreServices } from "./plugin-manager/core-services";

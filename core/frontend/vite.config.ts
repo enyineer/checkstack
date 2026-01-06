@@ -32,7 +32,7 @@ export default defineConfig(({ mode }) => {
           "react-dom",
           "react-dom/client",
           "react-router-dom",
-          "@checkmate/frontend-api",
+          "@checkmate-monitor/frontend-api",
         ],
       },
     },

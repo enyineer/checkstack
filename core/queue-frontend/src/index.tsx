@@ -1,6 +1,10 @@
-import { rpcApiRef, ApiRef, UserMenuItemsSlot } from "@checkmate/frontend-api";
+import {
+  rpcApiRef,
+  ApiRef,
+  UserMenuItemsSlot,
+} from "@checkmate-monitor/frontend-api";
 import { queueApiRef, type QueueApiClient } from "./api";
-import { createFrontendPlugin } from "@checkmate/frontend-api";
+import { createFrontendPlugin } from "@checkmate-monitor/frontend-api";
 import { QueueConfigPage } from "./pages/QueueConfigPage";
 import { QueueUserMenuItems } from "./components/UserMenuItems";
 import {
@@ -8,7 +12,7 @@ import {
   QueueApi,
   pluginMetadata,
   permissions,
-} from "@checkmate/queue-common";
+} from "@checkmate-monitor/queue-common";
 
 export const queuePlugin = createFrontendPlugin({
   metadata: pluginMetadata,

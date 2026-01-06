@@ -1,7 +1,7 @@
 import {
   HealthCheckRegistry,
   HealthCheckStrategy,
-} from "@checkmate/backend-api";
+} from "@checkmate-monitor/backend-api";
 import { rootLogger } from "../logger";
 
 export class CoreHealthCheckRegistry implements HealthCheckRegistry {

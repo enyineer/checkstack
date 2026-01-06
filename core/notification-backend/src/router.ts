@@ -10,14 +10,14 @@ import {
   type NotificationPayload,
   type NotificationSendContext,
   Logger,
-} from "@checkmate/backend-api";
+} from "@checkmate-monitor/backend-api";
 import {
   notificationContract,
   NOTIFICATION_RECEIVED,
   NOTIFICATION_READ,
-} from "@checkmate/notification-common";
-import { AuthApi } from "@checkmate/auth-common";
-import type { SignalService } from "@checkmate/signal-common";
+} from "@checkmate-monitor/notification-common";
+import { AuthApi } from "@checkmate-monitor/auth-common";
+import type { SignalService } from "@checkmate-monitor/signal-common";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import * as schema from "./schema";
 import {

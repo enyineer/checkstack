@@ -1,8 +1,11 @@
 import { implement } from "@orpc/server";
-import { autoAuthMiddleware, type RpcContext } from "@checkmate/backend-api";
-import { pluginAdminContract } from "@checkmate/backend-api";
+import {
+  autoAuthMiddleware,
+  type RpcContext,
+} from "@checkmate-monitor/backend-api";
+import { pluginAdminContract } from "@checkmate-monitor/backend-api";
 import type { PluginManager } from "../plugin-manager";
-import type { PluginInstaller } from "@checkmate/backend-api";
+import type { PluginInstaller } from "@checkmate-monitor/backend-api";
 import { db } from "../db";
 import { plugins } from "../schema";
 import { eq } from "drizzle-orm";

@@ -6,7 +6,7 @@ import {
   NavbarSlot,
   UserMenuItemsSlot,
   UserMenuItemsBottomSlot,
-} from "@checkmate/frontend-api";
+} from "@checkmate-monitor/frontend-api";
 import {
   LoginPage,
   LoginNavbarAction,
@@ -21,18 +21,18 @@ import { authClient } from "./lib/auth-client";
 
 import { usePermissions } from "./hooks/usePermissions";
 
-import { PermissionAction } from "@checkmate/common";
+import { PermissionAction } from "@checkmate-monitor/common";
 import { useNavigate } from "react-router-dom";
 import { Settings2 } from "lucide-react";
-import { DropdownMenuItem } from "@checkmate/ui";
-import { useApi } from "@checkmate/frontend-api";
+import { DropdownMenuItem } from "@checkmate-monitor/ui";
+import { useApi } from "@checkmate-monitor/frontend-api";
 import { AuthSettingsPage } from "./components/AuthSettingsPage";
 import {
   permissions as authPermissions,
   authRoutes,
   pluginMetadata,
-} from "@checkmate/auth-common";
-import { resolveRoute } from "@checkmate/common";
+} from "@checkmate-monitor/auth-common";
+import { resolveRoute } from "@checkmate-monitor/common";
 
 class AuthPermissionApi implements PermissionApi {
   usePermission(permission: string): { loading: boolean; allowed: boolean } {

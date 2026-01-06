@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Queue } from "./queue";
-import type { Migration } from "@checkmate/backend-api";
+import type { Migration } from "@checkmate-monitor/backend-api";
 
 export interface QueuePlugin<Config = unknown> {
   id: string;

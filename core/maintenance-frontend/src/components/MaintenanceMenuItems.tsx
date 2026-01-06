@@ -1,10 +1,10 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { Wrench } from "lucide-react";
-import { useApi, permissionApiRef } from "@checkmate/frontend-api";
-import { DropdownMenuItem } from "@checkmate/ui";
-import { resolveRoute } from "@checkmate/common";
-import { maintenanceRoutes } from "@checkmate/maintenance-common";
+import { useApi, permissionApiRef } from "@checkmate-monitor/frontend-api";
+import { DropdownMenuItem } from "@checkmate-monitor/ui";
+import { resolveRoute } from "@checkmate-monitor/common";
+import { maintenanceRoutes } from "@checkmate-monitor/maintenance-common";
 
 export const MaintenanceMenuItems = () => {
   const permissionApi = useApi(permissionApiRef);

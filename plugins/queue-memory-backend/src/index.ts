@@ -1,6 +1,9 @@
-import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
+import {
+  createBackendPlugin,
+  coreServices,
+} from "@checkmate-monitor/backend-api";
 import { InMemoryQueuePlugin } from "./plugin";
-import { permissionList } from "@checkmate/queue-memory-common";
+import { permissionList } from "@checkmate-monitor/queue-memory-common";
 import { pluginMetadata } from "./plugin-metadata";
 
 export default createBackendPlugin({

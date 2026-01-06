@@ -1,4 +1,7 @@
-import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
+import {
+  createBackendPlugin,
+  coreServices,
+} from "@checkmate-monitor/backend-api";
 import { HttpHealthCheckStrategy } from "./strategy";
 import { pluginMetadata } from "./plugin-metadata";
 

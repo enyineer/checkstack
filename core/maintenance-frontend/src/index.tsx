@@ -4,18 +4,18 @@ import {
   rpcApiRef,
   type ApiRef,
   UserMenuItemsSlot,
-} from "@checkmate/frontend-api";
+} from "@checkmate-monitor/frontend-api";
 import { maintenanceApiRef, type MaintenanceApiClient } from "./api";
 import {
   maintenanceRoutes,
   MaintenanceApi,
   pluginMetadata,
   permissions,
-} from "@checkmate/maintenance-common";
+} from "@checkmate-monitor/maintenance-common";
 import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
-} from "@checkmate/catalog-common";
+} from "@checkmate-monitor/catalog-common";
 import { MaintenanceConfigPage } from "./pages/MaintenanceConfigPage";
 import { SystemMaintenanceHistoryPage } from "./pages/SystemMaintenanceHistoryPage";
 import { MaintenanceDetailPage } from "./pages/MaintenanceDetailPage";

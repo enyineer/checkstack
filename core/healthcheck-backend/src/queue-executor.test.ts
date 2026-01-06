@@ -10,8 +10,12 @@ import {
   createMockQueueManager,
   createMockDb,
   createMockSignalService,
-} from "@checkmate/test-utils-backend";
-import { type HealthCheckRegistry, Versioned, z } from "@checkmate/backend-api";
+} from "@checkmate-monitor/test-utils-backend";
+import {
+  type HealthCheckRegistry,
+  Versioned,
+  z,
+} from "@checkmate-monitor/backend-api";
 import { mock } from "bun:test";
 
 // Helper to create mock health check registry

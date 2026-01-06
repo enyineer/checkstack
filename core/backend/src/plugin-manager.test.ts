@@ -5,12 +5,12 @@ import {
   createExtensionPoint,
   ServiceRef,
   coreServices,
-} from "@checkmate/backend-api";
+} from "@checkmate-monitor/backend-api";
 import {
   createMockDbModule,
   createMockLoggerModule,
   createMockLogger,
-} from "@checkmate/test-utils-backend";
+} from "@checkmate-monitor/test-utils-backend";
 import { sortPlugins } from "./plugin-manager/dependency-sorter";
 
 // Mock DB and other globals

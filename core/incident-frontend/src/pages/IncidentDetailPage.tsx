@@ -5,16 +5,16 @@ import {
   rpcApiRef,
   permissionApiRef,
   wrapInSuspense,
-} from "@checkmate/frontend-api";
-import { useSignal } from "@checkmate/signal-frontend";
-import { resolveRoute } from "@checkmate/common";
+} from "@checkmate-monitor/frontend-api";
+import { useSignal } from "@checkmate-monitor/signal-frontend";
+import { resolveRoute } from "@checkmate-monitor/common";
 import { incidentApiRef } from "../api";
 import {
   incidentRoutes,
   INCIDENT_UPDATED,
   type IncidentDetail,
-} from "@checkmate/incident-common";
-import { CatalogApi, type System } from "@checkmate/catalog-common";
+} from "@checkmate-monitor/incident-common";
+import { CatalogApi, type System } from "@checkmate-monitor/catalog-common";
 import {
   Card,
   CardHeader,
@@ -26,7 +26,7 @@ import {
   BackLink,
   useToast,
   StatusUpdateTimeline,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import {
   AlertTriangle,
   Clock,

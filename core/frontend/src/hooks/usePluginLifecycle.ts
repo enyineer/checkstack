@@ -1,10 +1,10 @@
 import { useEffect, useReducer } from "react";
-import { useSignal } from "@checkmate/signal-frontend";
+import { useSignal } from "@checkmate-monitor/signal-frontend";
 import {
   PLUGIN_INSTALLED,
   PLUGIN_DEREGISTERED,
-} from "@checkmate/signal-common";
-import { pluginRegistry } from "@checkmate/frontend-api";
+} from "@checkmate-monitor/signal-common";
+import { pluginRegistry } from "@checkmate-monitor/frontend-api";
 import { loadSinglePlugin, unloadPlugin } from "../plugin-loader";
 
 /**

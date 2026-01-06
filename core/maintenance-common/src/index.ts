@@ -30,7 +30,7 @@ export { maintenanceRoutes } from "./routes";
 // REALTIME SIGNALS
 // =============================================================================
 
-import { createSignal } from "@checkmate/signal-common";
+import { createSignal } from "@checkmate-monitor/signal-common";
 import { z } from "zod";
 
 /**

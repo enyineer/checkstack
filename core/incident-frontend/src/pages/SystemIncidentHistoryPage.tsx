@@ -1,20 +1,24 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
-import { useApi, rpcApiRef, wrapInSuspense } from "@checkmate/frontend-api";
-import { useSignal } from "@checkmate/signal-frontend";
-import { resolveRoute } from "@checkmate/common";
+import {
+  useApi,
+  rpcApiRef,
+  wrapInSuspense,
+} from "@checkmate-monitor/frontend-api";
+import { useSignal } from "@checkmate-monitor/signal-frontend";
+import { resolveRoute } from "@checkmate-monitor/common";
 import { incidentApiRef } from "../api";
 import {
   incidentRoutes,
   INCIDENT_UPDATED,
   type IncidentWithSystems,
   type IncidentStatus,
-} from "@checkmate/incident-common";
+} from "@checkmate-monitor/incident-common";
 import {
   CatalogApi,
   type System,
   catalogRoutes,
-} from "@checkmate/catalog-common";
+} from "@checkmate-monitor/catalog-common";
 import {
   Card,
   CardHeader,
@@ -24,7 +28,7 @@ import {
   LoadingSpinner,
   EmptyState,
   BackLink,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import { AlertTriangle, Clock, ChevronRight } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 

@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/auth-common",
+  "name": "@checkmate-monitor/auth-common",
   "version": "0.0.1",
   "type": "module",
   "exports": {
@@ -9,14 +9,14 @@
     }
   },
   "dependencies": {
-    "@checkmate/common": "workspace:*",
+    "@checkmate-monitor/common": "workspace:*",
     "@orpc/contract": "^1.13.2",
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@checkmate/tsconfig": "workspace:*",
+    "@checkmate-monitor/tsconfig": "workspace:*",
     "typescript": "^5.7.2",
-    "@checkmate/scripts": "workspace:*"
+    "@checkmate-monitor/scripts": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

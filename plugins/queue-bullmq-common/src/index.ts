@@ -1,4 +1,4 @@
-import { createPermission, Permission } from "@checkmate/common";
+import { createPermission, Permission } from "@checkmate-monitor/common";
 
 export const permissions = {
   queueRead: createPermission(

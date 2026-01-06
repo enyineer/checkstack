@@ -1,9 +1,12 @@
 import { createServiceRef } from "./service-ref";
 import type { RpcService } from "./rpc";
 import type { HealthCheckRegistry } from "./health-check";
-import type { QueuePluginRegistry, QueueManager } from "@checkmate/queue-api";
+import type {
+  QueuePluginRegistry,
+  QueueManager,
+} from "@checkmate-monitor/queue-api";
 import type { ConfigService } from "./config-service";
-import type { SignalService } from "@checkmate/signal-common";
+import type { SignalService } from "@checkmate-monitor/signal-common";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import {
   Logger,

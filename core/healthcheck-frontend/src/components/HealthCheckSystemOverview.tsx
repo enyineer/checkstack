@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { useApi, type SlotContext } from "@checkmate/frontend-api";
-import { useSignal } from "@checkmate/signal-frontend";
+import { useApi, type SlotContext } from "@checkmate-monitor/frontend-api";
+import { useSignal } from "@checkmate-monitor/signal-frontend";
 import { healthCheckApiRef } from "../api";
-import { SystemDetailsSlot } from "@checkmate/catalog-common";
-import { HEALTH_CHECK_STATE_CHANGED } from "@checkmate/healthcheck-common";
+import { SystemDetailsSlot } from "@checkmate-monitor/catalog-common";
+import { HEALTH_CHECK_STATE_CHANGED } from "@checkmate-monitor/healthcheck-common";
 import {
   HealthBadge,
   LoadingSpinner,
@@ -17,7 +17,7 @@ import {
   Pagination,
   usePagination,
   DateRangeFilter,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import { formatDistanceToNow } from "date-fns";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { HealthCheckSparkline } from "./HealthCheckSparkline";
@@ -27,7 +27,7 @@ import { HealthCheckStatusTimeline } from "./HealthCheckStatusTimeline";
 import type {
   StateThresholds,
   HealthCheckStatus,
-} from "@checkmate/healthcheck-common";
+} from "@checkmate-monitor/healthcheck-common";
 import { HealthCheckDiagram } from "./HealthCheckDiagram";
 
 type SlotProps = SlotContext<typeof SystemDetailsSlot>;

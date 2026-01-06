@@ -22,7 +22,7 @@ The `bun run dev` command relies on `docker-compose`. Ensure Docker Desktop is r
 
 - **Postgres Database**: Exposed on port `5432`.
 - **PgAdmin**: Exposed on port `5050` (`http://localhost:5050`).
-  - **Email**: `admin@checkmate.local`
+  - **Email**: `admin@checkmate-monitor.com`
   - **Password**: `admin`
   - **Server connection**: Use hostname `postgres` (internal Docker network) or `localhost` (if mapped). Credentials: `checkmate` / `checkmate`.
 

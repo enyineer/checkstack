@@ -1,4 +1,4 @@
-import type { Permission } from "@checkmate/common";
+import type { Permission } from "@checkmate-monitor/common";
 
 export const permissions = {
   usersRead: {

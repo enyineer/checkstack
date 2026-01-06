@@ -13,12 +13,16 @@ import {
   DashboardSlot,
   NavbarSlot,
   NavbarMainSlot,
-} from "@checkmate/frontend-api";
+} from "@checkmate-monitor/frontend-api";
 import { ConsoleLoggerApi } from "./apis/logger-api";
 import { CoreFetchApi } from "./apis/fetch-api";
 import { CoreRpcApi } from "./apis/rpc-api";
-import { PermissionDenied, LoadingSpinner, ToastProvider } from "@checkmate/ui";
-import { SignalProvider } from "@checkmate/signal-frontend";
+import {
+  PermissionDenied,
+  LoadingSpinner,
+  ToastProvider,
+} from "@checkmate-monitor/ui";
+import { SignalProvider } from "@checkmate-monitor/signal-frontend";
 import { usePluginLifecycle } from "./hooks/usePluginLifecycle";
 
 const RouteGuard: React.FC<{

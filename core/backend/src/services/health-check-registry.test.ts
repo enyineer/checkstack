@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { CoreHealthCheckRegistry } from "./health-check-registry";
-import { HealthCheckStrategy, Versioned } from "@checkmate/backend-api";
-import { createMockLogger } from "@checkmate/test-utils-backend";
+import { HealthCheckStrategy, Versioned } from "@checkmate-monitor/backend-api";
+import { createMockLogger } from "@checkmate-monitor/test-utils-backend";
 import { z } from "zod";
 
 // Mock logger

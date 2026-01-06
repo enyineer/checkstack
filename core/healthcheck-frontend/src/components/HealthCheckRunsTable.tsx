@@ -10,12 +10,12 @@ import {
   LoadingSpinner,
   Pagination,
   Button,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import { formatDistanceToNow, format } from "date-fns";
 import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
-import { healthcheckRoutes } from "@checkmate/healthcheck-common";
-import { resolveRoute } from "@checkmate/common";
+import { healthcheckRoutes } from "@checkmate-monitor/healthcheck-common";
+import { resolveRoute } from "@checkmate-monitor/common";
 
 export interface HealthCheckRunDetailed {
   id: string;

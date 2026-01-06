@@ -1,5 +1,5 @@
-import { HealthCheckRegistry, Logger } from "@checkmate/backend-api";
-import { QueueManager } from "@checkmate/queue-api";
+import { HealthCheckRegistry, Logger } from "@checkmate-monitor/backend-api";
+import { QueueManager } from "@checkmate-monitor/queue-api";
 import {
   healthCheckConfigurations,
   systemHealthChecks,
@@ -8,13 +8,13 @@ import {
 import * as schema from "./schema";
 import { eq, and, max } from "drizzle-orm";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { type SignalService } from "@checkmate/signal-common";
+import { type SignalService } from "@checkmate-monitor/signal-common";
 import {
   HEALTH_CHECK_STATE_CHANGED,
   type HealthCheckStatus,
-} from "@checkmate/healthcheck-common";
-import { CatalogApi, catalogRoutes } from "@checkmate/catalog-common";
-import { resolveRoute, type InferClient } from "@checkmate/common";
+} from "@checkmate-monitor/healthcheck-common";
+import { CatalogApi, catalogRoutes } from "@checkmate-monitor/catalog-common";
+import { resolveRoute, type InferClient } from "@checkmate-monitor/common";
 import { HealthCheckService } from "./service";
 
 type Db = NodePgDatabase<typeof schema>;

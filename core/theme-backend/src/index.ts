@@ -1,9 +1,12 @@
-import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
-import { pluginMetadata, themeContract } from "@checkmate/theme-common";
+import {
+  createBackendPlugin,
+  coreServices,
+} from "@checkmate-monitor/backend-api";
+import { pluginMetadata, themeContract } from "@checkmate-monitor/theme-common";
 import { eq } from "drizzle-orm";
 import * as schema from "./schema";
 import { createThemeRouter } from "./router";
-import { authHooks } from "@checkmate/auth-backend";
+import { authHooks } from "@checkmate-monitor/auth-backend";
 
 export default createBackendPlugin({
   metadata: pluginMetadata,

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useApi, permissionApiRef } from "@checkmate/frontend-api";
+import { useApi, permissionApiRef } from "@checkmate-monitor/frontend-api";
 import {
   Card,
   CardHeader,
@@ -32,12 +32,12 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import { authApiRef, AuthUser, Role, AuthStrategy, Permission } from "../api";
 import {
   permissions as authPermissions,
   AuthApi,
-} from "@checkmate/auth-common";
+} from "@checkmate-monitor/auth-common";
 import {
   Trash2,
   Shield,
@@ -53,7 +53,7 @@ import {
 import { RoleDialog } from "./RoleDialog";
 import { AuthStrategyCard } from "./AuthStrategyCard";
 import { CreateUserDialog } from "./CreateUserDialog";
-import { rpcApiRef } from "@checkmate/frontend-api";
+import { rpcApiRef } from "@checkmate-monitor/frontend-api";
 
 export const AuthSettingsPage: React.FC = () => {
   const authApi = useApi(authApiRef);
@@ -643,7 +643,7 @@ export const AuthSettingsPage: React.FC = () => {
                         </TableCell>
                         <TableCell className="text-right">
                           {canManageUsers.allowed &&
-                            user.email !== "admin@checkmate.local" && (
+                            user.email !== "admin@checkmate-monitor.com" && (
                               <Button
                                 variant="destructive"
                                 size="icon"

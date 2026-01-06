@@ -3,13 +3,13 @@ import {
   type AuthStrategy,
   secret,
   coreServices,
-} from "@checkmate/backend-api";
+} from "@checkmate-monitor/backend-api";
 import { pluginMetadata } from "./plugin-metadata";
 import {
   betterAuthExtensionPoint,
   redirectToAuthError,
-} from "@checkmate/auth-backend";
-import { AuthApi } from "@checkmate/auth-common";
+} from "@checkmate-monitor/auth-backend";
+import { AuthApi } from "@checkmate-monitor/auth-common";
 import { z } from "zod";
 import { Client as LdapClient } from "ldapts";
 import { hashPassword } from "better-auth/crypto";

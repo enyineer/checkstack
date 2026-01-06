@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AlertCircle } from "lucide-react";
-import { useApi, rpcApiRef } from "@checkmate/frontend-api";
+import { useApi, rpcApiRef } from "@checkmate-monitor/frontend-api";
 import { authApiRef } from "../api";
-import { AuthApi, authRoutes, passwordSchema } from "@checkmate/auth-common";
-import { resolveRoute } from "@checkmate/common";
+import {
+  AuthApi,
+  authRoutes,
+  passwordSchema,
+} from "@checkmate-monitor/auth-common";
+import { resolveRoute } from "@checkmate-monitor/common";
 import {
   Button,
   Input,
@@ -20,7 +24,7 @@ import {
   InfoBannerContent,
   InfoBannerTitle,
   InfoBannerDescription,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import { useEnabledStrategies } from "../hooks/useEnabledStrategies";
 import { SocialProviderButton } from "./SocialProviderButton";
 import { authClient } from "../lib/auth-client";

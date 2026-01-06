@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/queue-frontend",
+  "name": "@checkmate-monitor/queue-frontend",
   "version": "0.0.1",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,10 +12,10 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "@checkmate/common": "workspace:*",
-    "@checkmate/frontend-api": "workspace:*",
-    "@checkmate/queue-common": "workspace:*",
-    "@checkmate/ui": "workspace:*",
+    "@checkmate-monitor/common": "workspace:*",
+    "@checkmate-monitor/frontend-api": "workspace:*",
+    "@checkmate-monitor/queue-common": "workspace:*",
+    "@checkmate-monitor/ui": "workspace:*",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "lucide-react": "^0.468.0",
@@ -28,7 +28,7 @@
   "devDependencies": {
     "@types/react": "^18.3.18",
     "typescript": "^5.7.2",
-    "@checkmate/tsconfig": "workspace:*",
-    "@checkmate/scripts": "workspace:*"
+    "@checkmate-monitor/tsconfig": "workspace:*",
+    "@checkmate-monitor/scripts": "workspace:*"
   }
 }

@@ -1,5 +1,5 @@
-import { ExtensionSlot } from "@checkmate/frontend-api";
-import { LoadingSpinner, InfoBanner } from "@checkmate/ui";
+import { ExtensionSlot } from "@checkmate-monitor/frontend-api";
+import { LoadingSpinner, InfoBanner } from "@checkmate-monitor/ui";
 import { useHealthCheckData } from "../hooks/useHealthCheckData";
 import { HealthCheckDiagramSlot } from "../slots";
 import { AggregatedDataBanner } from "./AggregatedDataBanner";

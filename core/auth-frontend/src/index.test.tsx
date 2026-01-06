@@ -1,6 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { authPlugin } from "./index";
-import { permissionApiRef } from "@checkmate/frontend-api";
+import { permissionApiRef } from "@checkmate-monitor/frontend-api";
 import { usePermissions } from "./hooks/usePermissions";
 
 // Mock the usePermissions hook

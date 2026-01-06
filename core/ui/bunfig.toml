@@ -1,2 +1,2 @@
 [test]
-preload = ["@checkmate/test-utils-frontend/setup"]
+preload = ["@checkmate-monitor/test-utils-frontend/setup"]

@@ -5,7 +5,7 @@ import type {
   SwitchResult,
   RecurringJobInfo,
   RecurringJobDetails,
-} from "@checkmate/queue-api";
+} from "@checkmate-monitor/queue-api";
 
 /**
  * Creates a mock QueueManager for testing.

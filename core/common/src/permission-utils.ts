@@ -65,7 +65,7 @@ export function createPermission(
  *
  * @example
  * ```typescript
- * import { qualifyPermissionId } from "@checkmate/common";
+ * import { qualifyPermissionId } from "@checkmate-monitor/common";
  * import { pluginMetadata } from "./plugin-metadata";
  * import { permissions } from "./permissions";
  *

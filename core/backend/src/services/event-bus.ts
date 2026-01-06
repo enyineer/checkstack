@@ -1,11 +1,11 @@
-import type { Queue, QueueManager } from "@checkmate/queue-api";
+import type { Queue, QueueManager } from "@checkmate-monitor/queue-api";
 import type {
   Hook,
   HookSubscribeOptions,
   HookUnsubscribe,
   Logger,
-} from "@checkmate/backend-api";
-import type { EventBus as IEventBus } from "@checkmate/backend-api";
+} from "@checkmate-monitor/backend-api";
+import type { EventBus as IEventBus } from "@checkmate-monitor/backend-api";
 
 export type HookListener<T> = (payload: T) => Promise<void>;
 

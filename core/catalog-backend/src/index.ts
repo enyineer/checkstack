@@ -1,14 +1,14 @@
-import { createBackendPlugin } from "@checkmate/backend-api";
+import { createBackendPlugin } from "@checkmate-monitor/backend-api";
 import { type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { coreServices } from "@checkmate/backend-api";
+import { coreServices } from "@checkmate-monitor/backend-api";
 import {
   permissionList,
   pluginMetadata,
   catalogContract,
-} from "@checkmate/catalog-common";
+} from "@checkmate-monitor/catalog-common";
 import { createCatalogRouter } from "./router";
-import { NotificationApi } from "@checkmate/notification-common";
-import type { InferClient } from "@checkmate/common";
+import { NotificationApi } from "@checkmate-monitor/notification-common";
+import type { InferClient } from "@checkmate-monitor/common";
 
 // Database schema is still needed for types in creating the router
 import * as schema from "./schema";

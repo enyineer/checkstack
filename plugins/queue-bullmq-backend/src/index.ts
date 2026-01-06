@@ -1,6 +1,9 @@
-import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
+import {
+  createBackendPlugin,
+  coreServices,
+} from "@checkmate-monitor/backend-api";
 import { BullMQPlugin } from "./plugin";
-import { permissionList } from "@checkmate/queue-bullmq-common";
+import { permissionList } from "@checkmate-monitor/queue-bullmq-common";
 import { pluginMetadata } from "./plugin-metadata";
 
 export default createBackendPlugin({

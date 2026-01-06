@@ -15,7 +15,7 @@ export default defineConfig({
         react: require.resolve("react"),
         "react-dom-client": require.resolve("react-dom/client"),
         "react-router-dom": require.resolve("react-router-dom"),
-        "frontend-api": require.resolve("@checkmate/frontend-api"),
+        "frontend-api": require.resolve("@checkmate-monitor/frontend-api"),
       },
       formats: ["es"],
     },

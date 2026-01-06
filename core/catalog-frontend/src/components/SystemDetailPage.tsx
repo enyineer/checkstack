@@ -1,14 +1,14 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useApi, rpcApiRef } from "@checkmate/frontend-api";
+import { useApi, rpcApiRef } from "@checkmate-monitor/frontend-api";
 import { catalogApiRef, System, Group } from "../api";
-import { ExtensionSlot } from "@checkmate/frontend-api";
+import { ExtensionSlot } from "@checkmate-monitor/frontend-api";
 import {
   SystemDetailsSlot,
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
-} from "@checkmate/catalog-common";
-import { NotificationApi } from "@checkmate/notification-common";
+} from "@checkmate-monitor/catalog-common";
+import { NotificationApi } from "@checkmate-monitor/notification-common";
 import {
   Card,
   CardHeader,
@@ -17,8 +17,8 @@ import {
   LoadingSpinner,
   SubscribeButton,
   useToast,
-} from "@checkmate/ui";
-import { authApiRef } from "@checkmate/auth-frontend/api";
+} from "@checkmate-monitor/ui";
+import { authApiRef } from "@checkmate-monitor/auth-frontend/api";
 
 import {
   ArrowLeft,

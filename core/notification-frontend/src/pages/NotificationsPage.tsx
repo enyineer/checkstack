@@ -12,10 +12,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   Markdown,
-} from "@checkmate/ui";
-import { useApi, rpcApiRef } from "@checkmate/frontend-api";
-import type { Notification } from "@checkmate/notification-common";
-import { NotificationApi } from "@checkmate/notification-common";
+} from "@checkmate-monitor/ui";
+import { useApi, rpcApiRef } from "@checkmate-monitor/frontend-api";
+import type { Notification } from "@checkmate-monitor/notification-common";
+import { NotificationApi } from "@checkmate-monitor/notification-common";
 
 export const NotificationsPage = () => {
   const rpcApi = useApi(rpcApiRef);

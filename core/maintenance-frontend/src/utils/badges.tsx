@@ -1,6 +1,6 @@
 import React from "react";
-import { Badge } from "@checkmate/ui";
-import type { MaintenanceStatus } from "@checkmate/maintenance-common";
+import { Badge } from "@checkmate-monitor/ui";
+import type { MaintenanceStatus } from "@checkmate-monitor/maintenance-common";
 
 /**
  * Returns a styled badge for the given maintenance status.

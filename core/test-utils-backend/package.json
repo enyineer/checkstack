@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/test-utils-backend",
+  "name": "@checkmate-monitor/test-utils-backend",
   "version": "0.0.1",
   "type": "module",
   "main": "src/index.ts",
@@ -9,14 +9,14 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "@checkmate/backend-api": "workspace:*",
-    "@checkmate/common": "workspace:*",
-    "@checkmate/queue-api": "workspace:*",
-    "@checkmate/signal-common": "workspace:*"
+    "@checkmate-monitor/backend-api": "workspace:*",
+    "@checkmate-monitor/common": "workspace:*",
+    "@checkmate-monitor/queue-api": "workspace:*",
+    "@checkmate-monitor/signal-common": "workspace:*"
   },
   "devDependencies": {
-    "@checkmate/tsconfig": "workspace:*",
-    "@checkmate/scripts": "workspace:*",
+    "@checkmate-monitor/tsconfig": "workspace:*",
+    "@checkmate-monitor/scripts": "workspace:*",
     "@types/bun": "latest",
     "zod": "^4.0.0"
   }

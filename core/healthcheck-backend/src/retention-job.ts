@@ -7,8 +7,11 @@ import {
   DEFAULT_RETENTION_CONFIG,
 } from "./schema";
 import { eq, and, lt, sql } from "drizzle-orm";
-import type { HealthCheckRegistry, Logger } from "@checkmate/backend-api";
-import type { QueueManager } from "@checkmate/queue-api";
+import type {
+  HealthCheckRegistry,
+  Logger,
+} from "@checkmate-monitor/backend-api";
+import type { QueueManager } from "@checkmate-monitor/queue-api";
 
 type Db = NodePgDatabase<typeof schema>;
 

@@ -91,7 +91,7 @@ Strategies can have up to three configuration layers:
 
 ```typescript
 import { z } from "zod";
-import { secret, color, Versioned } from "@checkmate/backend-api";
+import { secret, color, Versioned } from "@checkmate-monitor/backend-api";
 
 // Infrastructure config (SMTP server, API keys)
 const smtpConfigSchemaV1 = z.object({
@@ -124,7 +124,7 @@ import {
   markdownToHtml,
   markdownToPlainText,
   wrapInEmailLayout,
-} from "@checkmate/backend-api";
+} from "@checkmate-monitor/backend-api";
 
 const smtpStrategy: NotificationStrategy<SmtpConfig, undefined, SmtpLayoutConfig> = {
   id: "smtp",
@@ -172,8 +172,8 @@ const smtpStrategy: NotificationStrategy<SmtpConfig, undefined, SmtpLayoutConfig
 ### 4. Register via Extension Point
 
 ```typescript
-import { createBackendPlugin } from "@checkmate/backend-api";
-import { notificationStrategyExtensionPoint } from "@checkmate/notification-backend";
+import { createBackendPlugin } from "@checkmate-monitor/backend-api";
+import { notificationStrategyExtensionPoint } from "@checkmate-monitor/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
 
 export default createBackendPlugin({
@@ -224,7 +224,7 @@ import {
   markdownToHtml, 
   markdownToPlainText, 
   markdownToSlackMrkdwn 
-} from "@checkmate/backend-api";
+} from "@checkmate-monitor/backend-api";
 
 // Email strategy
 const bodyHtml = markdownToHtml(notification.body);
@@ -272,7 +272,7 @@ const strategy: NotificationStrategy<Config, undefined, LayoutConfig> = {
 The `wrapInEmailLayout()` utility generates a responsive HTML email template:
 
 ```typescript
-import { wrapInEmailLayout } from "@checkmate/backend-api";
+import { wrapInEmailLayout } from "@checkmate-monitor/backend-api";
 
 const html = wrapInEmailLayout({
   title: notification.title,
@@ -476,7 +476,7 @@ async send(context) {
 Use platform branded types for specialized UI and validation:
 
 ```typescript
-import { secret, color } from "@checkmate/backend-api";
+import { secret, color } from "@checkmate-monitor/backend-api";
 
 const config = z.object({
   // Secrets: rendered as password inputs, encrypted at rest
@@ -493,7 +493,7 @@ const config = z.object({
 Always use the platform utilities for converting notification body content:
 
 ```typescript
-import { markdownToHtml, markdownToPlainText } from "@checkmate/backend-api";
+import { markdownToHtml, markdownToPlainText } from "@checkmate-monitor/backend-api";
 
 // Rich content (email)
 const html = markdownToHtml(notification.body);
@@ -507,7 +507,7 @@ const text = markdownToPlainText(notification.body);
 For email strategies, use `wrapInEmailLayout()` for consistent, responsive emails:
 
 ```typescript
-import { wrapInEmailLayout } from "@checkmate/backend-api";
+import { wrapInEmailLayout } from "@checkmate-monitor/backend-api";
 
 const html = wrapInEmailLayout({
   title: notification.title,

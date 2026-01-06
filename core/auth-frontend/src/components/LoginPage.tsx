@@ -8,9 +8,9 @@ import {
   rpcApiRef,
   UserMenuItemsSlot,
   UserMenuItemsBottomSlot,
-} from "@checkmate/frontend-api";
-import { AuthApi, authRoutes } from "@checkmate/auth-common";
-import { resolveRoute } from "@checkmate/common";
+} from "@checkmate-monitor/frontend-api";
+import { AuthApi, authRoutes } from "@checkmate-monitor/auth-common";
+import { resolveRoute } from "@checkmate-monitor/common";
 import {
   Button,
   Input,
@@ -34,7 +34,7 @@ import {
   InfoBannerContent,
   InfoBannerTitle,
   InfoBannerDescription,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import { authApiRef } from "../api";
 import { useEnabledStrategies } from "../hooks/useEnabledStrategies";
 import { SocialProviderButton } from "./SocialProviderButton";

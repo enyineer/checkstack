@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 import { loadPlugins } from "./plugin-loader.ts";
-import { ThemeProvider } from "@checkmate/ui";
+import { ThemeProvider } from "@checkmate-monitor/ui";
 
 // Initialize plugins before rendering
 await loadPlugins();

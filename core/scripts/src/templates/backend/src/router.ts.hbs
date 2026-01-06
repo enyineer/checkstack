@@ -1,6 +1,6 @@
 import { implement } from "@orpc/server";
-import { autoAuthMiddleware, type RpcContext } from "@checkmate/backend-api";
-import { {{pluginNameCamel}}Contract } from "@checkmate/{{pluginBaseName}}-common";
+import { autoAuthMiddleware, type RpcContext } from "@checkmate-monitor/backend-api";
+import { {{pluginNameCamel}}Contract } from "@checkmate-monitor/{{pluginBaseName}}-common";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type * as schema from "./schema";
 import { {{pluginNamePascal}}Service } from "./service";

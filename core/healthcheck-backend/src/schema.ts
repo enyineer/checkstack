@@ -10,8 +10,8 @@ import {
   primaryKey,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import type { StateThresholds } from "@checkmate/healthcheck-common";
-import type { VersionedRecord } from "@checkmate/backend-api";
+import type { StateThresholds } from "@checkmate-monitor/healthcheck-common";
+import type { VersionedRecord } from "@checkmate-monitor/backend-api";
 
 /**
  * Type alias for versioned state thresholds stored in the database.

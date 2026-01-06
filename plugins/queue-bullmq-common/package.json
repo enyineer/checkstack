@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/queue-bullmq-common",
+  "name": "@checkmate-monitor/queue-bullmq-common",
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.ts",
@@ -9,11 +9,11 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "@checkmate/common": "workspace:*"
+    "@checkmate-monitor/common": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@checkmate/tsconfig": "workspace:*",
-    "@checkmate/scripts": "workspace:*"
+    "@checkmate-monitor/tsconfig": "workspace:*",
+    "@checkmate-monitor/scripts": "workspace:*"
   }
 }

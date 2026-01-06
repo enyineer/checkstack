@@ -7,7 +7,7 @@
     "plugins/_test-scaffolds/*"
   ],
   "scripts": {
-    "dev": "docker compose up -d && bun run --filter '@checkmate/backend' --filter '@checkmate/frontend' dev",
+    "dev": "docker compose up -d && bun run --filter '@checkmate-monitor/backend' --filter '@checkmate-monitor/frontend' dev",
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "bun run lint:code && bun run lint:deps",
     "lint:code": "bun run eslint .",

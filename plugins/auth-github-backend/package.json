@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/auth-github-backend",
+  "name": "@checkmate-monitor/auth-github-backend",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -11,13 +11,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@checkmate/backend-api": "workspace:*",
-    "@checkmate/auth-backend": "workspace:*",
-    "@checkmate/common": "workspace:*",
+    "@checkmate-monitor/backend-api": "workspace:*",
+    "@checkmate-monitor/auth-backend": "workspace:*",
+    "@checkmate-monitor/common": "workspace:*",
     "zod": "^4.2.1"
   },
   "devDependencies": {
-    "@checkmate/tsconfig": "workspace:*",
+    "@checkmate-monitor/tsconfig": "workspace:*",
     "typescript": "^5.9.3"
   }
 }

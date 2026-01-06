@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/notification-smtp-backend",
+  "name": "@checkmate-monitor/notification-smtp-backend",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -11,15 +11,15 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@checkmate/backend-api": "workspace:*",
-    "@checkmate/notification-backend": "workspace:*",
-    "@checkmate/common": "workspace:*",
+    "@checkmate-monitor/backend-api": "workspace:*",
+    "@checkmate-monitor/notification-backend": "workspace:*",
+    "@checkmate-monitor/common": "workspace:*",
     "nodemailer": "^7.0.3",
     "zod": "^4.2.1"
   },
   "devDependencies": {
     "@types/nodemailer": "^6.4.17",
-    "@checkmate/tsconfig": "workspace:*",
+    "@checkmate-monitor/tsconfig": "workspace:*",
     "typescript": "^5.9.3"
   }
 }

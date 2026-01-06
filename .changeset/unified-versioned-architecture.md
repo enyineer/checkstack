@@ -1,9 +1,9 @@
 ---
-"@checkmate/backend-api": major
-"@checkmate/backend": patch
-"@checkmate/queue-api": patch
-"@checkmate/healthcheck-backend": patch
-"@checkmate/healthcheck-http-backend": patch
+"@checkmate-monitor/backend-api": major
+"@checkmate-monitor/backend": patch
+"@checkmate-monitor/queue-api": patch
+"@checkmate-monitor/healthcheck-backend": patch
+"@checkmate-monitor/healthcheck-http-backend": patch
 ---
 
 ## Breaking: Unified Versioned<T> Architecture

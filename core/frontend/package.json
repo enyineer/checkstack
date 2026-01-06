@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/frontend",
+  "name": "@checkmate-monitor/frontend",
   "version": "0.0.1",
   "type": "module",
   "scripts": {
@@ -12,13 +12,13 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "@checkmate/auth-frontend": "workspace:*",
-    "@checkmate/catalog-frontend": "workspace:*",
-    "@checkmate/common": "workspace:*",
-    "@checkmate/frontend-api": "workspace:*",
-    "@checkmate/signal-common": "workspace:*",
-    "@checkmate/signal-frontend": "workspace:*",
-    "@checkmate/ui": "workspace:*",
+    "@checkmate-monitor/auth-frontend": "workspace:*",
+    "@checkmate-monitor/catalog-frontend": "workspace:*",
+    "@checkmate-monitor/common": "workspace:*",
+    "@checkmate-monitor/frontend-api": "workspace:*",
+    "@checkmate-monitor/signal-common": "workspace:*",
+    "@checkmate-monitor/signal-frontend": "workspace:*",
+    "@checkmate-monitor/ui": "workspace:*",
     "@orpc/client": "^1.13.2",
     "better-auth": "^1.1.8",
     "class-variance-authority": "^0.7.0",
@@ -30,8 +30,8 @@
     "tailwind-merge": "^2.2.0"
   },
   "devDependencies": {
-    "@checkmate/scripts": "workspace:*",
-    "@checkmate/tsconfig": "workspace:*",
+    "@checkmate-monitor/scripts": "workspace:*",
+    "@checkmate-monitor/tsconfig": "workspace:*",
     "@types/react": "^18.2.64",
     "@types/react-dom": "^18.2.21",
     "@vitejs/plugin-react": "^4.2.1",

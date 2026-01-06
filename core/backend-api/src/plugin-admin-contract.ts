@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { oc } from "@orpc/contract";
-import type { ProcedureMetadata } from "@checkmate/common";
-import type { Permission } from "@checkmate/common";
+import type { ProcedureMetadata } from "@checkmate-monitor/common";
+import type { Permission } from "@checkmate-monitor/common";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Permissions

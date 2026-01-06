@@ -1,5 +1,8 @@
-import { createBackendPlugin, type AuthStrategy } from "@checkmate/backend-api";
-import { betterAuthExtensionPoint } from "@checkmate/auth-backend";
+import {
+  createBackendPlugin,
+  type AuthStrategy,
+} from "@checkmate-monitor/backend-api";
+import { betterAuthExtensionPoint } from "@checkmate-monitor/auth-backend";
 import { z } from "zod";
 import { pluginMetadata } from "./plugin-metadata";
 

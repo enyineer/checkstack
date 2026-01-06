@@ -1,5 +1,5 @@
 import type { Versioned, VersionedRecord } from "./config-versioning";
-import type { PluginMetadata } from "@checkmate/common";
+import type { PluginMetadata } from "@checkmate-monitor/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Contact Resolution Types

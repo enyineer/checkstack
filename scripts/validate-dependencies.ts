@@ -26,14 +26,14 @@ function getPackageType(packageName: string): PackageType {
   if (packageName.endsWith("-frontend-plugin")) return "frontend";
   if (packageName.endsWith("-backend")) return "backend";
   if (packageName.endsWith("-backend-plugin")) return "backend";
-  if (packageName.startsWith("@checkmate/common")) return "common";
-  if (packageName.startsWith("@checkmate/frontend")) return "frontend";
-  if (packageName.startsWith("@checkmate/backend")) return "backend";
-  if (packageName.startsWith("@checkmate/ui")) return "frontend"; // UI is frontend
-  if (packageName === "@checkmate/queue-api") return "backend"; // Queue API is backend
+  if (packageName.startsWith("@checkmate-monitor/common")) return "common";
+  if (packageName.startsWith("@checkmate-monitor/frontend")) return "frontend";
+  if (packageName.startsWith("@checkmate-monitor/backend")) return "backend";
+  if (packageName.startsWith("@checkmate-monitor/ui")) return "frontend"; // UI is frontend
+  if (packageName === "@checkmate-monitor/queue-api") return "backend"; // Queue API is backend
 
   // Core packages (can be used by everyone)
-  if (packageName === "@checkmate/common") return "core";
+  if (packageName === "@checkmate-monitor/common") return "core";
 
   return "unknown";
 }
@@ -50,8 +50,8 @@ function isDependencyAllowed(
   // Core packages can be used by everyone
   if (depType === "core") return true;
 
-  // External packages (not @checkmate/*) are allowed
-  if (!dependencyName.startsWith("@checkmate/")) return true;
+  // External packages (not @checkmate-monitor/*) are allowed
+  if (!dependencyName.startsWith("@checkmate-monitor/")) return true;
 
   // Check architecture rules
   switch (packageType) {

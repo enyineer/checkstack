@@ -5,7 +5,7 @@ import {
   HealthCheckRunForAggregation,
   Versioned,
   z,
-} from "@checkmate/backend-api";
+} from "@checkmate-monitor/backend-api";
 
 export const httpHealthCheckAssertionSchema = z.object({
   path: z.string().describe("JSONPath to extract value (e.g. $.status)"),

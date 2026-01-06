@@ -87,11 +87,14 @@ describe("CLI Template Scaffolding", () => {
 
       it("should pass typecheck", () => {
         try {
-          execSync(`bun run --filter '@checkmate/${pluginName}' typecheck`, {
-            cwd: rootDir,
-            stdio: "pipe",
-            timeout: 60_000,
-          });
+          execSync(
+            `bun run --filter '@checkmate-monitor/${pluginName}' typecheck`,
+            {
+              cwd: rootDir,
+              stdio: "pipe",
+              timeout: 60_000,
+            }
+          );
         } catch (error) {
           const execError = error as { stderr?: Buffer; stdout?: Buffer };
           const stderr = execError.stderr?.toString() ?? "";

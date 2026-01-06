@@ -1,4 +1,4 @@
-import { QueuePlugin, QueuePluginRegistry } from "@checkmate/queue-api";
+import { QueuePlugin, QueuePluginRegistry } from "@checkmate-monitor/queue-api";
 
 export class QueuePluginRegistryImpl implements QueuePluginRegistry {
   private plugins = new Map<string, QueuePlugin<unknown>>();

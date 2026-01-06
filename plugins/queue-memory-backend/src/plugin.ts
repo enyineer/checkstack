@@ -1,4 +1,4 @@
-import { QueuePlugin, Queue } from "@checkmate/queue-api";
+import { QueuePlugin, Queue } from "@checkmate-monitor/queue-api";
 import { z } from "zod";
 import { InMemoryQueue } from "./memory-queue";
 

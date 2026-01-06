@@ -36,9 +36,9 @@ graph LR
 
 | Package | Purpose |
 |---------|---------|
-| `@checkmate/signal-common` | Shared types, `Signal` interface, `createSignal()` factory |
-| `@checkmate/signal-backend` | `SignalServiceImpl`, WebSocket handler for Bun |
-| `@checkmate/signal-frontend` | React `SignalProvider` and `useSignal()` hook |
+| `@checkmate-monitor/signal-common` | Shared types, `Signal` interface, `createSignal()` factory |
+| `@checkmate-monitor/signal-backend` | `SignalServiceImpl`, WebSocket handler for Bun |
+| `@checkmate-monitor/signal-frontend` | React `SignalProvider` and `useSignal()` hook |
 
 ---
 
@@ -47,7 +47,7 @@ graph LR
 Signals are defined in `-common` packages using `createSignal()`:
 
 ```typescript
-import { createSignal } from "@checkmate/signal-common";
+import { createSignal } from "@checkmate-monitor/signal-common";
 import { z } from "zod";
 
 export const NOTIFICATION_RECEIVED = createSignal(
@@ -80,7 +80,7 @@ Examples:
 The `SignalService` is available via `coreServices`:
 
 ```typescript
-import { coreServices } from "@checkmate/backend-api";
+import { coreServices } from "@checkmate-monitor/backend-api";
 
 // In a plugin init
 const signalService = await services.get(coreServices.signalService);
@@ -91,7 +91,7 @@ const signalService = await services.get(coreServices.signalService);
 #### Broadcast (All Clients)
 
 ```typescript
-import { SYSTEM_MAINTENANCE } from "@checkmate/system-common";
+import { SYSTEM_MAINTENANCE } from "@checkmate-monitor/system-common";
 
 // All connected clients receive this
 await signalService.broadcast(SYSTEM_MAINTENANCE, {
@@ -103,7 +103,7 @@ await signalService.broadcast(SYSTEM_MAINTENANCE, {
 #### To Specific User
 
 ```typescript
-import { NOTIFICATION_RECEIVED } from "@checkmate/notification-common";
+import { NOTIFICATION_RECEIVED } from "@checkmate-monitor/notification-common";
 
 // Only this user's connections receive it
 await signalService.sendToUser(NOTIFICATION_RECEIVED, userId, {
@@ -143,7 +143,7 @@ sequenceDiagram
 ```
 
 ```typescript
-import { pluginMetadata, permissions, HEALTH_STATE_CHANGED } from "@checkmate/healthcheck-common";
+import { pluginMetadata, permissions, HEALTH_STATE_CHANGED } from "@checkmate-monitor/healthcheck-common";
 
 // Only users with the permission receive the signal
 await signalService.sendToAuthorizedUsers(
@@ -167,7 +167,7 @@ The `SignalProvider` wraps the application and manages the WebSocket connection:
 
 ```tsx
 // App.tsx
-import { SignalProvider } from "@checkmate/signal-frontend";
+import { SignalProvider } from "@checkmate-monitor/signal-frontend";
 
 function App() {
   return (
@@ -183,8 +183,8 @@ function App() {
 Subscribe to signals in any component:
 
 ```tsx
-import { useSignal } from "@checkmate/signal-frontend";
-import { NOTIFICATION_RECEIVED } from "@checkmate/notification-common";
+import { useSignal } from "@checkmate-monitor/signal-frontend";
+import { NOTIFICATION_RECEIVED } from "@checkmate-monitor/notification-common";
 import { useCallback } from "react";
 
 function NotificationBell() {
@@ -210,7 +210,7 @@ function NotificationBell() {
 Check connection status:
 
 ```tsx
-import { useSignalConnection } from "@checkmate/signal-frontend";
+import { useSignalConnection } from "@checkmate-monitor/signal-frontend";
 
 function ConnectionIndicator() {
   const { isConnected } = useSignalConnection();

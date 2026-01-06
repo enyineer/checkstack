@@ -6,7 +6,10 @@ import {
   useState,
   useCallback,
 } from "react";
-import type { Signal, ServerToClientMessage } from "@checkmate/signal-common";
+import type {
+  Signal,
+  ServerToClientMessage,
+} from "@checkmate-monitor/signal-common";
 
 // =============================================================================
 // CONTEXT TYPES

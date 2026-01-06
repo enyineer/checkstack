@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/test-utils-frontend",
+  "name": "@checkmate-monitor/test-utils-frontend",
   "version": "0.0.1",
   "type": "module",
   "exports": {
@@ -26,8 +26,8 @@
   "devDependencies": {
     "typescript": "^5.0.0",
     "@types/react": "^18.2.0",
-    "@checkmate/tsconfig": "workspace:*",
-    "@checkmate/scripts": "workspace:*"
+    "@checkmate-monitor/tsconfig": "workspace:*",
+    "@checkmate-monitor/scripts": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

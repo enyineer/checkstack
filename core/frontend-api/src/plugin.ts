@@ -5,7 +5,7 @@ import type {
   RouteDefinition,
   PluginMetadata,
   Permission,
-} from "@checkmate/common";
+} from "@checkmate-monitor/common";
 
 /**
  * Extract the context type from a SlotDefinition

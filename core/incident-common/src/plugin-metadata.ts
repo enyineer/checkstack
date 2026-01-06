@@ -1,4 +1,4 @@
-import { definePluginMetadata } from "@checkmate/common";
+import { definePluginMetadata } from "@checkmate-monitor/common";
 
 /**
  * Plugin metadata for the incident plugin.

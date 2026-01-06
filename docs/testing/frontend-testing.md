@@ -8,12 +8,12 @@ This guide explains how to test React components and hooks in frontend plugins u
 
 ### 1. Add the Test Utils Dependency
 
-Add `@checkmate/test-utils-frontend` to your package's `devDependencies`:
+Add `@checkmate-monitor/test-utils-frontend` to your package's `devDependencies`:
 
 ```json
 {
   "devDependencies": {
-    "@checkmate/test-utils-frontend": "workspace:*"
+    "@checkmate-monitor/test-utils-frontend": "workspace:*"
   }
 }
 ```
@@ -24,7 +24,7 @@ Create a `bunfig.toml` file in your package root:
 
 ```toml
 [test]
-preload = ["@checkmate/test-utils-frontend/setup"]
+preload = ["@checkmate-monitor/test-utils-frontend/setup"]
 ```
 
 This single preload file:
@@ -84,7 +84,7 @@ bun test --filter your-package
 
 ## What's Included
 
-The `@checkmate/test-utils-frontend` package includes:
+The `@checkmate-monitor/test-utils-frontend` package includes:
 
 | Package | Purpose |
 |---------|---------|
@@ -98,7 +98,7 @@ The `@checkmate/test-utils-frontend` package includes:
 For convenience, common utilities are re-exported from the main entry:
 
 ```typescript
-import { render, screen, renderHook, act, waitFor } from "@checkmate/test-utils-frontend";
+import { render, screen, renderHook, act, waitFor } from "@checkmate-monitor/test-utils-frontend";
 ```
 
 ## Limitations
@@ -130,14 +130,14 @@ it("should call fetch with correct params", () => {
 
 ## E2E Testing with Playwright
 
-For end-to-end testing of frontend plugins, use Playwright through the same `@checkmate/test-utils-frontend` package.
+For end-to-end testing of frontend plugins, use Playwright through the same `@checkmate-monitor/test-utils-frontend` package.
 
 ### Quick Setup
 
 #### 1. Create playwright.config.ts
 
 ```typescript
-import { createPlaywrightConfig } from "@checkmate/test-utils-frontend/playwright";
+import { createPlaywrightConfig } from "@checkmate-monitor/test-utils-frontend/playwright";
 
 export default createPlaywrightConfig({
   baseURL: "http://localhost:5173",
@@ -152,7 +152,7 @@ Create an `e2e/` directory and add test files with `.e2e.ts` extension:
 
 ```typescript
 // e2e/login.e2e.ts
-import { test, expect } from "@checkmate/test-utils-frontend/playwright";
+import { test, expect } from "@checkmate-monitor/test-utils-frontend/playwright";
 
 test.describe("Login Page", () => {
   test("should display the login page", async ({ page }) => {

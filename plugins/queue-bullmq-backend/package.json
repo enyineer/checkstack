@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/queue-bullmq-backend",
+  "name": "@checkmate-monitor/queue-bullmq-backend",
   "version": "0.1.0",
   "type": "module",
   "main": "src/index.ts",
@@ -9,17 +9,17 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "@checkmate/backend-api": "workspace:*",
-    "@checkmate/queue-api": "workspace:*",
-    "@checkmate/queue-bullmq-common": "workspace:*",
+    "@checkmate-monitor/backend-api": "workspace:*",
+    "@checkmate-monitor/queue-api": "workspace:*",
+    "@checkmate-monitor/queue-bullmq-common": "workspace:*",
     "bullmq": "^5.66.4",
     "zod": "^4.0.0",
-    "@checkmate/common": "workspace:*"
+    "@checkmate-monitor/common": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@checkmate/tsconfig": "workspace:*",
-    "@checkmate/scripts": "workspace:*",
+    "@checkmate-monitor/tsconfig": "workspace:*",
+    "@checkmate-monitor/scripts": "workspace:*",
     "ioredis-mock": "^8.9.0"
   }
 }

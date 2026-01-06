@@ -4,12 +4,15 @@ import {
   permissionList,
   pluginMetadata,
   incidentContract,
-} from "@checkmate/incident-common";
-import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
+} from "@checkmate-monitor/incident-common";
+import {
+  createBackendPlugin,
+  coreServices,
+} from "@checkmate-monitor/backend-api";
 import { IncidentService } from "./service";
 import { createRouter } from "./router";
-import { CatalogApi } from "@checkmate/catalog-common";
-import { catalogHooks } from "@checkmate/catalog-backend";
+import { CatalogApi } from "@checkmate-monitor/catalog-common";
+import { catalogHooks } from "@checkmate-monitor/catalog-backend";
 
 export default createBackendPlugin({
   metadata: pluginMetadata,

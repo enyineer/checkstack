@@ -5,10 +5,10 @@ import {
   createBackendPlugin,
   HealthCheckStrategy,
   Versioned,
-} from "@checkmate/backend-api";
+} from "@checkmate-monitor/backend-api";
 import { z } from "zod";
-import { createMockDbModule } from "@checkmate/test-utils-backend";
-import { createMockLoggerModule } from "@checkmate/test-utils-backend";
+import { createMockDbModule } from "@checkmate-monitor/test-utils-backend";
+import { createMockLoggerModule } from "@checkmate-monitor/test-utils-backend";
 
 // Mock DB and other globals to avoid side effects
 mock.module("./db", () => createMockDbModule());

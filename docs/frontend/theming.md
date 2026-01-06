@@ -10,7 +10,7 @@ The theming system consists of four key layers:
 
 1. **CSS Variables** (`core/ui/src/themes.css`) - Core color definitions using HSL values
 2. **Tailwind Integration** (`tailwind.config.js`) - Maps CSS variables to Tailwind utility classes
-3. **Theme Provider** (`@checkmate/ui/ThemeProvider`) - Runtime theme management and persistence
+3. **Theme Provider** (`@checkmate-monitor/ui/ThemeProvider`) - Runtime theme management and persistence
 4. **Component Adoption** - All components use semantic tokens instead of hardcoded colors
 
 ## How Theme Tokens Work
@@ -315,7 +315,7 @@ The `Toggle` component shows dynamic state-based theming:
 The `ThemeProvider` should wrap your application root:
 
 ```tsx
-import { ThemeProvider } from "@checkmate/ui";
+import { ThemeProvider } from "@checkmate-monitor/ui";
 
 function App() {
   return (
@@ -331,7 +331,7 @@ function App() {
 Access and control the current theme:
 
 ```tsx
-import { useTheme } from "@checkmate/ui";
+import { useTheme } from "@checkmate-monitor/ui";
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -368,7 +368,7 @@ Always verify your components in both light and dark modes:
 - ✅ Use semantic token names (`bg-primary`, `text-foreground`)
 - ✅ Leverage opacity modifiers (`bg-primary/10`, `hover:bg-accent/80`)
 - ✅ Test in both light and dark modes
-- ✅ Use `@checkmate/ui` components when possible (already theme-aware)
+- ✅ Use `@checkmate-monitor/ui` components when possible (already theme-aware)
 - ✅ Follow the established semantic patterns for your use case
 
 ### DON'T:
@@ -392,4 +392,4 @@ If you need to add new tokens, follow this process:
 - [Tailwind CSS Documentation](https://tailwindcss.com/docs)
 - [HSL Color Space](https://developer.mozilla.org/en-US/docs/Web/CSS/color_value/hsl)
 - [class-variance-authority](https://cva.style/docs)
-- [Radix UI](https://www.radix-ui.com/) - Unstyled components used in `@checkmate/ui`
+- [Radix UI](https://www.radix-ui.com/) - Unstyled components used in `@checkmate-monitor/ui`

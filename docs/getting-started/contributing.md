@@ -111,7 +111,7 @@ bun run build:frontend   # Frontend only
 bun test                 # Run all tests
 bun test:watch           # Watch mode
 
-# Tooling (Standardized via @checkmate/scripts)
+# Tooling (Standardized via @checkmate-monitor/scripts)
 bun run sync             # Synchronize project configurations
 bun run lint             # Run all linters
 bun run typecheck        # TypeScript type checking
@@ -201,7 +201,7 @@ API endpoints or components provided.
 ### TypeScript
 
 - Use **TypeScript** for all code
-- Extend shared configurations from `@checkmate/tsconfig`
+- Extend shared configurations from `@checkmate-monitor/tsconfig`
 - Enable **strict mode**
 - Avoid `any` types (use `unknown` if needed)
 - Use **type inference** where possible
@@ -220,7 +220,7 @@ API endpoints or components provided.
 ```typescript
 // 1. Imports (grouped)
 import { z } from "zod";
-import { createBackendPlugin } from "@checkmate/backend-api";
+import { createBackendPlugin } from "@checkmate-monitor/backend-api";
 
 // 2. Types and interfaces
 interface MyData {

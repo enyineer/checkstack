@@ -3,9 +3,9 @@ import {
   useApi,
   permissionApiRef,
   ExtensionSlot,
-} from "@checkmate/frontend-api";
+} from "@checkmate-monitor/frontend-api";
 import { catalogApiRef, System, Group } from "../api";
-import { CatalogSystemActionsSlot } from "@checkmate/catalog-common";
+import { CatalogSystemActionsSlot } from "@checkmate-monitor/catalog-common";
 import {
   SectionHeader,
   Card,
@@ -20,7 +20,7 @@ import {
   EditableText,
   ConfirmationModal,
   useToast,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import { Plus, Trash2, LayoutGrid, Server, Settings } from "lucide-react";
 import { SystemEditor } from "./SystemEditor";
 import { GroupEditor } from "./GroupEditor";

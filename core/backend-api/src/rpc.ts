@@ -1,8 +1,14 @@
 import { os as baseOs, ORPCError, Router } from "@orpc/server";
 import { AnyContractRouter } from "@orpc/contract";
 import { HealthCheckRegistry } from "./health-check";
-import { QueuePluginRegistry, QueueManager } from "@checkmate/queue-api";
-import { ProcedureMetadata, qualifyPermissionId } from "@checkmate/common";
+import {
+  QueuePluginRegistry,
+  QueueManager,
+} from "@checkmate-monitor/queue-api";
+import {
+  ProcedureMetadata,
+  qualifyPermissionId,
+} from "@checkmate-monitor/common";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import {
   Logger,
@@ -12,7 +18,7 @@ import {
   RealUser,
   ServiceUser,
 } from "./types";
-import type { PluginMetadata } from "@checkmate/common";
+import type { PluginMetadata } from "@checkmate-monitor/common";
 import type { Hook } from "./hooks";
 
 // =============================================================================
@@ -60,7 +66,7 @@ export interface ServiceRpcContext extends RpcContext {
 export const os = baseOs.$context<RpcContext>();
 
 // Re-export ProcedureMetadata from common for convenience
-export type { ProcedureMetadata } from "@checkmate/common";
+export type { ProcedureMetadata } from "@checkmate-monitor/common";
 
 // =============================================================================
 // UNIFIED AUTH MIDDLEWARE
@@ -218,7 +224,7 @@ export const autoAuthMiddleware = os.middleware(
  * 3. Permissions are enforced based on meta.permissions
  *
  * @example
- * import { baseContractBuilder } from "@checkmate/backend-api";
+ * import { baseContractBuilder } from "@checkmate-monitor/backend-api";
  * import { permissions } from "./permissions";
  *
  * const myContract = {

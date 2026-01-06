@@ -3,7 +3,7 @@ import {
   useApi,
   type SlotContext,
   permissionApiRef,
-} from "@checkmate/frontend-api";
+} from "@checkmate-monitor/frontend-api";
 import { healthCheckApiRef, HealthCheckConfiguration } from "../api";
 import {
   Button,
@@ -23,17 +23,17 @@ import {
   SelectValue,
   Input,
   Tooltip,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import { Activity, Settings2, History, Database } from "lucide-react";
 import { Link } from "react-router-dom";
-import { CatalogSystemActionsSlot } from "@checkmate/catalog-common";
-import type { StateThresholds } from "@checkmate/healthcheck-common";
+import { CatalogSystemActionsSlot } from "@checkmate-monitor/catalog-common";
+import type { StateThresholds } from "@checkmate-monitor/healthcheck-common";
 import {
   DEFAULT_STATE_THRESHOLDS,
   healthcheckRoutes,
-} from "@checkmate/healthcheck-common";
-import { resolveRoute } from "@checkmate/common";
-import { DEFAULT_RETENTION_CONFIG } from "@checkmate/healthcheck-common";
+} from "@checkmate-monitor/healthcheck-common";
+import { resolveRoute } from "@checkmate-monitor/common";
+import { DEFAULT_RETENTION_CONFIG } from "@checkmate-monitor/healthcheck-common";
 
 type SelectedPanel = { configId: string; panel: "thresholds" | "retention" };
 

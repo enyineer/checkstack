@@ -1,33 +1,12 @@
-{
-  "name": "@checkmate/{{pluginName}}",
-  "version": "0.0.1",
-  "description": "{{pluginDescription}}",
-  "type": "module",
-  "exports": {
-    ".": {
-      "import": "./src/index.tsx"
-    }
-  },
-  "scripts": {
-    "typecheck": "tsc --noEmit",
-    "lint": "bun run lint:code",
-    "lint:code": "eslint . --max-warnings 0",
-    "test:e2e": "bunx playwright test"
-  },
-  "dependencies": {
-    "@checkmate/frontend-api": "workspace:*",
-    "@checkmate/common": "workspace:*",
-    "@checkmate/{{pluginBaseName}}-common": "workspace:*",
-    "@checkmate/ui": "workspace:*",
-    "react": "^18.3.1",
-    "react-router-dom": "^7.1.1",
-    "lucide-react": "^0.469.0"
-  },
-  "devDependencies": {
-    "@checkmate/tsconfig": "workspace:*",
-    "@types/react": "^18.3.1",
-    "@playwright/test": "^1.49.0",
-    "@checkmate/test-utils-frontend": "workspace:*",
-    "typescript": "^5.7.2"
-  }
-}
+{ "name": "@checkmate-monitor/{{pluginName}}", "version": "0.0.1",
+"description": "{{pluginDescription}}", "type": "module", "exports": { ".": {
+"import": "./src/index.tsx" } }, "scripts": { "typecheck": "tsc --noEmit",
+"lint": "bun run lint:code", "lint:code": "eslint . --max-warnings 0",
+"test:e2e": "bunx playwright test" }, "dependencies": {
+"@checkmate-monitor/frontend-api": "workspace:*", "@checkmate-monitor/common":
+"workspace:*", "@checkmate-monitor/{{pluginBaseName}}-common": "workspace:*",
+"@checkmate-monitor/ui": "workspace:*", "react": "^18.3.1", "react-router-dom":
+"^7.1.1", "lucide-react": "^0.469.0" }, "devDependencies": {
+"@checkmate-monitor/tsconfig": "workspace:*", "@types/react": "^18.3.1",
+"@playwright/test": "^1.49.0", "@checkmate-monitor/test-utils-frontend":
+"workspace:*", "typescript": "^5.7.2" } }

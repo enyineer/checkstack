@@ -70,7 +70,7 @@ Backend plugins with database schemas need:
 ```json
 {
   "dependencies": {
-    "@checkmate/common": "workspace:*",
+    "@checkmate-monitor/common": "workspace:*",
     "drizzle-orm": "^0.45.1"
   },
   "devDependencies": {

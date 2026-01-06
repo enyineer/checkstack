@@ -1,4 +1,4 @@
-import { PluginInstaller } from "@checkmate/backend-api";
+import { PluginInstaller } from "@checkmate-monitor/backend-api";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";

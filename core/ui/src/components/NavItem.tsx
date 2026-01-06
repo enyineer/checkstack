@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import { ChevronDown } from "lucide-react";
 import { cn } from "../utils";
-import { useApi, permissionApiRef } from "@checkmate/frontend-api";
+import { useApi, permissionApiRef } from "@checkmate-monitor/frontend-api";
 
 export interface NavItemProps {
   to?: string;

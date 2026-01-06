@@ -1,7 +1,7 @@
 import { User } from "better-auth/types";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { eq } from "drizzle-orm";
-import type { RealUser } from "@checkmate/backend-api";
+import type { RealUser } from "@checkmate-monitor/backend-api";
 import * as schema from "../schema";
 
 /**

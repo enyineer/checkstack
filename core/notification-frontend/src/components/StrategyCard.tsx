@@ -1,4 +1,4 @@
-import { StrategyConfigCard, type ConfigSection } from "@checkmate/ui";
+import { StrategyConfigCard, type ConfigSection } from "@checkmate-monitor/ui";
 
 /**
  * Strategy data from getDeliveryStrategies endpoint

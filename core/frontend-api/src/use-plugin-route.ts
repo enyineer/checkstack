@@ -1,6 +1,6 @@
 import { useCallback } from "react";
-import type { RouteDefinition } from "@checkmate/common";
-import { resolveRoute } from "@checkmate/common";
+import type { RouteDefinition } from "@checkmate-monitor/common";
+import { resolveRoute } from "@checkmate-monitor/common";
 import { pluginRegistry } from "./plugin-registry";
 
 /**
@@ -12,7 +12,7 @@ import { pluginRegistry } from "./plugin-registry";
  *
  * @example Using RouteDefinition (recommended)
  * ```tsx
- * import { maintenanceRoutes } from "@checkmate/maintenance-common";
+ * import { maintenanceRoutes } from "@checkmate-monitor/maintenance-common";
  *
  * const MyComponent = () => {
  *   const getRoute = usePluginRoute();

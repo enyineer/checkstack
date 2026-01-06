@@ -7,8 +7,8 @@ import {
   type NotificationStrategy,
   type NotificationSendContext,
   type NotificationDeliveryResult,
-} from "@checkmate/backend-api";
-import { notificationStrategyExtensionPoint } from "@checkmate/notification-backend";
+} from "@checkmate-monitor/backend-api";
+import { notificationStrategyExtensionPoint } from "@checkmate-monitor/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

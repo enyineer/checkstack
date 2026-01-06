@@ -3,9 +3,9 @@ import type {
   QueueManager,
   SwitchResult,
   RecurringJobInfo,
-} from "@checkmate/queue-api";
+} from "@checkmate-monitor/queue-api";
 import type { QueuePluginRegistryImpl } from "./queue-plugin-registry";
-import type { Logger, ConfigService } from "@checkmate/backend-api";
+import type { Logger, ConfigService } from "@checkmate-monitor/backend-api";
 import { z } from "zod";
 import { QueueProxy } from "./queue-proxy";
 

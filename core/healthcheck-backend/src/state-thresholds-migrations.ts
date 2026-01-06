@@ -1,8 +1,8 @@
-import { Versioned } from "@checkmate/backend-api";
+import { Versioned } from "@checkmate-monitor/backend-api";
 import {
   StateThresholdsSchema,
   type StateThresholds,
-} from "@checkmate/healthcheck-common";
+} from "@checkmate-monitor/healthcheck-common";
 
 /**
  * Versioned handler for state thresholds.

@@ -1,7 +1,7 @@
 import { Moon, Sun } from "lucide-react";
-import { useApi } from "@checkmate/frontend-api";
-import { authApiRef } from "@checkmate/auth-frontend/api";
-import { Button, useTheme } from "@checkmate/ui";
+import { useApi } from "@checkmate-monitor/frontend-api";
+import { authApiRef } from "@checkmate-monitor/auth-frontend/api";
+import { Button, useTheme } from "@checkmate-monitor/ui";
 
 /**
  * Navbar theme toggle button for non-logged-in users.

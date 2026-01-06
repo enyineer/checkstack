@@ -1,7 +1,7 @@
-import { createFrontendPlugin, rpcApiRef, type ApiRef } from "@checkmate/frontend-api";
+import { createFrontendPlugin, rpcApiRef, type ApiRef } from "@checkmate-monitor/frontend-api";
 import { {{pluginNameCamel}}ApiRef, type {{pluginNamePascal}}ApiClient } from "./api";
 import { {{pluginNamePascal}}ListPage } from "./components/{{pluginNamePascal}}ListPage";
-import { {{pluginNameCamel}}Routes, {{pluginNamePascal}}Api, pluginMetadata } from "@checkmate/{{pluginBaseName}}-common";
+import { {{pluginNameCamel}}Routes, {{pluginNamePascal}}Api, pluginMetadata } from "@checkmate-monitor/{{pluginBaseName}}-common";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,

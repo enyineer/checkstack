@@ -11,8 +11,8 @@ Backend plugins communicate with each other using **typed RPC clients**. This pr
 For service-to-service calls between backend plugins, use the `rpcClient` core service:
 
 ```typescript
-import { coreServices } from "@checkmate/backend-api";
-import { AuthApi } from "@checkmate/auth-common";
+import { coreServices } from "@checkmate-monitor/backend-api";
+import { AuthApi } from "@checkmate-monitor/auth-common";
 
 env.registerInit({
   deps: {
@@ -35,7 +35,7 @@ env.registerInit({
 **Use for:** All oRPC procedure calls between backend plugins
 
 ```typescript
-import { TargetApi } from "@checkmate/target-common";
+import { TargetApi } from "@checkmate-monitor/target-common";
 
 const client = rpcClient.forPlugin(TargetApi);
 const result = await client.someProcedure({ input: "data" });
@@ -72,7 +72,7 @@ This demonstrates best practices for inter-plugin communication.
 ```typescript
 // plugins/auth-common/src/rpc-contract.ts
 import { oc } from "@orpc/contract";
-import { createClientDefinition } from "@checkmate/common";
+import { createClientDefinition } from "@checkmate-monitor/common";
 import { z } from "zod";
 import { pluginMetadata } from "./plugin-metadata";
 
@@ -105,7 +105,7 @@ export const AuthApi = createClientDefinition(authContract, pluginMetadata);
 ```typescript
 // plugins/auth-backend/src/router.ts
 import { implement } from "@orpc/server";
-import { authContract } from "@checkmate/auth-common";
+import { authContract } from "@checkmate-monitor/auth-common";
 
 const os = implement(authContract).$context<RpcContext>();
 
@@ -142,8 +142,8 @@ export const createAuthRouter = (configService: ConfigService) => {
 
 ```typescript
 // plugins/auth-ldap-backend/src/index.ts
-import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
-import { AuthApi } from "@checkmate/auth-common";
+import { createBackendPlugin, coreServices } from "@checkmate-monitor/backend-api";
+import { AuthApi } from "@checkmate-monitor/auth-common";
 import { pluginMetadata } from "./plugin-metadata";
 
 export default createBackendPlugin({
@@ -185,7 +185,7 @@ export default createBackendPlugin({
 
 1. **Always use typed clients via Api definitions**
    ```typescript
-   import { MyApi } from "@checkmate/my-common";
+   import { MyApi } from "@checkmate-monitor/my-common";
    
    const client = rpcClient.forPlugin(MyApi);
    const result = await client.myProcedure({ id: "123" });
@@ -194,7 +194,7 @@ export default createBackendPlugin({
 2. **Export Api definitions from common packages**
    ```typescript
    // my-plugin-common/src/rpc-contract.ts
-   import { createClientDefinition } from "@checkmate/common";
+   import { createClientDefinition } from "@checkmate-monitor/common";
    import { pluginMetadata } from "./plugin-metadata";
    
    // Pass pluginMetadata directly - enforces centralized metadata
@@ -232,7 +232,7 @@ export default createBackendPlugin({
    const data = await response.json(); // No type safety!
    
    // ✅ GOOD: Typed RPC client with Api definition
-   import { AuthApi } from "@checkmate/auth-common";
+   import { AuthApi } from "@checkmate-monitor/auth-common";
    const authClient = rpcClient.forPlugin(AuthApi);
    const { allowRegistration } = await authClient.getRegistrationStatus();
    ```
@@ -309,8 +309,8 @@ Use mock RPC clients in tests:
 
 ```typescript
 import { describe, it, expect, mock } from "bun:test";
-import { AuthApi } from "@checkmate/auth-common";
-import type { InferClient } from "@checkmate/common";
+import { AuthApi } from "@checkmate-monitor/auth-common";
+import type { InferClient } from "@checkmate-monitor/common";
 
 describe("My Service", () => {
   it("checks registration status", async () => {
@@ -358,7 +358,7 @@ if (response.ok) {
 ### After (Recommended)
 
 ```typescript
-import { AuthApi } from "@checkmate/auth-common";
+import { AuthApi } from "@checkmate-monitor/auth-common";
 
 const authClient = rpcClient.forPlugin(AuthApi);
 const { allowRegistration } = await authClient.getRegistrationStatus();

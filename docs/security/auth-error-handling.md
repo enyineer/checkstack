@@ -11,7 +11,7 @@ The `redirectToAuthError` utility ensures all authentication errors are handled 
 ### Usage
 
 ```typescript
-import { redirectToAuthError } from "@checkmate/auth-backend";
+import { redirectToAuthError } from "@checkmate-monitor/auth-backend";
 
 // In your custom HTTP authentication handler
 rpc.registerHttpHandler("/api/auth-backend/custom/login", async (req: Request) => {
@@ -132,7 +132,7 @@ try {
 For strategies that auto-create users, check if registration is allowed:
 
 ```typescript
-import { AuthApi } from "@checkmate/auth-common";
+import { AuthApi } from "@checkmate-monitor/auth-common";
 
 // Check platform registration status
 const authClient = rpcClient.forPlugin(AuthApi);

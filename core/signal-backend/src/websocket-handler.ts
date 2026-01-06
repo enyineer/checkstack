@@ -1,6 +1,6 @@
 import type { Server, ServerWebSocket } from "bun";
-import type { EventBus, Logger } from "@checkmate/backend-api";
-import type { ServerToClientMessage } from "@checkmate/signal-common";
+import type { EventBus, Logger } from "@checkmate-monitor/backend-api";
+import type { ServerToClientMessage } from "@checkmate-monitor/signal-common";
 import { SIGNAL_BROADCAST_HOOK, SIGNAL_USER_HOOK } from "./hooks";
 
 // =============================================================================

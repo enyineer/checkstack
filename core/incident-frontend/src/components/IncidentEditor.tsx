@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { useApi } from "@checkmate/frontend-api";
+import { useApi } from "@checkmate-monitor/frontend-api";
 import { incidentApiRef } from "../api";
 import type {
   IncidentWithSystems,
   IncidentSeverity,
   IncidentUpdate,
-} from "@checkmate/incident-common";
-import type { System } from "@checkmate/catalog-common";
+} from "@checkmate-monitor/incident-common";
+import type { System } from "@checkmate-monitor/catalog-common";
 import {
   Dialog,
   DialogContent,
@@ -25,7 +25,7 @@ import {
   SelectContent,
   SelectItem,
   StatusUpdateTimeline,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import { Plus, MessageSquare, Loader2, AlertCircle } from "lucide-react";
 import { IncidentUpdateForm } from "./IncidentUpdateForm";
 import { getIncidentStatusBadge } from "../utils/badges";

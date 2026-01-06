@@ -1,7 +1,7 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { loadPlugins } from "./plugin-loader";
 
-// Note: We don't mock @checkmate/frontend-api module-wide here because
+// Note: We don't mock @checkmate-monitor/frontend-api module-wide here because
 // it causes test isolation issues with other tests that use the real pluginRegistry.
 // Instead, we just verify behavior based on the function's outputs.
 
@@ -37,7 +37,7 @@ describe("frontend loadPlugins", () => {
 
   it("should discover and register local and remote plugins", async () => {
     // Import the real pluginRegistry to verify registration
-    const { pluginRegistry } = await import("@checkmate/frontend-api");
+    const { pluginRegistry } = await import("@checkmate-monitor/frontend-api");
 
     // Reset registry before test
     pluginRegistry.reset();

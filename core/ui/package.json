@@ -1,10 +1,10 @@
 {
-  "name": "@checkmate/ui",
+  "name": "@checkmate-monitor/ui",
   "version": "0.0.1",
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
-    "@checkmate/frontend-api": "workspace:*",
+    "@checkmate-monitor/frontend-api": "workspace:*",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-select": "^2.2.6",
@@ -26,9 +26,9 @@
   "devDependencies": {
     "typescript": "^5.0.0",
     "@types/react": "^18.2.0",
-    "@checkmate/test-utils-frontend": "workspace:*",
-    "@checkmate/tsconfig": "workspace:*",
-    "@checkmate/scripts": "workspace:*"
+    "@checkmate-monitor/test-utils-frontend": "workspace:*",
+    "@checkmate-monitor/tsconfig": "workspace:*",
+    "@checkmate-monitor/scripts": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

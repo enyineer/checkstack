@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/queue-backend",
+  "name": "@checkmate-monitor/queue-backend",
   "version": "0.0.1",
   "type": "module",
   "main": "src/index.ts",
@@ -12,17 +12,17 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "@checkmate/backend-api": "workspace:*",
-    "@checkmate/queue-api": "workspace:*",
-    "@checkmate/queue-common": "workspace:*",
+    "@checkmate-monitor/backend-api": "workspace:*",
+    "@checkmate-monitor/queue-api": "workspace:*",
+    "@checkmate-monitor/queue-common": "workspace:*",
     "@hono/zod-validator": "^0.4.1",
     "hono": "^4.6.14",
     "zod": "^4.0.0",
-    "@checkmate/common": "workspace:*"
+    "@checkmate-monitor/common": "workspace:*"
   },
   "devDependencies": {
-    "@checkmate/scripts": "workspace:*",
-    "@checkmate/tsconfig": "workspace:*",
+    "@checkmate-monitor/scripts": "workspace:*",
+    "@checkmate-monitor/tsconfig": "workspace:*",
     "@orpc/server": "^1.13.2",
     "typescript": "^5.7.2"
   }

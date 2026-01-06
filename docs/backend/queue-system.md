@@ -399,7 +399,7 @@ export type RedisQueueConfig = z.infer<typeof redisConfigSchema>;
 Create a class that implements the `Queue<T>` interface:
 
 ```typescript
-import { Queue, QueueJob, QueueConsumer, ConsumeOptions, QueueStats } from '@checkmate/queue-api';
+import { Queue, QueueJob, QueueConsumer, ConsumeOptions, QueueStats } from '@checkmate-monitor/queue-api';
 
 export class RedisQueue<T> implements Queue<T> {
   private redis: Redis;
@@ -475,7 +475,7 @@ export class RedisQueue<T> implements Queue<T> {
 Create the plugin class:
 
 ```typescript
-import { QueuePlugin } from '@checkmate/queue-api';
+import { QueuePlugin } from '@checkmate-monitor/queue-api';
 
 export class RedisQueuePlugin implements QueuePlugin<RedisQueueConfig> {
   id = 'redis';
@@ -495,7 +495,7 @@ export class RedisQueuePlugin implements QueuePlugin<RedisQueueConfig> {
 In your backend plugin's `register` lifecycle:
 
 ```typescript
-import { createBackendPlugin, coreServices } from '@checkmate/backend-api';
+import { createBackendPlugin, coreServices } from '@checkmate-monitor/backend-api';
 import { RedisQueuePlugin } from './redis-queue-plugin';
 import { pluginMetadata } from './plugin-metadata';
 

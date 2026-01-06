@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/queue-common",
+  "name": "@checkmate-monitor/queue-common",
   "version": "0.0.1",
   "type": "module",
   "exports": {
@@ -13,13 +13,13 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "@checkmate/common": "workspace:*",
+    "@checkmate-monitor/common": "workspace:*",
     "@orpc/contract": "^1.13.2",
     "zod": "^4.0.0"
   },
   "devDependencies": {
     "typescript": "^5.7.2",
-    "@checkmate/tsconfig": "workspace:*",
-    "@checkmate/scripts": "workspace:*"
+    "@checkmate-monitor/tsconfig": "workspace:*",
+    "@checkmate-monitor/scripts": "workspace:*"
   }
 }

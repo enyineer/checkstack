@@ -1,9 +1,9 @@
 import React from "react";
-import { Badge } from "@checkmate/ui";
+import { Badge } from "@checkmate-monitor/ui";
 import type {
   IncidentStatus,
   IncidentSeverity,
-} from "@checkmate/incident-common";
+} from "@checkmate-monitor/incident-common";
 
 /**
  * Returns a styled badge for the given incident status.

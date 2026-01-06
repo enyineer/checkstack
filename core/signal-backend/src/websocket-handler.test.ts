@@ -4,7 +4,7 @@ import {
   type WebSocketData,
 } from "../src/websocket-handler";
 import { SIGNAL_BROADCAST_HOOK, SIGNAL_USER_HOOK } from "../src/hooks";
-import type { EventBus, Logger } from "@checkmate/backend-api";
+import type { EventBus, Logger } from "@checkmate-monitor/backend-api";
 import type { Server, ServerWebSocket } from "bun";
 
 describe("createWebSocketHandler", () => {

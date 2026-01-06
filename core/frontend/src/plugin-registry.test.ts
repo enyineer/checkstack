@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "bun:test";
-import { pluginRegistry, createSlot } from "@checkmate/frontend-api";
-import { FrontendPlugin } from "@checkmate/frontend-api";
-import { createRoutes } from "@checkmate/common";
+import { pluginRegistry, createSlot } from "@checkmate-monitor/frontend-api";
+import { FrontendPlugin } from "@checkmate-monitor/frontend-api";
+import { createRoutes } from "@checkmate-monitor/common";
 import React from "react";
 
 // Create test slots

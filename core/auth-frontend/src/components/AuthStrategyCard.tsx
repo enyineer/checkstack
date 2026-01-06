@@ -1,4 +1,4 @@
-import { StrategyConfigCard, type ConfigSection } from "@checkmate/ui";
+import { StrategyConfigCard, type ConfigSection } from "@checkmate-monitor/ui";
 import type { AuthStrategy } from "../api";
 
 export interface AuthStrategyCardProps {

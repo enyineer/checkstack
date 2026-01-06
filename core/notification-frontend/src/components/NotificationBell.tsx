@@ -10,19 +10,19 @@ import {
   DropdownMenuSeparator,
   Button,
   stripMarkdown,
-} from "@checkmate/ui";
-import { useApi, rpcApiRef } from "@checkmate/frontend-api";
-import { useSignal } from "@checkmate/signal-frontend";
-import { resolveRoute } from "@checkmate/common";
-import type { Notification } from "@checkmate/notification-common";
+} from "@checkmate-monitor/ui";
+import { useApi, rpcApiRef } from "@checkmate-monitor/frontend-api";
+import { useSignal } from "@checkmate-monitor/signal-frontend";
+import { resolveRoute } from "@checkmate-monitor/common";
+import type { Notification } from "@checkmate-monitor/notification-common";
 import {
   NotificationApi,
   NOTIFICATION_RECEIVED,
   NOTIFICATION_COUNT_CHANGED,
   NOTIFICATION_READ,
   notificationRoutes,
-} from "@checkmate/notification-common";
-import { authApiRef } from "@checkmate/auth-frontend/api";
+} from "@checkmate-monitor/notification-common";
+import { authApiRef } from "@checkmate-monitor/auth-frontend/api";
 
 export const NotificationBell = () => {
   const authApi = useApi(authApiRef);

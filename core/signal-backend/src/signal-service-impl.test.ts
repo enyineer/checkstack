@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { SignalServiceImpl } from "../src/signal-service-impl";
 import { SIGNAL_BROADCAST_HOOK, SIGNAL_USER_HOOK } from "../src/hooks";
-import { createSignal } from "@checkmate/signal-common";
+import { createSignal } from "@checkmate-monitor/signal-common";
 import { z } from "zod";
-import type { EventBus, Logger } from "@checkmate/backend-api";
+import type { EventBus, Logger } from "@checkmate-monitor/backend-api";
 
 // Test signals
 const TEST_BROADCAST_SIGNAL = createSignal(

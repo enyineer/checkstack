@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/incident-backend",
+  "name": "@checkmate-monitor/incident-backend",
   "version": "0.0.1",
   "type": "module",
   "main": "src/index.ts",
@@ -10,20 +10,20 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "@checkmate/backend-api": "workspace:*",
-    "@checkmate/incident-common": "workspace:*",
-    "@checkmate/catalog-common": "workspace:*",
-    "@checkmate/catalog-backend": "workspace:*",
-    "@checkmate/signal-common": "workspace:*",
-    "@checkmate/common": "workspace:*",
+    "@checkmate-monitor/backend-api": "workspace:*",
+    "@checkmate-monitor/incident-common": "workspace:*",
+    "@checkmate-monitor/catalog-common": "workspace:*",
+    "@checkmate-monitor/catalog-backend": "workspace:*",
+    "@checkmate-monitor/signal-common": "workspace:*",
+    "@checkmate-monitor/common": "workspace:*",
     "drizzle-orm": "^0.45.1",
     "zod": "^4.2.1"
   },
   "devDependencies": {
-    "@checkmate/drizzle-helper": "workspace:*",
-    "@checkmate/scripts": "workspace:*",
-    "@checkmate/test-utils-backend": "workspace:*",
-    "@checkmate/tsconfig": "workspace:*",
+    "@checkmate-monitor/drizzle-helper": "workspace:*",
+    "@checkmate-monitor/scripts": "workspace:*",
+    "@checkmate-monitor/test-utils-backend": "workspace:*",
+    "@checkmate-monitor/tsconfig": "workspace:*",
     "@orpc/server": "^1.13.2",
     "@types/bun": "^1.0.0",
     "drizzle-kit": "^0.31.8",

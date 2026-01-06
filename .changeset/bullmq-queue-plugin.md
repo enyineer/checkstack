@@ -1,10 +1,10 @@
 ---
-"@checkmate/queue-api": minor
-"@checkmate/queue-bullmq-backend": minor
-"@checkmate/queue-bullmq-common": minor
-"@checkmate/queue-memory-backend": patch
-"@checkmate/healthcheck-backend": patch
-"@checkmate/test-utils-backend": patch
+"@checkmate-monitor/queue-api": minor
+"@checkmate-monitor/queue-bullmq-backend": minor
+"@checkmate-monitor/queue-bullmq-common": minor
+"@checkmate-monitor/queue-memory-backend": patch
+"@checkmate-monitor/healthcheck-backend": patch
+"@checkmate-monitor/test-utils-backend": patch
 ---
 
 Add BullMQ queue plugin with orphaned job cleanup

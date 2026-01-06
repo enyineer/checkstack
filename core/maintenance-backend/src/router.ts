@@ -3,17 +3,17 @@ import {
   maintenanceContract,
   MAINTENANCE_UPDATED,
   maintenanceRoutes,
-} from "@checkmate/maintenance-common";
+} from "@checkmate-monitor/maintenance-common";
 import {
   autoAuthMiddleware,
   Logger,
   type RpcContext,
-} from "@checkmate/backend-api";
-import type { SignalService } from "@checkmate/signal-common";
+} from "@checkmate-monitor/backend-api";
+import type { SignalService } from "@checkmate-monitor/signal-common";
 import type { MaintenanceService } from "./service";
-import { CatalogApi } from "@checkmate/catalog-common";
-import type { InferClient } from "@checkmate/common";
-import { resolveRoute } from "@checkmate/common";
+import { CatalogApi } from "@checkmate-monitor/catalog-common";
+import type { InferClient } from "@checkmate-monitor/common";
+import { resolveRoute } from "@checkmate-monitor/common";
 
 export function createRouter(
   service: MaintenanceService,

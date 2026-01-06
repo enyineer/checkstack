@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { useApi, type SlotContext } from "@checkmate/frontend-api";
+import { useApi, type SlotContext } from "@checkmate-monitor/frontend-api";
 import { healthCheckApiRef, HealthCheckRunPublic } from "../api";
-import { SystemDetailsSlot } from "@checkmate/catalog-common";
+import { SystemDetailsSlot } from "@checkmate-monitor/catalog-common";
 import {
   Table,
   TableHeader,
@@ -11,7 +11,7 @@ import {
   TableCell,
   HealthBadge,
   LoadingSpinner,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import { formatDistanceToNow } from "date-fns";
 
 // Props inferred from SystemDetailsSlot context, with optional additional props

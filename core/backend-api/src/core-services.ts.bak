@@ -75,10 +75,10 @@ export const coreServices = {
     "core.tokenVerification"
   ),
   queuePluginRegistry: createServiceRef<
-    import("@checkmate/queue-api").QueuePluginRegistry
+    import("@checkmate-monitor/queue-api").QueuePluginRegistry
   >("core.queuePluginRegistry"),
   queueFactory:
-    createServiceRef<import("@checkmate/queue-api").QueueFactory>(
+    createServiceRef<import("@checkmate-monitor/queue-api").QueueFactory>(
       "core.queueFactory"
     ),
 };

@@ -2,11 +2,11 @@ import {
   createFrontendPlugin,
   NavbarSlot,
   UserMenuItemsSlot,
-} from "@checkmate/frontend-api";
+} from "@checkmate-monitor/frontend-api";
 import {
   notificationRoutes,
   pluginMetadata,
-} from "@checkmate/notification-common";
+} from "@checkmate-monitor/notification-common";
 import { NotificationBell } from "./components/NotificationBell";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { NotificationSettingsPage } from "./pages/NotificationSettingsPage";

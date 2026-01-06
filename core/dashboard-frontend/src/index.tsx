@@ -1,5 +1,5 @@
-import { FrontendPlugin, DashboardSlot } from "@checkmate/frontend-api";
-import { definePluginMetadata } from "@checkmate/common";
+import { FrontendPlugin, DashboardSlot } from "@checkmate-monitor/frontend-api";
+import { definePluginMetadata } from "@checkmate-monitor/common";
 import { Dashboard } from "./Dashboard";
 
 const pluginMetadata = definePluginMetadata({

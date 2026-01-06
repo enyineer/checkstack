@@ -7,7 +7,7 @@ import {
   CardTitle,
   Badge,
   Button,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import {
   ChevronDown,
   ChevronRight,

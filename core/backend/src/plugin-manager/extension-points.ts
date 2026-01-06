@@ -1,4 +1,4 @@
-import type { ExtensionPoint } from "@checkmate/backend-api";
+import type { ExtensionPoint } from "@checkmate-monitor/backend-api";
 import { rootLogger } from "../logger";
 
 /**

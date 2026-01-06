@@ -1,7 +1,7 @@
 ---
-"@checkmate/auth-common": minor
-"@checkmate/auth-backend": minor
-"@checkmate/auth-frontend": minor
+"@checkmate-monitor/auth-common": minor
+"@checkmate-monitor/auth-backend": minor
+"@checkmate-monitor/auth-frontend": minor
 ---
 
 Refactor application role assignment

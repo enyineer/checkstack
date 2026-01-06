@@ -10,7 +10,7 @@ import type {
   UpdateIncidentInput,
   AddIncidentUpdateInput,
   IncidentStatus,
-} from "@checkmate/incident-common";
+} from "@checkmate-monitor/incident-common";
 
 type Db = NodePgDatabase<typeof schema>;
 

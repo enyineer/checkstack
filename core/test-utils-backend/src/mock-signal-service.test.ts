@@ -3,7 +3,7 @@ import {
   createMockSignalService,
   type MockSignalService,
 } from "../src/mock-signal-service";
-import { createSignal } from "@checkmate/signal-common";
+import { createSignal } from "@checkmate-monitor/signal-common";
 import { z } from "zod";
 
 // Test signals

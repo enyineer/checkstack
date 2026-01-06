@@ -1,13 +1,13 @@
-import { createApiRef } from "@checkmate/frontend-api";
-import type { InferClient } from "@checkmate/common";
-import { {{pluginNamePascal}}Api } from "@checkmate/{{pluginBaseName}}-common";
+import { createApiRef } from "@checkmate-monitor/frontend-api";
+import type { InferClient } from "@checkmate-monitor/common";
+import { {{pluginNamePascal}}Api } from "@checkmate-monitor/{{pluginBaseName}}-common";
 
 // Re-export types for convenience
 export type {
   {{pluginNamePascal}}Item,
   Create{{pluginNamePascal}}Item,
   Update{{pluginNamePascal}}Item,
-} from "@checkmate/{{pluginBaseName}}-common";
+} from "@checkmate-monitor/{{pluginBaseName}}-common";
 
 // {{pluginNamePascal}}ApiClient is the client type inferred from the Api definition
 export type {{pluginNamePascal}}ApiClient = InferClient<typeof {{pluginNamePascal}}Api>;

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { Lock, ArrowLeft, CheckCircle, AlertCircle } from "lucide-react";
-import { authRoutes, passwordSchema } from "@checkmate/auth-common";
-import { resolveRoute } from "@checkmate/common";
+import { authRoutes, passwordSchema } from "@checkmate-monitor/auth-common";
+import { resolveRoute } from "@checkmate-monitor/common";
 import {
   Button,
   Input,
@@ -18,7 +18,7 @@ import {
   AlertContent,
   AlertTitle,
   AlertDescription,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import { authClient } from "../lib/auth-client";
 
 export const ResetPasswordPage = () => {

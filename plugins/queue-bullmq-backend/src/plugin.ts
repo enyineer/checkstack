@@ -1,5 +1,5 @@
-import { QueuePlugin, Queue } from "@checkmate/queue-api";
-import { secret } from "@checkmate/backend-api";
+import { QueuePlugin, Queue } from "@checkmate-monitor/queue-api";
+import { secret } from "@checkmate-monitor/backend-api";
 import { z } from "zod";
 import { BullMQQueue } from "./bullmq-queue";
 

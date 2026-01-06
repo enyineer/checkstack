@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { useApi } from "@checkmate/frontend-api";
+import { useApi } from "@checkmate-monitor/frontend-api";
 import { maintenanceApiRef } from "../api";
 import type {
   MaintenanceWithSystems,
   MaintenanceUpdate,
-} from "@checkmate/maintenance-common";
-import type { System } from "@checkmate/catalog-common";
+} from "@checkmate-monitor/maintenance-common";
+import type { System } from "@checkmate-monitor/catalog-common";
 import {
   Dialog,
   DialogContent,
@@ -20,7 +20,7 @@ import {
   useToast,
   DateTimePicker,
   StatusUpdateTimeline,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import { Plus, MessageSquare, Loader2, AlertCircle } from "lucide-react";
 import { MaintenanceUpdateForm } from "./MaintenanceUpdateForm";
 import { getMaintenanceStatusBadge } from "../utils/badges";

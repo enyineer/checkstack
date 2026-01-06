@@ -1,7 +1,7 @@
 ---
-"@checkmate/healthcheck-common": minor
-"@checkmate/healthcheck-backend": minor
-"@checkmate/healthcheck-frontend": minor
+"@checkmate-monitor/healthcheck-common": minor
+"@checkmate-monitor/healthcheck-backend": minor
+"@checkmate-monitor/healthcheck-frontend": minor
 ---
 
 Add public health status access and detailed history for admins

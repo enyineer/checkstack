@@ -1,5 +1,5 @@
 import { ZodSchema } from "zod";
-import { ClientDefinition, InferClient } from "@checkmate/common";
+import { ClientDefinition, InferClient } from "@checkmate-monitor/common";
 
 export interface Logger {
   info(message: string, ...args: unknown[]): void;
@@ -103,7 +103,7 @@ export interface RpcClient {
    * @returns Typed client for the plugin's RPC endpoints
    *
    * @example
-   * import { AuthApi } from "@checkmate/auth-common";
+   * import { AuthApi } from "@checkmate-monitor/auth-common";
    * const authClient = rpcClient.forPlugin(AuthApi);
    * const result = await authClient.getRegistrationStatus();
    */

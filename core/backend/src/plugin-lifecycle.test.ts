@@ -7,7 +7,7 @@ import {
   createMockQueueManager,
   type MockEventBus,
   type MockPluginInstaller,
-} from "@checkmate/test-utils-backend";
+} from "@checkmate-monitor/test-utils-backend";
 
 // Mock DB and logger BEFORE importing PluginManager
 mock.module("./db", () => createMockDbModule());
@@ -15,7 +15,7 @@ mock.module("./logger", () => createMockLoggerModule());
 
 // Now import PluginManager after mocks are set
 import { PluginManager } from "./plugin-manager";
-import { coreServices, coreHooks } from "@checkmate/backend-api";
+import { coreServices, coreHooks } from "@checkmate-monitor/backend-api";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests

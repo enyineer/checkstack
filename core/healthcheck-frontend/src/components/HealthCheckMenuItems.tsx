@@ -1,10 +1,10 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { Activity } from "lucide-react";
-import { useApi, permissionApiRef } from "@checkmate/frontend-api";
-import { DropdownMenuItem } from "@checkmate/ui";
-import { resolveRoute } from "@checkmate/common";
-import { healthcheckRoutes } from "@checkmate/healthcheck-common";
+import { useApi, permissionApiRef } from "@checkmate-monitor/frontend-api";
+import { DropdownMenuItem } from "@checkmate-monitor/ui";
+import { resolveRoute } from "@checkmate-monitor/common";
+import { healthcheckRoutes } from "@checkmate-monitor/healthcheck-common";
 
 export const HealthCheckMenuItems = () => {
   const permissionApi = useApi(permissionApiRef);

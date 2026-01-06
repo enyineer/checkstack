@@ -4,7 +4,7 @@
  * Provides a generic, reusable OAuth 2.0 handler for plugins that need OAuth flows.
  * Used by notification strategies but can be reused by any plugin.
  *
- * @module @checkmate/backend-api/oauth-handler
+ * @module @checkmate-monitor/backend-api/oauth-handler
  */
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

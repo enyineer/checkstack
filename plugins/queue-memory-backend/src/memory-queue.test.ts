@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import { InMemoryQueue } from "./memory-queue";
-import type { QueueJob } from "@checkmate/queue-api";
+import type { QueueJob } from "@checkmate-monitor/queue-api";
 
 describe("InMemoryQueue Consumer Groups", () => {
   let queue: InMemoryQueue<string>;

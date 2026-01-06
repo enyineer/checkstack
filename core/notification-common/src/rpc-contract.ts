@@ -5,7 +5,7 @@ import { pluginMetadata } from "./plugin-metadata";
 import {
   createClientDefinition,
   type ProcedureMetadata,
-} from "@checkmate/common";
+} from "@checkmate-monitor/common";
 import {
   NotificationSchema,
   NotificationGroupSchema,

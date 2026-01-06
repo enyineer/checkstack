@@ -6,7 +6,7 @@
  *
  * Usage in bunfig.toml:
  * [test]
- * preload = ["@checkmate/test-utils-frontend/setup"]
+ * preload = ["@checkmate-monitor/test-utils-frontend/setup"]
  */
 
 // Register Happy DOM globals first (document, window, etc.)

@@ -1,9 +1,9 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { PluginManager } from "./plugin-manager";
-import { coreServices, os, RpcContext } from "@checkmate/backend-api";
+import { coreServices, os, RpcContext } from "@checkmate-monitor/backend-api";
 import { Hono } from "hono";
-import { createMockDbModule } from "@checkmate/test-utils-backend";
-import { createMockLoggerModule } from "@checkmate/test-utils-backend";
+import { createMockDbModule } from "@checkmate-monitor/test-utils-backend";
+import { createMockLoggerModule } from "@checkmate-monitor/test-utils-backend";
 
 // Mock DB and other globals
 mock.module("./db", () => createMockDbModule());

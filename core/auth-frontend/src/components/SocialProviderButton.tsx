@@ -1,5 +1,5 @@
 import React from "react";
-import { Button } from "@checkmate/ui";
+import { Button } from "@checkmate-monitor/ui";
 import * as LucideIcons from "lucide-react";
 
 interface SocialProviderButtonProps {

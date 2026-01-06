@@ -1,10 +1,10 @@
-import type { EventBus, Logger } from "@checkmate/backend-api";
-import { qualifyPermissionId } from "@checkmate/common";
+import type { EventBus, Logger } from "@checkmate-monitor/backend-api";
+import { qualifyPermissionId } from "@checkmate-monitor/common";
 import type {
   Signal,
   SignalMessage,
   SignalService,
-} from "@checkmate/signal-common";
+} from "@checkmate-monitor/signal-common";
 import { SIGNAL_BROADCAST_HOOK, SIGNAL_USER_HOOK } from "./hooks";
 
 /**

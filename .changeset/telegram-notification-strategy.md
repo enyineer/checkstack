@@ -1,16 +1,16 @@
 ---
-"@checkmate/backend-api": minor
-"@checkmate/notification-common": minor
-"@checkmate/notification-backend": minor
-"@checkmate/notification-frontend": minor
-"@checkmate/auth-common": minor
-"@checkmate/auth-backend": minor
-"@checkmate/auth-frontend": minor
-"@checkmate/ui": minor
-"@checkmate/notification-telegram-backend": minor
-"@checkmate/notification-smtp-backend": patch
-"@checkmate/auth-github-backend": patch
-"@checkmate/auth-ldap-backend": patch
+"@checkmate-monitor/backend-api": minor
+"@checkmate-monitor/notification-common": minor
+"@checkmate-monitor/notification-backend": minor
+"@checkmate-monitor/notification-frontend": minor
+"@checkmate-monitor/auth-common": minor
+"@checkmate-monitor/auth-backend": minor
+"@checkmate-monitor/auth-frontend": minor
+"@checkmate-monitor/ui": minor
+"@checkmate-monitor/notification-telegram-backend": minor
+"@checkmate-monitor/notification-smtp-backend": patch
+"@checkmate-monitor/auth-github-backend": patch
+"@checkmate-monitor/auth-ldap-backend": patch
 ---
 
 # Strategy Instructions Support & Telegram Notification Plugin
@@ -30,7 +30,7 @@ Added `adminInstructions` and `userInstructions` optional fields to the `Notific
 
 ## New Telegram Notification Plugin
 
-Added `@checkmate/notification-telegram-backend` plugin for sending notifications via Telegram:
+Added `@checkmate-monitor/notification-telegram-backend` plugin for sending notifications via Telegram:
 
 - Uses [grammY](https://grammy.dev/) framework for Telegram Bot API integration
 - Sends messages with MarkdownV2 formatting and inline keyboard buttons for actions

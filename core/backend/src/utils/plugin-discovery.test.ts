@@ -35,7 +35,7 @@ describe("extractPluginMetadata", () => {
   it("should extract metadata from valid backend plugin", () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
-        name: "@checkmate/test-backend",
+        name: "@checkmate-monitor/test-backend",
         version: "0.0.1",
         type: "module",
       })
@@ -46,7 +46,7 @@ describe("extractPluginMetadata", () => {
     });
 
     expect(result).toEqual({
-      packageName: "@checkmate/test-backend",
+      packageName: "@checkmate-monitor/test-backend",
       pluginPath: "/fake/path/test-backend",
       type: "backend",
       enabled: true,
@@ -56,7 +56,7 @@ describe("extractPluginMetadata", () => {
   it("should extract metadata from valid frontend plugin", () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
-        name: "@checkmate/test-frontend",
+        name: "@checkmate-monitor/test-frontend",
       })
     );
 
@@ -70,7 +70,7 @@ describe("extractPluginMetadata", () => {
   it("should extract metadata from valid common plugin", () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
-        name: "@checkmate/test-common",
+        name: "@checkmate-monitor/test-common",
       })
     );
 
@@ -108,7 +108,7 @@ describe("extractPluginMetadata", () => {
   it("should return undefined for non-plugin core (wrong suffix)", () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
-        name: "@checkmate/not-a-plugin",
+        name: "@checkmate-monitor/not-a-plugin",
       })
     );
 
@@ -159,13 +159,13 @@ describe("discoverLocalPlugins", () => {
     // Mock package.json reads
     mockReadFileSync.mockImplementation(((filePath: string) => {
       if (filePath.includes("auth-backend")) {
-        return JSON.stringify({ name: "@checkmate/auth-backend" });
+        return JSON.stringify({ name: "@checkmate-monitor/auth-backend" });
       }
       if (filePath.includes("catalog-backend")) {
-        return JSON.stringify({ name: "@checkmate/catalog-backend" });
+        return JSON.stringify({ name: "@checkmate-monitor/catalog-backend" });
       }
       if (filePath.includes("invalid-plugin")) {
-        return JSON.stringify({ name: "@checkmate/invalid-plugin" });
+        return JSON.stringify({ name: "@checkmate-monitor/invalid-plugin" });
       }
       return "{}";
     }) as typeof mockReadFileSync);
@@ -174,10 +174,10 @@ describe("discoverLocalPlugins", () => {
 
     expect(result).toHaveLength(2);
     expect(result.map((r) => r.packageName)).toContain(
-      "@checkmate/auth-backend"
+      "@checkmate-monitor/auth-backend"
     );
     expect(result.map((r) => r.packageName)).toContain(
-      "@checkmate/catalog-backend"
+      "@checkmate-monitor/catalog-backend"
     );
   });
 
@@ -198,13 +198,13 @@ describe("discoverLocalPlugins", () => {
 
     mockReadFileSync.mockImplementation(((filePath: string) => {
       if (filePath.includes("auth-backend")) {
-        return JSON.stringify({ name: "@checkmate/auth-backend" });
+        return JSON.stringify({ name: "@checkmate-monitor/auth-backend" });
       }
       if (filePath.includes("auth-frontend")) {
-        return JSON.stringify({ name: "@checkmate/auth-frontend" });
+        return JSON.stringify({ name: "@checkmate-monitor/auth-frontend" });
       }
       if (filePath.includes("auth-common")) {
-        return JSON.stringify({ name: "@checkmate/auth-common" });
+        return JSON.stringify({ name: "@checkmate-monitor/auth-common" });
       }
       return "{}";
     }) as typeof mockReadFileSync);
@@ -281,7 +281,7 @@ describe("syncPluginsToDatabase", () => {
   it("should insert new plugin that doesn't exist in database", async () => {
     const localPlugins: PluginMetadata[] = [
       {
-        packageName: "@checkmate/new-backend",
+        packageName: "@checkmate-monitor/new-backend",
         pluginPath: "/workspace/plugins/new-backend",
         type: "backend",
         enabled: true,
@@ -302,7 +302,7 @@ describe("syncPluginsToDatabase", () => {
     expect(mockDb.insert).toHaveBeenCalled();
     const insertCall = mockDb.insert.mock.results[0].value;
     expect(insertCall.values).toHaveBeenCalledWith({
-      name: "@checkmate/new-backend",
+      name: "@checkmate-monitor/new-backend",
       path: "/workspace/plugins/new-backend",
       type: "backend",
       enabled: true,
@@ -313,7 +313,7 @@ describe("syncPluginsToDatabase", () => {
   it("should update path for renamed local plugin", async () => {
     const localPlugins: PluginMetadata[] = [
       {
-        packageName: "@checkmate/renamed-backend",
+        packageName: "@checkmate-monitor/renamed-backend",
         pluginPath: "/workspace/plugins/new-location",
         type: "backend",
         enabled: true,
@@ -327,7 +327,7 @@ describe("syncPluginsToDatabase", () => {
           limit: mock(() =>
             Promise.resolve([
               {
-                name: "@checkmate/renamed-backend",
+                name: "@checkmate-monitor/renamed-backend",
                 path: "/workspace/plugins/old-location",
                 isUninstallable: false,
               },
@@ -350,7 +350,7 @@ describe("syncPluginsToDatabase", () => {
   it("should not modify remotely installed plugins", async () => {
     const localPlugins: PluginMetadata[] = [
       {
-        packageName: "@checkmate/remote-backend",
+        packageName: "@checkmate-monitor/remote-backend",
         pluginPath: "/workspace/plugins/remote-backend",
         type: "backend",
         enabled: true,
@@ -364,8 +364,8 @@ describe("syncPluginsToDatabase", () => {
           limit: mock(() =>
             Promise.resolve([
               {
-                name: "@checkmate/remote-backend",
-                path: "/runtime/node_modules/@checkmate/remote-backend",
+                name: "@checkmate-monitor/remote-backend",
+                path: "/runtime/node_modules/@checkmate-monitor/remote-backend",
                 isUninstallable: true,
               },
             ])

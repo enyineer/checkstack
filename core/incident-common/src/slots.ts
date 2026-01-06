@@ -1,4 +1,4 @@
-import { createSlot } from "@checkmate/frontend-api";
+import { createSlot } from "@checkmate-monitor/frontend-api";
 import type { IncidentWithSystems } from "./schemas";
 
 /**

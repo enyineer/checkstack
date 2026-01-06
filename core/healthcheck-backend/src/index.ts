@@ -8,12 +8,15 @@ import {
   permissionList,
   pluginMetadata,
   healthCheckContract,
-} from "@checkmate/healthcheck-common";
-import { createBackendPlugin, coreServices } from "@checkmate/backend-api";
+} from "@checkmate-monitor/healthcheck-common";
+import {
+  createBackendPlugin,
+  coreServices,
+} from "@checkmate-monitor/backend-api";
 import { createHealthCheckRouter } from "./router";
 import { HealthCheckService } from "./service";
-import { catalogHooks } from "@checkmate/catalog-backend";
-import { CatalogApi } from "@checkmate/catalog-common";
+import { catalogHooks } from "@checkmate-monitor/catalog-backend";
+import { CatalogApi } from "@checkmate-monitor/catalog-common";
 
 export default createBackendPlugin({
   metadata: pluginMetadata,

@@ -41,7 +41,7 @@ Use ConfigService when storing:
 ### Example: Queue Configuration
 
 ```typescript
-import { coreServices, type ConfigService } from "@checkmate/backend-api";
+import { coreServices, type ConfigService } from "@checkmate-monitor/backend-api";
 import { z } from "zod";
 
 // Schema for queue config
@@ -144,7 +144,7 @@ const configs = await config.list();
 ConfigService automatically encrypts/decrypts secrets marked with `z.secret()`:
 
 ```typescript
-import { secret } from "@checkmate/backend-api";
+import { secret } from "@checkmate-monitor/backend-api";
 
 const githubStrategySchema = z.object({
   clientId: z.string(),

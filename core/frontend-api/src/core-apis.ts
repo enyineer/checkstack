@@ -2,7 +2,7 @@ import {
   PermissionAction,
   ClientDefinition,
   InferClient,
-} from "@checkmate/common";
+} from "@checkmate-monitor/common";
 import { createApiRef } from "./api-ref";
 
 export interface LoggerApi {

@@ -133,7 +133,7 @@ The generated plugin is a working example. Customize it for your domain:
 **src/permissions.ts:**
 
 ```typescript
-import { createPermission } from "@checkmate/common";
+import { createPermission } from "@checkmate-monitor/common";
 
 export const permissions = {
   myFeatureRead: createPermission(
@@ -220,9 +220,9 @@ bun run lint
 
 That's it! Your common package is ready to be consumed by backend and frontend plugins.
 
-## The `@checkmate/common` Core Package
+## The `@checkmate-monitor/common` Core Package
 
-The `@checkmate/common` package is a special core package located in `core/common/` that provides shared type definitions and utilities used across the entire codebase. This is the foundation that all common plugins can depend on.
+The `@checkmate-monitor/common` package is a special core package located in `core/common/` that provides shared type definitions and utilities used across the entire codebase. This is the foundation that all common plugins can depend on.
 
 **What it contains:**
 - Core type definitions (e.g., `Permission`, `PluginMetadata`)
@@ -232,14 +232,14 @@ The `@checkmate/common` package is a special core package located in `core/commo
 
 **Who can use it:**
 - ✅ All common plugins (including plugin-specific common packages like `catalog-common`)
-- ✅ Backend API packages (like `@checkmate/backend-api`)
-- ✅ Frontend API packages (like `@checkmate/frontend-api`)
+- ✅ Backend API packages (like `@checkmate-monitor/backend-api`)
+- ✅ Frontend API packages (like `@checkmate-monitor/frontend-api`)
 - ✅ Backend and frontend plugins (when they need core types)
 
 ### Permission Types
 
 ```typescript
-import type { Permission, ResourcePermission, PermissionAction } from "@checkmate/common";
+import type { Permission, ResourcePermission, PermissionAction } from "@checkmate-monitor/common";
 
 // PermissionAction: "read" | "manage"
 
@@ -263,7 +263,7 @@ interface ResourcePermission extends Permission {
 Creates a standardized resource permission with automatic ID generation:
 
 ```typescript
-import { createPermission } from "@checkmate/common";
+import { createPermission } from "@checkmate-monitor/common";
 
 const permission = createPermission(
   "catalog",           // resource name
@@ -283,7 +283,7 @@ const permission = createPermission(
 Creates a fully-qualified permission ID by prefixing with the plugin ID. This is used internally by the RPC middleware and SignalService for authorization checks:
 
 ```typescript
-import { qualifyPermissionId } from "@checkmate/common";
+import { qualifyPermissionId } from "@checkmate-monitor/common";
 import { pluginMetadata } from "./plugin-metadata";
 import { permissions } from "./permissions";
 
@@ -322,7 +322,7 @@ The `-common` package must have these dependencies to support oRPC contracts:
 ```json
 {
   "dependencies": {
-    "@checkmate/common": "workspace:*",
+    "@checkmate-monitor/common": "workspace:*",
     "@orpc/contract": "^1.13.2",
     "zod": "^3.23.0"
   }
@@ -333,7 +333,7 @@ The `-common` package must have these dependencies to support oRPC contracts:
 
 ```json
 {
-  "name": "@checkmate/catalog-common",
+  "name": "@checkmate-monitor/catalog-common",
   "version": "0.0.1",
   "type": "module",
   "exports": {
@@ -342,7 +342,7 @@ The `-common` package must have these dependencies to support oRPC contracts:
     }
   },
   "dependencies": {
-    "@checkmate/common": "workspace:*",
+    "@checkmate-monitor/common": "workspace:*",
     "@orpc/contract": "^1.13.2",
     "zod": "^3.23.0"
   },
@@ -354,9 +354,9 @@ The `-common` package must have these dependencies to support oRPC contracts:
 
 **Key points:**
 - Use `workspace:*` for internal dependencies
-- Only depend on `@checkmate/common` for shared type definitions like `Permission`
+- Only depend on `@checkmate-monitor/common` for shared type definitions like `Permission`
 - Include `@orpc/contract` and `zod` for contract and schema definitions
-- Do NOT depend on `@checkmate/backend-api`, `@checkmate/frontend-api`, or any runtime-specific packages
+- Do NOT depend on `@checkmate-monitor/backend-api`, `@checkmate-monitor/frontend-api`, or any runtime-specific packages
 - Common plugins must maintain minimal dependencies to ensure they can be safely imported anywhere
 
 ### tsconfig.json
@@ -365,7 +365,7 @@ Common plugins should extend the shared common configuration:
 
 ```json
 {
-  "extends": "@checkmate/tsconfig/common.json",
+  "extends": "@checkmate-monitor/tsconfig/common.json",
   "include": ["src"]
 }
 ```
@@ -402,7 +402,7 @@ import { permissions, SystemSchema } from "./index";
 
 **src/permissions.ts:**
 ```typescript
-import { createPermission } from "@checkmate/common";
+import { createPermission } from "@checkmate-monitor/common";
 
 export const permissions = {
   catalogRead: createPermission(
@@ -526,12 +526,12 @@ Define your contract in `src/rpc-contract.ts` using the `oc` builder from `@orpc
 
 ```typescript
 import { oc } from "@orpc/contract";
-import type { ProcedureMetadata } from "@checkmate/common";
+import type { ProcedureMetadata } from "@checkmate-monitor/common";
 import { z } from "zod";
 import { SystemSchema, CreateSystemSchema, UpdateSystemSchema } from "./schemas";
 import { permissions } from "./permissions";
 
-// Use ProcedureMetadata from @checkmate/common for full auth control
+// Use ProcedureMetadata from @checkmate-monitor/common for full auth control
 const _base = oc.$meta<ProcedureMetadata>({});
 
 export const catalogContract = {
@@ -566,10 +566,10 @@ export type CatalogContract = typeof catalogContract;
 
 ## Contract-Based Auth Enforcement
 
-The `ProcedureMetadata` interface from `@checkmate/common` provides declarative auth control:
+The `ProcedureMetadata` interface from `@checkmate-monitor/common` provides declarative auth control:
 
 ```typescript
-import type { ProcedureMetadata } from "@checkmate/common";
+import type { ProcedureMetadata } from "@checkmate-monitor/common";
 
 // ProcedureMetadata interface:
 interface ProcedureMetadata {
@@ -589,12 +589,12 @@ interface ProcedureMetadata {
 
 ### Backend Enforcement
 
-The `autoAuthMiddleware` from `@checkmate/backend-api` automatically enforces auth based on contract metadata:
+The `autoAuthMiddleware` from `@checkmate-monitor/backend-api` automatically enforces auth based on contract metadata:
 
 ```typescript
 import { implement } from "@orpc/server";
-import { autoAuthMiddleware, type RpcContext, type RealUser } from "@checkmate/backend-api";
-import { catalogContract } from "@checkmate/catalog-common";
+import { autoAuthMiddleware, type RpcContext, type RealUser } from "@checkmate-monitor/backend-api";
+import { catalogContract } from "@checkmate-monitor/catalog-common";
 
 // Create implementer with context and auth middleware
 const os = implement(catalogContract)
@@ -619,7 +619,7 @@ This approach:
 ### In Common Plugin (`catalog-common/src/permissions.ts`)
 
 ```typescript
-import { createPermission } from "@checkmate/common";
+import { createPermission } from "@checkmate-monitor/common";
 
 export const permissions = {
   catalogRead: createPermission(
@@ -645,8 +645,8 @@ export const permissionList = Object.values(permissions);
 
 ```typescript
 import { implement } from "@orpc/server";
-import { autoAuthMiddleware, type RpcContext, type RealUser } from "@checkmate/backend-api";
-import { catalogContract, permissionList } from "@checkmate/catalog-common";
+import { autoAuthMiddleware, type RpcContext, type RealUser } from "@checkmate-monitor/backend-api";
+import { catalogContract, permissionList } from "@checkmate-monitor/catalog-common";
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
@@ -680,8 +680,8 @@ export default createBackendPlugin({
 ### In Frontend Plugin
 
 ```typescript
-import { permissions } from "@checkmate/catalog-common";
-import { useApi, permissionApiRef } from "@checkmate/frontend-api";
+import { permissions } from "@checkmate-monitor/catalog-common";
+import { useApi, permissionApiRef } from "@checkmate-monitor/frontend-api";
 
 export const CatalogConfigPage = () => {
   const permissionApi = useApi(permissionApiRef);
@@ -786,7 +786,7 @@ If a member remains missing despite being in `src/index.ts`, it is likely being 
 
 ## Naming Conventions
 
-- **Package Name**: `@checkmate/<plugin>-common`
+- **Package Name**: `@checkmate-monitor/<plugin>-common`
 - **Permission IDs**: Use dot notation: `entity.read`, `incident.manage`
 - **Permission Constants**: Use camelCase: `entityRead`, `incidentManage`
 - **Contract Names**: Use camelCase suffix: `catalogContract`, `healthCheckContract`

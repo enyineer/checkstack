@@ -1,12 +1,16 @@
-import { rpcApiRef, ApiRef, UserMenuItemsSlot } from "@checkmate/frontend-api";
+import {
+  rpcApiRef,
+  ApiRef,
+  UserMenuItemsSlot,
+} from "@checkmate-monitor/frontend-api";
 import { catalogApiRef, type CatalogApiClient } from "./api";
-import { createFrontendPlugin } from "@checkmate/frontend-api";
+import { createFrontendPlugin } from "@checkmate-monitor/frontend-api";
 import {
   catalogRoutes,
   CatalogApi,
   pluginMetadata,
   permissions,
-} from "@checkmate/catalog-common";
+} from "@checkmate-monitor/catalog-common";
 
 import { CatalogPage } from "./components/CatalogPage";
 import { CatalogConfigPage } from "./components/CatalogConfigPage";

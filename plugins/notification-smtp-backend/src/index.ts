@@ -7,8 +7,8 @@ import {
   markdownToHtml,
   markdownToPlainText,
   wrapInEmailLayout,
-} from "@checkmate/backend-api";
-import { notificationStrategyExtensionPoint } from "@checkmate/notification-backend";
+} from "@checkmate-monitor/backend-api";
+import { notificationStrategyExtensionPoint } from "@checkmate-monitor/notification-backend";
 import { z } from "zod";
 import { createTransport, type Transporter } from "nodemailer";
 import { pluginMetadata } from "./plugin-metadata";

@@ -1,4 +1,4 @@
-import { createApiRef } from "@checkmate/frontend-api";
+import { createApiRef } from "@checkmate-monitor/frontend-api";
 
 // Types for better-auth entities
 export interface AuthUser {

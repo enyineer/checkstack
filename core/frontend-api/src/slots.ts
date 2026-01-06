@@ -13,7 +13,7 @@ export interface SlotDefinition<TContext = undefined> {
  * Creates a type-safe slot definition that can be exported from any package.
  *
  * @example
- * // In @checkmate/catalog-common
+ * // In @checkmate-monitor/catalog-common
  * export const SystemDetailsSlot = createSlot<{ systemId: string }>(
  *   "catalog.system.details"
  * );

@@ -2,7 +2,7 @@ import { oc } from "@orpc/contract";
 import {
   createClientDefinition,
   type ProcedureMetadata,
-} from "@checkmate/common";
+} from "@checkmate-monitor/common";
 import { pluginMetadata } from "./plugin-metadata";
 import { z } from "zod";
 import { permissions } from "./permissions";

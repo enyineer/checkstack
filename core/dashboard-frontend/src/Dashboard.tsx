@@ -1,18 +1,22 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useApi, rpcApiRef, ExtensionSlot } from "@checkmate/frontend-api";
-import { catalogApiRef } from "@checkmate/catalog-frontend-plugin";
+import {
+  useApi,
+  rpcApiRef,
+  ExtensionSlot,
+} from "@checkmate-monitor/frontend-api";
+import { catalogApiRef } from "@checkmate-monitor/catalog-frontend-plugin";
 import {
   catalogRoutes,
   SystemStateBadgesSlot,
   System,
   Group,
-} from "@checkmate/catalog-common";
-import { resolveRoute } from "@checkmate/common";
+} from "@checkmate-monitor/catalog-common";
+import { resolveRoute } from "@checkmate-monitor/common";
 import {
   NotificationApi,
   type EnrichedSubscription,
-} from "@checkmate/notification-common";
+} from "@checkmate-monitor/notification-common";
 import {
   Card,
   CardHeader,
@@ -24,9 +28,9 @@ import {
   LoadingSpinner,
   SubscribeButton,
   useToast,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import { LayoutGrid, Info, Server, Activity, ChevronRight } from "lucide-react";
-import { authApiRef } from "@checkmate/auth-frontend/api";
+import { authApiRef } from "@checkmate-monitor/auth-frontend/api";
 
 const CATALOG_PLUGIN_ID = "catalog";
 

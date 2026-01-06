@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
-import { useApi, rpcApiRef } from "@checkmate/frontend-api";
-import { authApiRef } from "@checkmate/auth-frontend/api";
-import { useTheme } from "@checkmate/ui";
-import { ThemeApi } from "@checkmate/theme-common";
+import { useApi, rpcApiRef } from "@checkmate-monitor/frontend-api";
+import { authApiRef } from "@checkmate-monitor/auth-frontend/api";
+import { useTheme } from "@checkmate-monitor/ui";
+import { ThemeApi } from "@checkmate-monitor/theme-common";
 
 /**
  * Headless component that synchronizes theme on app initialization.

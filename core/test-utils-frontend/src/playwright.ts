@@ -1,15 +1,15 @@
 /**
- * @checkmate/test-utils-frontend/playwright
+ * @checkmate-monitor/test-utils-frontend/playwright
  *
  * Shared Playwright configuration and utilities for E2E testing.
  *
  * ## Quick Setup
  *
- * 1. Add devDependency: "@checkmate/test-utils-frontend": "workspace:*"
+ * 1. Add devDependency: "@checkmate-monitor/test-utils-frontend": "workspace:*"
  *
  * 2. Create playwright.config.ts in your package:
  *    ```typescript
- *    import { createPlaywrightConfig } from "@checkmate/test-utils-frontend/playwright";
+ *    import { createPlaywrightConfig } from "@checkmate-monitor/test-utils-frontend/playwright";
  *    export default createPlaywrightConfig();
  *    ```
  *
@@ -46,7 +46,7 @@ export interface PlaywrightConfigOptions {
  * @example
  * ```typescript
  * // playwright.config.ts
- * import { createPlaywrightConfig } from "@checkmate/test-utils-frontend/playwright";
+ * import { createPlaywrightConfig } from "@checkmate-monitor/test-utils-frontend/playwright";
  *
  * export default createPlaywrightConfig({
  *   baseURL: "http://localhost:5173",

@@ -9,7 +9,7 @@ import {
   DialogTitle,
   DialogFooter,
   useToast,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 
 interface GroupEditorProps {
   open: boolean;

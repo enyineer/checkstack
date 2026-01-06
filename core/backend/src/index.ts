@@ -7,7 +7,7 @@ import { db } from "./db";
 import path from "node:path";
 import fs from "node:fs";
 import { rootLogger } from "./logger";
-import { coreServices, coreHooks } from "@checkmate/backend-api";
+import { coreServices, coreHooks } from "@checkmate-monitor/backend-api";
 import { plugins } from "./schema";
 import { eq, and } from "drizzle-orm";
 import { PluginLocalInstaller } from "./services/plugin-installer";
@@ -17,17 +17,17 @@ import {
   createWebSocketHandler,
   SignalServiceImpl,
   type WebSocketData,
-} from "@checkmate/signal-backend";
+} from "@checkmate-monitor/signal-backend";
 import {
   PLUGIN_INSTALLED,
   PLUGIN_DEREGISTERED,
-} from "@checkmate/signal-common";
+} from "@checkmate-monitor/signal-common";
 import { createPluginAdminRouter } from "./plugin-manager/plugin-admin-router";
 import {
   pluginMetadata as apiDocsMetadata,
   permissions as apiDocsPermissions,
-} from "@checkmate/api-docs-common";
-import { qualifyPermissionId } from "@checkmate/common";
+} from "@checkmate-monitor/api-docs-common";
+import { qualifyPermissionId } from "@checkmate-monitor/common";
 
 import { cors } from "hono/cors";
 
@@ -198,7 +198,7 @@ const init = async () => {
   // This must happen AFTER plugins load so auth-backend is available
   const rpcClient = await pluginManager.getService(coreServices.rpcClient);
   if (rpcClient) {
-    const { AuthApi } = await import("@checkmate/auth-common");
+    const { AuthApi } = await import("@checkmate-monitor/auth-common");
     const authClient = rpcClient.forPlugin(AuthApi);
     signalService.setAuthClient(authClient);
     rootLogger.debug(

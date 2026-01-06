@@ -1,4 +1,4 @@
-import type { PluginMetadata } from "@checkmate/common";
+import type { PluginMetadata } from "@checkmate-monitor/common";
 
 export const pluginMetadata: PluginMetadata = {
   pluginId: "notification-telegram",

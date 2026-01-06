@@ -6,11 +6,11 @@ This guide documents the required pattern for exposing plugin configuration sche
 
 ## Overview
 
-When building admin UIs for plugins, configuration schemas must be converted to JSON Schema format and sent to the frontend. The **critical requirement** is to use the custom `toJsonSchema()` utility from `@checkmate/backend-api` instead of Zod's native `toJSONSchema()` method.
+When building admin UIs for plugins, configuration schemas must be converted to JSON Schema format and sent to the frontend. The **critical requirement** is to use the custom `toJsonSchema()` utility from `@checkmate-monitor/backend-api` instead of Zod's native `toJSONSchema()` method.
 
 ## The Problem
 
-The `DynamicForm` component in `@checkmate/ui` automatically renders password input fields (with show/hide toggles) for fields marked as secrets. However, it relies on the `x-secret` metadata in the JSON Schema to identify these fields.
+The `DynamicForm` component in `@checkmate-monitor/ui` automatically renders password input fields (with show/hide toggles) for fields marked as secrets. However, it relies on the `x-secret` metadata in the JSON Schema to identify these fields.
 
 **Zod's native method does NOT add this metadata:**
 ```typescript
@@ -22,11 +22,11 @@ const jsonSchema = mySchema.toJSONSchema();
 
 ## The Solution
 
-Use the custom `toJsonSchema()` function from `@checkmate/backend-api`:
+Use the custom `toJsonSchema()` function from `@checkmate-monitor/backend-api`:
 
 ```typescript
 // ✅ CORRECT: Adds x-secret metadata
-import { toJsonSchema } from "@checkmate/backend-api";
+import { toJsonSchema } from "@checkmate-monitor/backend-api";
 const jsonSchema = toJsonSchema(mySchema);
 // Result: Secret fields render as password inputs with show/hide toggle
 ```
@@ -39,8 +39,8 @@ When exposing plugin/strategy metadata to the frontend:
 
 ```typescript
 import { implement } from "@orpc/server";
-import { autoAuthMiddleware, type RpcContext, toJsonSchema } from "@checkmate/backend-api";
-import { myPluginContract } from "@checkmate/myplugin-common";
+import { autoAuthMiddleware, type RpcContext, toJsonSchema } from "@checkmate-monitor/backend-api";
+import { myPluginContract } from "@checkmate-monitor/myplugin-common";
 
 // Contract-based implementation with auto auth enforcement
 const os = implement(myPluginContract)
@@ -69,7 +69,7 @@ export const createMyPluginRouter = () => {
 Use the `secret()` helper for sensitive fields:
 
 ```typescript
-import { secret } from "@checkmate/backend-api";
+import { secret } from "@checkmate-monitor/backend-api";
 import { z } from "zod";
 
 const configSchema = z.object({
@@ -86,7 +86,7 @@ const configSchema = z.object({
 The frontend automatically handles the password fields:
 
 ```typescript
-import { PluginConfigForm } from "@checkmate/ui";
+import { PluginConfigForm } from "@checkmate-monitor/ui";
 
 // The configSchema from the backend already has x-secret metadata
 <PluginConfigForm
@@ -146,7 +146,7 @@ The platform provides two branded Zod types for specialized field rendering:
 Use for passwords, API keys, tokens, and other sensitive data:
 
 ```typescript
-import { secret } from "@checkmate/backend-api";
+import { secret } from "@checkmate-monitor/backend-api";
 
 const schema = z.object({
   apiKey: secret().describe("API authentication key"),
@@ -164,7 +164,7 @@ const schema = z.object({
 Use for hex color values (e.g., brand colors, theme colors):
 
 ```typescript
-import { color } from "@checkmate/backend-api";
+import { color } from "@checkmate-monitor/backend-api";
 
 const schema = z.object({
   // With default value
@@ -192,7 +192,7 @@ Use the `secret()` helper for any sensitive data:
 - Database connection strings with credentials
 
 ```typescript
-import { secret } from "@checkmate/backend-api";
+import { secret } from "@checkmate-monitor/backend-api";
 
 const schema = z.object({
   // Regular field
@@ -246,7 +246,7 @@ Verify schema conversion includes secret metadata:
 
 ```typescript
 import { describe, test, expect } from "bun:test";
-import { toJsonSchema } from "@checkmate/backend-api";
+import { toJsonSchema } from "@checkmate-monitor/backend-api";
 import { myPluginConfigSchema } from "./schema";
 
 describe("Plugin Config Schema", () => {
@@ -269,7 +269,7 @@ configSchema: zod.toJSONSchema(p.configSchema)
 ### ❌ Forgetting to Import
 ```typescript
 // WRONG: Using wrong function
-import { zod } from "@checkmate/backend-api";
+import { zod } from "@checkmate-monitor/backend-api";
 configSchema: zod.toJSONSchema(p.configSchema)
 ```
 
@@ -281,7 +281,7 @@ password: z.string().describe("Password")
 
 ### ✅ Correct Pattern
 ```typescript
-import { toJsonSchema, secret } from "@checkmate/backend-api";
+import { toJsonSchema, secret } from "@checkmate-monitor/backend-api";
 
 // In schema
 password: secret().describe("Password")
@@ -301,7 +301,7 @@ configSchema: toJsonSchema(p.configSchema)
 
 **Always follow these rules when exposing config schemas to the frontend:**
 
-1. ✅ Use `toJsonSchema()` from `@checkmate/backend-api`, not Zod's native method
+1. ✅ Use `toJsonSchema()` from `@checkmate-monitor/backend-api`, not Zod's native method
 2. ✅ Mark sensitive fields with `secret()` in your schemas  
 3. ✅ Use `ConfigService.getRedacted()` when returning current config to frontend
 4. ✅ Test that secret fields have `x-secret: true` metadata

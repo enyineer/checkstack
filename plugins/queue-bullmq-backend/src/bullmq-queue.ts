@@ -5,7 +5,7 @@ import {
   QueueStats,
   ConsumeOptions,
   RecurringJobDetails,
-} from "@checkmate/queue-api";
+} from "@checkmate-monitor/queue-api";
 import { Queue as BullQueue, Worker, JobsOptions } from "bullmq";
 import type { BullMQConfig } from "./plugin";
 

@@ -1,5 +1,5 @@
 ---
-"@checkmate/theme-frontend": minor
+"@checkmate-monitor/theme-frontend": minor
 ---
 
 Add theme persistence for non-logged-in users via local storage

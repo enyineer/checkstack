@@ -1,6 +1,6 @@
 ---
-"@checkmate/backend-api": minor
-"@checkmate/backend": minor
+"@checkmate-monitor/backend-api": minor
+"@checkmate-monitor/backend": minor
 ---
 
 fix: Anonymous and non-admin user authorization

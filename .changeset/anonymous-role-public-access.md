@@ -1,12 +1,12 @@
 ---
-"@checkmate/common": minor
-"@checkmate/backend-api": minor
-"@checkmate/backend": minor
-"@checkmate/auth-backend": minor
-"@checkmate/auth-common": patch
-"@checkmate/catalog-common": minor
-"@checkmate/notification-common": patch
-"@checkmate/ui": minor
+"@checkmate-monitor/common": minor
+"@checkmate-monitor/backend-api": minor
+"@checkmate-monitor/backend": minor
+"@checkmate-monitor/auth-backend": minor
+"@checkmate-monitor/auth-common": patch
+"@checkmate-monitor/catalog-common": minor
+"@checkmate-monitor/notification-common": patch
+"@checkmate-monitor/ui": minor
 ---
 
 ### Anonymous Role and Public Access

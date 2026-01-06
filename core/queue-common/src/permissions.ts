@@ -1,4 +1,4 @@
-import { createPermission } from "@checkmate/common";
+import { createPermission } from "@checkmate-monitor/common";
 
 /**
  * Permissions for queue settings

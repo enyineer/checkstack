@@ -63,10 +63,10 @@ You typically **don't need** a changeset for:
 ```bash
 $ bun changeset
 🦋  Which packages would you like to include?
-◉ @checkmate/auth-backend
+◉ @checkmate-monitor/auth-backend
 
 🦋  Which packages should have a patch bump?
-◉ @checkmate/auth-backend
+◉ @checkmate-monitor/auth-backend
 
 🦋  Please enter a summary for this change:
 Fixed session timeout handling in authentication middleware

@@ -1,4 +1,4 @@
-import { FetchApi } from "@checkmate/frontend-api";
+import { FetchApi } from "@checkmate-monitor/frontend-api";
 
 export class CoreFetchApi implements FetchApi {
   constructor() {}

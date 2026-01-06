@@ -1,4 +1,4 @@
-import { createSlot } from "@checkmate/frontend-api";
+import { createSlot } from "@checkmate-monitor/frontend-api";
 import type { System } from "./types";
 
 /**
@@ -23,7 +23,7 @@ export const SystemDetailsTopSlot = createSlot<{ system: System }>(
  *
  * @example
  * // In your plugin
- * import { SystemDetailsSlot } from "@checkmate/catalog-common";
+ * import { SystemDetailsSlot } from "@checkmate-monitor/catalog-common";
  *
  * extensions: [{
  *   id: "my-plugin.system-details",
@@ -41,7 +41,7 @@ export const SystemDetailsSlot = createSlot<{ system: System }>(
  *
  * @example
  * // In your plugin
- * import { CatalogSystemActionsSlot } from "@checkmate/catalog-common";
+ * import { CatalogSystemActionsSlot } from "@checkmate-monitor/catalog-common";
  *
  * extensions: [{
  *   id: "my-plugin.system-actions",
@@ -61,7 +61,7 @@ export const CatalogSystemActionsSlot = createSlot<{
  *
  * @example
  * // In your plugin
- * import { SystemStateBadgesSlot } from "@checkmate/catalog-common";
+ * import { SystemStateBadgesSlot } from "@checkmate-monitor/catalog-common";
  *
  * extensions: [{
  *   id: "my-plugin.system-state-badge",

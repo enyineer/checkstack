@@ -1,31 +1,11 @@
-{
-  "name": "@checkmate/{{pluginName}}",
-  "version": "0.0.1",
-  "description": "{{pluginDescription}}",
-  "type": "module",
-  "exports": {
-    ".": {
-      "import": "./src/index.ts"
-    }
-  },
-  "scripts": {
-    "typecheck": "tsc --noEmit",
-    "lint": "bun run lint:code",
-    "lint:code": "eslint . --max-warnings 0",
-    "test": "bun test"
-  },
-  "dependencies": {
-    "@checkmate/backend-api": "workspace:*",
-    "@checkmate/common": "workspace:*",
-    "@checkmate/{{pluginBaseName}}-common": "workspace:*",
-    "@orpc/server": "^1.13.2",
-    "drizzle-orm": "^0.45.1"
-  },
-  "devDependencies": {
-    "@checkmate/tsconfig": "workspace:*",
-    "drizzle-kit": "^0.28.1",
-    "@checkmate/drizzle-helper": "workspace:*",
-    "@checkmate/test-utils-backend": "workspace:*",
-    "typescript": "^5.7.2"
-  }
+{ "name": "@checkmate-monitor/{{pluginName}}", "version": "0.0.1",
+"description": "{{pluginDescription}}", "type": "module", "exports": { ".": {
+"import": "./src/index.ts" } }, "scripts": { "typecheck": "tsc --noEmit",
+"lint": "bun run lint:code", "lint:code": "eslint . --max-warnings 0", "test":
+"bun test" }, "dependencies": { "@checkmate-monitor/backend-api": "workspace:*",
+"@checkmate-monitor/common": "workspace:*", "@checkmate-monitor/{{pluginBaseName}}-common":
+"workspace:*", "@orpc/server": "^1.13.2", "drizzle-orm": "^0.45.1" },
+"devDependencies": { "@checkmate-monitor/tsconfig": "workspace:*",
+"drizzle-kit": "^0.28.1", "@checkmate-monitor/drizzle-helper": "workspace:*",
+"@checkmate-monitor/test-utils-backend": "workspace:*", "typescript": "^5.7.2" }
 }

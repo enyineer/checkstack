@@ -2,7 +2,7 @@ import {
   useApi,
   wrapInSuspense,
   permissionApiRef,
-} from "@checkmate/frontend-api";
+} from "@checkmate-monitor/frontend-api";
 import { healthCheckApiRef } from "../api";
 import {
   PageLayout,
@@ -11,7 +11,7 @@ import {
   CardHeader,
   CardTitle,
   CardContent,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import {
   HealthCheckRunsTable,
   type HealthCheckRunDetailed,

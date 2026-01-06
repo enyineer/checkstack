@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/maintenance-frontend",
+  "name": "@checkmate-monitor/maintenance-frontend",
   "version": "0.0.1",
   "type": "module",
   "main": "src/index.tsx",
@@ -9,12 +9,12 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "@checkmate/catalog-common": "workspace:*",
-    "@checkmate/common": "workspace:*",
-    "@checkmate/frontend-api": "workspace:*",
-    "@checkmate/maintenance-common": "workspace:*",
-    "@checkmate/signal-frontend": "workspace:*",
-    "@checkmate/ui": "workspace:*",
+    "@checkmate-monitor/catalog-common": "workspace:*",
+    "@checkmate-monitor/common": "workspace:*",
+    "@checkmate-monitor/frontend-api": "workspace:*",
+    "@checkmate-monitor/maintenance-common": "workspace:*",
+    "@checkmate-monitor/signal-frontend": "workspace:*",
+    "@checkmate-monitor/ui": "workspace:*",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.344.0",
     "react": "^18.2.0",
@@ -23,7 +23,7 @@
   "devDependencies": {
     "typescript": "^5.0.0",
     "@types/react": "^18.2.0",
-    "@checkmate/tsconfig": "workspace:*",
-    "@checkmate/scripts": "workspace:*"
+    "@checkmate-monitor/tsconfig": "workspace:*",
+    "@checkmate-monitor/scripts": "workspace:*"
   }
 }

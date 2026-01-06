@@ -1,9 +1,12 @@
 import { useNavigate } from "react-router-dom";
 import { FileCode2 } from "lucide-react";
-import { DropdownMenuItem } from "@checkmate/ui";
-import { useApi, permissionApiRef } from "@checkmate/frontend-api";
-import { resolveRoute, qualifyPermissionId } from "@checkmate/common";
-import { pluginMetadata, permissions } from "@checkmate/api-docs-common";
+import { DropdownMenuItem } from "@checkmate-monitor/ui";
+import { useApi, permissionApiRef } from "@checkmate-monitor/frontend-api";
+import { resolveRoute, qualifyPermissionId } from "@checkmate-monitor/common";
+import {
+  pluginMetadata,
+  permissions,
+} from "@checkmate-monitor/api-docs-common";
 import { apiDocsRoutes } from "./index";
 
 const REQUIRED_PERMISSION = qualifyPermissionId(

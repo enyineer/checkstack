@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/api-docs-common",
+  "name": "@checkmate-monitor/api-docs-common",
   "version": "0.0.1",
   "type": "module",
   "exports": {
@@ -8,12 +8,12 @@
     }
   },
   "dependencies": {
-    "@checkmate/common": "workspace:*"
+    "@checkmate-monitor/common": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.2",
-    "@checkmate/tsconfig": "workspace:*",
-    "@checkmate/scripts": "workspace:*"
+    "@checkmate-monitor/tsconfig": "workspace:*",
+    "@checkmate-monitor/scripts": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

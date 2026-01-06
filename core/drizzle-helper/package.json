@@ -1,5 +1,5 @@
 {
-  "name": "@checkmate/drizzle-helper",
+  "name": "@checkmate-monitor/drizzle-helper",
   "version": "1.0.0",
   "private": true,
   "type": "module",

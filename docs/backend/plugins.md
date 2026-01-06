@@ -125,8 +125,8 @@ The router implements the contract from your common package using the contract-b
 
 ```typescript
 import { implement } from "@orpc/server";
-import { autoAuthMiddleware, type RpcContext } from "@checkmate/backend-api";
-import { myFeatureContract } from "@checkmate/myfeature-common";
+import { autoAuthMiddleware, type RpcContext } from "@checkmate-monitor/backend-api";
+import { myFeatureContract } from "@checkmate-monitor/myfeature-common";
 
 /**
  * Create the router using contract-based implementation.
@@ -258,7 +258,7 @@ Register the plugin's initialization function.
 - `afterPluginsReady`: Async function called after all plugins initialized (Phase 3, optional)
 
 ```typescript
-import { OtherApi } from "@checkmate/other-common";
+import { OtherApi } from "@checkmate-monitor/other-common";
 
 env.registerInit({
   schema: mySchema,
@@ -451,7 +451,7 @@ env.registerService(myServiceRef, {
 Register an implementation for an extension point.
 
 ```typescript
-import { healthCheckExtensionPoint } from "@checkmate/backend-api";
+import { healthCheckExtensionPoint } from "@checkmate-monitor/backend-api";
 
 env.registerExtensionPoint(healthCheckExtensionPoint, {
   id: "http-check",
@@ -503,8 +503,8 @@ The backend router implements the contract using the **contract-based approach**
 
 ```typescript
 import { implement } from "@orpc/server";
-import { autoAuthMiddleware, type RpcContext } from "@checkmate/backend-api";
-import { myPluginContract, permissionList } from "@checkmate/myplugin-common";
+import { autoAuthMiddleware, type RpcContext } from "@checkmate-monitor/backend-api";
+import { myPluginContract, permissionList } from "@checkmate-monitor/myplugin-common";
 
 /**
  * Creates the router using contract-based implementation.
@@ -540,7 +540,7 @@ This pattern ensures security is:
 
 ```typescript
 // In contract (declaration AND enforcement):
-import type { ProcedureMetadata } from "@checkmate/common";
+import type { ProcedureMetadata } from "@checkmate-monitor/common";
 
 const _base = oc.$meta<ProcedureMetadata>({});
 
@@ -628,7 +628,7 @@ Backend plugins should extend the shared backend configuration.
 
 ```json
 {
-  "extends": "@checkmate/tsconfig/backend.json",
+  "extends": "@checkmate-monitor/tsconfig/backend.json",
   "include": ["src"]
 }
 ```
@@ -714,7 +714,7 @@ Dependencies are fully typed. TypeScript will error if:
 ```typescript
 import { describe, it, expect, mock } from "bun:test";
 import { createMyPluginRouter } from "./router";
-import { createMockRpcContext } from "@checkmate/backend-api";
+import { createMockRpcContext } from "@checkmate-monitor/backend-api";
 import { call } from "@orpc/server";
 
 describe("MyPlugin Router", () => {

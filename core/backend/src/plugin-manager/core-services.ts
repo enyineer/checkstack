@@ -10,15 +10,15 @@ import {
   RpcClient,
   EventBus as IEventBus,
   AuthenticationStrategy,
-} from "@checkmate/backend-api";
-import { AuthApi } from "@checkmate/auth-common";
+} from "@checkmate-monitor/backend-api";
+import { AuthApi } from "@checkmate-monitor/auth-common";
 import type { ServiceRegistry } from "../services/service-registry";
 import { rootLogger } from "../logger";
 import { db } from "../db";
 import { jwtService } from "../services/jwt";
 import { CoreHealthCheckRegistry } from "../services/health-check-registry";
 import { EventBus } from "../services/event-bus.js";
-import { getPluginSchemaName } from "@checkmate/drizzle-helper";
+import { getPluginSchemaName } from "@checkmate-monitor/drizzle-helper";
 
 /**
  * Check if a PostgreSQL schema exists.

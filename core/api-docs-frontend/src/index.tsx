@@ -1,9 +1,12 @@
 import {
   createFrontendPlugin,
   UserMenuItemsSlot,
-} from "@checkmate/frontend-api";
-import { createRoutes } from "@checkmate/common";
-import { pluginMetadata, permissions } from "@checkmate/api-docs-common";
+} from "@checkmate-monitor/frontend-api";
+import { createRoutes } from "@checkmate-monitor/common";
+import {
+  pluginMetadata,
+  permissions,
+} from "@checkmate-monitor/api-docs-common";
 import { ApiDocsPage } from "./ApiDocsPage";
 import { ApiDocsMenuItem } from "./ApiDocsMenuItem";
 

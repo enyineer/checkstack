@@ -1,15 +1,15 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { useApi, type SlotContext } from "@checkmate/frontend-api";
-import { useSignal } from "@checkmate/signal-frontend";
-import { resolveRoute } from "@checkmate/common";
-import { SystemDetailsTopSlot } from "@checkmate/catalog-common";
+import { useApi, type SlotContext } from "@checkmate-monitor/frontend-api";
+import { useSignal } from "@checkmate-monitor/signal-frontend";
+import { resolveRoute } from "@checkmate-monitor/common";
+import { SystemDetailsTopSlot } from "@checkmate-monitor/catalog-common";
 import { incidentApiRef } from "../api";
 import {
   incidentRoutes,
   INCIDENT_UPDATED,
   type IncidentWithSystems,
-} from "@checkmate/incident-common";
+} from "@checkmate-monitor/incident-common";
 import {
   Card,
   CardHeader,
@@ -18,7 +18,7 @@ import {
   Badge,
   LoadingSpinner,
   Button,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 import { AlertTriangle, Clock, History, ChevronRight } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 

@@ -65,15 +65,15 @@ The generated plugin is a working example. Customize it for your domain:
 The API types are imported from your common package (no derivation needed):
 
 ```typescript
-import { createApiRef } from "@checkmate/frontend-api";
-import { MyFeatureClient } from "@checkmate/myfeature-common";
+import { createApiRef } from "@checkmate-monitor/frontend-api";
+import { MyFeatureClient } from "@checkmate-monitor/myfeature-common";
 
 // Re-export types for convenience
 export type {
   MyItem,
   CreateMyItem,
   UpdateMyItem,
-} from "@checkmate/myfeature-common";
+} from "@checkmate-monitor/myfeature-common";
 
 // Use the client type from the common package
 export type MyFeatureApi = MyFeatureClient;
@@ -87,9 +87,9 @@ export const myFeatureApiRef = createApiRef<MyFeatureApi>("myfeature-api");
 
 ```typescript
 import { useEffect, useState } from "react";
-import { useApi } from "@checkmate/frontend-api";
+import { useApi } from "@checkmate-monitor/frontend-api";
 import { myFeatureApiRef, type MyItem } from "../api";
-import { Button, Card } from "@checkmate/ui";
+import { Button, Card } from "@checkmate-monitor/ui";
 
 export const MyFeaturePage = () => {
   const api = useApi(myFeatureApiRef);
@@ -119,10 +119,10 @@ export const MyFeaturePage = () => {
 **src/index.tsx:**
 
 ```typescript
-import { createFrontendPlugin, rpcApiRef, type ApiRef } from "@checkmate/frontend-api";
+import { createFrontendPlugin, rpcApiRef, type ApiRef } from "@checkmate-monitor/frontend-api";
 import { myFeatureApiRef, type MyFeatureApiClient } from "./api";
 import { MyFeaturePage } from "./components/MyFeaturePage";
-import { myFeatureRoutes, MyFeatureApi, pluginMetadata } from "@checkmate/myfeature-common";
+import { myFeatureRoutes, MyFeatureApi, pluginMetadata } from "@checkmate-monitor/myfeature-common";
 
 export const myFeaturePlugin = createFrontendPlugin({
   metadata: pluginMetadata,
@@ -175,7 +175,7 @@ Creates a frontend plugin with the specified configuration.
 Plugin metadata from the common package (contains pluginId).
 
 ```typescript
-import { pluginMetadata } from "@checkmate/myplugin-common";
+import { pluginMetadata } from "@checkmate-monitor/myplugin-common";
 
 metadata: pluginMetadata
 ```
@@ -185,8 +185,8 @@ metadata: pluginMetadata
 Register client-side APIs that components can use.
 
 ```typescript
-import { MyPluginApi } from "@checkmate/myplugin-common";
-import type { InferClient } from "@checkmate/common";
+import { MyPluginApi } from "@checkmate-monitor/myplugin-common";
+import type { InferClient } from "@checkmate-monitor/common";
 
 export type MyPluginApiClient = InferClient<typeof MyPluginApi>;
 
@@ -206,7 +206,7 @@ apis: [
 Register pages and their routes using RouteDefinitions from the common package.
 
 ```typescript
-import { myRoutes } from "@checkmate/myplugin-common";
+import { myRoutes } from "@checkmate-monitor/myplugin-common";
 
 routes: [
   {
@@ -223,7 +223,7 @@ routes: [
 Register components to inject into extension slots.
 
 ```typescript
-import { UserMenuItemsSlot } from "@checkmate/frontend-api";
+import { UserMenuItemsSlot } from "@checkmate-monitor/frontend-api";
 
 extensions: [
   {
@@ -243,12 +243,12 @@ The frontend consumes Api definitions from `-common` packages to get type-safe R
 **src/api.ts:**
 
 ```typescript
-import { createApiRef } from "@checkmate/frontend-api";
-import { MyPluginApi } from "@checkmate/myplugin-common";
-import type { InferClient } from "@checkmate/common";
+import { createApiRef } from "@checkmate-monitor/frontend-api";
+import { MyPluginApi } from "@checkmate-monitor/myplugin-common";
+import type { InferClient } from "@checkmate-monitor/common";
 
 // Re-export types from common for convenience
-export type { Item, CreateItem, UpdateItem } from "@checkmate/myplugin-common";
+export type { Item, CreateItem, UpdateItem } from "@checkmate-monitor/myplugin-common";
 
 // Derive client type from Api definition
 export type MyPluginApiClient = InferClient<typeof MyPluginApi>;
@@ -267,9 +267,9 @@ export const myPluginApiRef = createApiRef<MyPluginApiClient>("myplugin-api");
 **src/index.tsx:**
 
 ```typescript
-import { rpcApiRef, type ApiRef } from "@checkmate/frontend-api";
+import { rpcApiRef, type ApiRef } from "@checkmate-monitor/frontend-api";
 import { myPluginApiRef, type MyPluginApiClient } from "./api";
-import { MyPluginApi, pluginMetadata } from "@checkmate/myplugin-common";
+import { MyPluginApi, pluginMetadata } from "@checkmate-monitor/myplugin-common";
 
 export const myPlugin = createFrontendPlugin({
   metadata: pluginMetadata,
@@ -296,7 +296,7 @@ export const myPlugin = createFrontendPlugin({
 ### Step 3: Use in Components
 
 ```typescript
-import { useApi } from "@checkmate/frontend-api";
+import { useApi } from "@checkmate-monitor/frontend-api";
 import { myPluginApiRef } from "../api";
 
 export const ItemListPage = () => {
@@ -341,7 +341,7 @@ The core provides these APIs for use in components:
 The oRPC client factory for creating type-safe plugin clients.
 
 ```typescript
-import { MyPluginApi } from "@checkmate/myplugin-common";
+import { MyPluginApi } from "@checkmate-monitor/myplugin-common";
 
 const rpcApi = useApi(rpcApiRef);
 
@@ -382,7 +382,7 @@ if (session.user) {
 ### Route-Level Permissions
 
 ```typescript
-import { permissions } from "@checkmate/myplugin-common";
+import { permissions } from "@checkmate-monitor/myplugin-common";
 
 routes: [
   {
@@ -398,8 +398,8 @@ Users without the permission will see an "Access Denied" page.
 ### Component-Level Permissions
 
 ```typescript
-import { useApi, permissionApiRef } from "@checkmate/frontend-api";
-import { permissions } from "@checkmate/myplugin-common";
+import { useApi, permissionApiRef } from "@checkmate-monitor/frontend-api";
+import { permissions } from "@checkmate-monitor/myplugin-common";
 
 export const ItemListPage = () => {
   const permissionApi = useApi(permissionApiRef);
@@ -434,7 +434,7 @@ return <ItemConfigPage />;
 
 ## UI Components
 
-Use components from `@checkmate/ui` for consistent styling:
+Use components from `@checkmate-monitor/ui` for consistent styling:
 
 ```typescript
 import {
@@ -446,7 +446,7 @@ import {
   Dialog,
   Select,
   Checkbox,
-} from "@checkmate/ui";
+} from "@checkmate-monitor/ui";
 
 export const ItemForm = () => {
   return (
@@ -467,7 +467,7 @@ export const ItemForm = () => {
 
 ### Available Slots
 
-Core slots are available from `@checkmate/frontend-api`:
+Core slots are available from `@checkmate-monitor/frontend-api`:
 
 ```typescript
 import {
@@ -476,7 +476,7 @@ import {
   UserMenuItemsBottomSlot,
   NavbarSlot,
   NavbarMainSlot,
-} from "@checkmate/frontend-api";
+} from "@checkmate-monitor/frontend-api";
 ```
 
 ### Injecting into Slots
@@ -484,7 +484,7 @@ import {
 Use the `slot:` property with a `SlotDefinition` object:
 
 ```typescript
-import { UserMenuItemsSlot } from "@checkmate/frontend-api";
+import { UserMenuItemsSlot } from "@checkmate-monitor/frontend-api";
 
 extensions: [
   {
@@ -498,7 +498,7 @@ extensions: [
 ### Example: User Menu Items
 
 ```typescript
-import { DropdownMenuItem } from "@checkmate/ui";
+import { DropdownMenuItem } from "@checkmate-monitor/ui";
 import { Link } from "react-router-dom";
 
 export const MyUserMenuItems = () => {
@@ -580,7 +580,7 @@ export const ItemForm = () => {
 
 ```typescript
 import { useEffect, useState } from "react";
-import { useApi } from "@checkmate/frontend-api";
+import { useApi } from "@checkmate-monitor/frontend-api";
 import { myPluginApiRef, type Item } from "../api";
 
 export const ItemListPage = () => {
@@ -610,7 +610,7 @@ export const ItemListPage = () => {
 
 ```typescript
 import { useState } from "react";
-import { Button, Input, Label } from "@checkmate/ui";
+import { Button, Input, Label } from "@checkmate-monitor/ui";
 
 export const ItemForm = ({ onSubmit }: { onSubmit: (data: ItemData) => void }) => {
   const [name, setName] = useState("");
@@ -697,7 +697,7 @@ export const ItemForm = () => {
 ### List Page with RPC
 
 ```typescript
-import { useApi } from "@checkmate/frontend-api";
+import { useApi } from "@checkmate-monitor/frontend-api";
 import { myPluginApiRef, type Item } from "../api";
 
 export const ItemListPage = () => {
@@ -883,7 +883,7 @@ Import types from the common package instead of redefining them:
 
 ```typescript
 // ✅ Good - Use contract types
-import type { Item, CreateItem } from "@checkmate/myplugin-common";
+import type { Item, CreateItem } from "@checkmate-monitor/myplugin-common";
 
 // ❌ Bad - Duplicate type definitions
 interface Item {
@@ -991,9 +991,9 @@ export class MyPluginClient implements MyPluginApi {
 
 ```typescript
 // src/api.ts
-import { createApiRef } from "@checkmate/frontend-api";
-import { MyPluginApi } from "@checkmate/myplugin-common";
-import type { InferClient } from "@checkmate/common";
+import { createApiRef } from "@checkmate-monitor/frontend-api";
+import { MyPluginApi } from "@checkmate-monitor/myplugin-common";
+import type { InferClient } from "@checkmate-monitor/common";
 
 export type MyPluginApiClient = InferClient<typeof MyPluginApi>;
 export const myPluginApiRef = createApiRef<MyPluginApiClient>("myplugin-api");
