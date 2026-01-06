@@ -1,0 +1,198 @@
+import { z } from "zod";
+
+/**
+ * Logger interface - matches the platform Logger type.
+ * Defined inline to avoid depending on backend-api in the common package.
+ */
+export interface IntegrationLogger {
+  debug(message: string, ...args: unknown[]): void;
+  info(message: string, ...args: unknown[]): void;
+  warn(message: string, ...args: unknown[]): void;
+  error(message: string, ...args: unknown[]): void;
+}
+
+// =============================================================================
+// Integration Event Definition Types
+// =============================================================================
+
+/**
+ * Hook reference type - matches the Hook interface from backend-api.
+ * We use a minimal type here to avoid depending on backend-api in the common package.
+ */
+export interface HookReference<T = unknown> {
+  id: string;
+  _type?: T;
+}
+
+/**
+ * Metadata for registering a hook as an integration event.
+ * Plugins use this to expose their hooks for external webhook subscriptions.
+ */
+export interface IntegrationEventDefinition<T = unknown> {
+  /** The hook to expose (from the owning plugin) */
+  hook: HookReference<T>;
+
+  /** Human-readable name for the UI */
+  displayName: string;
+
+  /** Description of when this event fires */
+  description?: string;
+
+  /** Category for UI grouping (e.g., "Health", "Incidents", "Maintenance") */
+  category?: string;
+
+  /** Zod schema for the payload (used for UI preview and validation) */
+  payloadSchema: z.ZodType<T>;
+
+  /**
+   * Optional: Transform hook payload before sending to webhooks.
+   * Use this to enrich the payload with additional context or
+   * redact sensitive fields.
+   */
+  transformPayload?: (payload: T) => Record<string, unknown>;
+}
+
+// =============================================================================
+// Integration Provider Types
+// =============================================================================
+
+/**
+ * Context passed to the provider's deliver() method.
+ */
+export interface IntegrationDeliveryContext<TConfig = unknown> {
+  event: {
+    /** Fully qualified event ID */
+    eventId: string;
+    /** Event payload (possibly transformed) */
+    payload: Record<string, unknown>;
+    /** ISO timestamp when the event was emitted */
+    timestamp: string;
+    /** Unique ID for this delivery attempt */
+    deliveryId: string;
+  };
+  subscription: {
+    /** Subscription ID */
+    id: string;
+    /** Subscription name */
+    name: string;
+  };
+  /** Provider-specific configuration */
+  providerConfig: TConfig;
+  /** Scoped logger for delivery tracing */
+  logger: IntegrationLogger;
+}
+
+/**
+ * Result of a provider delivery attempt.
+ */
+export interface IntegrationDeliveryResult {
+  success: boolean;
+  /** External ID returned by the target system (e.g., Jira issue key) */
+  externalId?: string;
+  /** Error message if delivery failed */
+  error?: string;
+  /** Milliseconds to wait before retrying (if applicable) */
+  retryAfterMs?: number;
+}
+
+/**
+ * Result of testing a provider connection.
+ */
+export interface TestConnectionResult {
+  success: boolean;
+  message?: string;
+}
+
+/**
+ * Versioned configuration wrapper - must match the platform's Versioned type.
+ * We use a minimal type here to avoid circular dependencies.
+ */
+export interface VersionedConfig<T> {
+  version: number;
+  schema: z.ZodType<T>;
+}
+
+/**
+ * Integration provider definition.
+ * Providers define how to deliver events to specific external systems.
+ */
+export interface IntegrationProvider<TConfig = unknown> {
+  /** Local identifier, namespaced on registration to {pluginId}.{id} */
+  id: string;
+
+  /** Display name for UI */
+  displayName: string;
+
+  /** Description of what this provider does */
+  description?: string;
+
+  /** Lucide icon name for UI */
+  icon?: string;
+
+  /** Provider-specific configuration schema */
+  config: VersionedConfig<TConfig>;
+
+  /**
+   * Events this provider can handle.
+   * If undefined, provider accepts all events.
+   * Event IDs are fully qualified: {pluginId}.{hookId}
+   */
+  supportedEvents?: string[];
+
+  /**
+   * Transform and deliver the event to the external system.
+   */
+  deliver(
+    context: IntegrationDeliveryContext<TConfig>
+  ): Promise<IntegrationDeliveryResult>;
+
+  /**
+   * Optional: Test the provider configuration.
+   * Called when admin clicks "Test Connection" in the UI.
+   */
+  testConnection?(config: TConfig): Promise<TestConnectionResult>;
+}
+
+/**
+ * Registered provider with full namespace information.
+ */
+export interface RegisteredIntegrationProvider<TConfig = unknown>
+  extends IntegrationProvider<TConfig> {
+  /** Fully qualified ID: {pluginId}.{id} */
+  qualifiedId: string;
+
+  /** Plugin that registered this provider */
+  ownerPluginId: string;
+}
+
+// =============================================================================
+// Registered Integration Event
+// =============================================================================
+
+/**
+ * Registered integration event with full namespace information.
+ */
+export interface RegisteredIntegrationEvent {
+  /** Fully qualified event ID: {pluginId}.{hookId} */
+  eventId: string;
+
+  /** Original hook reference */
+  hook: HookReference<unknown>;
+
+  /** Plugin that registered this event */
+  ownerPluginId: string;
+
+  /** UI metadata */
+  displayName: string;
+  description?: string;
+  category?: string;
+
+  /** JSON Schema for payload (derived from Zod) */
+  payloadJsonSchema: Record<string, unknown>;
+
+  /** Original Zod schema */
+  payloadSchema: z.ZodType<unknown>;
+
+  /** Optional payload transformer */
+  transformPayload?: (payload: unknown) => Record<string, unknown>;
+}

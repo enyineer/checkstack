@@ -1,9 +1,12 @@
 {
-  "name": "@checkmate-monitor/auth-backend",
+  "name": "@checkmate-monitor/integration-backend",
   "version": "0.0.1",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
+  "checkmate": {
+    "type": "backend"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "generate": "drizzle-kit generate",
@@ -12,20 +15,19 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@checkmate-monitor/auth-common": "workspace:*",
+    "@checkmate-monitor/integration-common": "workspace:*",
     "@checkmate-monitor/backend-api": "workspace:*",
-    "@checkmate-monitor/notification-common": "workspace:*",
-    "better-auth": "^1.4.7",
+    "@checkmate-monitor/signal-common": "workspace:*",
+    "@checkmate-monitor/queue-api": "workspace:*",
+    "@checkmate-monitor/common": "workspace:*",
     "drizzle-orm": "^0.45.1",
-    "hono": "^4.0.0",
-    "jose": "^6.1.3",
-    "zod": "^4.2.1",
-    "@checkmate-monitor/common": "workspace:*"
+    "zod": "^4.2.1"
   },
   "devDependencies": {
     "@checkmate-monitor/drizzle-helper": "workspace:*",
     "@checkmate-monitor/scripts": "workspace:*",
     "@checkmate-monitor/tsconfig": "workspace:*",
+    "@checkmate-monitor/test-utils-backend": "workspace:*",
     "@orpc/server": "^1.13.2",
     "@types/node": "^20.0.0",
     "drizzle-kit": "^0.31.8",
