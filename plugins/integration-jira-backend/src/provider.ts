@@ -181,20 +181,11 @@ If a property is missing, the placeholder will be preserved in the output for de
           }
 
           case JIRA_RESOLVERS.ISSUE_TYPE_OPTIONS: {
-            logger.debug("ISSUE_TYPE_OPTIONS context received", {
-              context,
-              projectKey: context?.projectKey,
-            });
             const projectKey = context?.projectKey as string | undefined;
             if (!projectKey) {
-              logger.warn("No projectKey in context, returning empty array");
               return [];
             }
-            logger.debug(`Fetching issue types for project: ${projectKey}`);
             const issueTypes = await client.getIssueTypes(projectKey);
-            logger.debug(`Got ${issueTypes.length} issue types`, {
-              issueTypes,
-            });
             return issueTypes.map((t) => ({
               value: t.id,
               label: t.name,
