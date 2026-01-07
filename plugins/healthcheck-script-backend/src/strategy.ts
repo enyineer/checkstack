@@ -89,9 +89,7 @@ const scriptResultSchema = z.object({
     "x-chart-type": "boolean",
     "x-chart-label": "Timed Out",
   }),
-  failedAssertion: scriptAssertionSchema.optional().meta({
-    "x-chart-type": "hidden",
-  }),
+  failedAssertion: scriptAssertionSchema.optional(),
   error: z.string().optional().meta({
     "x-chart-type": "status",
     "x-chart-label": "Error",

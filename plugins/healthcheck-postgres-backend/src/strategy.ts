@@ -92,9 +92,7 @@ const postgresResultSchema = z.object({
     "x-chart-type": "boolean",
     "x-chart-label": "Query Success",
   }),
-  failedAssertion: postgresAssertionSchema.optional().meta({
-    "x-chart-type": "hidden",
-  }),
+  failedAssertion: postgresAssertionSchema.optional(),
   error: z.string().optional().meta({
     "x-chart-type": "status",
     "x-chart-label": "Error",

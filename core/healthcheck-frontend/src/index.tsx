@@ -14,6 +14,7 @@ import { HealthCheckSystemOverview } from "./components/HealthCheckSystemOvervie
 import { SystemHealthCheckAssignment } from "./components/SystemHealthCheckAssignment";
 import { SystemHealthBadge } from "./components/SystemHealthBadge";
 import { permissions } from "@checkmate-monitor/healthcheck-common";
+import { autoChartExtension } from "./auto-charts";
 
 import {
   SystemDetailsSlot,
@@ -93,5 +94,7 @@ export default createFrontendPlugin({
       id: "healthcheck.catalog.system-actions",
       component: SystemHealthCheckAssignment,
     }),
+    // Auto-generated charts based on schema metadata
+    autoChartExtension,
   ],
 });

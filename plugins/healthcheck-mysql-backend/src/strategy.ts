@@ -87,9 +87,7 @@ const mysqlResultSchema = z.object({
     "x-chart-type": "boolean",
     "x-chart-label": "Query Success",
   }),
-  failedAssertion: mysqlAssertionSchema.optional().meta({
-    "x-chart-type": "hidden",
-  }),
+  failedAssertion: mysqlAssertionSchema.optional(),
   error: z.string().optional().meta({
     "x-chart-type": "status",
     "x-chart-label": "Error",

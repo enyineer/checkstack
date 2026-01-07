@@ -105,9 +105,7 @@ const tlsResultSchema = z.object({
     "x-chart-type": "text",
     "x-chart-label": "Cipher",
   }),
-  failedAssertion: tlsAssertionSchema.optional().meta({
-    "x-chart-type": "hidden",
-  }),
+  failedAssertion: tlsAssertionSchema.optional(),
   error: z.string().optional().meta({
     "x-chart-type": "status",
     "x-chart-label": "Error",

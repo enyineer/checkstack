@@ -40,8 +40,7 @@
  * - text: Text display for string values
  * - status: Status badge for error/warning states
  *
- * Special:
- * - hidden: Skip visualization (internal fields like failedAssertion)
+ * Note: Fields without chart annotations simply won't render - no "hidden" type needed.
  */
 export type ChartType =
   | "line"
@@ -50,8 +49,7 @@ export type ChartType =
   | "gauge"
   | "boolean"
   | "text"
-  | "status"
-  | "hidden";
+  | "status";
 
 /**
  * Chart metadata to attach to Zod schema fields via .meta().

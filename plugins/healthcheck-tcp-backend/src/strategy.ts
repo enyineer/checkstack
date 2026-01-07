@@ -63,9 +63,7 @@ const tcpResultSchema = z.object({
     "x-chart-type": "text",
     "x-chart-label": "Banner",
   }),
-  failedAssertion: tcpAssertionSchema.optional().meta({
-    "x-chart-type": "hidden",
-  }),
+  failedAssertion: tcpAssertionSchema.optional(),
   error: z.string().optional().meta({
     "x-chart-type": "status",
     "x-chart-label": "Error",

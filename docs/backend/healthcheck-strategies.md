@@ -327,11 +327,9 @@ const myResultSchema = z.object({
 | `text` | String display | Version info, status messages |
 | `status` | Error/warning badges | Error messages |
 
-#### Special
+> [!TIP]
+> Fields without chart annotations simply won't render - no explicit "hidden" type is needed.
 
-| Type | Use Case |
-|------|----------|
-| `hidden` | Skip visualization (use for internal fields like `failedAssertion`) |
 
 ### Per-Run Result Schema
 

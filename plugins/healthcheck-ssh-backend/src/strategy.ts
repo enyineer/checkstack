@@ -94,9 +94,7 @@ const sshResultSchema = z.object({
     "x-chart-type": "boolean",
     "x-chart-label": "Command Success",
   }),
-  failedAssertion: sshAssertionSchema.optional().meta({
-    "x-chart-type": "hidden",
-  }),
+  failedAssertion: sshAssertionSchema.optional(),
   error: z.string().optional().meta({
     "x-chart-type": "status",
     "x-chart-label": "Error",

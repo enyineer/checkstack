@@ -75,9 +75,7 @@ const dnsResultSchema = z.object({
     "x-chart-label": "Resolution Time",
     "x-chart-unit": "ms",
   }),
-  failedAssertion: dnsAssertionSchema.optional().meta({
-    "x-chart-type": "hidden",
-  }),
+  failedAssertion: dnsAssertionSchema.optional(),
   error: z.string().optional().meta({
     "x-chart-type": "status",
     "x-chart-label": "Error",

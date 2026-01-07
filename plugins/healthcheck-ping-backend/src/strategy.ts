@@ -82,9 +82,7 @@ const pingResultSchema = z.object({
     "x-chart-label": "Max Latency",
     "x-chart-unit": "ms",
   }),
-  failedAssertion: pingAssertionSchema.optional().meta({
-    "x-chart-type": "hidden",
-  }),
+  failedAssertion: pingAssertionSchema.optional(),
   error: z.string().optional().meta({
     "x-chart-type": "status",
     "x-chart-label": "Error",

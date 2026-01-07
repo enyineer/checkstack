@@ -135,9 +135,7 @@ const httpResultMetadataSchema = z.object({
     "x-chart-type": "text",
     "x-chart-label": "Content Type",
   }),
-  failedAssertion: httpAssertionSchema.optional().meta({
-    "x-chart-type": "hidden",
-  }),
+  failedAssertion: httpAssertionSchema.optional(),
   error: z.string().optional().meta({
     "x-chart-type": "status",
     "x-chart-label": "Error",

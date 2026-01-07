@@ -79,9 +79,7 @@ const grpcResultSchema = z.object({
     "x-chart-type": "text",
     "x-chart-label": "Status",
   }),
-  failedAssertion: grpcAssertionSchema.optional().meta({
-    "x-chart-type": "hidden",
-  }),
+  failedAssertion: grpcAssertionSchema.optional(),
   error: z.string().optional().meta({
     "x-chart-type": "status",
     "x-chart-label": "Error",

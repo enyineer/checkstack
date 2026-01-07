@@ -93,9 +93,7 @@ const redisResultSchema = z.object({
     "x-chart-type": "text",
     "x-chart-label": "Redis Version",
   }),
-  failedAssertion: redisAssertionSchema.optional().meta({
-    "x-chart-type": "hidden",
-  }),
+  failedAssertion: redisAssertionSchema.optional(),
   error: z.string().optional().meta({
     "x-chart-type": "status",
     "x-chart-label": "Error",
