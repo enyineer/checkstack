@@ -319,6 +319,9 @@ function BarChartRenderer({ field, context }: ChartRendererProps) {
 
 /**
  * Get the latest value for a field from the context.
+ *
+ * For raw runs, the strategy-specific data is inside result.metadata.
+ * For aggregated buckets, the data is directly in aggregatedResult.
  */
 function getLatestValue(
   fieldName: string,
@@ -327,10 +330,10 @@ function getLatestValue(
   if (context.type === "raw") {
     const runs = context.runs;
     if (runs.length === 0) return undefined;
-    return getFieldValue(
-      runs.at(-1)?.result as Record<string, unknown>,
-      fieldName
-    );
+    // Strategy-specific fields are in result.metadata, not result directly
+    const result = runs.at(-1)?.result as Record<string, unknown> | undefined;
+    const metadata = result?.metadata as Record<string, unknown> | undefined;
+    return getFieldValue(metadata, fieldName);
   } else {
     const buckets = context.buckets;
     if (buckets.length === 0) return undefined;
@@ -343,25 +346,33 @@ function getLatestValue(
 
 /**
  * Get all numeric values for a field from the context.
+ *
+ * For raw runs, the strategy-specific data is inside result.metadata.
+ * For aggregated buckets, the data is directly in aggregatedResult.
  */
 function getAllValues(
   fieldName: string,
   context: HealthCheckDiagramSlotContext
 ): number[] {
-  return context.type === "raw"
-    ? context.runs
-        .map((run) =>
-          getFieldValue(run.result as Record<string, unknown>, fieldName)
-        )
-        .filter((v): v is number => typeof v === "number")
-    : context.buckets
-        .map((bucket) =>
-          getFieldValue(
-            bucket.aggregatedResult as Record<string, unknown>,
-            fieldName
-          )
-        )
-        .filter((v): v is number => typeof v === "number");
+  if (context.type === "raw") {
+    return context.runs
+      .map((run) => {
+        const result = run.result as Record<string, unknown>;
+        const metadata = result?.metadata as
+          | Record<string, unknown>
+          | undefined;
+        return getFieldValue(metadata, fieldName);
+      })
+      .filter((v): v is number => typeof v === "number");
+  }
+  return context.buckets
+    .map((bucket) =>
+      getFieldValue(
+        bucket.aggregatedResult as Record<string, unknown>,
+        fieldName
+      )
+    )
+    .filter((v): v is number => typeof v === "number");
 }
 
 /**
