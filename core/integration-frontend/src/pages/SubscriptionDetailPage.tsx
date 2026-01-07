@@ -350,33 +350,6 @@ export const SubscriptionDetailPage = () => {
                     events.
                   </div>
                 )}
-                {/* Show available payload properties for template hints */}
-                {payloadProperties.length > 0 && (
-                  <div className="mt-4 p-3 rounded-md bg-muted/50 border">
-                    <div className="text-xs font-medium text-muted-foreground mb-2">
-                      Available Template Variables
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {payloadProperties.slice(0, 10).map((prop) => (
-                        <span
-                          key={prop.path}
-                          className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs"
-                          title={prop.description ?? prop.path}
-                        >
-                          <code className="font-mono">{`{{${prop.path}}}`}</code>
-                          <span className="text-muted-foreground">
-                            {prop.type}
-                          </span>
-                        </span>
-                      ))}
-                      {payloadProperties.length > 10 && (
-                        <span className="text-xs text-muted-foreground">
-                          +{payloadProperties.length - 10} more
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )}
               </CardContent>
             </Card>
           </section>
