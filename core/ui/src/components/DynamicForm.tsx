@@ -31,12 +31,15 @@ export interface JsonSchemaProperty {
   type?: string;
   description?: string;
   enum?: string[];
+  const?: string | number | boolean; // For discriminator values
   properties?: Record<string, JsonSchemaProperty>;
   items?: JsonSchemaProperty;
   required?: string[];
   additionalProperties?: boolean | JsonSchemaProperty;
   format?: string;
   default?: unknown;
+  oneOf?: JsonSchemaProperty[]; // Discriminated union variants
+  anyOf?: JsonSchemaProperty[]; // Union variants
   "x-secret"?: boolean; // Custom metadata for secret fields
   "x-color"?: boolean; // Custom metadata for color fields
   "x-options-resolver"?: string; // Name of a resolver function for dynamic options
@@ -871,6 +874,127 @@ const FormField: React.FC<{
             </div>
           ))}
         </div>
+      </div>
+    );
+  }
+
+  // Discriminated Union (oneOf/anyOf) with object variants
+  const unionVariants = propSchema.oneOf || propSchema.anyOf;
+  if (unionVariants && unionVariants.length > 0) {
+    // Find the discriminator field by looking for a property with "const" in each variant
+    const firstVariant = unionVariants[0];
+    if (!firstVariant.properties) return <></>;
+
+    // Find discriminator: the field that has "const" in each variant
+    let discriminatorField: string | undefined;
+    for (const [fieldName, fieldSchema] of Object.entries(
+      firstVariant.properties
+    )) {
+      if (fieldSchema.const !== undefined) {
+        discriminatorField = fieldName;
+        break;
+      }
+    }
+
+    if (!discriminatorField) return <></>;
+
+    // Get current discriminator value and find matching variant
+    const currentValue = value as Record<string, unknown> | undefined;
+    const currentDiscriminatorValue = currentValue?.[discriminatorField];
+
+    // Extract variant options from all variants
+    const variantOptions = unionVariants
+      .map((variant) => {
+        const discProp = variant.properties?.[discriminatorField];
+        const constValue = discProp?.const;
+        if (constValue === undefined) return;
+        return String(constValue);
+      })
+      .filter((v): v is string => v !== undefined);
+
+    // Find the currently selected variant
+    const selectedVariant =
+      unionVariants.find((variant) => {
+        const discProp = variant.properties?.[discriminatorField];
+        return discProp?.const === currentDiscriminatorValue;
+      }) || unionVariants[0];
+
+    const displayDiscriminatorField =
+      discriminatorField.charAt(0).toUpperCase() + discriminatorField.slice(1);
+
+    return (
+      <div className="space-y-3 p-3 border rounded-lg bg-background">
+        {/* Discriminator selector */}
+        <div className="space-y-2">
+          <div>
+            <Label htmlFor={`${id}.${discriminatorField}`}>
+              {displayDiscriminatorField}
+            </Label>
+          </div>
+          <Select
+            value={String(currentDiscriminatorValue || variantOptions[0] || "")}
+            onValueChange={(newValue) => {
+              // When discriminator changes, reset to new variant with only discriminator set
+              const newVariant = unionVariants.find((v) => {
+                const discProp = v.properties?.[discriminatorField];
+                return String(discProp?.const) === newValue;
+              });
+              if (newVariant) {
+                // Initialize with defaults for the new variant
+                const newObj: Record<string, unknown> = {
+                  [discriminatorField]: newValue,
+                };
+                // Set defaults for other properties
+                for (const [propKey, propDef] of Object.entries(
+                  newVariant.properties || {}
+                )) {
+                  if (
+                    propKey !== discriminatorField &&
+                    propDef.default !== undefined
+                  ) {
+                    newObj[propKey] = propDef.default;
+                  }
+                }
+                onChange(newObj);
+              }
+            }}
+          >
+            <SelectTrigger id={`${id}.${discriminatorField}`}>
+              <SelectValue
+                placeholder={`Select ${displayDiscriminatorField}`}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {variantOptions.map((opt) => (
+                <SelectItem key={opt} value={opt}>
+                  {opt}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Render other fields from selected variant */}
+        {selectedVariant.properties &&
+          Object.entries(selectedVariant.properties)
+            .filter(([key]) => key !== discriminatorField)
+            .map(([key, subSchema]) => (
+              <FormField
+                key={`${id}.${key}`}
+                id={`${id}.${key}`}
+                label={
+                  key.charAt(0).toUpperCase() +
+                  key.slice(1).replaceAll(/([A-Z])/g, " $1")
+                }
+                propSchema={subSchema}
+                value={currentValue?.[key]}
+                isRequired={selectedVariant.required?.includes(key)}
+                formValues={formValues}
+                optionsResolvers={optionsResolvers}
+                templateProperties={templateProperties}
+                onChange={(val) => onChange({ ...currentValue, [key]: val })}
+              />
+            ))}
       </div>
     );
   }
