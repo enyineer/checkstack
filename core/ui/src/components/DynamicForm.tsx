@@ -474,7 +474,38 @@ const FormField: React.FC<{
     )["x-secret"];
     const cleanDesc = getCleanDescription(description);
 
+    // Textarea fields - use TemplateEditor if templateProperties available
     if (isTextarea) {
+      // If we have template properties, use TemplateEditor
+      if (templateProperties && templateProperties.length > 0) {
+        return (
+          <div className="space-y-2">
+            <div>
+              <Label htmlFor={id}>
+                {label} {isRequired && "*"}
+              </Label>
+              {cleanDesc && (
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  {cleanDesc}
+                </p>
+              )}
+            </div>
+            <TemplateEditor
+              value={(value as string) || ""}
+              onChange={(val) => onChange(val)}
+              availableProperties={templateProperties}
+              placeholder={
+                propSchema.default
+                  ? `Default: ${String(propSchema.default)}`
+                  : "Enter template..."
+              }
+              rows={5}
+            />
+          </div>
+        );
+      }
+
+      // No template properties, fall back to regular textarea
       return (
         <div className="space-y-2">
           <div>
@@ -641,6 +672,37 @@ const FormField: React.FC<{
       );
     }
 
+    // Default string input - use TemplateEditor if templateProperties available
+    // If we have template properties, use TemplateEditor with smaller rows
+    if (templateProperties && templateProperties.length > 0) {
+      return (
+        <div className="space-y-2">
+          <div>
+            <Label htmlFor={id}>
+              {label} {isRequired && "*"}
+            </Label>
+            {cleanDesc && (
+              <p className="text-sm text-muted-foreground mt-0.5">
+                {cleanDesc}
+              </p>
+            )}
+          </div>
+          <TemplateEditor
+            value={(value as string) || ""}
+            onChange={(val) => onChange(val)}
+            availableProperties={templateProperties}
+            placeholder={
+              propSchema.default
+                ? `Default: ${String(propSchema.default)}`
+                : undefined
+            }
+            rows={2}
+          />
+        </div>
+      );
+    }
+
+    // No template properties - fallback to regular Input
     return (
       <div className="space-y-2">
         <div>
