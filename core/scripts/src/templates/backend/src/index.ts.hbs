@@ -1,14 +1,35 @@
-import { createBackendPlugin, coreServices } from
-"@checkmate-monitor/backend-api"; import { permissionList, pluginMetadata } from
-"@checkmate-monitor/{{pluginBaseName}}-common"; import * as schema from
-"./schema"; import { create{{pluginNamePascal}}Router } from "./router"; export
-default createBackendPlugin({ metadata: pluginMetadata, register(env) {
-env.registerPermissions(permissionList); env.registerInit({ schema, deps: { rpc:
-coreServices.rpc, logger: coreServices.logger, }, init: async ({ database, rpc,
-logger }) => { logger.debug("Initializing
-{{pluginNamePascal}}
-Backend..."); // Create and register router with plugin-scoped database const
-router = create{{pluginNamePascal}}Router({ database });
-rpc.registerRouter(router); logger.debug("✅
-{{pluginNamePascal}}
-Backend initialized."); }, }); }, });
+import {
+  createBackendPlugin,
+  coreServices,
+} from "@checkmate-monitor/backend-api";
+import {
+  permissionList,
+  pluginMetadata,
+  {{pluginNameCamel}}Contract,
+} from "@checkmate-monitor/{{pluginBaseName}}-common";
+import * as schema from "./schema";
+import { create{{pluginNamePascal}}Router } from "./router";
+
+export default createBackendPlugin({
+  metadata: pluginMetadata,
+  register(env) {
+    env.registerPermissions(permissionList);
+
+    env.registerInit({
+      schema,
+      deps: {
+        rpc: coreServices.rpc,
+        logger: coreServices.logger,
+      },
+      init: async ({ database, rpc, logger }) => {
+        logger.debug("Initializing {{pluginNamePascal}} Backend...");
+
+        // Create and register router with plugin-scoped database
+        const router = create{{pluginNamePascal}}Router({ database });
+        rpc.registerRouter(router, {{pluginNameCamel}}Contract);
+
+        logger.debug("✅ {{pluginNamePascal}} Backend initialized.");
+      },
+    });
+  },
+});

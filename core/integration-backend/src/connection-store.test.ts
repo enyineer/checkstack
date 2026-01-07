@@ -40,29 +40,19 @@ function createMockConfigService() {
   return {
     storage,
     get: mock(async (key: string) => storage.get(key)),
-    getRedacted: mock(
-      async (key: string, schema: z.ZodType<unknown>, version: number) => {
-        const data = storage.get(key);
-        if (!data) return undefined;
-        // Simulate redaction by removing apiKey from each connection's config
-        const typed = data as {
-          connections: Array<{
-            id: string;
-            providerId: string;
-            name: string;
-            config: Record<string, unknown>;
-            createdAt: Date;
-            updatedAt: Date;
-          }>;
-        };
-        return {
-          connections: typed.connections.map((conn) => ({
-            ...conn,
-            config: { baseUrl: conn.config.baseUrl }, // Simulate redacting apiKey
-          })),
-        };
+    getRedacted: mock(async (key: string) => {
+      const data = storage.get(key);
+      if (!data) return undefined;
+      // Simulate redaction: if data is an object with apiKey or token, remove it
+      if (typeof data === "object" && data !== null) {
+        const result = { ...data } as Record<string, unknown>;
+        // Remove common secret field names for redaction simulation
+        delete result.apiKey;
+        delete result.token;
+        return result;
       }
-    ),
+      return data;
+    }),
     set: mock(
       async (
         key: string,
