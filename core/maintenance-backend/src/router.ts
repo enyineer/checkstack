@@ -14,6 +14,7 @@ import type { MaintenanceService } from "./service";
 import { CatalogApi } from "@checkmate-monitor/catalog-common";
 import type { InferClient } from "@checkmate-monitor/common";
 import { resolveRoute } from "@checkmate-monitor/common";
+import { maintenanceHooks } from "./hooks";
 
 export function createRouter(
   service: MaintenanceService,
@@ -83,50 +84,73 @@ export function createRouter(
       }
     ),
 
-    createMaintenance: os.createMaintenance.handler(async ({ input }) => {
-      const result = await service.createMaintenance(input);
+    createMaintenance: os.createMaintenance.handler(
+      async ({ input, context }) => {
+        const result = await service.createMaintenance(input);
 
-      // Broadcast signal for realtime updates
-      await signalService.broadcast(MAINTENANCE_UPDATED, {
-        maintenanceId: result.id,
-        systemIds: result.systemIds,
-        action: "created",
-      });
+        // Broadcast signal for realtime updates
+        await signalService.broadcast(MAINTENANCE_UPDATED, {
+          maintenanceId: result.id,
+          systemIds: result.systemIds,
+          action: "created",
+        });
 
-      // Send notifications to system subscribers
-      await notifyAffectedSystems({
-        maintenanceId: result.id,
-        maintenanceTitle: result.title,
-        systemIds: result.systemIds,
-        action: "created",
-      });
+        // Emit hook for cross-plugin coordination and integrations
+        await context.emitHook(maintenanceHooks.maintenanceCreated, {
+          maintenanceId: result.id,
+          systemIds: result.systemIds,
+          title: result.title,
+          startAt: result.startAt.toISOString(),
+          endAt: result.endAt.toISOString(),
+        });
 
-      return result;
-    }),
+        // Send notifications to system subscribers
+        await notifyAffectedSystems({
+          maintenanceId: result.id,
+          maintenanceTitle: result.title,
+          systemIds: result.systemIds,
+          action: "created",
+        });
 
-    updateMaintenance: os.updateMaintenance.handler(async ({ input }) => {
-      const result = await service.updateMaintenance(input);
-      if (!result) {
-        throw new ORPCError("NOT_FOUND", { message: "Maintenance not found" });
+        return result;
       }
+    ),
 
-      // Broadcast signal for realtime updates
-      await signalService.broadcast(MAINTENANCE_UPDATED, {
-        maintenanceId: result.id,
-        systemIds: result.systemIds,
-        action: "updated",
-      });
+    updateMaintenance: os.updateMaintenance.handler(
+      async ({ input, context }) => {
+        const result = await service.updateMaintenance(input);
+        if (!result) {
+          throw new ORPCError("NOT_FOUND", {
+            message: "Maintenance not found",
+          });
+        }
 
-      // Send notifications to system subscribers
-      await notifyAffectedSystems({
-        maintenanceId: result.id,
-        maintenanceTitle: result.title,
-        systemIds: result.systemIds,
-        action: "updated",
-      });
+        // Broadcast signal for realtime updates
+        await signalService.broadcast(MAINTENANCE_UPDATED, {
+          maintenanceId: result.id,
+          systemIds: result.systemIds,
+          action: "updated",
+        });
 
-      return result;
-    }),
+        // Emit hook for cross-plugin coordination and integrations
+        await context.emitHook(maintenanceHooks.maintenanceUpdated, {
+          maintenanceId: result.id,
+          systemIds: result.systemIds,
+          title: result.title,
+          action: "updated",
+        });
+
+        // Send notifications to system subscribers
+        await notifyAffectedSystems({
+          maintenanceId: result.id,
+          maintenanceTitle: result.title,
+          systemIds: result.systemIds,
+          action: "updated",
+        });
+
+        return result;
+      }
+    ),
 
     addUpdate: os.addUpdate.handler(async ({ input, context }) => {
       const userId =
@@ -138,6 +162,14 @@ export function createRouter(
         await signalService.broadcast(MAINTENANCE_UPDATED, {
           maintenanceId: input.maintenanceId,
           systemIds: maintenance.systemIds,
+          action: "updated",
+        });
+
+        // Emit hook for cross-plugin coordination and integrations
+        await context.emitHook(maintenanceHooks.maintenanceUpdated, {
+          maintenanceId: input.maintenanceId,
+          systemIds: maintenance.systemIds,
+          title: maintenance.title,
           action: "updated",
         });
       }
@@ -164,6 +196,15 @@ export function createRouter(
           systemIds: result.systemIds,
           action: "closed",
         });
+
+        // Emit hook for cross-plugin coordination and integrations
+        await context.emitHook(maintenanceHooks.maintenanceUpdated, {
+          maintenanceId: result.id,
+          systemIds: result.systemIds,
+          title: result.title,
+          action: "closed",
+        });
+
         return result;
       }
     ),

@@ -528,6 +528,8 @@
         "@checkmate-monitor/backend-api": "workspace:*",
         "@checkmate-monitor/catalog-common": "workspace:*",
         "@checkmate-monitor/common": "workspace:*",
+        "@checkmate-monitor/integration-backend": "workspace:*",
+        "@checkmate-monitor/integration-common": "workspace:*",
         "@checkmate-monitor/maintenance-common": "workspace:*",
         "@checkmate-monitor/notification-common": "workspace:*",
         "@checkmate-monitor/signal-common": "workspace:*",
