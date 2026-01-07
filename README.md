@@ -48,10 +48,26 @@ Organize your infrastructure into **Systems** and **Groups**. Track dependencies
 ### Health Checks
 > *Know when things break - before your users do*
 
-- **HTTP Health Checks** - Monitor endpoints with customizable intervals, headers, and expected responses
-- **Aggregated Status** - Roll up individual check results into a clear system health indicator
-- **Historical Data** - Multi-tier storage with automatic aggregation for long-term trend analysis
-- **Custom Strategies** - Pluggable architecture for any check type (TCP, DNS, custom scripts)
+**Built-in Check Types:**
+
+| Category | Provider | Description |
+|----------|----------|-------------|
+| **Network** | HTTP/HTTPS | Endpoint monitoring with status codes, headers, body assertions |
+| | Ping (ICMP) | Network reachability with packet loss and latency tracking |
+| | TCP | Port connectivity with banner reading support |
+| | DNS | Record resolution (A, AAAA, CNAME, MX, TXT, NS) |
+| | TLS/SSL | Certificate expiry, chain validation, issuer verification |
+| **Database** | PostgreSQL | Connection testing, custom queries, row count assertions |
+| | MySQL | Connection testing, custom queries, row count assertions |
+| | Redis | PING latency, server role detection, version checking |
+| **Protocol** | gRPC | Standard Health Checking Protocol (grpc.health.v1) |
+| **Scripted** | SSH | Remote command execution with exit code validation |
+| | Script | Local command/script execution with output parsing |
+
+**Features:**
+- ⚡ **Flexible Assertions** - Validate response time, status, content, numeric comparisons
+- 📊 **Historical Data** - Multi-tier storage with automatic aggregation for trend analysis
+- 🔌 **Pluggable Architecture** - Create custom check strategies for any protocol
 
 ---
 
