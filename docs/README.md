@@ -28,6 +28,11 @@ Building backend plugins and services:
 - **[Versioned Configs](./backend/versioned-configs.md)** - Schema evolution and migrations
 - **[Drizzle Schema](./backend/drizzle-schema.md)** - Database schema isolation
 - **[Health Check Data Management](./backend/healthcheck-data-management.md)** - Tiered storage, aggregation, and retention
+- **[Health Check Strategies](./backend/healthcheck-strategies.md)** - Building health check providers with assertions
+- **[Notification Strategies](./backend/notification-strategies.md)** - Building notification delivery channels
+- **[Integration System](./backend/integration-system.md)** - External system integration architecture
+- **[Integration Events](./backend/integration-events.md)** - Event-driven integration hooks
+- **[Integration Providers](./backend/integration-providers.md)** - Building integration providers
 
 ## Frontend Development
 
@@ -38,6 +43,7 @@ Building frontend plugins and UI:
 - **[Theming](./frontend/theming.md)** - Design tokens and theme customization
 - **[Config Schemas](./frontend/config-schemas.md)** - Sending configuration schemas to frontend
 - **[Health Check Custom Charts](./frontend/healthcheck-charts.md)** - Strategy-specific visualizations
+- **[Routing](./frontend/routing.md)** - Frontend route management and navigation
 
 ## Common Packages
 
@@ -51,12 +57,14 @@ Authentication and secrets management:
 
 - **[Secrets Encryption](./security/secrets.md)** - Secret storage and encryption
 - **[Auth Error Handling](./security/auth-error-handling.md)** - Custom authentication error patterns
+- **[External Applications](./security/external-applications.md)** - Service accounts and API access
 
 ## Testing
 
 Testing utilities and patterns:
 
 - **[Backend Test Utilities](./testing/backend-utilities.md)** - Mock factories and test helpers
+- **[Frontend Testing](./testing/frontend-testing.md)** - React component and hook testing
 
 ## Examples
 
