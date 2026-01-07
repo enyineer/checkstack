@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
   Dialog,
@@ -164,6 +164,50 @@ export const CreateSubscriptionDialog = ({
     }
   };
 
+  // Create optionsResolvers for dynamic dropdown fields (x-options-resolver)
+  // Uses a Proxy to handle any resolver name dynamically
+  const optionsResolvers = useMemo(() => {
+    if (!selectedProvider || !selectedConnectionId) {
+      return;
+    }
+
+    // Create a Proxy that handles any resolver name
+    return new Proxy(
+      {},
+      {
+        get: (_target, resolverName: string) => {
+          // Return a resolver function for this resolver name
+          return async (formValues: Record<string, unknown>) => {
+            try {
+              const result = await client.getConnectionOptions({
+                providerId: selectedProvider.qualifiedId,
+                connectionId: selectedConnectionId,
+                resolverName,
+                context: formValues,
+              });
+              return result.map((opt) => ({
+                value: opt.value,
+                label: opt.label,
+              }));
+            } catch (error) {
+              console.error(
+                `Failed to fetch options for ${resolverName}:`,
+                error
+              );
+              return [];
+            }
+          };
+        },
+        has: () => true, // All resolver names are valid
+      }
+    ) as Record<
+      string,
+      (
+        formValues: Record<string, unknown>
+      ) => Promise<{ value: string; label: string }[]>
+    >;
+  }, [client, selectedProvider, selectedConnectionId]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
@@ -319,6 +363,7 @@ export const CreateSubscriptionDialog = ({
                           schema={selectedProvider.configSchema}
                           value={providerConfig}
                           onChange={setProviderConfig}
+                          optionsResolvers={optionsResolvers}
                         />
                       </div>
                     </div>

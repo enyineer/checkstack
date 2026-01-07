@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, Settings, Trash2, Save } from "lucide-react";
 import {
@@ -136,6 +136,51 @@ export const SubscriptionDetailPage = () => {
     }
   };
 
+  // Extract connectionId from providerConfig for providers with connections
+  const connectionId =
+    (providerConfig.connectionId as string | undefined) ?? "";
+
+  // Create optionsResolvers for dynamic dropdown fields (x-options-resolver)
+  const optionsResolvers = useMemo(() => {
+    if (!provider || !connectionId) {
+      return;
+    }
+
+    return new Proxy(
+      {},
+      {
+        get: (_target, resolverName: string) => {
+          return async (formValues: Record<string, unknown>) => {
+            try {
+              const result = await client.getConnectionOptions({
+                providerId: provider.qualifiedId,
+                connectionId,
+                resolverName,
+                context: formValues,
+              });
+              return result.map((opt) => ({
+                value: opt.value,
+                label: opt.label,
+              }));
+            } catch (error) {
+              console.error(
+                `Failed to fetch options for ${resolverName}:`,
+                error
+              );
+              return [];
+            }
+          };
+        },
+        has: () => true,
+      }
+    ) as Record<
+      string,
+      (
+        formValues: Record<string, unknown>
+      ) => Promise<{ value: string; label: string }[]>
+    >;
+  }, [client, provider, connectionId]);
+
   return (
     <PageLayout
       title={subscription?.name ?? "Loading..."}
@@ -215,6 +260,7 @@ export const SubscriptionDetailPage = () => {
                     schema={provider.configSchema}
                     value={providerConfig}
                     onChange={setProviderConfig}
+                    optionsResolvers={optionsResolvers}
                   />
                   <div className="mt-4">
                     <Button
