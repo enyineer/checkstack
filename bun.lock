@@ -998,27 +998,6 @@
         "typescript": "^5.0.0",
       },
     },
-    "plugins/integration-jira-frontend": {
-      "name": "@checkmate-monitor/integration-jira-frontend",
-      "version": "0.0.1",
-      "dependencies": {
-        "@checkmate-monitor/common": "workspace:*",
-        "@checkmate-monitor/frontend-api": "workspace:*",
-        "@checkmate-monitor/integration-common": "workspace:*",
-        "@checkmate-monitor/integration-frontend": "workspace:*",
-        "@checkmate-monitor/integration-jira-common": "workspace:*",
-        "@checkmate-monitor/ui": "workspace:*",
-        "lucide-react": "^0.500.0",
-        "react": "^18.0.0",
-      },
-      "devDependencies": {
-        "@checkmate-monitor/scripts": "workspace:*",
-        "@checkmate-monitor/tsconfig": "workspace:*",
-        "@types/bun": "^1.0.0",
-        "@types/react": "^18.0.0",
-        "typescript": "^5.0.0",
-      },
-    },
     "plugins/integration-webhook-backend": {
       "name": "@checkmate-monitor/integration-webhook-backend",
       "version": "0.0.1",
@@ -1330,8 +1309,6 @@
     "@checkmate-monitor/integration-jira-backend": ["@checkmate-monitor/integration-jira-backend@workspace:plugins/integration-jira-backend"],
 
     "@checkmate-monitor/integration-jira-common": ["@checkmate-monitor/integration-jira-common@workspace:plugins/integration-jira-common"],
-
-    "@checkmate-monitor/integration-jira-frontend": ["@checkmate-monitor/integration-jira-frontend@workspace:plugins/integration-jira-frontend"],
 
     "@checkmate-monitor/integration-webhook-backend": ["@checkmate-monitor/integration-webhook-backend@workspace:plugins/integration-webhook-backend"],
 
@@ -2890,8 +2867,6 @@
     "@babel/core/semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
     "@babel/helper-compilation-targets/semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
-
-    "@checkmate-monitor/integration-jira-frontend/lucide-react": ["lucide-react@0.500.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-IyGvnYOSBKiF7rFI3p0tDw4ZI+TKnn1b5LPF2/q3NBmA7zYaDagevs1eMNyPRpKdFXxgma6rEu6+2ylJaaGnJA=="],
 
     "@checkmate-monitor/queue-backend/@hono/zod-validator": ["@hono/zod-validator@0.4.3", "", { "peerDependencies": { "hono": ">=3.9.0", "zod": "^3.19.1" } }, "sha512-xIgMYXDyJ4Hj6ekm9T9Y27s080Nl9NXHcJkOvkXPhubOLj8hZkOL8pDnnXfvCf5xEE8Q4oMFenQUZZREUY2gqQ=="],
 
