@@ -31,31 +31,14 @@ export type JiraConnectionConfig = z.infer<typeof JiraConnectionConfigSchema>;
 export type JiraProviderConfig = z.infer<typeof JiraSubscriptionConfigSchema>;
 
 /**
- * Connection store interface for getting connection credentials.
- * Minimal interface matching what we need from the generic connection store.
- */
-interface ConnectionStore {
-  getConnectionWithCredentials(
-    connectionId: string
-  ): Promise<{ config: Record<string, unknown> } | undefined>;
-}
-
-/**
- * Dependencies for creating the Jira provider.
- */
-interface JiraProviderDeps {
-  connectionStore: ConnectionStore;
-}
-
-/**
  * Create the Jira integration provider.
  * Uses the generic connection management system for site-wide Jira connections.
+ * Connection access is provided through params/context at call time.
  */
-export function createJiraProvider(
-  deps: JiraProviderDeps
-): IntegrationProvider<JiraProviderConfig, JiraConnectionConfig> {
-  const { connectionStore } = deps;
-
+export function createJiraProvider(): IntegrationProvider<
+  JiraProviderConfig,
+  JiraConnectionConfig
+> {
   return {
     id: "jira",
     displayName: "Jira",
@@ -116,12 +99,15 @@ If a property is missing, the placeholder will be preserved in the output for de
     async getConnectionOptions(
       params: GetConnectionOptionsParams
     ): Promise<ConnectionOption[]> {
-      const { connectionId, resolverName, context } = params;
+      const {
+        connectionId,
+        resolverName,
+        context,
+        getConnectionWithCredentials,
+      } = params;
 
       // Fetch the connection with credentials
-      const connection = await connectionStore.getConnectionWithCredentials(
-        connectionId
-      );
+      const connection = await getConnectionWithCredentials(connectionId);
       if (!connection) {
         return [];
       }
@@ -221,8 +207,14 @@ If a property is missing, the placeholder will be preserved in the output for de
         fieldMappings,
       } = providerConfig;
 
-      // Get the connection with credentials from the connection store
-      const connection = await connectionStore.getConnectionWithCredentials(
+      // Get the connection with credentials from the delivery context
+      if (!context.getConnectionWithCredentials) {
+        return {
+          success: false,
+          error: "Connection access not available in delivery context",
+        };
+      }
+      const connection = await context.getConnectionWithCredentials(
         connectionId
       );
       if (!connection) {

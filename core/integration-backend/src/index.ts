@@ -165,6 +165,7 @@ export default createBackendPlugin({
         const deliveryCoordinator = createDeliveryCoordinator({
           db,
           providerRegistry,
+          connectionStore,
           queueManager,
           signalService,
           logger,

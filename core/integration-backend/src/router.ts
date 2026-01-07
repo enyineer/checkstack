@@ -524,6 +524,8 @@ export function createIntegrationRouter(deps: RouterDeps) {
           connectionId,
           resolverName,
           context,
+          getConnectionWithCredentials:
+            connectionStore.getConnectionWithCredentials.bind(connectionStore),
         });
         return options;
       } catch (error) {

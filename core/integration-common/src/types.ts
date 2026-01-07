@@ -80,6 +80,13 @@ export interface IntegrationDeliveryContext<TConfig = unknown> {
   providerConfig: TConfig;
   /** Scoped logger for delivery tracing */
   logger: IntegrationLogger;
+  /**
+   * Get connection credentials by ID (for providers with connectionSchema).
+   * Only available when provider has a connectionSchema defined.
+   */
+  getConnectionWithCredentials?: (
+    connectionId: string
+  ) => Promise<{ config: Record<string, unknown> } | undefined>;
 }
 
 /**
@@ -145,6 +152,13 @@ export interface GetConnectionOptionsParams {
   resolverName: string;
   /** Current form values for dependent fields */
   context: Record<string, unknown>;
+  /**
+   * Get connection credentials by ID.
+   * Provided by the integration backend for providers to access connection config.
+   */
+  getConnectionWithCredentials: (
+    connectionId: string
+  ) => Promise<{ config: Record<string, unknown> } | undefined>;
 }
 
 /**

@@ -2,10 +2,7 @@ import {
   createBackendPlugin,
   coreServices,
 } from "@checkmate-monitor/backend-api";
-import {
-  integrationProviderExtensionPoint,
-  connectionStoreRef,
-} from "@checkmate-monitor/integration-backend";
+import { integrationProviderExtensionPoint } from "@checkmate-monitor/integration-backend";
 import { pluginMetadata } from "@checkmate-monitor/integration-jira-common";
 import { createJiraProvider } from "./provider";
 
@@ -17,14 +14,13 @@ export const jiraPlugin = createBackendPlugin({
     env.registerInit({
       deps: {
         logger: coreServices.logger,
-        connectionStore: connectionStoreRef,
       },
-      init: async ({ logger, connectionStore }) => {
+      init: async ({ logger }) => {
         logger.debug("🔌 Registering Jira Integration Provider...");
 
         // Create and register the Jira provider
-        // Uses generic connection management via connectionStore
-        const jiraProvider = createJiraProvider({ connectionStore });
+        // No dependencies needed - connection access is provided through context/params
+        const jiraProvider = createJiraProvider();
         const integrationExt = env.getExtensionPoint(
           integrationProviderExtensionPoint
         );

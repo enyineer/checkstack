@@ -5,6 +5,7 @@ import type { SignalService } from "@checkmate-monitor/signal-common";
 import { eq, sql } from "drizzle-orm";
 
 import type { IntegrationProviderRegistry } from "./provider-registry";
+import type { ConnectionStore } from "./connection-store";
 import * as schema from "./schema";
 import { INTEGRATION_DELIVERY_COMPLETED } from "@checkmate-monitor/integration-common";
 
@@ -56,6 +57,7 @@ export interface DeliveryCoordinator {
 interface DeliveryCoordinatorDeps {
   db: NodePgDatabase<typeof schema>;
   providerRegistry: IntegrationProviderRegistry;
+  connectionStore: ConnectionStore;
   queueManager: QueueManager;
   signalService: SignalService;
   logger: Logger;
@@ -67,7 +69,14 @@ interface DeliveryCoordinatorDeps {
 export function createDeliveryCoordinator(
   deps: DeliveryCoordinatorDeps
 ): DeliveryCoordinator {
-  const { db, providerRegistry, queueManager, signalService, logger } = deps;
+  const {
+    db,
+    providerRegistry,
+    connectionStore,
+    queueManager,
+    signalService,
+    logger,
+  } = deps;
 
   const QUEUE_NAME = "integration-delivery";
   const MAX_RETRIES = 3;
@@ -155,6 +164,8 @@ export function createDeliveryCoordinator(
         },
         providerConfig: job.providerConfig,
         logger: logger,
+        getConnectionWithCredentials:
+          connectionStore.getConnectionWithCredentials.bind(connectionStore),
       });
 
       if (result.success) {
