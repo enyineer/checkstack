@@ -1056,6 +1056,20 @@
         "typescript": "^5.0.0",
       },
     },
+    "plugins/healthcheck-script-backend": {
+      "name": "@checkmate-monitor/healthcheck-script-backend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate-monitor/backend-api": "workspace:*",
+        "@checkmate-monitor/common": "workspace:*",
+      },
+      "devDependencies": {
+        "@checkmate-monitor/scripts": "workspace:*",
+        "@checkmate-monitor/tsconfig": "workspace:*",
+        "@types/bun": "^1.0.0",
+        "typescript": "^5.0.0",
+      },
+    },
     "plugins/healthcheck-ssh-backend": {
       "name": "@checkmate-monitor/healthcheck-ssh-backend",
       "version": "0.0.1",
@@ -1441,6 +1455,8 @@
     "@checkmate-monitor/healthcheck-postgres-backend": ["@checkmate-monitor/healthcheck-postgres-backend@workspace:plugins/healthcheck-postgres-backend"],
 
     "@checkmate-monitor/healthcheck-redis-backend": ["@checkmate-monitor/healthcheck-redis-backend@workspace:plugins/healthcheck-redis-backend"],
+
+    "@checkmate-monitor/healthcheck-script-backend": ["@checkmate-monitor/healthcheck-script-backend@workspace:plugins/healthcheck-script-backend"],
 
     "@checkmate-monitor/healthcheck-ssh-backend": ["@checkmate-monitor/healthcheck-ssh-backend@workspace:plugins/healthcheck-ssh-backend"],
 
