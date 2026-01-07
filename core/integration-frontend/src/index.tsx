@@ -9,7 +9,6 @@ import {
 } from "@checkmate-monitor/integration-common";
 import { IntegrationsPage } from "./pages/IntegrationsPage";
 import { DeliveryLogsPage } from "./pages/DeliveryLogsPage";
-import { SubscriptionDetailPage } from "./pages/SubscriptionDetailPage";
 import { ProviderConnectionsPage } from "./pages/ProviderConnectionsPage";
 import { IntegrationMenuItem } from "./components/IntegrationMenuItem";
 
@@ -27,8 +26,8 @@ export const integrationPlugin = createFrontendPlugin({
       permission: permissions.integrationManage,
     },
     {
-      route: integrationRoutes.routes.detail,
-      element: <SubscriptionDetailPage />,
+      route: integrationRoutes.routes.deliveryLogs,
+      element: <DeliveryLogsPage />,
       permission: permissions.integrationManage,
     },
     {

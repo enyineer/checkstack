@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   Plus,
   Webhook,
@@ -32,10 +32,9 @@ import {
   type WebhookSubscription,
   type IntegrationProviderInfo,
 } from "@checkmate-monitor/integration-common";
-import { CreateSubscriptionDialog } from "../components/CreateSubscriptionDialog";
+import { SubscriptionDialog } from "../components/CreateSubscriptionDialog";
 
 export const IntegrationsPage = () => {
-  const navigate = useNavigate();
   const rpcApi = useApi(rpcApiRef);
   const client = rpcApi.forPlugin(IntegrationApi);
   const toast = useToast();
@@ -43,7 +42,9 @@ export const IntegrationsPage = () => {
   const [subscriptions, setSubscriptions] = useState<WebhookSubscription[]>([]);
   const [providers, setProviders] = useState<IntegrationProviderInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedSubscription, setSelectedSubscription] =
+    useState<WebhookSubscription>();
 
   // Stats state
   const [stats, setStats] = useState<{
@@ -97,7 +98,31 @@ export const IntegrationsPage = () => {
 
   const handleCreated = (newSub: WebhookSubscription) => {
     setSubscriptions((prev) => [newSub, ...prev]);
-    setCreateDialogOpen(false);
+    setDialogOpen(false);
+    setSelectedSubscription(undefined);
+  };
+
+  const handleUpdated = () => {
+    // Refresh data after update
+    void fetchData();
+    setDialogOpen(false);
+    setSelectedSubscription(undefined);
+  };
+
+  const handleDeleted = (id: string) => {
+    setSubscriptions((prev) => prev.filter((s) => s.id !== id));
+    setDialogOpen(false);
+    setSelectedSubscription(undefined);
+  };
+
+  const openEditDialog = (sub: WebhookSubscription) => {
+    setSelectedSubscription(sub);
+    setDialogOpen(true);
+  };
+
+  const openCreateDialog = () => {
+    setSelectedSubscription(undefined);
+    setDialogOpen(true);
   };
 
   return (
@@ -106,7 +131,7 @@ export const IntegrationsPage = () => {
       subtitle="Configure webhooks to send events to external systems"
       loading={loading}
       actions={
-        <Button onClick={() => setCreateDialogOpen(true)}>
+        <Button onClick={openCreateDialog}>
           <Plus className="h-4 w-4 mr-2" />
           New Subscription
         </Button>
@@ -203,13 +228,7 @@ export const IntegrationsPage = () => {
                       <TableRow
                         key={sub.id}
                         className="cursor-pointer"
-                        onClick={() =>
-                          navigate(
-                            resolveRoute(integrationRoutes.routes.detail, {
-                              id: sub.id,
-                            })
-                          )
-                        }
+                        onClick={() => openEditDialog(sub)}
                       >
                         <TableCell>
                           <div className="flex items-center gap-3">
@@ -269,7 +288,7 @@ export const IntegrationsPage = () => {
 
           {subscriptions.length === 0 && (
             <div className="mt-4 flex justify-center">
-              <Button onClick={() => setCreateDialogOpen(true)}>
+              <Button onClick={openCreateDialog}>
                 <Plus className="h-4 w-4 mr-2" />
                 Create Subscription
               </Button>
@@ -334,11 +353,17 @@ export const IntegrationsPage = () => {
         </section>
       </div>
 
-      <CreateSubscriptionDialog
-        open={createDialogOpen}
-        onOpenChange={setCreateDialogOpen}
+      <SubscriptionDialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) setSelectedSubscription(undefined);
+        }}
         providers={providers}
+        subscription={selectedSubscription}
         onCreated={handleCreated}
+        onUpdated={handleUpdated}
+        onDeleted={handleDeleted}
       />
     </PageLayout>
   );

@@ -6,10 +6,10 @@ import { createRoutes } from "@checkmate-monitor/common";
 export const integrationRoutes = createRoutes("integration", {
   /** Main integrations management page */
   list: "/",
-  /** Delivery logs page */
+  /** Delivery logs page (all logs) */
   logs: "/logs",
-  /** Subscription detail/edit */
-  detail: "/:id",
+  /** Delivery logs filtered by subscription */
+  deliveryLogs: "/logs/:subscriptionId",
   /** Provider connections management */
   connections: "/connections/:providerId",
 });

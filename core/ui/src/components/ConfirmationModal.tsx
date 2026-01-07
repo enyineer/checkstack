@@ -61,15 +61,16 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 !m-0 flex items-center justify-center bg-black/50 transition-opacity"
+      className="fixed inset-0 z-[60] !m-0 flex items-center justify-center bg-black/50 transition-opacity pointer-events-auto"
       onClick={handleBackdropClick}
     >
       <div
-        className="bg-background rounded-lg shadow-xl max-w-md w-full mx-4 animate-in fade-in zoom-in duration-200"
+        className="bg-background rounded-lg shadow-xl max-w-md w-full mx-4 animate-in fade-in zoom-in duration-200 pointer-events-auto"
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
         aria-describedby="modal-description"
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-start justify-between p-6 pb-4">
