@@ -19,3 +19,4 @@ export * from "./notification-strategy";
 export * from "./oauth-handler";
 export * from "./markdown";
 export * from "./email-layout";
+export * from "./assertions";
