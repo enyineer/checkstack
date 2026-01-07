@@ -4,7 +4,7 @@ import {
   webhookConfigSchemaV1,
   type WebhookConfig,
 } from "./provider";
-import type { IntegrationDeliveryContext } from "@checkmate-monitor/integration-common";
+import type { IntegrationDeliveryContext } from "@checkmate-monitor/integration-backend";
 import type { Secret } from "@checkmate-monitor/backend-api";
 
 /**

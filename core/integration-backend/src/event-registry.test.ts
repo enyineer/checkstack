@@ -4,7 +4,7 @@ import {
   createIntegrationEventRegistry,
   type IntegrationEventRegistry,
 } from "./event-registry";
-import type { IntegrationEventDefinition } from "@checkmate-monitor/integration-common";
+import type { IntegrationEventDefinition } from "./provider-types";
 import { createHook } from "@checkmate-monitor/backend-api";
 
 /**
