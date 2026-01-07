@@ -24,6 +24,19 @@ export {
   // Result schemas (for API validation)
   IntegrationDeliveryResultSchema,
   TestConnectionResultSchema,
+  // Connection management
+  ProviderConnectionSchema,
+  type ProviderConnection,
+  ProviderConnectionRedactedSchema,
+  type ProviderConnectionRedacted,
+  CreateConnectionInputSchema,
+  type CreateConnectionInput,
+  UpdateConnectionInputSchema,
+  type UpdateConnectionInput,
+  GetConnectionOptionsInputSchema,
+  type GetConnectionOptionsInput,
+  ConnectionOptionSchema,
+  type ConnectionOptionOutput,
 } from "./schemas";
 
 // Types - TypeScript interfaces for provider implementations
@@ -36,6 +49,8 @@ export type {
   TestConnectionResult,
   VersionedConfig,
   ProviderDocumentation,
+  ConnectionOption,
+  GetConnectionOptionsParams,
   IntegrationProvider,
   RegisteredIntegrationProvider,
   RegisteredIntegrationEvent,

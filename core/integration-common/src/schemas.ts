@@ -144,12 +144,90 @@ export const IntegrationProviderInfoSchema = z.object({
   supportedEvents: z.array(z.string()).optional(),
   /** JSON Schema for provider config (for DynamicForm) */
   configSchema: z.record(z.string(), z.unknown()),
+  /** Whether this provider has a connectionSchema (requires connection management) */
+  hasConnectionSchema: z.boolean().default(false),
+  /** JSON Schema for connection config (for DynamicForm in connection management) */
+  connectionSchema: z.record(z.string(), z.unknown()).optional(),
   /** Optional documentation to help users configure their endpoints */
   documentation: ProviderDocumentationSchema,
 });
 export type IntegrationProviderInfo = z.infer<
   typeof IntegrationProviderInfoSchema
 >;
+
+// =============================================================================
+// Provider Connection Schemas
+// =============================================================================
+
+/** Provider connection record (site-wide credentials) */
+export const ProviderConnectionSchema = z.object({
+  /** Unique connection ID */
+  id: z.string(),
+  /** Qualified provider ID this connection belongs to */
+  providerId: z.string(),
+  /** Display name for this connection */
+  name: z.string().min(1).max(100),
+  /** Connection configuration (provider-specific, secrets redacted for API) */
+  config: z.record(z.string(), z.unknown()),
+  createdAt: z.coerce.date(),
+  updatedAt: z.coerce.date(),
+});
+export type ProviderConnection = z.infer<typeof ProviderConnectionSchema>;
+
+/** Redacted connection for API responses (no secrets) */
+export const ProviderConnectionRedactedSchema = z.object({
+  id: z.string(),
+  providerId: z.string(),
+  name: z.string(),
+  /** Redacted config (secret fields removed) */
+  configPreview: z.record(z.string(), z.unknown()),
+  createdAt: z.coerce.date(),
+  updatedAt: z.coerce.date(),
+});
+export type ProviderConnectionRedacted = z.infer<
+  typeof ProviderConnectionRedactedSchema
+>;
+
+/** Input for creating a provider connection */
+export const CreateConnectionInputSchema = z.object({
+  /** Qualified provider ID */
+  providerId: z.string(),
+  /** Display name */
+  name: z.string().min(1).max(100),
+  /** Provider-specific connection config (validated against connectionSchema) */
+  config: z.record(z.string(), z.unknown()),
+});
+export type CreateConnectionInput = z.infer<typeof CreateConnectionInputSchema>;
+
+/** Input for updating a provider connection */
+export const UpdateConnectionInputSchema = z.object({
+  connectionId: z.string(),
+  updates: z.object({
+    name: z.string().min(1).max(100).optional(),
+    /** Partial config update (only provided fields are updated) */
+    config: z.record(z.string(), z.unknown()).optional(),
+  }),
+});
+export type UpdateConnectionInput = z.infer<typeof UpdateConnectionInputSchema>;
+
+/** Input for getting connection options (cascading dropdowns) */
+export const GetConnectionOptionsInputSchema = z.object({
+  providerId: z.string(),
+  connectionId: z.string(),
+  resolverName: z.string(),
+  context: z.record(z.string(), z.unknown()).default({}),
+});
+export type GetConnectionOptionsInput = z.infer<
+  typeof GetConnectionOptionsInputSchema
+>;
+
+/** Option returned from getConnectionOptions */
+export const ConnectionOptionSchema = z.object({
+  value: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+});
+export type ConnectionOptionOutput = z.infer<typeof ConnectionOptionSchema>;
 
 // =============================================================================
 // Integration Event Schemas

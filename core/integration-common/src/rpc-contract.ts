@@ -15,6 +15,11 @@ import {
   IntegrationProviderInfoSchema,
   IntegrationEventInfoSchema,
   TestConnectionResultSchema,
+  ProviderConnectionRedactedSchema,
+  CreateConnectionInputSchema,
+  UpdateConnectionInputSchema,
+  GetConnectionOptionsInputSchema,
+  ConnectionOptionSchema,
 } from "./schemas";
 
 // Base builder with full metadata support (userType + permissions)
@@ -118,6 +123,74 @@ export const integrationContract = {
       })
     )
     .output(TestConnectionResultSchema),
+
+  // ==========================================================================
+  // CONNECTION MANAGEMENT (Admin only)
+  // Generic CRUD for site-wide provider connections
+  // ==========================================================================
+
+  /** List all connections for a provider */
+  listConnections: _base
+    .meta({
+      userType: "user",
+      permissions: [permissions.integrationManage.id],
+    })
+    .input(z.object({ providerId: z.string() }))
+    .output(z.array(ProviderConnectionRedactedSchema)),
+
+  /** Get a single connection (redacted) */
+  getConnection: _base
+    .meta({
+      userType: "user",
+      permissions: [permissions.integrationManage.id],
+    })
+    .input(z.object({ connectionId: z.string() }))
+    .output(ProviderConnectionRedactedSchema),
+
+  /** Create a new provider connection */
+  createConnection: _base
+    .meta({
+      userType: "user",
+      permissions: [permissions.integrationManage.id],
+    })
+    .input(CreateConnectionInputSchema)
+    .output(ProviderConnectionRedactedSchema),
+
+  /** Update a provider connection */
+  updateConnection: _base
+    .meta({
+      userType: "user",
+      permissions: [permissions.integrationManage.id],
+    })
+    .input(UpdateConnectionInputSchema)
+    .output(ProviderConnectionRedactedSchema),
+
+  /** Delete a provider connection */
+  deleteConnection: _base
+    .meta({
+      userType: "user",
+      permissions: [permissions.integrationManage.id],
+    })
+    .input(z.object({ connectionId: z.string() }))
+    .output(z.object({ success: z.boolean() })),
+
+  /** Test a saved connection */
+  testConnection: _base
+    .meta({
+      userType: "user",
+      permissions: [permissions.integrationManage.id],
+    })
+    .input(z.object({ connectionId: z.string() }))
+    .output(TestConnectionResultSchema),
+
+  /** Get dynamic options for cascading dropdowns */
+  getConnectionOptions: _base
+    .meta({
+      userType: "user",
+      permissions: [permissions.integrationManage.id],
+    })
+    .input(GetConnectionOptionsInputSchema)
+    .output(z.array(ConnectionOptionSchema)),
 
   // ==========================================================================
   // EVENT DISCOVERY (Admin only)

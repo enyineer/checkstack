@@ -10,4 +10,6 @@ export const integrationRoutes = createRoutes("integration", {
   logs: "/logs",
   /** Subscription detail/edit */
   detail: "/:id",
+  /** Provider connections management */
+  connections: "/connections/:providerId",
 });

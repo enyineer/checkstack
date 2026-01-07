@@ -127,10 +127,37 @@ export interface ProviderDocumentation {
 }
 
 /**
+ * Option returned by getConnectionOptions for dynamic dropdowns.
+ */
+export interface ConnectionOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+/**
+ * Parameters for getConnectionOptions method.
+ */
+export interface GetConnectionOptionsParams {
+  /** The connection ID to use for fetching options */
+  connectionId: string;
+  /** Name of the resolver (matches x-options-resolver in schema) */
+  resolverName: string;
+  /** Current form values for dependent fields */
+  context: Record<string, unknown>;
+}
+
+/**
  * Integration provider definition.
  * Providers define how to deliver events to specific external systems.
+ *
+ * @template TConfig - Per-subscription configuration type
+ * @template TConnection - Site-wide connection configuration type (optional)
  */
-export interface IntegrationProvider<TConfig = unknown> {
+export interface IntegrationProvider<
+  TConfig = unknown,
+  TConnection = undefined
+> {
   /** Local identifier, namespaced on registration to {pluginId}.{id} */
   id: string;
 
@@ -143,8 +170,17 @@ export interface IntegrationProvider<TConfig = unknown> {
   /** Lucide icon name for UI */
   icon?: string;
 
-  /** Provider-specific configuration schema */
+  /** Per-subscription configuration schema */
   config: VersionedConfig<TConfig>;
+
+  /**
+   * Optional site-wide connection schema.
+   * When provided, the platform will:
+   * - Store connections centrally via ConfigService
+   * - Show a "Connections" management UI
+   * - Add a connection dropdown to subscription config
+   */
+  connectionSchema?: VersionedConfig<TConnection>;
 
   /**
    * Events this provider can handle.
@@ -171,6 +207,15 @@ export interface IntegrationProvider<TConfig = unknown> {
    * Called when admin clicks "Test Connection" in the UI.
    */
   testConnection?(config: TConfig): Promise<TestConnectionResult>;
+
+  /**
+   * Optional: Fetch dynamic options for cascading dropdowns.
+   * Called when subscription config has fields with x-options-resolver.
+   * Only applicable when connectionSchema is defined.
+   */
+  getConnectionOptions?(
+    params: GetConnectionOptionsParams
+  ): Promise<ConnectionOption[]>;
 }
 
 /**

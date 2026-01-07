@@ -1,12 +1,13 @@
 import { z } from "zod";
 
 // =============================================================================
-// Jira Connection (Site-wide Configuration)
+// Jira Connection (Site-wide Configuration) - DEPRECATED
+// Use the generic connection management system instead.
 // =============================================================================
 
 /**
  * Schema for a Jira Cloud connection configuration.
- * Uses secret() branding on the API token for encryption at rest.
+ * @deprecated Use generic connection management with JiraConnectionConfigSchema from jira-backend.
  */
 export const JiraConnectionSchema = z.object({
   /** Unique identifier for this connection */

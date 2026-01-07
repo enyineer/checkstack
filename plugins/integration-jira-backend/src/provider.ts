@@ -1,16 +1,29 @@
 import { z } from "zod";
-import { Versioned } from "@checkmate-monitor/backend-api";
+import { Versioned, secret } from "@checkmate-monitor/backend-api";
 import type {
   IntegrationProvider,
   IntegrationDeliveryContext,
   IntegrationDeliveryResult,
   TestConnectionResult,
   VersionedConfig,
+  ConnectionOption,
+  GetConnectionOptionsParams,
 } from "@checkmate-monitor/integration-common";
 import { JiraSubscriptionConfigSchema } from "@checkmate-monitor/integration-jira-common";
-import type { ConnectionService } from "./connection-service";
-import { createJiraClientFromConnection } from "./jira-client";
+import { createJiraClient, createJiraClientFromConfig } from "./jira-client";
 import { expandTemplate } from "./template-engine";
+
+/**
+ * Schema for Jira connection configuration.
+ * Uses secret() for API token encryption and automatic redaction.
+ */
+export const JiraConnectionConfigSchema = z.object({
+  baseUrl: z.string().url().describe("Jira Cloud base URL"),
+  email: z.string().email().describe("Jira user email"),
+  apiToken: secret(z.string().min(1).describe("Jira API token")),
+});
+
+export type JiraConnectionConfig = z.infer<typeof JiraConnectionConfigSchema>;
 
 /**
  * Jira subscription config type.
@@ -18,22 +31,48 @@ import { expandTemplate } from "./template-engine";
 export type JiraProviderConfig = z.infer<typeof JiraSubscriptionConfigSchema>;
 
 /**
- * Create the Jira integration provider.
+ * Connection store interface for getting connection credentials.
+ * Minimal interface matching what we need from the generic connection store.
  */
-export function createJiraProvider(deps: {
-  connectionService: ConnectionService;
-}): IntegrationProvider<JiraProviderConfig> {
-  const { connectionService } = deps;
+interface ConnectionStore {
+  getConnectionWithCredentials(
+    connectionId: string
+  ): Promise<{ config: Record<string, unknown> } | undefined>;
+}
+
+/**
+ * Dependencies for creating the Jira provider.
+ */
+interface JiraProviderDeps {
+  connectionStore: ConnectionStore;
+}
+
+/**
+ * Create the Jira integration provider.
+ * Uses the generic connection management system for site-wide Jira connections.
+ */
+export function createJiraProvider(
+  deps: JiraProviderDeps
+): IntegrationProvider<JiraProviderConfig, JiraConnectionConfig> {
+  const { connectionStore } = deps;
 
   return {
     id: "jira",
     displayName: "Jira",
     description: "Create Jira issues from integration events",
     icon: "Ticket",
+
+    // Subscription configuration schema
     config: new Versioned({
       version: 1,
       schema: JiraSubscriptionConfigSchema,
     }) as VersionedConfig<JiraProviderConfig>,
+
+    // Connection configuration schema for generic connection management
+    connectionSchema: new Versioned({
+      version: 1,
+      schema: JiraConnectionConfigSchema,
+    }) as VersionedConfig<JiraConnectionConfig>,
 
     documentation: {
       setupGuide: `
@@ -70,6 +109,104 @@ If a property is missing, the placeholder will be preserved in the output for de
       ),
     },
 
+    /**
+     * Get dynamic options for subscription configuration fields.
+     * Provides cascading dropdowns: connection -> projects -> issueTypes -> priorities
+     */
+    async getConnectionOptions(
+      params: GetConnectionOptionsParams
+    ): Promise<ConnectionOption[]> {
+      const { connectionId, resolverName, context } = params;
+
+      // Fetch the connection with credentials
+      const connection = await connectionStore.getConnectionWithCredentials(
+        connectionId
+      );
+      if (!connection) {
+        return [];
+      }
+
+      // Type-safe config access
+      const config = connection.config as JiraConnectionConfig;
+
+      // Create a minimal logger for the client
+      const clientLogger = {
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+      };
+
+      const client = createJiraClientFromConfig(config, clientLogger);
+
+      try {
+        switch (resolverName) {
+          case "projectKey": {
+            const projects = await client.getProjects();
+            return projects.map((p) => ({
+              value: p.key,
+              label: `${p.name} (${p.key})`,
+            }));
+          }
+
+          case "issueTypeId": {
+            const projectKey = context?.projectKey as string | undefined;
+            if (!projectKey) {
+              return [];
+            }
+            const issueTypes = await client.getIssueTypes(projectKey);
+            return issueTypes.map((t) => ({
+              value: t.id,
+              label: t.name,
+            }));
+          }
+
+          case "priorityId": {
+            const priorities = await client.getPriorities();
+            return priorities.map((p) => ({
+              value: p.id,
+              label: p.name,
+            }));
+          }
+
+          default: {
+            return [];
+          }
+        }
+      } catch {
+        return [];
+      }
+    },
+
+    /**
+     * Test the subscription's connection configuration (deprecated method).
+     * Connection testing is now done via the testConnection endpoint which
+     * calls testConnection(config) directly.
+     */
+    async testConnection(
+      config: JiraProviderConfig
+    ): Promise<TestConnectionResult> {
+      // When called from the generic test endpoint, config is actually the connection config
+      // Cast to connection config and test
+      const connectionConfig = config as unknown as JiraConnectionConfig;
+
+      const minimalLogger = {
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+      };
+
+      const client = createJiraClientFromConfig(
+        connectionConfig,
+        minimalLogger
+      );
+      return client.testConnection();
+    },
+
+    /**
+     * Deliver an event by creating a Jira issue.
+     */
     async deliver(
       context: IntegrationDeliveryContext<JiraProviderConfig>
     ): Promise<IntegrationDeliveryResult> {
@@ -84,8 +221,8 @@ If a property is missing, the placeholder will be preserved in the output for de
         fieldMappings,
       } = providerConfig;
 
-      // Get the connection with credentials
-      const connection = await connectionService.getConnectionWithCredentials(
+      // Get the connection with credentials from the connection store
+      const connection = await connectionStore.getConnectionWithCredentials(
         connectionId
       );
       if (!connection) {
@@ -95,8 +232,16 @@ If a property is missing, the placeholder will be preserved in the output for de
         };
       }
 
+      // Type-safe config access
+      const config = connection.config as JiraConnectionConfig;
+
       // Create Jira client
-      const client = createJiraClientFromConnection(connection, logger);
+      const client = createJiraClient({
+        baseUrl: config.baseUrl,
+        email: config.email,
+        apiToken: config.apiToken,
+        logger,
+      });
 
       // Expand templates using the event payload
       const payload = event.payload as Record<string, unknown>;
@@ -160,31 +305,6 @@ If a property is missing, the placeholder will be preserved in the output for de
           error: `Failed to create Jira issue: ${message}`,
         };
       }
-    },
-
-    async testConnection(
-      config: JiraProviderConfig
-    ): Promise<TestConnectionResult> {
-      const connection = await connectionService.getConnectionWithCredentials(
-        config.connectionId
-      );
-      if (!connection) {
-        return {
-          success: false,
-          message: `Jira connection not found: ${config.connectionId}`,
-        };
-      }
-
-      // We can't create a logger here in testConnection, so we create a minimal one
-      const minimalLogger = {
-        debug: () => {},
-        info: () => {},
-        warn: () => {},
-        error: () => {},
-      };
-
-      const client = createJiraClientFromConnection(connection, minimalLogger);
-      return client.testConnection();
     },
   };
 }

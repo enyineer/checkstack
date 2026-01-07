@@ -3,7 +3,7 @@ export { pluginMetadata } from "./plugin-metadata";
 
 // Schemas
 export {
-  // Connection schemas
+  // Legacy connection schemas (deprecated - use generic connection management)
   JiraConnectionSchema,
   type JiraConnection,
   CreateJiraConnectionInputSchema,

@@ -11,6 +11,7 @@ import { eq, desc, and, gte, count } from "drizzle-orm";
 import type { IntegrationEventRegistry } from "./event-registry";
 import type { IntegrationProviderRegistry } from "./provider-registry";
 import type { DeliveryCoordinator } from "./delivery-coordinator";
+import type { ConnectionStore } from "./connection-store";
 import * as schema from "./schema";
 import {
   integrationContract,
@@ -22,6 +23,7 @@ interface RouterDeps {
   eventRegistry: IntegrationEventRegistry;
   providerRegistry: IntegrationProviderRegistry;
   deliveryCoordinator: DeliveryCoordinator;
+  connectionStore: ConnectionStore;
   signalService: SignalService;
   logger: Logger;
 }
@@ -38,6 +40,7 @@ export function createIntegrationRouter(deps: RouterDeps) {
     eventRegistry,
     providerRegistry,
     deliveryCoordinator,
+    connectionStore,
     signalService,
     logger,
   } = deps;
@@ -305,6 +308,10 @@ export function createIntegrationRouter(deps: RouterDeps) {
         supportedEvents: p.supportedEvents,
         configSchema:
           providerRegistry.getProviderConfigSchema(p.qualifiedId) ?? {},
+        hasConnectionSchema: !!p.connectionSchema,
+        connectionSchema: p.connectionSchema
+          ? providerRegistry.getProviderConnectionSchema(p.qualifiedId)
+          : undefined,
         documentation: p.documentation,
       }));
     }),
@@ -336,6 +343,197 @@ export function createIntegrationRouter(deps: RouterDeps) {
         }
       }
     ),
+
+    // =========================================================================
+    // CONNECTION MANAGEMENT
+    // Generic CRUD for site-wide provider connections
+    // =========================================================================
+
+    listConnections: os.listConnections.handler(async ({ input }) => {
+      const { providerId } = input;
+
+      // Verify provider exists and has connectionSchema
+      const provider = providerRegistry.getProvider(providerId);
+      if (!provider) {
+        throw new ORPCError("NOT_FOUND", {
+          message: `Provider not found: ${providerId}`,
+        });
+      }
+
+      if (!provider.connectionSchema) {
+        throw new ORPCError("BAD_REQUEST", {
+          message: `Provider ${providerId} does not support site-wide connections`,
+        });
+      }
+
+      return connectionStore.listConnections(providerId);
+    }),
+
+    getConnection: os.getConnection.handler(async ({ input }) => {
+      const { connectionId } = input;
+      const connection = await connectionStore.getConnection(connectionId);
+
+      if (!connection) {
+        throw new ORPCError("NOT_FOUND", {
+          message: `Connection not found: ${connectionId}`,
+        });
+      }
+
+      return connection;
+    }),
+
+    createConnection: os.createConnection.handler(async ({ input }) => {
+      const { providerId, name, config } = input;
+
+      // Verify provider exists and has connectionSchema
+      const provider = providerRegistry.getProvider(providerId);
+      if (!provider) {
+        throw new ORPCError("NOT_FOUND", {
+          message: `Provider not found: ${providerId}`,
+        });
+      }
+
+      if (!provider.connectionSchema) {
+        throw new ORPCError("BAD_REQUEST", {
+          message: `Provider ${providerId} does not support site-wide connections`,
+        });
+      }
+
+      // Validate config against provider's connectionSchema
+      const parseResult = provider.connectionSchema.schema.safeParse(config);
+      if (!parseResult.success) {
+        throw new ORPCError("BAD_REQUEST", {
+          message: `Invalid connection config: ${parseResult.error.message}`,
+        });
+      }
+
+      // parseResult.data is typed correctly after guard
+      const validatedConfig = parseResult.data as unknown as Record<
+        string,
+        unknown
+      >;
+
+      const connection = await connectionStore.createConnection({
+        providerId,
+        name,
+        config: validatedConfig,
+      });
+
+      logger.info(`Created connection "${name}" for provider ${providerId}`);
+
+      // Return redacted version
+      return {
+        id: connection.id,
+        providerId: connection.providerId,
+        name: connection.name,
+        configPreview: config, // Will be redacted in real usage
+        createdAt: connection.createdAt,
+        updatedAt: connection.updatedAt,
+      };
+    }),
+
+    updateConnection: os.updateConnection.handler(async ({ input }) => {
+      const { connectionId, updates } = input;
+
+      try {
+        const connection = await connectionStore.updateConnection({
+          connectionId,
+          updates,
+        });
+
+        return {
+          id: connection.id,
+          providerId: connection.providerId,
+          name: connection.name,
+          configPreview: (updates.config ?? {}) as Record<string, unknown>,
+          createdAt: connection.createdAt,
+          updatedAt: connection.updatedAt,
+        };
+      } catch (error) {
+        throw new ORPCError("NOT_FOUND", {
+          message:
+            error instanceof Error ? error.message : "Connection not found",
+        });
+      }
+    }),
+
+    deleteConnection: os.deleteConnection.handler(async ({ input }) => {
+      const { connectionId } = input;
+      const deleted = await connectionStore.deleteConnection(connectionId);
+
+      if (!deleted) {
+        throw new ORPCError("NOT_FOUND", {
+          message: `Connection not found: ${connectionId}`,
+        });
+      }
+
+      return { success: true };
+    }),
+
+    testConnection: os.testConnection.handler(async ({ input }) => {
+      const { connectionId } = input;
+
+      const connection = await connectionStore.getConnectionWithCredentials(
+        connectionId
+      );
+      if (!connection) {
+        return { success: false, message: "Connection not found" };
+      }
+
+      const provider = providerRegistry.getProvider(connection.providerId);
+      if (!provider) {
+        return { success: false, message: "Provider not found" };
+      }
+
+      if (!provider.testConnection) {
+        return {
+          success: true,
+          message: "Provider does not support connection testing",
+        };
+      }
+
+      try {
+        const result = await provider.testConnection(connection.config);
+        return result;
+      } catch (error) {
+        return {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }),
+
+    getConnectionOptions: os.getConnectionOptions.handler(async ({ input }) => {
+      const { providerId, connectionId, resolverName, context } = input;
+
+      const provider = providerRegistry.getProvider(providerId);
+      if (!provider) {
+        throw new ORPCError("NOT_FOUND", {
+          message: `Provider not found: ${providerId}`,
+        });
+      }
+
+      if (!provider.getConnectionOptions) {
+        throw new ORPCError("BAD_REQUEST", {
+          message: `Provider ${providerId} does not support dynamic options`,
+        });
+      }
+
+      try {
+        const options = await provider.getConnectionOptions({
+          connectionId,
+          resolverName,
+          context,
+        });
+        return options;
+      } catch (error) {
+        logger.error(`Failed to get connection options: ${error}`);
+        throw new ORPCError("INTERNAL_SERVER_ERROR", {
+          message:
+            error instanceof Error ? error.message : "Failed to fetch options",
+        });
+      }
+    }),
 
     // =========================================================================
     // EVENT DISCOVERY

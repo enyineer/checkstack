@@ -2,6 +2,7 @@ import {
   createBackendPlugin,
   coreServices,
   createExtensionPoint,
+  createServiceRef,
 } from "@checkmate-monitor/backend-api";
 import {
   permissionList,
@@ -24,8 +25,24 @@ import {
   type IntegrationProviderRegistry,
 } from "./provider-registry";
 import { createDeliveryCoordinator } from "./delivery-coordinator";
+import {
+  createConnectionStore,
+  type ConnectionStore,
+} from "./connection-store";
 import { subscribeToRegisteredEvents } from "./hook-subscriber";
 import { createIntegrationRouter } from "./router";
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Service References
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Service reference for the connection store.
+ * Provider plugins can inject this to access connection credentials.
+ */
+export const connectionStoreRef = createServiceRef<ConnectionStore>(
+  "integration.connectionStore"
+);
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Extension Points
@@ -59,9 +76,11 @@ export interface IntegrationProviderExtensionPoint {
   /**
    * Register an integration provider.
    * The provider will be namespaced by the plugin's ID automatically.
+   * @template TConfig - Per-subscription configuration type
+   * @template TConnection - Site-wide connection configuration type (optional)
    */
-  addProvider<TConfig>(
-    provider: IntegrationProvider<TConfig>,
+  addProvider<TConfig, TConnection = undefined>(
+    provider: IntegrationProvider<TConfig, TConnection>,
     pluginMetadata: PluginMetadata
   ): void;
 }
@@ -103,7 +122,11 @@ export default createBackendPlugin({
     // Register the provider extension point
     env.registerExtensionPoint(integrationProviderExtensionPoint, {
       addProvider: (provider, metadata) => {
-        providerRegistry.register(provider, metadata);
+        // Type erasure: cast to unknown for storage (the registry handles this internally)
+        providerRegistry.register(
+          provider as IntegrationProvider<unknown>,
+          metadata
+        );
       },
     });
 
@@ -112,13 +135,31 @@ export default createBackendPlugin({
       deps: {
         logger: coreServices.logger,
         rpc: coreServices.rpc,
+        config: coreServices.config,
         signalService: coreServices.signalService,
         queueManager: coreServices.queueManager,
       },
-      init: async ({ logger, database, rpc, signalService, queueManager }) => {
+      init: async ({
+        logger,
+        database,
+        rpc,
+        config,
+        signalService,
+        queueManager,
+      }) => {
         logger.debug("🔌 Initializing Integration Backend...");
 
         const db = database;
+
+        // Create connection store for generic connection management
+        const connectionStore = createConnectionStore({
+          configService: config,
+          providerRegistry,
+          logger,
+        });
+
+        // Publish connection store for provider plugins to inject
+        env.registerService(connectionStoreRef, connectionStore);
 
         // Create delivery coordinator
         const deliveryCoordinator = createDeliveryCoordinator({
@@ -158,6 +199,7 @@ export default createBackendPlugin({
           eventRegistry,
           providerRegistry,
           deliveryCoordinator,
+          connectionStore,
           signalService,
           logger,
         });

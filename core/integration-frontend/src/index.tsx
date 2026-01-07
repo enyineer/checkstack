@@ -10,6 +10,7 @@ import {
 import { IntegrationsPage } from "./pages/IntegrationsPage";
 import { DeliveryLogsPage } from "./pages/DeliveryLogsPage";
 import { SubscriptionDetailPage } from "./pages/SubscriptionDetailPage";
+import { ProviderConnectionsPage } from "./pages/ProviderConnectionsPage";
 import { IntegrationMenuItem } from "./components/IntegrationMenuItem";
 
 export const integrationPlugin = createFrontendPlugin({
@@ -28,6 +29,11 @@ export const integrationPlugin = createFrontendPlugin({
     {
       route: integrationRoutes.routes.detail,
       element: <SubscriptionDetailPage />,
+      permission: permissions.integrationManage,
+    },
+    {
+      route: integrationRoutes.routes.connections,
+      element: <ProviderConnectionsPage />,
       permission: permissions.integrationManage,
     },
   ],

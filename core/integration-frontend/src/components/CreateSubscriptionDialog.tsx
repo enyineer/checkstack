@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { Link } from "react-router-dom";
 import {
   Dialog,
   DialogContent,
@@ -11,13 +12,22 @@ import {
   DynamicForm,
   DynamicIcon,
   useToast,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Label,
 } from "@checkmate-monitor/ui";
 import { useApi, rpcApiRef } from "@checkmate-monitor/frontend-api";
+import { resolveRoute } from "@checkmate-monitor/common";
 import {
   IntegrationApi,
+  integrationRoutes,
   type WebhookSubscription,
   type IntegrationProviderInfo,
   type IntegrationEventInfo,
+  type ProviderConnectionRedacted,
 } from "@checkmate-monitor/integration-common";
 import { ProviderDocumentation } from "./ProviderDocumentation";
 import { getProviderConfigExtension } from "../provider-config-registry";
@@ -45,6 +55,13 @@ export const CreateSubscriptionDialog = ({
   const [events, setEvents] = useState<IntegrationEventInfo[]>([]);
   const [saving, setSaving] = useState(false);
 
+  // Connection state for providers with connectionSchema
+  const [connections, setConnections] = useState<ProviderConnectionRedacted[]>(
+    []
+  );
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
+  const [loadingConnections, setLoadingConnections] = useState(false);
+
   // Form state
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -63,6 +80,26 @@ export const CreateSubscriptionDialog = ({
     }
   }, [client]);
 
+  // Fetch connections for providers with connectionSchema
+  const fetchConnections = useCallback(
+    async (providerId: string) => {
+      setLoadingConnections(true);
+      try {
+        const result = await client.listConnections({ providerId });
+        setConnections(result);
+        // Auto-select if only one connection
+        if (result.length === 1) {
+          setSelectedConnectionId(result[0].id);
+        }
+      } catch (error) {
+        console.error("Failed to fetch connections:", error);
+      } finally {
+        setLoadingConnections(false);
+      }
+    },
+    [client]
+  );
+
   useEffect(() => {
     if (open) {
       void fetchEvents();
@@ -78,24 +115,41 @@ export const CreateSubscriptionDialog = ({
       setDescription("");
       setProviderConfig({});
       setSelectedEvents([]);
+      setConnections([]);
+      setSelectedConnectionId("");
     }
   }, [open]);
 
   const handleProviderSelect = (provider: IntegrationProviderInfo) => {
     setSelectedProvider(provider);
     setStep("config");
+    // Fetch connections if provider supports them
+    if (provider.hasConnectionSchema) {
+      void fetchConnections(provider.qualifiedId);
+    }
   };
 
   const handleCreate = async () => {
     if (!selectedProvider) return;
 
+    // For providers with connections, require a connection to be selected
+    if (selectedProvider.hasConnectionSchema && !selectedConnectionId) {
+      toast.error("Please select a connection");
+      return;
+    }
+
     try {
       setSaving(true);
+      // Include connectionId in providerConfig for providers with connections
+      const configWithConnection = selectedProvider.hasConnectionSchema
+        ? { ...providerConfig, connectionId: selectedConnectionId }
+        : providerConfig;
+
       const result = await client.createSubscription({
         name,
         description: description || undefined,
         providerId: selectedProvider.qualifiedId,
-        providerConfig,
+        providerConfig: configWithConnection,
         eventTypes: selectedEvents.length > 0 ? selectedEvents : undefined,
       });
       onCreated(result);
@@ -180,6 +234,51 @@ export const CreateSubscriptionDialog = ({
                 />
               </div>
             </div>
+
+            {/* Connection Selection (for providers with connectionSchema) */}
+            {selectedProvider?.hasConnectionSchema && (
+              <div>
+                <Label className="mb-2">
+                  Connection <span className="text-destructive">*</span>
+                </Label>
+                {loadingConnections ? (
+                  <div className="text-sm text-muted-foreground py-2">
+                    Loading connections...
+                  </div>
+                ) : connections.length === 0 ? (
+                  <div className="border rounded-md p-4 bg-muted/50">
+                    <p className="text-sm text-muted-foreground mb-2">
+                      No connections configured for this provider.
+                    </p>
+                    <Button variant="outline" size="sm" asChild>
+                      <Link
+                        to={resolveRoute(integrationRoutes.routes.connections, {
+                          providerId: selectedProvider.qualifiedId,
+                        })}
+                      >
+                        Configure Connections
+                      </Link>
+                    </Button>
+                  </div>
+                ) : (
+                  <Select
+                    value={selectedConnectionId}
+                    onValueChange={setSelectedConnectionId}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a connection" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {connections.map((conn) => (
+                        <SelectItem key={conn.id} value={conn.id}>
+                          {conn.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            )}
 
             {/* Provider Config */}
             {selectedProvider &&

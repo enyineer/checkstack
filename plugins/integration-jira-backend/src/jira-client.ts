@@ -7,6 +7,16 @@ import type {
 } from "@checkmate-monitor/integration-jira-common";
 
 /**
+ * Connection config for generic connection management.
+ * Mirrors the structure from provider.ts.
+ */
+export interface JiraConnectionConfig {
+  baseUrl: string;
+  email: string;
+  apiToken: string;
+}
+
+/**
  * Response from creating a Jira issue.
  */
 export interface CreateIssueResult {
@@ -276,7 +286,24 @@ export function createJiraClient(options: JiraClientOptions) {
 }
 
 /**
+ * Create a Jira client from a generic connection config.
+ * Used with the generic connection management system.
+ */
+export function createJiraClientFromConfig(
+  config: JiraConnectionConfig,
+  logger: Logger
+) {
+  return createJiraClient({
+    baseUrl: config.baseUrl,
+    email: config.email,
+    apiToken: config.apiToken,
+    logger,
+  });
+}
+
+/**
  * Create a Jira client from a connection configuration.
+ * @deprecated Use createJiraClientFromConfig with generic connection management.
  */
 export function createJiraClientFromConnection(
   connection: JiraConnection,

@@ -302,21 +302,35 @@ export const IntegrationsPage = () => {
             {providers.map((provider) => (
               <Card key={provider.qualifiedId}>
                 <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-muted">
-                      <DynamicIcon
-                        name={provider.icon ?? "Webhook"}
-                        className="h-6 w-6"
-                      />
-                    </div>
-                    <div>
-                      <div className="font-medium">{provider.displayName}</div>
-                      {provider.description && (
-                        <div className="text-sm text-muted-foreground">
-                          {provider.description}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-muted">
+                        <DynamicIcon
+                          name={provider.icon ?? "Webhook"}
+                          className="h-6 w-6"
+                        />
+                      </div>
+                      <div>
+                        <div className="font-medium">
+                          {provider.displayName}
                         </div>
-                      )}
+                        {provider.description && (
+                          <div className="text-sm text-muted-foreground">
+                            {provider.description}
+                          </div>
+                        )}
+                      </div>
                     </div>
+                    {provider.hasConnectionSchema && (
+                      <Link
+                        to={resolveRoute(integrationRoutes.routes.connections, {
+                          providerId: provider.qualifiedId,
+                        })}
+                        className="text-sm text-primary hover:underline"
+                      >
+                        Connections
+                      </Link>
+                    )}
                   </div>
                 </CardContent>
               </Card>

@@ -34,6 +34,11 @@ export interface IntegrationProviderRegistry {
   getProviderConfigSchema(
     qualifiedId: string
   ): Record<string, unknown> | undefined;
+
+  /** Get the JSON Schema for a provider's connection config (if any) */
+  getProviderConnectionSchema(
+    qualifiedId: string
+  ): Record<string, unknown> | undefined;
 }
 
 /**
@@ -42,6 +47,7 @@ export interface IntegrationProviderRegistry {
 export function createIntegrationProviderRegistry(): IntegrationProviderRegistry {
   const providers = new Map<string, RegisteredIntegrationProvider<unknown>>();
   const configSchemas = new Map<string, Record<string, unknown>>();
+  const connectionSchemas = new Map<string, Record<string, unknown>>();
 
   return {
     register(
@@ -62,6 +68,14 @@ export function createIntegrationProviderRegistry(): IntegrationProviderRegistry
       // Uses the platform's toJsonSchema which handles secrets/colors
       const jsonSchema = toJsonSchema(provider.config.schema);
       configSchemas.set(qualifiedId, jsonSchema);
+
+      // Also convert connection schema if present
+      if (provider.connectionSchema) {
+        const connectionJsonSchema = toJsonSchema(
+          provider.connectionSchema.schema
+        );
+        connectionSchemas.set(qualifiedId, connectionJsonSchema);
+      }
     },
 
     getProviders(): RegisteredIntegrationProvider<unknown>[] {
@@ -82,6 +96,12 @@ export function createIntegrationProviderRegistry(): IntegrationProviderRegistry
       qualifiedId: string
     ): Record<string, unknown> | undefined {
       return configSchemas.get(qualifiedId);
+    },
+
+    getProviderConnectionSchema(
+      qualifiedId: string
+    ): Record<string, unknown> | undefined {
+      return connectionSchemas.get(qualifiedId);
     },
   };
 }
