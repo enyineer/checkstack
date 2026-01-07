@@ -6,7 +6,7 @@ import {
   Versioned,
   z,
   timeThresholdField,
-  stringField,
+  enumField,
   evaluateAssertions,
 } from "@checkmate-monitor/backend-api";
 
@@ -28,11 +28,11 @@ export type GrpcHealthStatus = z.infer<typeof GrpcHealthStatus>;
 
 /**
  * Assertion schema for gRPC health checks using shared factories.
- * Using stringField for status to allow checking for SERVING/NOT_SERVING/etc.
+ * Uses enumField for status to render a dropdown with valid status values.
  */
 const grpcAssertionSchema = z.discriminatedUnion("field", [
   timeThresholdField("responseTime"),
-  stringField("status"),
+  enumField("status", GrpcHealthStatus.options),
 ]);
 
 export type GrpcAssertion = z.infer<typeof grpcAssertionSchema>;

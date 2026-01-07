@@ -102,6 +102,32 @@ describe("Assertion Schema Factories", () => {
       });
       expect(invalid.success).toBe(false);
     });
+
+    it("generates JSON Schema with enum values for select rendering", () => {
+      const schema = enumField("status", [
+        "SERVING",
+        "NOT_SERVING",
+        "UNKNOWN",
+      ] as const);
+      const jsonSchema = schema.toJSONSchema() as Record<string, unknown>;
+      const properties = jsonSchema.properties as Record<
+        string,
+        Record<string, unknown>
+      >;
+
+      // Field should have const for discriminator
+      expect(properties.field.const).toBe("status");
+
+      // Operator should have const "equals"
+      expect(properties.operator.const).toBe("equals");
+
+      // Value should have enum array for select rendering
+      expect(properties.value.enum).toEqual([
+        "SERVING",
+        "NOT_SERVING",
+        "UNKNOWN",
+      ]);
+    });
   });
 
   describe("jsonPathField", () => {

@@ -432,6 +432,17 @@ const FormField: React.FC<{
     );
   }
 
+  // Const field handling - auto-set value and hide (value is fixed)
+  if (propSchema.const !== undefined) {
+    // Silently ensure the value is set, no UI needed
+    React.useEffect(() => {
+      if (value !== propSchema.const) {
+        onChange(propSchema.const);
+      }
+    }, [value, propSchema.const, onChange]);
+    return <></>;
+  }
+
   // Enum handling
   if (propSchema.enum) {
     const cleanDesc = getCleanDescription(description);
@@ -808,6 +819,32 @@ const FormField: React.FC<{
 
     if (!itemSchema) return <></>;
 
+    // Helper to create initial value for new array items
+    const createNewItem = (): Record<string, unknown> => {
+      // Check if itemSchema is a discriminated union
+      const variants = itemSchema.oneOf || itemSchema.anyOf;
+      if (variants && variants.length > 0) {
+        const firstVariant = variants[0];
+        if (firstVariant.properties) {
+          const newItem: Record<string, unknown> = {};
+          // Find discriminator and set all properties with defaults
+          for (const [propKey, propDef] of Object.entries(
+            firstVariant.properties
+          )) {
+            if (propDef.const !== undefined) {
+              // This is the discriminator field
+              newItem[propKey] = propDef.const;
+            } else if (propDef.default !== undefined) {
+              newItem[propKey] = propDef.default;
+            }
+          }
+          return newItem;
+        }
+      }
+      // Fallback to empty object for regular object items
+      return {};
+    };
+
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -826,7 +863,10 @@ const FormField: React.FC<{
             variant="outline"
             size="sm"
             onClick={() =>
-              onChange([...(items as Record<string, unknown>[]), {}])
+              onChange([
+                ...(items as Record<string, unknown>[]),
+                createNewItem(),
+              ])
             }
             className="h-8 gap-1 transition-all hover:bg-accent hover:text-accent-foreground"
           >
