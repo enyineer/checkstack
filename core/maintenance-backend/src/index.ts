@@ -24,6 +24,8 @@ const maintenanceCreatedPayloadSchema = z.object({
   maintenanceId: z.string(),
   systemIds: z.array(z.string()),
   title: z.string(),
+  description: z.string().optional(),
+  status: z.string(),
   startAt: z.string(),
   endAt: z.string(),
 });
@@ -32,6 +34,10 @@ const maintenanceUpdatedPayloadSchema = z.object({
   maintenanceId: z.string(),
   systemIds: z.array(z.string()),
   title: z.string(),
+  description: z.string().optional(),
+  status: z.string(),
+  startAt: z.string(),
+  endAt: z.string(),
   action: z.enum(["updated", "closed"]),
 });
 

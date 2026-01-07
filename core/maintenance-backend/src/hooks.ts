@@ -14,6 +14,8 @@ export const maintenanceHooks = {
     maintenanceId: string;
     systemIds: string[];
     title: string;
+    description?: string;
+    status: string;
     startAt: string;
     endAt: string;
   }>("maintenance.created"),
@@ -26,6 +28,10 @@ export const maintenanceHooks = {
     maintenanceId: string;
     systemIds: string[];
     title: string;
+    description?: string;
+    status: string;
+    startAt: string;
+    endAt: string;
     action: "updated" | "closed";
   }>("maintenance.updated"),
 } as const;

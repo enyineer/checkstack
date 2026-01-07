@@ -100,6 +100,8 @@ export function createRouter(
           maintenanceId: result.id,
           systemIds: result.systemIds,
           title: result.title,
+          description: result.description,
+          status: result.status,
           startAt: result.startAt.toISOString(),
           endAt: result.endAt.toISOString(),
         });
@@ -137,6 +139,10 @@ export function createRouter(
           maintenanceId: result.id,
           systemIds: result.systemIds,
           title: result.title,
+          description: result.description,
+          status: result.status,
+          startAt: result.startAt.toISOString(),
+          endAt: result.endAt.toISOString(),
           action: "updated",
         });
 
@@ -170,6 +176,10 @@ export function createRouter(
           maintenanceId: input.maintenanceId,
           systemIds: maintenance.systemIds,
           title: maintenance.title,
+          description: maintenance.description,
+          status: maintenance.status,
+          startAt: maintenance.startAt.toISOString(),
+          endAt: maintenance.endAt.toISOString(),
           action: "updated",
         });
       }
@@ -202,6 +212,10 @@ export function createRouter(
           maintenanceId: result.id,
           systemIds: result.systemIds,
           title: result.title,
+          description: result.description,
+          status: result.status,
+          startAt: result.startAt.toISOString(),
+          endAt: result.endAt.toISOString(),
           action: "closed",
         });
 
