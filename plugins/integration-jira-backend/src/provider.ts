@@ -49,6 +49,7 @@ export const DynamicJiraFieldMappingSchema = z.object({
     description: "Jira field",
     resolver: JIRA_RESOLVERS.FIELD_OPTIONS,
     dependsOn: ["projectKey", "issueTypeId"],
+    searchable: true,
   }),
   /** Template string with {{payload.property}} placeholders */
   template: z.string().describe("Template value"),

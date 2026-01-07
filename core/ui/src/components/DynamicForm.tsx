@@ -5,7 +5,7 @@ import Editor from "react-simple-code-editor";
 // @ts-expect-error - prismjs doesn't have types for deep imports in some environments
 import { highlight, languages } from "prismjs/components/prism-core";
 import "prismjs/components/prism-json";
-import { Plus, Trash2, Loader2 } from "lucide-react";
+import { Plus, Trash2, Loader2, ChevronDown } from "lucide-react";
 
 import {
   Input,
@@ -40,6 +40,7 @@ export interface JsonSchemaProperty {
   "x-options-resolver"?: string; // Name of a resolver function for dynamic options
   "x-depends-on"?: string[]; // Field names this field depends on (triggers refetch when they change)
   "x-hidden"?: boolean; // Field should be hidden in form (auto-populated)
+  "x-searchable"?: boolean; // Shows a search input for filtering dropdown options
 }
 
 /** Option returned by an options resolver */
@@ -155,6 +156,7 @@ const JsonField: React.FC<{
 /**
  * Field component for dynamically resolved options.
  * Fetches options using the specified resolver and renders a Select.
+ * When searchable is true, shows a searchable dropdown with filter inside.
  */
 const DynamicOptionsField: React.FC<{
   id: string;
@@ -164,6 +166,7 @@ const DynamicOptionsField: React.FC<{
   isRequired?: boolean;
   resolverName: string;
   dependsOn?: string[];
+  searchable?: boolean;
   formValues: Record<string, unknown>;
   optionsResolvers: Record<string, OptionsResolver>;
   onChange: (val: unknown) => void;
@@ -175,6 +178,7 @@ const DynamicOptionsField: React.FC<{
   isRequired,
   resolverName,
   dependsOn,
+  searchable,
   formValues,
   optionsResolvers,
   onChange,
@@ -182,8 +186,15 @@ const DynamicOptionsField: React.FC<{
   const [options, setOptions] = React.useState<ResolverOption[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | undefined>();
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [open, setOpen] = React.useState(false);
+
+  // Use ref to store formValues to avoid re-renders when unrelated fields change
+  const formValuesRef = React.useRef(formValues);
+  formValuesRef.current = formValues;
 
   // Build dependency values string for useEffect dependency tracking
+  // Only includes the specific fields this resolver depends on
   const dependencyValues = React.useMemo(() => {
     if (!dependsOn || dependsOn.length === 0) return "";
     return dependsOn.map((key) => JSON.stringify(formValues[key])).join("|");
@@ -201,7 +212,8 @@ const DynamicOptionsField: React.FC<{
     setLoading(true);
     setError(undefined);
 
-    resolver(formValues)
+    // Use ref to get current form values without adding to dependencies
+    resolver(formValuesRef.current)
       .then((result) => {
         if (!cancelled) {
           setOptions(result);
@@ -220,10 +232,93 @@ const DynamicOptionsField: React.FC<{
     return () => {
       cancelled = true;
     };
-  }, [resolverName, optionsResolvers, dependencyValues, formValues]);
+    // Only re-fetch when resolver changes or explicit dependencies change
+  }, [resolverName, optionsResolvers, dependencyValues]);
+
+  // Filter options based on search query
+  const filteredOptions = React.useMemo(() => {
+    if (!searchable || !searchQuery.trim()) return options;
+    const query = searchQuery.toLowerCase();
+    return options.filter((opt) => opt.label.toLowerCase().includes(query));
+  }, [options, searchQuery, searchable]);
+
+  // Get the selected option label
+  const selectedLabel = React.useMemo(() => {
+    const selected = options.find((opt) => opt.value === value);
+    return selected?.label;
+  }, [options, value]);
 
   const cleanDesc = getCleanDescription(description);
 
+  // Render searchable dropdown with search inside
+  if (searchable && !loading && !error && options.length > 0) {
+    return (
+      <div className="space-y-2">
+        <div>
+          <Label htmlFor={id}>
+            {label} {isRequired && "*"}
+          </Label>
+          {cleanDesc && (
+            <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
+          )}
+        </div>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setOpen(!open)}
+            className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm text-left ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span className={selectedLabel ? "" : "text-muted-foreground"}>
+              {selectedLabel || `Select ${label}`}
+            </span>
+            <ChevronDown className="h-4 w-4 opacity-50" />
+          </button>
+          {open && (
+            <div className="absolute z-[100] mt-1 w-full rounded-md border border-border bg-popover shadow-lg">
+              <div className="p-2 border-b border-border">
+                <Input
+                  type="text"
+                  placeholder="Search..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-8"
+                  autoFocus
+                />
+              </div>
+              <div className="max-h-60 overflow-y-auto p-1">
+                {filteredOptions.length === 0 ? (
+                  <div className="py-2 px-3 text-sm text-muted-foreground text-center">
+                    No matching options
+                  </div>
+                ) : (
+                  filteredOptions.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => {
+                        onChange(opt.value);
+                        setOpen(false);
+                        setSearchQuery("");
+                      }}
+                      className={`w-full text-left px-3 py-1.5 text-sm rounded-sm hover:bg-accent hover:text-accent-foreground ${
+                        opt.value === value
+                          ? "bg-accent text-accent-foreground"
+                          : ""
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Regular dropdown
   return (
     <div className="space-y-2">
       <div>
@@ -317,6 +412,7 @@ const FormField: React.FC<{
         isRequired={isRequired}
         resolverName={resolverName}
         dependsOn={propSchema["x-depends-on"]}
+        searchable={propSchema["x-searchable"] === true}
         formValues={formValues}
         optionsResolvers={optionsResolvers}
         onChange={onChange}

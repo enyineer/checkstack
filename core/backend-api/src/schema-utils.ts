@@ -71,6 +71,9 @@ function addSchemaMetadata(
       if (resolverMeta.dependsOn) {
         jsonField["x-depends-on"] = resolverMeta.dependsOn;
       }
+      if (resolverMeta.searchable) {
+        jsonField["x-searchable"] = true;
+      }
     }
 
     // Recurse into nested objects and arrays

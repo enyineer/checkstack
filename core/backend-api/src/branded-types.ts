@@ -159,7 +159,7 @@ export function isColorSchema(schema: z.ZodTypeAny): boolean {
  */
 const optionsResolverMap = new WeakMap<
   z.ZodTypeAny,
-  { resolver: string; dependsOn?: string[] }
+  { resolver: string; dependsOn?: string[]; searchable?: boolean }
 >();
 
 /**
@@ -177,6 +177,8 @@ export interface OptionsResolverOptions {
   resolver: string;
   /** Field names this field depends on (triggers refetch when they change) */
   dependsOn?: string[];
+  /** If true, renders a searchable/filterable dropdown (for fields with many options) */
+  searchable?: boolean;
 }
 
 /**
@@ -199,6 +201,7 @@ export function optionsResolver(options: OptionsResolverOptions) {
   optionsResolverMap.set(schema, {
     resolver: options.resolver,
     dependsOn: options.dependsOn,
+    searchable: options.searchable,
   });
 
   return schema;
@@ -209,7 +212,9 @@ export function optionsResolver(options: OptionsResolverOptions) {
  */
 export function getOptionsResolverMetadata(
   schema: z.ZodTypeAny
-): { resolver: string; dependsOn?: string[] } | undefined {
+):
+  | { resolver: string; dependsOn?: string[]; searchable?: boolean }
+  | undefined {
   return optionsResolverMap.get(unwrapSchema(schema));
 }
 
