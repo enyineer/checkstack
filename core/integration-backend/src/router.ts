@@ -506,6 +506,10 @@ export function createIntegrationRouter(deps: RouterDeps) {
     getConnectionOptions: os.getConnectionOptions.handler(async ({ input }) => {
       const { providerId, connectionId, resolverName, context } = input;
 
+      logger.debug(
+        `getConnectionOptions called: providerId=${providerId}, connectionId=${connectionId}, resolverName=${resolverName}`
+      );
+
       const provider = providerRegistry.getProvider(providerId);
       if (!provider) {
         throw new ORPCError("NOT_FOUND", {
@@ -524,9 +528,13 @@ export function createIntegrationRouter(deps: RouterDeps) {
           connectionId,
           resolverName,
           context,
+          logger,
           getConnectionWithCredentials:
             connectionStore.getConnectionWithCredentials.bind(connectionStore),
         });
+        logger.debug(
+          `getConnectionOptions returned ${options.length} options for ${resolverName}`
+        );
         return options;
       } catch (error) {
         logger.error(`Failed to get connection options: ${error}`);

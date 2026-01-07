@@ -130,6 +130,8 @@ export interface GetConnectionOptionsParams {
   resolverName: string;
   /** Current form values for dependent fields */
   context: Record<string, unknown>;
+  /** Logger for logging */
+  logger: Logger;
   /**
    * Get connection credentials by ID.
    * Provided by the integration backend for providers to access connection config.

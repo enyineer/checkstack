@@ -30,6 +30,16 @@ export const JiraConnectionConfigSchema = z.object({
 export type JiraConnectionConfig = z.infer<typeof JiraConnectionConfigSchema>;
 
 /**
+ * Resolver names for dynamic dropdowns.
+ * Defined as constants to ensure consistency between schema and handler.
+ */
+export const JIRA_RESOLVERS = {
+  PROJECT_OPTIONS: "projectOptions",
+  ISSUE_TYPE_OPTIONS: "issueTypeOptions",
+  PRIORITY_OPTIONS: "priorityOptions",
+} as const;
+
+/**
  * Provider configuration for Jira subscriptions.
  * Uses optionsResolver() for dynamic dropdowns that fetch from Jira API.
  * Uses hidden() for connectionId which is auto-populated.
@@ -40,12 +50,12 @@ export const JiraSubscriptionConfigSchema = z.object({
   /** Jira project key to create issues in */
   projectKey: optionsResolver({
     description: "Project key",
-    resolver: "projectOptions",
+    resolver: JIRA_RESOLVERS.PROJECT_OPTIONS,
   }),
   /** Issue type ID for created issues */
   issueTypeId: optionsResolver({
     description: "Issue type",
-    resolver: "issueTypeOptions",
+    resolver: JIRA_RESOLVERS.ISSUE_TYPE_OPTIONS,
     dependsOn: ["projectKey"],
   }),
   /** Summary template (required - uses {{payload.field}} syntax) */
@@ -58,7 +68,7 @@ export const JiraSubscriptionConfigSchema = z.object({
   /** Priority ID (optional) */
   priorityId: optionsResolver({
     description: "Priority",
-    resolver: "priorityOptions",
+    resolver: JIRA_RESOLVERS.PRIORITY_OPTIONS,
   }).optional(),
   /** Additional field mappings */
   fieldMappings: z
@@ -146,6 +156,7 @@ If a property is missing, the placeholder will be preserved in the output for de
         resolverName,
         context,
         getConnectionWithCredentials,
+        logger,
       } = params;
 
       // Fetch the connection with credentials
@@ -157,19 +168,11 @@ If a property is missing, the placeholder will be preserved in the output for de
       // Type-safe config access
       const config = connection.config as JiraConnectionConfig;
 
-      // Create a minimal logger for the client
-      const clientLogger = {
-        debug: () => {},
-        info: () => {},
-        warn: () => {},
-        error: () => {},
-      };
-
-      const client = createJiraClientFromConfig(config, clientLogger);
+      const client = createJiraClientFromConfig(config, logger);
 
       try {
         switch (resolverName) {
-          case "projectKey": {
+          case JIRA_RESOLVERS.PROJECT_OPTIONS: {
             const projects = await client.getProjects();
             return projects.map((p) => ({
               value: p.key,
@@ -177,19 +180,28 @@ If a property is missing, the placeholder will be preserved in the output for de
             }));
           }
 
-          case "issueTypeId": {
+          case JIRA_RESOLVERS.ISSUE_TYPE_OPTIONS: {
+            logger.debug("ISSUE_TYPE_OPTIONS context received", {
+              context,
+              projectKey: context?.projectKey,
+            });
             const projectKey = context?.projectKey as string | undefined;
             if (!projectKey) {
+              logger.warn("No projectKey in context, returning empty array");
               return [];
             }
+            logger.debug(`Fetching issue types for project: ${projectKey}`);
             const issueTypes = await client.getIssueTypes(projectKey);
+            logger.debug(`Got ${issueTypes.length} issue types`, {
+              issueTypes,
+            });
             return issueTypes.map((t) => ({
               value: t.id,
               label: t.name,
             }));
           }
 
-          case "priorityId": {
+          case JIRA_RESOLVERS.PRIORITY_OPTIONS: {
             const priorities = await client.getPriorities();
             return priorities.map((p) => ({
               value: p.id,
@@ -198,10 +210,12 @@ If a property is missing, the placeholder will be preserved in the output for de
           }
 
           default: {
+            logger.error(`Unknown resolver name: ${resolverName}`);
             return [];
           }
         }
-      } catch {
+      } catch (error) {
+        logger.error("Failed to get connection options", error);
         return [];
       }
     },

@@ -136,10 +136,14 @@ export function createJiraClient(options: JiraClientOptions) {
 
     /**
      * Get issue types for a project.
+     * Uses the /project/{projectIdOrKey}?expand=issueTypes endpoint.
      */
     async getIssueTypes(projectKey: string): Promise<JiraIssueType[]> {
-      interface ProjectMeta {
-        issuetypes: Array<{
+      interface ProjectWithIssueTypes {
+        id: string;
+        key: string;
+        name: string;
+        issueTypes: Array<{
           id: string;
           name: string;
           description?: string;
@@ -148,12 +152,20 @@ export function createJiraClient(options: JiraClientOptions) {
         }>;
       }
 
-      const result = await request<ProjectMeta>(
-        `/project/${encodeURIComponent(projectKey)}`
+      logger.debug(`Fetching issue types for project: ${projectKey}`);
+
+      const result = await request<ProjectWithIssueTypes>(
+        `/project/${encodeURIComponent(projectKey)}?expand=issueTypes`
+      );
+
+      logger.debug(
+        `Found ${
+          result.issueTypes?.length ?? 0
+        } issue types for project ${projectKey}`
       );
 
       // Filter out subtasks for simpler UX
-      return (result.issuetypes || [])
+      return (result.issueTypes || [])
         .filter((t) => !t.subtask)
         .map((t) => ({
           id: t.id,
