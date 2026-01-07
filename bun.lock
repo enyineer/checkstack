@@ -951,6 +951,20 @@
         "typescript": "^5.7.2",
       },
     },
+    "plugins/healthcheck-dns-backend": {
+      "name": "@checkmate-monitor/healthcheck-dns-backend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate-monitor/backend-api": "workspace:*",
+        "@checkmate-monitor/common": "workspace:*",
+      },
+      "devDependencies": {
+        "@checkmate-monitor/scripts": "workspace:*",
+        "@checkmate-monitor/tsconfig": "workspace:*",
+        "@types/bun": "^1.0.0",
+        "typescript": "^5.0.0",
+      },
+    },
     "plugins/healthcheck-http-backend": {
       "name": "@checkmate-monitor/healthcheck-http-backend",
       "version": "0.0.1",
@@ -1306,6 +1320,8 @@
     "@checkmate-monitor/healthcheck-backend": ["@checkmate-monitor/healthcheck-backend@workspace:core/healthcheck-backend"],
 
     "@checkmate-monitor/healthcheck-common": ["@checkmate-monitor/healthcheck-common@workspace:core/healthcheck-common"],
+
+    "@checkmate-monitor/healthcheck-dns-backend": ["@checkmate-monitor/healthcheck-dns-backend@workspace:plugins/healthcheck-dns-backend"],
 
     "@checkmate-monitor/healthcheck-frontend": ["@checkmate-monitor/healthcheck-frontend@workspace:core/healthcheck-frontend"],
 
