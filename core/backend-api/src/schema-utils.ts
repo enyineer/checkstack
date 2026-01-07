@@ -1,14 +1,9 @@
 import { z } from "zod";
-import {
-  isSecretSchema,
-  isColorSchema,
-  getOptionsResolverMetadata,
-  isHiddenSchema,
-} from "./branded-types";
+import { getConfigMeta } from "./zod-config";
 
 /**
- * Adds x-secret, x-color, x-options-resolver, x-depends-on, and x-hidden
- * metadata to JSON Schema for branded Zod fields.
+ * Adds x-secret, x-color, x-options-resolver, x-depends-on, x-searchable, and x-hidden
+ * metadata to JSON Schema based on registry metadata.
  * This is used internally by toJsonSchema.
  * Recursively processes nested objects and arrays.
  */
@@ -49,30 +44,17 @@ function addSchemaMetadata(
 
     if (!jsonField) continue;
 
-    // Secret field
-    if (isSecretSchema(zodField)) {
-      jsonField["x-secret"] = true;
-    }
-
-    // Color field
-    if (isColorSchema(zodField)) {
-      jsonField["x-color"] = true;
-    }
-
-    // Hidden field
-    if (isHiddenSchema(zodField)) {
-      jsonField["x-hidden"] = true;
-    }
-
-    // Options resolver field
-    const resolverMeta = getOptionsResolverMetadata(zodField);
-    if (resolverMeta) {
-      jsonField["x-options-resolver"] = resolverMeta.resolver;
-      if (resolverMeta.dependsOn) {
-        jsonField["x-depends-on"] = resolverMeta.dependsOn;
-      }
-      if (resolverMeta.searchable) {
-        jsonField["x-searchable"] = true;
+    // Get metadata from registry
+    const meta = getConfigMeta(zodField);
+    if (meta) {
+      if (meta["x-secret"]) jsonField["x-secret"] = true;
+      if (meta["x-color"]) jsonField["x-color"] = true;
+      if (meta["x-hidden"]) jsonField["x-hidden"] = true;
+      if (meta["x-options-resolver"]) {
+        jsonField["x-options-resolver"] = meta["x-options-resolver"];
+        if (meta["x-depends-on"])
+          jsonField["x-depends-on"] = meta["x-depends-on"];
+        if (meta["x-searchable"]) jsonField["x-searchable"] = true;
       }
     }
 
@@ -82,10 +64,10 @@ function addSchemaMetadata(
 }
 
 /**
- * Converts a Zod schema to JSON Schema with automatic branded metadata.
+ * Converts a Zod schema to JSON Schema with automatic registry metadata.
  * Uses Zod v4's native toJSONSchema() method.
  *
- * The branded metadata enables DynamicForm to automatically render
+ * The registry metadata enables DynamicForm to automatically render
  * specialized input fields (password for secrets, color picker for colors,
  * dropdowns for optionsResolver fields, hidden for auto-populated fields).
  */

@@ -1,5 +1,6 @@
 export * from "./permissions";
 export * from "./schemas";
+export * from "./zod-health-result";
 
 // --- DTOs for API Responses ---
 
