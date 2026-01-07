@@ -233,24 +233,9 @@ export const IntegrationsPage = () => {
                           {provider?.displayName ?? sub.providerId}
                         </TableCell>
                         <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {sub.eventTypes.length === 0 ? (
-                              <Badge variant="secondary">All events</Badge>
-                            ) : (
-                              <>
-                                {sub.eventTypes.slice(0, 2).map((evt) => (
-                                  <Badge key={evt} variant="outline">
-                                    {evt.split(".").pop()}
-                                  </Badge>
-                                ))}
-                                {sub.eventTypes.length > 2 && (
-                                  <Badge variant="secondary">
-                                    +{sub.eventTypes.length - 2}
-                                  </Badge>
-                                )}
-                              </>
-                            )}
-                          </div>
+                          <Badge variant="outline">
+                            {sub.eventId.split(".").pop()}
+                          </Badge>
                         </TableCell>
                         <TableCell>
                           <Badge

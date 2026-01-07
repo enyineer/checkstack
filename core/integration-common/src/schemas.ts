@@ -25,8 +25,8 @@ export const WebhookSubscriptionSchema = z.object({
   /** Provider-specific configuration (validated against provider schema) */
   providerConfig: z.record(z.string(), z.unknown()),
 
-  /** Events to subscribe to (empty = all events) */
-  eventTypes: z.array(z.string()).default([]),
+  /** Single event to subscribe to (fully qualified event ID) */
+  eventId: z.string(),
 
   /** Optional: Filter by system IDs */
   systemFilter: z.array(z.string()).optional(),
@@ -45,7 +45,8 @@ export const CreateSubscriptionInputSchema = z.object({
   description: z.string().optional(),
   providerId: z.string(),
   providerConfig: z.record(z.string(), z.unknown()),
-  eventTypes: z.array(z.string()).optional(),
+  /** Single event to subscribe to */
+  eventId: z.string(),
   systemFilter: z.array(z.string()).optional(),
 });
 export type CreateSubscriptionInput = z.infer<
@@ -59,7 +60,7 @@ export const UpdateSubscriptionInputSchema = z.object({
     name: z.string().min(1).max(100).optional(),
     description: z.string().optional(),
     providerConfig: z.record(z.string(), z.unknown()).optional(),
-    eventTypes: z.array(z.string()).optional(),
+    eventId: z.string().optional(),
     systemFilter: z.array(z.string()).optional(),
     enabled: z.boolean().optional(),
   }),
@@ -275,3 +276,31 @@ export const TestConnectionResultSchema = z.object({
   message: z.string().optional(),
 });
 export type TestConnectionResult = z.infer<typeof TestConnectionResultSchema>;
+
+// =============================================================================
+// Payload Property Schema (for template hints)
+// =============================================================================
+
+/** A single payload property available for templating */
+export const PayloadPropertySchema = z.object({
+  /** Full path to the property, e.g., "payload.incident.title" */
+  path: z.string(),
+  /** Type of the property, e.g., "string", "number", "boolean" */
+  type: z.string(),
+  /** Optional description of the property */
+  description: z.string().optional(),
+});
+export type PayloadProperty = z.infer<typeof PayloadPropertySchema>;
+
+/** Output schema for getEventPayloadSchema */
+export const EventPayloadSchemaOutputSchema = z.object({
+  /** Event ID */
+  eventId: z.string(),
+  /** Full JSON Schema for the payload */
+  payloadSchema: z.record(z.string(), z.unknown()),
+  /** Flattened list of available properties for template hints */
+  availableProperties: z.array(PayloadPropertySchema),
+});
+export type EventPayloadSchemaOutput = z.infer<
+  typeof EventPayloadSchemaOutputSchema
+>;

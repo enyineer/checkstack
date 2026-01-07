@@ -97,8 +97,8 @@ export function createDeliveryCoordinator(
 
     // Filter to those that match this event
     return subscriptions.filter((sub) => {
-      // Check event type filter (empty array = all events)
-      if (sub.eventTypes.length > 0 && !sub.eventTypes.includes(eventId)) {
+      // Check event ID matches
+      if (sub.eventId !== eventId) {
         return false;
       }
 

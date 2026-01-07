@@ -46,3 +46,4 @@ export * from "./components/DynamicIcon";
 export * from "./components/StrategyConfigCard";
 export * from "./components/Markdown";
 export * from "./components/ColorPicker";
+export * from "./components/TemplateEditor";

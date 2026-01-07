@@ -20,6 +20,7 @@ import {
   UpdateConnectionInputSchema,
   GetConnectionOptionsInputSchema,
   ConnectionOptionSchema,
+  EventPayloadSchemaOutputSchema,
 } from "./schemas";
 
 // Base builder with full metadata support (userType + permissions)
@@ -218,6 +219,15 @@ export const integrationContract = {
         })
       )
     ),
+
+  /** Get payload schema for a specific event with flattened property list for template hints */
+  getEventPayloadSchema: _base
+    .meta({
+      userType: "user",
+      permissions: [permissions.integrationManage.id],
+    })
+    .input(z.object({ eventId: z.string() }))
+    .output(EventPayloadSchemaOutputSchema),
 
   // ==========================================================================
   // DELIVERY LOGS (Admin only)

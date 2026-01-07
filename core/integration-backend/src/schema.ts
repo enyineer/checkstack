@@ -25,8 +25,8 @@ export const webhookSubscriptions = pgTable("webhook_subscriptions", {
     .notNull()
     .$type<Record<string, unknown>>(),
 
-  /** Events to subscribe to (empty array = all events) */
-  eventTypes: text("event_types").array().notNull().default([]),
+  /** Single event to subscribe to (fully qualified event ID) */
+  eventId: text("event_id").notNull(),
 
   /** Optional: Filter by system IDs */
   systemFilter: text("system_filter").array(),

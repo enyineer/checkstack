@@ -8,6 +8,13 @@
       "when": 1767731111954,
       "tag": "0000_glossy_red_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1767754210380,
+      "tag": "0001_rich_fixer",
+      "breakpoints": true
     }
   ]
 }

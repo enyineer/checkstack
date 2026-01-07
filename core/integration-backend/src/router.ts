@@ -18,6 +18,83 @@ import {
   INTEGRATION_SUBSCRIPTION_CHANGED,
 } from "@checkmate-monitor/integration-common";
 
+/**
+ * Recursively extracts flattened property paths from a JSON Schema.
+ * Used to provide template hints for payload properties.
+ */
+interface JsonSchemaProperty {
+  path: string;
+  type: string;
+  description?: string;
+}
+
+function extractJsonSchemaProperties(
+  schema: Record<string, unknown>,
+  basePath: string = ""
+): JsonSchemaProperty[] {
+  const properties: JsonSchemaProperty[] = [];
+
+  const schemaType = schema["type"] as string | string[] | undefined;
+  const schemaProperties = schema["properties"] as
+    | Record<string, Record<string, unknown>>
+    | undefined;
+  const schemaItems = schema["items"] as Record<string, unknown> | undefined;
+  const schemaDescription = schema["description"] as string | undefined;
+
+  // Handle object with properties
+  if (schemaProperties) {
+    for (const [key, propSchema] of Object.entries(schemaProperties)) {
+      const propPath = basePath ? `${basePath}.${key}` : key;
+      const propType = (propSchema["type"] as string) || "unknown";
+      const propDescription = propSchema["description"] as string | undefined;
+
+      // Add this property
+      properties.push({
+        path: propPath,
+        type: Array.isArray(propType) ? propType.join(" | ") : propType,
+        description: propDescription,
+      });
+
+      // Recurse into nested objects
+      if (propType === "object" || propSchema["properties"]) {
+        properties.push(...extractJsonSchemaProperties(propSchema, propPath));
+      }
+
+      // Recurse into arrays (add [n] notation)
+      if (propType === "array" && propSchema["items"]) {
+        const itemsSchema = propSchema["items"] as Record<string, unknown>;
+        properties.push(
+          ...extractJsonSchemaProperties(itemsSchema, `${propPath}[n]`)
+        );
+      }
+    }
+  }
+
+  // Handle array at root level
+  if (schemaType === "array" && schemaItems) {
+    properties.push(
+      ...extractJsonSchemaProperties(schemaItems, `${basePath}[n]`)
+    );
+  }
+
+  // If this is a primitive with a path, add it
+  if (
+    basePath &&
+    schemaType &&
+    schemaType !== "object" &&
+    schemaType !== "array" &&
+    !schemaProperties
+  ) {
+    properties.push({
+      path: basePath,
+      type: Array.isArray(schemaType) ? schemaType.join(" | ") : schemaType,
+      description: schemaDescription,
+    });
+  }
+
+  return properties;
+}
+
 interface RouterDeps {
   db: NodePgDatabase<typeof schema>;
   eventRegistry: IntegrationEventRegistry;
@@ -91,11 +168,9 @@ export function createIntegrationRouter(deps: RouterDeps) {
 
       const subscriptions = await query;
 
-      // Filter by event type in application layer (since it's an array)
+      // Filter by event type if specified
       const filtered = eventType
-        ? subscriptions.filter(
-            (s) => s.eventTypes.length === 0 || s.eventTypes.includes(eventType)
-          )
+        ? subscriptions.filter((s) => s.eventId === eventType)
         : subscriptions;
 
       return {
@@ -137,7 +212,7 @@ export function createIntegrationRouter(deps: RouterDeps) {
         description,
         providerId,
         providerConfig,
-        eventTypes,
+        eventId,
         systemFilter,
       } = input;
 
@@ -148,15 +223,11 @@ export function createIntegrationRouter(deps: RouterDeps) {
         });
       }
 
-      // Validate event types if specified
-      if (eventTypes) {
-        for (const eventType of eventTypes) {
-          if (!eventRegistry.hasEvent(eventType)) {
-            throw new ORPCError("BAD_REQUEST", {
-              message: `Event type not found: ${eventType}`,
-            });
-          }
-        }
+      // Validate event exists
+      if (!eventRegistry.hasEvent(eventId)) {
+        throw new ORPCError("BAD_REQUEST", {
+          message: `Event type not found: ${eventId}`,
+        });
       }
 
       const id = crypto.randomUUID();
@@ -168,7 +239,7 @@ export function createIntegrationRouter(deps: RouterDeps) {
         description,
         providerId,
         providerConfig,
-        eventTypes: eventTypes ?? [],
+        eventId,
         systemFilter,
         enabled: true,
         createdAt: now,
@@ -189,7 +260,7 @@ export function createIntegrationRouter(deps: RouterDeps) {
         description,
         providerId,
         providerConfig,
-        eventTypes: eventTypes ?? [],
+        eventId,
         systemFilter,
         enabled: true,
         createdAt: now,
@@ -212,15 +283,11 @@ export function createIntegrationRouter(deps: RouterDeps) {
         });
       }
 
-      // Validate event types if updated
-      if (updates.eventTypes) {
-        for (const eventType of updates.eventTypes) {
-          if (!eventRegistry.hasEvent(eventType)) {
-            throw new ORPCError("BAD_REQUEST", {
-              message: `Event type not found: ${eventType}`,
-            });
-          }
-        }
+      // Validate event if updated
+      if (updates.eventId && !eventRegistry.hasEvent(updates.eventId)) {
+        throw new ORPCError("BAD_REQUEST", {
+          message: `Event type not found: ${updates.eventId}`,
+        });
       }
 
       const now = new Date();
@@ -577,6 +644,31 @@ export function createIntegrationRouter(deps: RouterDeps) {
         })),
       }));
     }),
+
+    getEventPayloadSchema: os.getEventPayloadSchema.handler(
+      async ({ input }) => {
+        const { eventId } = input;
+
+        const event = eventRegistry.getEvent(eventId);
+        if (!event) {
+          throw new ORPCError("NOT_FOUND", {
+            message: `Event not found: ${eventId}`,
+          });
+        }
+
+        // Extract flattened properties from JSON Schema
+        const availableProperties = extractJsonSchemaProperties(
+          event.payloadJsonSchema,
+          "payload"
+        );
+
+        return {
+          eventId: event.eventId,
+          payloadSchema: event.payloadJsonSchema,
+          availableProperties,
+        };
+      }
+    ),
 
     // =========================================================================
     // DELIVERY LOGS

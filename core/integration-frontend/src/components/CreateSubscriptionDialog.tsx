@@ -28,6 +28,7 @@ import {
   type IntegrationProviderInfo,
   type IntegrationEventInfo,
   type ProviderConnectionRedacted,
+  type PayloadProperty,
 } from "@checkmate-monitor/integration-common";
 import { ProviderDocumentation } from "./ProviderDocumentation";
 import { getProviderConfigExtension } from "../provider-config-registry";
@@ -68,7 +69,10 @@ export const CreateSubscriptionDialog = ({
   const [providerConfig, setProviderConfig] = useState<Record<string, unknown>>(
     {}
   );
-  const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
+  const [selectedEventId, setSelectedEventId] = useState<string>("");
+  const [payloadProperties, setPayloadProperties] = useState<PayloadProperty[]>(
+    []
+  );
 
   // Fetch events when dialog opens
   const fetchEvents = useCallback(async () => {
@@ -106,6 +110,28 @@ export const CreateSubscriptionDialog = ({
     }
   }, [open, fetchEvents]);
 
+  // Fetch payload schema when event changes
+  useEffect(() => {
+    if (!selectedEventId) {
+      setPayloadProperties([]);
+      return;
+    }
+
+    const fetchPayloadSchema = async () => {
+      try {
+        const result = await client.getEventPayloadSchema({
+          eventId: selectedEventId,
+        });
+        setPayloadProperties(result.availableProperties);
+      } catch (error) {
+        console.error("Failed to fetch payload schema:", error);
+        setPayloadProperties([]);
+      }
+    };
+
+    void fetchPayloadSchema();
+  }, [selectedEventId, client]);
+
   // Reset when dialog closes
   useEffect(() => {
     if (!open) {
@@ -114,7 +140,8 @@ export const CreateSubscriptionDialog = ({
       setName("");
       setDescription("");
       setProviderConfig({});
-      setSelectedEvents([]);
+      setSelectedEventId("");
+      setPayloadProperties([]);
       setConnections([]);
       setSelectedConnectionId("");
     }
@@ -150,7 +177,7 @@ export const CreateSubscriptionDialog = ({
         description: description || undefined,
         providerId: selectedProvider.qualifiedId,
         providerConfig: configWithConnection,
-        eventTypes: selectedEvents.length > 0 ? selectedEvents : undefined,
+        eventId: selectedEventId,
       });
       onCreated(result);
       toast.success("Subscription created");
@@ -378,47 +405,65 @@ export const CreateSubscriptionDialog = ({
               <ProviderDocumentation provider={selectedProvider} />
             )}
 
-            {/* Event Filter */}
+            {/* Event Selection (required) */}
             <div>
-              <label className="block text-sm font-medium mb-2">
-                Event Filter (optional)
-              </label>
-              <div className="text-sm text-muted-foreground mb-2">
-                Leave empty to subscribe to all events
-              </div>
-              <div className="border rounded-md p-4 max-h-40 overflow-y-auto">
-                <div className="space-y-2">
+              <Label className="mb-2">
+                Event <span className="text-destructive">*</span>
+              </Label>
+              <Select
+                value={selectedEventId}
+                onValueChange={setSelectedEventId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select an event" />
+                </SelectTrigger>
+                <SelectContent>
                   {events.map((event) => (
-                    <label
-                      key={event.eventId}
-                      className="flex items-center gap-2 cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedEvents.includes(event.eventId)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedEvents((prev) => [
-                              ...prev,
-                              event.eventId,
-                            ]);
-                          } else {
-                            setSelectedEvents((prev) =>
-                              prev.filter((id) => id !== event.eventId)
-                            );
-                          }
-                        }}
-                      />
-                      <span>{event.displayName}</span>
-                    </label>
+                    <SelectItem key={event.eventId} value={event.eventId}>
+                      <div>
+                        <div>{event.displayName}</div>
+                        {event.description && (
+                          <div className="text-xs text-muted-foreground">
+                            {event.description}
+                          </div>
+                        )}
+                      </div>
+                    </SelectItem>
                   ))}
-                  {events.length === 0 && (
-                    <div className="text-muted-foreground text-sm">
-                      No events registered. Plugins will register events.
-                    </div>
-                  )}
+                </SelectContent>
+              </Select>
+              {events.length === 0 && (
+                <div className="text-muted-foreground text-sm mt-2">
+                  No events registered. Plugins will register events.
                 </div>
-              </div>
+              )}
+              {/* Show available payload properties for template hints */}
+              {payloadProperties.length > 0 && (
+                <div className="mt-3 p-3 rounded-md bg-muted/50 border">
+                  <div className="text-xs font-medium text-muted-foreground mb-2">
+                    Available Template Variables
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {payloadProperties.slice(0, 10).map((prop) => (
+                      <span
+                        key={prop.path}
+                        className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs"
+                        title={prop.description ?? prop.path}
+                      >
+                        <code className="font-mono">{`{{${prop.path}}}`}</code>
+                        <span className="text-muted-foreground">
+                          {prop.type}
+                        </span>
+                      </span>
+                    ))}
+                    {payloadProperties.length > 10 && (
+                      <span className="text-xs text-muted-foreground">
+                        +{payloadProperties.length - 10} more
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -435,7 +480,7 @@ export const CreateSubscriptionDialog = ({
           {step === "config" && (
             <Button
               onClick={() => void handleCreate()}
-              disabled={!name.trim() || saving}
+              disabled={!name.trim() || !selectedEventId || saving}
             >
               {saving ? "Creating..." : "Create Subscription"}
             </Button>

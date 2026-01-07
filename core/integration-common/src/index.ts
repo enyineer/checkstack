@@ -37,6 +37,11 @@ export {
   type GetConnectionOptionsInput,
   ConnectionOptionSchema,
   type ConnectionOptionOutput,
+  // Payload property hints
+  PayloadPropertySchema,
+  type PayloadProperty,
+  EventPayloadSchemaOutputSchema,
+  type EventPayloadSchemaOutput,
 } from "./schemas";
 
 // NOTE: All backend-only types (IntegrationProvider, IntegrationDeliveryContext, etc.)

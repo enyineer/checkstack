@@ -8,6 +8,41 @@ import type {
 } from "@checkmate-monitor/integration-backend";
 
 // =============================================================================
+// Template Expansion Helper
+// =============================================================================
+
+/**
+ * Expand mustache-style templates with context values.
+ * Supports {{path.to.value}} syntax with nested object access.
+ */
+function expandTemplate(
+  template: string,
+  context: Record<string, unknown>
+): string {
+  return template.replaceAll(/\{\{([^}]+)\}\}/g, (_match, path: string) => {
+    const trimmedPath = path.trim();
+    const parts = trimmedPath.split(".");
+
+    let value: unknown = context;
+    for (const part of parts) {
+      if (value === null || value === undefined) {
+        return "";
+      }
+      value = (value as Record<string, unknown>)[part];
+    }
+
+    // Return JSON stringified for objects/arrays, raw string for primitives
+    if (value === null || value === undefined) {
+      return "";
+    }
+    if (typeof value === "object") {
+      return JSON.stringify(value);
+    }
+    return String(value);
+  });
+}
+
+// =============================================================================
 // Webhook Configuration Schema
 // =============================================================================
 
@@ -55,6 +90,15 @@ export const webhookConfigSchemaV1 = z.object({
     .array(webhookHeaderSchema)
     .optional()
     .describe("Additional custom headers to include"),
+
+  /** Custom body template. Use {{payload.field}} syntax for templating. */
+  bodyTemplate: z
+    .string()
+    .optional()
+    .describe(
+      "Custom request body template. Use {{payload.field}} syntax to include event data. Leave empty for default JSON payload."
+    ),
+
   timeout: z
     .number()
     .min(1000)
@@ -180,23 +224,40 @@ Configure your server to:
     }
 
     // Build request body
-    const payload = {
-      id: event.deliveryId,
-      eventType: event.eventId,
-      timestamp: event.timestamp,
-      subscription: {
-        id: subscription.id,
-        name: subscription.name,
-      },
-      data: event.payload,
-    };
+    let body: string;
 
-    const body =
-      config.contentType === "application/json"
-        ? JSON.stringify(payload)
-        : new URLSearchParams({
-            payload: JSON.stringify(payload),
-          }).toString();
+    if (config.bodyTemplate) {
+      // Use custom template with context
+      const templateContext = {
+        deliveryId: event.deliveryId,
+        eventType: event.eventId,
+        eventId: event.eventId,
+        timestamp: event.timestamp,
+        subscriptionId: subscription.id,
+        subscriptionName: subscription.name,
+        payload: event.payload,
+      };
+      body = expandTemplate(config.bodyTemplate, templateContext);
+    } else {
+      // Default payload format
+      const payload = {
+        id: event.deliveryId,
+        eventType: event.eventId,
+        timestamp: event.timestamp,
+        subscription: {
+          id: subscription.id,
+          name: subscription.name,
+        },
+        data: event.payload,
+      };
+
+      body =
+        config.contentType === "application/json"
+          ? JSON.stringify(payload)
+          : new URLSearchParams({
+              payload: JSON.stringify(payload),
+            }).toString();
+    }
 
     logger.debug(
       `Delivering webhook to ${config.url} for event ${event.eventId}`

@@ -21,7 +21,16 @@ import {
   type WebhookSubscription,
   type IntegrationProviderInfo,
   type IntegrationEventInfo,
+  type PayloadProperty,
 } from "@checkmate-monitor/integration-common";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Label,
+} from "@checkmate-monitor/ui";
 
 export const SubscriptionDetailPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -43,7 +52,10 @@ export const SubscriptionDetailPage = () => {
   const [providerConfig, setProviderConfig] = useState<Record<string, unknown>>(
     {}
   );
-  const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
+  const [selectedEventId, setSelectedEventId] = useState<string>("");
+  const [payloadProperties, setPayloadProperties] = useState<PayloadProperty[]>(
+    []
+  );
 
   const fetchData = useCallback(async () => {
     if (!id) return;
@@ -63,7 +75,7 @@ export const SubscriptionDetailPage = () => {
       setName(sub.name);
       setDescription(sub.description ?? "");
       setProviderConfig(sub.providerConfig);
-      setSelectedEvents(sub.eventTypes);
+      setSelectedEventId(sub.eventId);
     } catch (error) {
       console.error("Failed to load subscription:", error);
       toast.error("Failed to load subscription");
@@ -76,6 +88,28 @@ export const SubscriptionDetailPage = () => {
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
+
+  // Fetch payload schema when event changes
+  useEffect(() => {
+    if (!selectedEventId) {
+      setPayloadProperties([]);
+      return;
+    }
+
+    const fetchPayloadSchema = async () => {
+      try {
+        const result = await client.getEventPayloadSchema({
+          eventId: selectedEventId,
+        });
+        setPayloadProperties(result.availableProperties);
+      } catch (error) {
+        console.error("Failed to fetch payload schema:", error);
+        setPayloadProperties([]);
+      }
+    };
+
+    void fetchPayloadSchema();
+  }, [selectedEventId, client]);
 
   const provider = providers.find(
     (p) => p.qualifiedId === subscription?.providerId
@@ -92,7 +126,10 @@ export const SubscriptionDetailPage = () => {
           name,
           description: description || undefined,
           providerConfig,
-          eventTypes: selectedEvents.length > 0 ? selectedEvents : undefined,
+          eventId:
+            selectedEventId === subscription.eventId
+              ? undefined
+              : selectedEventId,
         },
       });
       toast.success("Subscription updated");
@@ -275,53 +312,70 @@ export const SubscriptionDetailPage = () => {
             </section>
           )}
 
-          {/* Event Filter */}
+          {/* Event Selection */}
           <section>
             <SectionHeader
-              title="Event Filter"
-              description="Select which events trigger this webhook (leave empty for all events)"
+              title="Event Selection"
+              description="Select which event triggers this webhook"
             />
             <Card>
               <CardContent className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                  {events.map((event) => (
-                    <label
-                      key={event.eventId}
-                      className="flex items-center gap-2 p-2 rounded hover:bg-muted cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedEvents.includes(event.eventId)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedEvents((prev) => [
-                              ...prev,
-                              event.eventId,
-                            ]);
-                          } else {
-                            setSelectedEvents((prev) =>
-                              prev.filter((evtId) => evtId !== event.eventId)
-                            );
-                          }
-                        }}
-                      />
-                      <div>
-                        <div className="font-medium">{event.displayName}</div>
-                        {event.description && (
-                          <div className="text-xs text-muted-foreground">
-                            {event.description}
-                          </div>
-                        )}
-                      </div>
-                    </label>
-                  ))}
-                  {events.length === 0 && (
-                    <div className="text-muted-foreground col-span-full">
-                      No events registered. Plugins can register integration
-                      events.
+                <Label className="mb-2">Event</Label>
+                <Select
+                  value={selectedEventId}
+                  onValueChange={setSelectedEventId}
+                >
+                  <SelectTrigger className="w-full max-w-md">
+                    <SelectValue placeholder="Select an event" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {events.map((event) => (
+                      <SelectItem key={event.eventId} value={event.eventId}>
+                        <div>
+                          <div>{event.displayName}</div>
+                          {event.description && (
+                            <div className="text-xs text-muted-foreground">
+                              {event.description}
+                            </div>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {events.length === 0 && (
+                  <div className="text-muted-foreground mt-2">
+                    No events registered. Plugins can register integration
+                    events.
+                  </div>
+                )}
+                {/* Show available payload properties for template hints */}
+                {payloadProperties.length > 0 && (
+                  <div className="mt-4 p-3 rounded-md bg-muted/50 border">
+                    <div className="text-xs font-medium text-muted-foreground mb-2">
+                      Available Template Variables
                     </div>
-                  )}
-                </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {payloadProperties.slice(0, 10).map((prop) => (
+                        <span
+                          key={prop.path}
+                          className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs"
+                          title={prop.description ?? prop.path}
+                        >
+                          <code className="font-mono">{`{{${prop.path}}}`}</code>
+                          <span className="text-muted-foreground">
+                            {prop.type}
+                          </span>
+                        </span>
+                      ))}
+                      {payloadProperties.length > 10 && (
+                        <span className="text-xs text-muted-foreground">
+                          +{payloadProperties.length - 10} more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </section>
