@@ -15,6 +15,9 @@ export const healthCheckHooks = {
     systemName?: string;
     previousStatus: string;
     newStatus: string;
+    healthyChecks: number;
+    totalChecks: number;
+    timestamp: string;
   }>("healthcheck.system.degraded"),
 
   /**
@@ -25,5 +28,8 @@ export const healthCheckHooks = {
     systemId: string;
     systemName?: string;
     previousStatus: string;
+    healthyChecks: number;
+    totalChecks: number;
+    timestamp: string;
   }>("healthcheck.system.healthy"),
 } as const;

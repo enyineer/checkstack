@@ -115,7 +115,10 @@ export function createRouter(
         incidentId: result.id,
         systemIds: result.systemIds,
         title: result.title,
+        description: result.description,
         severity: result.severity,
+        status: result.status,
+        createdAt: result.createdAt.toISOString(),
       });
 
       // Send notifications to system subscribers
@@ -147,6 +150,10 @@ export function createRouter(
       await context.emitHook(incidentHooks.incidentUpdated, {
         incidentId: result.id,
         systemIds: result.systemIds,
+        title: result.title,
+        description: result.description,
+        severity: result.severity,
+        status: result.status,
       });
 
       // Send notifications to system subscribers
@@ -179,6 +186,10 @@ export function createRouter(
         await context.emitHook(incidentHooks.incidentUpdated, {
           incidentId: input.incidentId,
           systemIds: incident.systemIds,
+          title: incident.title,
+          description: incident.description,
+          severity: incident.severity,
+          status: incident.status,
           statusChange: input.statusChange,
         });
 
@@ -187,6 +198,9 @@ export function createRouter(
           await context.emitHook(incidentHooks.incidentResolved, {
             incidentId: input.incidentId,
             systemIds: incident.systemIds,
+            title: incident.title,
+            severity: incident.severity,
+            resolvedAt: new Date().toISOString(),
           });
         }
       }
@@ -217,6 +231,9 @@ export function createRouter(
       await context.emitHook(incidentHooks.incidentResolved, {
         incidentId: result.id,
         systemIds: result.systemIds,
+        title: result.title,
+        severity: result.severity,
+        resolvedAt: new Date().toISOString(),
       });
 
       // Send notifications to system subscribers

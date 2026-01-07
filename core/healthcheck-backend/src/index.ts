@@ -31,12 +31,18 @@ const systemDegradedPayloadSchema = z.object({
   systemName: z.string().optional(),
   previousStatus: z.string(),
   newStatus: z.string(),
+  healthyChecks: z.number(),
+  totalChecks: z.number(),
+  timestamp: z.string(),
 });
 
 const systemHealthyPayloadSchema = z.object({
   systemId: z.string(),
   systemName: z.string().optional(),
   previousStatus: z.string(),
+  healthyChecks: z.number(),
+  totalChecks: z.number(),
+  timestamp: z.string(),
 });
 
 // Store emitHook reference for use during Phase 2 init

@@ -265,6 +265,11 @@ async function executeHealthCheckJob(props: {
           await emitHook(healthCheckHooks.systemHealthy, {
             systemId,
             previousStatus,
+            healthyChecks: newState.checkStatuses.filter(
+              (c) => c.status === "healthy"
+            ).length,
+            totalChecks: newState.checkStatuses.length,
+            timestamp: new Date().toISOString(),
           });
           logger.debug(
             `Emitted systemHealthy hook: ${previousStatus} → ${newState.status}`
@@ -278,6 +283,11 @@ async function executeHealthCheckJob(props: {
             systemId,
             previousStatus,
             newStatus: newState.status,
+            healthyChecks: newState.checkStatuses.filter(
+              (c) => c.status === "healthy"
+            ).length,
+            totalChecks: newState.checkStatuses.length,
+            timestamp: new Date().toISOString(),
           });
           logger.debug(
             `Emitted systemDegraded hook: ${previousStatus} → ${newState.status}`
@@ -327,6 +337,11 @@ async function executeHealthCheckJob(props: {
           await emitHook(healthCheckHooks.systemHealthy, {
             systemId,
             previousStatus,
+            healthyChecks: newState.checkStatuses.filter(
+              (c) => c.status === "healthy"
+            ).length,
+            totalChecks: newState.checkStatuses.length,
+            timestamp: new Date().toISOString(),
           });
           logger.debug(
             `Emitted systemHealthy hook: ${previousStatus} → ${newState.status}`
@@ -340,6 +355,11 @@ async function executeHealthCheckJob(props: {
             systemId,
             previousStatus,
             newStatus: newState.status,
+            healthyChecks: newState.checkStatuses.filter(
+              (c) => c.status === "healthy"
+            ).length,
+            totalChecks: newState.checkStatuses.length,
+            timestamp: new Date().toISOString(),
           });
           logger.debug(
             `Emitted systemDegraded hook: ${previousStatus} → ${newState.status}`

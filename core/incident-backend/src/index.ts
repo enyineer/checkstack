@@ -25,18 +25,28 @@ const incidentCreatedPayloadSchema = z.object({
   incidentId: z.string(),
   systemIds: z.array(z.string()),
   title: z.string(),
+  description: z.string().optional(),
   severity: z.string(),
+  status: z.string(),
+  createdAt: z.string(),
 });
 
 const incidentUpdatedPayloadSchema = z.object({
   incidentId: z.string(),
   systemIds: z.array(z.string()),
+  title: z.string(),
+  description: z.string().optional(),
+  severity: z.string(),
+  status: z.string(),
   statusChange: z.string().optional(),
 });
 
 const incidentResolvedPayloadSchema = z.object({
   incidentId: z.string(),
   systemIds: z.array(z.string()),
+  title: z.string(),
+  severity: z.string(),
+  resolvedAt: z.string(),
 });
 
 // =============================================================================

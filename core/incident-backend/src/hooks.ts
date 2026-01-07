@@ -13,7 +13,10 @@ export const incidentHooks = {
     incidentId: string;
     systemIds: string[];
     title: string;
+    description?: string;
     severity: string;
+    status: string;
+    createdAt: string;
   }>("incident.created"),
 
   /**
@@ -23,6 +26,10 @@ export const incidentHooks = {
   incidentUpdated: createHook<{
     incidentId: string;
     systemIds: string[];
+    title: string;
+    description?: string;
+    severity: string;
+    status: string;
     statusChange?: string;
   }>("incident.updated"),
 
@@ -33,5 +40,8 @@ export const incidentHooks = {
   incidentResolved: createHook<{
     incidentId: string;
     systemIds: string[];
+    title: string;
+    severity: string;
+    resolvedAt: string;
   }>("incident.resolved"),
 } as const;
