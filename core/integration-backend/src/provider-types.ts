@@ -1,28 +1,15 @@
-import { z } from "zod";
-
 /**
- * Logger interface - matches the platform Logger type.
- * Defined inline to avoid depending on backend-api in the common package.
+ * Integration Provider Types
+ *
+ * These types define the contract for integration provider plugins.
+ * All backend-only types live here - frontend uses Zod schemas from integration-common.
  */
-export interface IntegrationLogger {
-  debug(message: string, ...args: unknown[]): void;
-  info(message: string, ...args: unknown[]): void;
-  warn(message: string, ...args: unknown[]): void;
-  error(message: string, ...args: unknown[]): void;
-}
+import { z } from "zod";
+import type { Versioned, Logger, Hook } from "@checkmate-monitor/backend-api";
 
 // =============================================================================
 // Integration Event Definition Types
 // =============================================================================
-
-/**
- * Hook reference type - matches the Hook interface from backend-api.
- * We use a minimal type here to avoid depending on backend-api in the common package.
- */
-export interface HookReference<T = unknown> {
-  id: string;
-  _type?: T;
-}
 
 /**
  * Metadata for registering a hook as an integration event.
@@ -30,7 +17,7 @@ export interface HookReference<T = unknown> {
  */
 export interface IntegrationEventDefinition<T = unknown> {
   /** The hook to expose (from the owning plugin) */
-  hook: HookReference<T>;
+  hook: Hook<T>;
 
   /** Human-readable name for the UI */
   displayName: string;
@@ -79,7 +66,7 @@ export interface IntegrationDeliveryContext<TConfig = unknown> {
   /** Provider-specific configuration */
   providerConfig: TConfig;
   /** Scoped logger for delivery tracing */
-  logger: IntegrationLogger;
+  logger: Logger;
   /**
    * Get connection credentials by ID (for providers with connectionSchema).
    * Only available when provider has a connectionSchema defined.
@@ -108,15 +95,6 @@ export interface IntegrationDeliveryResult {
 export interface TestConnectionResult {
   success: boolean;
   message?: string;
-}
-
-/**
- * Versioned configuration wrapper - must match the platform's Versioned type.
- * We use a minimal type here to avoid circular dependencies.
- */
-export interface VersionedConfig<T> {
-  version: number;
-  schema: z.ZodType<T>;
 }
 
 /**
@@ -185,7 +163,7 @@ export interface IntegrationProvider<
   icon?: string;
 
   /** Per-subscription configuration schema */
-  config: VersionedConfig<TConfig>;
+  config: Versioned<TConfig>;
 
   /**
    * Optional site-wide connection schema.
@@ -194,7 +172,7 @@ export interface IntegrationProvider<
    * - Show a "Connections" management UI
    * - Add a connection dropdown to subscription config
    */
-  connectionSchema?: VersionedConfig<TConnection>;
+  connectionSchema?: Versioned<TConnection>;
 
   /**
    * Events this provider can handle.
@@ -244,10 +222,6 @@ export interface RegisteredIntegrationProvider<TConfig = unknown>
   ownerPluginId: string;
 }
 
-// =============================================================================
-// Registered Integration Event
-// =============================================================================
-
 /**
  * Registered integration event with full namespace information.
  */
@@ -256,7 +230,7 @@ export interface RegisteredIntegrationEvent<T = unknown> {
   eventId: string;
 
   /** Original hook reference */
-  hook: HookReference<T>;
+  hook: Hook<T>;
 
   /** Plugin that registered this event */
   ownerPluginId: string;

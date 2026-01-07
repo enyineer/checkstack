@@ -10,10 +10,9 @@ import type {
   IntegrationDeliveryContext,
   IntegrationDeliveryResult,
   TestConnectionResult,
-  VersionedConfig,
   ConnectionOption,
   GetConnectionOptionsParams,
-} from "@checkmate-monitor/integration-common";
+} from "@checkmate-monitor/integration-backend";
 import { JiraFieldMappingSchema } from "@checkmate-monitor/integration-jira-common";
 import { createJiraClient, createJiraClientFromConfig } from "./jira-client";
 import { expandTemplate } from "./template-engine";
@@ -92,13 +91,13 @@ export function createJiraProvider(): IntegrationProvider<
     config: new Versioned({
       version: 1,
       schema: JiraSubscriptionConfigSchema,
-    }) as VersionedConfig<JiraProviderConfig>,
+    }),
 
     // Connection configuration schema for generic connection management
     connectionSchema: new Versioned({
       version: 1,
       schema: JiraConnectionConfigSchema,
-    }) as VersionedConfig<JiraConnectionConfig>,
+    }),
 
     documentation: {
       setupGuide: `

@@ -1,43 +1,67 @@
 /**
  * Generic connection store for integration providers.
- * Stores site-wide connections using ConfigService.
- * Connections are scoped by providerId for isolation.
+ * Each connection is stored individually using ConfigService with the provider's
+ * actual connectionSchema, which enables proper secret encryption and redaction.
  *
- * Secrets are handled automatically via:
- * - Provider's connectionSchema uses secret() branded type for sensitive fields
- * - ConfigService encrypts secret() fields on write
- * - ConfigService.getRedacted() strips secret() fields for API responses
+ * Key pattern: integration_connection_{providerId}_{connectionId}
+ * Index pattern: integration_connection_index_{providerId} (tracks connection IDs)
  */
 import { z } from "zod";
-import type { ConfigService, Logger } from "@checkmate-monitor/backend-api";
+import type {
+  ConfigService,
+  Logger,
+  Migration,
+} from "@checkmate-monitor/backend-api";
 import type { IntegrationProviderRegistry } from "./provider-registry";
 import type {
   ProviderConnection,
   ProviderConnectionRedacted,
 } from "@checkmate-monitor/integration-common";
 
-// Internal wrapper schema for storing multiple connections
-const ConnectionListSchema = z.object({
-  connections: z.array(
-    z.object({
-      id: z.string(),
-      providerId: z.string(),
-      name: z.string(),
-      config: z.record(z.string(), z.unknown()),
-      createdAt: z.coerce.date(),
-      updatedAt: z.coerce.date(),
-    })
-  ),
+// Schema for connection metadata (stored separately from config)
+const ConnectionMetadataSchema = z.object({
+  id: z.string(),
+  providerId: z.string(),
+  name: z.string(),
+  createdAt: z.coerce.date(),
+  updatedAt: z.coerce.date(),
+});
+
+// Schema for provider's connection index (list of connection IDs)
+const ConnectionIndexSchema = z.object({
+  connectionIds: z.array(z.string()),
 });
 
 const CONNECTION_STORAGE_VERSION = 1;
 
 /**
- * Configuration key for provider connections.
+ * Configuration key for a single connection's config.
  */
-function getConnectionKey(providerId: string): string {
-  const sanitized = providerId.replaceAll(".", "_");
-  return `integration_connections_${sanitized}`;
+function getConnectionConfigKey(
+  providerId: string,
+  connectionId: string
+): string {
+  const sanitizedProvider = providerId.replaceAll(".", "_");
+  return `integration_connection_${sanitizedProvider}_${connectionId}`;
+}
+
+/**
+ * Configuration key for a single connection's metadata.
+ */
+function getConnectionMetadataKey(
+  providerId: string,
+  connectionId: string
+): string {
+  const sanitizedProvider = providerId.replaceAll(".", "_");
+  return `integration_connection_meta_${sanitizedProvider}_${connectionId}`;
+}
+
+/**
+ * Configuration key for provider's connection index.
+ */
+function getConnectionIndexKey(providerId: string): string {
+  const sanitizedProvider = providerId.replaceAll(".", "_");
+  return `integration_connection_index_${sanitizedProvider}`;
 }
 
 export interface ConnectionStore {
@@ -92,59 +116,144 @@ export function createConnectionStore(
   const connectionProviderCache = new Map<string, string>();
 
   /**
-   * Get all connections for a provider (with full credentials).
+   * Get the list of connection IDs for a provider.
    */
-  async function getProviderConnectionsRaw(
-    providerId: string
-  ): Promise<ProviderConnection[]> {
-    const key = getConnectionKey(providerId);
+  async function getConnectionIndex(providerId: string): Promise<string[]> {
+    const key = getConnectionIndexKey(providerId);
     const data = await configService.get(
       key,
-      ConnectionListSchema,
+      ConnectionIndexSchema,
       CONNECTION_STORAGE_VERSION
     );
-    return data?.connections ?? [];
+    return data?.connectionIds ?? [];
   }
 
   /**
-   * Get all connections for a provider (secrets redacted via ConfigService).
+   * Save the list of connection IDs for a provider.
    */
-  async function getProviderConnectionsRedacted(
-    providerId: string
-  ): Promise<ProviderConnectionRedacted[]> {
-    const key = getConnectionKey(providerId);
-    const data = await configService.getRedacted(
-      key,
-      ConnectionListSchema,
-      CONNECTION_STORAGE_VERSION
-    );
-
-    if (!data?.connections) return [];
-
-    return data.connections.map((conn) => ({
-      id: conn.id,
-      providerId: conn.providerId,
-      name: conn.name,
-      configPreview: conn.config,
-      createdAt: conn.createdAt,
-      updatedAt: conn.updatedAt,
-    }));
-  }
-
-  /**
-   * Save connections for a provider.
-   */
-  async function setProviderConnections(
+  async function setConnectionIndex(
     providerId: string,
-    connections: ProviderConnection[]
+    connectionIds: string[]
   ): Promise<void> {
-    const key = getConnectionKey(providerId);
+    const key = getConnectionIndexKey(providerId);
     await configService.set(
       key,
-      ConnectionListSchema,
+      ConnectionIndexSchema,
       CONNECTION_STORAGE_VERSION,
-      { connections }
+      { connectionIds }
     );
+  }
+
+  /**
+   * Get connection metadata.
+   */
+  async function getConnectionMetadata(
+    providerId: string,
+    connectionId: string
+  ): Promise<z.infer<typeof ConnectionMetadataSchema> | undefined> {
+    const key = getConnectionMetadataKey(providerId, connectionId);
+    return configService.get(
+      key,
+      ConnectionMetadataSchema,
+      CONNECTION_STORAGE_VERSION
+    );
+  }
+
+  /**
+   * Save connection metadata.
+   */
+  async function setConnectionMetadata(
+    providerId: string,
+    connectionId: string,
+    metadata: z.infer<typeof ConnectionMetadataSchema>
+  ): Promise<void> {
+    const key = getConnectionMetadataKey(providerId, connectionId);
+    await configService.set(
+      key,
+      ConnectionMetadataSchema,
+      CONNECTION_STORAGE_VERSION,
+      metadata
+    );
+  }
+
+  /**
+   * Get connection config (with full credentials).
+   */
+  async function getConnectionConfigRaw(
+    providerId: string,
+    connectionId: string
+  ): Promise<Record<string, unknown> | undefined> {
+    const provider = providerRegistry.getProvider(providerId);
+    if (!provider?.connectionSchema) return undefined;
+
+    const key = getConnectionConfigKey(providerId, connectionId);
+    const config = await configService.get(
+      key,
+      provider.connectionSchema.schema,
+      provider.connectionSchema.version,
+      provider.connectionSchema.migrations as
+        | Migration<unknown, unknown>[]
+        | undefined
+    );
+    return config as Record<string, unknown> | undefined;
+  }
+
+  /**
+   * Get connection config (secrets redacted).
+   */
+  async function getConnectionConfigRedacted(
+    providerId: string,
+    connectionId: string
+  ): Promise<Record<string, unknown> | undefined> {
+    const provider = providerRegistry.getProvider(providerId);
+    if (!provider?.connectionSchema) return undefined;
+
+    const key = getConnectionConfigKey(providerId, connectionId);
+    const config = await configService.getRedacted(
+      key,
+      provider.connectionSchema.schema,
+      provider.connectionSchema.version,
+      provider.connectionSchema.migrations as
+        | Migration<unknown, unknown>[]
+        | undefined
+    );
+    return config as Record<string, unknown> | undefined;
+  }
+
+  /**
+   * Save connection config.
+   */
+  async function setConnectionConfig(
+    providerId: string,
+    connectionId: string,
+    config: Record<string, unknown>
+  ): Promise<void> {
+    const provider = providerRegistry.getProvider(providerId);
+    if (!provider?.connectionSchema) {
+      throw new Error(`Provider ${providerId} has no connectionSchema`);
+    }
+
+    const key = getConnectionConfigKey(providerId, connectionId);
+    await configService.set(
+      key,
+      provider.connectionSchema.schema,
+      provider.connectionSchema.version,
+      config
+    );
+  }
+
+  /**
+   * Delete connection config and metadata.
+   */
+  async function deleteConnectionData(
+    providerId: string,
+    connectionId: string
+  ): Promise<void> {
+    const configKey = getConnectionConfigKey(providerId, connectionId);
+    await configService.delete(configKey);
+
+    const metaKey = getConnectionMetadataKey(providerId, connectionId);
+    await configService.delete(metaKey);
   }
 
   return {
@@ -155,11 +264,27 @@ export function createConnectionStore(
         return [];
       }
 
-      const connections = await getProviderConnectionsRedacted(providerId);
+      const connectionIds = await getConnectionIndex(providerId);
+      const connections: ProviderConnectionRedacted[] = [];
 
-      // Update cache
-      for (const conn of connections) {
-        connectionProviderCache.set(conn.id, providerId);
+      for (const connectionId of connectionIds) {
+        const metadata = await getConnectionMetadata(providerId, connectionId);
+        const configPreview = await getConnectionConfigRedacted(
+          providerId,
+          connectionId
+        );
+
+        if (metadata && configPreview) {
+          connectionProviderCache.set(connectionId, providerId);
+          connections.push({
+            id: metadata.id,
+            providerId: metadata.providerId,
+            name: metadata.name,
+            configPreview,
+            createdAt: metadata.createdAt,
+            updatedAt: metadata.updatedAt,
+          });
+        }
       }
 
       return connections;
@@ -176,8 +301,22 @@ export function createConnectionStore(
         return;
       }
 
-      const connections = await getProviderConnectionsRedacted(providerId);
-      return connections.find((c) => c.id === connectionId);
+      const metadata = await getConnectionMetadata(providerId, connectionId);
+      const configPreview = await getConnectionConfigRedacted(
+        providerId,
+        connectionId
+      );
+
+      if (!metadata || !configPreview) return;
+
+      return {
+        id: metadata.id,
+        providerId: metadata.providerId,
+        name: metadata.name,
+        configPreview,
+        createdAt: metadata.createdAt,
+        updatedAt: metadata.updatedAt,
+      };
     },
 
     async getConnectionWithCredentials(connectionId) {
@@ -191,33 +330,48 @@ export function createConnectionStore(
         return;
       }
 
-      const connections = await getProviderConnectionsRaw(providerId);
-      return connections.find((c) => c.id === connectionId);
+      const metadata = await getConnectionMetadata(providerId, connectionId);
+      const config = await getConnectionConfigRaw(providerId, connectionId);
+
+      if (!metadata || !config) return;
+
+      return {
+        id: metadata.id,
+        providerId: metadata.providerId,
+        name: metadata.name,
+        config,
+        createdAt: metadata.createdAt,
+        updatedAt: metadata.updatedAt,
+      };
     },
 
     async createConnection({ providerId, name, config }) {
       const now = new Date();
       const id = crypto.randomUUID();
 
-      const connection: ProviderConnection = {
+      const metadata = {
         id,
         providerId,
         name,
-        config,
         createdAt: now,
         updatedAt: now,
       };
 
-      const existing = await getProviderConnectionsRaw(providerId);
-      existing.push(connection);
-      await setProviderConnections(providerId, existing);
+      // Save metadata and config separately
+      await setConnectionMetadata(providerId, id, metadata);
+      await setConnectionConfig(providerId, id, config);
+
+      // Add to index
+      const connectionIds = await getConnectionIndex(providerId);
+      connectionIds.push(id);
+      await setConnectionIndex(providerId, connectionIds);
 
       connectionProviderCache.set(id, providerId);
       logger.info(
         `Created connection "${name}" (${id}) for provider ${providerId}`
       );
 
-      return connection;
+      return { ...metadata, config };
     },
 
     async updateConnection({ connectionId, updates }) {
@@ -229,28 +383,33 @@ export function createConnectionStore(
         throw new Error(`Connection not found: ${connectionId}`);
       }
 
-      const connections = await getProviderConnectionsRaw(providerId);
-      const index = connections.findIndex((c) => c.id === connectionId);
+      const metadata = await getConnectionMetadata(providerId, connectionId);
+      const existingConfig = await getConnectionConfigRaw(
+        providerId,
+        connectionId
+      );
 
-      if (index === -1) {
+      if (!metadata || !existingConfig) {
         throw new Error(`Connection not found: ${connectionId}`);
       }
 
-      const existing = connections[index];
-      const updated: ProviderConnection = {
-        ...existing,
-        name: updates.name ?? existing.name,
-        config: updates.config
-          ? { ...existing.config, ...updates.config }
-          : existing.config,
+      const updatedMetadata = {
+        ...metadata,
+        name: updates.name ?? metadata.name,
         updatedAt: new Date(),
       };
 
-      connections[index] = updated;
-      await setProviderConnections(providerId, connections);
+      const updatedConfig = updates.config
+        ? { ...existingConfig, ...updates.config }
+        : existingConfig;
 
-      logger.info(`Updated connection "${updated.name}" (${connectionId})`);
-      return updated;
+      await setConnectionMetadata(providerId, connectionId, updatedMetadata);
+      await setConnectionConfig(providerId, connectionId, updatedConfig);
+
+      logger.info(
+        `Updated connection "${updatedMetadata.name}" (${connectionId})`
+      );
+      return { ...updatedMetadata, config: updatedConfig };
     },
 
     async deleteConnection(connectionId) {
@@ -262,14 +421,18 @@ export function createConnectionStore(
         return false;
       }
 
-      const connections = await getProviderConnectionsRaw(providerId);
-      const filtered = connections.filter((c) => c.id !== connectionId);
+      // Delete config and metadata
+      await deleteConnectionData(providerId, connectionId);
 
-      if (filtered.length === connections.length) {
+      // Remove from index
+      const connectionIds = await getConnectionIndex(providerId);
+      const filtered = connectionIds.filter((id) => id !== connectionId);
+
+      if (filtered.length === connectionIds.length) {
         return false;
       }
 
-      await setProviderConnections(providerId, filtered);
+      await setConnectionIndex(providerId, filtered);
       connectionProviderCache.delete(connectionId);
 
       logger.info(
@@ -287,11 +450,8 @@ export function createConnectionStore(
       for (const provider of providerRegistry.getProviders()) {
         if (!provider.connectionSchema) continue;
 
-        const connections = await getProviderConnectionsRaw(
-          provider.qualifiedId
-        );
-        const found = connections.find((c) => c.id === connectionId);
-        if (found) {
+        const connectionIds = await getConnectionIndex(provider.qualifiedId);
+        if (connectionIds.includes(connectionId)) {
           connectionProviderCache.set(connectionId, provider.qualifiedId);
           return provider.qualifiedId;
         }

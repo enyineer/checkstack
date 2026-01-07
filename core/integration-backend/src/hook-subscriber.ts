@@ -4,7 +4,7 @@ import type {
 } from "@checkmate-monitor/backend-api";
 import type { IntegrationEventRegistry } from "./event-registry";
 import type { DeliveryCoordinator } from "./delivery-coordinator";
-import type { RegisteredIntegrationEvent } from "@checkmate-monitor/integration-common";
+import type { RegisteredIntegrationEvent } from "./provider-types";
 
 /**
  * Hook subscription function type (matches env.onHook signature)

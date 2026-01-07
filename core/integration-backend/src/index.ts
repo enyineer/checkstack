@@ -13,7 +13,7 @@ import type { PluginMetadata } from "@checkmate-monitor/common";
 import type {
   IntegrationEventDefinition,
   IntegrationProvider,
-} from "@checkmate-monitor/integration-common";
+} from "./provider-types";
 
 import * as schema from "./schema";
 import {
@@ -252,3 +252,18 @@ export default createBackendPlugin({
 // Re-export extension points for consumer plugins
 export { integrationEventExtensionPoint as eventExtensionPoint };
 export { integrationProviderExtensionPoint as providerExtensionPoint };
+
+// Re-export provider types for consumer plugins
+// All backend-only types are defined here (not in integration-common)
+export type {
+  IntegrationEventDefinition,
+  IntegrationDeliveryContext,
+  IntegrationDeliveryResult,
+  TestConnectionResult,
+  ProviderDocumentation,
+  ConnectionOption,
+  GetConnectionOptionsParams,
+  IntegrationProvider,
+  RegisteredIntegrationProvider,
+  RegisteredIntegrationEvent,
+} from "./provider-types";

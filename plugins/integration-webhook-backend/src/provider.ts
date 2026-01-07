@@ -5,8 +5,7 @@ import type {
   IntegrationDeliveryContext,
   IntegrationDeliveryResult,
   TestConnectionResult,
-  VersionedConfig,
-} from "@checkmate-monitor/integration-common";
+} from "@checkmate-monitor/integration-backend";
 
 // =============================================================================
 // Webhook Configuration Schema
@@ -87,7 +86,7 @@ export const webhookProvider: IntegrationProvider<WebhookConfig> = {
   config: new Versioned({
     version: 1,
     schema: webhookConfigSchemaV1,
-  }) as VersionedConfig<WebhookConfig>,
+  }),
 
   documentation: {
     setupGuide: `Your endpoint will receive HTTP POST requests with JSON payloads.

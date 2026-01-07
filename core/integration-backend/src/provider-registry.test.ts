@@ -4,7 +4,7 @@ import {
   createIntegrationProviderRegistry,
   type IntegrationProviderRegistry,
 } from "./provider-registry";
-import type { IntegrationProvider } from "@checkmate-monitor/integration-common";
+import type { IntegrationProvider } from "./provider-types";
 import { Versioned } from "@checkmate-monitor/backend-api";
 
 /**

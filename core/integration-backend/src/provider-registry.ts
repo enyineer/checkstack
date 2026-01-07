@@ -3,7 +3,7 @@ import { toJsonSchema } from "@checkmate-monitor/backend-api";
 import type {
   IntegrationProvider,
   RegisteredIntegrationProvider,
-} from "@checkmate-monitor/integration-common";
+} from "./provider-types";
 
 /**
  * Registry for integration providers.

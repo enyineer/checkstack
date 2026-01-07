@@ -39,22 +39,9 @@ export {
   type ConnectionOptionOutput,
 } from "./schemas";
 
-// Types - TypeScript interfaces for provider implementations
-export type {
-  IntegrationLogger,
-  HookReference,
-  IntegrationEventDefinition,
-  IntegrationDeliveryContext,
-  IntegrationDeliveryResult,
-  TestConnectionResult,
-  VersionedConfig,
-  ProviderDocumentation,
-  ConnectionOption,
-  GetConnectionOptionsParams,
-  IntegrationProvider,
-  RegisteredIntegrationProvider,
-  RegisteredIntegrationEvent,
-} from "./types";
+// NOTE: All backend-only types (IntegrationProvider, IntegrationDeliveryContext, etc.)
+// are defined in @checkmate-monitor/integration-backend/provider-types.
+// Frontend code should only use the Zod schemas above for API contracts.
 
 // Permissions
 export * from "./permissions";
