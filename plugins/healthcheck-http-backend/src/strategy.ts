@@ -5,9 +5,15 @@ import {
   HealthCheckRunForAggregation,
   Versioned,
   z,
-  jsonPathField,
-  evaluateJsonPathAssertions,
+  numericField,
+  timeThresholdField,
+  stringField,
+  evaluateAssertions,
 } from "@checkmate-monitor/backend-api";
+
+// ============================================================================
+// SCHEMAS
+// ============================================================================
 
 /**
  * Header configuration for custom HTTP headers.
@@ -18,11 +24,78 @@ export const httpHeaderSchema = z.object({
 });
 
 /**
- * HTTP health check assertion schema using shared JSONPath field factory.
+ * JSONPath assertion for response body validation.
  * Supports dynamic operators with runtime type coercion.
  */
-export const httpHealthCheckAssertionSchema = jsonPathField();
+const jsonPathAssertionSchema = z.object({
+  field: z.literal("jsonPath"),
+  path: z
+    .string()
+    .describe("JSONPath expression (e.g. $.status, $.data[0].id)"),
+  operator: z.enum([
+    "equals",
+    "notEquals",
+    "contains",
+    "startsWith",
+    "endsWith",
+    "matches",
+    "exists",
+    "notExists",
+    "lessThan",
+    "lessThanOrEqual",
+    "greaterThan",
+    "greaterThanOrEqual",
+  ]),
+  value: z
+    .string()
+    .optional()
+    .describe("Expected value (not needed for exists/notExists)"),
+});
 
+/**
+ * Response header assertion schema.
+ * Check for specific header values in the response.
+ */
+const headerAssertionSchema = z.object({
+  field: z.literal("header"),
+  headerName: z.string().describe("Response header name to check"),
+  operator: z.enum([
+    "equals",
+    "notEquals",
+    "contains",
+    "startsWith",
+    "endsWith",
+    "exists",
+  ]),
+  value: z.string().optional().describe("Expected header value"),
+});
+
+/**
+ * HTTP health check assertion schema using discriminated union.
+ *
+ * Assertions validate the result of a check:
+ * - statusCode: Validate HTTP status code
+ * - responseTime: Validate response latency
+ * - contentType: Validate Content-Type header
+ * - header: Validate any response header
+ * - jsonPath: Validate JSON response body content
+ */
+const httpAssertionSchema = z.discriminatedUnion("field", [
+  numericField("statusCode", { min: 100, max: 599 }),
+  timeThresholdField("responseTime"),
+  stringField("contentType"),
+  headerAssertionSchema,
+  jsonPathAssertionSchema,
+]);
+
+export type HttpAssertion = z.infer<typeof httpAssertionSchema>;
+
+/**
+ * HTTP health check configuration schema.
+ *
+ * Config defines HOW to run the check (connection details, request setup).
+ * Assertions define WHAT to validate in the result.
+ */
 export const httpHealthCheckConfigSchema = z.object({
   url: z.string().url().describe("The full URL of the endpoint to check."),
   method: z
@@ -38,11 +111,6 @@ export const httpHealthCheckConfigSchema = z.object({
     .min(100)
     .default(5000)
     .describe("Maximum time in milliseconds to wait for a response."),
-  expectedStatus: z
-    .number()
-    .int()
-    .default(200)
-    .describe("The HTTP status code that indicates a healthy service."),
   body: z
     .string()
     .optional()
@@ -50,9 +118,9 @@ export const httpHealthCheckConfigSchema = z.object({
       "Optional request payload body (e.g. JSON for POST requests). [textarea]"
     ),
   assertions: z
-    .array(httpHealthCheckAssertionSchema)
+    .array(httpAssertionSchema)
     .optional()
-    .describe("A list of rules to validate the response body content."),
+    .describe("Validation conditions for the response."),
 });
 
 export type HttpHealthCheckConfig = z.infer<typeof httpHealthCheckConfigSchema>;
@@ -61,7 +129,7 @@ export type HttpHealthCheckConfig = z.infer<typeof httpHealthCheckConfigSchema>;
 const httpResultMetadataSchema = z.object({
   statusCode: z.number().optional(),
   contentType: z.string().optional(),
-  assertion: httpHealthCheckAssertionSchema.optional(),
+  failedAssertion: httpAssertionSchema.optional(),
   error: z.string().optional(),
 });
 
@@ -86,16 +154,16 @@ export class HttpHealthCheckStrategy
     >
 {
   id = "http";
-  displayName = "HTTP Health Check";
-  description = "Performs HTTP requests to check endpoint health";
+  displayName = "HTTP/HTTPS Health Check";
+  description = "HTTP endpoint health monitoring with flexible assertions";
 
   config: Versioned<HttpHealthCheckConfig> = new Versioned({
-    version: 1,
+    version: 2, // Bumped for breaking change
     schema: httpHealthCheckConfigSchema,
   });
 
   result: Versioned<HttpResultMetadata> = new Versioned({
-    version: 1,
+    version: 2,
     schema: httpResultMetadataSchema,
   });
 
@@ -111,12 +179,13 @@ export class HttpHealthCheckStrategy
     let errorCount = 0;
 
     for (const run of runs) {
-      if (run.metadata?.statusCode) {
-        const code = String(run.metadata.statusCode);
-        statusCodeCounts[code] = (statusCodeCounts[code] || 0) + 1;
-      }
       if (run.metadata?.error) {
         errorCount++;
+      }
+
+      if (run.metadata?.statusCode !== undefined) {
+        const key = String(run.metadata.statusCode);
+        statusCodeCounts[key] = (statusCodeCounts[key] || 0) + 1;
       }
     }
 
@@ -146,20 +215,98 @@ export class HttpHealthCheckStrategy
         signal: AbortSignal.timeout(validatedConfig.timeout),
       });
       const end = performance.now();
-      const latency = Math.round(end - start);
+      const latencyMs = Math.round(end - start);
 
-      if (response.status !== validatedConfig.expectedStatus) {
+      // Collect response data for assertions
+      const statusCode = response.status;
+      const contentType = response.headers.get("content-type") || "";
+
+      // Collect response headers for header assertions
+      // Note: We get headers directly in the assertion loop, not pre-collected
+
+      // Build values object for standard assertions
+      const assertionValues: Record<string, unknown> = {
+        statusCode,
+        responseTime: latencyMs,
+        contentType,
+      };
+
+      // Separate assertions by type
+      const standardAssertions: Array<{
+        field: string;
+        operator: string;
+        value?: unknown;
+      }> = [];
+      const headerAssertions: Array<z.infer<typeof headerAssertionSchema>> = [];
+      const jsonPathAssertions: Array<z.infer<typeof jsonPathAssertionSchema>> =
+        [];
+
+      for (const assertion of validatedConfig.assertions || []) {
+        if (assertion.field === "header") {
+          headerAssertions.push(
+            assertion as z.infer<typeof headerAssertionSchema>
+          );
+        } else if (assertion.field === "jsonPath") {
+          jsonPathAssertions.push(
+            assertion as z.infer<typeof jsonPathAssertionSchema>
+          );
+        } else {
+          standardAssertions.push(assertion);
+        }
+      }
+
+      // Evaluate standard assertions (statusCode, responseTime, contentType)
+      const failedStandard = evaluateAssertions(
+        standardAssertions,
+        assertionValues
+      );
+      if (failedStandard) {
         return {
           status: "unhealthy",
-          latencyMs: latency,
-          message: `Unexpected status code: ${response.status}. Expected: ${validatedConfig.expectedStatus}`,
-          metadata: { statusCode: response.status },
+          latencyMs,
+          message: `Assertion failed: ${failedStandard.field} ${
+            failedStandard.operator
+          } ${"value" in failedStandard ? failedStandard.value : ""}`,
+          metadata: {
+            statusCode,
+            contentType,
+            failedAssertion: failedStandard as HttpAssertion,
+          },
         };
       }
 
-      if (validatedConfig.assertions && validatedConfig.assertions.length > 0) {
+      // Evaluate header assertions
+      for (const headerAssertion of headerAssertions) {
+        // Get header value directly from the response
+        const headerValue =
+          response.headers.get(headerAssertion.headerName) ?? undefined;
+        const passed = this.evaluateHeaderAssertion(
+          headerAssertion.operator,
+          headerValue,
+          headerAssertion.value
+        );
+
+        if (!passed) {
+          return {
+            status: "unhealthy",
+            latencyMs,
+            message: `Header assertion failed: ${headerAssertion.headerName} ${
+              headerAssertion.operator
+            } ${headerAssertion.value || ""}. Actual: ${
+              headerValue ?? "(missing)"
+            }`,
+            metadata: {
+              statusCode,
+              contentType,
+              failedAssertion: headerAssertion,
+            },
+          };
+        }
+      }
+
+      // Evaluate JSONPath assertions (only if present)
+      if (jsonPathAssertions.length > 0) {
         let responseData: unknown;
-        const contentType = response.headers.get("content-type") || "";
 
         try {
           if (contentType.includes("application/json")) {
@@ -171,59 +318,62 @@ export class HttpHealthCheckStrategy
             } catch {
               return {
                 status: "unhealthy",
-                latencyMs: latency,
+                latencyMs,
                 message:
-                  "Response is not valid JSON, but assertions are configured",
-                metadata: { statusCode: response.status, contentType },
+                  "Response is not valid JSON, but JSONPath assertions are configured",
+                metadata: { statusCode, contentType },
               };
             }
           }
         } catch (error_: unknown) {
           return {
             status: "unhealthy",
-            latencyMs: latency,
+            latencyMs,
             message: `Failed to parse response body: ${
               (error_ as Error).message
             }`,
-            metadata: { statusCode: response.status },
+            metadata: { statusCode },
           };
         }
 
-        // Use shared assertion utility for evaluation
         const extractPath = (path: string, json: unknown) =>
           JSONPath({ path, json: json as object, wrap: false });
 
-        const failedAssertion = evaluateJsonPathAssertions(
-          validatedConfig.assertions,
-          responseData,
-          extractPath
-        );
+        for (const jsonPathAssertion of jsonPathAssertions) {
+          const actualValue = extractPath(jsonPathAssertion.path, responseData);
+          const passed = this.evaluateJsonPathAssertion(
+            jsonPathAssertion.operator,
+            actualValue,
+            jsonPathAssertion.value
+          );
 
-        if (failedAssertion) {
-          const actualValue = extractPath(failedAssertion.path, responseData);
-          return {
-            status: "unhealthy",
-            latencyMs: latency,
-            message: `Assertion failed: [${failedAssertion.path}] ${
-              failedAssertion.operator
-            } ${failedAssertion.value || ""}. Actual: ${actualValue}`,
-            metadata: {
-              statusCode: response.status,
-              assertion: failedAssertion,
-            },
-          };
+          if (!passed) {
+            return {
+              status: "unhealthy",
+              latencyMs,
+              message: `JSONPath assertion failed: [${
+                jsonPathAssertion.path
+              }] ${jsonPathAssertion.operator} ${
+                jsonPathAssertion.value || ""
+              }. Actual: ${JSON.stringify(actualValue)}`,
+              metadata: {
+                statusCode,
+                contentType,
+                failedAssertion: jsonPathAssertion,
+              },
+            };
+          }
         }
       }
 
+      const assertionCount = validatedConfig.assertions?.length || 0;
       return {
         status: "healthy",
-        latencyMs: latency,
-        message: `Respond with ${response.status}${
-          validatedConfig.assertions?.length
-            ? ` and passed ${validatedConfig.assertions.length} assertions`
-            : ""
+        latencyMs,
+        message: `HTTP ${statusCode}${
+          assertionCount > 0 ? ` - passed ${assertionCount} assertion(s)` : ""
         }`,
-        metadata: { statusCode: response.status },
+        metadata: { statusCode, contentType },
       };
     } catch (error: unknown) {
       const end = performance.now();
@@ -234,6 +384,111 @@ export class HttpHealthCheckStrategy
         message: isError ? error.message : "Request failed",
         metadata: { error: isError ? error.name : "UnknownError" },
       };
+    }
+  }
+
+  private evaluateHeaderAssertion(
+    operator: string,
+    actual: string | undefined,
+    expected = ""
+  ): boolean {
+    if (operator === "exists") return actual !== undefined;
+
+    if (actual === undefined) return false;
+
+    switch (operator) {
+      case "equals": {
+        return actual === expected;
+      }
+      case "notEquals": {
+        return actual !== expected;
+      }
+      case "contains": {
+        return actual.includes(expected);
+      }
+      case "startsWith": {
+        return actual.startsWith(expected);
+      }
+      case "endsWith": {
+        return actual.endsWith(expected);
+      }
+      default: {
+        return false;
+      }
+    }
+  }
+
+  private evaluateJsonPathAssertion(
+    operator: string,
+    actual: unknown,
+    expected: string | undefined
+  ): boolean {
+    // Existence checks
+
+    if (operator === "exists") return actual !== undefined && actual !== null;
+
+    if (operator === "notExists")
+      return actual === undefined || actual === null;
+
+    // Numeric operators
+    if (
+      [
+        "lessThan",
+        "lessThanOrEqual",
+        "greaterThan",
+        "greaterThanOrEqual",
+      ].includes(operator)
+    ) {
+      const numActual = Number(actual);
+      const numExpected = Number(expected);
+      if (Number.isNaN(numActual) || Number.isNaN(numExpected)) return false;
+
+      switch (operator) {
+        case "lessThan": {
+          return numActual < numExpected;
+        }
+        case "lessThanOrEqual": {
+          return numActual <= numExpected;
+        }
+        case "greaterThan": {
+          return numActual > numExpected;
+        }
+        case "greaterThanOrEqual": {
+          return numActual >= numExpected;
+        }
+      }
+    }
+
+    // String operators
+    const strActual = String(actual ?? "");
+    const strExpected = expected || "";
+
+    switch (operator) {
+      case "equals": {
+        return actual === expected || strActual === strExpected;
+      }
+      case "notEquals": {
+        return actual !== expected && strActual !== strExpected;
+      }
+      case "contains": {
+        return strActual.includes(strExpected);
+      }
+      case "startsWith": {
+        return strActual.startsWith(strExpected);
+      }
+      case "endsWith": {
+        return strActual.endsWith(strExpected);
+      }
+      case "matches": {
+        try {
+          return new RegExp(strExpected).test(strActual);
+        } catch {
+          return false;
+        }
+      }
+      default: {
+        return false;
+      }
     }
   }
 }
