@@ -1,0 +1,5 @@
+# Test configuration for core/backend
+[test]
+# Preload mocks before any test file runs - this ensures mock.module() 
+# is called before the module is first imported anywhere
+preload = ["./src/test-preload.ts"]

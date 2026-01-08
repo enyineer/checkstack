@@ -1,15 +1,5 @@
+import { describe, it, expect, mock, beforeEach, spyOn } from "bun:test";
 import {
-  describe,
-  it,
-  expect,
-  mock,
-  beforeAll,
-  beforeEach,
-  spyOn,
-} from "bun:test";
-import {
-  createMockDbModule,
-  createMockLoggerModule,
   createMockEventBus,
   createMockPluginInstaller,
   createMockQueueManager,
@@ -18,25 +8,17 @@ import {
 } from "@checkmate-monitor/test-utils-backend";
 import { coreServices, coreHooks } from "@checkmate-monitor/backend-api";
 
-// Mock DB and logger BEFORE importing PluginManager
-mock.module("./db", () => createMockDbModule());
-mock.module("./logger", () => createMockLoggerModule());
+// Note: ./db and ./logger are mocked via test-preload.ts (bunfig.toml preload)
+// This ensures mocks are in place BEFORE any module imports them
 
-// Use dynamic import to ensure mocks are applied first
-// Static imports are hoisted above mock.module() calls, causing TDZ errors in CI
-let PluginManager: typeof import("./plugin-manager").PluginManager;
-
-beforeAll(async () => {
-  const mod = await import("./plugin-manager");
-  PluginManager = mod.PluginManager;
-});
+import { PluginManager } from "./plugin-manager";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("Plugin Lifecycle", () => {
-  let pluginManager: InstanceType<typeof PluginManager>;
+  let pluginManager: PluginManager;
   let mockEventBus: MockEventBus;
   let mockInstaller: MockPluginInstaller;
 
