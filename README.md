@@ -271,7 +271,9 @@ Checkmate is built from the ground up as a **modular plugin system**:
 
 ## 📦 Deployment
 
-### Docker (Recommended)
+### Docker
+
+The easiest way to run Checkmate — works for both **production deployment** and **local testing**.
 
 **👉 [Full Docker Getting Started Guide](./docs/getting-started/docker.md)**
 
@@ -307,14 +309,16 @@ All `@checkmate-monitor/*` packages are published to npm for plugin developers.
 bun add @checkmate-monitor/backend-api @checkmate-monitor/common
 ```
 
-## 🏃 Quick Start
+## 🏃 Development Setup
+
+> For **contributors** and **plugin developers**. For just running Checkmate, use [Docker](#docker) instead.
 
 ### Prerequisites
 
 - [Bun](https://bun.sh) installed
 - [Docker Desktop](https://www.docker.com/products/docker-desktop) running
 
-### Run Locally
+### Run the Development Environment
 
 ```bash
 # Clone the repository
