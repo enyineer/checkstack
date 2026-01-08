@@ -91,10 +91,15 @@ export class PluginManager {
     return new Map(this.pluginContractRegistry);
   }
 
-  async loadPlugins(rootRouter: Hono, manualPlugins: BackendPlugin[] = []) {
+  async loadPlugins(
+    rootRouter: Hono,
+    manualPlugins: BackendPlugin[] = [],
+    options: { skipDiscovery?: boolean } = {}
+  ) {
     await loadPluginsImpl({
       rootRouter,
       manualPlugins,
+      skipDiscovery: options.skipDiscovery,
       deps: {
         registry: this.registry,
         pluginRpcRouters: this.pluginRpcRouters,

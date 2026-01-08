@@ -161,43 +161,54 @@ export function registerPlugin({
 export async function loadPlugins({
   rootRouter,
   manualPlugins = [],
+  skipDiscovery = false,
   deps,
 }: {
   rootRouter: Hono;
   manualPlugins?: BackendPlugin[];
+  /** When true, skip filesystem plugin discovery (for testing) */
+  skipDiscovery?: boolean;
   deps: PluginLoaderDeps;
 }) {
-  rootLogger.info("🔍 Discovering plugins...");
-
-  // 1. Discover local BACKEND plugins from monorepo using package.json metadata
-  const workspaceRoot = path.join(__dirname, "..", "..", "..", "..");
-  const localPlugins = discoverLocalPlugins({
-    workspaceRoot,
-    type: "backend",
-  });
-
-  rootLogger.debug(
-    `   -> Found ${localPlugins.length} local backend plugin(s) in workspace`
-  );
-  rootLogger.debug("   -> Discovered plugins:");
-  for (const p of localPlugins) {
-    rootLogger.debug(`      • ${p.packageName}`);
+  if (skipDiscovery) {
+    rootLogger.debug("⏭️  Plugin discovery skipped (test mode)");
+  } else {
+    rootLogger.info("🔍 Discovering plugins...");
   }
 
-  // 2. Sync local plugins to database
-  await syncPluginsToDatabase({ localPlugins, db: deps.db });
+  // 1. Discover local BACKEND plugins from monorepo using package.json metadata
+  let allPlugins: Array<{ name: string; path: string }> = [];
 
-  // 3. Load all enabled BACKEND plugins from database
-  const allPlugins = await deps.db
-    .select()
-    .from(plugins)
-    .where(and(eq(plugins.enabled, true), eq(plugins.type, "backend")));
+  if (!skipDiscovery) {
+    const workspaceRoot = path.join(__dirname, "..", "..", "..", "..");
+    const localPlugins = discoverLocalPlugins({
+      workspaceRoot,
+      type: "backend",
+    });
 
-  rootLogger.debug(
-    `   -> ${allPlugins.length} enabled backend plugins in database:`
-  );
-  for (const p of allPlugins) {
-    rootLogger.debug(`      • ${p.name}`);
+    rootLogger.debug(
+      `   -> Found ${localPlugins.length} local backend plugin(s) in workspace`
+    );
+    rootLogger.debug("   -> Discovered plugins:");
+    for (const p of localPlugins) {
+      rootLogger.debug(`      • ${p.packageName}`);
+    }
+
+    // 2. Sync local plugins to database
+    await syncPluginsToDatabase({ localPlugins, db: deps.db });
+
+    // 3. Load all enabled BACKEND plugins from database
+    allPlugins = await deps.db
+      .select()
+      .from(plugins)
+      .where(and(eq(plugins.enabled, true), eq(plugins.type, "backend")));
+
+    rootLogger.debug(
+      `   -> ${allPlugins.length} enabled backend plugins in database:`
+    );
+    for (const p of allPlugins) {
+      rootLogger.debug(`      • ${p.name}`);
+    }
   }
 
   if (allPlugins.length === 0 && manualPlugins.length === 0) {

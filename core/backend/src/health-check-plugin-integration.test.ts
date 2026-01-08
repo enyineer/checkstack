@@ -5,6 +5,7 @@ import {
   HealthCheckStrategy,
   Versioned,
 } from "@checkmate-monitor/backend-api";
+import { createMockQueueManager } from "@checkmate-monitor/test-utils-backend";
 import { z } from "zod";
 
 // Note: ./db and ./logger are mocked via test-preload.ts (bunfig.toml preload)
@@ -62,17 +63,15 @@ describe("HealthCheck Plugin Integration", () => {
     });
 
     // Register mock queueManager since EventBus depends on it
-    pluginManager.registerService(coreServices.queueManager, {
-      getQueue: mock(),
-      getActivePlugin: () => "mock",
-      setActiveBackend: mock(),
-      getQueueStatus: mock(),
-      startPolling: mock(),
-      stopPolling: mock(),
-    } as never);
+    pluginManager.registerService(
+      coreServices.queueManager,
+      createMockQueueManager()
+    );
 
     // 4. Load plugins using the PluginManager with manual injection
-    await pluginManager.loadPlugins(mockRouter, [testPlugin]);
+    await pluginManager.loadPlugins(mockRouter, [testPlugin], {
+      skipDiscovery: true,
+    });
 
     // 5. Verify the strategy is registered in the registry managed by PluginManager
     const registry = await pluginManager.getService(

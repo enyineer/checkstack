@@ -451,8 +451,10 @@ describe("PluginManager", () => {
         createMockQueueManager()
       );
 
-      // Use manual plugin injection to avoid filesystem mocking issues
-      await pluginManager.loadPlugins(mockRouter, [testPlugin]);
+      // Use manual plugin injection with skipDiscovery to avoid loading real plugins
+      await pluginManager.loadPlugins(mockRouter, [testPlugin], {
+        skipDiscovery: true,
+      });
 
       expect(testBackendInit).toHaveBeenCalled();
     });
