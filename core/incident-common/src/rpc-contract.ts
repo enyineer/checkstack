@@ -57,7 +57,7 @@ export const incidentContract = {
   /** Create a new incident */
   createIncident: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.incidentManage.id],
     })
     .input(CreateIncidentInputSchema)
@@ -66,7 +66,7 @@ export const incidentContract = {
   /** Update an existing incident */
   updateIncident: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.incidentManage.id],
     })
     .input(UpdateIncidentInputSchema)
@@ -75,7 +75,7 @@ export const incidentContract = {
   /** Add a status update to an incident */
   addUpdate: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.incidentManage.id],
     })
     .input(AddIncidentUpdateInputSchema)
@@ -84,7 +84,7 @@ export const incidentContract = {
   /** Resolve an incident (sets status to resolved) */
   resolveIncident: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.incidentManage.id],
     })
     .input(z.object({ id: z.string(), message: z.string().optional() }))
@@ -93,7 +93,7 @@ export const incidentContract = {
   /** Delete an incident */
   deleteIncident: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.incidentManage.id],
     })
     .input(z.object({ id: z.string() }))

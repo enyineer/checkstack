@@ -35,7 +35,7 @@ export const integrationContract = {
   /** List all webhook subscriptions */
   listSubscriptions: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(
@@ -57,7 +57,7 @@ export const integrationContract = {
   /** Get a single subscription by ID */
   getSubscription: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(z.object({ id: z.string() }))
@@ -66,7 +66,7 @@ export const integrationContract = {
   /** Create a new webhook subscription */
   createSubscription: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(CreateSubscriptionInputSchema)
@@ -75,7 +75,7 @@ export const integrationContract = {
   /** Update an existing subscription */
   updateSubscription: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(UpdateSubscriptionInputSchema)
@@ -84,7 +84,7 @@ export const integrationContract = {
   /** Delete a subscription */
   deleteSubscription: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(z.object({ id: z.string() }))
@@ -93,7 +93,7 @@ export const integrationContract = {
   /** Toggle subscription enabled state */
   toggleSubscription: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(z.object({ id: z.string(), enabled: z.boolean() }))
@@ -106,7 +106,7 @@ export const integrationContract = {
   /** List all registered integration providers */
   listProviders: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .output(z.array(IntegrationProviderInfoSchema)),
@@ -114,7 +114,7 @@ export const integrationContract = {
   /** Test a provider connection with given config */
   testProviderConnection: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(
@@ -133,7 +133,7 @@ export const integrationContract = {
   /** List all connections for a provider */
   listConnections: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(z.object({ providerId: z.string() }))
@@ -142,7 +142,7 @@ export const integrationContract = {
   /** Get a single connection (redacted) */
   getConnection: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(z.object({ connectionId: z.string() }))
@@ -151,7 +151,7 @@ export const integrationContract = {
   /** Create a new provider connection */
   createConnection: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(CreateConnectionInputSchema)
@@ -160,7 +160,7 @@ export const integrationContract = {
   /** Update a provider connection */
   updateConnection: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(UpdateConnectionInputSchema)
@@ -169,7 +169,7 @@ export const integrationContract = {
   /** Delete a provider connection */
   deleteConnection: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(z.object({ connectionId: z.string() }))
@@ -178,7 +178,7 @@ export const integrationContract = {
   /** Test a saved connection */
   testConnection: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(z.object({ connectionId: z.string() }))
@@ -187,7 +187,7 @@ export const integrationContract = {
   /** Get dynamic options for cascading dropdowns */
   getConnectionOptions: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(GetConnectionOptionsInputSchema)
@@ -200,7 +200,7 @@ export const integrationContract = {
   /** List all registered integration events */
   listEventTypes: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .output(z.array(IntegrationEventInfoSchema)),
@@ -208,7 +208,7 @@ export const integrationContract = {
   /** Get events grouped by category */
   getEventsByCategory: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .output(
@@ -223,7 +223,7 @@ export const integrationContract = {
   /** Get payload schema for a specific event with flattened property list for template hints */
   getEventPayloadSchema: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(z.object({ eventId: z.string() }))
@@ -236,7 +236,7 @@ export const integrationContract = {
   /** Get delivery logs with filtering */
   getDeliveryLogs: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(DeliveryLogQueryInputSchema)
@@ -250,7 +250,7 @@ export const integrationContract = {
   /** Get a single delivery log entry */
   getDeliveryLog: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(z.object({ id: z.string() }))
@@ -259,7 +259,7 @@ export const integrationContract = {
   /** Retry a failed delivery */
   retryDelivery: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(z.object({ logId: z.string() }))
@@ -268,7 +268,7 @@ export const integrationContract = {
   /** Get delivery statistics for dashboard */
   getDeliveryStats: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.integrationManage.id],
     })
     .input(

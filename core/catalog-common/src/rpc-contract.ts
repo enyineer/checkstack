@@ -77,49 +77,70 @@ export const catalogContract = {
     .output(z.array(GroupSchema)),
 
   // ==========================================================================
-  // SYSTEM MANAGEMENT (userType: "user" with manage permission)
+  // SYSTEM MANAGEMENT (userType: "authenticated" with manage permission)
   // ==========================================================================
 
   createSystem: _base
-    .meta({ userType: "user", permissions: [permissions.catalogManage.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.catalogManage.id],
+    })
     .input(CreateSystemInputSchema)
     .output(SystemSchema),
 
   updateSystem: _base
-    .meta({ userType: "user", permissions: [permissions.catalogManage.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.catalogManage.id],
+    })
     .input(UpdateSystemInputSchema)
     .output(SystemSchema),
 
   deleteSystem: _base
-    .meta({ userType: "user", permissions: [permissions.catalogManage.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.catalogManage.id],
+    })
     .input(z.string())
     .output(z.object({ success: z.boolean() })),
 
   // ==========================================================================
-  // GROUP MANAGEMENT (userType: "user" with manage permission)
+  // GROUP MANAGEMENT (userType: "authenticated" with manage permission)
   // ==========================================================================
 
   createGroup: _base
-    .meta({ userType: "user", permissions: [permissions.catalogManage.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.catalogManage.id],
+    })
     .input(CreateGroupInputSchema)
     .output(GroupSchema),
 
   updateGroup: _base
-    .meta({ userType: "user", permissions: [permissions.catalogManage.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.catalogManage.id],
+    })
     .input(UpdateGroupInputSchema)
     .output(GroupSchema),
 
   deleteGroup: _base
-    .meta({ userType: "user", permissions: [permissions.catalogManage.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.catalogManage.id],
+    })
     .input(z.string())
     .output(z.object({ success: z.boolean() })),
 
   // ==========================================================================
-  // SYSTEM-GROUP RELATIONSHIPS (userType: "user" with manage permission)
+  // SYSTEM-GROUP RELATIONSHIPS (userType: "authenticated" with manage permission)
   // ==========================================================================
 
   addSystemToGroup: _base
-    .meta({ userType: "user", permissions: [permissions.catalogManage.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.catalogManage.id],
+    })
     .input(
       z.object({
         groupId: z.string(),
@@ -129,7 +150,10 @@ export const catalogContract = {
     .output(z.object({ success: z.boolean() })),
 
   removeSystemFromGroup: _base
-    .meta({ userType: "user", permissions: [permissions.catalogManage.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.catalogManage.id],
+    })
     .input(
       z.object({
         groupId: z.string(),

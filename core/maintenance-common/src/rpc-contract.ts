@@ -56,7 +56,7 @@ export const maintenanceContract = {
   /** Create a new maintenance */
   createMaintenance: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.maintenanceManage.id],
     })
     .input(CreateMaintenanceInputSchema)
@@ -65,7 +65,7 @@ export const maintenanceContract = {
   /** Update an existing maintenance */
   updateMaintenance: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.maintenanceManage.id],
     })
     .input(UpdateMaintenanceInputSchema)
@@ -74,7 +74,7 @@ export const maintenanceContract = {
   /** Add a status update to a maintenance */
   addUpdate: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.maintenanceManage.id],
     })
     .input(AddMaintenanceUpdateInputSchema)
@@ -83,7 +83,7 @@ export const maintenanceContract = {
   /** Close a maintenance early (sets status to completed) */
   closeMaintenance: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.maintenanceManage.id],
     })
     .input(z.object({ id: z.string(), message: z.string().optional() }))
@@ -92,7 +92,7 @@ export const maintenanceContract = {
   /** Delete a maintenance */
   deleteMaintenance: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.maintenanceManage.id],
     })
     .input(z.object({ id: z.string() }))

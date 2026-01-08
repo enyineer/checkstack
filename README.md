@@ -211,6 +211,31 @@ Event-driven architecture means you can react to health changes, incidents, and 
 
 ---
 
+### API & Automation
+> *Integrate programmatically with your infrastructure*
+
+Checkmate exposes a comprehensive REST API that enables external systems to interact with the platform programmatically via **API keys** (service accounts):
+
+| Use Case | Description |
+|----------|-------------|
+| 🚨 **Monitoring Alerts** | Prometheus, Grafana, or PagerDuty can create/resolve incidents automatically |
+| 🚀 **CI/CD Pipelines** | Schedule maintenance windows during deployments |
+| 🏗️ **Infrastructure as Code** | Terraform, Pulumi, or Ansible can manage systems and groups |
+| ⚙️ **Deployment Scripts** | Configure health checks as part of service provisioning |
+| 🔗 **Custom Integrations** | Any external tool can interact via authenticated API calls |
+
+**Example: Create an incident from an external alerting system**
+```bash
+curl -X POST https://checkmate.local/api/incident/createIncident \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ck_<appId>_<secret>" \
+  -d '{"title": "High CPU Alert", "status": "investigating", "systemIds": ["..."]}'
+```
+
+API keys are managed via **Settings → External Applications** with full RBAC permission control.
+
+---
+
 ### Flexible Authentication
 > *Secure access for every team*
 

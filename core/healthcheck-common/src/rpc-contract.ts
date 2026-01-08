@@ -43,28 +43,40 @@ const SystemHealthStatusResponseSchema = z.object({
 // Health Check RPC Contract using oRPC's contract-first pattern
 export const healthCheckContract = {
   // ==========================================================================
-  // STRATEGY MANAGEMENT (userType: "user" with read permission)
+  // STRATEGY MANAGEMENT (userType: "authenticated" with read permission)
   // ==========================================================================
 
   getStrategies: _base
-    .meta({ userType: "user", permissions: [permissions.healthCheckRead.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.healthCheckRead.id],
+    })
     .output(z.array(HealthCheckStrategyDtoSchema)),
 
   // ==========================================================================
-  // CONFIGURATION MANAGEMENT (userType: "user")
+  // CONFIGURATION MANAGEMENT (userType: "authenticated")
   // ==========================================================================
 
   getConfigurations: _base
-    .meta({ userType: "user", permissions: [permissions.healthCheckRead.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.healthCheckRead.id],
+    })
     .output(z.array(HealthCheckConfigurationSchema)),
 
   createConfiguration: _base
-    .meta({ userType: "user", permissions: [permissions.healthCheckManage.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.healthCheckManage.id],
+    })
     .input(CreateHealthCheckConfigurationSchema)
     .output(HealthCheckConfigurationSchema),
 
   updateConfiguration: _base
-    .meta({ userType: "user", permissions: [permissions.healthCheckManage.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.healthCheckManage.id],
+    })
     .input(
       z.object({
         id: z.string(),
@@ -74,16 +86,22 @@ export const healthCheckContract = {
     .output(HealthCheckConfigurationSchema),
 
   deleteConfiguration: _base
-    .meta({ userType: "user", permissions: [permissions.healthCheckManage.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.healthCheckManage.id],
+    })
     .input(z.string())
     .output(z.void()),
 
   // ==========================================================================
-  // SYSTEM ASSOCIATION (userType: "user")
+  // SYSTEM ASSOCIATION (userType: "authenticated")
   // ==========================================================================
 
   getSystemConfigurations: _base
-    .meta({ userType: "user", permissions: [permissions.healthCheckRead.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.healthCheckRead.id],
+    })
     .input(z.string())
     .output(z.array(HealthCheckConfigurationSchema)),
 
@@ -92,7 +110,10 @@ export const healthCheckContract = {
    * Returns full association data including enabled state and thresholds.
    */
   getSystemAssociations: _base
-    .meta({ userType: "user", permissions: [permissions.healthCheckRead.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.healthCheckRead.id],
+    })
     .input(z.object({ systemId: z.string() }))
     .output(
       z.array(
@@ -106,7 +127,10 @@ export const healthCheckContract = {
     ),
 
   associateSystem: _base
-    .meta({ userType: "user", permissions: [permissions.healthCheckManage.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.healthCheckManage.id],
+    })
     .input(
       z.object({
         systemId: z.string(),
@@ -116,7 +140,10 @@ export const healthCheckContract = {
     .output(z.void()),
 
   disassociateSystem: _base
-    .meta({ userType: "user", permissions: [permissions.healthCheckManage.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.healthCheckManage.id],
+    })
     .input(
       z.object({
         systemId: z.string(),
@@ -126,11 +153,14 @@ export const healthCheckContract = {
     .output(z.void()),
 
   // ==========================================================================
-  // RETENTION CONFIGURATION (userType: "user" with manage permission)
+  // RETENTION CONFIGURATION (userType: "authenticated" with manage permission)
   // ==========================================================================
 
   getRetentionConfig: _base
-    .meta({ userType: "user", permissions: [permissions.healthCheckRead.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.healthCheckRead.id],
+    })
     .input(
       z.object({
         systemId: z.string(),
@@ -144,7 +174,10 @@ export const healthCheckContract = {
     ),
 
   updateRetentionConfig: _base
-    .meta({ userType: "user", permissions: [permissions.healthCheckManage.id] })
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.healthCheckManage.id],
+    })
     .input(
       z.object({
         systemId: z.string(),
@@ -186,7 +219,7 @@ export const healthCheckContract = {
    */
   getDetailedHistory: _base
     .meta({
-      userType: "user",
+      userType: "authenticated",
       permissions: [permissions.healthCheckDetailsRead.id],
     })
     .input(
