@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@checkmate-monitor/backend-api": "workspace:*",
+    "@checkmate-monitor/healthcheck-common": "workspace:*",
     "jsonpath-plus": "^10.3.0",
     "@checkmate-monitor/common": "workspace:*"
   },

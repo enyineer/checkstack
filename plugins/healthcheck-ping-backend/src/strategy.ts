@@ -8,6 +8,10 @@ import {
   timeThresholdField,
   evaluateAssertions,
 } from "@checkmate-monitor/backend-api";
+import {
+  healthResultNumber,
+  healthResultString,
+} from "@checkmate-monitor/healthcheck-common";
 
 // ============================================================================
 // SCHEMAS
@@ -54,39 +58,39 @@ export type PingConfig = z.infer<typeof pingConfigSchema>;
  * Per-run result metadata.
  */
 const pingResultSchema = z.object({
-  packetsSent: z.number().meta({
+  packetsSent: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Packets Sent",
   }),
-  packetsReceived: z.number().meta({
+  packetsReceived: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Packets Received",
   }),
-  packetLoss: z.number().meta({
+  packetLoss: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Packet Loss",
     "x-chart-unit": "%",
   }),
-  minLatency: z.number().optional().meta({
+  minLatency: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Min Latency",
     "x-chart-unit": "ms",
-  }),
-  avgLatency: z.number().optional().meta({
+  }).optional(),
+  avgLatency: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Latency",
     "x-chart-unit": "ms",
-  }),
-  maxLatency: z.number().optional().meta({
+  }).optional(),
+  maxLatency: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Max Latency",
     "x-chart-unit": "ms",
-  }),
+  }).optional(),
   failedAssertion: pingAssertionSchema.optional(),
-  error: z.string().optional().meta({
+  error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
-  }),
+  }).optional(),
 });
 
 export type PingResult = z.infer<typeof pingResultSchema>;
@@ -95,22 +99,22 @@ export type PingResult = z.infer<typeof pingResultSchema>;
  * Aggregated metadata for buckets.
  */
 const pingAggregatedSchema = z.object({
-  avgPacketLoss: z.number().meta({
+  avgPacketLoss: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Avg Packet Loss",
     "x-chart-unit": "%",
   }),
-  avgLatency: z.number().meta({
+  avgLatency: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Latency",
     "x-chart-unit": "ms",
   }),
-  maxLatency: z.number().meta({
+  maxLatency: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Max Latency",
     "x-chart-unit": "ms",
   }),
-  errorCount: z.number().meta({
+  errorCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),

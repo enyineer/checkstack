@@ -8,11 +8,16 @@ import {
   timeThresholdField,
   booleanField,
   enumField,
-  evaluateAssertions,
   configString,
   configNumber,
   configBoolean,
+  evaluateAssertions,
 } from "@checkmate-monitor/backend-api";
+import {
+  healthResultBoolean,
+  healthResultNumber,
+  healthResultString,
+} from "@checkmate-monitor/healthcheck-common";
 
 // ============================================================================
 // SCHEMAS
@@ -69,37 +74,37 @@ export type RedisConfigInput = z.input<typeof redisConfigSchema>;
  * Per-run result metadata.
  */
 const redisResultSchema = z.object({
-  connected: z.boolean().meta({
+  connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
   }),
-  connectionTimeMs: z.number().meta({
+  connectionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Connection Time",
     "x-chart-unit": "ms",
   }),
-  pingTimeMs: z.number().optional().meta({
+  pingTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Ping Time",
     "x-chart-unit": "ms",
-  }),
-  pingSuccess: z.boolean().meta({
+  }).optional(),
+  pingSuccess: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Ping Success",
   }),
-  role: z.string().optional().meta({
+  role: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Role",
-  }),
-  redisVersion: z.string().optional().meta({
+  }).optional(),
+  redisVersion: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Redis Version",
-  }),
+  }).optional(),
   failedAssertion: redisAssertionSchema.optional(),
-  error: z.string().optional().meta({
+  error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
-  }),
+  }).optional(),
 });
 
 export type RedisResult = z.infer<typeof redisResultSchema>;
@@ -108,22 +113,22 @@ export type RedisResult = z.infer<typeof redisResultSchema>;
  * Aggregated metadata for buckets.
  */
 const redisAggregatedSchema = z.object({
-  avgConnectionTime: z.number().meta({
+  avgConnectionTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Connection Time",
     "x-chart-unit": "ms",
   }),
-  avgPingTime: z.number().meta({
+  avgPingTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Ping Time",
     "x-chart-unit": "ms",
   }),
-  successRate: z.number().meta({
+  successRate: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-  errorCount: z.number().meta({
+  errorCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),

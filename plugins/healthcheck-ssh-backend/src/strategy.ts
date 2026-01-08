@@ -13,6 +13,11 @@ import {
   configString,
   configNumber,
 } from "@checkmate-monitor/backend-api";
+import {
+  healthResultBoolean,
+  healthResultNumber,
+  healthResultString,
+} from "@checkmate-monitor/healthcheck-common";
 
 // ============================================================================
 // SCHEMAS
@@ -67,41 +72,41 @@ export type SshConfigInput = z.input<typeof sshConfigSchema>;
  * Per-run result metadata.
  */
 const sshResultSchema = z.object({
-  connected: z.boolean().meta({
+  connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
   }),
-  connectionTimeMs: z.number().meta({
+  connectionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Connection Time",
     "x-chart-unit": "ms",
   }),
-  commandTimeMs: z.number().optional().meta({
+  commandTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Command Time",
     "x-chart-unit": "ms",
-  }),
-  exitCode: z.number().optional().meta({
+  }).optional(),
+  exitCode: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Exit Code",
-  }),
-  stdout: z.string().optional().meta({
+  }).optional(),
+  stdout: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Stdout",
-  }),
-  stderr: z.string().optional().meta({
+  }).optional(),
+  stderr: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Stderr",
-  }),
-  commandSuccess: z.boolean().meta({
+  }).optional(),
+  commandSuccess: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Command Success",
   }),
   failedAssertion: sshAssertionSchema.optional(),
-  error: z.string().optional().meta({
+  error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
-  }),
+  }).optional(),
 });
 
 export type SshResult = z.infer<typeof sshResultSchema>;
@@ -110,22 +115,22 @@ export type SshResult = z.infer<typeof sshResultSchema>;
  * Aggregated metadata for buckets.
  */
 const sshAggregatedSchema = z.object({
-  avgConnectionTime: z.number().meta({
+  avgConnectionTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Connection Time",
     "x-chart-unit": "ms",
   }),
-  avgCommandTime: z.number().meta({
+  avgCommandTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Command Time",
     "x-chart-unit": "ms",
   }),
-  successRate: z.number().meta({
+  successRate: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-  errorCount: z.number().meta({
+  errorCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),

@@ -12,6 +12,11 @@ import {
   configString,
   configNumber,
 } from "@checkmate-monitor/backend-api";
+import {
+  healthResultBoolean,
+  healthResultNumber,
+  healthResultString,
+} from "@checkmate-monitor/healthcheck-common";
 
 // ============================================================================
 // SCHEMAS
@@ -65,33 +70,33 @@ export type MysqlConfigInput = z.input<typeof mysqlConfigSchema>;
  * Per-run result metadata.
  */
 const mysqlResultSchema = z.object({
-  connected: z.boolean().meta({
+  connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
   }),
-  connectionTimeMs: z.number().meta({
+  connectionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Connection Time",
     "x-chart-unit": "ms",
   }),
-  queryTimeMs: z.number().optional().meta({
+  queryTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Query Time",
     "x-chart-unit": "ms",
-  }),
-  rowCount: z.number().optional().meta({
+  }).optional(),
+  rowCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Row Count",
-  }),
-  querySuccess: z.boolean().meta({
+  }).optional(),
+  querySuccess: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Query Success",
   }),
   failedAssertion: mysqlAssertionSchema.optional(),
-  error: z.string().optional().meta({
+  error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
-  }),
+  }).optional(),
 });
 
 export type MysqlResult = z.infer<typeof mysqlResultSchema>;
@@ -100,22 +105,22 @@ export type MysqlResult = z.infer<typeof mysqlResultSchema>;
  * Aggregated metadata for buckets.
  */
 const mysqlAggregatedSchema = z.object({
-  avgConnectionTime: z.number().meta({
+  avgConnectionTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Connection Time",
     "x-chart-unit": "ms",
   }),
-  avgQueryTime: z.number().meta({
+  avgQueryTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Query Time",
     "x-chart-unit": "ms",
   }),
-  successRate: z.number().meta({
+  successRate: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-  errorCount: z.number().meta({
+  errorCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),

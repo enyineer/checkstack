@@ -11,6 +11,7 @@
   "dependencies": {
     "@checkmate-monitor/backend-api": "workspace:*",
     "@checkmate-monitor/common": "workspace:*",
+    "@checkmate-monitor/healthcheck-common": "workspace:*",
     "@grpc/grpc-js": "^1.9.0"
   },
   "devDependencies": {

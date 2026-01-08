@@ -13,6 +13,11 @@ import {
   configNumber,
   configBoolean,
 } from "@checkmate-monitor/backend-api";
+import {
+  healthResultBoolean,
+  healthResultNumber,
+  healthResultString,
+} from "@checkmate-monitor/healthcheck-common";
 
 // ============================================================================
 // SCHEMAS
@@ -67,37 +72,37 @@ export type PostgresConfigInput = z.input<typeof postgresConfigSchema>;
  * Per-run result metadata.
  */
 const postgresResultSchema = z.object({
-  connected: z.boolean().meta({
+  connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
   }),
-  connectionTimeMs: z.number().meta({
+  connectionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Connection Time",
     "x-chart-unit": "ms",
   }),
-  queryTimeMs: z.number().optional().meta({
+  queryTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Query Time",
     "x-chart-unit": "ms",
-  }),
-  rowCount: z.number().optional().meta({
+  }).optional(),
+  rowCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Row Count",
-  }),
-  serverVersion: z.string().optional().meta({
+  }).optional(),
+  serverVersion: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Server Version",
-  }),
-  querySuccess: z.boolean().meta({
+  }).optional(),
+  querySuccess: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Query Success",
   }),
   failedAssertion: postgresAssertionSchema.optional(),
-  error: z.string().optional().meta({
+  error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
-  }),
+  }).optional(),
 });
 
 export type PostgresResult = z.infer<typeof postgresResultSchema>;
@@ -106,22 +111,22 @@ export type PostgresResult = z.infer<typeof postgresResultSchema>;
  * Aggregated metadata for buckets.
  */
 const postgresAggregatedSchema = z.object({
-  avgConnectionTime: z.number().meta({
+  avgConnectionTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Connection Time",
     "x-chart-unit": "ms",
   }),
-  avgQueryTime: z.number().meta({
+  avgQueryTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Query Time",
     "x-chart-unit": "ms",
   }),
-  successRate: z.number().meta({
+  successRate: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-  errorCount: z.number().meta({
+  errorCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),

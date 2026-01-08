@@ -11,6 +11,11 @@ import {
   stringField,
   evaluateAssertions,
 } from "@checkmate-monitor/backend-api";
+import {
+  healthResultBoolean,
+  healthResultNumber,
+  healthResultString,
+} from "@checkmate-monitor/healthcheck-common";
 
 // ============================================================================
 // SCHEMAS
@@ -60,40 +65,40 @@ export type ScriptConfigInput = z.input<typeof scriptConfigSchema>;
  * Per-run result metadata.
  */
 const scriptResultSchema = z.object({
-  executed: z.boolean().meta({
+  executed: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Executed",
   }),
-  executionTimeMs: z.number().meta({
+  executionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Execution Time",
     "x-chart-unit": "ms",
   }),
-  exitCode: z.number().optional().meta({
+  exitCode: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Exit Code",
-  }),
-  stdout: z.string().optional().meta({
+  }).optional(),
+  stdout: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Stdout",
-  }),
-  stderr: z.string().optional().meta({
+  }).optional(),
+  stderr: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Stderr",
-  }),
-  success: z.boolean().meta({
+  }).optional(),
+  success: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Success",
   }),
-  timedOut: z.boolean().meta({
+  timedOut: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Timed Out",
   }),
   failedAssertion: scriptAssertionSchema.optional(),
-  error: z.string().optional().meta({
+  error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
-  }),
+  }).optional(),
 });
 
 export type ScriptResult = z.infer<typeof scriptResultSchema>;
@@ -102,21 +107,21 @@ export type ScriptResult = z.infer<typeof scriptResultSchema>;
  * Aggregated metadata for buckets.
  */
 const scriptAggregatedSchema = z.object({
-  avgExecutionTime: z.number().meta({
+  avgExecutionTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Execution Time",
     "x-chart-unit": "ms",
   }),
-  successRate: z.number().meta({
+  successRate: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-  errorCount: z.number().meta({
+  errorCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),
-  timeoutCount: z.number().meta({
+  timeoutCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Timeouts",
   }),

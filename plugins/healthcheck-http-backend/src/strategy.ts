@@ -10,6 +10,10 @@ import {
   stringField,
   evaluateAssertions,
 } from "@checkmate-monitor/backend-api";
+import {
+  healthResultNumber,
+  healthResultString,
+} from "@checkmate-monitor/healthcheck-common";
 
 // ============================================================================
 // SCHEMAS
@@ -127,19 +131,19 @@ export type HttpHealthCheckConfig = z.infer<typeof httpHealthCheckConfigSchema>;
 
 /** Per-run result metadata */
 const httpResultMetadataSchema = z.object({
-  statusCode: z.number().optional().meta({
+  statusCode: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Status Code",
-  }),
-  contentType: z.string().optional().meta({
+  }).optional(),
+  contentType: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Content Type",
-  }),
+  }).optional(),
   failedAssertion: httpAssertionSchema.optional(),
-  error: z.string().optional().meta({
+  error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
-  }),
+  }).optional(),
 });
 
 export type HttpResultMetadata = z.infer<typeof httpResultMetadataSchema>;
@@ -150,7 +154,7 @@ const httpAggregatedMetadataSchema = z.object({
     "x-chart-type": "bar",
     "x-chart-label": "Status Code Distribution",
   }),
-  errorCount: z.number().meta({
+  errorCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),

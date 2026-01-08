@@ -11,6 +11,7 @@
   "dependencies": {
     "@checkmate-monitor/backend-api": "workspace:*",
     "@checkmate-monitor/common": "workspace:*",
+    "@checkmate-monitor/healthcheck-common": "workspace:*",
     "mysql2": "^3.9.0"
   },
   "devDependencies": {

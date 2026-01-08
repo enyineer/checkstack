@@ -10,6 +10,11 @@ import {
   booleanField,
   evaluateAssertions,
 } from "@checkmate-monitor/backend-api";
+import {
+  healthResultBoolean,
+  healthResultNumber,
+  healthResultString,
+} from "@checkmate-monitor/healthcheck-common";
 
 // ============================================================================
 // SCHEMAS
@@ -64,52 +69,52 @@ export type TlsConfig = z.infer<typeof tlsConfigSchema>;
  * Per-run result metadata.
  */
 const tlsResultSchema = z.object({
-  connected: z.boolean().meta({
+  connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
   }),
-  isValid: z.boolean().meta({
+  isValid: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Certificate Valid",
   }),
-  isSelfSigned: z.boolean().meta({
+  isSelfSigned: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Self-Signed",
   }),
-  issuer: z.string().meta({
+  issuer: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Issuer",
   }),
-  subject: z.string().meta({
+  subject: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Subject",
   }),
-  validFrom: z.string().meta({
+  validFrom: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Valid From",
   }),
-  validTo: z.string().meta({
+  validTo: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Valid To",
   }),
-  daysUntilExpiry: z.number().meta({
+  daysUntilExpiry: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Days Until Expiry",
     "x-chart-unit": "days",
   }),
-  protocol: z.string().optional().meta({
+  protocol: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Protocol",
-  }),
-  cipher: z.string().optional().meta({
+  }).optional(),
+  cipher: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Cipher",
-  }),
+  }).optional(),
   failedAssertion: tlsAssertionSchema.optional(),
-  error: z.string().optional().meta({
+  error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
-  }),
+  }).optional(),
 });
 
 export type TlsResult = z.infer<typeof tlsResultSchema>;
@@ -118,21 +123,21 @@ export type TlsResult = z.infer<typeof tlsResultSchema>;
  * Aggregated metadata for buckets.
  */
 const tlsAggregatedSchema = z.object({
-  avgDaysUntilExpiry: z.number().meta({
+  avgDaysUntilExpiry: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Days Until Expiry",
     "x-chart-unit": "days",
   }),
-  minDaysUntilExpiry: z.number().meta({
+  minDaysUntilExpiry: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Min Days Until Expiry",
     "x-chart-unit": "days",
   }),
-  invalidCount: z.number().meta({
+  invalidCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Invalid Certificates",
   }),
-  errorCount: z.number().meta({
+  errorCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),

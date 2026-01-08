@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@checkmate-monitor/backend-api": "workspace:*",
-    "@checkmate-monitor/common": "workspace:*"
+    "@checkmate-monitor/common": "workspace:*",
+    "@checkmate-monitor/healthcheck-common": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "^1.0.0",

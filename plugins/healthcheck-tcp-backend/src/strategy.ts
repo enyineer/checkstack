@@ -8,6 +8,11 @@ import {
   stringField,
   evaluateAssertions,
 } from "@checkmate-monitor/backend-api";
+import {
+  healthResultBoolean,
+  healthResultNumber,
+  healthResultString,
+} from "@checkmate-monitor/healthcheck-common";
 
 // ============================================================================
 // SCHEMAS
@@ -50,24 +55,24 @@ export type TcpConfig = z.infer<typeof tcpConfigSchema>;
  * Per-run result metadata.
  */
 const tcpResultSchema = z.object({
-  connected: z.boolean().meta({
+  connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
   }),
-  connectionTimeMs: z.number().meta({
+  connectionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Connection Time",
     "x-chart-unit": "ms",
   }),
-  banner: z.string().optional().meta({
+  banner: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Banner",
-  }),
+  }).optional(),
   failedAssertion: tcpAssertionSchema.optional(),
-  error: z.string().optional().meta({
+  error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
-  }),
+  }).optional(),
 });
 
 export type TcpResult = z.infer<typeof tcpResultSchema>;
@@ -76,17 +81,17 @@ export type TcpResult = z.infer<typeof tcpResultSchema>;
  * Aggregated metadata for buckets.
  */
 const tcpAggregatedSchema = z.object({
-  avgConnectionTime: z.number().meta({
+  avgConnectionTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Connection Time",
     "x-chart-unit": "ms",
   }),
-  successRate: z.number().meta({
+  successRate: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-  errorCount: z.number().meta({
+  errorCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),

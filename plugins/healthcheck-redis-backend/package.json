@@ -11,6 +11,7 @@
   "dependencies": {
     "@checkmate-monitor/backend-api": "workspace:*",
     "@checkmate-monitor/common": "workspace:*",
+    "@checkmate-monitor/healthcheck-common": "workspace:*",
     "ioredis": "^5.3.0"
   },
   "devDependencies": {

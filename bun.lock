@@ -959,6 +959,7 @@
       "dependencies": {
         "@checkmate-monitor/backend-api": "workspace:*",
         "@checkmate-monitor/common": "workspace:*",
+        "@checkmate-monitor/healthcheck-common": "workspace:*",
       },
       "devDependencies": {
         "@checkmate-monitor/scripts": "workspace:*",
@@ -973,6 +974,7 @@
       "dependencies": {
         "@checkmate-monitor/backend-api": "workspace:*",
         "@checkmate-monitor/common": "workspace:*",
+        "@checkmate-monitor/healthcheck-common": "workspace:*",
         "@grpc/grpc-js": "^1.9.0",
       },
       "devDependencies": {
@@ -988,6 +990,7 @@
       "dependencies": {
         "@checkmate-monitor/backend-api": "workspace:*",
         "@checkmate-monitor/common": "workspace:*",
+        "@checkmate-monitor/healthcheck-common": "workspace:*",
         "jsonpath-plus": "^10.3.0",
       },
       "devDependencies": {
@@ -1004,6 +1007,7 @@
       "dependencies": {
         "@checkmate-monitor/backend-api": "workspace:*",
         "@checkmate-monitor/common": "workspace:*",
+        "@checkmate-monitor/healthcheck-common": "workspace:*",
         "mysql2": "^3.9.0",
       },
       "devDependencies": {
@@ -1019,6 +1023,7 @@
       "dependencies": {
         "@checkmate-monitor/backend-api": "workspace:*",
         "@checkmate-monitor/common": "workspace:*",
+        "@checkmate-monitor/healthcheck-common": "workspace:*",
       },
       "devDependencies": {
         "@checkmate-monitor/scripts": "workspace:*",
@@ -1033,6 +1038,7 @@
       "dependencies": {
         "@checkmate-monitor/backend-api": "workspace:*",
         "@checkmate-monitor/common": "workspace:*",
+        "@checkmate-monitor/healthcheck-common": "workspace:*",
         "pg": "^8.11.0",
       },
       "devDependencies": {
@@ -1049,6 +1055,7 @@
       "dependencies": {
         "@checkmate-monitor/backend-api": "workspace:*",
         "@checkmate-monitor/common": "workspace:*",
+        "@checkmate-monitor/healthcheck-common": "workspace:*",
         "ioredis": "^5.3.0",
       },
       "devDependencies": {
@@ -1064,6 +1071,7 @@
       "dependencies": {
         "@checkmate-monitor/backend-api": "workspace:*",
         "@checkmate-monitor/common": "workspace:*",
+        "@checkmate-monitor/healthcheck-common": "workspace:*",
       },
       "devDependencies": {
         "@checkmate-monitor/scripts": "workspace:*",
@@ -1078,6 +1086,7 @@
       "dependencies": {
         "@checkmate-monitor/backend-api": "workspace:*",
         "@checkmate-monitor/common": "workspace:*",
+        "@checkmate-monitor/healthcheck-common": "workspace:*",
         "ssh2": "^1.15.0",
       },
       "devDependencies": {
@@ -1094,6 +1103,7 @@
       "dependencies": {
         "@checkmate-monitor/backend-api": "workspace:*",
         "@checkmate-monitor/common": "workspace:*",
+        "@checkmate-monitor/healthcheck-common": "workspace:*",
       },
       "devDependencies": {
         "@checkmate-monitor/scripts": "workspace:*",
@@ -1108,6 +1118,7 @@
       "dependencies": {
         "@checkmate-monitor/backend-api": "workspace:*",
         "@checkmate-monitor/common": "workspace:*",
+        "@checkmate-monitor/healthcheck-common": "workspace:*",
       },
       "devDependencies": {
         "@checkmate-monitor/scripts": "workspace:*",

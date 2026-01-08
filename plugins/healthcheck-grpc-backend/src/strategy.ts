@@ -9,6 +9,11 @@ import {
   enumField,
   evaluateAssertions,
 } from "@checkmate-monitor/backend-api";
+import {
+  healthResultBoolean,
+  healthResultNumber,
+  healthResultString,
+} from "@checkmate-monitor/healthcheck-common";
 
 // ============================================================================
 // SCHEMAS
@@ -66,11 +71,11 @@ export type GrpcConfigInput = z.input<typeof grpcConfigSchema>;
  * Per-run result metadata.
  */
 const grpcResultSchema = z.object({
-  connected: z.boolean().meta({
+  connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
   }),
-  responseTimeMs: z.number().meta({
+  responseTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Response Time",
     "x-chart-unit": "ms",
@@ -80,10 +85,10 @@ const grpcResultSchema = z.object({
     "x-chart-label": "Status",
   }),
   failedAssertion: grpcAssertionSchema.optional(),
-  error: z.string().optional().meta({
+  error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
-  }),
+  }).optional(),
 });
 
 export type GrpcResult = z.infer<typeof grpcResultSchema>;
@@ -92,21 +97,21 @@ export type GrpcResult = z.infer<typeof grpcResultSchema>;
  * Aggregated metadata for buckets.
  */
 const grpcAggregatedSchema = z.object({
-  avgResponseTime: z.number().meta({
+  avgResponseTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Response Time",
     "x-chart-unit": "ms",
   }),
-  successRate: z.number().meta({
+  successRate: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-  errorCount: z.number().meta({
+  errorCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),
-  servingCount: z.number().meta({
+  servingCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Serving",
   }),

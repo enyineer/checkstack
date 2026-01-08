@@ -11,6 +11,10 @@ import {
   timeThresholdField,
   evaluateAssertions,
 } from "@checkmate-monitor/backend-api";
+import {
+  healthResultNumber,
+  healthResultString,
+} from "@checkmate-monitor/healthcheck-common";
 
 // ============================================================================
 // SCHEMAS
@@ -62,24 +66,24 @@ const dnsResultSchema = z.object({
     "x-chart-type": "text",
     "x-chart-label": "Resolved Values",
   }),
-  recordCount: z.number().meta({
+  recordCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Record Count",
   }),
-  nameserver: z.string().optional().meta({
+  nameserver: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Nameserver",
-  }),
-  resolutionTimeMs: z.number().meta({
+  }).optional(),
+  resolutionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Resolution Time",
     "x-chart-unit": "ms",
   }),
   failedAssertion: dnsAssertionSchema.optional(),
-  error: z.string().optional().meta({
+  error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
-  }),
+  }).optional(),
 });
 
 export type DnsResult = z.infer<typeof dnsResultSchema>;
@@ -88,16 +92,16 @@ export type DnsResult = z.infer<typeof dnsResultSchema>;
  * Aggregated metadata for buckets.
  */
 const dnsAggregatedSchema = z.object({
-  avgResolutionTime: z.number().meta({
+  avgResolutionTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Resolution Time",
     "x-chart-unit": "ms",
   }),
-  failureCount: z.number().meta({
+  failureCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Failures",
   }),
-  errorCount: z.number().meta({
+  errorCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),
