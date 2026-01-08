@@ -1,0 +1,16 @@
+node_modules
+.git
+.github
+.changeset
+.dev
+.env
+.env.*
+*.log
+dist/
+docs/
+screenshots/
+*.md
+!README.md
+core/frontend/node_modules
+plugins/*/node_modules
+core/backend/.dev

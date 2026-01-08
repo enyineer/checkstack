@@ -1,7 +1,6 @@
 {
   "name": "@checkmate-monitor/scripts",
   "version": "1.0.0",
-  "private": true,
   "bin": {
     "checkmate-scripts": "./src/cli.ts"
   },

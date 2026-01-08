@@ -269,6 +269,32 @@ Checkmate is built from the ground up as a **modular plugin system**:
 | **Realtime** | WebSocket (native Bun) |
 | **Queue** | BullMQ (Redis) / In-Memory |
 
+## 📦 Deployment
+
+### Docker (Recommended)
+
+```bash
+# Pull and run the latest version
+docker pull ghcr.io/enyineer/checkmate:latest
+docker run -d \
+  -e DATABASE_URL=postgresql://user:pass@host:5432/checkmate \
+  -e ENCRYPTION_MASTER_KEY=your-encryption-master-key \
+  -e LOG_LEVEL=info \
+  -p 3000:3000 \
+  ghcr.io/enyineer/checkmate:latest
+```
+
+### NPM Packages
+
+All `@checkmate-monitor/*` packages are published to npm for plugin developers.
+
+> ⚠️ **Bun Required**: These packages publish TypeScript source directly and require [Bun](https://bun.sh) runtime. They are **not compatible with Node.js**.
+
+```bash
+# Example: Install packages for a custom plugin
+bun add @checkmate-monitor/backend-api @checkmate-monitor/common
+```
+
 ## 🏃 Quick Start
 
 ### Prerequisites

@@ -265,7 +265,42 @@ const init = async () => {
     { mode: "work-queue", workerGroup: "frontend-signal-deregistered" }
   );
 
-  // 11. Create WebSocket handler for realtime signals
+  // 11. Production: Serve frontend static files when CHECKMATE_FRONTEND_DIST is set
+  const frontendDistPath = process.env.CHECKMATE_FRONTEND_DIST;
+  if (frontendDistPath && fs.existsSync(frontendDistPath)) {
+    rootLogger.info(`📦 Serving frontend from: ${frontendDistPath}`);
+
+    // Serve static assets (JS, CSS, images, etc.)
+    app.get("/assets/*", async (c) => {
+      const assetPath = c.req.path.replace("/assets/", "");
+      const filePath = path.join(frontendDistPath, "assets", assetPath);
+
+      if (fs.existsSync(filePath)) {
+        const file = Bun.file(filePath);
+        return new Response(file);
+      }
+      return c.notFound();
+    });
+
+    // Serve index.html for all non-API routes (SPA fallback)
+    app.get("*", async (c) => {
+      // Skip API and WebSocket routes
+      if (c.req.path.startsWith("/api")) {
+        return c.notFound();
+      }
+
+      const indexPath = path.join(frontendDistPath, "index.html");
+      if (fs.existsSync(indexPath)) {
+        const file = Bun.file(indexPath);
+        return new Response(file, {
+          headers: { "Content-Type": "text/html" },
+        });
+      }
+      return c.notFound();
+    });
+  }
+
+  // 12. Create WebSocket handler for realtime signals
   wsHandler = createWebSocketHandler({
     eventBus,
     logger: rootLogger.child({ service: "WebSocket" }),
