@@ -298,6 +298,14 @@ docker run -d \
   ghcr.io/enyineer/checkmate:latest
 ```
 
+> [!TIP]
+> After first start, your database is seeded with a default user.
+>
+> Username: admin@checkmate-monitor.com
+> Password: admin
+>
+> You should change this password as soon as possible using the "change password" function in the user-menu.
+
 ### NPM Packages
 
 All `@checkmate-monitor/*` packages are published to npm for plugin developers.
@@ -336,6 +344,14 @@ This command will automatically:
 1. 🐳 Start the Docker infrastructure (Postgres & PgAdmin)
 2. 🔧 Start the Backend server (Port 3000)
 3. 🎨 Start the Frontend server (Vite default port)
+
+> [!TIP]
+> After first start, your database is seeded with a default user.
+>
+> Username: admin@checkmate-monitor.com
+> Password: admin
+>
+> You should change this password as soon as possible using the "change password" function in the user-menu.
 
 ### Infrastructure Details
 

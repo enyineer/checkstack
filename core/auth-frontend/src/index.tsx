@@ -16,6 +16,7 @@ import { RegisterPage } from "./components/RegisterPage";
 import { AuthErrorPage } from "./components/AuthErrorPage";
 import { ForgotPasswordPage } from "./components/ForgotPasswordPage";
 import { ResetPasswordPage } from "./components/ResetPasswordPage";
+import { ChangePasswordPage } from "./components/ChangePasswordPage";
 import { authApiRef, AuthApi, AuthSession } from "./api";
 import { getAuthClientLazy } from "./lib/auth-client";
 
@@ -23,7 +24,7 @@ import { usePermissions } from "./hooks/usePermissions";
 
 import { PermissionAction } from "@checkmate-monitor/common";
 import { useNavigate } from "react-router-dom";
-import { Settings2 } from "lucide-react";
+import { Settings2, Key } from "lucide-react";
 import { DropdownMenuItem } from "@checkmate-monitor/ui";
 import { useApi } from "@checkmate-monitor/frontend-api";
 import { AuthSettingsPage } from "./components/AuthSettingsPage";
@@ -202,6 +203,10 @@ export const authPlugin = createFrontendPlugin({
       route: authRoutes.routes.resetPassword,
       element: <ResetPasswordPage />,
     },
+    {
+      route: authRoutes.routes.changePassword,
+      element: <ChangePasswordPage />,
+    },
   ],
   extensions: [
     {
@@ -228,6 +233,25 @@ export const authPlugin = createFrontendPlugin({
             icon={<Settings2 className="h-4 w-4" />}
           >
             Auth Settings
+          </DropdownMenuItem>
+        );
+      },
+    },
+    {
+      id: "auth.user-menu.change-password",
+      slot: UserMenuItemsSlot,
+      component: () => {
+        const navigate = useNavigate();
+        // Only show for credential-authenticated users
+        // The changePassword API requires current password, so only credential users can use it
+        return (
+          <DropdownMenuItem
+            onClick={() =>
+              navigate(resolveRoute(authRoutes.routes.changePassword))
+            }
+            icon={<Key className="h-4 w-4" />}
+          >
+            Change Password
           </DropdownMenuItem>
         );
       },

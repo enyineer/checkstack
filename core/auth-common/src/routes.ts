@@ -10,4 +10,5 @@ export const authRoutes = createRoutes("auth", {
   settings: "/settings",
   forgotPassword: "/forgot-password",
   resetPassword: "/reset-password",
+  changePassword: "/change-password",
 });
