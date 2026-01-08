@@ -1,8 +1,8 @@
-# @checkmate-monitor/frontend-api
+# @checkmate-monitor/release
 
-## 0.0.3
+## 0.2.0
 
-### Patch Changes
+### Minor Changes
 
 - 0f8cc7d: Add runtime configuration API for Docker deployments
 
@@ -12,10 +12,3 @@
   - Frontend API: Add `RuntimeConfigProvider` context for runtime config
   - Frontend: Use `RuntimeConfigProvider` from `frontend-api`
   - Auth Frontend: Add `useAuthClient()` hook using runtime config
-
-## 0.0.2
-
-### Patch Changes
-
-- Updated dependencies [ffc28f6]
-  - @checkmate-monitor/common@0.1.0

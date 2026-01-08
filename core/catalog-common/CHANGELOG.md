@@ -1,5 +1,12 @@
 # @checkmate-monitor/catalog-common
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [0f8cc7d]
+  - @checkmate-monitor/frontend-api@0.0.3
+
 ## 0.1.0
 
 ### Minor Changes

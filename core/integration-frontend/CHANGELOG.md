@@ -1,5 +1,13 @@
 # @checkmate-monitor/integration-frontend
 
+## 0.0.3
+
+### Patch Changes
+
+- Updated dependencies [0f8cc7d]
+  - @checkmate-monitor/frontend-api@0.0.3
+  - @checkmate-monitor/ui@0.1.1
+
 ## 0.0.2
 
 ### Patch Changes

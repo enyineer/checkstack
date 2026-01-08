@@ -1,5 +1,14 @@
 # @checkmate-monitor/theme-frontend
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [0f8cc7d]
+  - @checkmate-monitor/frontend-api@0.0.3
+  - @checkmate-monitor/auth-frontend@0.1.1
+  - @checkmate-monitor/ui@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "@checkmate-monitor/release",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "private": true,
   "description": "Release version tracker for Checkmate Docker builds"
 }

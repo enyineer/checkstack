@@ -1,5 +1,15 @@
 # @checkmate-monitor/incident-frontend
 
+## 0.0.3
+
+### Patch Changes
+
+- Updated dependencies [0f8cc7d]
+  - @checkmate-monitor/frontend-api@0.0.3
+  - @checkmate-monitor/catalog-common@0.1.1
+  - @checkmate-monitor/incident-common@0.1.1
+  - @checkmate-monitor/ui@0.1.1
+
 ## 0.0.2
 
 ### Patch Changes

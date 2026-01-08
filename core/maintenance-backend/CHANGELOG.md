@@ -1,5 +1,12 @@
 # @checkmate-monitor/maintenance-backend
 
+## 0.1.1
+
+### Patch Changes
+
+- @checkmate-monitor/catalog-common@0.1.1
+- @checkmate-monitor/maintenance-common@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

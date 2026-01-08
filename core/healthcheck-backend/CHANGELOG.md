@@ -1,5 +1,12 @@
 # @checkmate-monitor/healthcheck-backend
 
+## 0.1.1
+
+### Patch Changes
+
+- @checkmate-monitor/catalog-common@0.1.1
+- @checkmate-monitor/catalog-backend@0.0.3
+
 ## 0.1.0
 
 ### Minor Changes

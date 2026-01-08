@@ -1,5 +1,13 @@
 # @checkmate-monitor/incident-backend
 
+## 0.0.3
+
+### Patch Changes
+
+- @checkmate-monitor/catalog-common@0.1.1
+- @checkmate-monitor/incident-common@0.1.1
+- @checkmate-monitor/catalog-backend@0.0.3
+
 ## 0.0.2
 
 ### Patch Changes

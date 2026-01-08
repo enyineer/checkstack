@@ -1,5 +1,25 @@
 # @checkmate-monitor/frontend
 
+## 0.1.1
+
+### Patch Changes
+
+- 0f8cc7d: Add runtime configuration API for Docker deployments
+
+  - Backend: Add `/api/config` endpoint serving `BASE_URL` at runtime
+  - Backend: Update CORS to use `BASE_URL` and auto-allow Vite dev server
+  - Backend: `INTERNAL_URL` now defaults to `localhost:3000` (no BASE_URL fallback)
+  - Frontend API: Add `RuntimeConfigProvider` context for runtime config
+  - Frontend: Use `RuntimeConfigProvider` from `frontend-api`
+  - Auth Frontend: Add `useAuthClient()` hook using runtime config
+
+- Updated dependencies [0f8cc7d]
+  - @checkmate-monitor/frontend-api@0.0.3
+  - @checkmate-monitor/auth-frontend@0.1.1
+  - @checkmate-monitor/catalog-frontend@0.0.3
+  - @checkmate-monitor/command-frontend@0.0.3
+  - @checkmate-monitor/ui@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes
