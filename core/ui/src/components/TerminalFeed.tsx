@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { cn } from "../utils";
 
 export interface TerminalEntry {
@@ -54,6 +54,9 @@ const formatTime = (date: Date): string => {
  * TerminalFeed - Generic CLI-style activity log
  * A generic terminal display component that receives entries from the caller.
  * The component is agnostic to domain-specific logic (health checks, notifications, etc.)
+ *
+ * Entries are displayed with newest at the bottom (chronological order).
+ * Auto-scrolls to bottom on new entries unless user is hovering the terminal.
  */
 export const TerminalFeed: React.FC<TerminalFeedProps> = ({
   entries,
@@ -62,7 +65,18 @@ export const TerminalFeed: React.FC<TerminalFeedProps> = ({
   title = "terminal",
   className,
 }) => {
-  const displayEntries = entries.slice(0, maxEntries);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [isHovering, setIsHovering] = useState(false);
+
+  // Get entries to display, then reverse so newest is at bottom
+  const displayEntries = entries.slice(0, maxEntries).toReversed();
+
+  // Auto-scroll to bottom when entries change (unless user is hovering)
+  useEffect(() => {
+    if (!isHovering && contentRef.current) {
+      contentRef.current.scrollTop = contentRef.current.scrollHeight;
+    }
+  }, [entries, isHovering]);
 
   return (
     <div
@@ -86,8 +100,11 @@ export const TerminalFeed: React.FC<TerminalFeedProps> = ({
 
       {/* Terminal content */}
       <div
+        ref={contentRef}
         className="p-4 font-mono text-sm space-y-1 min-h-[200px] overflow-y-auto"
         style={maxHeight ? { maxHeight } : undefined}
+        onMouseEnter={() => setIsHovering(true)}
+        onMouseLeave={() => setIsHovering(false)}
       >
         {displayEntries.length === 0 ? (
           <div className="text-gray-500 animate-pulse">
