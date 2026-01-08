@@ -85,42 +85,50 @@ describe("CLI Template Scaffolding", () => {
         expect(existsSync(path.join(targetDir, "tsconfig.json"))).toBe(true);
       });
 
-      it("should pass typecheck", () => {
-        try {
-          execSync(
-            `bun run --filter '@checkmate-monitor/${pluginName}' typecheck`,
-            {
+      it(
+        "should pass typecheck",
+        () => {
+          try {
+            execSync(
+              `bun run --filter '@checkmate-monitor/${pluginName}' typecheck`,
+              {
+                cwd: rootDir,
+                stdio: "pipe",
+                timeout: 60_000,
+              }
+            );
+          } catch (error) {
+            const execError = error as { stderr?: Buffer; stdout?: Buffer };
+            const stderr = execError.stderr?.toString() ?? "";
+            const stdout = execError.stdout?.toString() ?? "";
+            throw new Error(
+              `Typecheck failed for ${pluginName}:\n${stderr}\n${stdout}`
+            );
+          }
+        },
+        { timeout: 30_000 }
+      );
+
+      it(
+        "should pass lint",
+        () => {
+          try {
+            execSync(`bun run eslint ${TEST_SCAFFOLDS_DIR}/${pluginName}`, {
               cwd: rootDir,
               stdio: "pipe",
               timeout: 60_000,
-            }
-          );
-        } catch (error) {
-          const execError = error as { stderr?: Buffer; stdout?: Buffer };
-          const stderr = execError.stderr?.toString() ?? "";
-          const stdout = execError.stdout?.toString() ?? "";
-          throw new Error(
-            `Typecheck failed for ${pluginName}:\n${stderr}\n${stdout}`
-          );
-        }
-      });
-
-      it("should pass lint", () => {
-        try {
-          execSync(`bun run eslint ${TEST_SCAFFOLDS_DIR}/${pluginName}`, {
-            cwd: rootDir,
-            stdio: "pipe",
-            timeout: 60_000,
-          });
-        } catch (error) {
-          const execError = error as { stderr?: Buffer; stdout?: Buffer };
-          const stderr = execError.stderr?.toString() ?? "";
-          const stdout = execError.stdout?.toString() ?? "";
-          throw new Error(
-            `Lint failed for ${pluginName}:\n${stderr}\n${stdout}`
-          );
-        }
-      });
+            });
+          } catch (error) {
+            const execError = error as { stderr?: Buffer; stdout?: Buffer };
+            const stderr = execError.stderr?.toString() ?? "";
+            const stdout = execError.stdout?.toString() ?? "";
+            throw new Error(
+              `Lint failed for ${pluginName}:\n${stderr}\n${stdout}`
+            );
+          }
+        },
+        { timeout: 30_000 }
+      );
     });
   }
 });
