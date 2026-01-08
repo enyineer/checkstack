@@ -1,5 +1,13 @@
 # @checkmate-monitor/auth-ldap-backend
 
+## 0.0.3
+
+### Patch Changes
+
+- Updated dependencies [e26c08e]
+  - @checkmate-monitor/auth-common@0.2.0
+  - @checkmate-monitor/auth-backend@1.0.1
+
 ## 0.0.2
 
 ### Patch Changes

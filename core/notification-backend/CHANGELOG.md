@@ -1,5 +1,13 @@
 # @checkmate-monitor/notification-backend
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [e26c08e]
+  - @checkmate-monitor/auth-common@0.2.0
+  - @checkmate-monitor/auth-backend@1.0.1
+
 ## 0.1.0
 
 ### Minor Changes

@@ -1,5 +1,13 @@
 # @checkmate-monitor/frontend
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [e26c08e]
+  - @checkmate-monitor/auth-frontend@0.2.0
+  - @checkmate-monitor/catalog-frontend@0.0.4
+
 ## 0.1.1
 
 ### Patch Changes

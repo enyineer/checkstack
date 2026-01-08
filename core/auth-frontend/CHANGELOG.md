@@ -1,5 +1,21 @@
 # @checkmate-monitor/auth-frontend
 
+## 0.2.0
+
+### Minor Changes
+
+- e26c08e: Add password change functionality for credential-authenticated users
+
+  - Add `changePassword` route to auth-common
+  - Create `ChangePasswordPage.tsx` component with password validation, current password verification, and session revocation option
+  - Add "Change Password" menu item in User Menu
+  - Reuses patterns from existing password reset flow for consistency
+
+### Patch Changes
+
+- Updated dependencies [e26c08e]
+  - @checkmate-monitor/auth-common@0.2.0
+
 ## 0.1.1
 
 ### Patch Changes

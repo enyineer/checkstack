@@ -1,5 +1,12 @@
 # @checkmate-monitor/backend
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [e26c08e]
+  - @checkmate-monitor/auth-common@0.2.0
+
 ## 0.1.2
 
 ### Patch Changes

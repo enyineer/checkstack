@@ -1,5 +1,12 @@
 # @checkmate-monitor/notification-frontend
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [e26c08e]
+  - @checkmate-monitor/auth-frontend@0.2.0
+
 ## 0.1.1
 
 ### Patch Changes

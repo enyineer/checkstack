@@ -1,5 +1,11 @@
 # @checkmate-monitor/notification-telegram-backend
 
+## 0.1.1
+
+### Patch Changes
+
+- @checkmate-monitor/notification-backend@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes
