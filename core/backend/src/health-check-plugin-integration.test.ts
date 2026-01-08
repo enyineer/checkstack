@@ -1,5 +1,4 @@
-import { describe, it, expect, mock, beforeEach } from "bun:test";
-import { PluginManager } from "./plugin-manager";
+import { describe, it, expect, mock, beforeAll, beforeEach } from "bun:test";
 import {
   coreServices,
   createBackendPlugin,
@@ -10,26 +9,32 @@ import { z } from "zod";
 import { createMockDbModule } from "@checkmate-monitor/test-utils-backend";
 import { createMockLoggerModule } from "@checkmate-monitor/test-utils-backend";
 
-// Mock DB and other globals to avoid side effects
+// Mock DB and other globals to avoid side effects BEFORE importing PluginManager
 mock.module("./db", () => createMockDbModule());
-
-// Note: FS mocking is no longer needed with manual injection support
-
 mock.module("./logger", () => createMockLoggerModule());
 
+// Use dynamic import to ensure mocks are applied first
+// Static imports are hoisted above mock.module() calls, causing TDZ errors in CI
+let PluginManager: typeof import("./plugin-manager").PluginManager;
+
+beforeAll(async () => {
+  const mod = await import("./plugin-manager");
+  PluginManager = mod.PluginManager;
+});
+
 describe("HealthCheck Plugin Integration", () => {
-  let pluginManager: PluginManager;
+  let pluginManager: InstanceType<typeof PluginManager>;
 
   beforeEach(() => {
     pluginManager = new PluginManager();
   });
 
   it("should allow a plugin to register a health check strategy", async () => {
-    const mockRouter: any = {
+    const mockRouter = {
       route: mock(),
       all: mock(),
       newResponse: mock(),
-    };
+    } as never;
 
     // Define a mock execute function for the strategy
     const mockExecute = mock(async () => ({ status: "healthy" as const }));
@@ -74,7 +79,7 @@ describe("HealthCheck Plugin Integration", () => {
       getQueueStatus: mock(),
       startPolling: mock(),
       stopPolling: mock(),
-    } as any);
+    } as never);
 
     // 4. Load plugins using the PluginManager with manual injection
     await pluginManager.loadPlugins(mockRouter, [testPlugin]);

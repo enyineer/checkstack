@@ -1,5 +1,4 @@
-import { describe, it, expect, mock, beforeEach } from "bun:test";
-import { PluginManager } from "./plugin-manager";
+import { describe, it, expect, mock, beforeAll, beforeEach } from "bun:test";
 import {
   createServiceRef,
   createExtensionPoint,
@@ -13,13 +12,21 @@ import {
 } from "@checkmate-monitor/test-utils-backend";
 import { sortPlugins } from "./plugin-manager/dependency-sorter";
 
-// Mock DB and other globals
+// Mock DB and other globals BEFORE importing PluginManager
 mock.module("./db", () => createMockDbModule());
-
 mock.module("./logger", () => createMockLoggerModule());
 
+// Use dynamic import to ensure mocks are applied first
+// Static imports are hoisted above mock.module() calls, causing TDZ errors in CI
+let PluginManager: typeof import("./plugin-manager").PluginManager;
+
+beforeAll(async () => {
+  const mod = await import("./plugin-manager");
+  PluginManager = mod.PluginManager;
+});
+
 describe("PluginManager", () => {
-  let pluginManager: PluginManager;
+  let pluginManager: InstanceType<typeof PluginManager>;
 
   beforeEach(() => {
     pluginManager = new PluginManager();
