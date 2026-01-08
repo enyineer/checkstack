@@ -112,7 +112,7 @@
     },
     "core/backend": {
       "name": "@checkmate-monitor/backend",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@checkmate-monitor/api-docs-common": "workspace:*",
         "@checkmate-monitor/auth-common": "workspace:*",
@@ -769,6 +769,10 @@
         "@types/react": "^18.3.18",
         "typescript": "^5.7.2",
       },
+    },
+    "core/release": {
+      "name": "@checkmate-monitor/release",
+      "version": "0.1.2",
     },
     "core/scripts": {
       "name": "@checkmate-monitor/scripts",
@@ -1587,6 +1591,8 @@
     "@checkmate-monitor/queue-memory-backend": ["@checkmate-monitor/queue-memory-backend@workspace:plugins/queue-memory-backend"],
 
     "@checkmate-monitor/queue-memory-common": ["@checkmate-monitor/queue-memory-common@workspace:plugins/queue-memory-common"],
+
+    "@checkmate-monitor/release": ["@checkmate-monitor/release@workspace:core/release"],
 
     "@checkmate-monitor/scripts": ["@checkmate-monitor/scripts@workspace:core/scripts"],
 
