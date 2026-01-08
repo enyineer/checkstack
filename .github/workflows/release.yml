@@ -142,7 +142,7 @@ jobs:
       - name: Extract version from package.json
         id: version
         run: |
-          VERSION=$(node -p "require('./core/backend/package.json').version")
+          VERSION=$(node -p "require('./core/release/package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build and Push
@@ -169,7 +169,7 @@ jobs:
       - name: Extract version from package.json
         id: version
         run: |
-          VERSION=$(node -p "require('./core/backend/package.json').version")
+          VERSION=$(node -p "require('./core/release/package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release

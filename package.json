@@ -15,7 +15,7 @@
     "bundle-vendor": "bun run scripts/bundle-vendor.ts",
     "docker:stop": "docker compose down",
     "changeset": "changeset",
-    "version-packages": "changeset version",
+    "version-packages": "bun run scripts/inject-release.ts && changeset version",
     "create": "bun run core/scripts/src/commands/create.ts"
   },
   "devDependencies": {
