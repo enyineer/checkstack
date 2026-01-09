@@ -1,5 +1,12 @@
 # @checkstack/healthcheck-mysql-backend
 
+## 0.0.3
+
+### Patch Changes
+
+- Updated dependencies [cb82e4d]
+  - @checkstack/healthcheck-common@0.0.3
+
 ## 0.0.2
 
 ### Patch Changes
