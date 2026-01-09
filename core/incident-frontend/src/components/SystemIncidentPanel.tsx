@@ -191,9 +191,9 @@ export const SystemIncidentPanel: React.FC<Props> = ({ system }) => {
         {incidents.map((i) => (
           <Link
             key={i.id}
-            to={resolveRoute(incidentRoutes.routes.detail, {
+            to={`${resolveRoute(incidentRoutes.routes.detail, {
               incidentId: i.id,
-            })}
+            })}?from=${system.id}`}
             className="block p-3 rounded-lg border border-border bg-background hover:bg-muted/50 transition-colors"
           >
             <div className="flex items-start justify-between mb-2">

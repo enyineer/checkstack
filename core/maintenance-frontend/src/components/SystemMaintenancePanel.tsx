@@ -133,9 +133,9 @@ export const SystemMaintenancePanel: React.FC<Props> = ({ system }) => {
         {maintenances.map((m) => (
           <Link
             key={m.id}
-            to={resolveRoute(maintenanceRoutes.routes.detail, {
+            to={`${resolveRoute(maintenanceRoutes.routes.detail, {
               maintenanceId: m.id,
-            })}
+            })}?from=${system.id}`}
             className="block p-3 rounded-lg border border-border bg-background hover:bg-muted/50 transition-colors"
           >
             <div className="flex items-start justify-between mb-2">

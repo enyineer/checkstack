@@ -1,5 +1,10 @@
 import React, { useEffect, useState, useMemo, useCallback } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import {
+  useParams,
+  Link,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 import {
   useApi,
   rpcApiRef,
@@ -45,6 +50,7 @@ import { getMaintenanceStatusBadge } from "../utils/badges";
 const MaintenanceDetailPageContent: React.FC = () => {
   const { maintenanceId } = useParams<{ maintenanceId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const api = useApi(maintenanceApiRef);
   const rpcApi = useApi(rpcApiRef);
   const permissionApi = useApi(permissionApiRef);
@@ -133,8 +139,8 @@ const MaintenanceDetailPageContent: React.FC = () => {
     );
   }
 
-  // Get first system for "back" navigation
-  const primarySystemId = maintenance.systemIds[0];
+  // Use 'from' query param for back navigation, fallback to first affected system
+  const sourceSystemId = searchParams.get("from") ?? maintenance.systemIds[0];
   const canComplete =
     canManage &&
     maintenance.status !== "completed" &&
@@ -147,12 +153,12 @@ const MaintenanceDetailPageContent: React.FC = () => {
       loading={false}
       allowed={true}
       actions={
-        primarySystemId ? (
+        sourceSystemId ? (
           <BackLink
             onClick={() =>
               navigate(
                 resolveRoute(maintenanceRoutes.routes.systemHistory, {
-                  systemId: primarySystemId,
+                  systemId: sourceSystemId,
                 })
               )
             }

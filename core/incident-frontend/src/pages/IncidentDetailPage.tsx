@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import {
   useApi,
   rpcApiRef,
@@ -26,6 +26,7 @@ import {
   BackLink,
   useToast,
   StatusUpdateTimeline,
+  PageLayout,
 } from "@checkmate-monitor/ui";
 import {
   AlertTriangle,
@@ -45,6 +46,8 @@ import {
 
 const IncidentDetailPageContent: React.FC = () => {
   const { incidentId } = useParams<{ incidentId: string }>();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const api = useApi(incidentApiRef);
   const rpcApi = useApi(rpcApiRef);
   const permissionApi = useApi(permissionApiRef);
@@ -109,6 +112,10 @@ const IncidentDetailPageContent: React.FC = () => {
     }
   };
 
+  const getSystemName = (systemId: string): string => {
+    return systems.find((s) => s.id === systemId)?.name ?? systemId;
+  };
+
   if (loading) {
     return (
       <div className="p-12 flex justify-center">
@@ -131,138 +138,146 @@ const IncidentDetailPageContent: React.FC = () => {
     );
   }
 
-  const affectedSystems = systems.filter((s) =>
-    incident.systemIds.includes(s.id)
-  );
+  const canResolve = canManage && incident.status !== "resolved";
+  // Use 'from' query param for back navigation, fallback to first affected system
+  const sourceSystemId = searchParams.get("from") ?? incident.systemIds[0];
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Incident Header */}
-      <Card
-        className={
-          incident.severity === "critical"
-            ? "border-destructive/30 bg-destructive/5"
-            : incident.severity === "major"
-            ? "border-warning/30 bg-warning/5"
-            : ""
-        }
-      >
-        <CardHeader className="border-b border-border">
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-3">
-              <AlertTriangle
-                className={`h-6 w-6 ${
-                  incident.severity === "critical"
-                    ? "text-destructive"
-                    : incident.severity === "major"
-                    ? "text-warning"
-                    : "text-muted-foreground"
-                }`}
-              />
+    <PageLayout
+      title={incident.title}
+      subtitle="Incident details and status history"
+      loading={false}
+      allowed={true}
+      actions={
+        sourceSystemId ? (
+          <BackLink
+            onClick={() =>
+              navigate(
+                resolveRoute(incidentRoutes.routes.systemHistory, {
+                  systemId: sourceSystemId,
+                })
+              )
+            }
+          >
+            Back to History
+          </BackLink>
+        ) : undefined
+      }
+    >
+      <div className="space-y-6">
+        {/* Incident Info Card */}
+        <Card>
+          <CardHeader className="border-b border-border">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-muted-foreground" />
+                <CardTitle>Incident Details</CardTitle>
+              </div>
+              <div className="flex items-center gap-2">
+                {getIncidentSeverityBadge(incident.severity)}
+                {getIncidentStatusBadge(incident.status)}
+                {canResolve && (
+                  <Button variant="outline" size="sm" onClick={handleResolve}>
+                    <CheckCircle2 className="h-4 w-4 mr-1" />
+                    Resolve
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-6 space-y-4">
+            {incident.description && (
               <div>
-                <CardTitle className="text-xl">{incident.title}</CardTitle>
-                <div className="flex items-center gap-2 mt-2">
-                  {getIncidentSeverityBadge(incident.severity)}
-                  {getIncidentStatusBadge(incident.status)}
+                <h4 className="text-sm font-medium text-muted-foreground mb-1">
+                  Description
+                </h4>
+                <p className="text-foreground">{incident.description}</p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <h4 className="text-sm font-medium text-muted-foreground mb-1">
+                  Started
+                </h4>
+                <div className="flex items-center gap-2 text-foreground">
+                  <Calendar className="h-4 w-4" />
+                  <span>{format(new Date(incident.createdAt), "PPpp")}</span>
+                </div>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-muted-foreground mb-1">
+                  Duration
+                </h4>
+                <div className="flex items-center gap-2 text-foreground">
+                  <Clock className="h-4 w-4" />
+                  <span>
+                    {formatDistanceToNow(new Date(incident.createdAt), {
+                      addSuffix: false,
+                    })}
+                  </span>
                 </div>
               </div>
             </div>
-            {canManage && incident.status !== "resolved" && (
-              <Button variant="outline" onClick={handleResolve}>
-                <CheckCircle2 className="h-4 w-4 mr-2" />
-                Resolve Incident
-              </Button>
+
+            <div>
+              <h4 className="text-sm font-medium text-muted-foreground mb-2">
+                Affected Systems
+              </h4>
+              <div className="flex flex-wrap gap-2">
+                {incident.systemIds.map((systemId) => (
+                  <Badge key={systemId} variant="outline">
+                    <Server className="h-3 w-3 mr-1" />
+                    {getSystemName(systemId)}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Status Updates Timeline */}
+        <Card>
+          <CardHeader className="border-b border-border">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="h-5 w-5 text-muted-foreground" />
+                <CardTitle>Status Updates</CardTitle>
+              </div>
+              {canManage && !showUpdateForm && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowUpdateForm(true)}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Update
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="p-6">
+            {/* Add Update Form */}
+            {showUpdateForm && incidentId && (
+              <div className="mb-6">
+                <IncidentUpdateForm
+                  incidentId={incidentId}
+                  onSuccess={handleUpdateSuccess}
+                  onCancel={() => setShowUpdateForm(false)}
+                />
+              </div>
             )}
-            <BackLink to={resolveRoute(incidentRoutes.routes.config, {})}>
-              Back to Incidents
-            </BackLink>
-          </div>
-        </CardHeader>
-        <CardContent className="p-4 space-y-4">
-          {incident.description && (
-            <p className="text-muted-foreground">{incident.description}</p>
-          )}
 
-          <div className="flex gap-6 text-sm text-muted-foreground">
-            <div className="flex items-center gap-1">
-              <Calendar className="h-4 w-4" />
-              <span>
-                Started {format(new Date(incident.createdAt), "MMM d, HH:mm")}
-              </span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Clock className="h-4 w-4" />
-              <span>
-                Duration:{" "}
-                {formatDistanceToNow(new Date(incident.createdAt), {
-                  addSuffix: false,
-                })}
-              </span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Affected Systems */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Server className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-lg">Affected Systems</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-2">
-            {affectedSystems.map((system) => (
-              <Badge key={system.id} variant="outline">
-                {system.name}
-              </Badge>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Status Updates Timeline */}
-      <Card>
-        <CardHeader className="border-b border-border">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5 text-muted-foreground" />
-              <CardTitle className="text-lg">Status Updates</CardTitle>
-            </div>
-            {canManage && !showUpdateForm && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowUpdateForm(true)}
-              >
-                <Plus className="h-4 w-4 mr-1" />
-                Add Update
-              </Button>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent className="p-4">
-          {/* Add Update Form */}
-          {showUpdateForm && incidentId && (
-            <div className="mb-4">
-              <IncidentUpdateForm
-                incidentId={incidentId}
-                onSuccess={handleUpdateSuccess}
-                onCancel={() => setShowUpdateForm(false)}
-              />
-            </div>
-          )}
-
-          <StatusUpdateTimeline
-            updates={incident.updates}
-            renderStatusBadge={getIncidentStatusBadge}
-            emptyTitle="No status updates"
-            emptyDescription="No status updates have been posted yet."
-          />
-        </CardContent>
-      </Card>
-    </div>
+            <StatusUpdateTimeline
+              updates={incident.updates}
+              renderStatusBadge={getIncidentStatusBadge}
+              emptyTitle="No status updates"
+              emptyDescription="No status updates have been posted for this incident."
+            />
+          </CardContent>
+        </Card>
+      </div>
+    </PageLayout>
   );
 };
 

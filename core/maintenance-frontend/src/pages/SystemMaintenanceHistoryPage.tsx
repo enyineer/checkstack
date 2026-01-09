@@ -151,9 +151,9 @@ const SystemMaintenanceHistoryPageContent: React.FC = () => {
                     className="cursor-pointer hover:bg-muted/50"
                     onClick={() =>
                       navigate(
-                        resolveRoute(maintenanceRoutes.routes.detail, {
+                        `${resolveRoute(maintenanceRoutes.routes.detail, {
                           maintenanceId: m.id,
-                        })
+                        })}?from=${systemId}`
                       )
                     }
                   >

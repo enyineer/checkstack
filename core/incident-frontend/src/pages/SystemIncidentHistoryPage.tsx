@@ -151,9 +151,9 @@ const SystemIncidentHistoryPageContent: React.FC = () => {
               {incidents.map((incident) => (
                 <Link
                   key={incident.id}
-                  to={resolveRoute(incidentRoutes.routes.detail, {
+                  to={`${resolveRoute(incidentRoutes.routes.detail, {
                     incidentId: incident.id,
-                  })}
+                  })}?from=${systemId}`}
                   className="block p-4 hover:bg-muted/50 transition-colors"
                 >
                   <div className="flex items-start justify-between">
