@@ -1,5 +1,15 @@
 # @checkmate-monitor/healthcheck-grpc-backend
 
+## 0.0.3
+
+### Patch Changes
+
+- Updated dependencies [b4eb432]
+- Updated dependencies [a65e002]
+  - @checkmate-monitor/backend-api@1.1.0
+  - @checkmate-monitor/common@0.2.0
+  - @checkmate-monitor/healthcheck-common@0.1.1
+
 ## 0.0.2
 
 ### Patch Changes

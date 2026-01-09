@@ -1,5 +1,57 @@
 # @checkmate-monitor/notification-frontend
 
+## 0.1.4
+
+### Patch Changes
+
+- a65e002: Add compile-time type safety for Lucide icon names
+
+  - Add `LucideIconName` type and `lucideIconSchema` Zod schema to `@checkmate-monitor/common`
+  - Update backend interfaces (`AuthStrategy`, `NotificationStrategy`, `IntegrationProvider`, `CommandDefinition`) to use `LucideIconName`
+  - Update RPC contracts to use `lucideIconSchema` for proper type inference across RPC boundaries
+  - Simplify `SocialProviderButton` to use `DynamicIcon` directly (removes 30+ lines of pascalCase conversion)
+  - Replace static `iconMap` in `SearchDialog` with `DynamicIcon` for dynamic icon rendering
+  - Add fallback handling in `DynamicIcon` when icon name isn't found
+  - Fix legacy kebab-case icon names to PascalCase: `mail`→`Mail`, `send`→`Send`, `github`→`Github`, `key-round`→`KeyRound`, `network`→`Network`, `AlertCircle`→`CircleAlert`
+
+- ae33df2: Move command palette from dashboard to centered navbar position
+
+  - Converted `command-frontend` into a plugin with `NavbarCenterSlot` extension
+  - Added compact `NavbarSearch` component with responsive search trigger
+  - Moved `SearchDialog` from dashboard-frontend to command-frontend
+  - Keyboard shortcut (⌘K / Ctrl+K) now works on every page
+  - Renamed navbar slots for clarity:
+    - `NavbarSlot` → `NavbarRightSlot`
+    - `NavbarMainSlot` → `NavbarLeftSlot`
+    - Added new `NavbarCenterSlot` for centered content
+
+- 32ea706: ### User Menu Loading State Fix
+
+  Fixed user menu items "popping in" one after another due to independent async permission checks.
+
+  **Changes:**
+
+  - Added `UserMenuItemsContext` interface with `permissions` and `hasCredentialAccount` to `@checkmate-monitor/frontend-api`
+  - `LoginNavbarAction` now pre-fetches all permissions and credential account info before rendering the menu
+  - All user menu item components now use the passed context for synchronous permission checks instead of async hooks
+  - Uses `qualifyPermissionId` helper for fully-qualified permission IDs
+
+  **Result:** All menu items appear simultaneously when the user menu opens.
+
+- Updated dependencies [52231ef]
+- Updated dependencies [b0124ef]
+- Updated dependencies [54cc787]
+- Updated dependencies [a65e002]
+- Updated dependencies [ae33df2]
+- Updated dependencies [a65e002]
+- Updated dependencies [32ea706]
+  - @checkmate-monitor/auth-frontend@0.3.0
+  - @checkmate-monitor/ui@0.1.2
+  - @checkmate-monitor/common@0.2.0
+  - @checkmate-monitor/frontend-api@0.1.0
+  - @checkmate-monitor/notification-common@0.1.1
+  - @checkmate-monitor/signal-frontend@0.1.1
+
 ## 0.1.3
 
 ### Patch Changes

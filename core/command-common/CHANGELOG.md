@@ -1,5 +1,12 @@
 # @checkmate-monitor/command-common
 
+## 0.0.3
+
+### Patch Changes
+
+- Updated dependencies [a65e002]
+  - @checkmate-monitor/common@0.2.0
+
 ## 0.0.2
 
 ### Patch Changes

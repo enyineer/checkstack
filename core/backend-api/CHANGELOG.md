@@ -1,5 +1,30 @@
 # @checkmate-monitor/backend-api
 
+## 1.1.0
+
+### Minor Changes
+
+- a65e002: Add compile-time type safety for Lucide icon names
+
+  - Add `LucideIconName` type and `lucideIconSchema` Zod schema to `@checkmate-monitor/common`
+  - Update backend interfaces (`AuthStrategy`, `NotificationStrategy`, `IntegrationProvider`, `CommandDefinition`) to use `LucideIconName`
+  - Update RPC contracts to use `lucideIconSchema` for proper type inference across RPC boundaries
+  - Simplify `SocialProviderButton` to use `DynamicIcon` directly (removes 30+ lines of pascalCase conversion)
+  - Replace static `iconMap` in `SearchDialog` with `DynamicIcon` for dynamic icon rendering
+  - Add fallback handling in `DynamicIcon` when icon name isn't found
+  - Fix legacy kebab-case icon names to PascalCase: `mail`→`Mail`, `send`→`Send`, `github`→`Github`, `key-round`→`KeyRound`, `network`→`Network`, `AlertCircle`→`CircleAlert`
+
+### Patch Changes
+
+- b4eb432: Fixed TypeScript generic contravariance issue in notification strategy registration.
+
+  The `register` and `addStrategy` methods now use generic type parameters instead of `unknown`, allowing notification strategy plugins with typed OAuth configurations to be registered without compiler errors. This fixes contravariance issues where function parameters in `StrategyOAuthConfig<TConfig>` could not be assigned when `TConfig` was a specific type.
+
+- Updated dependencies [a65e002]
+  - @checkmate-monitor/common@0.2.0
+  - @checkmate-monitor/queue-api@1.0.1
+  - @checkmate-monitor/signal-common@0.1.1
+
 ## 1.0.0
 
 ### Major Changes

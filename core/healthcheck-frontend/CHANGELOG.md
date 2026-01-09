@@ -1,5 +1,55 @@
 # @checkmate-monitor/healthcheck-frontend
 
+## 0.2.0
+
+### Minor Changes
+
+- a65e002: Add command palette commands and deep-linking support
+
+  **Backend Changes:**
+
+  - `healthcheck-backend`: Add "Manage Health Checks" (⇧⌘H) and "Create Health Check" commands
+  - `catalog-backend`: Add "Manage Systems" (⇧⌘S) and "Create System" commands
+  - `integration-backend`: Add "Manage Integrations" (⇧⌘G), "Create Integration Subscription", and "View Integration Logs" commands
+  - `auth-backend`: Add "Manage Users" (⇧⌘U), "Create User", "Manage Roles", and "Manage Applications" commands
+  - `command-backend`: Auto-cleanup command registrations when plugins are deregistered
+
+  **Frontend Changes:**
+
+  - `HealthCheckConfigPage`: Handle `?action=create` URL parameter
+  - `CatalogConfigPage`: Handle `?action=create` URL parameter
+  - `IntegrationsPage`: Handle `?action=create` URL parameter
+  - `AuthSettingsPage`: Handle `?tab=` and `?action=create` URL parameters
+
+### Patch Changes
+
+- 0afa204: Subscribe health check charts and history table to real-time signal updates. Charts now display the full data for the selected time range independently from the paginated history table, and both update automatically when a health check run completes.
+- 32ea706: ### User Menu Loading State Fix
+
+  Fixed user menu items "popping in" one after another due to independent async permission checks.
+
+  **Changes:**
+
+  - Added `UserMenuItemsContext` interface with `permissions` and `hasCredentialAccount` to `@checkmate-monitor/frontend-api`
+  - `LoginNavbarAction` now pre-fetches all permissions and credential account info before rendering the menu
+  - All user menu item components now use the passed context for synchronous permission checks instead of async hooks
+  - Uses `qualifyPermissionId` helper for fully-qualified permission IDs
+
+  **Result:** All menu items appear simultaneously when the user menu opens.
+
+- Updated dependencies [52231ef]
+- Updated dependencies [b0124ef]
+- Updated dependencies [54cc787]
+- Updated dependencies [a65e002]
+- Updated dependencies [ae33df2]
+- Updated dependencies [32ea706]
+  - @checkmate-monitor/ui@0.1.2
+  - @checkmate-monitor/common@0.2.0
+  - @checkmate-monitor/frontend-api@0.1.0
+  - @checkmate-monitor/catalog-common@0.1.2
+  - @checkmate-monitor/healthcheck-common@0.1.1
+  - @checkmate-monitor/signal-frontend@0.1.1
+
 ## 0.1.1
 
 ### Patch Changes

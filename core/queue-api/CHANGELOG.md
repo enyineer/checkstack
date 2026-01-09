@@ -1,5 +1,13 @@
 # @checkmate-monitor/queue-api
 
+## 1.0.1
+
+### Patch Changes
+
+- Updated dependencies [b4eb432]
+- Updated dependencies [a65e002]
+  - @checkmate-monitor/backend-api@1.1.0
+
 ## 1.0.0
 
 ### Major Changes

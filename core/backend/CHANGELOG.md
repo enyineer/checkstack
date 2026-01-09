@@ -1,5 +1,19 @@
 # @checkmate-monitor/backend
 
+## 0.1.4
+
+### Patch Changes
+
+- Updated dependencies [b4eb432]
+- Updated dependencies [a65e002]
+  - @checkmate-monitor/backend-api@1.1.0
+  - @checkmate-monitor/common@0.2.0
+  - @checkmate-monitor/auth-common@0.2.1
+  - @checkmate-monitor/queue-api@1.0.1
+  - @checkmate-monitor/signal-backend@0.1.1
+  - @checkmate-monitor/api-docs-common@0.0.3
+  - @checkmate-monitor/signal-common@0.1.1
+
 ## 0.1.3
 
 ### Patch Changes

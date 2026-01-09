@@ -1,5 +1,16 @@
 # @checkmate-monitor/queue-bullmq-backend
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [b4eb432]
+- Updated dependencies [a65e002]
+  - @checkmate-monitor/backend-api@1.1.0
+  - @checkmate-monitor/common@0.2.0
+  - @checkmate-monitor/queue-api@1.0.1
+  - @checkmate-monitor/queue-bullmq-common@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes

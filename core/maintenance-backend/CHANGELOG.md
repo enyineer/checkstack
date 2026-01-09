@@ -1,5 +1,23 @@
 # @checkmate-monitor/maintenance-backend
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [4c5aa9e]
+- Updated dependencies [b4eb432]
+- Updated dependencies [a65e002]
+- Updated dependencies [a65e002]
+  - @checkmate-monitor/integration-backend@0.1.0
+  - @checkmate-monitor/backend-api@1.1.0
+  - @checkmate-monitor/common@0.2.0
+  - @checkmate-monitor/command-backend@0.1.0
+  - @checkmate-monitor/catalog-common@0.1.2
+  - @checkmate-monitor/integration-common@0.1.1
+  - @checkmate-monitor/maintenance-common@0.1.2
+  - @checkmate-monitor/notification-common@0.1.1
+  - @checkmate-monitor/signal-common@0.1.1
+
 ## 0.1.1
 
 ### Patch Changes

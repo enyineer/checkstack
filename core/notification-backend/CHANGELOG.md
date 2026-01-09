@@ -1,5 +1,24 @@
 # @checkmate-monitor/notification-backend
 
+## 0.1.2
+
+### Patch Changes
+
+- b4eb432: Fixed TypeScript generic contravariance issue in notification strategy registration.
+
+  The `register` and `addStrategy` methods now use generic type parameters instead of `unknown`, allowing notification strategy plugins with typed OAuth configurations to be registered without compiler errors. This fixes contravariance issues where function parameters in `StrategyOAuthConfig<TConfig>` could not be assigned when `TConfig` was a specific type.
+
+- Updated dependencies [b4eb432]
+- Updated dependencies [a65e002]
+- Updated dependencies [a65e002]
+  - @checkmate-monitor/backend-api@1.1.0
+  - @checkmate-monitor/common@0.2.0
+  - @checkmate-monitor/auth-common@0.2.1
+  - @checkmate-monitor/auth-backend@1.1.0
+  - @checkmate-monitor/queue-api@1.0.1
+  - @checkmate-monitor/notification-common@0.1.1
+  - @checkmate-monitor/signal-common@0.1.1
+
 ## 0.1.1
 
 ### Patch Changes

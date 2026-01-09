@@ -1,5 +1,17 @@
 # @checkmate-monitor/theme-backend
 
+## 0.0.4
+
+### Patch Changes
+
+- Updated dependencies [b4eb432]
+- Updated dependencies [a65e002]
+- Updated dependencies [a65e002]
+  - @checkmate-monitor/backend-api@1.1.0
+  - @checkmate-monitor/common@0.2.0
+  - @checkmate-monitor/auth-backend@1.1.0
+  - @checkmate-monitor/theme-common@0.0.3
+
 ## 0.0.3
 
 ### Patch Changes

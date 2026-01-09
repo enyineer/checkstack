@@ -1,5 +1,15 @@
 # @checkmate-monitor/signal-backend
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [b4eb432]
+- Updated dependencies [a65e002]
+  - @checkmate-monitor/backend-api@1.1.0
+  - @checkmate-monitor/common@0.2.0
+  - @checkmate-monitor/signal-common@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

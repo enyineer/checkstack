@@ -1,5 +1,11 @@
 # @checkmate-monitor/signal-frontend
 
+## 0.1.1
+
+### Patch Changes
+
+- @checkmate-monitor/signal-common@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

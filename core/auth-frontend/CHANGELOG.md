@@ -1,5 +1,102 @@
 # @checkmate-monitor/auth-frontend
 
+## 0.3.0
+
+### Minor Changes
+
+- 52231ef: # Auth Settings Page Refactoring
+
+  ## Auth Frontend
+
+  Refactored the `AuthSettingsPage` into modular, self-contained tab components:
+
+  - **New Components**: Created `UsersTab`, `RolesTab`, `StrategiesTab`, and `ApplicationsTab` components
+  - **Dynamic Tab Visibility**: Tabs are now conditionally shown based on user permissions
+  - **Auto-Select Logic**: Automatically selects the first available tab if the current tab becomes inaccessible
+  - **Self-Contained State**: Each tab component manages its own state, handlers, and dialogs, reducing prop drilling
+
+  ## UI Package
+
+  - **Responsive Tabs**: Tabs now use column layout on small screens and row layout on medium+ screens
+
+- a65e002: Add command palette commands and deep-linking support
+
+  **Backend Changes:**
+
+  - `healthcheck-backend`: Add "Manage Health Checks" (⇧⌘H) and "Create Health Check" commands
+  - `catalog-backend`: Add "Manage Systems" (⇧⌘S) and "Create System" commands
+  - `integration-backend`: Add "Manage Integrations" (⇧⌘G), "Create Integration Subscription", and "View Integration Logs" commands
+  - `auth-backend`: Add "Manage Users" (⇧⌘U), "Create User", "Manage Roles", and "Manage Applications" commands
+  - `command-backend`: Auto-cleanup command registrations when plugins are deregistered
+
+  **Frontend Changes:**
+
+  - `HealthCheckConfigPage`: Handle `?action=create` URL parameter
+  - `CatalogConfigPage`: Handle `?action=create` URL parameter
+  - `IntegrationsPage`: Handle `?action=create` URL parameter
+  - `AuthSettingsPage`: Handle `?tab=` and `?action=create` URL parameters
+
+- 32ea706: ### User Menu Loading State Fix
+
+  Fixed user menu items "popping in" one after another due to independent async permission checks.
+
+  **Changes:**
+
+  - Added `UserMenuItemsContext` interface with `permissions` and `hasCredentialAccount` to `@checkmate-monitor/frontend-api`
+  - `LoginNavbarAction` now pre-fetches all permissions and credential account info before rendering the menu
+  - All user menu item components now use the passed context for synchronous permission checks instead of async hooks
+  - Uses `qualifyPermissionId` helper for fully-qualified permission IDs
+
+  **Result:** All menu items appear simultaneously when the user menu opens.
+
+### Patch Changes
+
+- 54cc787: ### Fix Access Denied Flash on Page Load
+
+  Fixed the "Access Denied" screen briefly flashing when loading permission-protected pages.
+
+  **Root cause:** The `usePermissions` hook was setting `loading: false` when the session was still pending, causing a brief moment where permissions appeared to be denied.
+
+  **Changes:**
+
+  - `usePermissions` hook now waits for session to finish loading (`isPending`) before determining permission state
+  - `PageLayout` component now treats `loading=undefined` with `allowed=false` as a loading state
+  - `AuthSettingsPage` now explicitly waits for permission hooks to finish loading before checking access
+
+  **Result:** Pages show a loading spinner until permissions are fully resolved, eliminating the flash.
+
+- a65e002: Add compile-time type safety for Lucide icon names
+
+  - Add `LucideIconName` type and `lucideIconSchema` Zod schema to `@checkmate-monitor/common`
+  - Update backend interfaces (`AuthStrategy`, `NotificationStrategy`, `IntegrationProvider`, `CommandDefinition`) to use `LucideIconName`
+  - Update RPC contracts to use `lucideIconSchema` for proper type inference across RPC boundaries
+  - Simplify `SocialProviderButton` to use `DynamicIcon` directly (removes 30+ lines of pascalCase conversion)
+  - Replace static `iconMap` in `SearchDialog` with `DynamicIcon` for dynamic icon rendering
+  - Add fallback handling in `DynamicIcon` when icon name isn't found
+  - Fix legacy kebab-case icon names to PascalCase: `mail`→`Mail`, `send`→`Send`, `github`→`Github`, `key-round`→`KeyRound`, `network`→`Network`, `AlertCircle`→`CircleAlert`
+
+- ae33df2: Move command palette from dashboard to centered navbar position
+
+  - Converted `command-frontend` into a plugin with `NavbarCenterSlot` extension
+  - Added compact `NavbarSearch` component with responsive search trigger
+  - Moved `SearchDialog` from dashboard-frontend to command-frontend
+  - Keyboard shortcut (⌘K / Ctrl+K) now works on every page
+  - Renamed navbar slots for clarity:
+    - `NavbarSlot` → `NavbarRightSlot`
+    - `NavbarMainSlot` → `NavbarLeftSlot`
+    - Added new `NavbarCenterSlot` for centered content
+
+- Updated dependencies [52231ef]
+- Updated dependencies [b0124ef]
+- Updated dependencies [54cc787]
+- Updated dependencies [a65e002]
+- Updated dependencies [ae33df2]
+- Updated dependencies [32ea706]
+  - @checkmate-monitor/ui@0.1.2
+  - @checkmate-monitor/common@0.2.0
+  - @checkmate-monitor/auth-common@0.2.1
+  - @checkmate-monitor/frontend-api@0.1.0
+
 ## 0.2.1
 
 ### Patch Changes

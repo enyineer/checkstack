@@ -1,5 +1,15 @@
 # @checkmate-monitor/catalog-common
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [a65e002]
+- Updated dependencies [ae33df2]
+- Updated dependencies [32ea706]
+  - @checkmate-monitor/common@0.2.0
+  - @checkmate-monitor/frontend-api@0.1.0
+
 ## 0.1.1
 
 ### Patch Changes
