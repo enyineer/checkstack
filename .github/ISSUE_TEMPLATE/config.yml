@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/enyineer/checkmate/tree/main/docs
+    about: Check out our documentation before opening an issue

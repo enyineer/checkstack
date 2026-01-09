@@ -1,0 +1,93 @@
+name: "🚀 Feature Request"
+description: Request a new feature or enhancement for Checkmate
+title: "[Feature]: "
+labels: ["feature-request", "needs-review"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Feature Request
+        Thank you for taking the time to suggest a new feature! Please fill out this form as completely as possible.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Feature Summary
+      description: A clear and concise description of the feature you're requesting.
+      placeholder: I would like to see...
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use Case
+      description: Describe the problem this feature would solve or the use case it addresses.
+      placeholder: |
+        As a [type of user], I want [goal] so that [benefit].
+
+        Currently, I have to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: detailed-description
+    attributes:
+      label: Detailed Description
+      description: |
+        Provide a detailed description of how you envision this feature working.
+        Include examples, workflows, and any specific requirements.
+      placeholder: |
+        The feature should work as follows:
+        1. When the user does X...
+        2. The system should respond with Y...
+        3. This would allow...
+    validations:
+      required: true
+
+  - type: textarea
+    id: ui-mockup
+    attributes:
+      label: UI/UX Description (if applicable)
+      description: |
+        If this feature involves UI changes, please describe the user interface.
+        You can include ASCII mockups, describe layouts, or attach images/wireframes.
+      placeholder: |
+        The UI could look like:
+        - A new button labeled "..." in the header
+        - A modal that opens with...
+        - The page layout would include...
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Describe any alternative solutions or features you've considered.
+      placeholder: |
+        I've considered the following alternatives:
+        1. ...
+        2. ...
+    validations:
+      required: false
+
+  - type: dropdown
+    id: contribution
+    attributes:
+      label: Contribution
+      description: Are you willing and able to contribute this feature yourself?
+      options:
+        - "Yes, I can implement this feature and submit a PR"
+        - "Yes, but I would need guidance on the implementation"
+        - "No, I am requesting this feature but cannot contribute it"
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context, screenshots, or examples about the feature request here.
+    validations:
+      required: false
