@@ -33,11 +33,17 @@ export const PageLayout: React.FC<PageLayoutProps> = ({
   subtitle,
   actions,
   loading,
-  allowed = true,
+  allowed,
   children,
   maxWidth = "3xl",
 }) => {
-  if (loading) {
+  // If loading is explicitly true, show loading state
+  // If loading is undefined and allowed is false, also show loading state
+  // (this prevents "Access Denied" flash when permissions are still being fetched)
+  const isLoading =
+    loading === true || (loading === undefined && allowed === false);
+
+  if (isLoading) {
     return (
       <Page>
         <PageHeader title={title} subtitle={subtitle} actions={actions} />
@@ -50,7 +56,8 @@ export const PageLayout: React.FC<PageLayoutProps> = ({
     );
   }
 
-  if (!allowed) {
+  // Only show permission denied when loading is explicitly false and allowed is false
+  if (allowed === false) {
     return (
       <Page>
         <PageHeader title={title} subtitle={subtitle} actions={actions} />

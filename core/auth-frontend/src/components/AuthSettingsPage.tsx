@@ -27,7 +27,6 @@ import {
   useToast,
   Tabs,
   TabPanel,
-  PermissionDenied,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -140,6 +139,23 @@ export const AuthSettingsPage: React.FC = () => {
   const canManageApplications = permissionApi.usePermission(
     authPermissions.applicationsManage.id
   );
+
+  // Compute loading and permission states for PageLayout
+  const permissionsLoading =
+    loading ||
+    canReadUsers.loading ||
+    canReadRoles.loading ||
+    canManageStrategies.loading ||
+    canManageApplications.loading;
+
+  const hasAnyPermission =
+    canReadUsers.allowed ||
+    canReadRoles.allowed ||
+    canManageStrategies.allowed ||
+    canManageApplications.allowed;
+
+  // Special case: if user is not logged in, show permission denied
+  const isAllowed = session.data?.user ? hasAnyPermission : false;
 
   const [registrationSchema, setRegistrationSchema] = useState<
     Record<string, unknown> | undefined
@@ -532,28 +548,12 @@ export const AuthSettingsPage: React.FC = () => {
     }
   };
 
-  if (loading) return <LoadingSpinner />;
-
-  // Check if user is authenticated and has any permission to view this page
-  if (!session.data?.user) {
-    return (
-      <PermissionDenied message="You must be logged in to access authentication settings." />
-    );
-  }
-
-  // Check if user has permission to view at least one tab
-  const hasAnyPermission =
-    canReadUsers.allowed ||
-    canReadRoles.allowed ||
-    canManageStrategies.allowed ||
-    canManageApplications.allowed;
-
-  if (!hasAnyPermission) {
-    return <PermissionDenied />;
-  }
-
   return (
-    <PageLayout title="Authentication Settings">
+    <PageLayout
+      title="Authentication Settings"
+      loading={permissionsLoading}
+      allowed={isAllowed}
+    >
       <Tabs
         items={[
           {
