@@ -23,7 +23,7 @@ export const PermissionDenied: React.FC<{
           <CardTitle className="text-destructive">Access Denied</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-destructive-foreground">{message}</p>
+          <p className="text-destructive">{message}</p>
         </CardContent>
       </Card>
     </div>

@@ -15,8 +15,8 @@
 
     /* Destructive - Error/danger color */
     --destructive: 0 84% 60%;
-    --destructive-foreground: 0 74% 42%;
-    /* red-700 - darker for better contrast on light backgrounds */
+    --destructive-foreground: 0 0% 100%;
+    /* white - for text on solid destructive backgrounds */
 
     /* Muted - Subtle backgrounds */
     --muted: 240 5% 96%;
@@ -49,18 +49,18 @@
     /* Semantic colors */
     --success: 142 71% 45%;
     /* green-600 */
-    --success-foreground: 142 76% 35%;
-    /* green-700 - darker for better contrast on light backgrounds */
+    --success-foreground: 0 0% 100%;
+    /* white - for text on solid success backgrounds */
 
     --warning: 38 92% 50%;
     /* yellow-500 */
-    --warning-foreground: 32 95% 44%;
-    /* yellow-600 - darker for better contrast on light backgrounds */
+    --warning-foreground: 0 0% 0%;
+    /* black - for text on solid warning backgrounds (yellow needs dark text) */
 
     --info: 217 91% 60%;
     /* blue-500 */
-    --info-foreground: 221 83% 41%;
-    /* blue-700 - darker for better contrast on light backgrounds */
+    --info-foreground: 0 0% 100%;
+    /* white - for text on solid info backgrounds */
 
     /* Radius for rounded corners */
     --radius: 0.5rem;

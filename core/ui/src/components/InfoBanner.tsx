@@ -7,11 +7,10 @@ const infoBannerVariants = cva(
     variants: {
       variant: {
         default: "bg-muted/30 border-border/50 text-muted-foreground",
-        info: "bg-info/5 border-info/20 text-info-foreground",
-        warning: "bg-warning/5 border-warning/20 text-warning-foreground",
-        success: "bg-success/5 border-success/20 text-success-foreground",
-        error:
-          "bg-destructive/5 border-destructive/20 text-destructive-foreground",
+        info: "bg-info/5 border-info/20 text-info",
+        warning: "bg-warning/5 border-warning/20 text-warning",
+        success: "bg-success/5 border-success/20 text-success",
+        error: "bg-destructive/5 border-destructive/20 text-destructive",
       },
     },
     defaultVariants: {

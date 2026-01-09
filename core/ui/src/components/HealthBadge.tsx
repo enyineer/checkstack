@@ -15,20 +15,19 @@ const statusConfig = {
   healthy: {
     icon: CheckCircle2,
     label: "Healthy",
-    className: "bg-success/10 text-success-foreground border-success/30",
+    className: "bg-success/10 text-success border-success/30",
     iconClassName: "text-success",
   },
   degraded: {
     icon: AlertTriangle,
     label: "Degraded",
-    className: "bg-warning/10 text-warning-foreground border-warning/30",
+    className: "bg-warning/10 text-warning border-warning/30",
     iconClassName: "text-warning",
   },
   unhealthy: {
     icon: XCircle,
     label: "Unhealthy",
-    className:
-      "bg-destructive/10 text-destructive-foreground border-destructive/30",
+    className: "bg-destructive/10 text-destructive border-destructive/30",
     iconClassName: "text-destructive",
   },
 } as const;

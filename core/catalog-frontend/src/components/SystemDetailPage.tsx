@@ -152,7 +152,7 @@ export const SystemDetailPage: React.FC = () => {
         </div>
         <Card className="border-destructive/30 bg-destructive/10">
           <CardContent className="p-12 text-center">
-            <p className="text-destructive-foreground">
+            <p className="text-destructive">
               The system you're looking for doesn't exist or has been removed.
             </p>
           </CardContent>
