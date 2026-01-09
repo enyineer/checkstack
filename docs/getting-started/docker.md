@@ -131,7 +131,7 @@ docker compose up -d
 
 On first startup, Checkstack creates a default admin user:
 
-- **Email**: `admin@checkstack.com`
+- **Email**: `admin@checkstack.dev`
 - **Password**: `admin`
 
 > [!CAUTION]
