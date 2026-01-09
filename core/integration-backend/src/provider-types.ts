@@ -198,10 +198,11 @@ export interface IntegrationProvider<
   ): Promise<IntegrationDeliveryResult>;
 
   /**
-   * Optional: Test the provider configuration.
-   * Called when admin clicks "Test Connection" in the UI.
+   * Optional: Test the connection configuration.
+   * Called when admin clicks "Test Connection" in the connections UI.
+   * Only applicable when connectionSchema is defined.
    */
-  testConnection?(config: TConfig): Promise<TestConnectionResult>;
+  testConnection?(config: TConnection): Promise<TestConnectionResult>;
 
   /**
    * Optional: Fetch dynamic options for cascading dropdowns.
@@ -216,8 +217,10 @@ export interface IntegrationProvider<
 /**
  * Registered provider with full namespace information.
  */
-export interface RegisteredIntegrationProvider<TConfig = unknown>
-  extends IntegrationProvider<TConfig> {
+export interface RegisteredIntegrationProvider<
+  TConfig = unknown,
+  TConnection = unknown
+> extends IntegrationProvider<TConfig, TConnection> {
   /** Fully qualified ID: {pluginId}.{id} */
   qualifiedId: string;
 

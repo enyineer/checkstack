@@ -1,0 +1,24 @@
+{
+  "name": "@checkmate-monitor/notification-teams-backend",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./plugin-metadata": "./src/plugin-metadata.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "@checkmate-monitor/backend-api": "workspace:*",
+    "@checkmate-monitor/common": "workspace:*",
+    "@checkmate-monitor/notification-backend": "workspace:*",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@checkmate-monitor/tsconfig": "workspace:*",
+    "typescript": "^5.7.2"
+  }
+}

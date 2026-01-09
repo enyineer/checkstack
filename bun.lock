@@ -1228,6 +1228,36 @@
         "typescript": "^5.0.0",
       },
     },
+    "plugins/integration-teams-backend": {
+      "name": "@checkmate-monitor/integration-teams-backend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate-monitor/backend-api": "workspace:*",
+        "@checkmate-monitor/common": "workspace:*",
+        "@checkmate-monitor/integration-backend": "workspace:*",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkmate-monitor/tsconfig": "workspace:*",
+        "@types/bun": "^1.0.0",
+        "typescript": "^5.0.0",
+      },
+    },
+    "plugins/integration-webex-backend": {
+      "name": "@checkmate-monitor/integration-webex-backend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate-monitor/backend-api": "workspace:*",
+        "@checkmate-monitor/common": "workspace:*",
+        "@checkmate-monitor/integration-backend": "workspace:*",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkmate-monitor/tsconfig": "workspace:*",
+        "@types/bun": "^1.0.0",
+        "typescript": "^5.0.0",
+      },
+    },
     "plugins/integration-webhook-backend": {
       "name": "@checkmate-monitor/integration-webhook-backend",
       "version": "0.0.2",
@@ -1261,6 +1291,20 @@
         "typescript": "^5.9.3",
       },
     },
+    "plugins/notification-teams-backend": {
+      "name": "@checkmate-monitor/notification-teams-backend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate-monitor/backend-api": "workspace:*",
+        "@checkmate-monitor/common": "workspace:*",
+        "@checkmate-monitor/notification-backend": "workspace:*",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkmate-monitor/tsconfig": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
     "plugins/notification-telegram-backend": {
       "name": "@checkmate-monitor/notification-telegram-backend",
       "version": "0.1.1",
@@ -1270,6 +1314,20 @@
         "@checkmate-monitor/notification-backend": "workspace:*",
         "grammy": "^1.35.0",
         "telegramify-markdown": "^1.3.2",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkmate-monitor/tsconfig": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
+    "plugins/notification-webex-backend": {
+      "name": "@checkmate-monitor/notification-webex-backend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkmate-monitor/backend-api": "workspace:*",
+        "@checkmate-monitor/common": "workspace:*",
+        "@checkmate-monitor/notification-backend": "workspace:*",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -1566,6 +1624,10 @@
 
     "@checkmate-monitor/integration-jira-common": ["@checkmate-monitor/integration-jira-common@workspace:plugins/integration-jira-common"],
 
+    "@checkmate-monitor/integration-teams-backend": ["@checkmate-monitor/integration-teams-backend@workspace:plugins/integration-teams-backend"],
+
+    "@checkmate-monitor/integration-webex-backend": ["@checkmate-monitor/integration-webex-backend@workspace:plugins/integration-webex-backend"],
+
     "@checkmate-monitor/integration-webhook-backend": ["@checkmate-monitor/integration-webhook-backend@workspace:plugins/integration-webhook-backend"],
 
     "@checkmate-monitor/maintenance-backend": ["@checkmate-monitor/maintenance-backend@workspace:core/maintenance-backend"],
@@ -1582,7 +1644,11 @@
 
     "@checkmate-monitor/notification-smtp-backend": ["@checkmate-monitor/notification-smtp-backend@workspace:plugins/notification-smtp-backend"],
 
+    "@checkmate-monitor/notification-teams-backend": ["@checkmate-monitor/notification-teams-backend@workspace:plugins/notification-teams-backend"],
+
     "@checkmate-monitor/notification-telegram-backend": ["@checkmate-monitor/notification-telegram-backend@workspace:plugins/notification-telegram-backend"],
+
+    "@checkmate-monitor/notification-webex-backend": ["@checkmate-monitor/notification-webex-backend@workspace:plugins/notification-webex-backend"],
 
     "@checkmate-monitor/queue-api": ["@checkmate-monitor/queue-api@workspace:core/queue-api"],
 

@@ -1,4 +1,5 @@
 import type { Versioned, VersionedRecord } from "./config-versioning";
+import type { Logger } from "./types";
 import type { PluginMetadata, LucideIconName } from "@checkmate-monitor/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -89,6 +90,8 @@ export interface NotificationSendContext<
   userConfig: TUserConfig | undefined;
   /** Admin-configured layout settings (if strategy defines layoutConfig) */
   layoutConfig: TLayoutConfig | undefined;
+  /** Logger for strategy to log errors and diagnostics */
+  logger: Logger;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

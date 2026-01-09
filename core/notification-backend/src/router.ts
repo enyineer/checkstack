@@ -230,6 +230,7 @@ export const createNotificationRouter = (
             strategyConfig,
             userConfig: pref?.userConfig,
             layoutConfig,
+            logger,
           };
 
         // Send (fire-and-forget, don't block on errors)
@@ -664,6 +665,7 @@ export const createNotificationRouter = (
             strategyConfig,
             userConfig: userPref?.userConfig,
             layoutConfig,
+            logger,
           };
 
         // Send via strategy
@@ -1054,6 +1056,7 @@ export const createNotificationRouter = (
             strategyConfig,
             userConfig: pref?.userConfig,
             layoutConfig,
+            logger,
           };
 
         // Send via strategy

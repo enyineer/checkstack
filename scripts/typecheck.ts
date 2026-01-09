@@ -29,8 +29,8 @@ const errorLines = lines.filter((line) => {
 
 if (errorLines.length > 0) {
   console.log("TypeScript errors found:\n");
-  console.log(errorLines.join("\n"));
-  console.log(`\n${errorLines.length} error(s) found.`);
+  console.log(errorLines.join("\n\n"));
+  console.log(`\n\n${errorLines.length} error(s) found.`);
   process.exit(1);
 }
 
@@ -38,7 +38,7 @@ if (errorLines.length > 0) {
 if (result.exitCode !== 0) {
   console.log("Typecheck failed with exit code:", result.exitCode);
   console.log("\nFull output for debugging:");
-  console.log(output);
+  console.log(`\n\n${output}`);
   process.exit(result.exitCode);
 }
 

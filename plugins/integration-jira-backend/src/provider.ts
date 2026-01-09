@@ -247,17 +247,11 @@ If a property is missing, the placeholder will be preserved in the output for de
     },
 
     /**
-     * Test the subscription's connection configuration (deprecated method).
-     * Connection testing is now done via the testConnection endpoint which
-     * calls testConnection(config) directly.
+     * Test the connection configuration.
      */
     async testConnection(
-      config: JiraProviderConfig
+      config: JiraConnectionConfig
     ): Promise<TestConnectionResult> {
-      // When called from the generic test endpoint, config is actually the connection config
-      // Cast to connection config and test
-      const connectionConfig = config as unknown as JiraConnectionConfig;
-
       const minimalLogger = {
         debug: () => {},
         info: () => {},
@@ -265,10 +259,7 @@ If a property is missing, the placeholder will be preserved in the output for de
         error: () => {},
       };
 
-      const client = createJiraClientFromConfig(
-        connectionConfig,
-        minimalLogger
-      );
+      const client = createJiraClientFromConfig(config, minimalLogger);
       return client.testConnection();
     },
 

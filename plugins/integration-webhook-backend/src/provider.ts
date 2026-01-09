@@ -8,7 +8,6 @@ import type {
   IntegrationProvider,
   IntegrationDeliveryContext,
   IntegrationDeliveryResult,
-  TestConnectionResult,
 } from "@checkmate-monitor/integration-backend";
 
 // =============================================================================
@@ -342,79 +341,6 @@ Configure your server to:
       return {
         success: false,
         error: message,
-      };
-    }
-  },
-
-  async testConnection(config: WebhookConfig): Promise<TestConnectionResult> {
-    // Validate the configuration
-    try {
-      webhookConfigSchemaV1.parse(config);
-    } catch (error) {
-      return {
-        success: false,
-        message:
-          error instanceof Error ? error.message : "Invalid configuration",
-      };
-    }
-
-    // Try to reach the URL with a HEAD request to validate it's accessible
-    try {
-      const headers: Record<string, string> = {
-        "User-Agent": "Checkmate-Integration/1.0",
-      };
-
-      // Add authentication for the test
-      switch (config.authType) {
-        case "bearer": {
-          if (config.bearerToken) {
-            headers["Authorization"] = `Bearer ${config.bearerToken}`;
-          }
-          break;
-        }
-        case "basic": {
-          if (config.basicUsername && config.basicPassword) {
-            const credentials = Buffer.from(
-              `${config.basicUsername}:${config.basicPassword}`
-            ).toString("base64");
-            headers["Authorization"] = `Basic ${credentials}`;
-          }
-          break;
-        }
-        case "header": {
-          if (config.authHeaderName && config.authHeaderValue) {
-            headers[config.authHeaderName] = config.authHeaderValue;
-          }
-          break;
-        }
-      }
-
-      const response = await fetch(config.url, {
-        method: "HEAD",
-        headers,
-        signal: AbortSignal.timeout(5000),
-      });
-
-      // Accept any response - we just want to verify the endpoint exists
-      // Some endpoints might return 404 for HEAD but accept POST
-      if (response.status >= 500) {
-        return {
-          success: false,
-          message: `Server error: ${response.status}`,
-        };
-      }
-
-      return {
-        success: true,
-        message: `Endpoint reachable (status: ${response.status})`,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message:
-          error instanceof Error
-            ? `Connection failed: ${error.message}`
-            : "Connection failed",
       };
     }
   },
