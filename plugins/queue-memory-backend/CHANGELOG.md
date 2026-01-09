@@ -1,5 +1,16 @@
 # @checkstack/queue-memory-backend
 
+## 0.0.2
+
+### Patch Changes
+
+- d20d274: Initial release of all @checkstack packages. Rebranded from Checkmate to Checkstack with new npm organization @checkstack and domain checkstack.dev.
+- Updated dependencies [d20d274]
+  - @checkstack/backend-api@0.0.2
+  - @checkstack/common@0.0.2
+  - @checkstack/queue-api@0.0.2
+  - @checkstack/queue-memory-common@0.0.2
+
 ## 1.0.1
 
 ### Patch Changes

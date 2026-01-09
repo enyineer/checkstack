@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.1.0
+
+### Minor Changes
+
+- d20d274: Initial release of all @checkstack packages. Rebranded from Checkmate to Checkstack with new npm organization @checkstack and domain checkstack.dev.
+
 ## 0.5.0
 
 ### Minor Changes

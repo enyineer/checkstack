@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/healthcheck-dns-backend",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {

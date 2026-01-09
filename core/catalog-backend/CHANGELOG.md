@@ -1,5 +1,17 @@
 # @checkstack/catalog-backend
 
+## 0.0.2
+
+### Patch Changes
+
+- d20d274: Initial release of all @checkstack packages. Rebranded from Checkmate to Checkstack with new npm organization @checkstack and domain checkstack.dev.
+- Updated dependencies [d20d274]
+  - @checkstack/backend-api@0.0.2
+  - @checkstack/catalog-common@0.0.2
+  - @checkstack/command-backend@0.0.2
+  - @checkstack/common@0.0.2
+  - @checkstack/notification-common@0.0.2
+
 ## 0.1.0
 
 ### Minor Changes
