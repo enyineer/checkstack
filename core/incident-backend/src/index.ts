@@ -133,7 +133,7 @@ export default createBackendPlugin({
               id: "create",
               title: "Create Incident",
               subtitle: "Report a new incident affecting systems",
-              iconName: "AlertCircle",
+              iconName: "CircleAlert",
               route:
                 resolveRoute(incidentRoutes.routes.config) + "?action=create",
               requiredPermissions: [permissions.incidentManage],
@@ -142,7 +142,7 @@ export default createBackendPlugin({
               id: "manage",
               title: "Manage Incidents",
               subtitle: "Manage incidents affecting systems",
-              iconName: "AlertCircle",
+              iconName: "CircleAlert",
               shortcuts: ["meta+shift+i", "ctrl+shift+i"],
               route: resolveRoute(incidentRoutes.routes.config),
               requiredPermissions: [permissions.incidentManage],

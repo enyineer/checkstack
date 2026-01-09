@@ -5,7 +5,7 @@ import { Button } from "./Button";
 import { Badge, type BadgeProps } from "./Badge";
 import { Toggle } from "./Toggle";
 import { DynamicForm } from "./DynamicForm";
-import { DynamicIcon } from "./DynamicIcon";
+import { DynamicIcon, type LucideIconName } from "./DynamicIcon";
 import { MarkdownBlock } from "./Markdown";
 import { cn } from "../utils";
 
@@ -35,8 +35,8 @@ export interface StrategyConfigCardData {
   displayName: string;
   /** Optional description shown below the title */
   description?: string;
-  /** Lucide icon name (e.g., 'mail', 'github', 'server') */
-  icon?: string;
+  /** Lucide icon name in PascalCase (e.g., 'AlertCircle', 'HeartPulse') */
+  icon?: LucideIconName;
   /** Whether the strategy is currently enabled */
   enabled: boolean;
 }

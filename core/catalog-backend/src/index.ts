@@ -6,6 +6,7 @@ import {
   pluginMetadata,
   catalogContract,
   catalogRoutes,
+  permissions,
 } from "@checkmate-monitor/catalog-common";
 import { createCatalogRouter } from "./router";
 import { NotificationApi } from "@checkmate-monitor/notification-common";
@@ -80,6 +81,26 @@ export default createBackendPlugin({
                 }));
             },
           },
+          commands: [
+            {
+              id: "create",
+              title: "Create System",
+              subtitle: "Add a new system to the catalog",
+              iconName: "Activity",
+              route:
+                resolveRoute(catalogRoutes.routes.config) + "?action=create",
+              requiredPermissions: [permissions.catalogManage],
+            },
+            {
+              id: "manage",
+              title: "Manage Systems",
+              subtitle: "Manage systems in the catalog",
+              iconName: "Activity",
+              shortcuts: ["meta+shift+s", "ctrl+shift+s"],
+              route: resolveRoute(catalogRoutes.routes.config),
+              requiredPermissions: [permissions.catalogManage],
+            },
+          ],
         });
 
         logger.debug("✅ Catalog Backend initialized.");

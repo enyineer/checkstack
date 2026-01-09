@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Migration } from "./config-versioning";
+import type { LucideIconName } from "@checkmate-monitor/common";
 
 /**
  * Migration chain for auth strategy configurations.
@@ -20,8 +21,8 @@ export interface AuthStrategy<Config = unknown> {
   /** Optional description of the strategy */
   description?: string;
 
-  /** Lucide icon name (e.g., "github", "chrome", "mail") */
-  icon?: string;
+  /** Lucide icon name in PascalCase (e.g., 'Github', 'Chrome', 'Mail') */
+  icon?: LucideIconName;
 
   /** Current version of the configuration schema */
   configVersion: number;

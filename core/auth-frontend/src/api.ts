@@ -1,4 +1,5 @@
 import { createApiRef } from "@checkmate-monitor/frontend-api";
+import type { LucideIconName } from "@checkmate-monitor/common";
 
 // Types for better-auth entities
 export interface AuthUser {
@@ -36,7 +37,7 @@ export interface AuthStrategy {
   id: string;
   displayName: string;
   description?: string;
-  icon?: string; // Lucide icon name
+  icon?: LucideIconName;
   enabled: boolean;
   configVersion: number;
   configSchema: Record<string, unknown>; // JSON Schema
@@ -49,7 +50,7 @@ export interface EnabledAuthStrategy {
   displayName: string;
   description?: string;
   type: "credential" | "social";
-  icon?: string; // Lucide icon name
+  icon?: LucideIconName;
   requiresManualRegistration: boolean;
 }
 

@@ -1,34 +1,23 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Dialog, DialogContent, Input } from "@checkmate-monitor/ui";
+import {
+  Dialog,
+  DialogContent,
+  Input,
+  DynamicIcon,
+  type LucideIconName,
+} from "@checkmate-monitor/ui";
 import {
   useDebouncedSearch,
   useFormatShortcut,
 } from "@checkmate-monitor/command-frontend";
 import type { SearchResult } from "@checkmate-monitor/command-common";
-import {
-  Activity,
-  Search,
-  ArrowUp,
-  ArrowDown,
-  CornerDownLeft,
-  AlertCircle,
-  Wrench,
-  Command,
-} from "lucide-react";
+import { Search, ArrowUp, ArrowDown, CornerDownLeft } from "lucide-react";
 
 interface SearchDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
-
-// Icon mapping for different result types
-const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
-  Activity,
-  AlertCircle,
-  Wrench,
-  Command,
-};
 
 export const SearchDialog: React.FC<SearchDialogProps> = ({
   open,
@@ -120,7 +109,6 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
 
   // Render a single result item
   const renderResult = (result: SearchResult, globalIndex: number) => {
-    const IconComponent = iconMap[result.iconName ?? ""] ?? Activity;
     const isSelected = globalIndex === selectedIndex;
 
     return (
@@ -134,7 +122,10 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
             : "text-muted-foreground hover:bg-muted/50"
         }`}
       >
-        <IconComponent className="w-4 h-4 flex-shrink-0" />
+        <DynamicIcon
+          name={result.iconName as LucideIconName}
+          className="w-4 h-4 flex-shrink-0"
+        />
         <div className="flex-1 min-w-0">
           <span className="block truncate">{result.title}</span>
           {result.subtitle && (

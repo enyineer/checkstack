@@ -20,6 +20,7 @@ import {
   SelectValue,
   Label,
   ConfirmationModal,
+  type LucideIconName,
 } from "@checkmate-monitor/ui";
 import { useApi, rpcApiRef } from "@checkmate-monitor/frontend-api";
 import { resolveRoute } from "@checkmate-monitor/common";
@@ -388,7 +389,7 @@ export const SubscriptionDialog = ({
                   >
                     <div className="p-3 rounded-lg bg-muted">
                       <DynamicIcon
-                        name={provider.icon ?? "Webhook"}
+                        name={(provider.icon ?? "Webhook") as LucideIconName}
                         className="h-6 w-6"
                       />
                     </div>

@@ -17,6 +17,7 @@
     "@checkmate-monitor/integration-backend": "workspace:*",
     "@checkmate-monitor/queue-api": "workspace:*",
     "@checkmate-monitor/signal-common": "workspace:*",
+    "@checkmate-monitor/command-backend": "workspace:*",
     "@hono/zod-validator": "^0.7.6",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.0.0",

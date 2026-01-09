@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   Plus,
   Webhook,
@@ -23,6 +23,7 @@ import {
   TableHeader,
   TableRow,
   useToast,
+  type LucideIconName,
 } from "@checkmate-monitor/ui";
 import { useApi, rpcApiRef } from "@checkmate-monitor/frontend-api";
 import { resolveRoute } from "@checkmate-monitor/common";
@@ -38,6 +39,7 @@ export const IntegrationsPage = () => {
   const rpcApi = useApi(rpcApiRef);
   const client = rpcApi.forPlugin(IntegrationApi);
   const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [subscriptions, setSubscriptions] = useState<WebhookSubscription[]>([]);
   const [providers, setProviders] = useState<IntegrationProviderInfo[]>([]);
@@ -76,6 +78,17 @@ export const IntegrationsPage = () => {
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
+
+  // Handle ?action=create URL parameter (from command palette)
+  useEffect(() => {
+    if (searchParams.get("action") === "create") {
+      setSelectedSubscription(undefined);
+      setDialogOpen(true);
+      // Clear the URL param after opening
+      searchParams.delete("action");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const getProviderInfo = (
     providerId: string
@@ -234,7 +247,10 @@ export const IntegrationsPage = () => {
                           <div className="flex items-center gap-3">
                             <div className="p-2 rounded-lg bg-muted">
                               <DynamicIcon
-                                name={provider?.icon ?? "Webhook"}
+                                name={
+                                  (provider?.icon ??
+                                    "Webhook") as LucideIconName
+                                }
                                 className="h-5 w-5 text-muted-foreground"
                               />
                             </div>
@@ -310,7 +326,7 @@ export const IntegrationsPage = () => {
                     <div className="flex items-center gap-3">
                       <div className="p-2 rounded-lg bg-muted">
                         <DynamicIcon
-                          name={provider.icon ?? "Webhook"}
+                          name={(provider.icon ?? "Webhook") as LucideIconName}
                           className="h-6 w-6"
                         />
                       </div>

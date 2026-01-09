@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useApi, permissionApiRef } from "@checkmate-monitor/frontend-api";
 import {
   Card,
@@ -61,6 +62,7 @@ export const AuthSettingsPage: React.FC = () => {
   const authClient = rpcApi.forPlugin(AuthApi);
   const permissionApi = useApi(permissionApiRef);
   const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const session = authApi.useSession();
 
@@ -87,6 +89,27 @@ export const AuthSettingsPage: React.FC = () => {
   const canReadUsers = permissionApi.usePermission(
     authPermissions.usersRead.id
   );
+
+  // Handle ?tab= and ?action= URL parameters (from command palette)
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    const action = searchParams.get("action");
+
+    if (tab && ["users", "roles", "strategies", "applications"].includes(tab)) {
+      setActiveTab(tab as "users" | "roles" | "strategies" | "applications");
+    }
+
+    if (action === "create" && tab === "users") {
+      setCreateUserDialogOpen(true);
+    }
+
+    // Clear the URL params after processing
+    if (tab || action) {
+      searchParams.delete("tab");
+      searchParams.delete("action");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   const canManageUsers = permissionApi.usePermission(
     authPermissions.usersManage.id
   );

@@ -2,6 +2,7 @@ import { oc } from "@orpc/contract";
 import {
   createClientDefinition,
   type ProcedureMetadata,
+  lucideIconSchema,
 } from "@checkmate-monitor/common";
 import { z } from "zod";
 import { permissions } from "./permissions";
@@ -36,7 +37,7 @@ const StrategyDtoSchema = z.object({
   id: z.string(),
   displayName: z.string(),
   description: z.string().optional(),
-  icon: z.string().optional(), // Lucide icon name
+  icon: lucideIconSchema.optional(),
   enabled: z.boolean(),
   configVersion: z.number(),
   configSchema: z.record(z.string(), z.unknown()), // JSON Schema representation
@@ -49,7 +50,7 @@ const EnabledStrategyDtoSchema = z.object({
   displayName: z.string(),
   description: z.string().optional(),
   type: z.enum(["credential", "social"]),
-  icon: z.string().optional(), // Lucide icon name
+  icon: lucideIconSchema.optional(),
   requiresManualRegistration: z.boolean(),
 });
 

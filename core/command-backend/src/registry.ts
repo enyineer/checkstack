@@ -3,6 +3,7 @@ import {
   qualifyPermissionId,
   type PluginMetadata,
   type Permission,
+  type LucideIconName,
 } from "@checkmate-monitor/common";
 
 // =============================================================================
@@ -26,8 +27,8 @@ export interface CommandDefinition {
   id: string;
   title: string;
   subtitle?: string;
-  /** Icon name (resolved by frontend) */
-  iconName?: string;
+  /** Icon name (Lucide PascalCase, e.g., 'AlertCircle') */
+  iconName?: LucideIconName;
   /** Keyboard shortcuts, e.g. ["meta+shift+i", "ctrl+shift+i"] */
   shortcuts?: string[];
   /** Route to navigate to when executed */
@@ -237,6 +238,22 @@ function capitalize(str: string): string {
  */
 export function unregisterSearchProvider(providerId: string): void {
   searchProviders.delete(providerId);
+}
+
+/**
+ * Unregister all search providers for a given plugin ID.
+ * Called automatically when a plugin is deregistered.
+ * @returns The number of providers removed
+ */
+export function unregisterProvidersByPluginId(pluginId: string): number {
+  let removed = 0;
+  for (const [id] of searchProviders) {
+    if (id.startsWith(`${pluginId}.`)) {
+      searchProviders.delete(id);
+      removed++;
+    }
+  }
+  return removed;
 }
 
 /**

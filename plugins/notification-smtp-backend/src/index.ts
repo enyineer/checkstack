@@ -79,7 +79,7 @@ const smtpStrategy: NotificationStrategy<
   id: "smtp",
   displayName: "Email (SMTP)",
   description: "Send notifications via email using SMTP",
-  icon: "mail",
+  icon: "Mail",
 
   config: new Versioned({
     version: 1,

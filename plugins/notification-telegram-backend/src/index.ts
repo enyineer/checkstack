@@ -81,7 +81,7 @@ const telegramStrategy: NotificationStrategy<
   id: "telegram",
   displayName: "Telegram",
   description: "Send notifications via Telegram bot messages",
-  icon: "send",
+  icon: "Send",
 
   config: new Versioned({
     version: 1,

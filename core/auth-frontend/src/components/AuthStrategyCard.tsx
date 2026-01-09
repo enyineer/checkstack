@@ -1,4 +1,8 @@
-import { StrategyConfigCard, type ConfigSection } from "@checkmate-monitor/ui";
+import {
+  StrategyConfigCard,
+  type ConfigSection,
+  type LucideIconName,
+} from "@checkmate-monitor/ui";
 import type { AuthStrategy } from "../api";
 
 export interface AuthStrategyCardProps {
@@ -56,7 +60,7 @@ export function AuthStrategyCard({
         id: strategy.id,
         displayName: strategy.displayName,
         description: strategy.description,
-        icon: strategy.icon,
+        icon: strategy.icon as LucideIconName,
         enabled: strategy.enabled,
       }}
       configSections={configSections}

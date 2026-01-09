@@ -1,5 +1,5 @@
 import type { Versioned, VersionedRecord } from "./config-versioning";
-import type { PluginMetadata } from "@checkmate-monitor/common";
+import type { PluginMetadata, LucideIconName } from "@checkmate-monitor/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Contact Resolution Types
@@ -240,8 +240,8 @@ export interface NotificationStrategy<
   /** Optional description of the channel */
   description?: string;
 
-  /** Lucide icon name (e.g., 'mail', 'slack', 'message-circle') */
-  icon?: string;
+  /** Lucide icon name in PascalCase (e.g., 'Mail', 'MessageCircle') */
+  icon?: LucideIconName;
 
   /**
    * Global strategy configuration (admin-managed).

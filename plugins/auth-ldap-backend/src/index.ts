@@ -160,7 +160,7 @@ const ldapStrategy: AuthStrategy<LdapConfig> = {
   id: "ldap",
   displayName: "LDAP",
   description: "Authenticate using LDAP directory",
-  icon: "network",
+  icon: "Network",
   configVersion: 2,
   configSchema: ldapConfigV2,
   requiresManualRegistration: false,

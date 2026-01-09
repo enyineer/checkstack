@@ -4,6 +4,7 @@
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
+    "@checkmate-monitor/common": "workspace:*",
     "@checkmate-monitor/frontend-api": "workspace:*",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -14,7 +15,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.0",
     "date-fns": "^4.1.0",
-    "lucide-react": "^0.344.0",
+    "lucide-react": "0.562.0",
     "prismjs": "^1.29.0",
     "react": "^18.2.0",
     "react-markdown": "^10.1.0",

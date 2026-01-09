@@ -1,21 +1,29 @@
 import { icons, type LucideIcon } from "lucide-react";
 import { Settings } from "lucide-react";
+import type { LucideIconName } from "@checkmate-monitor/common";
+
+// Re-export the type for convenience
+export type { LucideIconName } from "@checkmate-monitor/common";
 
 /**
  * Props for the DynamicIcon component
  */
 export interface DynamicIconProps {
-  /** Lucide icon name (e.g., 'mail', 'slack', 'message-circle') */
-  name?: string;
+  /** Lucide icon name in PascalCase (e.g., 'AlertCircle', 'HeartPulse') */
+  name?: LucideIconName;
   /** CSS class name to apply to the icon */
   className?: string;
-  /** Fallback icon if the name is not found */
+  /** Fallback icon if name is not provided */
   fallback?: LucideIcon;
 }
 
 /**
  * Dynamically renders a Lucide icon by name.
- * Falls back to Settings icon if the icon name is not found.
+ * Falls back to Settings icon if the icon name is not provided.
+ *
+ * @example
+ * <DynamicIcon name="AlertCircle" />
+ * <DynamicIcon name="HeartPulse" className="h-6 w-6" />
  */
 export function DynamicIcon({
   name,
@@ -26,25 +34,10 @@ export function DynamicIcon({
     return <FallbackIcon className={className} />;
   }
 
-  // Convert kebab-case to PascalCase (e.g., 'message-circle' -> 'MessageCircle')
-  const pascalCase = name
-    .split("-")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join("");
+  const Icon = icons[name];
 
-  // Look up the icon in lucide-react's icons object
-  const Icon = icons[pascalCase as keyof typeof icons];
-
+  // Fallback if icon name doesn't exist in lucide-react
   if (!Icon) {
-    // If not found, try the original name directly (for single-word icons)
-    const directIcon =
-      icons[
-        (name.charAt(0).toUpperCase() + name.slice(1)) as keyof typeof icons
-      ];
-    if (directIcon) {
-      const DirectIcon = directIcon;
-      return <DirectIcon className={className} />;
-    }
     return <FallbackIcon className={className} />;
   }
 

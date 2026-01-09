@@ -42,6 +42,7 @@ import {
   useToast,
   ConfirmationModal,
   BackLink,
+  type LucideIconName,
 } from "@checkmate-monitor/ui";
 import { useApi, rpcApiRef } from "@checkmate-monitor/frontend-api";
 import { resolveRoute } from "@checkmate-monitor/common";
@@ -274,7 +275,7 @@ export const ProviderConnectionsPage = () => {
         <EmptyState
           icon={
             <DynamicIcon
-              name={provider?.icon ?? "Settings2"}
+              name={(provider?.icon ?? "Settings2") as LucideIconName}
               className="h-12 w-12"
             />
           }
@@ -291,7 +292,7 @@ export const ProviderConnectionsPage = () => {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <DynamicIcon
-                name={provider?.icon ?? "Settings2"}
+                name={(provider?.icon ?? "Settings2") as LucideIconName}
                 className="h-5 w-5"
               />
               Connections

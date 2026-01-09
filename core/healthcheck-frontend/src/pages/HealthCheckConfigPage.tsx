@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   useApi,
   wrapInSuspense,
@@ -21,6 +22,7 @@ import { resolveRoute } from "@checkmate-monitor/common";
 const HealthCheckConfigPageContent = () => {
   const api = useApi(healthCheckApiRef);
   const permissionApi = useApi(permissionApiRef);
+  const [searchParams, setSearchParams] = useSearchParams();
   const { allowed: canRead, loading: permissionLoading } =
     permissionApi.useResourcePermission("healthcheck", "read");
   const { allowed: canManage } = permissionApi.useResourcePermission(
@@ -54,6 +56,17 @@ const HealthCheckConfigPageContent = () => {
   useEffect(() => {
     fetchData();
   }, [api]);
+
+  // Handle ?action=create URL parameter (from command palette)
+  useEffect(() => {
+    if (searchParams.get("action") === "create" && canManage) {
+      setEditingConfig(undefined);
+      setIsEditorOpen(true);
+      // Clear the URL param after opening
+      searchParams.delete("action");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, canManage, setSearchParams]);
 
   const handleCreate = () => {
     setEditingConfig(undefined);

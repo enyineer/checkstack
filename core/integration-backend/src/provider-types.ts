@@ -6,6 +6,7 @@
  */
 import { z } from "zod";
 import type { Versioned, Logger, Hook } from "@checkmate-monitor/backend-api";
+import type { LucideIconName } from "@checkmate-monitor/common";
 
 // =============================================================================
 // Integration Event Definition Types
@@ -161,8 +162,8 @@ export interface IntegrationProvider<
   /** Description of what this provider does */
   description?: string;
 
-  /** Lucide icon name for UI */
-  icon?: string;
+  /** Lucide icon name in PascalCase (e.g., 'Webhook') */
+  icon?: LucideIconName;
 
   /** Per-subscription configuration schema */
   config: Versioned<TConfig>;

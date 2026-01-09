@@ -12,6 +12,8 @@ import {
   pluginMetadata,
   permissionList,
   authContract,
+  authRoutes,
+  permissions,
 } from "@checkmate-monitor/auth-common";
 import { NotificationApi } from "@checkmate-monitor/notification-common";
 import * as schema from "./schema";
@@ -32,6 +34,8 @@ import {
   PLATFORM_REGISTRATION_CONFIG_VERSION,
   PLATFORM_REGISTRATION_CONFIG_ID,
 } from "./platform-registration-config";
+import { registerSearchProvider } from "@checkmate-monitor/command-backend";
+import { resolveRoute } from "@checkmate-monitor/common";
 
 export interface BetterAuthExtensionPoint {
   addStrategy(strategy: AuthStrategy<unknown>): void;
@@ -736,6 +740,49 @@ export default createBackendPlugin({
             "   -> Created initial admin user (admin@checkmate-monitor.com : admin)"
           );
         }
+
+        // Register command palette commands
+        registerSearchProvider({
+          pluginMetadata,
+          commands: [
+            {
+              id: "users",
+              title: "Manage Users",
+              subtitle: "View and manage platform users",
+              iconName: "Users",
+              shortcuts: ["meta+shift+u", "ctrl+shift+u"],
+              route: resolveRoute(authRoutes.routes.settings) + "?tab=users",
+              requiredPermissions: [permissions.usersRead],
+            },
+            {
+              id: "createUser",
+              title: "Create User",
+              subtitle: "Create a new user account",
+              iconName: "UserPlus",
+              route:
+                resolveRoute(authRoutes.routes.settings) +
+                "?tab=users&action=create",
+              requiredPermissions: [permissions.usersCreate],
+            },
+            {
+              id: "roles",
+              title: "Manage Roles",
+              subtitle: "Manage roles and permissions",
+              iconName: "Shield",
+              route: resolveRoute(authRoutes.routes.settings) + "?tab=roles",
+              requiredPermissions: [permissions.rolesRead],
+            },
+            {
+              id: "applications",
+              title: "Manage Applications",
+              subtitle: "Manage external API applications",
+              iconName: "Key",
+              route:
+                resolveRoute(authRoutes.routes.settings) + "?tab=applications",
+              requiredPermissions: [permissions.applicationsManage],
+            },
+          ],
+        });
 
         logger.debug("✅ Auth Backend initialized.");
       },

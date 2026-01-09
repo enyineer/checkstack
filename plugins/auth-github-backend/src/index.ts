@@ -34,7 +34,7 @@ const githubStrategy: AuthStrategy<z.infer<typeof githubConfigV2>> = {
   id: "github",
   displayName: "GitHub",
   description: "Sign in with GitHub",
-  icon: "github", // Lucide icon name
+  icon: "Github",
   configVersion: 2,
   configSchema: githubConfigV2,
   requiresManualRegistration: false,

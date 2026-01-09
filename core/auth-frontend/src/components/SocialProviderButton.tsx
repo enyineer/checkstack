@@ -1,40 +1,15 @@
 import React from "react";
-import { Button } from "@checkmate-monitor/ui";
-import * as LucideIcons from "lucide-react";
+import {
+  Button,
+  DynamicIcon,
+  type LucideIconName,
+} from "@checkmate-monitor/ui";
 
 interface SocialProviderButtonProps {
   displayName: string;
-  icon?: string; // Lucide icon name
+  icon?: LucideIconName;
   onClick: () => void;
 }
-
-const getIconComponent = (iconName?: string) => {
-  if (!iconName) {
-    return <LucideIcons.Mail className="h-4 w-4" />;
-  }
-
-  // Convert icon name to PascalCase for Lucide icon lookup
-  const pascalCase = iconName
-    .split("-")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join("");
-
-  // Dynamically look up the icon from lucide-react
-  // Type assertion is safe here since we provide a fallback
-  const IconComponent = (
-    LucideIcons as unknown as Record<
-      string,
-      React.ComponentType<{ className?: string }>
-    >
-  )[pascalCase];
-
-  if (!IconComponent) {
-    // Fallback to Mail icon if not found
-    return <LucideIcons.Mail className="h-4 w-4" />;
-  }
-
-  return <IconComponent className="h-4 w-4" />;
-};
 
 export const SocialProviderButton: React.FC<SocialProviderButtonProps> = ({
   displayName,
@@ -48,7 +23,7 @@ export const SocialProviderButton: React.FC<SocialProviderButtonProps> = ({
       className="w-full"
       onClick={onClick}
     >
-      {getIconComponent(icon)}
+      <DynamicIcon name={icon} className="h-4 w-4" />
       <span className="ml-2">Continue with {displayName}</span>
     </Button>
   );

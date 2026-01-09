@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   useApi,
   permissionApiRef,
@@ -29,6 +30,7 @@ export const CatalogConfigPage = () => {
   const catalogApi = useApi(catalogApiRef);
   const permissionApi = useApi(permissionApiRef);
   const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { allowed: canManage, loading: permissionLoading } =
     permissionApi.useManagePermission("catalog");
 
@@ -81,6 +83,16 @@ export const CatalogConfigPage = () => {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Handle ?action=create URL parameter (from command palette)
+  useEffect(() => {
+    if (searchParams.get("action") === "create" && canManage) {
+      setIsSystemEditorOpen(true);
+      // Clear the URL param after opening
+      searchParams.delete("action");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, canManage, setSearchParams]);
 
   const handleCreateSystem = async (data: {
     name: string;

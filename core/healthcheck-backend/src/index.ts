@@ -8,6 +8,8 @@ import {
   permissionList,
   pluginMetadata,
   healthCheckContract,
+  healthcheckRoutes,
+  permissions,
 } from "@checkmate-monitor/healthcheck-common";
 import {
   createBackendPlugin,
@@ -21,6 +23,8 @@ import { HealthCheckService } from "./service";
 import { catalogHooks } from "@checkmate-monitor/catalog-backend";
 import { CatalogApi } from "@checkmate-monitor/catalog-common";
 import { healthCheckHooks } from "./hooks";
+import { registerSearchProvider } from "@checkmate-monitor/command-backend";
+import { resolveRoute } from "@checkmate-monitor/common";
 
 // =============================================================================
 // Integration Event Payload Schemas
@@ -122,6 +126,32 @@ export default createBackendPlugin({
           healthCheckRegistry
         );
         rpc.registerRouter(healthCheckRouter, healthCheckContract);
+
+        // Register command palette commands
+        registerSearchProvider({
+          pluginMetadata,
+          commands: [
+            {
+              id: "create",
+              title: "Create Health Check",
+              subtitle: "Create a new health check configuration",
+              iconName: "HeartPulse",
+              route:
+                resolveRoute(healthcheckRoutes.routes.config) +
+                "?action=create",
+              requiredPermissions: [permissions.healthCheckManage],
+            },
+            {
+              id: "manage",
+              title: "Manage Health Checks",
+              subtitle: "Manage health check configurations",
+              iconName: "HeartPulse",
+              shortcuts: ["meta+shift+h", "ctrl+shift+h"],
+              route: resolveRoute(healthcheckRoutes.routes.config),
+              requiredPermissions: [permissions.healthCheckManage],
+            },
+          ],
+        });
 
         logger.debug("✅ Health Check Backend initialized.");
       },

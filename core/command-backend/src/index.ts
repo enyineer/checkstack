@@ -1,10 +1,14 @@
-import { createBackendPlugin } from "@checkmate-monitor/backend-api";
-import { coreServices } from "@checkmate-monitor/backend-api";
+import {
+  createBackendPlugin,
+  coreServices,
+  coreHooks,
+} from "@checkmate-monitor/backend-api";
 import {
   pluginMetadata,
   commandContract,
 } from "@checkmate-monitor/command-common";
 import { createCommandRouter } from "./router";
+import { unregisterProvidersByPluginId } from "./registry";
 
 // Re-export registry functions for other plugins to use
 export {
@@ -33,6 +37,21 @@ export default createBackendPlugin({
         rpc.registerRouter(commandRouter, commandContract);
 
         logger.debug("✅ Command Backend initialized.");
+      },
+      afterPluginsReady: async ({ logger, onHook }) => {
+        // Subscribe to plugin deregistration to clean up their commands
+        onHook(
+          coreHooks.pluginDeregistering,
+          async ({ pluginId }) => {
+            const removed = unregisterProvidersByPluginId(pluginId);
+            if (removed > 0) {
+              logger.debug(
+                `[command-backend] Unregistered ${removed} search provider(s) for plugin: ${pluginId}`
+              );
+            }
+          },
+          { mode: "instance-local" }
+        );
       },
     });
   },

@@ -8,7 +8,10 @@ import {
   permissionList,
   pluginMetadata,
   integrationContract,
+  integrationRoutes,
+  permissions,
 } from "@checkmate-monitor/integration-common";
+import { resolveRoute } from "@checkmate-monitor/common";
 import type { PluginMetadata } from "@checkmate-monitor/common";
 import type {
   IntegrationEventDefinition,
@@ -31,6 +34,7 @@ import {
 } from "./connection-store";
 import { subscribeToRegisteredEvents } from "./hook-subscriber";
 import { createIntegrationRouter } from "./router";
+import { registerSearchProvider } from "@checkmate-monitor/command-backend";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Service References
@@ -205,6 +209,39 @@ export default createBackendPlugin({
           logger,
         });
         rpc.registerRouter(router, integrationContract);
+
+        // Register command palette commands
+        registerSearchProvider({
+          pluginMetadata,
+          commands: [
+            {
+              id: "create",
+              title: "Create Integration Subscription",
+              subtitle: "Create a new subscription for integration events",
+              iconName: "Webhook",
+              route:
+                resolveRoute(integrationRoutes.routes.list) + "?action=create",
+              requiredPermissions: [permissions.integrationManage],
+            },
+            {
+              id: "manage",
+              title: "Manage Integrations",
+              subtitle: "Manage integration subscriptions and connections",
+              iconName: "Webhook",
+              shortcuts: ["meta+shift+g", "ctrl+shift+g"],
+              route: resolveRoute(integrationRoutes.routes.list),
+              requiredPermissions: [permissions.integrationManage],
+            },
+            {
+              id: "logs",
+              title: "View Integration Logs",
+              subtitle: "View integration delivery logs",
+              iconName: "FileText",
+              route: resolveRoute(integrationRoutes.routes.logs),
+              requiredPermissions: [permissions.integrationManage],
+            },
+          ],
+        });
 
         logger.debug("✅ Integration Backend initialized.");
       },

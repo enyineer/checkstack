@@ -17,6 +17,7 @@ import {
   cn,
   DynamicIcon,
   MarkdownBlock,
+  type LucideIconName,
 } from "@checkmate-monitor/ui";
 
 /**
@@ -26,7 +27,7 @@ export interface UserDeliveryChannel {
   strategyId: string;
   displayName: string;
   description?: string;
-  icon?: string;
+  icon?: LucideIconName;
   contactResolution: {
     type: "auth-email" | "auth-provider" | "user-config" | "oauth-link";
   };

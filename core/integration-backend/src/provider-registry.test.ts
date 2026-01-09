@@ -43,7 +43,7 @@ function createTestProvider(
     id,
     displayName: `${id.charAt(0).toUpperCase()}${id.slice(1)} Provider`,
     description: `Deliver events via ${id}`,
-    icon: id,
+    icon: "Webhook",
     config: new Versioned({
       version: 1,
       schema,

@@ -1,4 +1,8 @@
-import { StrategyConfigCard, type ConfigSection } from "@checkmate-monitor/ui";
+import {
+  StrategyConfigCard,
+  type ConfigSection,
+  type LucideIconName,
+} from "@checkmate-monitor/ui";
 
 /**
  * Strategy data from getDeliveryStrategies endpoint
@@ -7,7 +11,7 @@ export interface DeliveryStrategy {
   qualifiedId: string;
   displayName: string;
   description?: string;
-  icon?: string;
+  icon?: LucideIconName;
   ownerPluginId: string;
   contactResolution: {
     type:
