@@ -3,12 +3,32 @@ import {
   useApi,
   rpcApiRef,
   createApiRef,
+  createFrontendPlugin,
+  NavbarCenterSlot,
 } from "@checkmate-monitor/frontend-api";
 import {
   CommandApi,
+  pluginMetadata,
   type SearchResult,
 } from "@checkmate-monitor/command-common";
 import type { InferClient } from "@checkmate-monitor/common";
+import { NavbarSearch } from "./components/NavbarSearch";
+
+// =============================================================================
+// PLUGIN
+// =============================================================================
+
+export const commandPlugin = createFrontendPlugin({
+  metadata: pluginMetadata,
+  routes: [],
+  extensions: [
+    {
+      id: "command.navbar.search",
+      slot: NavbarCenterSlot,
+      component: NavbarSearch,
+    },
+  ],
+});
 
 // =============================================================================
 // API REF

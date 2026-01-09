@@ -11,7 +11,7 @@ import { ThemeApi } from "@checkmate-monitor/theme-common";
  * - For non-logged-in users: theme is already read from local storage by ThemeProvider
  * - Also syncs backend theme to local storage for continuity when logging out
  *
- * Must be rendered early in the app (e.g., via NavbarSlot) to ensure theme
+ * Must be rendered early in the app (e.g., via NavbarRightSlot) to ensure theme
  * is applied before the user sees the page.
  */
 export const ThemeSynchronizer = () => {

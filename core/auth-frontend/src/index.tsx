@@ -5,7 +5,7 @@ import {
   PermissionApi,
   createFrontendPlugin,
   createSlotExtension,
-  NavbarSlot,
+  NavbarRightSlot,
   UserMenuItemsSlot,
   UserMenuItemsBottomSlot,
 } from "@checkmate-monitor/frontend-api";
@@ -216,7 +216,7 @@ export const authPlugin = createFrontendPlugin({
   extensions: [
     {
       id: "auth.navbar.action",
-      slot: NavbarSlot,
+      slot: NavbarRightSlot,
       component: LoginNavbarAction,
     },
     createSlotExtension(UserMenuItemsSlot, {

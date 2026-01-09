@@ -474,8 +474,8 @@ import {
   DashboardSlot,
   UserMenuItemsSlot,
   UserMenuItemsBottomSlot,
-  NavbarSlot,
-  NavbarMainSlot,
+  NavbarRightSlot,
+  NavbarLeftSlot,
 } from "@checkmate-monitor/frontend-api";
 ```
 

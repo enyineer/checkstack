@@ -33,3 +33,16 @@
 .editor code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
 }
+
+/* Subtle pulse animation for navbar search */
+@keyframes pulse-glow {
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
+  }
+
+  50% {
+    box-shadow: 0 0 8px 2px hsl(var(--primary) / 0.15);
+  }
+}

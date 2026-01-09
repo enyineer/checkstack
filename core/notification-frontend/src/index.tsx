@@ -1,7 +1,7 @@
 import {
   createFrontendPlugin,
   createSlotExtension,
-  NavbarSlot,
+  NavbarRightSlot,
   UserMenuItemsSlot,
 } from "@checkmate-monitor/frontend-api";
 import {
@@ -28,7 +28,7 @@ export const notificationPlugin = createFrontendPlugin({
   extensions: [
     {
       id: "notification.navbar.bell",
-      slot: NavbarSlot,
+      slot: NavbarRightSlot,
       component: NotificationBell,
     },
     createSlotExtension(UserMenuItemsSlot, {

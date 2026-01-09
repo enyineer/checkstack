@@ -21,7 +21,7 @@ type ExtensionSlotProps<TSlot extends SlotDefinition<unknown>> =
  * <ExtensionSlot slot={SystemDetailsSlot} context={{ system }} />
  *
  * // Slot without context
- * <ExtensionSlot slot={NavbarSlot} />
+ * <ExtensionSlot slot={NavbarRightSlot} />
  * ```
  */
 export function ExtensionSlot<TSlot extends SlotDefinition<unknown>>({

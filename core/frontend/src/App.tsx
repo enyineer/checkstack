@@ -17,8 +17,9 @@ import {
   ExtensionSlot,
   pluginRegistry,
   DashboardSlot,
-  NavbarSlot,
-  NavbarMainSlot,
+  NavbarRightSlot,
+  NavbarLeftSlot,
+  NavbarCenterSlot,
   RuntimeConfigProvider,
   useRuntimeConfigLoading,
   useRuntimeConfig,
@@ -92,17 +93,25 @@ function AppContent() {
       {/* Global keyboard shortcuts for commands */}
       <GlobalShortcuts />
       <AmbientBackground className="text-foreground font-sans">
-        <header className="p-4 bg-card/80 backdrop-blur-sm shadow-sm border-b border-border flex justify-between items-center z-50 relative">
-          <div className="flex items-center gap-8">
-            <Link to="/">
-              <h1 className="text-xl font-bold text-primary">Checkmate</h1>
-            </Link>
-            <nav className="hidden md:flex gap-1">
-              <ExtensionSlot slot={NavbarMainSlot} />
-            </nav>
-          </div>
-          <div className="flex gap-2">
-            <ExtensionSlot slot={NavbarSlot} />
+        <header className="p-4 bg-card/80 backdrop-blur-sm shadow-sm border-b border-border z-50 relative">
+          <div className="flex items-center justify-between gap-4">
+            {/* Left: Logo and main navigation */}
+            <div className="flex items-center gap-8 flex-shrink-0">
+              <Link to="/">
+                <h1 className="text-xl font-bold text-primary">Checkmate</h1>
+              </Link>
+              <nav className="hidden md:flex gap-1">
+                <ExtensionSlot slot={NavbarLeftSlot} />
+              </nav>
+            </div>
+            {/* Center: Search (flexible width, centered) */}
+            <div className="flex-1 flex justify-center max-w-md">
+              <ExtensionSlot slot={NavbarCenterSlot} />
+            </div>
+            {/* Right: Other navbar items */}
+            <div className="flex gap-2 flex-shrink-0">
+              <ExtensionSlot slot={NavbarRightSlot} />
+            </div>
           </div>
         </header>
         <main className="p-8 max-w-7xl mx-auto">

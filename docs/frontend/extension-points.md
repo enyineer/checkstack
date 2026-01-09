@@ -471,8 +471,8 @@ Core slots are defined using the `createSlot` utility and exported as `SlotDefin
 ```typescript
 import {
   DashboardSlot,
-  NavbarSlot,
-  NavbarMainSlot,
+  NavbarRightSlot,
+  NavbarLeftSlot,
   UserMenuItemsSlot,
   UserMenuItemsBottomSlot,
 } from "@checkmate-monitor/frontend-api";

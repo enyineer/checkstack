@@ -32,7 +32,6 @@ import {
   LoadingSpinner,
   SubscribeButton,
   useToast,
-  CommandPalette,
   AnimatedCounter,
   TerminalFeed,
   type TerminalEntry,
@@ -47,7 +46,6 @@ import {
   Terminal,
 } from "lucide-react";
 import { authApiRef } from "@checkmate-monitor/auth-frontend/api";
-import { SearchDialog } from "./components/SearchDialog";
 
 const CATALOG_PLUGIN_ID = "catalog";
 const MAX_TERMINAL_ENTRIES = 8;
@@ -99,9 +97,6 @@ export const Dashboard: React.FC = () => {
   // Terminal feed entries from real healthcheck signals
   const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>([]);
 
-  // Search dialog state
-  const [searchOpen, setSearchOpen] = useState(false);
-
   // Subscription state
   const [subscriptions, setSubscriptions] = useState<EnrichedSubscription[]>(
     []
@@ -127,19 +122,6 @@ export const Dashboard: React.FC = () => {
       );
     }
   );
-
-  // Global keyboard shortcut for search
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setSearchOpen(true);
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
 
   useEffect(() => {
     if (session) {
@@ -324,18 +306,7 @@ export const Dashboard: React.FC = () => {
 
   return (
     <>
-      {/* Search Dialog */}
-      <SearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
-
       <div className="space-y-8 animate-in fade-in duration-500">
-        {/* Command Palette Hero */}
-        <section>
-          <CommandPalette
-            onClick={() => setSearchOpen(true)}
-            placeholder="Search systems, incidents, or run commands..."
-          />
-        </section>
-
         {/* Overview Section */}
         <section>
           <SectionHeader

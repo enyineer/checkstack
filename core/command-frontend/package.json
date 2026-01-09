@@ -4,14 +4,17 @@
   "type": "module",
   "exports": {
     ".": {
-      "import": "./src/index.ts"
+      "import": "./src/index.tsx"
     }
   },
   "dependencies": {
     "@checkmate-monitor/command-common": "workspace:*",
     "@checkmate-monitor/common": "workspace:*",
     "@checkmate-monitor/frontend-api": "workspace:*",
-    "react": "^18.2.0"
+    "@checkmate-monitor/ui": "workspace:*",
+    "lucide-react": "^0.468.0",
+    "react": "^18.2.0",
+    "react-router-dom": "^7.1.1"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

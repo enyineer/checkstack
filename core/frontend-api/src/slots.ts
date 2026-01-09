@@ -38,8 +38,9 @@ export function createSlot<TContext = undefined>(
  * Core layout slots - no context required
  */
 export const DashboardSlot = createSlot("dashboard");
-export const NavbarSlot = createSlot("core.layout.navbar");
-export const NavbarMainSlot = createSlot("core.layout.navbar.main");
+export const NavbarLeftSlot = createSlot("core.layout.navbar.left");
+export const NavbarCenterSlot = createSlot("core.layout.navbar.center");
+export const NavbarRightSlot = createSlot("core.layout.navbar.right");
 
 /**
  * Context for user menu item slots.

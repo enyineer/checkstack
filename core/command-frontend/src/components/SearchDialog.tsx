@@ -7,10 +7,7 @@ import {
   DynamicIcon,
   type LucideIconName,
 } from "@checkmate-monitor/ui";
-import {
-  useDebouncedSearch,
-  useFormatShortcut,
-} from "@checkmate-monitor/command-frontend";
+import { useDebouncedSearch, useFormatShortcut } from "../index";
 import type { SearchResult } from "@checkmate-monitor/command-common";
 import { Search, ArrowUp, ArrowDown, CornerDownLeft } from "lucide-react";
 
@@ -172,7 +169,9 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
           <Input
             ref={inputRef}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setQuery(e.target.value)
+            }
             placeholder="Search commands and systems..."
             className="border-0 bg-transparent focus-visible:ring-0 px-0 text-base"
           />

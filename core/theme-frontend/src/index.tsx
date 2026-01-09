@@ -1,6 +1,6 @@
 import {
   createFrontendPlugin,
-  NavbarSlot,
+  NavbarRightSlot,
   UserMenuItemsBottomSlot,
 } from "@checkmate-monitor/frontend-api";
 import { pluginMetadata } from "@checkmate-monitor/theme-common";
@@ -21,13 +21,13 @@ export const themePlugin = createFrontendPlugin({
     // Theme synchronizer - headless component that syncs theme from backend on load
     {
       id: "theme.navbar.synchronizer",
-      slot: NavbarSlot,
+      slot: NavbarRightSlot,
       component: ThemeSynchronizer,
     },
     // Theme toggle button in navbar (for non-logged-in users)
     {
       id: "theme.navbar.toggle",
-      slot: NavbarSlot,
+      slot: NavbarRightSlot,
       component: NavbarThemeToggle,
     },
   ],
