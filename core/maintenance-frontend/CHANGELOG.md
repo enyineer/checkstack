@@ -1,5 +1,13 @@
 # @checkstack/maintenance-frontend
 
+## 0.0.3
+
+### Patch Changes
+
+- Updated dependencies [cb82e4d]
+  - @checkstack/signal-frontend@0.0.3
+  - @checkstack/ui@0.0.3
+
 ## 0.0.2
 
 ### Patch Changes
