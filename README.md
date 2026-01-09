@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/runtime-bun-f9f1e1?style=flat-square&logo=bun" alt="Bun Runtime" />
   <img src="https://img.shields.io/badge/frontend-react-61dafb?style=flat-square&logo=react" alt="React" />
   <img src="https://img.shields.io/badge/database-postgresql-336791?style=flat-square&logo=postgresql" alt="PostgreSQL" />
-  <img src="https://img.shields.io/badge/license-ELv2-blue?style=flat-square" alt="Elastic License 2.0" />
+  <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="AGPL-3.0" />
 </p>
 
 ---
@@ -390,17 +390,17 @@ We welcome contributions! See our [Contributing Guide](./CONTRIBUTING.md) for:
 
 ## 📄 License
 
-This project is licensed under the [**Elastic License 2.0**](LICENSE.md).
+This project is licensed under the [**GNU Affero General Public License v3.0 (AGPL-3.0)**](LICENSE.md).
 
-| Allowed | Not Allowed |
-|---------|-------------|
-| ✅ Internal company use | ❌ Selling as managed SaaS |
-| ✅ Personal projects | ❌ Removing license protections |
-| ✅ Research & education | |
-| ✅ Modification & redistribution | |
-| ✅ Building applications on top | |
+| Allowed | Required |
+|---------|----------|
+| ✅ Commercial use | 📝 Disclose source code |
+| ✅ Modification | 📝 License and copyright notice |
+| ✅ Distribution | 📝 Same license for modifications |
+| ✅ Patent use | 📝 Network use is distribution |
+| ✅ Private use | |
 
-**Need a commercial license?** [Contact us](mailto:hi@enking.dev)
+The AGPL-3.0 is a **copyleft license** that ensures this software and any modifications remain open source. If you offer this software as a service (SaaS), you must make your modifications available to users under the same license.
 
 ---
 

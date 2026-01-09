@@ -135,7 +135,7 @@ We welcome contributions! See the [Contributing Guide](./getting-started/contrib
 
 ## License
 
-Checkstack is licensed under the [Elastic License 2.0](../LICENSE.md).
+Checkstack is licensed under the [AGPL-3.0](../LICENSE.md).
 
 ---
 

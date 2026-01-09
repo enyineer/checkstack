@@ -1,34 +1,36 @@
-Elastic License 2.0
+GNU AFFERO GENERAL PUBLIC LICENSE
+Version 3, 19 November 2007
 
 Copyright (c) 2025 Nico Enking
 
-The Licensor hereby grants you the right to copy, modify, create derivative works, redistribute, and make non-infringing use of the Software, subject to the terms and conditions of this License.
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-1. Definitions
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
 
-    "Licensor" means the Copyright holder named above.
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-    "Software" means the software made available under this License.
+---
 
-    "Work" means the Software and any derivative works of the Software.
+The full text of the GNU Affero General Public License v3.0 is available at:
+https://www.gnu.org/licenses/agpl-3.0.txt
 
-2. Redistribution
+ADDITIONAL TERMS
 
-    If you redistribute the Software or any derivative works of the Software, you must:
+As permitted under Section 7(b) of the AGPL-3.0, the following additional terms apply:
 
-    (a) include a copy of this License; and
-    (b) retain all copyright, patent, trademark, and attribution notices that are present in the Software.
+1. Attribution Requirement
+   Any modified version of this software that is made available over a network
+   must maintain a visible attribution to the original Checkstack project.
 
-3. limitations
-
-    You may not provide the Software to third parties as a hosted or managed service, where the service provides users with access to any substantial set of the features or functionality of the Software.
-
-    You may not move, change, disable, or circumvent the license key functionality in the Software, and you may not remove or obscure any functionality in the Software that is protected by the license key.
-
-4. No Warranty
-
-    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-5. Choice of Law
-
-    This License shall be governed by the laws of the jurisdiction of the Licensor, excluding its conflicts of law rules.
+2. Network Use is Distribution
+   If you modify this software and make it available to users interacting with
+   it remotely through a computer network (e.g., as a SaaS offering), you must
+   make the complete source code of your modified version available to those
+   users under the terms of this license.
