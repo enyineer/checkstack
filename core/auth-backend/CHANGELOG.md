@@ -1,5 +1,19 @@
 # @checkstack/auth-backend
 
+## 0.0.3
+
+### Patch Changes
+
+- f5b1f49: Improved BASE_URL handling with fallback defaults for local development.
+- Updated dependencies [f5b1f49]
+- Updated dependencies [f5b1f49]
+- Updated dependencies [f5b1f49]
+  - @checkstack/backend-api@0.1.0
+  - @checkstack/common@0.0.3
+  - @checkstack/command-backend@0.0.3
+  - @checkstack/auth-common@0.0.3
+  - @checkstack/notification-common@0.0.3
+
 ## 0.0.2
 
 ### Patch Changes

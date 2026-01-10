@@ -1,5 +1,51 @@
 # @checkstack/healthcheck-frontend
 
+## 0.1.0
+
+### Minor Changes
+
+- f5b1f49: Added support for nested collector result display in auto-charts and history table.
+
+  - Updated `schema-parser.ts` to traverse `collectors.*` nested schemas and extract chart fields with dot-notation paths
+  - Added `getFieldValue()` support for dot-notation paths like `collectors.request.responseTimeMs`
+  - Added `ExpandedResultView` component to `HealthCheckRunsTable.tsx` that displays:
+    - Connection info (status, latency, connection time)
+    - Per-collector results as structured cards with key-value pairs
+
+- f5b1f49: Added JSONPath assertions for response body validation and fully qualified strategy IDs.
+
+  **JSONPath Assertions:**
+
+  - Added `healthResultJSONPath()` factory in healthcheck-common for fields supporting JSONPath queries
+  - Extended AssertionBuilder with jsonpath field type showing path input (e.g., `$.data.status`)
+  - Added `jsonPath` field to `CollectorAssertionSchema` for persistence
+  - HTTP Request collector body field now supports JSONPath assertions
+
+  **Fully Qualified Strategy IDs:**
+
+  - HealthCheckRegistry now uses scoped factories like CollectorRegistry
+  - Strategies are stored with `pluginId.strategyId` format
+  - Added `getStrategiesWithMeta()` method to HealthCheckRegistry interface
+  - Router returns qualified IDs so frontend can correctly fetch collectors
+
+  **UI Improvements:**
+
+  - Save button disabled when collector configs have invalid required fields
+  - Fixed nested button warning in CollectorList accordion
+
+### Patch Changes
+
+- Updated dependencies [f5b1f49]
+- Updated dependencies [f5b1f49]
+- Updated dependencies [f5b1f49]
+- Updated dependencies [f5b1f49]
+  - @checkstack/healthcheck-common@0.1.0
+  - @checkstack/common@0.0.3
+  - @checkstack/ui@0.0.4
+  - @checkstack/catalog-common@0.0.3
+  - @checkstack/frontend-api@0.0.3
+  - @checkstack/signal-frontend@0.0.4
+
 ## 0.0.3
 
 ### Patch Changes

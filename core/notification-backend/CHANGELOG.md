@@ -1,5 +1,22 @@
 # @checkstack/notification-backend
 
+## 0.0.3
+
+### Patch Changes
+
+- f5b1f49: Updated frontend URL environment variable from `VITE_FRONTEND_URL` to `BASE_URL` for consistency.
+- Updated dependencies [f5b1f49]
+- Updated dependencies [f5b1f49]
+- Updated dependencies [f5b1f49]
+- Updated dependencies [f5b1f49]
+  - @checkstack/auth-backend@0.0.3
+  - @checkstack/backend-api@0.1.0
+  - @checkstack/common@0.0.3
+  - @checkstack/queue-api@0.0.3
+  - @checkstack/auth-common@0.0.3
+  - @checkstack/notification-common@0.0.3
+  - @checkstack/signal-common@0.0.3
+
 ## 0.0.2
 
 ### Patch Changes

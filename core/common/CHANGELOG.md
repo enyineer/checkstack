@@ -1,5 +1,11 @@
 # @checkstack/common
 
+## 0.0.3
+
+### Patch Changes
+
+- f5b1f49: Added generic `TransportClient` interface for health check strategy transport abstraction.
+
 ## 0.0.2
 
 ### Patch Changes

@@ -1,5 +1,62 @@
 # @checkstack/healthcheck-http-backend
 
+## 0.1.0
+
+### Minor Changes
+
+- f5b1f49: Refactored health check strategies to use `createClient()` pattern with built-in collectors.
+
+  **Strategy Changes:**
+
+  - Replaced `execute()` with `createClient()` that returns a transport client
+  - Strategy configs now only contain connection parameters
+  - Collector configs handle what to do with the connection
+
+  **Built-in Collectors Added:**
+
+  - DNS: `LookupCollector` for hostname resolution
+  - gRPC: `HealthCollector` for gRPC health protocol
+  - HTTP: `RequestCollector` for HTTP requests
+  - MySQL: `QueryCollector` for database queries
+  - Ping: `PingCollector` for ICMP ping
+  - Postgres: `QueryCollector` for database queries
+  - Redis: `CommandCollector` for Redis commands
+  - Script: `ExecuteCollector` for script execution
+  - SSH: `CommandCollector` for SSH commands
+  - TCP: `BannerCollector` for TCP banner grabbing
+  - TLS: `CertificateCollector` for certificate inspection
+
+### Patch Changes
+
+- f5b1f49: Added JSONPath assertions for response body validation and fully qualified strategy IDs.
+
+  **JSONPath Assertions:**
+
+  - Added `healthResultJSONPath()` factory in healthcheck-common for fields supporting JSONPath queries
+  - Extended AssertionBuilder with jsonpath field type showing path input (e.g., `$.data.status`)
+  - Added `jsonPath` field to `CollectorAssertionSchema` for persistence
+  - HTTP Request collector body field now supports JSONPath assertions
+
+  **Fully Qualified Strategy IDs:**
+
+  - HealthCheckRegistry now uses scoped factories like CollectorRegistry
+  - Strategies are stored with `pluginId.strategyId` format
+  - Added `getStrategiesWithMeta()` method to HealthCheckRegistry interface
+  - Router returns qualified IDs so frontend can correctly fetch collectors
+
+  **UI Improvements:**
+
+  - Save button disabled when collector configs have invalid required fields
+  - Fixed nested button warning in CollectorList accordion
+
+- Updated dependencies [f5b1f49]
+- Updated dependencies [f5b1f49]
+- Updated dependencies [f5b1f49]
+- Updated dependencies [f5b1f49]
+  - @checkstack/backend-api@0.1.0
+  - @checkstack/healthcheck-common@0.1.0
+  - @checkstack/common@0.0.3
+
 ## 0.0.3
 
 ### Patch Changes

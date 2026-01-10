@@ -1,5 +1,50 @@
 # @checkstack/backend
 
+## 0.1.0
+
+### Minor Changes
+
+- f5b1f49: Added collector registry lifecycle cleanup during plugin unloading.
+
+  - Added `unregisterByOwner(pluginId)` to remove collectors owned by unloading plugins
+  - Added `unregisterByMissingStrategies(loadedPluginIds)` for dependency-based pruning
+  - Integrated registry cleanup into `PluginManager.deregisterPlugin()`
+  - Updated `registerCoreServices` to return global registries for lifecycle management
+
+### Patch Changes
+
+- f5b1f49: Added JSONPath assertions for response body validation and fully qualified strategy IDs.
+
+  **JSONPath Assertions:**
+
+  - Added `healthResultJSONPath()` factory in healthcheck-common for fields supporting JSONPath queries
+  - Extended AssertionBuilder with jsonpath field type showing path input (e.g., `$.data.status`)
+  - Added `jsonPath` field to `CollectorAssertionSchema` for persistence
+  - HTTP Request collector body field now supports JSONPath assertions
+
+  **Fully Qualified Strategy IDs:**
+
+  - HealthCheckRegistry now uses scoped factories like CollectorRegistry
+  - Strategies are stored with `pluginId.strategyId` format
+  - Added `getStrategiesWithMeta()` method to HealthCheckRegistry interface
+  - Router returns qualified IDs so frontend can correctly fetch collectors
+
+  **UI Improvements:**
+
+  - Save button disabled when collector configs have invalid required fields
+  - Fixed nested button warning in CollectorList accordion
+
+- Updated dependencies [f5b1f49]
+- Updated dependencies [f5b1f49]
+- Updated dependencies [f5b1f49]
+  - @checkstack/backend-api@0.1.0
+  - @checkstack/common@0.0.3
+  - @checkstack/queue-api@0.0.3
+  - @checkstack/signal-backend@0.0.3
+  - @checkstack/api-docs-common@0.0.3
+  - @checkstack/auth-common@0.0.3
+  - @checkstack/signal-common@0.0.3
+
 ## 0.0.2
 
 ### Patch Changes

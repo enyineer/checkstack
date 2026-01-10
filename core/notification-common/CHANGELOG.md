@@ -1,5 +1,13 @@
 # @checkstack/notification-common
 
+## 0.0.3
+
+### Patch Changes
+
+- Updated dependencies [f5b1f49]
+  - @checkstack/common@0.0.3
+  - @checkstack/signal-common@0.0.3
+
 ## 0.0.2
 
 ### Patch Changes

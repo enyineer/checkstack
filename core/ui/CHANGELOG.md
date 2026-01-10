@@ -1,5 +1,14 @@
 # @checkstack/ui
 
+## 0.0.4
+
+### Patch Changes
+
+- f5b1f49: Extended DynamicForm type definitions with additional JSON Schema metadata properties.
+- Updated dependencies [f5b1f49]
+  - @checkstack/common@0.0.3
+  - @checkstack/frontend-api@0.0.3
+
 ## 0.0.3
 
 ### Patch Changes
