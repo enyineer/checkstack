@@ -1,37 +1,25 @@
 import * as tls from "node:tls";
 import {
   HealthCheckStrategy,
-  HealthCheckResult,
   HealthCheckRunForAggregation,
   Versioned,
   z,
-  numericField,
-  stringField,
-  booleanField,
-  evaluateAssertions,
+  type ConnectedClient,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
 } from "@checkstack/healthcheck-common";
+import type {
+  TlsTransportClient,
+  TlsInspectRequest,
+  TlsCertificateInfo,
+} from "./transport-client";
 
 // ============================================================================
 // SCHEMAS
 // ============================================================================
-
-/**
- * Assertion schema for TLS health checks using shared factories.
- */
-const tlsAssertionSchema = z.discriminatedUnion("field", [
-  numericField("daysUntilExpiry", { min: 0 }),
-  stringField("issuer"),
-  stringField("subject"),
-  booleanField("isValid"),
-  booleanField("isSelfSigned"),
-]);
-
-export type TlsAssertion = z.infer<typeof tlsAssertionSchema>;
 
 /**
  * Configuration schema for TLS health checks.
@@ -42,7 +30,7 @@ export const tlsConfigSchema = z.object({
   servername: z
     .string()
     .optional()
-    .describe("SNI hostname (defaults to host if not specified)"),
+    .describe("Server name for SNI (defaults to host)"),
   timeout: z
     .number()
     .min(100)
@@ -50,17 +38,14 @@ export const tlsConfigSchema = z.object({
     .describe("Connection timeout in milliseconds"),
   minDaysUntilExpiry: z
     .number()
+    .int()
     .min(0)
-    .default(14)
-    .describe("Minimum days until certificate expiry for healthy status"),
+    .default(30)
+    .describe("Minimum days before certificate expiry to consider healthy"),
   rejectUnauthorized: z
     .boolean()
     .default(true)
     .describe("Reject invalid/self-signed certificates"),
-  assertions: z
-    .array(tlsAssertionSchema)
-    .optional()
-    .describe("Validation conditions"),
 });
 
 export type TlsConfig = z.infer<typeof tlsConfigSchema>;
@@ -75,49 +60,24 @@ const tlsResultSchema = z.object({
   }),
   isValid: healthResultBoolean({
     "x-chart-type": "boolean",
-    "x-chart-label": "Certificate Valid",
+    "x-chart-label": "Valid",
   }),
   isSelfSigned: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Self-Signed",
   }),
-  issuer: healthResultString({
-    "x-chart-type": "text",
-    "x-chart-label": "Issuer",
-  }),
-  subject: healthResultString({
-    "x-chart-type": "text",
-    "x-chart-label": "Subject",
-  }),
-  validFrom: healthResultString({
-    "x-chart-type": "text",
-    "x-chart-label": "Valid From",
-  }),
-  validTo: healthResultString({
-    "x-chart-type": "text",
-    "x-chart-label": "Valid To",
-  }),
   daysUntilExpiry: healthResultNumber({
-    "x-chart-type": "counter",
+    "x-chart-type": "line",
     "x-chart-label": "Days Until Expiry",
     "x-chart-unit": "days",
   }),
-  protocol: healthResultString({
-    "x-chart-type": "text",
-    "x-chart-label": "Protocol",
-  }).optional(),
-  cipher: healthResultString({
-    "x-chart-type": "text",
-    "x-chart-label": "Cipher",
-  }).optional(),
-  failedAssertion: tlsAssertionSchema.optional(),
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
   }).optional(),
 });
 
-export type TlsResult = z.infer<typeof tlsResultSchema>;
+type TlsResult = z.infer<typeof tlsResultSchema>;
 
 /**
  * Aggregated metadata for buckets.
@@ -143,7 +103,7 @@ const tlsAggregatedSchema = z.object({
   }),
 });
 
-export type TlsAggregatedResult = z.infer<typeof tlsAggregatedSchema>;
+type TlsAggregatedResult = z.infer<typeof tlsAggregatedSchema>;
 
 // ============================================================================
 // TLS CLIENT INTERFACE (for testability)
@@ -199,7 +159,7 @@ const defaultTlsClient: TlsClient = {
       );
 
       socket.on("error", reject);
-      socket.on("timeout", () => {
+      socket.setTimeout(options.timeout, () => {
         socket.destroy();
         reject(new Error("Connection timeout"));
       });
@@ -212,7 +172,13 @@ const defaultTlsClient: TlsClient = {
 // ============================================================================
 
 export class TlsHealthCheckStrategy
-  implements HealthCheckStrategy<TlsConfig, TlsResult, TlsAggregatedResult>
+  implements
+    HealthCheckStrategy<
+      TlsConfig,
+      TlsTransportClient,
+      TlsResult,
+      TlsAggregatedResult
+    >
 {
   id = "tls";
   displayName = "TLS/SSL Health Check";
@@ -225,13 +191,29 @@ export class TlsHealthCheckStrategy
   }
 
   config: Versioned<TlsConfig> = new Versioned({
-    version: 1,
+    version: 2, // Bumped for createClient pattern
     schema: tlsConfigSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Migrate to createClient pattern (no config changes)",
+        migrate: (data: unknown) => data,
+      },
+    ],
   });
 
   result: Versioned<TlsResult> = new Versioned({
-    version: 1,
+    version: 2,
     schema: tlsResultSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Migrate to createClient pattern (no result changes)",
+        migrate: (data: unknown) => data,
+      },
+    ],
   });
 
   aggregatedResult: Versioned<TlsAggregatedResult> = new Versioned({
@@ -242,151 +224,87 @@ export class TlsHealthCheckStrategy
   aggregateResult(
     runs: HealthCheckRunForAggregation<TlsResult>[]
   ): TlsAggregatedResult {
-    let totalDaysUntilExpiry = 0;
-    let minDaysUntilExpiry = Number.POSITIVE_INFINITY;
-    let invalidCount = 0;
-    let errorCount = 0;
-    let validRuns = 0;
+    const validRuns = runs.filter((r) => r.metadata);
 
-    for (const run of runs) {
-      if (run.metadata?.error) {
-        errorCount++;
-        continue;
-      }
-      if (run.metadata && !run.metadata.isValid) {
-        invalidCount++;
-      }
-      if (run.metadata) {
-        totalDaysUntilExpiry += run.metadata.daysUntilExpiry;
-        if (run.metadata.daysUntilExpiry < minDaysUntilExpiry) {
-          minDaysUntilExpiry = run.metadata.daysUntilExpiry;
-        }
-        validRuns++;
-      }
+    if (validRuns.length === 0) {
+      return {
+        avgDaysUntilExpiry: 0,
+        minDaysUntilExpiry: 0,
+        invalidCount: 0,
+        errorCount: 0,
+      };
     }
 
+    const daysValues = validRuns
+      .map((r) => r.metadata?.daysUntilExpiry)
+      .filter((d): d is number => typeof d === "number");
+
+    const avgDaysUntilExpiry =
+      daysValues.length > 0
+        ? Math.round(daysValues.reduce((a, b) => a + b, 0) / daysValues.length)
+        : 0;
+
+    const minDaysUntilExpiry =
+      daysValues.length > 0 ? Math.min(...daysValues) : 0;
+
+    const invalidCount = validRuns.filter(
+      (r) => r.metadata?.isValid === false
+    ).length;
+
+    const errorCount = validRuns.filter(
+      (r) => r.metadata?.error !== undefined
+    ).length;
+
     return {
-      avgDaysUntilExpiry: validRuns > 0 ? totalDaysUntilExpiry / validRuns : 0,
-      minDaysUntilExpiry:
-        minDaysUntilExpiry === Number.POSITIVE_INFINITY
-          ? 0
-          : minDaysUntilExpiry,
+      avgDaysUntilExpiry,
+      minDaysUntilExpiry,
       invalidCount,
       errorCount,
     };
   }
 
-  async execute(config: TlsConfig): Promise<HealthCheckResult<TlsResult>> {
+  async createClient(
+    config: TlsConfig
+  ): Promise<ConnectedClient<TlsTransportClient>> {
     const validatedConfig = this.config.validate(config);
-    const start = performance.now();
 
-    try {
-      const connection = await this.tlsClient.connect({
-        host: validatedConfig.host,
-        port: validatedConfig.port,
-        servername: validatedConfig.servername ?? validatedConfig.host,
-        rejectUnauthorized: validatedConfig.rejectUnauthorized,
-        timeout: validatedConfig.timeout,
-      });
+    const connection = await this.tlsClient.connect({
+      host: validatedConfig.host,
+      port: validatedConfig.port,
+      servername: validatedConfig.servername ?? validatedConfig.host,
+      rejectUnauthorized: validatedConfig.rejectUnauthorized,
+      timeout: validatedConfig.timeout,
+    });
 
-      const cert = connection.getPeerCertificate();
-      const protocol = connection.getProtocol();
-      const cipher = connection.getCipher();
+    const cert = connection.getPeerCertificate();
+    const validTo = new Date(cert.valid_to);
+    const daysUntilExpiry = Math.floor(
+      (validTo.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+    );
 
-      connection.end();
+    const certInfo: TlsCertificateInfo = {
+      isValid: connection.authorized,
+      isSelfSigned: cert.issuer?.CN === cert.subject?.CN,
+      issuer: cert.issuer?.O || cert.issuer?.CN || "Unknown",
+      subject: cert.subject?.CN || "Unknown",
+      validFrom: cert.valid_from,
+      validTo: cert.valid_to,
+      daysUntilExpiry,
+      daysRemaining: daysUntilExpiry,
+      protocol: connection.getProtocol() ?? undefined,
+      cipher: connection.getCipher()?.name,
+    };
 
-      const end = performance.now();
-      const latencyMs = Math.round(end - start);
+    const client: TlsTransportClient = {
+      async exec(_request: TlsInspectRequest): Promise<TlsCertificateInfo> {
+        // Certificate info is captured at connection time
+        return certInfo;
+      },
+    };
 
-      // Calculate days until expiry
-      const validTo = new Date(cert.valid_to);
-      const now = new Date();
-      const daysUntilExpiry = Math.floor(
-        (validTo.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
-      );
-
-      // Determine if self-signed
-      const isSelfSigned =
-        cert.issuer.CN === cert.subject.CN && cert.issuer.O === undefined;
-
-      const result: Omit<TlsResult, "failedAssertion" | "error"> = {
-        connected: true,
-        isValid: connection.authorized,
-        isSelfSigned,
-        issuer: cert.issuer.CN ?? cert.issuer.O ?? "Unknown",
-        subject: cert.subject.CN ?? "Unknown",
-        validFrom: cert.valid_from,
-        validTo: cert.valid_to,
-        daysUntilExpiry,
-        protocol: protocol ?? undefined,
-        cipher: cipher?.name,
-      };
-
-      // Evaluate assertions using shared utility
-      const failedAssertion = evaluateAssertions(validatedConfig.assertions, {
-        daysUntilExpiry,
-        issuer: result.issuer,
-        subject: result.subject,
-        isValid: result.isValid,
-        isSelfSigned,
-      });
-
-      if (failedAssertion) {
-        return {
-          status: "unhealthy",
-          latencyMs,
-          message: `Assertion failed: ${failedAssertion.field} ${
-            failedAssertion.operator
-          }${"value" in failedAssertion ? ` ${failedAssertion.value}` : ""}`,
-          metadata: { ...result, failedAssertion },
-        };
-      }
-
-      // Check minimum days until expiry
-      if (daysUntilExpiry < validatedConfig.minDaysUntilExpiry) {
-        return {
-          status: "unhealthy",
-          latencyMs,
-          message: `Certificate expires in ${daysUntilExpiry} days (minimum: ${validatedConfig.minDaysUntilExpiry})`,
-          metadata: result,
-        };
-      }
-
-      // Check certificate validity
-      if (!connection.authorized && validatedConfig.rejectUnauthorized) {
-        return {
-          status: "unhealthy",
-          latencyMs,
-          message: "Certificate is not valid or not trusted",
-          metadata: result,
-        };
-      }
-
-      return {
-        status: "healthy",
-        latencyMs,
-        message: `Certificate valid for ${daysUntilExpiry} days (${result.subject} issued by ${result.issuer})`,
-        metadata: result,
-      };
-    } catch (error: unknown) {
-      const end = performance.now();
-      const isError = error instanceof Error;
-      return {
-        status: "unhealthy",
-        latencyMs: Math.round(end - start),
-        message: isError ? error.message : "TLS connection failed",
-        metadata: {
-          connected: false,
-          isValid: false,
-          isSelfSigned: false,
-          issuer: "",
-          subject: "",
-          validFrom: "",
-          validTo: "",
-          daysUntilExpiry: 0,
-          error: isError ? error.name : "UnknownError",
-        },
-      };
-    }
+    return {
+      client,
+      close: () => connection.end(),
+    };
   }
 }

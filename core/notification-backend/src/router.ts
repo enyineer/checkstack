@@ -190,7 +190,7 @@ export const createNotificationRouter = (
           strategy.qualifiedId
         );
 
-        const baseUrl = process.env.VITE_FRONTEND_URL;
+        const baseUrl = process.env.BASE_URL;
         if (!baseUrl) {
           logger.error(
             "[notification-backend] No frontend URL configured, but action included only a path"
@@ -1035,7 +1035,7 @@ export const createNotificationRouter = (
         };
 
         // Get base URL for action
-        const baseUrl = process.env.VITE_FRONTEND_URL;
+        const baseUrl = process.env.BASE_URL;
         if (baseUrl && testNotification.action) {
           // For localhost, use a demo URL to show action buttons work
           // (Telegram rejects localhost URLs in action buttons)

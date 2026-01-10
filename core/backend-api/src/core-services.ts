@@ -1,10 +1,8 @@
 import { createServiceRef } from "./service-ref";
 import type { RpcService } from "./rpc";
 import type { HealthCheckRegistry } from "./health-check";
-import type {
-  QueuePluginRegistry,
-  QueueManager,
-} from "@checkstack/queue-api";
+import type { CollectorRegistry } from "./collector-registry";
+import type { QueuePluginRegistry, QueueManager } from "@checkstack/queue-api";
 import type { ConfigService } from "./config-service";
 import type { SignalService } from "@checkstack/signal-common";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -31,6 +29,9 @@ export const coreServices = {
   auth: createServiceRef<AuthService>("core.auth"),
   healthCheckRegistry: createServiceRef<HealthCheckRegistry>(
     "core.healthCheckRegistry"
+  ),
+  collectorRegistry: createServiceRef<CollectorRegistry>(
+    "core.collectorRegistry"
   ),
   pluginInstaller: createServiceRef<PluginInstaller>("core.pluginInstaller"),
   rpc: createServiceRef<RpcService>("core.rpc"),

@@ -1,4 +1,5 @@
 import { Versioned } from "./config-versioning";
+import type { TransportClient } from "./transport-client";
 
 /**
  * Health check result with typed metadata.
@@ -23,13 +24,35 @@ export interface HealthCheckRunForAggregation<
 }
 
 /**
- * Health check strategy definition with typed config and result.
+ * Connected transport client with cleanup capability.
+ */
+export interface ConnectedClient<
+  TClient extends TransportClient<unknown, unknown>
+> {
+  /** The connected transport client */
+  client: TClient;
+  /** Close the connection and release resources */
+  close(): void;
+}
+
+/**
+ * Health check strategy definition with typed config and transport client.
+ *
+ * Strategies provide a `createClient` function that establishes a connection
+ * and returns a transport client. The platform executor handles running
+ * collectors and basic health check logic (connectivity test, latency measurement).
+ *
  * @template TConfig - Configuration type for this strategy
- * @template TResult - Per-run result type
+ * @template TClient - Transport client type (e.g., SshTransportClient)
+ * @template TResult - Per-run result type (for aggregation)
  * @template TAggregatedResult - Aggregated result type for buckets
  */
 export interface HealthCheckStrategy<
   TConfig = unknown,
+  TClient extends TransportClient<unknown, unknown> = TransportClient<
+    unknown,
+    unknown
+  >,
   TResult = Record<string, unknown>,
   TAggregatedResult = Record<string, unknown>
 > {
@@ -46,7 +69,15 @@ export interface HealthCheckStrategy<
   /** Aggregated result schema for long-term bucket storage */
   aggregatedResult: Versioned<TAggregatedResult>;
 
-  execute(config: TConfig): Promise<HealthCheckResult<TResult>>;
+  /**
+   * Create a connected transport client from the configuration.
+   * The platform will use this client to execute collectors.
+   *
+   * @param config - Validated strategy configuration
+   * @returns Connected client wrapper with close() method
+   * @throws Error if connection fails (will be caught by executor)
+   */
+  createClient(config: TConfig): Promise<ConnectedClient<TClient>>;
 
   /**
    * Aggregate results from multiple runs into a summary for bucket storage.
@@ -59,10 +90,47 @@ export interface HealthCheckStrategy<
   ): TAggregatedResult;
 }
 
+/**
+ * A registered strategy with its owning plugin metadata and qualified ID.
+ */
+export interface RegisteredStrategy {
+  strategy: HealthCheckStrategy<
+    unknown,
+    TransportClient<unknown, unknown>,
+    unknown,
+    unknown
+  >;
+  ownerPluginId: string;
+  qualifiedId: string;
+}
+
 export interface HealthCheckRegistry {
-  register(strategy: HealthCheckStrategy<unknown, unknown, unknown>): void;
+  register(
+    strategy: HealthCheckStrategy<
+      unknown,
+      TransportClient<unknown, unknown>,
+      unknown,
+      unknown
+    >
+  ): void;
   getStrategy(
     id: string
-  ): HealthCheckStrategy<unknown, unknown, unknown> | undefined;
-  getStrategies(): HealthCheckStrategy<unknown, unknown, unknown>[];
+  ):
+    | HealthCheckStrategy<
+        unknown,
+        TransportClient<unknown, unknown>,
+        unknown,
+        unknown
+      >
+    | undefined;
+  getStrategies(): HealthCheckStrategy<
+    unknown,
+    TransportClient<unknown, unknown>,
+    unknown,
+    unknown
+  >[];
+  /**
+   * Get all registered strategies with their metadata (qualified ID, owner plugin).
+   */
+  getStrategiesWithMeta(): RegisteredStrategy[];
 }

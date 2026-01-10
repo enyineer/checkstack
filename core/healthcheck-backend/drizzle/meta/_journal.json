@@ -43,6 +43,13 @@
       "when": 1767538124052,
       "tag": "0005_glossy_longshot",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1768012161285,
+      "tag": "0006_reflective_power_pack",
+      "breakpoints": true
     }
   ]
 }

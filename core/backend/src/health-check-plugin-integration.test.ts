@@ -30,10 +30,13 @@ describe("HealthCheck Plugin Integration", () => {
       newResponse: mock(),
     } as never;
 
-    // Define a mock execute function for the strategy
-    const mockExecute = mock(async () => ({ status: "healthy" as const }));
+    // Define a mock createClient function for the strategy
+    const mockCreateClient = mock(async () => ({
+      client: { exec: async () => ({}) },
+      close: () => {},
+    }));
 
-    // 1. Define a mock strategy
+    // 1. Define a mock strategy with createClient pattern
     const mockStrategy: HealthCheckStrategy = {
       id: "test-strategy",
       displayName: "Test Strategy",
@@ -42,11 +45,15 @@ describe("HealthCheck Plugin Integration", () => {
         version: 1,
         schema: z.object({}),
       }),
+      result: new Versioned({
+        version: 1,
+        schema: z.record(z.string(), z.unknown()),
+      }),
       aggregatedResult: new Versioned({
         version: 1,
         schema: z.record(z.string(), z.unknown()),
       }),
-      execute: mockExecute,
+      createClient: mockCreateClient,
       aggregateResult: mock(() => ({})),
     };
 
@@ -88,6 +95,6 @@ describe("HealthCheck Plugin Integration", () => {
     expect(retrieved).toBe(mockStrategy);
     expect(retrieved?.displayName).toBe("Test Strategy");
     expect(retrieved?.id).toBe("test-strategy");
-    expect(retrieved?.execute).toBe(mockExecute);
+    expect(retrieved?.createClient).toBe(mockCreateClient);
   });
 });

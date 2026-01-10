@@ -1,62 +1,47 @@
 import * as dns from "node:dns/promises";
 import {
   HealthCheckStrategy,
-  HealthCheckResult,
   HealthCheckRunForAggregation,
   Versioned,
   z,
-  booleanField,
-  stringField,
-  numericField,
-  timeThresholdField,
-  evaluateAssertions,
+  type ConnectedClient,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
   healthResultString,
 } from "@checkstack/healthcheck-common";
+import type {
+  DnsTransportClient,
+  DnsLookupRequest,
+  DnsLookupResult,
+} from "./transport-client";
 
 // ============================================================================
 // SCHEMAS
 // ============================================================================
 
 /**
- * Assertion schema for DNS health checks using shared factories.
- */
-const dnsAssertionSchema = z.discriminatedUnion("field", [
-  booleanField("recordExists"),
-  stringField("recordValue"),
-  numericField("recordCount", { min: 0 }),
-  timeThresholdField("resolutionTime"),
-]);
-
-export type DnsAssertion = z.infer<typeof dnsAssertionSchema>;
-
-/**
  * Configuration schema for DNS health checks.
+ * Resolver configuration only - action params moved to LookupCollector.
  */
 export const dnsConfigSchema = z.object({
-  hostname: z.string().describe("Hostname to resolve"),
-  recordType: z
-    .enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS"])
-    .default("A")
-    .describe("DNS record type to query"),
-  nameserver: z
-    .string()
-    .optional()
-    .describe("Custom nameserver (optional, uses system default)"),
+  nameserver: z.string().optional().describe("Custom nameserver (optional)"),
   timeout: z
     .number()
     .min(100)
     .default(5000)
     .describe("Timeout in milliseconds"),
-  assertions: z
-    .array(dnsAssertionSchema)
-    .optional()
-    .describe("Conditions for validation"),
 });
 
 export type DnsConfig = z.infer<typeof dnsConfigSchema>;
+
+// Legacy config type for migrations
+interface DnsConfigV1 {
+  hostname: string;
+  recordType: "A" | "AAAA" | "CNAME" | "MX" | "TXT" | "NS";
+  nameserver?: string;
+  timeout: number;
+}
 
 /**
  * Per-run result metadata.
@@ -70,23 +55,18 @@ const dnsResultSchema = z.object({
     "x-chart-type": "counter",
     "x-chart-label": "Record Count",
   }),
-  nameserver: healthResultString({
-    "x-chart-type": "text",
-    "x-chart-label": "Nameserver",
-  }).optional(),
   resolutionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Resolution Time",
     "x-chart-unit": "ms",
   }),
-  failedAssertion: dnsAssertionSchema.optional(),
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
   }).optional(),
 });
 
-export type DnsResult = z.infer<typeof dnsResultSchema>;
+type DnsResult = z.infer<typeof dnsResultSchema>;
 
 /**
  * Aggregated metadata for buckets.
@@ -107,7 +87,7 @@ const dnsAggregatedSchema = z.object({
   }),
 });
 
-export type DnsAggregatedResult = z.infer<typeof dnsAggregatedSchema>;
+type DnsAggregatedResult = z.infer<typeof dnsAggregatedSchema>;
 
 // ============================================================================
 // RESOLVER INTERFACE (for testability)
@@ -128,21 +108,25 @@ export interface DnsResolver {
 export type ResolverFactory = () => DnsResolver;
 
 // Default factory using Node.js dns module
-const defaultResolverFactory: ResolverFactory = () =>
-  new dns.Resolver() as DnsResolver;
+const defaultResolverFactory: ResolverFactory = () => new dns.Resolver();
 
 // ============================================================================
 // STRATEGY
 // ============================================================================
 
 export class DnsHealthCheckStrategy
-  implements HealthCheckStrategy<DnsConfig, DnsResult, DnsAggregatedResult>
+  implements
+    HealthCheckStrategy<
+      DnsConfig,
+      DnsTransportClient,
+      DnsResult,
+      DnsAggregatedResult
+    >
 {
   id = "dns";
   displayName = "DNS Health Check";
   description = "DNS record resolution with response validation";
 
-  // Injected resolver factory for testing
   private resolverFactory: ResolverFactory;
 
   constructor(resolverFactory: ResolverFactory = defaultResolverFactory) {
@@ -150,13 +134,32 @@ export class DnsHealthCheckStrategy
   }
 
   config: Versioned<DnsConfig> = new Versioned({
-    version: 1,
+    version: 2,
     schema: dnsConfigSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Remove hostname/recordType (moved to LookupCollector)",
+        migrate: (data: DnsConfigV1): DnsConfig => ({
+          nameserver: data.nameserver,
+          timeout: data.timeout,
+        }),
+      },
+    ],
   });
 
   result: Versioned<DnsResult> = new Versioned({
-    version: 1,
+    version: 2,
     schema: dnsResultSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Migrate to createClient pattern (no result changes)",
+        migrate: (data: unknown) => data,
+      },
+    ],
   });
 
   aggregatedResult: Versioned<DnsAggregatedResult> = new Versioned({
@@ -167,148 +170,103 @@ export class DnsHealthCheckStrategy
   aggregateResult(
     runs: HealthCheckRunForAggregation<DnsResult>[]
   ): DnsAggregatedResult {
-    let totalResolutionTime = 0;
-    let failureCount = 0;
-    let errorCount = 0;
-    let validRuns = 0;
+    const validRuns = runs.filter((r) => r.metadata);
 
-    for (const run of runs) {
-      if (run.metadata?.error) {
-        errorCount++;
-        continue;
-      }
-      if (run.status === "unhealthy") {
-        failureCount++;
-      }
-      if (run.metadata) {
-        totalResolutionTime += run.metadata.resolutionTimeMs;
-        validRuns++;
-      }
+    if (validRuns.length === 0) {
+      return { avgResolutionTime: 0, failureCount: 0, errorCount: 0 };
     }
 
+    const resolutionTimes = validRuns
+      .map((r) => r.metadata?.resolutionTimeMs)
+      .filter((t): t is number => typeof t === "number");
+
+    const avgResolutionTime =
+      resolutionTimes.length > 0
+        ? Math.round(
+            resolutionTimes.reduce((a, b) => a + b, 0) / resolutionTimes.length
+          )
+        : 0;
+
+    const failureCount = validRuns.filter(
+      (r) => r.metadata?.recordCount === 0
+    ).length;
+
+    const errorCount = validRuns.filter(
+      (r) => r.metadata?.error !== undefined
+    ).length;
+
+    return { avgResolutionTime, failureCount, errorCount };
+  }
+
+  async createClient(
+    config: DnsConfig
+  ): Promise<ConnectedClient<DnsTransportClient>> {
+    const validatedConfig = this.config.validate(config);
+    const resolver = this.resolverFactory();
+
+    if (validatedConfig.nameserver) {
+      resolver.setServers([validatedConfig.nameserver]);
+    }
+
+    const client: DnsTransportClient = {
+      exec: async (request: DnsLookupRequest): Promise<DnsLookupResult> => {
+        const timeout = validatedConfig.timeout;
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("DNS resolution timeout")), timeout)
+        );
+
+        try {
+          const resolvePromise = this.resolveRecords(
+            resolver,
+            request.hostname,
+            request.recordType
+          );
+
+          const values = await Promise.race([resolvePromise, timeoutPromise]);
+          return { values };
+        } catch (error) {
+          return {
+            values: [],
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    };
+
     return {
-      avgResolutionTime: validRuns > 0 ? totalResolutionTime / validRuns : 0,
-      failureCount,
-      errorCount,
+      client,
+      close: () => {
+        // DNS resolver is stateless, nothing to close
+      },
     };
   }
 
-  async execute(config: DnsConfig): Promise<HealthCheckResult<DnsResult>> {
-    const validatedConfig = this.config.validate(config);
-    const start = performance.now();
-
-    try {
-      // Configure resolver with custom nameserver if provided
-      const resolver = this.resolverFactory();
-      if (validatedConfig.nameserver) {
-        resolver.setServers([validatedConfig.nameserver]);
-      }
-
-      // Perform DNS lookup based on record type
-      const resolvedValues = await this.resolveRecords(
-        resolver,
-        validatedConfig.hostname,
-        validatedConfig.recordType,
-        validatedConfig.timeout
-      );
-
-      const end = performance.now();
-      const resolutionTimeMs = Math.round(end - start);
-
-      const result: Omit<DnsResult, "failedAssertion" | "error"> = {
-        resolvedValues,
-        recordCount: resolvedValues.length,
-        nameserver: validatedConfig.nameserver,
-        resolutionTimeMs,
-      };
-
-      // Evaluate assertions using shared utility
-      const failedAssertion = evaluateAssertions(validatedConfig.assertions, {
-        recordExists: resolvedValues.length > 0,
-        recordValue: resolvedValues[0] ?? "",
-        recordCount: resolvedValues.length,
-        resolutionTime: resolutionTimeMs,
-      });
-
-      if (failedAssertion) {
-        return {
-          status: "unhealthy",
-          latencyMs: resolutionTimeMs,
-          message: `Assertion failed: ${failedAssertion.field} ${
-            failedAssertion.operator
-          }${"value" in failedAssertion ? ` ${failedAssertion.value}` : ""}`,
-          metadata: { ...result, failedAssertion },
-        };
-      }
-
-      return {
-        status: "healthy",
-        latencyMs: resolutionTimeMs,
-        message: `Resolved ${validatedConfig.hostname} (${
-          validatedConfig.recordType
-        }): ${resolvedValues.slice(0, 3).join(", ")}${
-          resolvedValues.length > 3 ? "..." : ""
-        }`,
-        metadata: result,
-      };
-    } catch (error: unknown) {
-      const end = performance.now();
-      const isError = error instanceof Error;
-      return {
-        status: "unhealthy",
-        latencyMs: Math.round(end - start),
-        message: isError ? error.message : "DNS resolution failed",
-        metadata: {
-          resolvedValues: [],
-          recordCount: 0,
-          nameserver: validatedConfig.nameserver,
-          resolutionTimeMs: Math.round(end - start),
-          error: isError ? error.name : "UnknownError",
-        },
-      };
-    }
-  }
-
-  /**
-   * Resolve DNS records based on type.
-   */
   private async resolveRecords(
     resolver: DnsResolver,
     hostname: string,
-    recordType: "A" | "AAAA" | "CNAME" | "MX" | "TXT" | "NS",
-    timeout: number
+    recordType: "A" | "AAAA" | "CNAME" | "MX" | "TXT" | "NS"
   ): Promise<string[]> {
-    // Create timeout promise
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error("DNS resolution timeout")), timeout);
-    });
-
-    // Resolve based on record type
-    const resolvePromise = (async () => {
-      switch (recordType) {
-        case "A": {
-          return await resolver.resolve4(hostname);
-        }
-        case "AAAA": {
-          return await resolver.resolve6(hostname);
-        }
-        case "CNAME": {
-          return await resolver.resolveCname(hostname);
-        }
-        case "MX": {
-          const records = await resolver.resolveMx(hostname);
-          return records.map((r) => `${r.priority} ${r.exchange}`);
-        }
-        case "TXT": {
-          const records = await resolver.resolveTxt(hostname);
-          return records.map((r) => r.join(""));
-        }
-        case "NS": {
-          return await resolver.resolveNs(hostname);
-        }
+    switch (recordType) {
+      case "A": {
+        return resolver.resolve4(hostname);
       }
-    })();
-
-    return Promise.race([resolvePromise, timeoutPromise]);
+      case "AAAA": {
+        return resolver.resolve6(hostname);
+      }
+      case "CNAME": {
+        return resolver.resolveCname(hostname);
+      }
+      case "MX": {
+        const records = await resolver.resolveMx(hostname);
+        return records.map((r) => `${r.priority} ${r.exchange}`);
+      }
+      case "TXT": {
+        const records = await resolver.resolveTxt(hostname);
+        return records.map((r) => r.join(""));
+      }
+      case "NS": {
+        return resolver.resolveNs(hostname);
+      }
+    }
   }
 }

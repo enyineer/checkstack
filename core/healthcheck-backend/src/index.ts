@@ -90,6 +90,7 @@ export default createBackendPlugin({
       deps: {
         logger: coreServices.logger,
         healthCheckRegistry: coreServices.healthCheckRegistry,
+        collectorRegistry: coreServices.collectorRegistry,
         rpc: coreServices.rpc,
         rpcClient: coreServices.rpcClient,
         queueManager: coreServices.queueManager,
@@ -100,6 +101,7 @@ export default createBackendPlugin({
         logger,
         database,
         healthCheckRegistry,
+        collectorRegistry,
         rpc,
         rpcClient,
         queueManager,
@@ -114,6 +116,7 @@ export default createBackendPlugin({
         await setupHealthCheckWorker({
           db: database,
           registry: healthCheckRegistry,
+          collectorRegistry,
           logger,
           queueManager,
           signalService,

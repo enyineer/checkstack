@@ -1,35 +1,28 @@
 import {
   HealthCheckStrategy,
-  HealthCheckResult,
   HealthCheckRunForAggregation,
   Versioned,
   z,
-  timeThresholdField,
-  stringField,
-  evaluateAssertions,
+  type ConnectedClient,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
 } from "@checkstack/healthcheck-common";
+import type {
+  TcpTransportClient,
+  TcpConnectRequest,
+  TcpConnectResult,
+} from "./transport-client";
 
 // ============================================================================
 // SCHEMAS
 // ============================================================================
 
 /**
- * Assertion schema for TCP health checks using shared factories.
- */
-const tcpAssertionSchema = z.discriminatedUnion("field", [
-  timeThresholdField("connectionTime"),
-  stringField("banner"),
-]);
-
-export type TcpAssertion = z.infer<typeof tcpAssertionSchema>;
-
-/**
  * Configuration schema for TCP health checks.
+ * Connection-only parameters - action params moved to BannerCollector.
  */
 export const tcpConfigSchema = z.object({
   host: z.string().describe("Hostname or IP address"),
@@ -39,17 +32,17 @@ export const tcpConfigSchema = z.object({
     .min(100)
     .default(5000)
     .describe("Connection timeout in milliseconds"),
-  readBanner: z
-    .boolean()
-    .default(false)
-    .describe("Read initial banner/greeting from server"),
-  assertions: z
-    .array(tcpAssertionSchema)
-    .optional()
-    .describe("Validation conditions"),
 });
 
 export type TcpConfig = z.infer<typeof tcpConfigSchema>;
+
+// Legacy config type for migrations
+interface TcpConfigV1 {
+  host: string;
+  port: number;
+  timeout: number;
+  readBanner: boolean;
+}
 
 /**
  * Per-run result metadata.
@@ -68,14 +61,13 @@ const tcpResultSchema = z.object({
     "x-chart-type": "text",
     "x-chart-label": "Banner",
   }).optional(),
-  failedAssertion: tcpAssertionSchema.optional(),
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
   }).optional(),
 });
 
-export type TcpResult = z.infer<typeof tcpResultSchema>;
+type TcpResult = z.infer<typeof tcpResultSchema>;
 
 /**
  * Aggregated metadata for buckets.
@@ -97,7 +89,7 @@ const tcpAggregatedSchema = z.object({
   }),
 });
 
-export type TcpAggregatedResult = z.infer<typeof tcpAggregatedSchema>;
+type TcpAggregatedResult = z.infer<typeof tcpAggregatedSchema>;
 
 // ============================================================================
 // SOCKET INTERFACE (for testability)
@@ -113,8 +105,8 @@ export type SocketFactory = () => TcpSocket;
 
 // Default factory using Bun.connect
 const defaultSocketFactory: SocketFactory = () => {
-  let socket: Awaited<ReturnType<typeof Bun.connect>> | undefined;
-  let receivedData = "";
+  let connectedSocket: Awaited<ReturnType<typeof Bun.connect>> | undefined;
+  let dataBuffer = "";
 
   return {
     async connect(options: { host: string; port: number }): Promise<void> {
@@ -124,11 +116,11 @@ const defaultSocketFactory: SocketFactory = () => {
           port: options.port,
           socket: {
             open(sock) {
-              socket = sock;
+              connectedSocket = sock;
               resolve();
             },
             data(_sock, data) {
-              receivedData += new TextDecoder().decode(data);
+              dataBuffer += data.toString();
             },
             error(_sock, error) {
               reject(error);
@@ -137,23 +129,27 @@ const defaultSocketFactory: SocketFactory = () => {
               // Connection closed
             },
           },
-        }).catch(reject);
+        });
       });
     },
     async read(timeout: number): Promise<string | undefined> {
-      const start = Date.now();
-      while (Date.now() - start < timeout) {
-        if (receivedData.length > 0) {
-          const data = receivedData;
-          receivedData = "";
-          return data;
-        }
-        await new Promise((r) => setTimeout(r, 50));
-      }
-      return receivedData.length > 0 ? receivedData : undefined;
+      return new Promise((resolve) => {
+        const start = Date.now();
+        const check = () => {
+          if (dataBuffer.length > 0) {
+            resolve(dataBuffer);
+          } else if (Date.now() - start > timeout) {
+            // eslint-disable-next-line unicorn/no-useless-undefined
+            resolve(undefined);
+          } else {
+            setTimeout(check, 50);
+          }
+        };
+        check();
+      });
     },
     close(): void {
-      socket?.end();
+      connectedSocket?.end();
     },
   };
 };
@@ -163,7 +159,13 @@ const defaultSocketFactory: SocketFactory = () => {
 // ============================================================================
 
 export class TcpHealthCheckStrategy
-  implements HealthCheckStrategy<TcpConfig, TcpResult, TcpAggregatedResult>
+  implements
+    HealthCheckStrategy<
+      TcpConfig,
+      TcpTransportClient,
+      TcpResult,
+      TcpAggregatedResult
+    >
 {
   id = "tcp";
   displayName = "TCP Health Check";
@@ -176,13 +178,33 @@ export class TcpHealthCheckStrategy
   }
 
   config: Versioned<TcpConfig> = new Versioned({
-    version: 1,
+    version: 2,
     schema: tcpConfigSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Remove readBanner (moved to BannerCollector)",
+        migrate: (data: TcpConfigV1): TcpConfig => ({
+          host: data.host,
+          port: data.port,
+          timeout: data.timeout,
+        }),
+      },
+    ],
   });
 
   result: Versioned<TcpResult> = new Versioned({
-    version: 1,
+    version: 2,
     schema: tcpResultSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Migrate to createClient pattern (no result changes)",
+        migrate: (data: unknown) => data,
+      },
+    ],
   });
 
   aggregatedResult: Versioned<TcpAggregatedResult> = new Versioned({
@@ -193,117 +215,59 @@ export class TcpHealthCheckStrategy
   aggregateResult(
     runs: HealthCheckRunForAggregation<TcpResult>[]
   ): TcpAggregatedResult {
-    let totalConnectionTime = 0;
-    let successCount = 0;
-    let errorCount = 0;
-    let validRuns = 0;
+    const validRuns = runs.filter((r) => r.metadata);
 
-    for (const run of runs) {
-      if (run.metadata?.error) {
-        errorCount++;
-        continue;
-      }
-      if (run.status === "healthy") {
-        successCount++;
-      }
-      if (run.metadata) {
-        totalConnectionTime += run.metadata.connectionTimeMs;
-        validRuns++;
-      }
+    if (validRuns.length === 0) {
+      return { avgConnectionTime: 0, successRate: 0, errorCount: 0 };
     }
 
-    return {
-      avgConnectionTime: validRuns > 0 ? totalConnectionTime / validRuns : 0,
-      successRate: runs.length > 0 ? (successCount / runs.length) * 100 : 0,
-      errorCount,
-    };
+    const connectionTimes = validRuns
+      .map((r) => r.metadata?.connectionTimeMs)
+      .filter((t): t is number => typeof t === "number");
+
+    const avgConnectionTime =
+      connectionTimes.length > 0
+        ? Math.round(
+            connectionTimes.reduce((a, b) => a + b, 0) / connectionTimes.length
+          )
+        : 0;
+
+    const successCount = validRuns.filter(
+      (r) => r.metadata?.connected === true
+    ).length;
+    const successRate = Math.round((successCount / validRuns.length) * 100);
+
+    const errorCount = validRuns.filter(
+      (r) => r.metadata?.error !== undefined
+    ).length;
+
+    return { avgConnectionTime, successRate, errorCount };
   }
 
-  async execute(config: TcpConfig): Promise<HealthCheckResult<TcpResult>> {
+  async createClient(
+    config: TcpConfig
+  ): Promise<ConnectedClient<TcpTransportClient>> {
     const validatedConfig = this.config.validate(config);
-    const start = performance.now();
-
     const socket = this.socketFactory();
 
-    try {
-      // Set up timeout
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(
-          () => reject(new Error("Connection timeout")),
-          validatedConfig.timeout
-        );
-      });
+    await socket.connect({
+      host: validatedConfig.host,
+      port: validatedConfig.port,
+    });
 
-      // Connect to host
-      await Promise.race([
-        socket.connect({
-          host: validatedConfig.host,
-          port: validatedConfig.port,
-        }),
-        timeoutPromise,
-      ]);
+    const client: TcpTransportClient = {
+      async exec(request: TcpConnectRequest): Promise<TcpConnectResult> {
+        if (request.type === "read" && request.timeout) {
+          const banner = await socket.read(request.timeout);
+          return { connected: true, banner };
+        }
+        return { connected: true };
+      },
+    };
 
-      const connectionTimeMs = Math.round(performance.now() - start);
-
-      // Read banner if requested
-      let banner: string | undefined;
-      if (validatedConfig.readBanner) {
-        const bannerTimeout = Math.max(
-          1000,
-          validatedConfig.timeout - connectionTimeMs
-        );
-        banner = (await socket.read(bannerTimeout)) ?? undefined;
-      }
-
-      socket.close();
-
-      const result: Omit<TcpResult, "failedAssertion" | "error"> = {
-        connected: true,
-        connectionTimeMs,
-        banner,
-      };
-
-      // Evaluate assertions using shared utility
-      const failedAssertion = evaluateAssertions(validatedConfig.assertions, {
-        connectionTime: connectionTimeMs,
-        banner: banner ?? "",
-      });
-
-      if (failedAssertion) {
-        return {
-          status: "unhealthy",
-          latencyMs: connectionTimeMs,
-          message: `Assertion failed: ${failedAssertion.field} ${
-            failedAssertion.operator
-          }${"value" in failedAssertion ? ` ${failedAssertion.value}` : ""}`,
-          metadata: { ...result, failedAssertion },
-        };
-      }
-
-      return {
-        status: "healthy",
-        latencyMs: connectionTimeMs,
-        message: `Connected to ${validatedConfig.host}:${
-          validatedConfig.port
-        } in ${connectionTimeMs}ms${
-          banner ? ` (banner: ${banner.slice(0, 50)}...)` : ""
-        }`,
-        metadata: result,
-      };
-    } catch (error: unknown) {
-      socket.close();
-      const end = performance.now();
-      const isError = error instanceof Error;
-      return {
-        status: "unhealthy",
-        latencyMs: Math.round(end - start),
-        message: isError ? error.message : "TCP connection failed",
-        metadata: {
-          connected: false,
-          connectionTimeMs: Math.round(end - start),
-          error: isError ? error.name : "UnknownError",
-        },
-      };
-    }
+    return {
+      client,
+      close: () => socket.close(),
+    };
   }
 }

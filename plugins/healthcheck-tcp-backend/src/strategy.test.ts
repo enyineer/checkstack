@@ -21,120 +21,72 @@ describe("TcpHealthCheckStrategy", () => {
       } as TcpSocket);
   };
 
-  describe("execute", () => {
-    it("should return healthy for successful connection", async () => {
+  describe("createClient", () => {
+    it("should return a connected client for successful connection", async () => {
       const strategy = new TcpHealthCheckStrategy(createMockSocket());
 
-      const result = await strategy.execute({
+      const connectedClient = await strategy.createClient({
         host: "localhost",
         port: 80,
         timeout: 5000,
-        readBanner: false,
       });
 
-      expect(result.status).toBe("healthy");
-      expect(result.metadata?.connected).toBe(true);
-      expect(result.metadata?.connectionTimeMs).toBeDefined();
+      expect(connectedClient.client).toBeDefined();
+      expect(connectedClient.client.exec).toBeDefined();
+      expect(connectedClient.close).toBeDefined();
+
+      connectedClient.close();
     });
 
-    it("should return unhealthy for connection error", async () => {
+    it("should throw for connection error", async () => {
       const strategy = new TcpHealthCheckStrategy(
         createMockSocket({ connectError: new Error("Connection refused") })
       );
 
-      const result = await strategy.execute({
+      await expect(
+        strategy.createClient({
+          host: "localhost",
+          port: 12345,
+          timeout: 5000,
+        })
+      ).rejects.toThrow("Connection refused");
+    });
+  });
+
+  describe("client.exec", () => {
+    it("should return connected status for connect action", async () => {
+      const strategy = new TcpHealthCheckStrategy(createMockSocket());
+      const connectedClient = await strategy.createClient({
         host: "localhost",
-        port: 12345,
+        port: 80,
         timeout: 5000,
-        readBanner: false,
       });
 
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("Connection refused");
-      expect(result.metadata?.connected).toBe(false);
+      const result = await connectedClient.client.exec({ type: "connect" });
+
+      expect(result.connected).toBe(true);
+
+      connectedClient.close();
     });
 
-    it("should read banner when requested", async () => {
+    it("should read banner with read action", async () => {
       const strategy = new TcpHealthCheckStrategy(
         createMockSocket({ banner: "SSH-2.0-OpenSSH" })
       );
-
-      const result = await strategy.execute({
+      const connectedClient = await strategy.createClient({
         host: "localhost",
         port: 22,
         timeout: 5000,
-        readBanner: true,
       });
 
-      expect(result.status).toBe("healthy");
-      expect(result.metadata?.banner).toBe("SSH-2.0-OpenSSH");
-    });
-
-    it("should pass connectionTime assertion when below threshold", async () => {
-      const strategy = new TcpHealthCheckStrategy(createMockSocket());
-
-      const result = await strategy.execute({
-        host: "localhost",
-        port: 80,
-        timeout: 5000,
-        readBanner: false,
-        assertions: [
-          { field: "connectionTime", operator: "lessThan", value: 1000 },
-        ],
+      const result = await connectedClient.client.exec({
+        type: "read",
+        timeout: 1000,
       });
 
-      expect(result.status).toBe("healthy");
-    });
+      expect(result.banner).toBe("SSH-2.0-OpenSSH");
 
-    it("should pass banner assertion with matching pattern", async () => {
-      const strategy = new TcpHealthCheckStrategy(
-        createMockSocket({ banner: "SSH-2.0-OpenSSH_8.9" })
-      );
-
-      const result = await strategy.execute({
-        host: "localhost",
-        port: 22,
-        timeout: 5000,
-        readBanner: true,
-        assertions: [{ field: "banner", operator: "contains", value: "SSH" }],
-      });
-
-      expect(result.status).toBe("healthy");
-    });
-
-    it("should fail banner assertion when not matching", async () => {
-      const strategy = new TcpHealthCheckStrategy(
-        createMockSocket({ banner: "HTTP/1.1 200 OK" })
-      );
-
-      const result = await strategy.execute({
-        host: "localhost",
-        port: 80,
-        timeout: 5000,
-        readBanner: true,
-        assertions: [{ field: "banner", operator: "contains", value: "SSH" }],
-      });
-
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("Assertion failed");
-    });
-
-    it("should close socket after execution", async () => {
-      const closeMock = mock(() => {});
-      const strategy = new TcpHealthCheckStrategy(() => ({
-        connect: mock(() => Promise.resolve()),
-        read: mock(() => Promise.resolve(undefined)),
-        close: closeMock,
-      }));
-
-      await strategy.execute({
-        host: "localhost",
-        port: 80,
-        timeout: 5000,
-        readBanner: false,
-      });
-
-      expect(closeMock).toHaveBeenCalled();
+      connectedClient.close();
     });
   });
 

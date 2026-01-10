@@ -1,39 +1,28 @@
 import { Client, type ClientConfig } from "pg";
 import {
   HealthCheckStrategy,
-  HealthCheckResult,
   HealthCheckRunForAggregation,
   Versioned,
   z,
-  timeThresholdField,
-  numericField,
-  booleanField,
-  evaluateAssertions,
   configString,
   configNumber,
   configBoolean,
+  type ConnectedClient,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
 } from "@checkstack/healthcheck-common";
+import type {
+  PostgresTransportClient,
+  SqlQueryRequest,
+  SqlQueryResult,
+} from "./transport-client";
 
 // ============================================================================
 // SCHEMAS
 // ============================================================================
-
-/**
- * Assertion schema for PostgreSQL health checks using shared factories.
- */
-const postgresAssertionSchema = z.discriminatedUnion("field", [
-  timeThresholdField("connectionTime"),
-  timeThresholdField("queryTime"),
-  numericField("rowCount", { min: 0 }),
-  booleanField("querySuccess"),
-]);
-
-export type PostgresAssertion = z.infer<typeof postgresAssertionSchema>;
 
 /**
  * Configuration schema for PostgreSQL health checks.
@@ -47,22 +36,13 @@ export const postgresConfigSchema = z.object({
     .default(5432)
     .describe("PostgreSQL port"),
   database: configString({}).describe("Database name"),
-  user: configString({}).describe("Username for authentication"),
-  password: configString({ "x-secret": true }).describe(
-    "Password for authentication"
-  ),
-  ssl: configBoolean({}).default(false).describe("Use SSL/TLS connection"),
+  user: configString({}).describe("Database user"),
+  password: configString({ "x-secret": true }).describe("Database password"),
+  ssl: configBoolean({}).default(false).describe("Use SSL connection"),
   timeout: configNumber({})
     .min(100)
     .default(10_000)
     .describe("Connection timeout in milliseconds"),
-  query: configString({})
-    .default("SELECT 1")
-    .describe("Health check query to execute"),
-  assertions: z
-    .array(postgresAssertionSchema)
-    .optional()
-    .describe("Validation conditions"),
 });
 
 export type PostgresConfig = z.infer<typeof postgresConfigSchema>;
@@ -81,31 +61,13 @@ const postgresResultSchema = z.object({
     "x-chart-label": "Connection Time",
     "x-chart-unit": "ms",
   }),
-  queryTimeMs: healthResultNumber({
-    "x-chart-type": "line",
-    "x-chart-label": "Query Time",
-    "x-chart-unit": "ms",
-  }).optional(),
-  rowCount: healthResultNumber({
-    "x-chart-type": "counter",
-    "x-chart-label": "Row Count",
-  }).optional(),
-  serverVersion: healthResultString({
-    "x-chart-type": "text",
-    "x-chart-label": "Server Version",
-  }).optional(),
-  querySuccess: healthResultBoolean({
-    "x-chart-type": "boolean",
-    "x-chart-label": "Query Success",
-  }),
-  failedAssertion: postgresAssertionSchema.optional(),
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
   }).optional(),
 });
 
-export type PostgresResult = z.infer<typeof postgresResultSchema>;
+type PostgresResult = z.infer<typeof postgresResultSchema>;
 
 /**
  * Aggregated metadata for buckets.
@@ -116,9 +78,9 @@ const postgresAggregatedSchema = z.object({
     "x-chart-label": "Avg Connection Time",
     "x-chart-unit": "ms",
   }),
-  avgQueryTime: healthResultNumber({
+  maxConnectionTime: healthResultNumber({
     "x-chart-type": "line",
-    "x-chart-label": "Avg Query Time",
+    "x-chart-label": "Max Connection Time",
     "x-chart-unit": "ms",
   }),
   successRate: healthResultNumber({
@@ -132,13 +94,13 @@ const postgresAggregatedSchema = z.object({
   }),
 });
 
-export type PostgresAggregatedResult = z.infer<typeof postgresAggregatedSchema>;
+type PostgresAggregatedResult = z.infer<typeof postgresAggregatedSchema>;
 
 // ============================================================================
 // DATABASE CLIENT INTERFACE (for testability)
 // ============================================================================
 
-export interface DbQueryResult {
+interface DbQueryResult {
   rowCount: number | null;
 }
 
@@ -154,7 +116,6 @@ const defaultDbClient: DbClient = {
   async connect(config) {
     const client = new Client(config);
     await client.connect();
-
     return {
       async query(sql: string): Promise<DbQueryResult> {
         const result = await client.query(sql);
@@ -175,6 +136,7 @@ export class PostgresHealthCheckStrategy
   implements
     HealthCheckStrategy<
       PostgresConfig,
+      PostgresTransportClient,
       PostgresResult,
       PostgresAggregatedResult
     >
@@ -190,13 +152,29 @@ export class PostgresHealthCheckStrategy
   }
 
   config: Versioned<PostgresConfig> = new Versioned({
-    version: 1,
+    version: 2,
     schema: postgresConfigSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Migrate to createClient pattern (no config changes)",
+        migrate: (data: unknown) => data,
+      },
+    ],
   });
 
   result: Versioned<PostgresResult> = new Versioned({
-    version: 1,
+    version: 2,
     schema: postgresResultSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Migrate to createClient pattern (no result changes)",
+        migrate: (data: unknown) => data,
+      },
+    ],
   });
 
   aggregatedResult: Versioned<PostgresAggregatedResult> = new Versioned({
@@ -207,133 +185,84 @@ export class PostgresHealthCheckStrategy
   aggregateResult(
     runs: HealthCheckRunForAggregation<PostgresResult>[]
   ): PostgresAggregatedResult {
-    let totalConnectionTime = 0;
-    let totalQueryTime = 0;
-    let successCount = 0;
-    let errorCount = 0;
-    let validRuns = 0;
-    let queryRuns = 0;
+    const validRuns = runs.filter((r) => r.metadata);
 
-    for (const run of runs) {
-      if (run.metadata?.error) {
-        errorCount++;
-        continue;
-      }
-      if (run.status === "healthy") {
-        successCount++;
-      }
-      if (run.metadata) {
-        totalConnectionTime += run.metadata.connectionTimeMs;
-        if (run.metadata.queryTimeMs !== undefined) {
-          totalQueryTime += run.metadata.queryTimeMs;
-          queryRuns++;
-        }
-        validRuns++;
-      }
+    if (validRuns.length === 0) {
+      return {
+        avgConnectionTime: 0,
+        maxConnectionTime: 0,
+        successRate: 0,
+        errorCount: 0,
+      };
     }
 
+    const connectionTimes = validRuns
+      .map((r) => r.metadata?.connectionTimeMs)
+      .filter((t): t is number => typeof t === "number");
+
+    const avgConnectionTime =
+      connectionTimes.length > 0
+        ? Math.round(
+            connectionTimes.reduce((a, b) => a + b, 0) / connectionTimes.length
+          )
+        : 0;
+
+    const maxConnectionTime =
+      connectionTimes.length > 0 ? Math.max(...connectionTimes) : 0;
+
+    const successCount = validRuns.filter(
+      (r) => r.metadata?.connected === true
+    ).length;
+    const successRate = Math.round((successCount / validRuns.length) * 100);
+
+    const errorCount = validRuns.filter(
+      (r) => r.metadata?.error !== undefined
+    ).length;
+
     return {
-      avgConnectionTime: validRuns > 0 ? totalConnectionTime / validRuns : 0,
-      avgQueryTime: queryRuns > 0 ? totalQueryTime / queryRuns : 0,
-      successRate: runs.length > 0 ? (successCount / runs.length) * 100 : 0,
+      avgConnectionTime,
+      maxConnectionTime,
+      successRate,
       errorCount,
     };
   }
 
-  async execute(
+  async createClient(
     config: PostgresConfigInput
-  ): Promise<HealthCheckResult<PostgresResult>> {
+  ): Promise<ConnectedClient<PostgresTransportClient>> {
     const validatedConfig = this.config.validate(config);
-    const start = performance.now();
 
-    try {
-      // Connect to database
-      const connection = await this.dbClient.connect({
-        host: validatedConfig.host,
-        port: validatedConfig.port,
-        database: validatedConfig.database,
-        user: validatedConfig.user,
-        password: validatedConfig.password,
-        ssl: validatedConfig.ssl ? { rejectUnauthorized: false } : false,
-        connectionTimeoutMillis: validatedConfig.timeout,
-      });
+    const connection = await this.dbClient.connect({
+      host: validatedConfig.host,
+      port: validatedConfig.port,
+      database: validatedConfig.database,
+      user: validatedConfig.user,
+      password: validatedConfig.password,
+      ssl: validatedConfig.ssl ? { rejectUnauthorized: false } : undefined,
+      connectionTimeoutMillis: validatedConfig.timeout,
+    });
 
-      const connectionTimeMs = Math.round(performance.now() - start);
+    const client: PostgresTransportClient = {
+      async exec(request: SqlQueryRequest): Promise<SqlQueryResult> {
+        try {
+          const result = await connection.query(request.query);
+          return { rowCount: result.rowCount ?? 0 };
+        } catch (error) {
+          return {
+            rowCount: 0,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    };
 
-      // Execute health check query
-      const queryStart = performance.now();
-      let querySuccess = false;
-      let rowCount: number | undefined;
-      let queryTimeMs: number | undefined;
-
-      try {
-        const result = await connection.query(validatedConfig.query);
-        querySuccess = true;
-        rowCount = result.rowCount ?? 0;
-        queryTimeMs = Math.round(performance.now() - queryStart);
-      } catch {
-        querySuccess = false;
-        queryTimeMs = Math.round(performance.now() - queryStart);
-      }
-
-      await connection.end();
-
-      const result: Omit<PostgresResult, "failedAssertion" | "error"> = {
-        connected: true,
-        connectionTimeMs,
-        queryTimeMs,
-        rowCount,
-        querySuccess,
-      };
-
-      // Evaluate assertions using shared utility
-      const failedAssertion = evaluateAssertions(validatedConfig.assertions, {
-        connectionTime: connectionTimeMs,
-        queryTime: queryTimeMs ?? 0,
-        rowCount: rowCount ?? 0,
-        querySuccess,
-      });
-
-      if (failedAssertion) {
-        return {
-          status: "unhealthy",
-          latencyMs: connectionTimeMs + (queryTimeMs ?? 0),
-          message: `Assertion failed: ${failedAssertion.field} ${
-            failedAssertion.operator
-          }${"value" in failedAssertion ? ` ${failedAssertion.value}` : ""}`,
-          metadata: { ...result, failedAssertion },
-        };
-      }
-
-      if (!querySuccess) {
-        return {
-          status: "unhealthy",
-          latencyMs: connectionTimeMs + (queryTimeMs ?? 0),
-          message: "Health check query failed",
-          metadata: result,
-        };
-      }
-
-      return {
-        status: "healthy",
-        latencyMs: connectionTimeMs + (queryTimeMs ?? 0),
-        message: `PostgreSQL - query returned ${rowCount} row(s) in ${queryTimeMs}ms`,
-        metadata: result,
-      };
-    } catch (error: unknown) {
-      const end = performance.now();
-      const isError = error instanceof Error;
-      return {
-        status: "unhealthy",
-        latencyMs: Math.round(end - start),
-        message: isError ? error.message : "PostgreSQL connection failed",
-        metadata: {
-          connected: false,
-          connectionTimeMs: Math.round(end - start),
-          querySuccess: false,
-          error: isError ? error.name : "UnknownError",
-        },
-      };
-    }
+    return {
+      client,
+      close: () => {
+        connection.end().catch(() => {
+          // Ignore close errors
+        });
+      },
+    };
   }
 }

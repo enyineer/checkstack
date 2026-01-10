@@ -1,4 +1,4 @@
-import { describe, expect, it, mock, beforeEach } from "bun:test";
+import { describe, expect, it, mock, beforeEach, afterEach } from "bun:test";
 import { PingHealthCheckStrategy } from "./strategy";
 
 // Mock Bun.spawn for testing
@@ -39,22 +39,41 @@ describe("PingHealthCheckStrategy", () => {
     Bun.spawn = originalSpawn;
   });
 
-  describe("execute", () => {
-    it("should return healthy for successful ping", async () => {
-      const result = await strategy.execute({
+  describe("createClient", () => {
+    it("should return a connected client", async () => {
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+
+      expect(connectedClient.client).toBeDefined();
+      expect(connectedClient.client.exec).toBeDefined();
+      expect(connectedClient.close).toBeDefined();
+    });
+
+    it("should allow closing the client", async () => {
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+
+      // Close should not throw
+      expect(() => connectedClient.close()).not.toThrow();
+    });
+  });
+
+  describe("client.exec", () => {
+    it("should return healthy result for successful ping", async () => {
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      const result = await connectedClient.client.exec({
         host: "8.8.8.8",
         count: 3,
         timeout: 5000,
       });
 
-      expect(result.status).toBe("healthy");
-      expect(result.metadata?.packetsSent).toBe(3);
-      expect(result.metadata?.packetsReceived).toBe(3);
-      expect(result.metadata?.packetLoss).toBe(0);
-      expect(result.metadata?.avgLatency).toBeCloseTo(11.456, 2);
+      expect(result.packetsSent).toBe(3);
+      expect(result.packetsReceived).toBe(3);
+      expect(result.packetLoss).toBe(0);
+      expect(result.avgLatency).toBeCloseTo(11.456, 2);
+
+      connectedClient.close();
     });
 
-    it("should return unhealthy for 100% packet loss", async () => {
+    it("should return unhealthy result for 100% packet loss", async () => {
       // @ts-expect-error - mocking global
       Bun.spawn = mock(() => ({
         stdout: new ReadableStream({
@@ -74,50 +93,17 @@ describe("PingHealthCheckStrategy", () => {
         exited: Promise.resolve(1),
       }));
 
-      const result = await strategy.execute({
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      const result = await connectedClient.client.exec({
         host: "10.0.0.1",
         count: 3,
         timeout: 5000,
       });
 
-      expect(result.status).toBe("unhealthy");
-      expect(result.metadata?.packetLoss).toBe(100);
-      expect(result.message).toContain("unreachable");
-    });
+      expect(result.packetLoss).toBe(100);
+      expect(result.error).toContain("unreachable");
 
-    it("should pass latency assertion when below threshold", async () => {
-      const result = await strategy.execute({
-        host: "8.8.8.8",
-        count: 3,
-        timeout: 5000,
-        assertions: [{ field: "avgLatency", operator: "lessThan", value: 50 }],
-      });
-
-      expect(result.status).toBe("healthy");
-    });
-
-    it("should fail latency assertion when above threshold", async () => {
-      const result = await strategy.execute({
-        host: "8.8.8.8",
-        count: 3,
-        timeout: 5000,
-        assertions: [{ field: "avgLatency", operator: "lessThan", value: 5 }],
-      });
-
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("Assertion failed");
-      expect(result.metadata?.failedAssertion).toBeDefined();
-    });
-
-    it("should pass packet loss assertion", async () => {
-      const result = await strategy.execute({
-        host: "8.8.8.8",
-        count: 3,
-        timeout: 5000,
-        assertions: [{ field: "packetLoss", operator: "equals", value: 0 }],
-      });
-
-      expect(result.status).toBe("healthy");
+      connectedClient.close();
     });
 
     it("should handle spawn errors gracefully", async () => {
@@ -125,14 +111,31 @@ describe("PingHealthCheckStrategy", () => {
         throw new Error("Command not found");
       }) as typeof Bun.spawn;
 
-      const result = await strategy.execute({
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      const result = await connectedClient.client.exec({
         host: "8.8.8.8",
         count: 3,
         timeout: 5000,
       });
 
-      expect(result.status).toBe("unhealthy");
-      expect(result.metadata?.error).toBeDefined();
+      expect(result.error).toBeDefined();
+
+      connectedClient.close();
+    });
+
+    it("should use strategy timeout as fallback", async () => {
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+
+      // The exec should work without timeout specified in request
+      const result = await connectedClient.client.exec({
+        host: "8.8.8.8",
+        count: 3,
+        timeout: 30_000,
+      });
+
+      expect(result.packetsSent).toBe(3);
+
+      connectedClient.close();
     });
   });
 
@@ -200,6 +203,3 @@ describe("PingHealthCheckStrategy", () => {
     });
   });
 });
-
-// Import afterEach
-import { afterEach } from "bun:test";

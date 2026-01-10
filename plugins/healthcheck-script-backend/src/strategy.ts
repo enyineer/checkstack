@@ -1,65 +1,49 @@
 import { spawn, type Subprocess } from "bun";
 import {
   HealthCheckStrategy,
-  HealthCheckResult,
   HealthCheckRunForAggregation,
   Versioned,
   z,
-  timeThresholdField,
-  numericField,
-  booleanField,
-  stringField,
-  evaluateAssertions,
+  type ConnectedClient,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
 } from "@checkstack/healthcheck-common";
+import type {
+  ScriptTransportClient,
+  ScriptRequest,
+  ScriptResult as ScriptResultType,
+} from "./transport-client";
 
 // ============================================================================
 // SCHEMAS
 // ============================================================================
 
 /**
- * Assertion schema for Script health checks using shared factories.
- */
-const scriptAssertionSchema = z.discriminatedUnion("field", [
-  timeThresholdField("executionTime"),
-  numericField("exitCode", { min: 0 }),
-  booleanField("success"),
-  stringField("stdout"),
-]);
-
-export type ScriptAssertion = z.infer<typeof scriptAssertionSchema>;
-
-/**
  * Configuration schema for Script health checks.
+ * Global defaults only - action params moved to ExecuteCollector.
  */
 export const scriptConfigSchema = z.object({
-  command: z.string().describe("Command or script path to execute"),
-  args: z
-    .array(z.string())
-    .default([])
-    .describe("Arguments to pass to the command"),
-  cwd: z.string().optional().describe("Working directory for script execution"),
-  env: z
-    .record(z.string(), z.string())
-    .optional()
-    .describe("Environment variables to set"),
   timeout: z
     .number()
     .min(100)
     .default(30_000)
-    .describe("Execution timeout in milliseconds"),
-  assertions: z
-    .array(scriptAssertionSchema)
-    .optional()
-    .describe("Validation conditions"),
+    .describe("Default execution timeout in milliseconds"),
 });
 
 export type ScriptConfig = z.infer<typeof scriptConfigSchema>;
 export type ScriptConfigInput = z.input<typeof scriptConfigSchema>;
+
+// Legacy config type for migrations
+interface ScriptConfigV1 {
+  command: string;
+  args: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  timeout: number;
+}
 
 /**
  * Per-run result metadata.
@@ -78,14 +62,6 @@ const scriptResultSchema = z.object({
     "x-chart-type": "counter",
     "x-chart-label": "Exit Code",
   }).optional(),
-  stdout: healthResultString({
-    "x-chart-type": "text",
-    "x-chart-label": "Stdout",
-  }).optional(),
-  stderr: healthResultString({
-    "x-chart-type": "text",
-    "x-chart-label": "Stderr",
-  }).optional(),
   success: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Success",
@@ -94,14 +70,13 @@ const scriptResultSchema = z.object({
     "x-chart-type": "boolean",
     "x-chart-label": "Timed Out",
   }),
-  failedAssertion: scriptAssertionSchema.optional(),
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
   }).optional(),
 });
 
-export type ScriptResult = z.infer<typeof scriptResultSchema>;
+type ScriptResult = z.infer<typeof scriptResultSchema>;
 
 /**
  * Aggregated metadata for buckets.
@@ -127,13 +102,13 @@ const scriptAggregatedSchema = z.object({
   }),
 });
 
-export type ScriptAggregatedResult = z.infer<typeof scriptAggregatedSchema>;
+type ScriptAggregatedResult = z.infer<typeof scriptAggregatedSchema>;
 
 // ============================================================================
 // SCRIPT EXECUTOR INTERFACE (for testability)
 // ============================================================================
 
-export interface ScriptExecutionResult {
+interface ScriptExecutionResult {
   exitCode: number;
   stdout: string;
   stderr: string;
@@ -164,7 +139,7 @@ const defaultScriptExecutor: ScriptExecutor = {
       }, config.timeout);
     });
 
-    const execPromise = (async () => {
+    try {
       proc = spawn({
         cmd: [config.command, ...config.args],
         cwd: config.cwd,
@@ -173,15 +148,14 @@ const defaultScriptExecutor: ScriptExecutor = {
         stderr: "pipe",
       });
 
-      const stdoutStream = proc.stdout;
-      const stderrStream = proc.stderr;
-      const stdout = stdoutStream
-        ? await new Response(stdoutStream as unknown as ReadableStream).text()
-        : "";
-      const stderr = stderrStream
-        ? await new Response(stderrStream as unknown as ReadableStream).text()
-        : "";
-      const exitCode = await proc.exited;
+      const [stdout, stderr, exitCode] = await Promise.race([
+        Promise.all([
+          new Response(proc.stdout as ReadableStream).text(),
+          new Response(proc.stderr as ReadableStream).text(),
+          proc.exited,
+        ]),
+        timeoutPromise,
+      ]);
 
       return {
         exitCode,
@@ -189,10 +163,6 @@ const defaultScriptExecutor: ScriptExecutor = {
         stderr: stderr.trim(),
         timedOut: false,
       };
-    })();
-
-    try {
-      return await Promise.race([execPromise, timeoutPromise]);
     } catch (error) {
       if (timedOut) {
         return {
@@ -213,7 +183,12 @@ const defaultScriptExecutor: ScriptExecutor = {
 
 export class ScriptHealthCheckStrategy
   implements
-    HealthCheckStrategy<ScriptConfig, ScriptResult, ScriptAggregatedResult>
+    HealthCheckStrategy<
+      ScriptConfig,
+      ScriptTransportClient,
+      ScriptResult,
+      ScriptAggregatedResult
+    >
 {
   id = "script";
   displayName = "Script Health Check";
@@ -226,13 +201,31 @@ export class ScriptHealthCheckStrategy
   }
 
   config: Versioned<ScriptConfig> = new Versioned({
-    version: 1,
+    version: 2,
     schema: scriptConfigSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Remove command/args/cwd/env (moved to ExecuteCollector)",
+        migrate: (data: ScriptConfigV1): ScriptConfig => ({
+          timeout: data.timeout,
+        }),
+      },
+    ],
   });
 
   result: Versioned<ScriptResult> = new Versioned({
-    version: 1,
+    version: 2,
     schema: scriptResultSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Migrate to createClient pattern (no result changes)",
+        migrate: (data: unknown) => data,
+      },
+    ],
   });
 
   aggregatedResult: Versioned<ScriptAggregatedResult> = new Versioned({
@@ -243,123 +236,86 @@ export class ScriptHealthCheckStrategy
   aggregateResult(
     runs: HealthCheckRunForAggregation<ScriptResult>[]
   ): ScriptAggregatedResult {
-    let totalExecutionTime = 0;
-    let successCount = 0;
-    let errorCount = 0;
-    let timeoutCount = 0;
-    let validRuns = 0;
+    const validRuns = runs.filter((r) => r.metadata);
 
-    for (const run of runs) {
-      if (run.metadata?.error) {
-        errorCount++;
-        continue;
-      }
-      if (run.metadata?.timedOut) {
-        timeoutCount++;
-      }
-      if (run.status === "healthy") {
-        successCount++;
-      }
-      if (run.metadata) {
-        totalExecutionTime += run.metadata.executionTimeMs;
-        validRuns++;
-      }
+    if (validRuns.length === 0) {
+      return {
+        avgExecutionTime: 0,
+        successRate: 0,
+        errorCount: 0,
+        timeoutCount: 0,
+      };
     }
 
+    const executionTimes = validRuns
+      .map((r) => r.metadata?.executionTimeMs)
+      .filter((t): t is number => typeof t === "number");
+
+    const avgExecutionTime =
+      executionTimes.length > 0
+        ? Math.round(
+            executionTimes.reduce((a, b) => a + b, 0) / executionTimes.length
+          )
+        : 0;
+
+    const successCount = validRuns.filter(
+      (r) => r.metadata?.success === true
+    ).length;
+    const successRate = Math.round((successCount / validRuns.length) * 100);
+
+    const errorCount = validRuns.filter(
+      (r) => r.metadata?.error !== undefined
+    ).length;
+
+    const timeoutCount = validRuns.filter(
+      (r) => r.metadata?.timedOut === true
+    ).length;
+
     return {
-      avgExecutionTime: validRuns > 0 ? totalExecutionTime / validRuns : 0,
-      successRate: runs.length > 0 ? (successCount / runs.length) * 100 : 0,
+      avgExecutionTime,
+      successRate,
       errorCount,
       timeoutCount,
     };
   }
 
-  async execute(
-    config: ScriptConfigInput
-  ): Promise<HealthCheckResult<ScriptResult>> {
-    const validatedConfig = this.config.validate(config);
-    const start = performance.now();
+  async createClient(
+    _config: ScriptConfigInput
+  ): Promise<ConnectedClient<ScriptTransportClient>> {
+    const client: ScriptTransportClient = {
+      exec: async (request: ScriptRequest): Promise<ScriptResultType> => {
+        try {
+          const result = await this.executor.execute({
+            command: request.command,
+            args: request.args,
+            cwd: request.cwd,
+            env: request.env,
+            timeout: request.timeout,
+          });
 
-    try {
-      const execResult = await this.executor.execute({
-        command: validatedConfig.command,
-        args: validatedConfig.args,
-        cwd: validatedConfig.cwd,
-        env: validatedConfig.env as Record<string, string> | undefined,
-        timeout: validatedConfig.timeout,
-      });
+          return {
+            exitCode: result.exitCode,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            timedOut: result.timedOut,
+          };
+        } catch (error) {
+          return {
+            exitCode: -1,
+            stdout: "",
+            stderr: "",
+            timedOut: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    };
 
-      const executionTimeMs = Math.round(performance.now() - start);
-      const success = execResult.exitCode === 0 && !execResult.timedOut;
-
-      const result: Omit<ScriptResult, "failedAssertion" | "error"> = {
-        executed: true,
-        executionTimeMs,
-        exitCode: execResult.exitCode,
-        stdout: execResult.stdout,
-        stderr: execResult.stderr,
-        success,
-        timedOut: execResult.timedOut,
-      };
-
-      // Evaluate assertions using shared utility
-      const failedAssertion = evaluateAssertions(validatedConfig.assertions, {
-        executionTime: executionTimeMs,
-        exitCode: execResult.exitCode,
-        success,
-        stdout: execResult.stdout,
-      });
-
-      if (failedAssertion) {
-        return {
-          status: "unhealthy",
-          latencyMs: executionTimeMs,
-          message: `Assertion failed: ${failedAssertion.field} ${
-            failedAssertion.operator
-          }${"value" in failedAssertion ? ` ${failedAssertion.value}` : ""}`,
-          metadata: { ...result, failedAssertion },
-        };
-      }
-
-      if (execResult.timedOut) {
-        return {
-          status: "unhealthy",
-          latencyMs: executionTimeMs,
-          message: `Script timed out after ${validatedConfig.timeout}ms`,
-          metadata: result,
-        };
-      }
-
-      if (!success) {
-        return {
-          status: "unhealthy",
-          latencyMs: executionTimeMs,
-          message: `Script failed with exit code ${execResult.exitCode}`,
-          metadata: result,
-        };
-      }
-
-      return {
-        status: "healthy",
-        latencyMs: executionTimeMs,
-        message: `Script executed successfully (exit 0) in ${executionTimeMs}ms`,
-        metadata: result,
-      };
-    } catch (error: unknown) {
-      const end = performance.now();
-      const isError = error instanceof Error;
-      return {
-        status: "unhealthy",
-        latencyMs: Math.round(end - start),
-        message: isError ? error.message : "Script execution failed",
-        metadata: {
-          executed: false,
-          executionTimeMs: Math.round(end - start),
-          success: false,
-          timedOut: false,
-          error: isError ? error.name : "UnknownError",
-        },
-      };
-    }
+    return {
+      client,
+      close: () => {
+        // Script executor is stateless, nothing to close
+      },
+    };
   }
 }

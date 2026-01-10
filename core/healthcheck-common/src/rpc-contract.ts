@@ -8,6 +8,7 @@ import { z } from "zod";
 import { permissions } from "./permissions";
 import {
   HealthCheckStrategyDtoSchema,
+  CollectorDtoSchema,
   HealthCheckConfigurationSchema,
   CreateHealthCheckConfigurationSchema,
   UpdateHealthCheckConfigurationSchema,
@@ -52,6 +53,18 @@ export const healthCheckContract = {
       permissions: [permissions.healthCheckRead.id],
     })
     .output(z.array(HealthCheckStrategyDtoSchema)),
+
+  /**
+   * Get available collectors for a specific strategy.
+   * Returns collectors that support the given strategy's transport.
+   */
+  getCollectors: _base
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.healthCheckRead.id],
+    })
+    .input(z.object({ strategyId: z.string() }))
+    .output(z.array(CollectorDtoSchema)),
 
   // ==========================================================================
   // CONFIGURATION MANAGEMENT (userType: "authenticated")

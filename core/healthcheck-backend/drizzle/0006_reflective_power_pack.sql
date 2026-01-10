@@ -1,0 +1,1 @@
+ALTER TABLE "health_check_configurations" ADD COLUMN "collectors" jsonb;

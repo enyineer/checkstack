@@ -1,19 +1,21 @@
 import * as grpc from "@grpc/grpc-js";
 import {
   HealthCheckStrategy,
-  HealthCheckResult,
   HealthCheckRunForAggregation,
   Versioned,
   z,
-  timeThresholdField,
-  enumField,
-  evaluateAssertions,
+  type ConnectedClient,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
 } from "@checkstack/healthcheck-common";
+import type {
+  GrpcTransportClient,
+  GrpcHealthRequest,
+  GrpcHealthResponse,
+} from "./transport-client";
 
 // ============================================================================
 // SCHEMAS
@@ -21,26 +23,15 @@ import {
 
 /**
  * gRPC Health Checking Protocol status values
- * https://github.com/grpc/grpc/blob/master/doc/health-checking.md
  */
-const GrpcHealthStatus = z.enum([
+export const GrpcHealthStatus = z.enum([
   "UNKNOWN",
   "SERVING",
   "NOT_SERVING",
   "SERVICE_UNKNOWN",
 ]);
-export type GrpcHealthStatus = z.infer<typeof GrpcHealthStatus>;
 
-/**
- * Assertion schema for gRPC health checks using shared factories.
- * Uses enumField for status to render a dropdown with valid status values.
- */
-const grpcAssertionSchema = z.discriminatedUnion("field", [
-  timeThresholdField("responseTime"),
-  enumField("status", GrpcHealthStatus.options),
-]);
-
-export type GrpcAssertion = z.infer<typeof grpcAssertionSchema>;
+export type GrpcHealthStatusType = z.infer<typeof GrpcHealthStatus>;
 
 /**
  * Configuration schema for gRPC health checks.
@@ -51,17 +42,13 @@ export const grpcConfigSchema = z.object({
   service: z
     .string()
     .default("")
-    .describe("Service name to check (empty for overall server health)"),
-  useTls: z.boolean().default(false).describe("Use TLS/SSL connection"),
+    .describe("Service name to check (empty for server health)"),
+  useTls: z.boolean().default(false).describe("Use TLS connection"),
   timeout: z
     .number()
     .min(100)
     .default(5000)
     .describe("Request timeout in milliseconds"),
-  assertions: z
-    .array(grpcAssertionSchema)
-    .optional()
-    .describe("Validation conditions"),
 });
 
 export type GrpcConfig = z.infer<typeof grpcConfigSchema>;
@@ -80,18 +67,17 @@ const grpcResultSchema = z.object({
     "x-chart-label": "Response Time",
     "x-chart-unit": "ms",
   }),
-  status: GrpcHealthStatus.meta({
+  status: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Status",
   }),
-  failedAssertion: grpcAssertionSchema.optional(),
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
   }).optional(),
 });
 
-export type GrpcResult = z.infer<typeof grpcResultSchema>;
+type GrpcResult = z.infer<typeof grpcResultSchema>;
 
 /**
  * Aggregated metadata for buckets.
@@ -117,7 +103,7 @@ const grpcAggregatedSchema = z.object({
   }),
 });
 
-export type GrpcAggregatedResult = z.infer<typeof grpcAggregatedSchema>;
+type GrpcAggregatedResult = z.infer<typeof grpcAggregatedSchema>;
 
 // ============================================================================
 // GRPC CLIENT INTERFACE (for testability)
@@ -130,60 +116,56 @@ export interface GrpcHealthClient {
     service: string;
     useTls: boolean;
     timeout: number;
-  }): Promise<{ status: GrpcHealthStatus }>;
+  }): Promise<{ status: GrpcHealthStatusType }>;
 }
 
 // Default client using @grpc/grpc-js
 const defaultGrpcClient: GrpcHealthClient = {
-  async check(options) {
+  check(options) {
     return new Promise((resolve, reject) => {
+      const address = `${options.host}:${options.port}`;
       const credentials = options.useTls
         ? grpc.credentials.createSsl()
         : grpc.credentials.createInsecure();
 
-      // Create health check client manually using makeGenericClientConstructor
-      const HealthService = grpc.makeGenericClientConstructor(
-        {
-          Check: {
-            path: "/grpc.health.v1.Health/Check",
-            requestStream: false,
-            responseStream: false,
-            requestSerialize: (message: { service: string }) =>
-              Buffer.from(JSON.stringify(message)),
-            requestDeserialize: (data: Buffer) =>
-              JSON.parse(data.toString()) as { service: string },
-            responseSerialize: (message: { status: number }) =>
-              Buffer.from(JSON.stringify(message)),
-            responseDeserialize: (data: Buffer) =>
-              JSON.parse(data.toString()) as { status: number },
-          },
-        },
-        "grpc.health.v1.Health"
-      );
+      const client = new grpc.Client(address, credentials);
 
-      const client = new HealthService(
-        `${options.host}:${options.port}`,
-        credentials
-      );
+      // Use the standard gRPC Health Checking Protocol
+      const healthCheckPath = "/grpc.health.v1.Health/Check";
+
+      const methodDefinition: grpc.MethodDefinition<
+        { service: string },
+        { status: number }
+      > = {
+        path: healthCheckPath,
+        requestStream: false,
+        responseStream: false,
+        requestSerialize: (message: { service: string }) =>
+          Buffer.from(JSON.stringify(message)),
+        requestDeserialize: (data: Buffer) => JSON.parse(data.toString()),
+        responseSerialize: (message: { status: number }) =>
+          Buffer.from(JSON.stringify(message)),
+        responseDeserialize: (data: Buffer) => JSON.parse(data.toString()),
+      };
 
       const deadline = new Date(Date.now() + options.timeout);
 
-      client.Check(
+      client.makeUnaryRequest(
+        methodDefinition.path,
+        methodDefinition.requestSerialize,
+        methodDefinition.responseDeserialize,
         { service: options.service },
         { deadline },
-        (
-          err: grpc.ServiceError | null,
-          response: { status: number } | undefined
-        ) => {
+        (error, response) => {
           client.close();
 
-          if (err) {
-            reject(err);
+          if (error) {
+            reject(error);
             return;
           }
 
-          // Map status number to enum
-          const statusMap: Record<number, GrpcHealthStatus> = {
+          // Map status codes to enum values
+          const statusMap: Record<number, GrpcHealthStatusType> = {
             0: "UNKNOWN",
             1: "SERVING",
             2: "NOT_SERVING",
@@ -204,7 +186,13 @@ const defaultGrpcClient: GrpcHealthClient = {
 // ============================================================================
 
 export class GrpcHealthCheckStrategy
-  implements HealthCheckStrategy<GrpcConfig, GrpcResult, GrpcAggregatedResult>
+  implements
+    HealthCheckStrategy<
+      GrpcConfig,
+      GrpcTransportClient,
+      GrpcResult,
+      GrpcAggregatedResult
+    >
 {
   id = "grpc";
   displayName = "gRPC Health Check";
@@ -218,13 +206,29 @@ export class GrpcHealthCheckStrategy
   }
 
   config: Versioned<GrpcConfig> = new Versioned({
-    version: 1,
+    version: 2, // Bumped for createClient pattern
     schema: grpcConfigSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Migrate to createClient pattern (no config changes)",
+        migrate: (data: unknown) => data,
+      },
+    ],
   });
 
   result: Versioned<GrpcResult> = new Versioned({
-    version: 1,
+    version: 2,
     schema: grpcResultSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Migrate to createClient pattern (no result changes)",
+        migrate: (data: unknown) => data,
+      },
+    ],
   });
 
   aggregatedResult: Versioned<GrpcAggregatedResult> = new Versioned({
@@ -235,109 +239,74 @@ export class GrpcHealthCheckStrategy
   aggregateResult(
     runs: HealthCheckRunForAggregation<GrpcResult>[]
   ): GrpcAggregatedResult {
-    let totalResponseTime = 0;
-    let successCount = 0;
-    let errorCount = 0;
-    let servingCount = 0;
-    let validRuns = 0;
+    const validRuns = runs.filter((r) => r.metadata);
 
-    for (const run of runs) {
-      if (run.metadata?.error) {
-        errorCount++;
-        continue;
-      }
-      if (run.status === "healthy") {
-        successCount++;
-      }
-      if (run.metadata) {
-        totalResponseTime += run.metadata.responseTimeMs;
-        if (run.metadata.status === "SERVING") {
-          servingCount++;
-        }
-        validRuns++;
-      }
+    if (validRuns.length === 0) {
+      return {
+        avgResponseTime: 0,
+        successRate: 0,
+        errorCount: 0,
+        servingCount: 0,
+      };
     }
 
+    const responseTimes = validRuns
+      .map((r) => r.metadata?.responseTimeMs)
+      .filter((t): t is number => typeof t === "number");
+
+    const avgResponseTime =
+      responseTimes.length > 0
+        ? Math.round(
+            responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length
+          )
+        : 0;
+
+    const servingCount = validRuns.filter(
+      (r) => r.metadata?.status === "SERVING"
+    ).length;
+    const successRate = Math.round((servingCount / validRuns.length) * 100);
+
+    const errorCount = validRuns.filter(
+      (r) => r.metadata?.error !== undefined
+    ).length;
+
     return {
-      avgResponseTime: validRuns > 0 ? totalResponseTime / validRuns : 0,
-      successRate: runs.length > 0 ? (successCount / runs.length) * 100 : 0,
+      avgResponseTime,
+      successRate,
       errorCount,
       servingCount,
     };
   }
 
-  async execute(
+  async createClient(
     config: GrpcConfigInput
-  ): Promise<HealthCheckResult<GrpcResult>> {
+  ): Promise<ConnectedClient<GrpcTransportClient>> {
     const validatedConfig = this.config.validate(config);
-    const start = performance.now();
 
-    try {
-      const response = await this.grpcClient.check({
-        host: validatedConfig.host,
-        port: validatedConfig.port,
-        service: validatedConfig.service,
-        useTls: validatedConfig.useTls,
-        timeout: validatedConfig.timeout,
-      });
+    const client: GrpcTransportClient = {
+      exec: async (request: GrpcHealthRequest): Promise<GrpcHealthResponse> => {
+        try {
+          const result = await this.grpcClient.check({
+            host: validatedConfig.host,
+            port: validatedConfig.port,
+            service: request.service,
+            useTls: validatedConfig.useTls,
+            timeout: validatedConfig.timeout,
+          });
+          return { status: result.status };
+        } catch (error_) {
+          const error =
+            error_ instanceof Error ? error_.message : String(error_);
+          return { status: "UNKNOWN", error };
+        }
+      },
+    };
 
-      const responseTimeMs = Math.round(performance.now() - start);
-
-      const result: Omit<GrpcResult, "failedAssertion" | "error"> = {
-        connected: true,
-        responseTimeMs,
-        status: response.status,
-      };
-
-      // Evaluate assertions using shared utility
-      const failedAssertion = evaluateAssertions(validatedConfig.assertions, {
-        responseTime: responseTimeMs,
-        status: response.status,
-      });
-
-      if (failedAssertion) {
-        return {
-          status: "unhealthy",
-          latencyMs: responseTimeMs,
-          message: `Assertion failed: ${failedAssertion.field} ${
-            failedAssertion.operator
-          }${"value" in failedAssertion ? ` ${failedAssertion.value}` : ""}`,
-          metadata: { ...result, failedAssertion },
-        };
-      }
-
-      // Check if service is SERVING
-      if (response.status !== "SERVING") {
-        return {
-          status: "unhealthy",
-          latencyMs: responseTimeMs,
-          message: `gRPC health status: ${response.status}`,
-          metadata: result,
-        };
-      }
-
-      return {
-        status: "healthy",
-        latencyMs: responseTimeMs,
-        message: `gRPC service ${
-          validatedConfig.service || "(root)"
-        } is SERVING`,
-        metadata: result,
-      };
-    } catch (error: unknown) {
-      const end = performance.now();
-      const isError = error instanceof Error;
-      return {
-        status: "unhealthy",
-        latencyMs: Math.round(end - start),
-        message: isError ? error.message : "gRPC health check failed",
-        metadata: {
-          connected: false,
-          responseTimeMs: Math.round(end - start),
-          status: "UNKNOWN",
-          error: isError ? error.name : "UnknownError",
-        },
-      };
-    }
+    return {
+      client,
+      close: () => {
+        // gRPC client is per-request, nothing to close
+      },
+    };
   }
 }

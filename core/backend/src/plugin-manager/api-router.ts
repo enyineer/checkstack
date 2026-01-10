@@ -8,13 +8,11 @@ import {
   Logger,
   Fetch,
   HealthCheckRegistry,
+  CollectorRegistry,
   type EmitHookFn,
   type Hook,
 } from "@checkstack/backend-api";
-import type {
-  QueuePluginRegistry,
-  QueueManager,
-} from "@checkstack/queue-api";
+import type { QueuePluginRegistry, QueueManager } from "@checkstack/queue-api";
 import type { ServiceRegistry } from "../services/service-registry";
 import type { EventBus } from "@checkstack/backend-api";
 import type { PluginMetadata } from "@checkstack/common";
@@ -70,6 +68,7 @@ export function createApiRouteHandler({
     const healthCheckRegistry = await getService(
       coreServices.healthCheckRegistry
     );
+    const collectorRegistry = await getService(coreServices.collectorRegistry);
     const queuePluginRegistry = await getService(
       coreServices.queuePluginRegistry
     );
@@ -82,6 +81,7 @@ export function createApiRouteHandler({
       !db ||
       !fetch ||
       !healthCheckRegistry ||
+      !collectorRegistry ||
       !queuePluginRegistry ||
       !queueManager ||
       !eventBus
@@ -111,6 +111,7 @@ export function createApiRouteHandler({
       db: db as NodePgDatabase<Record<string, unknown>>,
       fetch: fetch as Fetch,
       healthCheckRegistry: healthCheckRegistry as HealthCheckRegistry,
+      collectorRegistry: collectorRegistry as CollectorRegistry,
       queuePluginRegistry: queuePluginRegistry as QueuePluginRegistry,
       queueManager: queueManager as QueueManager,
       user,

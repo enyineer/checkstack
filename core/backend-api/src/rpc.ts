@@ -1,14 +1,9 @@
 import { os as baseOs, ORPCError, Router } from "@orpc/server";
 import { AnyContractRouter } from "@orpc/contract";
 import { HealthCheckRegistry } from "./health-check";
-import {
-  QueuePluginRegistry,
-  QueueManager,
-} from "@checkstack/queue-api";
-import {
-  ProcedureMetadata,
-  qualifyPermissionId,
-} from "@checkstack/common";
+import { CollectorRegistry } from "./collector-registry";
+import { QueuePluginRegistry, QueueManager } from "@checkstack/queue-api";
+import { ProcedureMetadata, qualifyPermissionId } from "@checkstack/common";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import {
   Logger,
@@ -43,6 +38,7 @@ export interface RpcContext {
   auth: AuthService;
   user?: AuthUser;
   healthCheckRegistry: HealthCheckRegistry;
+  collectorRegistry: CollectorRegistry;
   queuePluginRegistry: QueuePluginRegistry;
   queueManager: QueueManager;
   /** Emit a hook event for cross-plugin communication */

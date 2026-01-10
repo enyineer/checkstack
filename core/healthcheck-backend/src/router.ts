@@ -31,17 +31,51 @@ export const createHealthCheckRouter = (
 
   return os.router({
     getStrategies: os.getStrategies.handler(async ({ context }) => {
-      return context.healthCheckRegistry.getStrategies().map((s) => ({
-        id: s.id,
-        displayName: s.displayName,
-        description: s.description,
-        configSchema: toJsonSchema(s.config.schema),
-        resultSchema: s.result
-          ? toJsonSchemaWithChartMeta(s.result.schema)
+      return context.healthCheckRegistry.getStrategiesWithMeta().map((r) => ({
+        id: r.qualifiedId, // Return fully qualified ID
+        displayName: r.strategy.displayName,
+        description: r.strategy.description,
+        configSchema: toJsonSchema(r.strategy.config.schema),
+        resultSchema: r.strategy.result
+          ? toJsonSchemaWithChartMeta(r.strategy.result.schema)
           : undefined,
         aggregatedResultSchema: toJsonSchemaWithChartMeta(
-          s.aggregatedResult.schema
+          r.strategy.aggregatedResult.schema
         ),
+      }));
+    }),
+
+    getCollectors: os.getCollectors.handler(async ({ input, context }) => {
+      // Get strategy to verify it exists
+      const strategy = context.healthCheckRegistry.getStrategy(
+        input.strategyId
+      );
+      if (!strategy) {
+        return [];
+      }
+
+      // Strategy ID is fully qualified: pluginId.strategyId
+      // Extract the plugin ID (everything before the last dot)
+      const lastDotIndex = input.strategyId.lastIndexOf(".");
+      const pluginId =
+        lastDotIndex > 0
+          ? input.strategyId.slice(0, lastDotIndex)
+          : input.strategyId;
+
+      // Get collectors that support this strategy's plugin
+      const registeredCollectors =
+        context.collectorRegistry.getCollectorsForPlugin({
+          pluginId,
+        });
+
+      return registeredCollectors.map(({ collector, ownerPlugin }) => ({
+        // Fully-qualified ID: ownerPluginId.collectorId
+        id: `${ownerPlugin.pluginId}.${collector.id}`,
+        displayName: collector.displayName,
+        description: collector.description,
+        configSchema: toJsonSchema(collector.config.schema),
+        resultSchema: toJsonSchemaWithChartMeta(collector.result.schema),
+        allowMultiple: collector.allowMultiple ?? false,
       }));
     }),
 

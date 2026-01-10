@@ -30,11 +30,11 @@ describe("SshHealthCheckStrategy", () => {
     ),
   });
 
-  describe("execute", () => {
-    it("should return healthy for successful connection", async () => {
+  describe("createClient", () => {
+    it("should return a connected client for successful connection", async () => {
       const strategy = new SshHealthCheckStrategy(createMockClient());
 
-      const result = await strategy.execute({
+      const connectedClient = await strategy.createClient({
         host: "localhost",
         port: 22,
         username: "user",
@@ -42,36 +42,36 @@ describe("SshHealthCheckStrategy", () => {
         timeout: 5000,
       });
 
-      expect(result.status).toBe("healthy");
-      expect(result.metadata?.connected).toBe(true);
+      expect(connectedClient.client).toBeDefined();
+      expect(connectedClient.client.exec).toBeDefined();
+      expect(connectedClient.close).toBeDefined();
+
+      connectedClient.close();
     });
 
-    it("should return healthy for successful command execution", async () => {
-      const strategy = new SshHealthCheckStrategy(
-        createMockClient({ exitCode: 0, stdout: "OK" })
-      );
-
-      const result = await strategy.execute({
-        host: "localhost",
-        port: 22,
-        username: "user",
-        password: "secret",
-        timeout: 5000,
-        command: "echo OK",
-      });
-
-      expect(result.status).toBe("healthy");
-      expect(result.metadata?.commandSuccess).toBe(true);
-      expect(result.metadata?.stdout).toBe("OK");
-      expect(result.metadata?.exitCode).toBe(0);
-    });
-
-    it("should return unhealthy for connection error", async () => {
+    it("should throw for connection error", async () => {
       const strategy = new SshHealthCheckStrategy(
         createMockClient({ connectError: new Error("Connection refused") })
       );
 
-      const result = await strategy.execute({
+      await expect(
+        strategy.createClient({
+          host: "localhost",
+          port: 22,
+          username: "user",
+          password: "secret",
+          timeout: 5000,
+        })
+      ).rejects.toThrow("Connection refused");
+    });
+  });
+
+  describe("client.exec", () => {
+    it("should execute command successfully", async () => {
+      const strategy = new SshHealthCheckStrategy(
+        createMockClient({ exitCode: 0, stdout: "OK" })
+      );
+      const connectedClient = await strategy.createClient({
         host: "localhost",
         port: 22,
         username: "user",
@@ -79,100 +79,33 @@ describe("SshHealthCheckStrategy", () => {
         timeout: 5000,
       });
 
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("Connection refused");
-      expect(result.metadata?.connected).toBe(false);
+      // SSH transport client takes a string command
+      const result = await connectedClient.client.exec("echo OK");
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("OK");
+
+      connectedClient.close();
     });
 
-    it("should return unhealthy for non-zero exit code", async () => {
+    it("should return non-zero exit code for failed command", async () => {
       const strategy = new SshHealthCheckStrategy(
         createMockClient({ exitCode: 1, stderr: "Error" })
       );
-
-      const result = await strategy.execute({
+      const connectedClient = await strategy.createClient({
         host: "localhost",
         port: 22,
         username: "user",
         password: "secret",
         timeout: 5000,
-        command: "exit 1",
       });
 
-      expect(result.status).toBe("unhealthy");
-      expect(result.metadata?.exitCode).toBe(1);
-      expect(result.metadata?.commandSuccess).toBe(false);
-    });
+      const result = await connectedClient.client.exec("exit 1");
 
-    it("should pass connectionTime assertion when below threshold", async () => {
-      const strategy = new SshHealthCheckStrategy(createMockClient());
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toBe("Error");
 
-      const result = await strategy.execute({
-        host: "localhost",
-        port: 22,
-        username: "user",
-        password: "secret",
-        timeout: 5000,
-        assertions: [
-          { field: "connectionTime", operator: "lessThan", value: 5000 },
-        ],
-      });
-
-      expect(result.status).toBe("healthy");
-    });
-
-    it("should pass exitCode assertion", async () => {
-      const strategy = new SshHealthCheckStrategy(
-        createMockClient({ exitCode: 0 })
-      );
-
-      const result = await strategy.execute({
-        host: "localhost",
-        port: 22,
-        username: "user",
-        password: "secret",
-        timeout: 5000,
-        command: "true",
-        assertions: [{ field: "exitCode", operator: "equals", value: 0 }],
-      });
-
-      expect(result.status).toBe("healthy");
-    });
-
-    it("should fail exitCode assertion when non-zero", async () => {
-      const strategy = new SshHealthCheckStrategy(
-        createMockClient({ exitCode: 1 })
-      );
-
-      const result = await strategy.execute({
-        host: "localhost",
-        port: 22,
-        username: "user",
-        password: "secret",
-        timeout: 5000,
-        command: "false",
-        assertions: [{ field: "exitCode", operator: "equals", value: 0 }],
-      });
-
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("Assertion failed");
-    });
-
-    it("should pass stdout assertion", async () => {
-      const strategy = new SshHealthCheckStrategy(
-        createMockClient({ stdout: "OK: Service running" })
-      );
-
-      const result = await strategy.execute({
-        host: "localhost",
-        port: 22,
-        username: "user",
-        password: "secret",
-        timeout: 5000,
-        command: "systemctl status myservice",
-        assertions: [{ field: "stdout", operator: "contains", value: "OK" }],
-      });
-
-      expect(result.status).toBe("healthy");
+      connectedClient.close();
     });
   });
 
@@ -189,9 +122,7 @@ describe("SshHealthCheckStrategy", () => {
           metadata: {
             connected: true,
             connectionTimeMs: 50,
-            commandTimeMs: 10,
             exitCode: 0,
-            commandSuccess: true,
           },
         },
         {
@@ -203,9 +134,7 @@ describe("SshHealthCheckStrategy", () => {
           metadata: {
             connected: true,
             connectionTimeMs: 100,
-            commandTimeMs: 20,
             exitCode: 0,
-            commandSuccess: true,
           },
         },
       ];
@@ -213,7 +142,6 @@ describe("SshHealthCheckStrategy", () => {
       const aggregated = strategy.aggregateResult(runs);
 
       expect(aggregated.avgConnectionTime).toBe(75);
-      expect(aggregated.avgCommandTime).toBe(15);
       expect(aggregated.successRate).toBe(100);
       expect(aggregated.errorCount).toBe(0);
     });
@@ -230,7 +158,6 @@ describe("SshHealthCheckStrategy", () => {
           metadata: {
             connected: false,
             connectionTimeMs: 100,
-            commandSuccess: false,
             error: "Connection refused",
           },
         },

@@ -21,3 +21,6 @@ export * from "./markdown";
 export * from "./email-layout";
 export * from "./assertions";
 export * from "./chart-metadata";
+export * from "./transport-client";
+export * from "./collector-strategy";
+export * from "./collector-registry";

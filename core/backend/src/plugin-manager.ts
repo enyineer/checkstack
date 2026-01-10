@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
 import { adminPool, db } from "./db";
 import { ServiceRegistry } from "./services/service-registry";
+import type { CoreCollectorRegistry } from "./services/collector-registry";
 import {
   BackendPlugin,
   ServiceRef,
@@ -46,14 +47,18 @@ export class PluginManager {
   // Hook subscriptions per plugin (for bulk unsubscribe)
   private hookSubscriptions = new Map<string, HookUnsubscribe[]>();
 
+  // Global collector registry reference for cleanup
+  private collectorRegistry: CoreCollectorRegistry;
+
   constructor() {
-    registerCoreServices({
+    const registries = registerCoreServices({
       registry: this.registry,
       adminPool,
       pluginRpcRouters: this.pluginRpcRouters,
       pluginHttpHandlers: this.pluginHttpHandlers,
       pluginContractRegistry: this.pluginContractRegistry,
     });
+    this.collectorRegistry = registries.collectorRegistry;
   }
 
   registerExtensionPoint<T>(ref: ExtensionPoint<T>, impl: T) {
@@ -162,6 +167,16 @@ export class PluginManager {
     this.pluginHttpHandlers.delete(pluginId);
     this.pluginContractRegistry.delete(pluginId);
     rootLogger.debug(`   -> Removed routers and contracts for ${pluginId}`);
+
+    // 4b. Cleanup collectors
+    // - Remove collectors owned by this plugin
+    this.collectorRegistry.unregisterByOwner(pluginId);
+    // - Remove collectors that have no loaded strategy plugins
+    //   (exclude the current plugin being deregistered)
+    const loadedPluginIds = new Set(
+      [...this.pluginMetadataRegistry.keys()].filter((id) => id !== pluginId)
+    );
+    this.collectorRegistry.unregisterByMissingStrategies(loadedPluginIds);
 
     // 5. Remove permissions from registry
     const beforeCount = this.registeredPermissions.length;

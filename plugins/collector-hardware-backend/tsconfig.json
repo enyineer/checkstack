@@ -1,0 +1,6 @@
+{
+  "extends": "@checkstack/tsconfig/backend.json",
+  "include": [
+    "src"
+  ]
+}

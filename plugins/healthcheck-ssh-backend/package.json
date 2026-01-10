@@ -12,6 +12,7 @@
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
+    "@checkstack/healthcheck-ssh-common": "workspace:*",
     "ssh2": "^1.15.0"
   },
   "devDependencies": {

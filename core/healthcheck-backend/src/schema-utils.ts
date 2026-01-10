@@ -58,6 +58,8 @@ function addHealthResultMeta(
         jsonField["x-chart-label"] = healthMeta["x-chart-label"];
       if (healthMeta["x-chart-unit"])
         jsonField["x-chart-unit"] = healthMeta["x-chart-unit"];
+      if (healthMeta["x-jsonpath"])
+        jsonField["x-jsonpath"] = healthMeta["x-jsonpath"];
     }
 
     // Recurse into nested objects and arrays

@@ -1,58 +1,44 @@
 import {
   HealthCheckStrategy,
-  HealthCheckResult,
   HealthCheckRunForAggregation,
   Versioned,
   z,
-  numericField,
-  timeThresholdField,
-  evaluateAssertions,
+  type ConnectedClient,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
   healthResultString,
 } from "@checkstack/healthcheck-common";
+import type {
+  PingTransportClient,
+  PingRequest,
+  PingResult as PingResultType,
+} from "./transport-client";
 
 // ============================================================================
 // SCHEMAS
 // ============================================================================
 
 /**
- * Assertion schema for Ping health checks using shared factories.
- */
-const pingAssertionSchema = z.discriminatedUnion("field", [
-  numericField("packetLoss", { min: 0, max: 100 }),
-  timeThresholdField("avgLatency"),
-  timeThresholdField("maxLatency"),
-  timeThresholdField("minLatency"),
-]);
-
-export type PingAssertion = z.infer<typeof pingAssertionSchema>;
-
-/**
  * Configuration schema for Ping health checks.
+ * Global defaults only - action params moved to PingCollector.
  */
 export const pingConfigSchema = z.object({
-  host: z.string().describe("Hostname or IP address to ping"),
-  count: z
-    .number()
-    .int()
-    .min(1)
-    .max(10)
-    .default(3)
-    .describe("Number of ping packets to send"),
   timeout: z
     .number()
     .min(100)
     .default(5000)
-    .describe("Timeout in milliseconds"),
-  assertions: z
-    .array(pingAssertionSchema)
-    .optional()
-    .describe("Conditions that must pass for a healthy result"),
+    .describe("Default timeout in milliseconds"),
 });
 
 export type PingConfig = z.infer<typeof pingConfigSchema>;
+
+// Legacy config type for migrations
+interface PingConfigV1 {
+  host: string;
+  count: number;
+  timeout: number;
+}
 
 /**
  * Per-run result metadata.
@@ -86,14 +72,13 @@ const pingResultSchema = z.object({
     "x-chart-label": "Max Latency",
     "x-chart-unit": "ms",
   }).optional(),
-  failedAssertion: pingAssertionSchema.optional(),
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
   }).optional(),
 });
 
-export type PingResult = z.infer<typeof pingResultSchema>;
+type PingResult = z.infer<typeof pingResultSchema>;
 
 /**
  * Aggregated metadata for buckets.
@@ -120,27 +105,51 @@ const pingAggregatedSchema = z.object({
   }),
 });
 
-export type PingAggregatedResult = z.infer<typeof pingAggregatedSchema>;
+type PingAggregatedResult = z.infer<typeof pingAggregatedSchema>;
 
 // ============================================================================
 // STRATEGY
 // ============================================================================
 
 export class PingHealthCheckStrategy
-  implements HealthCheckStrategy<PingConfig, PingResult, PingAggregatedResult>
+  implements
+    HealthCheckStrategy<
+      PingConfig,
+      PingTransportClient,
+      PingResult,
+      PingAggregatedResult
+    >
 {
   id = "ping";
   displayName = "Ping Health Check";
   description = "ICMP ping check for network reachability and latency";
 
   config: Versioned<PingConfig> = new Versioned({
-    version: 1,
+    version: 2,
     schema: pingConfigSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Remove host/count (moved to PingCollector)",
+        migrate: (data: PingConfigV1): PingConfig => ({
+          timeout: data.timeout,
+        }),
+      },
+    ],
   });
 
   result: Versioned<PingResult> = new Versioned({
-    version: 1,
+    version: 2,
     schema: pingResultSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Migrate to createClient pattern (no result changes)",
+        migrate: (data: unknown) => data,
+      },
+    ],
   });
 
   aggregatedResult: Versioned<PingAggregatedResult> = new Versioned({
@@ -151,141 +160,108 @@ export class PingHealthCheckStrategy
   aggregateResult(
     runs: HealthCheckRunForAggregation<PingResult>[]
   ): PingAggregatedResult {
-    let totalPacketLoss = 0;
-    let totalLatency = 0;
-    let maxLatency = 0;
-    let errorCount = 0;
-    let validRuns = 0;
+    const validRuns = runs.filter((r) => r.metadata);
 
-    for (const run of runs) {
-      if (run.metadata?.error) {
-        errorCount++;
-        continue;
-      }
-      if (run.metadata) {
-        totalPacketLoss += run.metadata.packetLoss ?? 0;
-        if (run.metadata.avgLatency !== undefined) {
-          totalLatency += run.metadata.avgLatency;
-          validRuns++;
-        }
-        if (
-          run.metadata.maxLatency !== undefined &&
-          run.metadata.maxLatency > maxLatency
-        ) {
-          maxLatency = run.metadata.maxLatency;
-        }
-      }
+    if (validRuns.length === 0) {
+      return { avgPacketLoss: 0, avgLatency: 0, maxLatency: 0, errorCount: 0 };
     }
 
+    const packetLosses = validRuns
+      .map((r) => r.metadata?.packetLoss)
+      .filter((l): l is number => typeof l === "number");
+
+    const avgPacketLoss =
+      packetLosses.length > 0
+        ? Math.round(
+            (packetLosses.reduce((a, b) => a + b, 0) / packetLosses.length) * 10
+          ) / 10
+        : 0;
+
+    const latencies = validRuns
+      .map((r) => r.metadata?.avgLatency)
+      .filter((l): l is number => typeof l === "number");
+
+    const avgLatency =
+      latencies.length > 0
+        ? Math.round(
+            (latencies.reduce((a, b) => a + b, 0) / latencies.length) * 10
+          ) / 10
+        : 0;
+
+    const maxLatencies = validRuns
+      .map((r) => r.metadata?.maxLatency)
+      .filter((l): l is number => typeof l === "number");
+
+    const maxLatency = maxLatencies.length > 0 ? Math.max(...maxLatencies) : 0;
+
+    const errorCount = validRuns.filter(
+      (r) => r.metadata?.error !== undefined
+    ).length;
+
+    return { avgPacketLoss, avgLatency, maxLatency, errorCount };
+  }
+
+  async createClient(
+    config: PingConfig
+  ): Promise<ConnectedClient<PingTransportClient>> {
+    const validatedConfig = this.config.validate(config);
+
+    const client: PingTransportClient = {
+      exec: async (request: PingRequest): Promise<PingResultType> => {
+        return this.runPing(
+          request.host,
+          request.count,
+          request.timeout ?? validatedConfig.timeout
+        );
+      },
+    };
+
     return {
-      avgPacketLoss: runs.length > 0 ? totalPacketLoss / runs.length : 0,
-      avgLatency: validRuns > 0 ? totalLatency / validRuns : 0,
-      maxLatency,
-      errorCount,
+      client,
+      close: () => {
+        // Ping is stateless, nothing to close
+      },
     };
   }
 
-  async execute(config: PingConfig): Promise<HealthCheckResult<PingResult>> {
-    const validatedConfig = this.config.validate(config);
-    const start = performance.now();
-
-    try {
-      const result = await this.runPing(
-        validatedConfig.host,
-        validatedConfig.count,
-        validatedConfig.timeout
-      );
-
-      const latencyMs =
-        result.avgLatency ?? Math.round(performance.now() - start);
-
-      // Evaluate assertions using shared utility
-      const failedAssertion = evaluateAssertions(validatedConfig.assertions, {
-        packetLoss: result.packetLoss,
-        avgLatency: result.avgLatency,
-        maxLatency: result.maxLatency,
-        minLatency: result.minLatency,
-      });
-
-      if (failedAssertion) {
-        return {
-          status: "unhealthy",
-          latencyMs,
-          message: `Assertion failed: ${failedAssertion.field} ${failedAssertion.operator} ${failedAssertion.value}`,
-          metadata: { ...result, failedAssertion },
-        };
-      }
-
-      // Check for packet loss without explicit assertion
-      if (result.packetLoss === 100) {
-        return {
-          status: "unhealthy",
-          latencyMs,
-          message: `Host ${validatedConfig.host} is unreachable (100% packet loss)`,
-          metadata: result,
-        };
-      }
-
-      return {
-        status: "healthy",
-        latencyMs,
-        message: `Ping to ${validatedConfig.host}: ${result.packetsReceived}/${
-          result.packetsSent
-        } packets, avg ${result.avgLatency?.toFixed(1)}ms`,
-        metadata: result,
-      };
-    } catch (error: unknown) {
-      const end = performance.now();
-      const isError = error instanceof Error;
-      return {
-        status: "unhealthy",
-        latencyMs: Math.round(end - start),
-        message: isError ? error.message : "Ping failed",
-        metadata: {
-          packetsSent: validatedConfig.count,
-          packetsReceived: 0,
-          packetLoss: 100,
-          error: isError ? error.name : "UnknownError",
-        },
-      };
-    }
-  }
-
-  /**
-   * Execute ping using Bun subprocess.
-   * Uses system ping command for cross-platform compatibility.
-   */
   private async runPing(
     host: string,
     count: number,
     timeout: number
-  ): Promise<Omit<PingResult, "failedAssertion" | "error">> {
+  ): Promise<PingResultType> {
     const isMac = process.platform === "darwin";
     const args = isMac
       ? ["-c", String(count), "-W", String(Math.ceil(timeout / 1000)), host]
       : ["-c", String(count), "-W", String(Math.ceil(timeout / 1000)), host];
 
-    const proc = Bun.spawn(["ping", ...args], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    try {
+      const proc = Bun.spawn({
+        cmd: ["ping", ...args],
+        stdout: "pipe",
+        stderr: "pipe",
+      });
 
-    const output = await new Response(proc.stdout).text();
-    const exitCode = await proc.exited;
+      const output = await new Response(proc.stdout).text();
+      const exitCode = await proc.exited;
 
-    // Parse ping output
-    return this.parsePingOutput(output, count, exitCode);
+      return this.parsePingOutput(output, count, exitCode);
+    } catch (error_) {
+      const error = error_ instanceof Error ? error_.message : String(error_);
+      return {
+        packetsSent: count,
+        packetsReceived: 0,
+        packetLoss: 100,
+        error,
+      };
+    }
   }
 
-  /**
-   * Parse ping command output to extract statistics.
-   */
   private parsePingOutput(
     output: string,
     expectedCount: number,
     _exitCode: number
-  ): Omit<PingResult, "failedAssertion" | "error"> {
-    // Match statistics line: "X packets transmitted, Y received"
+  ): PingResultType {
+    // Parse packet statistics
     const statsMatch = output.match(
       /(\d+) packets transmitted, (\d+) (?:packets )?received/
     );
@@ -298,18 +274,22 @@ export class PingHealthCheckStrategy
         ? Math.round(((packetsSent - packetsReceived) / packetsSent) * 100)
         : 100;
 
-    // Match latency line: "min/avg/max" or "min/avg/max/mdev"
-    const latencyMatch = output.match(/= ([\d.]+)\/([\d.]+)\/([\d.]+)/);
+    // Parse latency statistics (format varies by OS)
+    // macOS: round-trip min/avg/max/stddev = 0.043/0.059/0.082/0.016 ms
+    // Linux: rtt min/avg/max/mdev = 0.039/0.049/0.064/0.009 ms
+    const latencyMatch = output.match(
+      /(?:round-trip|rtt) min\/avg\/max\/(?:stddev|mdev) = ([\d.]+)\/([\d.]+)\/([\d.]+)/
+    );
 
-    const minLatency = latencyMatch
-      ? Number.parseFloat(latencyMatch[1])
-      : undefined;
-    const avgLatency = latencyMatch
-      ? Number.parseFloat(latencyMatch[2])
-      : undefined;
-    const maxLatency = latencyMatch
-      ? Number.parseFloat(latencyMatch[3])
-      : undefined;
+    let minLatency: number | undefined;
+    let avgLatency: number | undefined;
+    let maxLatency: number | undefined;
+
+    if (latencyMatch) {
+      minLatency = Number.parseFloat(latencyMatch[1]);
+      avgLatency = Number.parseFloat(latencyMatch[2]);
+      maxLatency = Number.parseFloat(latencyMatch[3]);
+    }
 
     return {
       packetsSent,
@@ -318,6 +298,9 @@ export class PingHealthCheckStrategy
       minLatency,
       avgLatency,
       maxLatency,
+      ...(packetLoss === 100 && {
+        error: "Host unreachable or 100% packet loss",
+      }),
     };
   }
 }

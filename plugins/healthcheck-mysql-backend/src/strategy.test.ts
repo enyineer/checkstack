@@ -24,11 +24,11 @@ describe("MysqlHealthCheckStrategy", () => {
     ),
   });
 
-  describe("execute", () => {
-    it("should return healthy for successful connection", async () => {
+  describe("createClient", () => {
+    it("should return a connected client for successful connection", async () => {
       const strategy = new MysqlHealthCheckStrategy(createMockClient());
 
-      const result = await strategy.execute({
+      const connectedClient = await strategy.createClient({
         host: "localhost",
         port: 3306,
         database: "test",
@@ -37,17 +37,35 @@ describe("MysqlHealthCheckStrategy", () => {
         timeout: 5000,
       });
 
-      expect(result.status).toBe("healthy");
-      expect(result.metadata?.connected).toBe(true);
-      expect(result.metadata?.querySuccess).toBe(true);
+      expect(connectedClient.client).toBeDefined();
+      expect(connectedClient.client.exec).toBeDefined();
+      expect(connectedClient.close).toBeDefined();
+
+      connectedClient.close();
     });
 
-    it("should return unhealthy for connection error", async () => {
+    it("should throw for connection error", async () => {
       const strategy = new MysqlHealthCheckStrategy(
         createMockClient({ connectError: new Error("Connection refused") })
       );
 
-      const result = await strategy.execute({
+      await expect(
+        strategy.createClient({
+          host: "localhost",
+          port: 3306,
+          database: "test",
+          user: "root",
+          password: "secret",
+          timeout: 5000,
+        })
+      ).rejects.toThrow("Connection refused");
+    });
+  });
+
+  describe("client.exec", () => {
+    it("should execute query successfully", async () => {
+      const strategy = new MysqlHealthCheckStrategy(createMockClient());
+      const connectedClient = await strategy.createClient({
         host: "localhost",
         port: 3306,
         database: "test",
@@ -56,17 +74,20 @@ describe("MysqlHealthCheckStrategy", () => {
         timeout: 5000,
       });
 
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("Connection refused");
-      expect(result.metadata?.connected).toBe(false);
+      const result = await connectedClient.client.exec({
+        query: "SELECT 1",
+      });
+
+      expect(result.rowCount).toBe(1);
+
+      connectedClient.close();
     });
 
-    it("should return unhealthy for query error", async () => {
+    it("should return error for query error", async () => {
       const strategy = new MysqlHealthCheckStrategy(
         createMockClient({ queryError: new Error("Syntax error") })
       );
-
-      const result = await strategy.execute({
+      const connectedClient = await strategy.createClient({
         host: "localhost",
         port: 3306,
         database: "test",
@@ -75,81 +96,35 @@ describe("MysqlHealthCheckStrategy", () => {
         timeout: 5000,
       });
 
-      expect(result.status).toBe("unhealthy");
-      expect(result.metadata?.querySuccess).toBe(false);
-    });
-
-    it("should pass connectionTime assertion when below threshold", async () => {
-      const strategy = new MysqlHealthCheckStrategy(createMockClient());
-
-      const result = await strategy.execute({
-        host: "localhost",
-        port: 3306,
-        database: "test",
-        user: "root",
-        password: "secret",
-        timeout: 5000,
-        assertions: [
-          { field: "connectionTime", operator: "lessThan", value: 5000 },
-        ],
+      const result = await connectedClient.client.exec({
+        query: "INVALID SQL",
       });
 
-      expect(result.status).toBe("healthy");
+      expect(result.error).toContain("Syntax error");
+
+      connectedClient.close();
     });
 
-    it("should pass rowCount assertion", async () => {
+    it("should return custom row count", async () => {
       const strategy = new MysqlHealthCheckStrategy(
         createMockClient({ rowCount: 5 })
       );
-
-      const result = await strategy.execute({
+      const connectedClient = await strategy.createClient({
         host: "localhost",
         port: 3306,
         database: "test",
         user: "root",
         password: "secret",
         timeout: 5000,
-        assertions: [
-          { field: "rowCount", operator: "greaterThanOrEqual", value: 1 },
-        ],
       });
 
-      expect(result.status).toBe("healthy");
-    });
-
-    it("should fail rowCount assertion when no rows", async () => {
-      const strategy = new MysqlHealthCheckStrategy(
-        createMockClient({ rowCount: 0 })
-      );
-
-      const result = await strategy.execute({
-        host: "localhost",
-        port: 3306,
-        database: "test",
-        user: "root",
-        password: "secret",
-        timeout: 5000,
-        assertions: [{ field: "rowCount", operator: "greaterThan", value: 0 }],
+      const result = await connectedClient.client.exec({
+        query: "SELECT * FROM users",
       });
 
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("Assertion failed");
-    });
+      expect(result.rowCount).toBe(5);
 
-    it("should pass querySuccess assertion", async () => {
-      const strategy = new MysqlHealthCheckStrategy(createMockClient());
-
-      const result = await strategy.execute({
-        host: "localhost",
-        port: 3306,
-        database: "test",
-        user: "root",
-        password: "secret",
-        timeout: 5000,
-        assertions: [{ field: "querySuccess", operator: "isTrue" }],
-      });
-
-      expect(result.status).toBe("healthy");
+      connectedClient.close();
     });
   });
 
@@ -166,9 +141,7 @@ describe("MysqlHealthCheckStrategy", () => {
           metadata: {
             connected: true,
             connectionTimeMs: 50,
-            queryTimeMs: 10,
             rowCount: 1,
-            querySuccess: true,
           },
         },
         {
@@ -180,9 +153,7 @@ describe("MysqlHealthCheckStrategy", () => {
           metadata: {
             connected: true,
             connectionTimeMs: 100,
-            queryTimeMs: 20,
             rowCount: 5,
-            querySuccess: true,
           },
         },
       ];
@@ -190,7 +161,6 @@ describe("MysqlHealthCheckStrategy", () => {
       const aggregated = strategy.aggregateResult(runs);
 
       expect(aggregated.avgConnectionTime).toBe(75);
-      expect(aggregated.avgQueryTime).toBe(15);
       expect(aggregated.successRate).toBe(100);
       expect(aggregated.errorCount).toBe(0);
     });
@@ -207,7 +177,6 @@ describe("MysqlHealthCheckStrategy", () => {
           metadata: {
             connected: false,
             connectionTimeMs: 100,
-            querySuccess: false,
             error: "Connection refused",
           },
         },

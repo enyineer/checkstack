@@ -1,45 +1,28 @@
 import Redis from "ioredis";
 import {
   HealthCheckStrategy,
-  HealthCheckResult,
   HealthCheckRunForAggregation,
   Versioned,
   z,
-  timeThresholdField,
-  booleanField,
-  enumField,
   configString,
   configNumber,
   configBoolean,
-  evaluateAssertions,
+  type ConnectedClient,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
 } from "@checkstack/healthcheck-common";
+import type {
+  RedisTransportClient,
+  RedisCommand,
+  RedisCommandResult,
+} from "./transport-client";
 
 // ============================================================================
 // SCHEMAS
 // ============================================================================
-
-/**
- * Valid Redis server roles from the INFO replication command.
- */
-const RedisRole = z.enum(["master", "slave", "sentinel"]);
-export type RedisRole = z.infer<typeof RedisRole>;
-
-/**
- * Assertion schema for Redis health checks using shared factories.
- */
-const redisAssertionSchema = z.discriminatedUnion("field", [
-  timeThresholdField("connectionTime"),
-  timeThresholdField("pingTime"),
-  booleanField("pingSuccess"),
-  enumField("role", RedisRole.options),
-]);
-
-export type RedisAssertion = z.infer<typeof redisAssertionSchema>;
 
 /**
  * Configuration schema for Redis health checks.
@@ -53,18 +36,18 @@ export const redisConfigSchema = z.object({
     .default(6379)
     .describe("Redis port"),
   password: configString({ "x-secret": true })
-    .describe("Password for authentication")
-    .optional(),
-  database: configNumber({}).int().min(0).default(0).describe("Database index"),
+    .optional()
+    .describe("Redis password"),
+  database: configNumber({})
+    .int()
+    .min(0)
+    .default(0)
+    .describe("Redis database number"),
   tls: configBoolean({}).default(false).describe("Use TLS connection"),
   timeout: configNumber({})
     .min(100)
     .default(5000)
     .describe("Connection timeout in milliseconds"),
-  assertions: z
-    .array(redisAssertionSchema)
-    .optional()
-    .describe("Validation conditions"),
 });
 
 export type RedisConfig = z.infer<typeof redisConfigSchema>;
@@ -83,31 +66,13 @@ const redisResultSchema = z.object({
     "x-chart-label": "Connection Time",
     "x-chart-unit": "ms",
   }),
-  pingTimeMs: healthResultNumber({
-    "x-chart-type": "line",
-    "x-chart-label": "Ping Time",
-    "x-chart-unit": "ms",
-  }).optional(),
-  pingSuccess: healthResultBoolean({
-    "x-chart-type": "boolean",
-    "x-chart-label": "Ping Success",
-  }),
-  role: healthResultString({
-    "x-chart-type": "text",
-    "x-chart-label": "Role",
-  }).optional(),
-  redisVersion: healthResultString({
-    "x-chart-type": "text",
-    "x-chart-label": "Redis Version",
-  }).optional(),
-  failedAssertion: redisAssertionSchema.optional(),
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
   }).optional(),
 });
 
-export type RedisResult = z.infer<typeof redisResultSchema>;
+type RedisResult = z.infer<typeof redisResultSchema>;
 
 /**
  * Aggregated metadata for buckets.
@@ -118,9 +83,9 @@ const redisAggregatedSchema = z.object({
     "x-chart-label": "Avg Connection Time",
     "x-chart-unit": "ms",
   }),
-  avgPingTime: healthResultNumber({
+  maxConnectionTime: healthResultNumber({
     "x-chart-type": "line",
-    "x-chart-label": "Avg Ping Time",
+    "x-chart-label": "Max Connection Time",
     "x-chart-unit": "ms",
   }),
   successRate: healthResultNumber({
@@ -134,7 +99,7 @@ const redisAggregatedSchema = z.object({
   }),
 });
 
-export type RedisAggregatedResult = z.infer<typeof redisAggregatedSchema>;
+type RedisAggregatedResult = z.infer<typeof redisAggregatedSchema>;
 
 // ============================================================================
 // REDIS CLIENT INTERFACE (for testability)
@@ -143,6 +108,7 @@ export type RedisAggregatedResult = z.infer<typeof redisAggregatedSchema>;
 export interface RedisConnection {
   ping(): Promise<string>;
   info(section: string): Promise<string>;
+  get(key: string): Promise<string | undefined>;
   quit(): Promise<string>;
 }
 
@@ -159,24 +125,33 @@ export interface RedisClient {
 
 // Default client using ioredis
 const defaultRedisClient: RedisClient = {
-  async connect(config) {
-    const redis = new Redis({
-      host: config.host,
-      port: config.port,
-      password: config.password,
-      db: config.db,
-      tls: config.tls ? {} : undefined,
-      connectTimeout: config.connectTimeout,
-      lazyConnect: true,
+  connect(config) {
+    return new Promise((resolve, reject) => {
+      const redis = new Redis({
+        host: config.host,
+        port: config.port,
+        password: config.password,
+        db: config.db,
+        tls: config.tls ? {} : undefined,
+        connectTimeout: config.connectTimeout,
+        lazyConnect: true,
+        maxRetriesPerRequest: 0,
+      });
+
+      redis.on("error", reject);
+
+      redis
+        .connect()
+        .then(() => {
+          resolve({
+            ping: () => redis.ping(),
+            info: (section: string) => redis.info(section),
+            get: (key: string) => redis.get(key).then((v) => v ?? undefined),
+            quit: () => redis.quit(),
+          });
+        })
+        .catch(reject);
     });
-
-    await redis.connect();
-
-    return {
-      ping: () => redis.ping(),
-      info: (section: string) => redis.info(section),
-      quit: () => redis.quit(),
-    };
   },
 };
 
@@ -186,7 +161,12 @@ const defaultRedisClient: RedisClient = {
 
 export class RedisHealthCheckStrategy
   implements
-    HealthCheckStrategy<RedisConfig, RedisResult, RedisAggregatedResult>
+    HealthCheckStrategy<
+      RedisConfig,
+      RedisTransportClient,
+      RedisResult,
+      RedisAggregatedResult
+    >
 {
   id = "redis";
   displayName = "Redis Health Check";
@@ -199,13 +179,29 @@ export class RedisHealthCheckStrategy
   }
 
   config: Versioned<RedisConfig> = new Versioned({
-    version: 1,
+    version: 2, // Bumped for createClient pattern
     schema: redisConfigSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Migrate to createClient pattern (no config changes)",
+        migrate: (data: unknown) => data,
+      },
+    ],
   });
 
   result: Versioned<RedisResult> = new Versioned({
-    version: 1,
+    version: 2,
     schema: redisResultSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Migrate to createClient pattern (no result changes)",
+        migrate: (data: unknown) => data,
+      },
+    ],
   });
 
   aggregatedResult: Versioned<RedisAggregatedResult> = new Versioned({
@@ -216,147 +212,103 @@ export class RedisHealthCheckStrategy
   aggregateResult(
     runs: HealthCheckRunForAggregation<RedisResult>[]
   ): RedisAggregatedResult {
-    let totalConnectionTime = 0;
-    let totalPingTime = 0;
-    let successCount = 0;
-    let errorCount = 0;
-    let validRuns = 0;
-    let pingRuns = 0;
+    const validRuns = runs.filter((r) => r.metadata);
 
-    for (const run of runs) {
-      if (run.metadata?.error) {
-        errorCount++;
-        continue;
-      }
-      if (run.status === "healthy") {
-        successCount++;
-      }
-      if (run.metadata) {
-        totalConnectionTime += run.metadata.connectionTimeMs;
-        if (run.metadata.pingTimeMs !== undefined) {
-          totalPingTime += run.metadata.pingTimeMs;
-          pingRuns++;
-        }
-        validRuns++;
-      }
+    if (validRuns.length === 0) {
+      return {
+        avgConnectionTime: 0,
+        maxConnectionTime: 0,
+        successRate: 0,
+        errorCount: 0,
+      };
     }
 
+    const connectionTimes = validRuns
+      .map((r) => r.metadata?.connectionTimeMs)
+      .filter((t): t is number => typeof t === "number");
+
+    const avgConnectionTime =
+      connectionTimes.length > 0
+        ? Math.round(
+            connectionTimes.reduce((a, b) => a + b, 0) / connectionTimes.length
+          )
+        : 0;
+
+    const maxConnectionTime =
+      connectionTimes.length > 0 ? Math.max(...connectionTimes) : 0;
+
+    const successCount = validRuns.filter(
+      (r) => r.metadata?.connected === true
+    ).length;
+    const successRate = Math.round((successCount / validRuns.length) * 100);
+
+    const errorCount = validRuns.filter(
+      (r) => r.metadata?.error !== undefined
+    ).length;
+
     return {
-      avgConnectionTime: validRuns > 0 ? totalConnectionTime / validRuns : 0,
-      avgPingTime: pingRuns > 0 ? totalPingTime / pingRuns : 0,
-      successRate: runs.length > 0 ? (successCount / runs.length) * 100 : 0,
+      avgConnectionTime,
+      maxConnectionTime,
+      successRate,
       errorCount,
     };
   }
 
-  async execute(
+  async createClient(
     config: RedisConfigInput
-  ): Promise<HealthCheckResult<RedisResult>> {
+  ): Promise<ConnectedClient<RedisTransportClient>> {
     const validatedConfig = this.config.validate(config);
-    const start = performance.now();
 
-    try {
-      // Connect to Redis
-      const connection = await this.redisClient.connect({
-        host: validatedConfig.host,
-        port: validatedConfig.port,
-        password: validatedConfig.password,
-        db: validatedConfig.database,
-        tls: validatedConfig.tls,
-        connectTimeout: validatedConfig.timeout,
-      });
+    const connection = await this.redisClient.connect({
+      host: validatedConfig.host,
+      port: validatedConfig.port,
+      password: validatedConfig.password,
+      db: validatedConfig.database,
+      tls: validatedConfig.tls,
+      connectTimeout: validatedConfig.timeout,
+    });
 
-      const connectionTimeMs = Math.round(performance.now() - start);
+    const client: RedisTransportClient = {
+      async exec(command: RedisCommand): Promise<RedisCommandResult> {
+        try {
+          let value: string | undefined;
+          switch (command.cmd) {
+            case "PING": {
+              value = await connection.ping();
+              break;
+            }
+            case "INFO": {
+              value = await connection.info(command.args?.[0] ?? "server");
+              break;
+            }
+            case "GET": {
+              value = await connection.get(command.args?.[0] ?? "");
+              break;
+            }
+            default: {
+              return {
+                value: undefined,
+                error: `Unsupported command: ${command.cmd}`,
+              };
+            }
+          }
+          return { value };
+        } catch (error) {
+          return {
+            value: undefined,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    };
 
-      // Execute PING command
-      const pingStart = performance.now();
-      let pingSuccess = false;
-      let pingTimeMs: number | undefined;
-
-      try {
-        const pong = await connection.ping();
-        pingSuccess = pong === "PONG";
-        pingTimeMs = Math.round(performance.now() - pingStart);
-      } catch {
-        pingSuccess = false;
-        pingTimeMs = Math.round(performance.now() - pingStart);
-      }
-
-      // Get server info
-      let role: string | undefined;
-      let redisVersion: string | undefined;
-
-      try {
-        const info = await connection.info("server");
-        const roleMatch = /role:(\w+)/i.exec(info);
-        const versionMatch = /redis_version:([^\r\n]+)/i.exec(info);
-        role = roleMatch?.[1];
-        redisVersion = versionMatch?.[1];
-      } catch {
-        // Info command failed, continue without it
-      }
-
-      await connection.quit();
-
-      const result: Omit<RedisResult, "failedAssertion" | "error"> = {
-        connected: true,
-        connectionTimeMs,
-        pingTimeMs,
-        pingSuccess,
-        role,
-        redisVersion,
-      };
-
-      // Evaluate assertions using shared utility
-      const failedAssertion = evaluateAssertions(validatedConfig.assertions, {
-        connectionTime: connectionTimeMs,
-        pingTime: pingTimeMs ?? 0,
-        pingSuccess,
-        role: role ?? "",
-      });
-
-      if (failedAssertion) {
-        return {
-          status: "unhealthy",
-          latencyMs: connectionTimeMs + (pingTimeMs ?? 0),
-          message: `Assertion failed: ${failedAssertion.field} ${
-            failedAssertion.operator
-          }${"value" in failedAssertion ? ` ${failedAssertion.value}` : ""}`,
-          metadata: { ...result, failedAssertion },
-        };
-      }
-
-      if (!pingSuccess) {
-        return {
-          status: "unhealthy",
-          latencyMs: connectionTimeMs + (pingTimeMs ?? 0),
-          message: "Redis PING failed",
-          metadata: result,
-        };
-      }
-
-      return {
-        status: "healthy",
-        latencyMs: connectionTimeMs + (pingTimeMs ?? 0),
-        message: `Redis ${redisVersion ?? "unknown"} (${
-          role ?? "unknown"
-        }) - PONG in ${pingTimeMs}ms`,
-        metadata: result,
-      };
-    } catch (error: unknown) {
-      const end = performance.now();
-      const isError = error instanceof Error;
-      return {
-        status: "unhealthy",
-        latencyMs: Math.round(end - start),
-        message: isError ? error.message : "Redis connection failed",
-        metadata: {
-          connected: false,
-          connectionTimeMs: Math.round(end - start),
-          pingSuccess: false,
-          error: isError ? error.name : "UnknownError",
-        },
-      };
-    }
+    return {
+      client,
+      close: () => {
+        connection.quit().catch(() => {
+          // Ignore quit errors
+        });
+      },
+    };
   }
 }

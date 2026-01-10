@@ -547,7 +547,7 @@ export default createBackendPlugin({
                 // Using void to prevent timing attacks revealing email existence
                 const notificationClient = rpcClient.forPlugin(NotificationApi);
                 const frontendUrl =
-                  process.env.VITE_FRONTEND_URL || "http://localhost:5173";
+                  process.env.BASE_URL || "http://localhost:5173";
                 const resetUrl = `${frontendUrl}/auth/reset-password?token=${
                   url.split("token=")[1] ?? ""
                 }`;
@@ -572,10 +572,8 @@ export default createBackendPlugin({
             },
             socialProviders,
             basePath: "/api/auth",
-            baseURL: process.env.VITE_API_BASE_URL || "http://localhost:3000",
-            trustedOrigins: [
-              process.env.VITE_FRONTEND_URL || "http://localhost:5173",
-            ],
+            baseURL: process.env.BASE_URL || "http://localhost:5173",
+            trustedOrigins: [process.env.BASE_URL || "http://localhost:5173"],
             databaseHooks: {
               user: {
                 create: {

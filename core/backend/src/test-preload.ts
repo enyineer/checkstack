@@ -110,5 +110,20 @@ mock.module(coreServicesPath, () => ({
       // eslint-disable-next-line unicorn/consistent-function-scoping
       subscribe: async () => () => {},
     }));
+
+    // Return the registries object to match actual function signature
+    // Create a mock collector registry
+    const collectors = new Map<string, unknown>();
+    return {
+      collectorRegistry: {
+        register: (collector: { id: string }) => {
+          collectors.set(collector.id, collector);
+        },
+        getCollector: (id: string) => collectors.get(id),
+        getAllCollectors: () => [...collectors.values()],
+        unregisterByOwner: () => {},
+        unregisterByMissingStrategies: () => {},
+      },
+    };
   },
 }));

@@ -5,3 +5,5 @@ export * from "./plugin-metadata";
 export * from "./client-definition";
 export * from "./permission-utils";
 export * from "./icons";
+export * from "./transport-client";
+export * from "./json-schema";

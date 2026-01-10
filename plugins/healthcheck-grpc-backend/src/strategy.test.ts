@@ -2,14 +2,14 @@ import { describe, expect, it, mock } from "bun:test";
 import {
   GrpcHealthCheckStrategy,
   GrpcHealthClient,
-  GrpcHealthStatus,
+  GrpcHealthStatusType,
 } from "./strategy";
 
 describe("GrpcHealthCheckStrategy", () => {
   // Helper to create mock gRPC client
   const createMockClient = (
     config: {
-      status?: GrpcHealthStatus;
+      status?: GrpcHealthStatusType;
       error?: Error;
     } = {}
   ): GrpcHealthClient => ({
@@ -20,127 +20,94 @@ describe("GrpcHealthCheckStrategy", () => {
     ),
   });
 
-  describe("execute", () => {
-    it("should return healthy for SERVING status", async () => {
+  describe("createClient", () => {
+    it("should return a connected client", async () => {
       const strategy = new GrpcHealthCheckStrategy(createMockClient());
 
-      const result = await strategy.execute({
+      const connectedClient = await strategy.createClient({
         host: "localhost",
         port: 50051,
         timeout: 5000,
       });
 
-      expect(result.status).toBe("healthy");
-      expect(result.metadata?.connected).toBe(true);
-      expect(result.metadata?.status).toBe("SERVING");
+      expect(connectedClient.client).toBeDefined();
+      expect(connectedClient.client.exec).toBeDefined();
+      expect(connectedClient.close).toBeDefined();
+
+      connectedClient.close();
+    });
+  });
+
+  describe("client.exec (health check action)", () => {
+    it("should return SERVING status for healthy service", async () => {
+      const strategy = new GrpcHealthCheckStrategy(createMockClient());
+
+      const connectedClient = await strategy.createClient({
+        host: "localhost",
+        port: 50051,
+        timeout: 5000,
+      });
+
+      const result = await connectedClient.client.exec({ service: "" });
+
+      expect(result.status).toBe("SERVING");
+
+      connectedClient.close();
     });
 
-    it("should return unhealthy for NOT_SERVING status", async () => {
+    it("should return NOT_SERVING status for unhealthy service", async () => {
       const strategy = new GrpcHealthCheckStrategy(
         createMockClient({ status: "NOT_SERVING" })
       );
 
-      const result = await strategy.execute({
+      const connectedClient = await strategy.createClient({
         host: "localhost",
         port: 50051,
         timeout: 5000,
       });
 
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("NOT_SERVING");
-      expect(result.metadata?.status).toBe("NOT_SERVING");
+      const result = await connectedClient.client.exec({ service: "" });
+
+      expect(result.status).toBe("NOT_SERVING");
+
+      connectedClient.close();
     });
 
-    it("should return unhealthy for SERVICE_UNKNOWN status", async () => {
-      const strategy = new GrpcHealthCheckStrategy(
-        createMockClient({ status: "SERVICE_UNKNOWN" })
-      );
-
-      const result = await strategy.execute({
-        host: "localhost",
-        port: 50051,
-        service: "my.service",
-        timeout: 5000,
-      });
-
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("SERVICE_UNKNOWN");
-    });
-
-    it("should return unhealthy for connection error", async () => {
+    it("should return error for connection failure", async () => {
       const strategy = new GrpcHealthCheckStrategy(
         createMockClient({ error: new Error("Connection refused") })
       );
 
-      const result = await strategy.execute({
+      const connectedClient = await strategy.createClient({
         host: "localhost",
         port: 50051,
         timeout: 5000,
       });
 
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("Connection refused");
-      expect(result.metadata?.connected).toBe(false);
-    });
+      const result = await connectedClient.client.exec({ service: "" });
 
-    it("should pass responseTime assertion when below threshold", async () => {
-      const strategy = new GrpcHealthCheckStrategy(createMockClient());
+      expect(result.error).toContain("Connection refused");
 
-      const result = await strategy.execute({
-        host: "localhost",
-        port: 50051,
-        timeout: 5000,
-        assertions: [
-          { field: "responseTime", operator: "lessThan", value: 5000 },
-        ],
-      });
-
-      expect(result.status).toBe("healthy");
-    });
-
-    it("should pass status assertion", async () => {
-      const strategy = new GrpcHealthCheckStrategy(createMockClient());
-
-      const result = await strategy.execute({
-        host: "localhost",
-        port: 50051,
-        timeout: 5000,
-        assertions: [{ field: "status", operator: "equals", value: "SERVING" }],
-      });
-
-      expect(result.status).toBe("healthy");
-    });
-
-    it("should fail status assertion when not matching", async () => {
-      const strategy = new GrpcHealthCheckStrategy(
-        createMockClient({ status: "NOT_SERVING" })
-      );
-
-      const result = await strategy.execute({
-        host: "localhost",
-        port: 50051,
-        timeout: 5000,
-        assertions: [{ field: "status", operator: "equals", value: "SERVING" }],
-      });
-
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("Assertion failed");
+      connectedClient.close();
     });
 
     it("should check specific service", async () => {
       const mockClient = createMockClient();
       const strategy = new GrpcHealthCheckStrategy(mockClient);
 
-      await strategy.execute({
+      const connectedClient = await strategy.createClient({
         host: "localhost",
         port: 50051,
-        service: "my.custom.Service",
         timeout: 5000,
       });
+
+      await connectedClient.client.exec({ service: "my.custom.Service" });
 
       expect(mockClient.check).toHaveBeenCalledWith(
         expect.objectContaining({ service: "my.custom.Service" })
       );
+
+      connectedClient.close();
     });
   });
 

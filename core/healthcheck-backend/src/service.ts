@@ -49,6 +49,7 @@ export class HealthCheckService {
         name: data.name,
         strategyId: data.strategyId,
         config: data.config,
+        collectors: data.collectors ?? undefined,
         intervalSeconds: data.intervalSeconds,
         isTemplate: false, // Defaulting for now
       })
@@ -715,6 +716,7 @@ export class HealthCheckService {
       name: row.name,
       strategyId: row.strategyId,
       config: row.config,
+      collectors: row.collectors ?? undefined,
       intervalSeconds: row.intervalSeconds,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

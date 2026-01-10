@@ -24,10 +24,7 @@ import { getAuthClientLazy } from "./lib/auth-client";
 
 import { usePermissions } from "./hooks/usePermissions";
 
-import {
-  PermissionAction,
-  qualifyPermissionId,
-} from "@checkstack/common";
+import { PermissionAction, qualifyPermissionId } from "@checkstack/common";
 import { useNavigate } from "react-router-dom";
 import { Settings2, Key } from "lucide-react";
 import { DropdownMenuItem } from "@checkstack/ui";
@@ -125,7 +122,7 @@ class BetterAuthApi implements AuthApi {
 
   async signInWithSocial(provider: string) {
     // Use current origin as callback URL (works in dev and production)
-    const frontendUrl = globalThis.location?.origin || "http://localhost:5173";
+    const frontendUrl = globalThis.location?.origin;
     await getAuthClientLazy().signIn.social({
       provider,
       callbackURL: frontendUrl,

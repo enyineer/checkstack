@@ -1,24 +1,22 @@
 import type { TemplateProperty } from "../TemplateEditor";
+import type {
+  JsonSchemaPropertyCore,
+  JsonSchemaBase,
+} from "@checkstack/common";
 
-export interface JsonSchemaProperty {
-  type?: string;
-  description?: string;
-  enum?: string[];
-  const?: string | number | boolean; // For discriminator values
-  properties?: Record<string, JsonSchemaProperty>;
-  items?: JsonSchemaProperty;
-  required?: string[];
-  additionalProperties?: boolean | JsonSchemaProperty;
-  format?: string;
-  default?: unknown;
-  oneOf?: JsonSchemaProperty[]; // Discriminated union variants
-  anyOf?: JsonSchemaProperty[]; // Union variants
-  "x-secret"?: boolean; // Custom metadata for secret fields
-  "x-color"?: boolean; // Custom metadata for color fields
-  "x-options-resolver"?: string; // Name of a resolver function for dynamic options
-  "x-depends-on"?: string[]; // Field names this field depends on (triggers refetch when they change)
+/**
+ * JSON Schema property with DynamicForm-specific x-* extensions for config rendering.
+ * Uses the generic core type for proper recursive typing.
+ */
+export interface JsonSchemaProperty
+  extends JsonSchemaPropertyCore<JsonSchemaProperty> {
+  // Config-specific x-* extensions
+  "x-secret"?: boolean; // Field contains sensitive data
+  "x-color"?: boolean; // Field is a color picker
+  "x-options-resolver"?: string; // Name of resolver function for dynamic options
+  "x-depends-on"?: string[]; // Field names this field depends on (triggers refetch)
   "x-hidden"?: boolean; // Field should be hidden in form (auto-populated)
-  "x-searchable"?: boolean; // Shows a search input for filtering dropdown options
+  "x-searchable"?: boolean; // Shows search input for filtering dropdown options
 }
 
 /** Option returned by an options resolver */
@@ -32,10 +30,10 @@ export type OptionsResolver = (
   formValues: Record<string, unknown>
 ) => Promise<ResolverOption[]>;
 
-export interface JsonSchema {
-  properties?: Record<string, JsonSchemaProperty>;
-  required?: string[];
-}
+/**
+ * JSON Schema for config forms with DynamicForm-specific extensions.
+ */
+export type JsonSchema = JsonSchemaBase<JsonSchemaProperty>;
 
 export interface DynamicFormProps {
   schema: JsonSchema;

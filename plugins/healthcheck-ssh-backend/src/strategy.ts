@@ -1,40 +1,23 @@
 import { Client } from "ssh2";
 import {
   HealthCheckStrategy,
-  HealthCheckResult,
   HealthCheckRunForAggregation,
   Versioned,
   z,
-  timeThresholdField,
-  numericField,
-  booleanField,
-  stringField,
-  evaluateAssertions,
   configString,
   configNumber,
+  type ConnectedClient,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
 } from "@checkstack/healthcheck-common";
+import type { SshTransportClient, SshCommandResult } from "./transport-client";
 
 // ============================================================================
 // SCHEMAS
 // ============================================================================
-
-/**
- * Assertion schema for SSH health checks using shared factories.
- */
-const sshAssertionSchema = z.discriminatedUnion("field", [
-  timeThresholdField("connectionTime"),
-  timeThresholdField("commandTime"),
-  numericField("exitCode", { min: 0 }),
-  booleanField("commandSuccess"),
-  stringField("stdout"),
-]);
-
-export type SshAssertion = z.infer<typeof sshAssertionSchema>;
 
 /**
  * Configuration schema for SSH health checks.
@@ -56,13 +39,6 @@ export const sshConfigSchema = z.object({
     .min(100)
     .default(10_000)
     .describe("Connection timeout in milliseconds"),
-  command: configString({})
-    .optional()
-    .describe("Command to execute for health check (optional)"),
-  assertions: z
-    .array(sshAssertionSchema)
-    .optional()
-    .describe("Validation conditions"),
 });
 
 export type SshConfig = z.infer<typeof sshConfigSchema>;
@@ -81,35 +57,13 @@ const sshResultSchema = z.object({
     "x-chart-label": "Connection Time",
     "x-chart-unit": "ms",
   }),
-  commandTimeMs: healthResultNumber({
-    "x-chart-type": "line",
-    "x-chart-label": "Command Time",
-    "x-chart-unit": "ms",
-  }).optional(),
-  exitCode: healthResultNumber({
-    "x-chart-type": "counter",
-    "x-chart-label": "Exit Code",
-  }).optional(),
-  stdout: healthResultString({
-    "x-chart-type": "text",
-    "x-chart-label": "Stdout",
-  }).optional(),
-  stderr: healthResultString({
-    "x-chart-type": "text",
-    "x-chart-label": "Stderr",
-  }).optional(),
-  commandSuccess: healthResultBoolean({
-    "x-chart-type": "boolean",
-    "x-chart-label": "Command Success",
-  }),
-  failedAssertion: sshAssertionSchema.optional(),
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
   }).optional(),
 });
 
-export type SshResult = z.infer<typeof sshResultSchema>;
+type SshResult = z.infer<typeof sshResultSchema>;
 
 /**
  * Aggregated metadata for buckets.
@@ -120,9 +74,9 @@ const sshAggregatedSchema = z.object({
     "x-chart-label": "Avg Connection Time",
     "x-chart-unit": "ms",
   }),
-  avgCommandTime: healthResultNumber({
+  maxConnectionTime: healthResultNumber({
     "x-chart-type": "line",
-    "x-chart-label": "Avg Command Time",
+    "x-chart-label": "Max Connection Time",
     "x-chart-unit": "ms",
   }),
   successRate: healthResultNumber({
@@ -136,17 +90,11 @@ const sshAggregatedSchema = z.object({
   }),
 });
 
-export type SshAggregatedResult = z.infer<typeof sshAggregatedSchema>;
+type SshAggregatedResult = z.infer<typeof sshAggregatedSchema>;
 
 // ============================================================================
 // SSH CLIENT INTERFACE (for testability)
 // ============================================================================
-
-export interface SshCommandResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-}
 
 export interface SshConnection {
   exec(command: string): Promise<SshCommandResult>;
@@ -230,7 +178,13 @@ const defaultSshClient: SshClient = {
 // ============================================================================
 
 export class SshHealthCheckStrategy
-  implements HealthCheckStrategy<SshConfig, SshResult, SshAggregatedResult>
+  implements
+    HealthCheckStrategy<
+      SshConfig,
+      SshTransportClient,
+      SshResult,
+      SshAggregatedResult
+    >
 {
   id = "ssh";
   displayName = "SSH Health Check";
@@ -260,144 +214,71 @@ export class SshHealthCheckStrategy
   aggregateResult(
     runs: HealthCheckRunForAggregation<SshResult>[]
   ): SshAggregatedResult {
-    let totalConnectionTime = 0;
-    let totalCommandTime = 0;
-    let successCount = 0;
-    let errorCount = 0;
-    let validRuns = 0;
-    let commandRuns = 0;
+    const validRuns = runs.filter((r) => r.metadata);
 
-    for (const run of runs) {
-      if (run.metadata?.error) {
-        errorCount++;
-        continue;
-      }
-      if (run.status === "healthy") {
-        successCount++;
-      }
-      if (run.metadata) {
-        totalConnectionTime += run.metadata.connectionTimeMs;
-        if (run.metadata.commandTimeMs !== undefined) {
-          totalCommandTime += run.metadata.commandTimeMs;
-          commandRuns++;
-        }
-        validRuns++;
-      }
+    if (validRuns.length === 0) {
+      return {
+        avgConnectionTime: 0,
+        maxConnectionTime: 0,
+        successRate: 0,
+        errorCount: 0,
+      };
     }
 
+    const connectionTimes = validRuns
+      .map((r) => r.metadata?.connectionTimeMs)
+      .filter((t): t is number => typeof t === "number");
+
+    const avgConnectionTime =
+      connectionTimes.length > 0
+        ? Math.round(
+            connectionTimes.reduce((a, b) => a + b, 0) / connectionTimes.length
+          )
+        : 0;
+
+    const maxConnectionTime =
+      connectionTimes.length > 0 ? Math.max(...connectionTimes) : 0;
+
+    const successCount = validRuns.filter(
+      (r) => r.metadata?.connected === true
+    ).length;
+    const successRate = Math.round((successCount / validRuns.length) * 100);
+
+    const errorCount = validRuns.filter(
+      (r) => r.metadata?.error !== undefined
+    ).length;
+
     return {
-      avgConnectionTime: validRuns > 0 ? totalConnectionTime / validRuns : 0,
-      avgCommandTime: commandRuns > 0 ? totalCommandTime / commandRuns : 0,
-      successRate: runs.length > 0 ? (successCount / runs.length) * 100 : 0,
+      avgConnectionTime,
+      maxConnectionTime,
+      successRate,
       errorCount,
     };
   }
 
-  async execute(config: SshConfigInput): Promise<HealthCheckResult<SshResult>> {
+  /**
+   * Create a connected SSH transport client.
+   */
+  async createClient(
+    config: SshConfigInput
+  ): Promise<ConnectedClient<SshTransportClient>> {
     const validatedConfig = this.config.validate(config);
-    const start = performance.now();
 
-    try {
-      // Connect to SSH server
-      const connection = await this.sshClient.connect({
-        host: validatedConfig.host,
-        port: validatedConfig.port,
-        username: validatedConfig.username,
-        password: validatedConfig.password,
-        privateKey: validatedConfig.privateKey,
-        passphrase: validatedConfig.passphrase,
-        readyTimeout: validatedConfig.timeout,
-      });
+    const connection = await this.sshClient.connect({
+      host: validatedConfig.host,
+      port: validatedConfig.port,
+      username: validatedConfig.username,
+      password: validatedConfig.password,
+      privateKey: validatedConfig.privateKey,
+      passphrase: validatedConfig.passphrase,
+      readyTimeout: validatedConfig.timeout,
+    });
 
-      const connectionTimeMs = Math.round(performance.now() - start);
-
-      let commandTimeMs: number | undefined;
-      let exitCode: number | undefined;
-      let stdout: string | undefined;
-      let stderr: string | undefined;
-      let commandSuccess = true;
-
-      // Execute command if provided
-      if (validatedConfig.command) {
-        const commandStart = performance.now();
-        try {
-          const result = await connection.exec(validatedConfig.command);
-          exitCode = result.exitCode;
-          stdout = result.stdout;
-          stderr = result.stderr;
-          commandSuccess = result.exitCode === 0;
-          commandTimeMs = Math.round(performance.now() - commandStart);
-        } catch {
-          commandSuccess = false;
-          commandTimeMs = Math.round(performance.now() - commandStart);
-        }
-      }
-
-      connection.end();
-
-      const result: Omit<SshResult, "failedAssertion" | "error"> = {
-        connected: true,
-        connectionTimeMs,
-        commandTimeMs,
-        exitCode,
-        stdout,
-        stderr,
-        commandSuccess,
-      };
-
-      // Evaluate assertions using shared utility
-      const failedAssertion = evaluateAssertions(validatedConfig.assertions, {
-        connectionTime: connectionTimeMs,
-        commandTime: commandTimeMs ?? 0,
-        exitCode: exitCode ?? 0,
-        commandSuccess,
-        stdout: stdout ?? "",
-      });
-
-      if (failedAssertion) {
-        return {
-          status: "unhealthy",
-          latencyMs: connectionTimeMs + (commandTimeMs ?? 0),
-          message: `Assertion failed: ${failedAssertion.field} ${
-            failedAssertion.operator
-          }${"value" in failedAssertion ? ` ${failedAssertion.value}` : ""}`,
-          metadata: { ...result, failedAssertion },
-        };
-      }
-
-      if (!commandSuccess && validatedConfig.command) {
-        return {
-          status: "unhealthy",
-          latencyMs: connectionTimeMs + (commandTimeMs ?? 0),
-          message: `Command failed with exit code ${exitCode}`,
-          metadata: result,
-        };
-      }
-
-      const message = validatedConfig.command
-        ? `SSH connected, command executed (exit ${exitCode}) in ${commandTimeMs}ms`
-        : `SSH connected in ${connectionTimeMs}ms`;
-
-      return {
-        status: "healthy",
-        latencyMs: connectionTimeMs + (commandTimeMs ?? 0),
-        message,
-        metadata: result,
-      };
-    } catch (error: unknown) {
-      const end = performance.now();
-      const isError = error instanceof Error;
-      return {
-        status: "unhealthy",
-        latencyMs: Math.round(end - start),
-        message: isError ? error.message : "SSH connection failed",
-        metadata: {
-          connected: false,
-          connectionTimeMs: Math.round(end - start),
-          commandSuccess: false,
-          error: isError ? error.name : "UnknownError",
-        },
-      };
-    }
+    return {
+      client: {
+        exec: (command: string) => connection.exec(command),
+      },
+      close: () => connection.end(),
+    };
   }
 }

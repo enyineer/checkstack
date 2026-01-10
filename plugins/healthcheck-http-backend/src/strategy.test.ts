@@ -1,375 +1,70 @@
 import { describe, expect, it, spyOn, afterEach } from "bun:test";
-import { HttpHealthCheckStrategy, HttpHealthCheckConfig } from "./strategy";
+import { HttpHealthCheckStrategy } from "./strategy";
 
 describe("HttpHealthCheckStrategy", () => {
   const strategy = new HttpHealthCheckStrategy();
-  const defaultConfig: HttpHealthCheckConfig = {
-    url: "https://example.com/api",
-    method: "GET",
-    timeout: 5000,
-  };
 
   afterEach(() => {
     spyOn(globalThis, "fetch").mockRestore();
   });
 
-  describe("basic execution", () => {
-    it("should return healthy for successful response without assertions", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(null, { status: 200 })
-      );
-      const result = await strategy.execute(defaultConfig);
-      expect(result.status).toBe("healthy");
-      expect(result.metadata?.statusCode).toBe(200);
+  describe("createClient", () => {
+    it("should return a connected client", async () => {
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+
+      expect(connectedClient.client).toBeDefined();
+      expect(connectedClient.client.exec).toBeDefined();
+      expect(connectedClient.close).toBeDefined();
     });
 
-    it("should return healthy for any status without status assertion", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(null, { status: 404 })
-      );
-      const result = await strategy.execute(defaultConfig);
-      // Without assertions, any response is "healthy" if reachable
-      expect(result.status).toBe("healthy");
-      expect(result.metadata?.statusCode).toBe(404);
+    it("should allow closing the client", async () => {
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+
+      expect(() => connectedClient.close()).not.toThrow();
     });
   });
 
-  describe("statusCode assertions", () => {
-    it("should pass statusCode equals assertion", async () => {
+  describe("client.exec", () => {
+    it("should return successful response for valid request", async () => {
       spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(null, { status: 200 })
-      );
-
-      const config: HttpHealthCheckConfig = {
-        ...defaultConfig,
-        assertions: [{ field: "statusCode", operator: "equals", value: 200 }],
-      };
-
-      const result = await strategy.execute(config);
-      expect(result.status).toBe("healthy");
-    });
-
-    it("should fail statusCode equals assertion when mismatch", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(null, { status: 404 })
-      );
-
-      const config: HttpHealthCheckConfig = {
-        ...defaultConfig,
-        assertions: [{ field: "statusCode", operator: "equals", value: 200 }],
-      };
-
-      const result = await strategy.execute(config);
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("statusCode");
-    });
-
-    it("should pass statusCode lessThan assertion", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(null, { status: 201 })
-      );
-
-      const config: HttpHealthCheckConfig = {
-        ...defaultConfig,
-        assertions: [{ field: "statusCode", operator: "lessThan", value: 300 }],
-      };
-
-      const result = await strategy.execute(config);
-      expect(result.status).toBe("healthy");
-    });
-  });
-
-  describe("responseTime assertions", () => {
-    it("should pass responseTime assertion when fast", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(null, { status: 200 })
-      );
-
-      const config: HttpHealthCheckConfig = {
-        ...defaultConfig,
-        assertions: [
-          { field: "responseTime", operator: "lessThan", value: 10000 },
-        ],
-      };
-
-      const result = await strategy.execute(config);
-      expect(result.status).toBe("healthy");
-    });
-  });
-
-  describe("contentType assertions", () => {
-    it("should pass contentType contains assertion", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(JSON.stringify({}), {
+        new Response(JSON.stringify({ status: "ok" }), {
           status: 200,
-          headers: { "Content-Type": "application/json; charset=utf-8" },
-        })
-      );
-
-      const config: HttpHealthCheckConfig = {
-        ...defaultConfig,
-        assertions: [
-          { field: "contentType", operator: "contains", value: "json" },
-        ],
-      };
-
-      const result = await strategy.execute(config);
-      expect(result.status).toBe("healthy");
-    });
-  });
-
-  describe("header assertions", () => {
-    it("should pass header exists assertion", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(null, {
-          status: 200,
-          headers: { "X-Request-Id": "abc123" },
-        })
-      );
-
-      const config: HttpHealthCheckConfig = {
-        ...defaultConfig,
-        assertions: [
-          { field: "header", headerName: "X-Request-Id", operator: "exists" },
-        ],
-      };
-
-      const result = await strategy.execute(config);
-      expect(result.status).toBe("healthy");
-    });
-
-    it("should fail header exists assertion when missing", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(null, { status: 200 })
-      );
-
-      const config: HttpHealthCheckConfig = {
-        ...defaultConfig,
-        assertions: [
-          { field: "header", headerName: "X-Missing", operator: "exists" },
-        ],
-      };
-
-      const result = await strategy.execute(config);
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("X-Missing");
-    });
-
-    it("should pass header equals assertion", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(null, {
-          status: 200,
-          headers: { "Cache-Control": "no-cache" },
-        })
-      );
-
-      const config: HttpHealthCheckConfig = {
-        ...defaultConfig,
-        assertions: [
-          {
-            field: "header",
-            headerName: "Cache-Control",
-            operator: "equals",
-            value: "no-cache",
-          },
-        ],
-      };
-
-      const result = await strategy.execute(config);
-      expect(result.status).toBe("healthy");
-    });
-  });
-
-  describe("jsonPath assertions", () => {
-    it("should pass jsonPath equals assertion", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(JSON.stringify({ status: "UP" }), {
-          status: 200,
+          statusText: "OK",
           headers: { "Content-Type": "application/json" },
         })
       );
 
-      const config: HttpHealthCheckConfig = {
-        ...defaultConfig,
-        assertions: [
-          {
-            field: "jsonPath",
-            path: "$.status",
-            operator: "equals",
-            value: "UP",
-          },
-        ],
-      };
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      const result = await connectedClient.client.exec({
+        url: "https://example.com/api",
+        method: "GET",
+        timeout: 5000,
+      });
 
-      const result = await strategy.execute(config);
-      expect(result.status).toBe("healthy");
+      expect(result.statusCode).toBe(200);
+      expect(result.statusText).toBe("OK");
+      expect(result.contentType).toContain("application/json");
+
+      connectedClient.close();
     });
 
-    it("should fail jsonPath equals assertion", async () => {
+    it("should return 404 status for not found", async () => {
       spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(JSON.stringify({ status: "DOWN" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        })
+        new Response(null, { status: 404, statusText: "Not Found" })
       );
 
-      const config: HttpHealthCheckConfig = {
-        ...defaultConfig,
-        assertions: [
-          {
-            field: "jsonPath",
-            path: "$.status",
-            operator: "equals",
-            value: "UP",
-          },
-        ],
-      };
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      const result = await connectedClient.client.exec({
+        url: "https://example.com/notfound",
+        method: "GET",
+        timeout: 5000,
+      });
 
-      const result = await strategy.execute(config);
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("Actual");
+      expect(result.statusCode).toBe(404);
+
+      connectedClient.close();
     });
 
-    it("should pass jsonPath exists assertion", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(JSON.stringify({ version: "1.0.0" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        })
-      );
-
-      const config: HttpHealthCheckConfig = {
-        ...defaultConfig,
-        assertions: [
-          { field: "jsonPath", path: "$.version", operator: "exists" },
-        ],
-      };
-
-      const result = await strategy.execute(config);
-      expect(result.status).toBe("healthy");
-    });
-
-    it("should fail jsonPath exists assertion when path not found", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(JSON.stringify({ other: "data" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        })
-      );
-
-      const config: HttpHealthCheckConfig = {
-        ...defaultConfig,
-        assertions: [
-          { field: "jsonPath", path: "$.missing", operator: "exists" },
-        ],
-      };
-
-      const result = await strategy.execute(config);
-      expect(result.status).toBe("unhealthy");
-    });
-
-    it("should pass jsonPath contains assertion", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(JSON.stringify({ message: "Hello World" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        })
-      );
-
-      const config: HttpHealthCheckConfig = {
-        ...defaultConfig,
-        assertions: [
-          {
-            field: "jsonPath",
-            path: "$.message",
-            operator: "contains",
-            value: "Hello",
-          },
-        ],
-      };
-
-      const result = await strategy.execute(config);
-      expect(result.status).toBe("healthy");
-    });
-
-    it("should pass jsonPath matches (regex) assertion", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(JSON.stringify({ id: "abc-123" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        })
-      );
-
-      const config: HttpHealthCheckConfig = {
-        ...defaultConfig,
-        assertions: [
-          {
-            field: "jsonPath",
-            path: "$.id",
-            operator: "matches",
-            value: "^[a-z]{3}-\\d{3}$",
-          },
-        ],
-      };
-
-      const result = await strategy.execute(config);
-      expect(result.status).toBe("healthy");
-    });
-
-    it("should fail when response is not JSON but jsonPath assertions exist", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response("Not JSON", {
-          status: 200,
-          headers: { "Content-Type": "text/plain" },
-        })
-      );
-
-      const config: HttpHealthCheckConfig = {
-        ...defaultConfig,
-        assertions: [{ field: "jsonPath", path: "$.id", operator: "exists" }],
-      };
-
-      const result = await strategy.execute(config);
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("not valid JSON");
-    });
-  });
-
-  describe("combined assertions", () => {
-    it("should pass multiple assertion types", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(JSON.stringify({ healthy: true }), {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-            "X-Request-Id": "test-123",
-          },
-        })
-      );
-
-      const config: HttpHealthCheckConfig = {
-        ...defaultConfig,
-        assertions: [
-          { field: "statusCode", operator: "equals", value: 200 },
-          { field: "responseTime", operator: "lessThan", value: 10000 },
-          { field: "contentType", operator: "contains", value: "json" },
-          { field: "header", headerName: "X-Request-Id", operator: "exists" },
-          {
-            field: "jsonPath",
-            path: "$.healthy",
-            operator: "equals",
-            value: "true",
-          },
-        ],
-      };
-
-      const result = await strategy.execute(config);
-      expect(result.status).toBe("healthy");
-      expect(result.message).toContain("5 assertion");
-    });
-  });
-
-  describe("custom request options", () => {
     it("should send custom headers with request", async () => {
       let capturedHeaders: Record<string, string> | undefined;
       spyOn(globalThis, "fetch").mockImplementation((async (
@@ -380,19 +75,182 @@ describe("HttpHealthCheckStrategy", () => {
         return new Response(null, { status: 200 });
       }) as unknown as typeof fetch);
 
-      const config: HttpHealthCheckConfig = {
-        ...defaultConfig,
-        headers: [
-          { name: "Authorization", value: "Bearer my-token" },
-          { name: "X-Custom-Header", value: "custom-value" },
-        ],
-      };
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      await connectedClient.client.exec({
+        url: "https://example.com/api",
+        method: "GET",
+        headers: {
+          Authorization: "Bearer my-token",
+          "X-Custom-Header": "custom-value",
+        },
+        timeout: 5000,
+      });
 
-      const result = await strategy.execute(config);
-      expect(result.status).toBe("healthy");
       expect(capturedHeaders).toBeDefined();
       expect(capturedHeaders?.["Authorization"]).toBe("Bearer my-token");
       expect(capturedHeaders?.["X-Custom-Header"]).toBe("custom-value");
+
+      connectedClient.close();
+    });
+
+    it("should return JSON body as string", async () => {
+      const responseBody = { foo: "bar", count: 42 };
+      spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify(responseBody), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      const result = await connectedClient.client.exec({
+        url: "https://example.com/api",
+        method: "GET",
+        timeout: 5000,
+      });
+
+      expect(result.body).toBe(JSON.stringify(responseBody));
+
+      connectedClient.close();
+    });
+
+    it("should handle text body", async () => {
+      spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("Hello World", {
+          status: 200,
+          headers: { "Content-Type": "text/plain" },
+        })
+      );
+
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      const result = await connectedClient.client.exec({
+        url: "https://example.com/api",
+        method: "GET",
+        timeout: 5000,
+      });
+
+      expect(result.body).toBe("Hello World");
+
+      connectedClient.close();
+    });
+
+    it("should send POST body", async () => {
+      let capturedBody: string | undefined;
+      spyOn(globalThis, "fetch").mockImplementation((async (
+        _url: RequestInfo | URL,
+        options?: RequestInit
+      ) => {
+        capturedBody = options?.body as string;
+        return new Response(null, { status: 201 });
+      }) as unknown as typeof fetch);
+
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      await connectedClient.client.exec({
+        url: "https://example.com/api",
+        method: "POST",
+        body: JSON.stringify({ name: "test" }),
+        timeout: 5000,
+      });
+
+      expect(capturedBody).toBe('{"name":"test"}');
+
+      connectedClient.close();
+    });
+
+    it("should use correct HTTP method", async () => {
+      let capturedMethod: string | undefined;
+      spyOn(globalThis, "fetch").mockImplementation((async (
+        _url: RequestInfo | URL,
+        options?: RequestInit
+      ) => {
+        capturedMethod = options?.method;
+        return new Response(null, { status: 200 });
+      }) as unknown as typeof fetch);
+
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      await connectedClient.client.exec({
+        url: "https://example.com/api",
+        method: "DELETE",
+        timeout: 5000,
+      });
+
+      expect(capturedMethod).toBe("DELETE");
+
+      connectedClient.close();
+    });
+  });
+
+  describe("aggregateResult", () => {
+    it("should calculate status code counts correctly", () => {
+      const runs = [
+        {
+          id: "1",
+          status: "healthy" as const,
+          latencyMs: 100,
+          checkId: "c1",
+          timestamp: new Date(),
+          metadata: {
+            statusCode: 200,
+          },
+        },
+        {
+          id: "2",
+          status: "healthy" as const,
+          latencyMs: 150,
+          checkId: "c1",
+          timestamp: new Date(),
+          metadata: {
+            statusCode: 200,
+          },
+        },
+        {
+          id: "3",
+          status: "healthy" as const,
+          latencyMs: 120,
+          checkId: "c1",
+          timestamp: new Date(),
+          metadata: {
+            statusCode: 404,
+          },
+        },
+      ];
+
+      const aggregated = strategy.aggregateResult(runs);
+
+      expect(aggregated.statusCodeCounts["200"]).toBe(2);
+      expect(aggregated.statusCodeCounts["404"]).toBe(1);
+      expect(aggregated.successRate).toBe(100);
+    });
+
+    it("should count errors", () => {
+      const runs = [
+        {
+          id: "1",
+          status: "unhealthy" as const,
+          latencyMs: 100,
+          checkId: "c1",
+          timestamp: new Date(),
+          metadata: {
+            error: "Connection refused",
+          },
+        },
+        {
+          id: "2",
+          status: "healthy" as const,
+          latencyMs: 150,
+          checkId: "c1",
+          timestamp: new Date(),
+          metadata: {
+            statusCode: 200,
+            responseTime: 100,
+          },
+        },
+      ];
+
+      const aggregated = strategy.aggregateResult(runs);
+
+      expect(aggregated.errorCount).toBe(1);
+      expect(aggregated.successRate).toBe(50);
     });
   });
 });

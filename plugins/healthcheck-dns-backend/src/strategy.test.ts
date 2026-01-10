@@ -53,122 +53,21 @@ describe("DnsHealthCheckStrategy", () => {
       } as DnsResolver);
   };
 
-  describe("execute", () => {
-    it("should return healthy for successful A record resolution", async () => {
-      const strategy = new DnsHealthCheckStrategy(
-        createMockResolver({ resolve4: ["1.2.3.4", "5.6.7.8"] })
-      );
+  describe("createClient", () => {
+    it("should return a connected client", async () => {
+      const strategy = new DnsHealthCheckStrategy(createMockResolver());
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
 
-      const result = await strategy.execute({
-        hostname: "example.com",
-        recordType: "A",
-        timeout: 5000,
-      });
-
-      expect(result.status).toBe("healthy");
-      expect(result.metadata?.resolvedValues).toEqual(["1.2.3.4", "5.6.7.8"]);
-      expect(result.metadata?.recordCount).toBe(2);
+      expect(connectedClient.client).toBeDefined();
+      expect(connectedClient.client.exec).toBeDefined();
+      expect(connectedClient.close).toBeDefined();
     });
 
-    it("should return unhealthy for DNS error", async () => {
-      const strategy = new DnsHealthCheckStrategy(
-        createMockResolver({ resolve4: new Error("NXDOMAIN") })
-      );
+    it("should allow closing the client", async () => {
+      const strategy = new DnsHealthCheckStrategy(createMockResolver());
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
 
-      const result = await strategy.execute({
-        hostname: "nonexistent.example.com",
-        recordType: "A",
-        timeout: 5000,
-      });
-
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("NXDOMAIN");
-      expect(result.metadata?.error).toBeDefined();
-    });
-
-    it("should pass recordExists assertion when records found", async () => {
-      const strategy = new DnsHealthCheckStrategy(
-        createMockResolver({ resolve4: ["1.2.3.4"] })
-      );
-
-      const result = await strategy.execute({
-        hostname: "example.com",
-        recordType: "A",
-        timeout: 5000,
-        assertions: [{ field: "recordExists", operator: "isTrue" }],
-      });
-
-      expect(result.status).toBe("healthy");
-    });
-
-    it("should fail recordExists assertion when no records", async () => {
-      const strategy = new DnsHealthCheckStrategy(
-        createMockResolver({ resolve4: [] })
-      );
-
-      const result = await strategy.execute({
-        hostname: "example.com",
-        recordType: "A",
-        timeout: 5000,
-        assertions: [{ field: "recordExists", operator: "isTrue" }],
-      });
-
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("Assertion failed");
-    });
-
-    it("should pass recordValue assertion with matching value", async () => {
-      const strategy = new DnsHealthCheckStrategy(
-        createMockResolver({ resolveCname: ["cdn.example.com"] })
-      );
-
-      const result = await strategy.execute({
-        hostname: "example.com",
-        recordType: "CNAME",
-        timeout: 5000,
-        assertions: [
-          { field: "recordValue", operator: "contains", value: "cdn" },
-        ],
-      });
-
-      expect(result.status).toBe("healthy");
-    });
-
-    it("should pass recordCount assertion", async () => {
-      const strategy = new DnsHealthCheckStrategy(
-        createMockResolver({ resolve4: ["1.2.3.4", "5.6.7.8", "9.10.11.12"] })
-      );
-
-      const result = await strategy.execute({
-        hostname: "example.com",
-        recordType: "A",
-        timeout: 5000,
-        assertions: [
-          { field: "recordCount", operator: "greaterThanOrEqual", value: 2 },
-        ],
-      });
-
-      expect(result.status).toBe("healthy");
-    });
-
-    it("should resolve MX records correctly", async () => {
-      const strategy = new DnsHealthCheckStrategy(
-        createMockResolver({
-          resolveMx: [
-            { priority: 0, exchange: "mail1.example.com" },
-            { priority: 10, exchange: "mail2.example.com" },
-          ],
-        })
-      );
-
-      const result = await strategy.execute({
-        hostname: "example.com",
-        recordType: "MX",
-        timeout: 5000,
-      });
-
-      expect(result.status).toBe("healthy");
-      expect(result.metadata?.resolvedValues).toContain("0 mail1.example.com");
+      expect(() => connectedClient.close()).not.toThrow();
     });
 
     it("should use custom nameserver when provided", async () => {
@@ -183,14 +82,75 @@ describe("DnsHealthCheckStrategy", () => {
         resolveNs: mock(() => Promise.resolve([])),
       }));
 
-      await strategy.execute({
-        hostname: "example.com",
-        recordType: "A",
+      const connectedClient = await strategy.createClient({
         nameserver: "8.8.8.8",
         timeout: 5000,
       });
 
+      // Execute to trigger resolver setup
+      await connectedClient.client.exec({
+        hostname: "example.com",
+        recordType: "A",
+      });
+
       expect(setServersMock).toHaveBeenCalledWith(["8.8.8.8"]);
+
+      connectedClient.close();
+    });
+  });
+
+  describe("client.exec", () => {
+    it("should return resolved values for successful A record resolution", async () => {
+      const strategy = new DnsHealthCheckStrategy(
+        createMockResolver({ resolve4: ["1.2.3.4", "5.6.7.8"] })
+      );
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+
+      const result = await connectedClient.client.exec({
+        hostname: "example.com",
+        recordType: "A",
+      });
+
+      expect(result.values).toEqual(["1.2.3.4", "5.6.7.8"]);
+
+      connectedClient.close();
+    });
+
+    it("should return error for DNS error", async () => {
+      const strategy = new DnsHealthCheckStrategy(
+        createMockResolver({ resolve4: new Error("NXDOMAIN") })
+      );
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+
+      const result = await connectedClient.client.exec({
+        hostname: "nonexistent.example.com",
+        recordType: "A",
+      });
+
+      expect(result.error).toContain("NXDOMAIN");
+
+      connectedClient.close();
+    });
+
+    it("should resolve MX records correctly", async () => {
+      const strategy = new DnsHealthCheckStrategy(
+        createMockResolver({
+          resolveMx: [
+            { priority: 0, exchange: "mail1.example.com" },
+            { priority: 10, exchange: "mail2.example.com" },
+          ],
+        })
+      );
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+
+      const result = await connectedClient.client.exec({
+        hostname: "example.com",
+        recordType: "MX",
+      });
+
+      expect(result.values).toContain("0 mail1.example.com");
+
+      connectedClient.close();
     });
   });
 
@@ -264,7 +224,7 @@ describe("DnsHealthCheckStrategy", () => {
       const aggregated = strategy.aggregateResult(runs);
 
       expect(aggregated.errorCount).toBe(1);
-      expect(aggregated.failureCount).toBe(1);
+      expect(aggregated.failureCount).toBe(2);
     });
   });
 });

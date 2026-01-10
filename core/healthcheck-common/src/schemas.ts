@@ -13,21 +13,85 @@ export const HealthCheckStrategyDtoSchema = z.object({
   aggregatedResultSchema: z.record(z.string(), z.unknown()).optional(),
 });
 
+export type HealthCheckStrategyDto = z.infer<
+  typeof HealthCheckStrategyDtoSchema
+>;
+
+/**
+ * Collector DTO for frontend discovery.
+ * ID is fully-qualified: `pluginId.collectorId` (e.g., `collector-hardware.cpu`)
+ */
+export const CollectorDtoSchema = z.object({
+  /** Fully-qualified ID: pluginId.collectorId */
+  id: z.string(),
+  /** Human-readable name */
+  displayName: z.string(),
+  /** Optional description */
+  description: z.string().optional(),
+  /** JSON Schema for collector configuration */
+  configSchema: z.record(z.string(), z.unknown()),
+  /** JSON Schema for per-run result metadata (with chart annotations) */
+  resultSchema: z.record(z.string(), z.unknown()),
+  /** Whether multiple instances of this collector are allowed per config */
+  allowMultiple: z.boolean(),
+});
+
+export type CollectorDto = z.infer<typeof CollectorDtoSchema>;
+
+/**
+ * A single collector assertion with field, operator, and optional value.
+ */
+export const CollectorAssertionSchema = z.object({
+  /** Field path to assert on (from collector result schema) */
+  field: z.string(),
+  /** JSONPath expression for jsonpath-type assertions (e.g., $.status) */
+  jsonPath: z.string().optional(),
+  /** Comparison operator */
+  operator: z.string(),
+  /** Expected value (not needed for some operators like exists, isTrue) */
+  value: z.unknown().optional(),
+});
+
+export type CollectorAssertion = z.infer<typeof CollectorAssertionSchema>;
+
+/**
+ * A collector configuration entry within a health check.
+ * Each entry includes the collector ID, its config, and per-collector assertions.
+ */
+export const CollectorConfigEntrySchema = z.object({
+  /** Fully-qualified collector ID (e.g., collector-hardware.cpu) */
+  collectorId: z.string(),
+  /** Collector-specific configuration */
+  config: z.record(z.string(), z.unknown()),
+  /** Per-collector assertions (schema derived from collector's resultSchema) */
+  assertions: z.array(CollectorAssertionSchema).optional(),
+});
+
+export type CollectorConfigEntry = z.infer<typeof CollectorConfigEntrySchema>;
+
 export const HealthCheckConfigurationSchema = z.object({
   id: z.string(),
   name: z.string(),
   strategyId: z.string(),
   config: z.record(z.string(), z.unknown()),
   intervalSeconds: z.number(),
+  /** Optional collector configurations */
+  collectors: z.array(CollectorConfigEntrySchema).optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
+
+export type HealthCheckConfiguration = z.infer<
+  typeof HealthCheckConfigurationSchema
+>;
 
 export const CreateHealthCheckConfigurationSchema = z.object({
   name: z.string().min(1),
   strategyId: z.string().min(1),
   config: z.record(z.string(), z.unknown()),
   intervalSeconds: z.number().min(1),
+  /** Optional collector configurations */
+  collectors: z.array(CollectorConfigEntrySchema).optional(),
 });
 
 export type CreateHealthCheckConfiguration = z.infer<

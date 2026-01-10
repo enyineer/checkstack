@@ -18,7 +18,7 @@ import {
 } from "@checkstack/backend-api";
 import { mock } from "bun:test";
 
-// Helper to create mock health check registry
+// Helper to create mock health check registry with createClient pattern
 const createMockRegistry = (): HealthCheckRegistry => ({
   getStrategy: mock((id: string) => ({
     id,
@@ -28,19 +28,31 @@ const createMockRegistry = (): HealthCheckRegistry => ({
       version: 1,
       schema: z.object({}),
     }),
+    result: new Versioned({
+      version: 1,
+      schema: z.object({}),
+    }),
     aggregatedResult: new Versioned({
       version: 1,
       schema: z.object({}),
     }),
-    execute: mock(async () => ({
-      status: "healthy" as const,
-      message: "Mock check passed",
-      timestamp: new Date().toISOString(),
+    createClient: mock(async () => ({
+      client: {
+        exec: mock(async () => ({})),
+      },
+      close: mock(() => {}),
     })),
     aggregateResult: mock(() => ({})),
   })),
   register: mock(() => {}),
   getStrategies: mock(() => []),
+});
+
+// Helper to create mock collector registry
+const createMockCollectorRegistry = () => ({
+  register: mock(() => {}),
+  getCollector: mock(() => undefined),
+  getCollectors: mock(() => []),
 });
 
 // Helper to create mock catalog client for notification delegation
@@ -120,6 +132,10 @@ describe("Queue-Based Health Check Executor", () => {
           typeof setupHealthCheckWorker
         >[0]["db"],
         registry: mockRegistry,
+        collectorRegistry:
+          createMockCollectorRegistry() as unknown as Parameters<
+            typeof setupHealthCheckWorker
+          >[0]["collectorRegistry"],
         logger: mockLogger,
         queueManager: mockQueueManager,
         signalService: createMockSignalService(),

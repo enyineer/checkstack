@@ -40,6 +40,8 @@ export interface HealthResultMeta {
   "x-chart-label"?: string;
   /** Unit suffix for values (e.g., 'ms', '%', 'req/s') */
   "x-chart-unit"?: string;
+  /** Whether this field supports JSONPath assertions */
+  "x-jsonpath"?: boolean;
 }
 
 /**
@@ -51,6 +53,9 @@ export const healthResultRegistry = z.registry<HealthResultMeta>();
 // ============================================================================
 // TYPED HEALTH RESULT FACTORIES
 // ============================================================================
+
+/** Chart metadata (excludes x-jsonpath, use healthResultJSONPath for that) */
+type ChartMeta = Omit<HealthResultMeta, "x-jsonpath">;
 
 /**
  * Create a health result string field with typed chart metadata.
@@ -64,7 +69,7 @@ export const healthResultRegistry = z.registry<HealthResultMeta>();
  * });
  * ```
  */
-export function healthResultString(meta: HealthResultMeta) {
+export function healthResultString(meta: ChartMeta) {
   const schema = z.string();
   schema.register(healthResultRegistry, meta);
   return schema;
@@ -73,7 +78,7 @@ export function healthResultString(meta: HealthResultMeta) {
 /**
  * Create a health result number field with typed chart metadata.
  */
-export function healthResultNumber(meta: HealthResultMeta) {
+export function healthResultNumber(meta: ChartMeta) {
   const schema = z.number();
   schema.register(healthResultRegistry, meta);
   return schema;
@@ -82,9 +87,28 @@ export function healthResultNumber(meta: HealthResultMeta) {
 /**
  * Create a health result boolean field with typed chart metadata.
  */
-export function healthResultBoolean(meta: HealthResultMeta) {
+export function healthResultBoolean(meta: ChartMeta) {
   const schema = z.boolean();
   schema.register(healthResultRegistry, meta);
+  return schema;
+}
+
+/**
+ * Create a health result string field with JSONPath assertion support.
+ * The UI will show a JSONPath input field for this result.
+ *
+ * @example
+ * ```typescript
+ * import { healthResultJSONPath } from "@checkstack/healthcheck-common";
+ *
+ * const resultSchema = z.object({
+ *   body: healthResultJSONPath(),
+ * });
+ * ```
+ */
+export function healthResultJSONPath(meta: ChartMeta) {
+  const schema = z.string();
+  schema.register(healthResultRegistry, { ...meta, "x-jsonpath": true });
   return schema;
 }
 

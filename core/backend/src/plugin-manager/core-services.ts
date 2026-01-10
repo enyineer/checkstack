@@ -16,7 +16,14 @@ import type { ServiceRegistry } from "../services/service-registry";
 import { rootLogger } from "../logger";
 import { db } from "../db";
 import { jwtService } from "../services/jwt";
-import { CoreHealthCheckRegistry } from "../services/health-check-registry";
+import {
+  CoreHealthCheckRegistry,
+  createScopedHealthCheckRegistry,
+} from "../services/health-check-registry";
+import {
+  CoreCollectorRegistry,
+  createScopedCollectorRegistry,
+} from "../services/collector-registry";
 import { EventBus } from "../services/event-bus.js";
 import { getPluginSchemaName } from "@checkstack/drizzle-helper";
 
@@ -34,6 +41,7 @@ async function schemaExists(pool: Pool, schemaName: string): Promise<boolean> {
 /**
  * Registers all core services with the service registry.
  * Extracted from PluginManager for better organization.
+ * Returns the global registries for lifecycle cleanup.
  */
 export function registerCoreServices({
   registry,
@@ -47,7 +55,7 @@ export function registerCoreServices({
   pluginRpcRouters: Map<string, unknown>;
   pluginHttpHandlers: Map<string, (req: Request) => Promise<Response>>;
   pluginContractRegistry: Map<string, unknown>;
-}) {
+}): { collectorRegistry: CoreCollectorRegistry } {
   // 1. Database Factory (Scoped)
   registry.registerFactory(coreServices.database, async (metadata) => {
     const { pluginId, previousPluginIds } = metadata;
@@ -258,11 +266,16 @@ export function registerCoreServices({
     return rpcClient;
   });
 
-  // 6. Health Check Registry (Global Singleton)
-  const healthCheckRegistry = new CoreHealthCheckRegistry();
-  registry.registerFactory(
-    coreServices.healthCheckRegistry,
-    () => healthCheckRegistry
+  // 6. Health Check Registry (Scoped Factory - auto-prefixes strategy IDs with pluginId)
+  const globalHealthCheckRegistry = new CoreHealthCheckRegistry();
+  registry.registerFactory(coreServices.healthCheckRegistry, (metadata) =>
+    createScopedHealthCheckRegistry(globalHealthCheckRegistry, metadata)
+  );
+
+  // 6b. Collector Registry (Scoped Factory - injects ownerPlugin automatically)
+  const globalCollectorRegistry = new CoreCollectorRegistry();
+  registry.registerFactory(coreServices.collectorRegistry, (metadata) =>
+    createScopedCollectorRegistry(globalCollectorRegistry, metadata)
   );
 
   // 7. RPC Service (Scoped Factory - uses pluginId for path derivation)
@@ -309,4 +322,7 @@ export function registerCoreServices({
     }
     return eventBusInstance;
   });
+
+  // Return global registries for lifecycle cleanup
+  return { collectorRegistry: globalCollectorRegistry };
 }

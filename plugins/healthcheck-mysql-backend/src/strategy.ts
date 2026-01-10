@@ -1,38 +1,27 @@
 import mysql from "mysql2/promise";
 import {
   HealthCheckStrategy,
-  HealthCheckResult,
   HealthCheckRunForAggregation,
   Versioned,
   z,
-  timeThresholdField,
-  numericField,
-  booleanField,
-  evaluateAssertions,
   configString,
   configNumber,
+  type ConnectedClient,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
 } from "@checkstack/healthcheck-common";
+import type {
+  MysqlTransportClient,
+  SqlQueryRequest,
+  SqlQueryResult,
+} from "./transport-client";
 
 // ============================================================================
 // SCHEMAS
 // ============================================================================
-
-/**
- * Assertion schema for MySQL health checks using shared factories.
- */
-const mysqlAssertionSchema = z.discriminatedUnion("field", [
-  timeThresholdField("connectionTime"),
-  timeThresholdField("queryTime"),
-  numericField("rowCount", { min: 0 }),
-  booleanField("querySuccess"),
-]);
-
-export type MysqlAssertion = z.infer<typeof mysqlAssertionSchema>;
 
 /**
  * Configuration schema for MySQL health checks.
@@ -46,21 +35,12 @@ export const mysqlConfigSchema = z.object({
     .default(3306)
     .describe("MySQL port"),
   database: configString({}).describe("Database name"),
-  user: configString({}).describe("Username for authentication"),
-  password: configString({ "x-secret": true }).describe(
-    "Password for authentication"
-  ),
+  user: configString({}).describe("Database user"),
+  password: configString({ "x-secret": true }).describe("Database password"),
   timeout: configNumber({})
     .min(100)
     .default(10_000)
     .describe("Connection timeout in milliseconds"),
-  query: configString({})
-    .default("SELECT 1")
-    .describe("Health check query to execute"),
-  assertions: z
-    .array(mysqlAssertionSchema)
-    .optional()
-    .describe("Validation conditions"),
 });
 
 export type MysqlConfig = z.infer<typeof mysqlConfigSchema>;
@@ -79,27 +59,13 @@ const mysqlResultSchema = z.object({
     "x-chart-label": "Connection Time",
     "x-chart-unit": "ms",
   }),
-  queryTimeMs: healthResultNumber({
-    "x-chart-type": "line",
-    "x-chart-label": "Query Time",
-    "x-chart-unit": "ms",
-  }).optional(),
-  rowCount: healthResultNumber({
-    "x-chart-type": "counter",
-    "x-chart-label": "Row Count",
-  }).optional(),
-  querySuccess: healthResultBoolean({
-    "x-chart-type": "boolean",
-    "x-chart-label": "Query Success",
-  }),
-  failedAssertion: mysqlAssertionSchema.optional(),
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
   }).optional(),
 });
 
-export type MysqlResult = z.infer<typeof mysqlResultSchema>;
+type MysqlResult = z.infer<typeof mysqlResultSchema>;
 
 /**
  * Aggregated metadata for buckets.
@@ -110,9 +76,9 @@ const mysqlAggregatedSchema = z.object({
     "x-chart-label": "Avg Connection Time",
     "x-chart-unit": "ms",
   }),
-  avgQueryTime: healthResultNumber({
+  maxConnectionTime: healthResultNumber({
     "x-chart-type": "line",
-    "x-chart-label": "Avg Query Time",
+    "x-chart-label": "Max Connection Time",
     "x-chart-unit": "ms",
   }),
   successRate: healthResultNumber({
@@ -126,17 +92,17 @@ const mysqlAggregatedSchema = z.object({
   }),
 });
 
-export type MysqlAggregatedResult = z.infer<typeof mysqlAggregatedSchema>;
+type MysqlAggregatedResult = z.infer<typeof mysqlAggregatedSchema>;
 
 // ============================================================================
 // DATABASE CLIENT INTERFACE (for testability)
 // ============================================================================
 
-export interface DbQueryResult {
+interface DbQueryResult {
   rowCount: number;
 }
 
-export interface DbConnection {
+interface DbConnection {
   query(sql: string): Promise<DbQueryResult>;
   end(): Promise<void>;
 }
@@ -166,9 +132,8 @@ const defaultDbClient: DbClient = {
 
     return {
       async query(sql: string): Promise<DbQueryResult> {
-        const [rows] = await connection.query(sql);
-        const rowCount = Array.isArray(rows) ? rows.length : 0;
-        return { rowCount };
+        const [rows] = await connection.execute(sql);
+        return { rowCount: Array.isArray(rows) ? rows.length : 0 };
       },
       async end() {
         await connection.end();
@@ -183,7 +148,12 @@ const defaultDbClient: DbClient = {
 
 export class MysqlHealthCheckStrategy
   implements
-    HealthCheckStrategy<MysqlConfig, MysqlResult, MysqlAggregatedResult>
+    HealthCheckStrategy<
+      MysqlConfig,
+      MysqlTransportClient,
+      MysqlResult,
+      MysqlAggregatedResult
+    >
 {
   id = "mysql";
   displayName = "MySQL Health Check";
@@ -196,13 +166,29 @@ export class MysqlHealthCheckStrategy
   }
 
   config: Versioned<MysqlConfig> = new Versioned({
-    version: 1,
+    version: 2,
     schema: mysqlConfigSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Migrate to createClient pattern (no config changes)",
+        migrate: (data: unknown) => data,
+      },
+    ],
   });
 
   result: Versioned<MysqlResult> = new Versioned({
-    version: 1,
+    version: 2,
     schema: mysqlResultSchema,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Migrate to createClient pattern (no result changes)",
+        migrate: (data: unknown) => data,
+      },
+    ],
   });
 
   aggregatedResult: Versioned<MysqlAggregatedResult> = new Versioned({
@@ -213,132 +199,83 @@ export class MysqlHealthCheckStrategy
   aggregateResult(
     runs: HealthCheckRunForAggregation<MysqlResult>[]
   ): MysqlAggregatedResult {
-    let totalConnectionTime = 0;
-    let totalQueryTime = 0;
-    let successCount = 0;
-    let errorCount = 0;
-    let validRuns = 0;
-    let queryRuns = 0;
+    const validRuns = runs.filter((r) => r.metadata);
 
-    for (const run of runs) {
-      if (run.metadata?.error) {
-        errorCount++;
-        continue;
-      }
-      if (run.status === "healthy") {
-        successCount++;
-      }
-      if (run.metadata) {
-        totalConnectionTime += run.metadata.connectionTimeMs;
-        if (run.metadata.queryTimeMs !== undefined) {
-          totalQueryTime += run.metadata.queryTimeMs;
-          queryRuns++;
-        }
-        validRuns++;
-      }
+    if (validRuns.length === 0) {
+      return {
+        avgConnectionTime: 0,
+        maxConnectionTime: 0,
+        successRate: 0,
+        errorCount: 0,
+      };
     }
 
+    const connectionTimes = validRuns
+      .map((r) => r.metadata?.connectionTimeMs)
+      .filter((t): t is number => typeof t === "number");
+
+    const avgConnectionTime =
+      connectionTimes.length > 0
+        ? Math.round(
+            connectionTimes.reduce((a, b) => a + b, 0) / connectionTimes.length
+          )
+        : 0;
+
+    const maxConnectionTime =
+      connectionTimes.length > 0 ? Math.max(...connectionTimes) : 0;
+
+    const successCount = validRuns.filter(
+      (r) => r.metadata?.connected === true
+    ).length;
+    const successRate = Math.round((successCount / validRuns.length) * 100);
+
+    const errorCount = validRuns.filter(
+      (r) => r.metadata?.error !== undefined
+    ).length;
+
     return {
-      avgConnectionTime: validRuns > 0 ? totalConnectionTime / validRuns : 0,
-      avgQueryTime: queryRuns > 0 ? totalQueryTime / queryRuns : 0,
-      successRate: runs.length > 0 ? (successCount / runs.length) * 100 : 0,
+      avgConnectionTime,
+      maxConnectionTime,
+      successRate,
       errorCount,
     };
   }
 
-  async execute(
+  async createClient(
     config: MysqlConfigInput
-  ): Promise<HealthCheckResult<MysqlResult>> {
+  ): Promise<ConnectedClient<MysqlTransportClient>> {
     const validatedConfig = this.config.validate(config);
-    const start = performance.now();
 
-    try {
-      // Connect to database
-      const connection = await this.dbClient.connect({
-        host: validatedConfig.host,
-        port: validatedConfig.port,
-        database: validatedConfig.database,
-        user: validatedConfig.user,
-        password: validatedConfig.password,
-        connectTimeout: validatedConfig.timeout,
-      });
+    const connection = await this.dbClient.connect({
+      host: validatedConfig.host,
+      port: validatedConfig.port,
+      database: validatedConfig.database,
+      user: validatedConfig.user,
+      password: validatedConfig.password,
+      connectTimeout: validatedConfig.timeout,
+    });
 
-      const connectionTimeMs = Math.round(performance.now() - start);
+    const client: MysqlTransportClient = {
+      async exec(request: SqlQueryRequest): Promise<SqlQueryResult> {
+        try {
+          const result = await connection.query(request.query);
+          return { rowCount: result.rowCount };
+        } catch (error) {
+          return {
+            rowCount: 0,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    };
 
-      // Execute health check query
-      const queryStart = performance.now();
-      let querySuccess = false;
-      let rowCount: number | undefined;
-      let queryTimeMs: number | undefined;
-
-      try {
-        const result = await connection.query(validatedConfig.query);
-        querySuccess = true;
-        rowCount = result.rowCount;
-        queryTimeMs = Math.round(performance.now() - queryStart);
-      } catch {
-        querySuccess = false;
-        queryTimeMs = Math.round(performance.now() - queryStart);
-      }
-
-      await connection.end();
-
-      const result: Omit<MysqlResult, "failedAssertion" | "error"> = {
-        connected: true,
-        connectionTimeMs,
-        queryTimeMs,
-        rowCount,
-        querySuccess,
-      };
-
-      // Evaluate assertions using shared utility
-      const failedAssertion = evaluateAssertions(validatedConfig.assertions, {
-        connectionTime: connectionTimeMs,
-        queryTime: queryTimeMs ?? 0,
-        rowCount: rowCount ?? 0,
-        querySuccess,
-      });
-
-      if (failedAssertion) {
-        return {
-          status: "unhealthy",
-          latencyMs: connectionTimeMs + (queryTimeMs ?? 0),
-          message: `Assertion failed: ${failedAssertion.field} ${
-            failedAssertion.operator
-          }${"value" in failedAssertion ? ` ${failedAssertion.value}` : ""}`,
-          metadata: { ...result, failedAssertion },
-        };
-      }
-
-      if (!querySuccess) {
-        return {
-          status: "unhealthy",
-          latencyMs: connectionTimeMs + (queryTimeMs ?? 0),
-          message: "Health check query failed",
-          metadata: result,
-        };
-      }
-
-      return {
-        status: "healthy",
-        latencyMs: connectionTimeMs + (queryTimeMs ?? 0),
-        message: `MySQL - query returned ${rowCount} row(s) in ${queryTimeMs}ms`,
-        metadata: result,
-      };
-    } catch (error: unknown) {
-      const end = performance.now();
-      const isError = error instanceof Error;
-      return {
-        status: "unhealthy",
-        latencyMs: Math.round(end - start),
-        message: isError ? error.message : "MySQL connection failed",
-        metadata: {
-          connected: false,
-          connectionTimeMs: Math.round(end - start),
-          querySuccess: false,
-          error: isError ? error.name : "UnknownError",
-        },
-      };
-    }
+    return {
+      client,
+      close: () => {
+        connection.end().catch(() => {
+          // Ignore close errors
+        });
+      },
+    };
   }
 }

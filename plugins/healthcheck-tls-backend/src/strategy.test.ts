@@ -60,11 +60,11 @@ describe("TlsHealthCheckStrategy", () => {
     ),
   });
 
-  describe("execute", () => {
-    it("should return healthy for valid certificate", async () => {
+  describe("createClient", () => {
+    it("should return a connected client", async () => {
       const strategy = new TlsHealthCheckStrategy(createMockClient());
 
-      const result = await strategy.execute({
+      const connectedClient = await strategy.createClient({
         host: "example.com",
         port: 443,
         timeout: 5000,
@@ -72,120 +72,69 @@ describe("TlsHealthCheckStrategy", () => {
         rejectUnauthorized: true,
       });
 
-      expect(result.status).toBe("healthy");
-      expect(result.metadata?.isValid).toBe(true);
-      expect(result.metadata?.daysUntilExpiry).toBeGreaterThan(0);
+      expect(connectedClient.client).toBeDefined();
+      expect(connectedClient.client.exec).toBeDefined();
+      expect(connectedClient.close).toBeDefined();
+
+      connectedClient.close();
     });
 
-    it("should return unhealthy for unauthorized certificate", async () => {
-      const strategy = new TlsHealthCheckStrategy(
-        createMockClient({ authorized: false })
-      );
-
-      const result = await strategy.execute({
-        host: "example.com",
-        port: 443,
-        timeout: 5000,
-        minDaysUntilExpiry: 7,
-        rejectUnauthorized: true,
-      });
-
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("not valid");
-    });
-
-    it("should return unhealthy when certificate expires soon", async () => {
-      const expiringCert = createCertInfo({
-        validTo: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000), // 5 days
-      });
-
-      const strategy = new TlsHealthCheckStrategy(
-        createMockClient({ cert: expiringCert })
-      );
-
-      const result = await strategy.execute({
-        host: "example.com",
-        port: 443,
-        timeout: 5000,
-        minDaysUntilExpiry: 14,
-        rejectUnauthorized: true,
-      });
-
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("expires in");
-    });
-
-    it("should return unhealthy for connection error", async () => {
+    it("should throw for connection error during client creation", async () => {
       const strategy = new TlsHealthCheckStrategy(
         createMockClient({ error: new Error("Connection refused") })
       );
 
-      const result = await strategy.execute({
-        host: "example.com",
-        port: 443,
-        timeout: 5000,
-        minDaysUntilExpiry: 7,
-        rejectUnauthorized: true,
-      });
-
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("Connection refused");
+      await expect(
+        strategy.createClient({
+          host: "example.com",
+          port: 443,
+          timeout: 5000,
+          minDaysUntilExpiry: 7,
+          rejectUnauthorized: true,
+        })
+      ).rejects.toThrow("Connection refused");
     });
+  });
 
-    it("should pass daysUntilExpiry assertion", async () => {
+  describe("client.exec (inspect action)", () => {
+    it("should return valid certificate info", async () => {
       const strategy = new TlsHealthCheckStrategy(createMockClient());
 
-      const result = await strategy.execute({
+      const connectedClient = await strategy.createClient({
         host: "example.com",
         port: 443,
         timeout: 5000,
         minDaysUntilExpiry: 7,
         rejectUnauthorized: true,
-        assertions: [
-          {
-            field: "daysUntilExpiry",
-            operator: "greaterThanOrEqual",
-            value: 7,
-          },
-        ],
       });
 
-      expect(result.status).toBe("healthy");
+      const result = await connectedClient.client.exec({ action: "inspect" });
+
+      expect(result.isValid).toBe(true);
+      expect(result.daysRemaining).toBeGreaterThan(0);
+      expect(result.subject).toBe("example.com");
+
+      connectedClient.close();
     });
 
-    it("should pass issuer assertion", async () => {
-      const strategy = new TlsHealthCheckStrategy(createMockClient());
-
-      const result = await strategy.execute({
-        host: "example.com",
-        port: 443,
-        timeout: 5000,
-        minDaysUntilExpiry: 7,
-        rejectUnauthorized: true,
-        assertions: [
-          { field: "issuer", operator: "contains", value: "DigiCert" },
-        ],
-      });
-
-      expect(result.status).toBe("healthy");
-    });
-
-    it("should fail isValid assertion when certificate is invalid", async () => {
+    it("should return invalid for unauthorized certificate", async () => {
       const strategy = new TlsHealthCheckStrategy(
         createMockClient({ authorized: false })
       );
 
-      const result = await strategy.execute({
+      const connectedClient = await strategy.createClient({
         host: "example.com",
         port: 443,
         timeout: 5000,
         minDaysUntilExpiry: 7,
-        rejectUnauthorized: false, // Don't reject to test assertion
-        assertions: [{ field: "isValid", operator: "isTrue" }],
+        rejectUnauthorized: false, // Don't reject to allow connection
       });
 
-      expect(result.status).toBe("unhealthy");
-      expect(result.message).toContain("Assertion failed");
+      const result = await connectedClient.client.exec({ action: "inspect" });
+
+      expect(result.isValid).toBe(false);
+
+      connectedClient.close();
     });
 
     it("should detect self-signed certificates", async () => {
@@ -199,7 +148,7 @@ describe("TlsHealthCheckStrategy", () => {
         createMockClient({ cert: selfSignedCert, authorized: false })
       );
 
-      const result = await strategy.execute({
+      const connectedClient = await strategy.createClient({
         host: "localhost",
         port: 443,
         timeout: 5000,
@@ -207,7 +156,11 @@ describe("TlsHealthCheckStrategy", () => {
         rejectUnauthorized: false,
       });
 
-      expect(result.metadata?.isSelfSigned).toBe(true);
+      const result = await connectedClient.client.exec({ action: "inspect" });
+
+      expect(result.isSelfSigned).toBe(true);
+
+      connectedClient.close();
     });
   });
 
@@ -301,7 +254,7 @@ describe("TlsHealthCheckStrategy", () => {
 
       const aggregated = strategy.aggregateResult(runs);
 
-      expect(aggregated.invalidCount).toBe(1);
+      expect(aggregated.invalidCount).toBe(2);
       expect(aggregated.errorCount).toBe(1);
     });
   });

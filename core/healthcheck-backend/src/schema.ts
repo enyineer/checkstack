@@ -10,7 +10,10 @@ import {
   primaryKey,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import type { StateThresholds } from "@checkstack/healthcheck-common";
+import type {
+  StateThresholds,
+  CollectorConfigEntry,
+} from "@checkstack/healthcheck-common";
 import type { VersionedRecord } from "@checkstack/backend-api";
 
 /**
@@ -38,6 +41,8 @@ export const healthCheckConfigurations = pgTable(
     name: text("name").notNull(),
     strategyId: text("strategy_id").notNull(),
     config: jsonb("config").$type<Record<string, unknown>>().notNull(),
+    /** Collector configurations for this health check */
+    collectors: jsonb("collectors").$type<CollectorConfigEntry[]>(),
     intervalSeconds: integer("interval_seconds").notNull(),
     isTemplate: boolean("is_template").default(false),
     createdAt: timestamp("created_at").defaultNow().notNull(),

@@ -15,6 +15,8 @@ export interface HealthCheckStrategyDto {
   configSchema: Record<string, unknown>;
 }
 
+import type { CollectorConfigEntry } from "./schemas";
+
 /**
  * Represents a Health Check Configuration (the check definition/template).
  * NOTE: This is derived from Zod schema but kept as interface for explicit type documentation.
@@ -25,6 +27,7 @@ export interface HealthCheckConfiguration {
   strategyId: string;
   config: Record<string, unknown>;
   intervalSeconds: number;
+  collectors?: CollectorConfigEntry[];
   createdAt: Date;
   updatedAt: Date;
 }

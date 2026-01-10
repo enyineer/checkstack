@@ -57,7 +57,7 @@ Creates an HTTP redirect response to the auth error page.
 
 **Parameters:**
 - `errorMessage` (string): User-friendly error message  
-- `frontendUrl` (string, optional): Frontend base URL (defaults to `VITE_FRONTEND_URL` env var)
+- `frontendUrl` (string, optional): Frontend base URL (defaults to `BASE_URL` env var)
 
 **Returns:** `Response` - HTTP 302 redirect to `/auth/error`
 

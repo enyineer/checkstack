@@ -2,10 +2,8 @@ import { mock } from "bun:test";
 import { RpcContext, EmitHookFn } from "./rpc";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { HealthCheckRegistry } from "./health-check";
-import {
-  QueuePluginRegistry,
-  QueueManager,
-} from "@checkstack/queue-api";
+import { CollectorRegistry } from "./collector-registry";
+import { QueuePluginRegistry, QueueManager } from "@checkstack/queue-api";
 
 /**
  * Creates a mocked oRPC context for testing.
@@ -39,10 +37,17 @@ export function createMockRpcContext(
       getAnonymousPermissions: mock().mockResolvedValue([]),
     },
     healthCheckRegistry: {
-      registerStrategy: mock(),
+      register: mock(),
       getStrategies: mock().mockReturnValue([]),
       getStrategy: mock(),
+      getStrategiesWithMeta: mock().mockReturnValue([]),
     } as unknown as HealthCheckRegistry,
+    collectorRegistry: {
+      register: mock(),
+      getCollector: mock(),
+      getCollectors: mock().mockReturnValue([]),
+      getCollectorsForPlugin: mock().mockReturnValue([]),
+    } as unknown as CollectorRegistry,
     queuePluginRegistry: {
       register: mock(),
       getPlugin: mock(),

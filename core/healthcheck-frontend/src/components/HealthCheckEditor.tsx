@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   HealthCheckConfiguration,
   HealthCheckStrategyDto,
   CreateHealthCheckConfiguration,
+  CollectorConfigEntry,
 } from "@checkstack/healthcheck-common";
 import {
   Button,
@@ -16,6 +17,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@checkstack/ui";
+import { useCollectors } from "../hooks/useCollectors";
+import { CollectorList } from "./CollectorList";
 
 interface HealthCheckEditorProps {
   strategies: HealthCheckStrategyDto[];
@@ -40,19 +43,35 @@ export const HealthCheckEditor: React.FC<HealthCheckEditorProps> = ({
   const [config, setConfig] = useState<Record<string, unknown>>(
     (initialData?.config as Record<string, unknown>) || {}
   );
+  const [collectors, setCollectors] = useState<CollectorConfigEntry[]>(
+    initialData?.collectors || []
+  );
 
   const toast = useToast();
   const [loading, setLoading] = useState(false);
+  const [collectorsValid, setCollectorsValid] = useState(true);
+
+  // Fetch available collectors for the selected strategy
+  const { collectors: availableCollectors, loading: collectorsLoading } =
+    useCollectors(strategyId);
 
   // Reset form when dialog opens with new data
-  React.useEffect(() => {
+  useEffect(() => {
     if (open) {
       setName(initialData?.name || "");
       setStrategyId(initialData?.strategyId || "");
       setInterval(initialData?.intervalSeconds?.toString() || "60");
       setConfig((initialData?.config as Record<string, unknown>) || {});
+      setCollectors(initialData?.collectors || []);
     }
   }, [open, initialData]);
+
+  // Clear collectors when strategy changes (new strategy = different collectors)
+  const handleStrategyChange = (id: string) => {
+    setStrategyId(id);
+    setConfig({});
+    setCollectors([]);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,6 +82,7 @@ export const HealthCheckEditor: React.FC<HealthCheckEditorProps> = ({
         strategyId,
         intervalSeconds: Number.parseInt(interval, 10),
         config,
+        collectors: collectors.length > 0 ? collectors : undefined,
       });
     } catch (error) {
       const message =
@@ -84,7 +104,7 @@ export const HealthCheckEditor: React.FC<HealthCheckEditorProps> = ({
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          <div className="space-y-6 py-4 max-h-[70vh] overflow-y-auto">
             <div className="space-y-2">
               <Label htmlFor="name">Name</Label>
               <Input
@@ -111,21 +131,30 @@ export const HealthCheckEditor: React.FC<HealthCheckEditorProps> = ({
               label="Strategy"
               plugins={strategies}
               selectedPluginId={strategyId}
-              onPluginChange={(id) => {
-                setStrategyId(id);
-                setConfig({});
-              }}
+              onPluginChange={handleStrategyChange}
               config={config}
               onConfigChange={setConfig}
               disabled={!!initialData}
             />
+
+            {/* Collector Configuration Section */}
+            {strategyId && (
+              <CollectorList
+                strategyId={strategyId}
+                availableCollectors={availableCollectors}
+                configuredCollectors={collectors}
+                onChange={setCollectors}
+                loading={collectorsLoading}
+                onValidChange={setCollectorsValid}
+              />
+            )}
           </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onCancel}>
               Cancel
             </Button>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading || !collectorsValid}>
               {loading ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>

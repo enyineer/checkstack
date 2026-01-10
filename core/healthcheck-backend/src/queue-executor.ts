@@ -2,6 +2,8 @@ import {
   HealthCheckRegistry,
   Logger,
   type EmitHookFn,
+  type CollectorRegistry,
+  evaluateAssertions,
 } from "@checkstack/backend-api";
 import { QueueManager } from "@checkstack/queue-api";
 import {
@@ -159,6 +161,7 @@ async function executeHealthCheckJob(props: {
   payload: HealthCheckJobPayload;
   db: Db;
   registry: HealthCheckRegistry;
+  collectorRegistry: CollectorRegistry;
   logger: Logger;
   signalService: SignalService;
   catalogClient: CatalogClient;
@@ -168,6 +171,7 @@ async function executeHealthCheckJob(props: {
     payload,
     db,
     registry,
+    collectorRegistry,
     logger,
     signalService,
     catalogClient,
@@ -190,6 +194,7 @@ async function executeHealthCheckJob(props: {
         configName: healthCheckConfigurations.name,
         strategyId: healthCheckConfigurations.strategyId,
         config: healthCheckConfigurations.config,
+        collectors: healthCheckConfigurations.collectors,
         interval: healthCheckConfigurations.intervalSeconds,
         enabled: systemHealthChecks.enabled,
       })
@@ -234,10 +239,156 @@ async function executeHealthCheckJob(props: {
       return;
     }
 
-    // Execute health check
-    const result = await strategy.execute(
-      configRow.config as Record<string, unknown>
-    );
+    // Execute health check using createClient pattern
+    const start = performance.now();
+    let connectedClient;
+    try {
+      connectedClient = await strategy.createClient(
+        configRow.config as Record<string, unknown>
+      );
+    } catch (error) {
+      // Connection failed
+      const latencyMs = Math.round(performance.now() - start);
+      const errorMessage =
+        error instanceof Error ? error.message : "Connection failed";
+
+      const result = {
+        status: "unhealthy" as const,
+        latencyMs,
+        message: errorMessage,
+        metadata: { connected: false, error: errorMessage },
+      };
+
+      await db.insert(healthCheckRuns).values({
+        configurationId: configId,
+        systemId,
+        status: result.status,
+        latencyMs: result.latencyMs,
+        result: { ...result } as Record<string, unknown>,
+      });
+
+      logger.debug(
+        `Health check ${configId} for system ${systemId} failed: ${errorMessage}`
+      );
+
+      // Broadcast failure signal
+      await signalService.broadcast(HEALTH_CHECK_RUN_COMPLETED, {
+        systemId,
+        systemName,
+        configurationId: configId,
+        configurationName: configRow.configName,
+        status: result.status,
+        latencyMs: result.latencyMs,
+      });
+
+      // Check and notify state change
+      const newState = await service.getSystemHealthStatus(systemId);
+      if (newState.status !== previousStatus) {
+        await notifyStateChange({
+          systemId,
+          previousStatus,
+          newStatus: newState.status,
+          catalogClient,
+          logger,
+        });
+      }
+
+      return;
+    }
+
+    const connectionTimeMs = Math.round(performance.now() - start);
+
+    // Execute collectors
+    const collectors = configRow.collectors ?? [];
+    const collectorResults: Record<string, unknown> = {};
+    let hasCollectorError = false;
+    let errorMessage: string | undefined;
+
+    try {
+      for (const collectorEntry of collectors) {
+        const registered = collectorRegistry.getCollector(
+          collectorEntry.collectorId
+        );
+        if (!registered) {
+          logger.warn(
+            `Collector ${collectorEntry.collectorId} not found, skipping`
+          );
+          continue;
+        }
+
+        try {
+          const collectorResult = await registered.collector.execute({
+            config: collectorEntry.config,
+            client: connectedClient.client,
+            pluginId: configRow.strategyId,
+          });
+
+          // Store result under collector ID
+          collectorResults[collectorEntry.collectorId] = collectorResult.result;
+
+          // Check for collector-level error
+          if (collectorResult.error) {
+            hasCollectorError = true;
+            errorMessage = collectorResult.error;
+          }
+
+          // Evaluate per-collector assertions
+          if (
+            collectorEntry.assertions &&
+            collectorEntry.assertions.length > 0 &&
+            collectorResult.result
+          ) {
+            const assertions = collectorEntry.assertions;
+            const failedAssertion = evaluateAssertions(
+              assertions,
+              collectorResult.result as Record<string, unknown>
+            );
+            if (failedAssertion) {
+              hasCollectorError = true;
+              errorMessage = `Assertion failed: ${failedAssertion.field} ${
+                failedAssertion.operator
+              } ${failedAssertion.value ?? ""}`;
+              logger.debug(
+                `Collector ${collectorEntry.collectorId} assertion failed: ${errorMessage}`
+              );
+            }
+          }
+        } catch (error) {
+          hasCollectorError = true;
+          errorMessage = error instanceof Error ? error.message : String(error);
+          collectorResults[collectorEntry.collectorId] = {
+            error: errorMessage,
+          };
+          logger.debug(
+            `Collector ${collectorEntry.collectorId} failed: ${errorMessage}`
+          );
+        }
+      }
+    } finally {
+      // Clean up connection
+      try {
+        connectedClient.close();
+      } catch {
+        // Ignore close errors
+      }
+    }
+
+    // Determine health status based on collector results
+    const status = hasCollectorError ? "unhealthy" : "healthy";
+    const totalLatencyMs = Math.round(performance.now() - start);
+
+    const result = {
+      status: status as "healthy" | "unhealthy",
+      latencyMs: totalLatencyMs,
+      message: hasCollectorError
+        ? `Check failed: ${errorMessage}`
+        : `Completed in ${totalLatencyMs}ms`,
+      metadata: {
+        connected: true,
+        connectionTimeMs,
+        collectors: collectorResults,
+      },
+    };
 
     // Store result (spread to convert structured type to plain record for jsonb)
     await db.insert(healthCheckRuns).values({
@@ -412,6 +563,7 @@ async function executeHealthCheckJob(props: {
 export async function setupHealthCheckWorker(props: {
   db: Db;
   registry: HealthCheckRegistry;
+  collectorRegistry: CollectorRegistry;
   logger: Logger;
   queueManager: QueueManager;
   signalService: SignalService;
@@ -421,6 +573,7 @@ export async function setupHealthCheckWorker(props: {
   const {
     db,
     registry,
+    collectorRegistry,
     logger,
     queueManager,
     signalService,
@@ -438,6 +591,7 @@ export async function setupHealthCheckWorker(props: {
         payload: job.data,
         db,
         registry,
+        collectorRegistry,
         logger,
         signalService,
         catalogClient,

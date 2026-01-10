@@ -15,15 +15,14 @@ export function encodeAuthError(message: string): string {
 /**
  * Build auth error redirect URL
  * @param errorMessage - User-friendly error message
- * @param frontendUrl - Frontend base URL (defaults to VITE_FRONTEND_URL env var)
+ * @param frontendUrl - Frontend base URL (defaults to BASE_URL env var)
  * @returns The full redirect URL to the error page
  */
 export function buildAuthErrorUrl(
   errorMessage: string,
   frontendUrl?: string
 ): string {
-  const base =
-    frontendUrl || process.env.VITE_FRONTEND_URL || "http://localhost:5173";
+  const base = frontendUrl || process.env.BASE_URL;
   const encoded = encodeAuthError(errorMessage);
   return `${base}/auth/error?error=${encodeURIComponent(encoded)}`;
 }
