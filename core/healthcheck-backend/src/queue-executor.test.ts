@@ -46,6 +46,7 @@ const createMockRegistry = (): HealthCheckRegistry => ({
   })),
   register: mock(() => {}),
   getStrategies: mock(() => []),
+  getStrategiesWithMeta: mock(() => []),
 });
 
 // Helper to create mock collector registry
