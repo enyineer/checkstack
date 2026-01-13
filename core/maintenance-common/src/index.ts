@@ -1,4 +1,4 @@
-export { permissions, permissionList } from "./permissions";
+export { maintenanceAccess, maintenanceAccessRules } from "./access";
 export {
   maintenanceContract,
   MaintenanceApi,

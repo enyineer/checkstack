@@ -1,5 +1,5 @@
 export * from "./schemas";
-export * from "./permissions";
+export * from "./access";
 export * from "./rpc-contract";
 export * from "./signals";
 export * from "./plugin-metadata";

@@ -5,7 +5,7 @@ import {
   lucideIconSchema,
 } from "@checkstack/common";
 import { z } from "zod";
-import { permissions } from "./permissions";
+import { authAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
 
 // Base builder with full metadata support
@@ -23,12 +23,12 @@ const RoleDtoSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().optional().nullable(),
-  permissions: z.array(z.string()),
+  accessRules: z.array(z.string()),
   isSystem: z.boolean().optional(),
   isAssignable: z.boolean().optional(), // False for anonymous role
 });
 
-const PermissionDtoSchema = z.object({
+const AccessRuleDtoSchema = z.object({
   id: z.string(),
   description: z.string().optional(),
 });
@@ -118,33 +118,33 @@ export const authContract = {
     .output(RegistrationStatusSchema),
 
   // ==========================================================================
-  // AUTHENTICATED ENDPOINTS (userType: "authenticated" - no specific permission)
+  // AUTHENTICATED ENDPOINTS (userType: "authenticated" - no specific access rule)
   // ==========================================================================
 
-  permissions: _base
-    .meta({ userType: "authenticated" }) // Any authenticated user can check their own permissions
-    .output(z.object({ permissions: z.array(z.string()) })),
+  accessRules: _base
+    .meta({ userType: "authenticated" }) // Any authenticated user can check their own access rules
+    .output(z.object({ accessRules: z.array(z.string()) })),
 
   // ==========================================================================
-  // USER MANAGEMENT (userType: "user" with permissions)
+  // USER MANAGEMENT (userType: "user" with access)
   // ==========================================================================
 
   getUsers: _base
-    .meta({ userType: "user", permissions: [permissions.usersRead.id] })
+    .meta({ userType: "user", access: [authAccess.users.read] })
     .output(z.array(UserDtoSchema)),
 
   deleteUser: _base
-    .meta({ userType: "user", permissions: [permissions.usersManage.id] })
+    .meta({ userType: "user", access: [authAccess.users.manage] })
     .input(z.string())
     .output(z.void()),
 
   createCredentialUser: _base
-    .meta({ userType: "user", permissions: [permissions.usersCreate.id] })
+    .meta({ userType: "user", access: [authAccess.users.create] })
     .input(CreateCredentialUserInputSchema)
     .output(CreateCredentialUserOutputSchema),
 
   updateUserRoles: _base
-    .meta({ userType: "user", permissions: [permissions.usersManage.id] })
+    .meta({ userType: "user", access: [authAccess.users.manage] })
     .input(
       z.object({
         userId: z.string(),
@@ -154,55 +154,55 @@ export const authContract = {
     .output(z.void()),
 
   // ==========================================================================
-  // ROLE MANAGEMENT (userType: "user" with permissions)
+  // ROLE MANAGEMENT (userType: "user" with access)
   // ==========================================================================
 
   getRoles: _base
-    .meta({ userType: "user", permissions: [permissions.rolesRead.id] })
+    .meta({ userType: "user", access: [authAccess.roles.read] })
     .output(z.array(RoleDtoSchema)),
 
-  getPermissions: _base
-    .meta({ userType: "user", permissions: [permissions.rolesRead.id] })
-    .output(z.array(PermissionDtoSchema)),
+  getAccessRules: _base
+    .meta({ userType: "user", access: [authAccess.roles.read] })
+    .output(z.array(AccessRuleDtoSchema)),
 
   createRole: _base
-    .meta({ userType: "user", permissions: [permissions.rolesCreate.id] })
+    .meta({ userType: "user", access: [authAccess.roles.create] })
     .input(
       z.object({
         name: z.string(),
         description: z.string().optional(),
-        permissions: z.array(z.string()),
+        accessRules: z.array(z.string()),
       })
     )
     .output(z.void()),
 
   updateRole: _base
-    .meta({ userType: "user", permissions: [permissions.rolesUpdate.id] })
+    .meta({ userType: "user", access: [authAccess.roles.update] })
     .input(
       z.object({
         id: z.string(),
         name: z.string().optional(),
         description: z.string().optional(),
-        permissions: z.array(z.string()),
+        accessRules: z.array(z.string()),
       })
     )
     .output(z.void()),
 
   deleteRole: _base
-    .meta({ userType: "user", permissions: [permissions.rolesDelete.id] })
+    .meta({ userType: "user", access: [authAccess.roles.delete] })
     .input(z.string())
     .output(z.void()),
 
   // ==========================================================================
-  // STRATEGY MANAGEMENT (userType: "user" with permissions)
+  // STRATEGY MANAGEMENT (userType: "user" with access)
   // ==========================================================================
 
   getStrategies: _base
-    .meta({ userType: "user", permissions: [permissions.strategiesManage.id] })
+    .meta({ userType: "user", access: [authAccess.strategies] })
     .output(z.array(StrategyDtoSchema)),
 
   updateStrategy: _base
-    .meta({ userType: "user", permissions: [permissions.strategiesManage.id] })
+    .meta({ userType: "user", access: [authAccess.strategies] })
     .input(
       z.object({
         id: z.string(),
@@ -213,24 +213,24 @@ export const authContract = {
     .output(z.object({ success: z.boolean() })),
 
   reloadAuth: _base
-    .meta({ userType: "user", permissions: [permissions.strategiesManage.id] })
+    .meta({ userType: "user", access: [authAccess.strategies] })
     .output(z.object({ success: z.boolean() })),
 
   // ==========================================================================
-  // REGISTRATION MANAGEMENT (userType: "user" with permissions)
+  // REGISTRATION MANAGEMENT (userType: "user" with access)
   // ==========================================================================
 
   getRegistrationSchema: _base
     .meta({
       userType: "user",
-      permissions: [permissions.registrationManage.id],
+      access: [authAccess.registration],
     })
     .output(z.record(z.string(), z.unknown())),
 
   setRegistrationStatus: _base
     .meta({
       userType: "user",
-      permissions: [permissions.registrationManage.id],
+      access: [authAccess.registration],
     })
     .input(RegistrationStatusSchema)
     .output(z.object({ success: z.boolean() })),
@@ -240,10 +240,10 @@ export const authContract = {
   // ==========================================================================
 
   /**
-   * Get permissions assigned to the anonymous role.
-   * Used by core AuthService for permission checks on public endpoints.
+   * Get access rules assigned to the anonymous role.
+   * Used by core AuthService for access checks on public endpoints.
    */
-  getAnonymousPermissions: _base
+  getAnonymousAccessRules: _base
     .meta({ userType: "service" })
     .output(z.array(z.string())),
 
@@ -293,28 +293,28 @@ export const authContract = {
     ),
 
   /**
-   * Filter a list of user IDs to only those who have a specific permission.
+   * Filter a list of user IDs to only those who have a specific access rule.
    * Used by SignalService to send signals only to authorized users.
    */
-  filterUsersByPermission: _base
+  filterUsersByAccessRule: _base
     .meta({ userType: "service" })
     .input(
       z.object({
         userIds: z.array(z.string()),
-        permission: z.string(), // Fully-qualified permission ID
+        accessRule: z.string(), // Fully-qualified access rule ID
       })
     )
     .output(z.array(z.string())), // Returns filtered user IDs
 
   // ==========================================================================
-  // APPLICATION MANAGEMENT (userType: "user" with permissions)
+  // APPLICATION MANAGEMENT (userType: "user" with access)
   // External API applications (API keys) with RBAC integration
   // ==========================================================================
 
   getApplications: _base
     .meta({
       userType: "user",
-      permissions: [permissions.applicationsManage.id],
+      access: [authAccess.applications],
     })
     .output(
       z.array(
@@ -333,7 +333,7 @@ export const authContract = {
   createApplication: _base
     .meta({
       userType: "user",
-      permissions: [permissions.applicationsManage.id],
+      access: [authAccess.applications],
     })
     .input(
       z.object({
@@ -358,7 +358,7 @@ export const authContract = {
   updateApplication: _base
     .meta({
       userType: "user",
-      permissions: [permissions.applicationsManage.id],
+      access: [authAccess.applications],
     })
     .input(
       z.object({
@@ -373,7 +373,7 @@ export const authContract = {
   deleteApplication: _base
     .meta({
       userType: "user",
-      permissions: [permissions.applicationsManage.id],
+      access: [authAccess.applications],
     })
     .input(z.string())
     .output(z.void()),
@@ -381,21 +381,21 @@ export const authContract = {
   regenerateApplicationSecret: _base
     .meta({
       userType: "user",
-      permissions: [permissions.applicationsManage.id],
+      access: [authAccess.applications],
     })
     .input(z.string())
     .output(z.object({ secret: z.string() })), // New secret - shown once
 
   // ==========================================================================
-  // TEAM MANAGEMENT (userType: "authenticated" with permissions)
+  // TEAM MANAGEMENT (userType: "authenticated" with access)
   // Resource-level access control via teams
-  // Both users and applications can manage teams with proper permissions
+  // Both users and applications can manage teams with proper access
   // ==========================================================================
 
   getTeams: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.teamsRead.id],
+      access: [authAccess.teams.read],
     })
     .output(
       z.array(
@@ -412,7 +412,7 @@ export const authContract = {
   getTeam: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.teamsRead.id],
+      access: [authAccess.teams.read],
     })
     .input(z.object({ teamId: z.string() }))
     .output(
@@ -434,7 +434,7 @@ export const authContract = {
   createTeam: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.teamsManage.id],
+      access: [authAccess.teams.manage],
     })
     .input(
       z.object({
@@ -447,7 +447,7 @@ export const authContract = {
   updateTeam: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.teamsRead.id],
+      access: [authAccess.teams.read],
     })
     .input(
       z.object({
@@ -461,7 +461,7 @@ export const authContract = {
   deleteTeam: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.teamsManage.id],
+      access: [authAccess.teams.manage],
     })
     .input(z.string())
     .output(z.void()),
@@ -469,7 +469,7 @@ export const authContract = {
   addUserToTeam: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.teamsRead.id],
+      access: [authAccess.teams.read],
     })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
@@ -477,7 +477,7 @@ export const authContract = {
   removeUserFromTeam: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.teamsRead.id],
+      access: [authAccess.teams.read],
     })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
@@ -485,7 +485,7 @@ export const authContract = {
   addTeamManager: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.teamsManage.id],
+      access: [authAccess.teams.manage],
     })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
@@ -493,7 +493,7 @@ export const authContract = {
   removeTeamManager: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.teamsManage.id],
+      access: [authAccess.teams.manage],
     })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
@@ -501,7 +501,7 @@ export const authContract = {
   getResourceTeamAccess: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.teamsRead.id],
+      access: [authAccess.teams.read],
     })
     .input(z.object({ resourceType: z.string(), resourceId: z.string() }))
     .output(
@@ -518,7 +518,7 @@ export const authContract = {
   setResourceTeamAccess: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.teamsManage.id],
+      access: [authAccess.teams.manage],
     })
     .input(
       z.object({
@@ -534,7 +534,7 @@ export const authContract = {
   removeResourceTeamAccess: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.teamsManage.id],
+      access: [authAccess.teams.manage],
     })
     .input(
       z.object({
@@ -549,7 +549,7 @@ export const authContract = {
   getResourceAccessSettings: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.teamsRead.id],
+      access: [authAccess.teams.read],
     })
     .input(z.object({ resourceType: z.string(), resourceId: z.string() }))
     .output(z.object({ teamOnly: z.boolean() })),
@@ -557,7 +557,7 @@ export const authContract = {
   setResourceAccessSettings: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.teamsManage.id],
+      access: [authAccess.teams.manage],
     })
     .input(
       z.object({
@@ -581,7 +581,7 @@ export const authContract = {
         resourceType: z.string(),
         resourceId: z.string(),
         action: z.enum(["read", "manage"]),
-        hasGlobalPermission: z.boolean(),
+        hasGlobalAccess: z.boolean(),
       })
     )
     .output(z.object({ hasAccess: z.boolean() })),
@@ -595,7 +595,7 @@ export const authContract = {
         resourceType: z.string(),
         resourceIds: z.array(z.string()),
         action: z.enum(["read", "manage"]),
-        hasGlobalPermission: z.boolean(),
+        hasGlobalAccess: z.boolean(),
       })
     )
     .output(z.array(z.string())),

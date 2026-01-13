@@ -50,7 +50,7 @@ Building frontend plugins and UI:
 
 Sharing code between frontend and backend:
 
-- **[Common Plugins](./common/plugins.md)** - Shared types, permissions, and contracts
+- **[Common Plugins](./common/plugins.md)** - Shared types, access rules, and contracts
 
 ## Security
 
@@ -92,7 +92,7 @@ Development tools and workflows:
 |------|---------|---------------|
 | Backend | REST APIs, business logic, database | [Backend Plugins](./backend/plugins.md) |
 | Frontend | UI components, pages, routing | [Frontend Plugins](./frontend/plugins.md) |
-| Common | Shared types, permissions, constants | [Common Plugins](./common/plugins.md) |
+| Common | Shared types, access rules, constants | [Common Plugins](./common/plugins.md) |
 
 ### Dependency Rules (Enforced)
 

@@ -1,6 +1,6 @@
 import { oc } from "@orpc/contract";
 import { z } from "zod";
-import { permissions } from "./permissions";
+import { notificationAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
 import {
   createClientDefinition,
@@ -14,7 +14,7 @@ import {
   PaginationInputSchema,
 } from "./schemas";
 
-// Base builder with full metadata support (userType + permissions)
+// Base builder with full metadata support (userType + access)
 const _base = oc.$meta<ProcedureMetadata>({});
 
 // Notification RPC Contract
@@ -98,14 +98,14 @@ export const notificationContract = {
     .output(z.void()),
 
   // ==========================================================================
-  // ADMIN SETTINGS ENDPOINTS (userType: "user" with admin permissions)
+  // ADMIN SETTINGS ENDPOINTS (userType: "user" with admin accesss)
   // ==========================================================================
 
   // Get retention schema for DynamicForm
   getRetentionSchema: _base
     .meta({
       userType: "user",
-      permissions: [permissions.notificationAdmin.id],
+      access: [notificationAccess.admin],
     })
     .output(z.record(z.string(), z.unknown())),
 
@@ -113,7 +113,7 @@ export const notificationContract = {
   getRetentionSettings: _base
     .meta({
       userType: "user",
-      permissions: [permissions.notificationAdmin.id],
+      access: [notificationAccess.admin],
     })
     .output(RetentionSettingsSchema),
 
@@ -121,7 +121,7 @@ export const notificationContract = {
   setRetentionSettings: _base
     .meta({
       userType: "user",
-      permissions: [permissions.notificationAdmin.id],
+      access: [notificationAccess.admin],
     })
     .input(RetentionSettingsSchema)
     .output(z.void()),
@@ -256,14 +256,14 @@ export const notificationContract = {
     ),
 
   // ==========================================================================
-  // DELIVERY STRATEGY ADMIN ENDPOINTS (userType: "user" with admin permissions)
+  // DELIVERY STRATEGY ADMIN ENDPOINTS (userType: "user" with admin accesss)
   // ==========================================================================
 
   // Get all registered delivery strategies with current config
   getDeliveryStrategies: _base
     .meta({
       userType: "user",
-      permissions: [permissions.notificationAdmin.id],
+      access: [notificationAccess.admin],
     })
     .output(
       z.array(
@@ -304,7 +304,7 @@ export const notificationContract = {
   updateDeliveryStrategy: _base
     .meta({
       userType: "user",
-      permissions: [permissions.notificationAdmin.id],
+      access: [notificationAccess.admin],
     })
     .input(
       z.object({

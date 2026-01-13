@@ -56,13 +56,13 @@ Use broadcast pattern when all instances must process each message.
 
 ```typescript
 // Unique consumer group per instance = broadcast
-const queue = queueManager.getQueue<PermissionSyncData>('permission-sync');
+const queue = queueManager.getQueue<AccessRuleSyncData>('access-rule-sync');
 
 await queue.consume(async (job) => {
   const { userId, roles } = job.data;
-  await permissionCache.refresh(userId, roles);
+  await accessCache.refresh(userId, roles);
 }, {
-  consumerGroup: `permission-sync:${instanceId}`, // Unique!
+  consumerGroup: `access-rule-sync:${instanceId}`, // Unique!
   maxRetries: 3,
 });
 

@@ -22,14 +22,14 @@ export interface Fetch {
 
 /**
  * Real user authenticated via session/token (human users).
- * Has permissions and roles from the RBAC system.
+ * Has access rules and roles from the RBAC system.
  */
 export interface RealUser {
   type: "user";
   id: string;
   email?: string;
   name?: string;
-  permissions?: string[];
+  accessRules?: string[];
   roles?: string[];
   teamIds?: string[];
   [key: string]: unknown;
@@ -37,7 +37,7 @@ export interface RealUser {
 
 /**
  * Service user for backend-to-backend calls.
- * Trusted implicitly - no permissions/roles needed.
+ * Trusted implicitly - no accesss/roles needed.
  */
 export interface ServiceUser {
   type: "service";
@@ -46,13 +46,13 @@ export interface ServiceUser {
 
 /**
  * External application authenticated via API key.
- * Has permissions and roles from the RBAC system like RealUser.
+ * Has access rules and roles from the RBAC system like RealUser.
  */
 export interface ApplicationUser {
   type: "application";
   id: string;
   name: string;
-  permissions?: string[];
+  accessRules?: string[];
   roles?: string[];
   teamIds?: string[];
 }
@@ -67,11 +67,11 @@ export interface AuthService {
   authenticate(request: Request): Promise<AuthUser | undefined>;
   getCredentials(): Promise<{ headers: Record<string, string> }>;
   /**
-   * Get permissions assigned to the anonymous role.
-   * Used by autoAuthMiddleware to check permissions for unauthenticated
+   * Get access rules assigned to the anonymous role.
+   * Used by autoAuthMiddleware to check accesss for unauthenticated
    * users on "public" userType endpoints.
    */
-  getAnonymousPermissions(): Promise<string[]>;
+  getAnonymousAccessRules(): Promise<string[]>;
   /**
    * Check if a user has access to a specific resource via team grants.
    */
@@ -81,7 +81,7 @@ export interface AuthService {
     resourceType: string;
     resourceId: string;
     action: "read" | "manage";
-    hasGlobalPermission: boolean;
+    hasGlobalAccess: boolean;
   }): Promise<{ hasAccess: boolean }>;
   /**
    * Get IDs of resources the user can access from a given list.
@@ -93,7 +93,7 @@ export interface AuthService {
     resourceType: string;
     resourceIds: string[];
     action: "read" | "manage";
-    hasGlobalPermission: boolean;
+    hasGlobalAccess: boolean;
   }): Promise<string[]>;
 }
 
@@ -113,7 +113,7 @@ export interface PluginInstaller {
  * Options for declarative route definitions (Deprecated, will be replaced by oRPC procedures).
  */
 export interface RouteOptions {
-  permission?: string | string[];
+  accessRule?: string | string[];
   schema?: ZodSchema;
 }
 

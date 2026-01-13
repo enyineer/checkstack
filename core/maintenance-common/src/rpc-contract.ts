@@ -2,10 +2,9 @@ import { oc } from "@orpc/contract";
 import { z } from "zod";
 import {
   createClientDefinition,
-  createResourceAccessList,
   type ProcedureMetadata,
 } from "@checkstack/common";
-import { permissions } from "./permissions";
+import { maintenanceAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
 import {
   MaintenanceWithSystemsSchema,
@@ -19,19 +18,12 @@ import {
 
 const _base = oc.$meta<ProcedureMetadata>({});
 
-// Resource access configurations for team-based access control
-const maintenanceListAccess = createResourceAccessList(
-  "maintenance",
-  "maintenances"
-);
-
 export const maintenanceContract = {
   /** List all maintenances with optional status filter */
   listMaintenances: _base
     .meta({
       userType: "public",
-      permissions: [permissions.maintenanceRead.id],
-      resourceAccess: [maintenanceListAccess],
+      access: [maintenanceAccess.maintenance.read],
     })
     .input(
       z
@@ -47,7 +39,7 @@ export const maintenanceContract = {
   getMaintenance: _base
     .meta({
       userType: "public",
-      permissions: [permissions.maintenanceRead.id],
+      access: [maintenanceAccess.maintenance.read],
     })
     .input(z.object({ id: z.string() }))
     .output(MaintenanceDetailSchema.nullable()),
@@ -56,7 +48,7 @@ export const maintenanceContract = {
   getMaintenancesForSystem: _base
     .meta({
       userType: "public",
-      permissions: [permissions.maintenanceRead.id],
+      access: [maintenanceAccess.maintenance.read],
     })
     .input(z.object({ systemId: z.string() }))
     .output(z.array(MaintenanceWithSystemsSchema)),
@@ -65,7 +57,7 @@ export const maintenanceContract = {
   createMaintenance: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.maintenanceManage.id],
+      access: [maintenanceAccess.maintenance.manage],
     })
     .input(CreateMaintenanceInputSchema)
     .output(MaintenanceWithSystemsSchema),
@@ -74,7 +66,7 @@ export const maintenanceContract = {
   updateMaintenance: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.maintenanceManage.id],
+      access: [maintenanceAccess.maintenance.manage],
     })
     .input(UpdateMaintenanceInputSchema)
     .output(MaintenanceWithSystemsSchema),
@@ -83,7 +75,7 @@ export const maintenanceContract = {
   addUpdate: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.maintenanceManage.id],
+      access: [maintenanceAccess.maintenance.manage],
     })
     .input(AddMaintenanceUpdateInputSchema)
     .output(MaintenanceUpdateSchema),
@@ -92,7 +84,7 @@ export const maintenanceContract = {
   closeMaintenance: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.maintenanceManage.id],
+      access: [maintenanceAccess.maintenance.manage],
     })
     .input(z.object({ id: z.string(), message: z.string().optional() }))
     .output(MaintenanceWithSystemsSchema),
@@ -101,7 +93,7 @@ export const maintenanceContract = {
   deleteMaintenance: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.maintenanceManage.id],
+      access: [maintenanceAccess.maintenance.manage],
     })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),

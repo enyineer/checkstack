@@ -1,4 +1,4 @@
-export * from "./permissions";
+export * from "./access";
 export * from "./schemas";
 export * from "./zod-health-result";
 

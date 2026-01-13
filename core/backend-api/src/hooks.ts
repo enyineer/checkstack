@@ -1,4 +1,4 @@
-import type { Permission } from "@checkstack/common";
+import type { AccessRule } from "@checkstack/common";
 
 /**
  * Hook definition for type-safe event emission and subscription
@@ -20,12 +20,12 @@ export function createHook<T>(id: string): Hook<T> {
  */
 export const coreHooks = {
   /**
-   * Emitted when a plugin registers permissions
+   * Emitted when a plugin registers access rules
    */
-  permissionsRegistered: createHook<{
+  accessRulesRegistered: createHook<{
     pluginId: string;
-    permissions: Permission[];
-  }>("core.permissions.registered"),
+    accessRules: AccessRule[];
+  }>("core.accessRules.registered"),
 
   /**
    * Emitted when plugin configuration is updated
@@ -65,7 +65,7 @@ export const coreHooks = {
 
   /**
    * Emitted AFTER a plugin has been fully removed.
-   * Use this for orphan cleanup (e.g., removing permissions from DB).
+   * Use this for orphan cleanup (e.g., removing access rules from DB).
    * Should be emitted with work-queue mode for DB operations.
    */
   pluginDeregistered: createHook<{

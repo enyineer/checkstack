@@ -3,20 +3,17 @@ import { Link } from "react-router-dom";
 import { Wrench } from "lucide-react";
 import type { UserMenuItemsContext } from "@checkstack/frontend-api";
 import { DropdownMenuItem } from "@checkstack/ui";
-import { qualifyPermissionId, resolveRoute } from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import {
   maintenanceRoutes,
-  permissions,
+  maintenanceAccess,
   pluginMetadata,
 } from "@checkstack/maintenance-common";
 
 export const MaintenanceMenuItems = ({
-  permissions: userPerms,
+  accessRules: userPerms,
 }: UserMenuItemsContext) => {
-  const qualifiedId = qualifyPermissionId(
-    pluginMetadata,
-    permissions.maintenanceManage
-  );
+  const qualifiedId = `${pluginMetadata.pluginId}.${maintenanceAccess.maintenance.manage.id}`;
   const canManage = userPerms.includes("*") || userPerms.includes(qualifiedId);
 
   if (!canManage) {

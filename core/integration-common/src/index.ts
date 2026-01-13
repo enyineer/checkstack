@@ -48,8 +48,8 @@ export {
 // are defined in @checkstack/integration-backend/provider-types.
 // Frontend code should only use the Zod schemas above for API contracts.
 
-// Permissions
-export * from "./permissions";
+// Access rules
+export * from "./access";
 
 // RPC Contract
 export * from "./rpc-contract";

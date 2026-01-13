@@ -49,16 +49,16 @@ Strategies are namespaced by their owning plugin's ID to prevent conflicts:
 // Qualified ID: notification-smtp.smtp
 ```
 
-### Dynamic Permissions
+### Dynamic Access Rules
 
-Each registered strategy automatically generates a permission:
+Each registered strategy automatically generates an access rule:
 
 ```
 Format: {ownerPluginId}.strategy.{strategyId}.use
 Example: notification-smtp.strategy.smtp.use
 ```
 
-These permissions can be assigned to roles to control which users can receive notifications via specific channels.
+These access rules can be assigned to roles to control which users can receive notifications via specific channels.
 
 ### Contact Resolution
 
@@ -501,7 +501,7 @@ sequenceDiagram
     Note over Platform: Build auth URL using strategy.oauth
     Platform->>Provider: Redirect to authorizationUrl
     Provider->>User: Show consent screen
-    User->>Provider: Grant permissions
+    User->>Provider: Grant access
     Provider->>Platform: GET /oauth/{strategyId}/callback?code=...&state=...
     Note over Platform: Exchange code for tokens
     Platform->>Platform: Store tokens + externalId

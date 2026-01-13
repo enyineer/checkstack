@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import {
   useApi,
   rpcApiRef,
-  permissionApiRef,
+  accessApiRef,
   wrapInSuspense,
 } from "@checkstack/frontend-api";
 import { incidentApiRef } from "../api";
@@ -11,6 +11,7 @@ import type {
   IncidentWithSystems,
   IncidentStatus,
 } from "@checkstack/incident-common";
+import { incidentAccess } from "@checkstack/incident-common";
 import { CatalogApi, type System } from "@checkstack/catalog-common";
 import {
   Card,
@@ -50,14 +51,14 @@ import { IncidentEditor } from "../components/IncidentEditor";
 const IncidentConfigPageContent: React.FC = () => {
   const api = useApi(incidentApiRef);
   const rpcApi = useApi(rpcApiRef);
-  const permissionApi = useApi(permissionApiRef);
+  const accessApi = useApi(accessApiRef);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const catalogApi = useMemo(() => rpcApi.forPlugin(CatalogApi), [rpcApi]);
   const toast = useToast();
 
-  const { allowed: canManage, loading: permissionLoading } =
-    permissionApi.useResourcePermission("incident", "manage");
+  const { allowed: canManage, loading: accessLoading } =
+    accessApi.useAccess(incidentAccess.incident.manage);
 
   const [incidents, setIncidents] = useState<IncidentWithSystems[]>([]);
   const [systems, setSystems] = useState<System[]>([]);
@@ -220,7 +221,7 @@ const IncidentConfigPageContent: React.FC = () => {
     <PageLayout
       title="Incident Management"
       subtitle="Track and manage incidents affecting your systems"
-      loading={permissionLoading}
+      loading={accessLoading}
       allowed={canManage}
       actions={
         <Button onClick={handleCreate}>

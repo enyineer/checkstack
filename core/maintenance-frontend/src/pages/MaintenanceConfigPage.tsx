@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import {
   useApi,
   rpcApiRef,
-  permissionApiRef,
+  accessApiRef,
   wrapInSuspense,
 } from "@checkstack/frontend-api";
 import { maintenanceApiRef } from "../api";
@@ -11,6 +11,7 @@ import type {
   MaintenanceWithSystems,
   MaintenanceStatus,
 } from "@checkstack/maintenance-common";
+import { maintenanceAccess } from "@checkstack/maintenance-common";
 import { CatalogApi, type System } from "@checkstack/catalog-common";
 import {
   Card,
@@ -51,14 +52,14 @@ import { getMaintenanceStatusBadge } from "../utils/badges";
 const MaintenanceConfigPageContent: React.FC = () => {
   const api = useApi(maintenanceApiRef);
   const rpcApi = useApi(rpcApiRef);
-  const permissionApi = useApi(permissionApiRef);
+  const accessApi = useApi(accessApiRef);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const catalogApi = useMemo(() => rpcApi.forPlugin(CatalogApi), [rpcApi]);
   const toast = useToast();
 
-  const { allowed: canManage, loading: permissionLoading } =
-    permissionApi.useResourcePermission("maintenance", "manage");
+  const { allowed: canManage, loading: accessLoading } =
+    accessApi.useAccess(maintenanceAccess.maintenance.manage);
 
   const [maintenances, setMaintenances] = useState<MaintenanceWithSystems[]>(
     []
@@ -186,7 +187,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
     <PageLayout
       title="Planned Maintenances"
       subtitle="Manage scheduled maintenance windows for systems"
-      loading={permissionLoading}
+      loading={accessLoading}
       allowed={canManage}
       actions={
         <Button onClick={handleCreate}>

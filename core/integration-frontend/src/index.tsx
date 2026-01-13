@@ -6,7 +6,7 @@ import {
 import {
   integrationRoutes,
   pluginMetadata,
-  permissions,
+  integrationAccess,
 } from "@checkstack/integration-common";
 import { IntegrationsPage } from "./pages/IntegrationsPage";
 import { DeliveryLogsPage } from "./pages/DeliveryLogsPage";
@@ -19,22 +19,22 @@ export const integrationPlugin = createFrontendPlugin({
     {
       route: integrationRoutes.routes.list,
       element: <IntegrationsPage />,
-      permission: permissions.integrationManage,
+      accessRule: integrationAccess.manage,
     },
     {
       route: integrationRoutes.routes.logs,
       element: <DeliveryLogsPage />,
-      permission: permissions.integrationManage,
+      accessRule: integrationAccess.manage,
     },
     {
       route: integrationRoutes.routes.deliveryLogs,
       element: <DeliveryLogsPage />,
-      permission: permissions.integrationManage,
+      accessRule: integrationAccess.manage,
     },
     {
       route: integrationRoutes.routes.connections,
       element: <ProviderConnectionsPage />,
-      permission: permissions.integrationManage,
+      accessRule: integrationAccess.manage,
     },
   ],
   extensions: [

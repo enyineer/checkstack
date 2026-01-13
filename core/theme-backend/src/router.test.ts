@@ -8,7 +8,7 @@ describe("Theme Router", () => {
   const mockUser = {
     type: "user" as const,
     id: "test-user-123",
-    permissions: [],
+    accessRules: [],
     roles: [],
   } as any;
 

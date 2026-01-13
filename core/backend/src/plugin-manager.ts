@@ -11,7 +11,7 @@ import {
   HookUnsubscribe,
 } from "@checkstack/backend-api";
 import type { AnyContractRouter } from "@orpc/contract";
-import type { Permission, PluginMetadata } from "@checkstack/common";
+import type { AccessRule, PluginMetadata } from "@checkstack/common";
 
 // Extracted modules
 import { registerCoreServices } from "./plugin-manager/core-services";
@@ -32,8 +32,8 @@ export class PluginManager {
   >();
   private extensionPointManager = createExtensionPointManager();
 
-  // Permission registry - stores all registered permissions with pluginId for hook emission
-  private registeredPermissions: (Permission & { pluginId: string })[] = [];
+  // Access rule registry - stores all registered access rules with pluginId for hook emission
+  private registeredAccessRules: (AccessRule & { pluginId: string })[] = [];
 
   // Plugin metadata registry - stores PluginMetadata for request-time context injection
   private pluginMetadataRegistry = new Map<string, PluginMetadata>();
@@ -77,14 +77,9 @@ export class PluginManager {
     this.pluginRpcRouters.set(routerId, router);
   }
 
-  getAllPermissions(): Permission[] {
-    return this.registeredPermissions.map(
-      ({ id, description, isAuthenticatedDefault, isPublicDefault }) => ({
-        id,
-        description,
-        isAuthenticatedDefault,
-        isPublicDefault,
-      })
+  getAllAccessRules(): AccessRule[] {
+    return this.registeredAccessRules.map(
+      ({ pluginId: _pluginId, ...rule }) => rule
     );
   }
 
@@ -110,8 +105,8 @@ export class PluginManager {
         pluginRpcRouters: this.pluginRpcRouters,
         pluginHttpHandlers: this.pluginHttpHandlers,
         extensionPointManager: this.extensionPointManager,
-        registeredPermissions: this.registeredPermissions,
-        getAllPermissions: () => this.getAllPermissions(),
+        registeredAccessRules: this.registeredAccessRules,
+        getAllAccessRules: () => this.getAllAccessRules(),
         db,
         pluginMetadataRegistry: this.pluginMetadataRegistry,
         cleanupHandlers: this.cleanupHandlers,
@@ -178,15 +173,15 @@ export class PluginManager {
     );
     this.collectorRegistry.unregisterByMissingStrategies(loadedPluginIds);
 
-    // 5. Remove permissions from registry
-    const beforeCount = this.registeredPermissions.length;
-    this.registeredPermissions = this.registeredPermissions.filter(
+    // 5. Remove access rules from registry
+    const beforeCount = this.registeredAccessRules.length;
+    this.registeredAccessRules = this.registeredAccessRules.filter(
       (p) => p.pluginId !== pluginId
     );
     rootLogger.debug(
       `   -> Removed ${
-        beforeCount - this.registeredPermissions.length
-      } permissions`
+        beforeCount - this.registeredAccessRules.length
+      } access rules`
     );
 
     // 6. Drop schema if requested
@@ -200,7 +195,7 @@ export class PluginManager {
       }
     }
 
-    // 7. Emit pluginDeregistered hook (for permission cleanup in auth-backend)
+    // 7. Emit pluginDeregistered hook (for access rule cleanup in auth-backend)
     await eventBus.emit(coreHooks.pluginDeregistered, { pluginId });
 
     rootLogger.info(`✅ Plugin deregistered: ${pluginId}`);
@@ -390,18 +385,18 @@ export class PluginManager {
             },
           });
         },
-        registerPermissions: (permissions) => {
-          const prefixed = permissions.map((p) => ({
+        registerAccessRules: (accessRules) => {
+          const prefixed = accessRules.map((p) => ({
             ...p,
             id: `${metaPluginId}.${p.id}`,
             pluginId: metaPluginId,
           }));
-          this.registeredPermissions.push(...prefixed);
+          this.registeredAccessRules.push(...prefixed);
 
-          // Emit permission hook
-          eventBus.emit(coreHooks.permissionsRegistered, {
+          // Emit access rule hook
+          eventBus.emit(coreHooks.accessRulesRegistered, {
             pluginId: metaPluginId,
-            permissions: prefixed,
+            accessRules: prefixed,
           });
         },
         registerService: (ref, impl) => {
@@ -422,7 +417,7 @@ export class PluginManager {
           this.pluginContractRegistry.set(metaPluginId, contract);
         },
         pluginManager: {
-          getAllPermissions: () => this.getAllPermissions(),
+          getAllAccessRules: () => this.getAllAccessRules(),
         },
       });
 

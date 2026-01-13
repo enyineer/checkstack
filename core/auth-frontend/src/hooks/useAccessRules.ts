@@ -3,10 +3,10 @@ import { useAuthClient } from "../lib/auth-client";
 import { rpcApiRef, useApi } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
 
-export const usePermissions = () => {
+export const useAccessRules = () => {
   const authClient = useAuthClient();
   const { data: session, isPending: sessionPending } = authClient.useSession();
-  const [permissions, setPermissions] = useState<string[]>([]);
+  const [accessRules, setAccessRules] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const rpcApi = useApi(rpcApiRef);
 
@@ -18,26 +18,26 @@ export const usePermissions = () => {
     }
 
     if (!session?.user) {
-      setPermissions([]);
+      setAccessRules([]);
       setLoading(false);
       return;
     }
 
-    const fetchPermissions = async () => {
+    const fetchAccessRules = async () => {
       try {
         const authRpc = rpcApi.forPlugin(AuthApi);
-        const data = await authRpc.permissions();
-        if (Array.isArray(data.permissions)) {
-          setPermissions(data.permissions);
+        const data = await authRpc.accessRules();
+        if (Array.isArray(data.accessRules)) {
+          setAccessRules(data.accessRules);
         }
       } catch (error) {
-        console.error("Failed to fetch permissions", error);
+        console.error("Failed to fetch access rules", error);
       } finally {
         setLoading(false);
       }
     };
-    fetchPermissions();
+    fetchAccessRules();
   }, [session?.user?.id, sessionPending, rpcApi]);
 
-  return { permissions, loading };
+  return { accessRules, loading };
 };

@@ -2,16 +2,13 @@ import * as schema from "./schema";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import {
-  permissionList,
+  incidentAccessRules,
+  incidentAccess,
   pluginMetadata,
   incidentContract,
   incidentRoutes,
-  permissions,
 } from "@checkstack/incident-common";
-import {
-  createBackendPlugin,
-  coreServices,
-} from "@checkstack/backend-api";
+import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
 import { integrationEventExtensionPoint } from "@checkstack/integration-backend";
 import { IncidentService } from "./service";
 import { createRouter } from "./router";
@@ -60,7 +57,7 @@ const incidentResolvedPayloadSchema = z.object({
 export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
-    env.registerPermissions(permissionList);
+    env.registerAccessRules(incidentAccessRules);
 
     // Register hooks as integration events
     const integrationEvents = env.getExtensionPoint(
@@ -136,7 +133,7 @@ export default createBackendPlugin({
               iconName: "CircleAlert",
               route:
                 resolveRoute(incidentRoutes.routes.config) + "?action=create",
-              requiredPermissions: [permissions.incidentManage],
+              requiredAccessRules: [incidentAccess.incident.manage],
             },
             {
               id: "manage",
@@ -145,7 +142,7 @@ export default createBackendPlugin({
               iconName: "CircleAlert",
               shortcuts: ["meta+shift+i", "ctrl+shift+i"],
               route: resolveRoute(incidentRoutes.routes.config),
-              requiredPermissions: [permissions.incidentManage],
+              requiredAccessRules: [incidentAccess.incident.manage],
             },
           ],
         });

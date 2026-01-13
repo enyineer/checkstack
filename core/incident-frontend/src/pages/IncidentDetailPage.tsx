@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import {
   useApi,
   rpcApiRef,
-  permissionApiRef,
+  accessApiRef,
   wrapInSuspense,
 } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
@@ -13,6 +13,7 @@ import {
   incidentRoutes,
   INCIDENT_UPDATED,
   type IncidentDetail,
+  incidentAccess,
 } from "@checkstack/incident-common";
 import { CatalogApi, type System } from "@checkstack/catalog-common";
 import {
@@ -50,14 +51,13 @@ const IncidentDetailPageContent: React.FC = () => {
   const [searchParams] = useSearchParams();
   const api = useApi(incidentApiRef);
   const rpcApi = useApi(rpcApiRef);
-  const permissionApi = useApi(permissionApiRef);
+  const accessApi = useApi(accessApiRef);
   const toast = useToast();
 
   const catalogApi = useMemo(() => rpcApi.forPlugin(CatalogApi), [rpcApi]);
 
-  const { allowed: canManage } = permissionApi.useResourcePermission(
-    "incident",
-    "manage"
+  const { allowed: canManage } = accessApi.useAccess(
+    incidentAccess.incident.manage
   );
 
   const [incident, setIncident] = useState<IncidentDetail | undefined>();

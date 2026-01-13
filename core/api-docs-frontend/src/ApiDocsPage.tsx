@@ -49,7 +49,7 @@ interface OperationObject {
   >;
   "x-orpc-meta"?: {
     userType?: string;
-    permissions?: string[];
+    accessRules?: string[];
   };
 }
 
@@ -290,11 +290,11 @@ function EndpointCard({
             </p>
           )}
 
-          {meta?.permissions && meta.permissions.length > 0 && (
+          {meta?.accessRules && meta.accessRules.length > 0 && (
             <div>
-              <h4 className="text-sm font-medium mb-2">Required Permissions</h4>
+              <h4 className="text-sm font-medium mb-2">Required Access Rules</h4>
               <div className="flex flex-wrap gap-2">
-                {meta.permissions.map((perm) => (
+                {meta.accessRules.map((perm) => (
                   <Badge key={perm} variant="secondary">
                     {perm}
                   </Badge>

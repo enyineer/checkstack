@@ -7,7 +7,7 @@ import { z } from "zod";
 describe("Queue Router", () => {
   const mockUser = {
     id: "test-user",
-    permissions: ["*"],
+    accessRules: ["*"],
     roles: ["admin"],
   } as any;
 

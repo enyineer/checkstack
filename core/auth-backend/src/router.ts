@@ -34,8 +34,8 @@ import {
 /**
  * Creates the auth router using contract-based implementation.
  *
- * Auth and permissions are automatically enforced via autoAuthMiddleware
- * based on the contract's meta.userType and meta.permissions.
+ * Auth and access rules are automatically enforced via autoAuthMiddleware
+ * based on the contract's meta.userType and meta.access.
  */
 const os = implement(authContract)
   .$context<RpcContext>()
@@ -117,12 +117,12 @@ export const createAuthRouter = (
   strategyRegistry: { getStrategies: () => AuthStrategy<unknown>[] },
   reloadAuthFn: () => Promise<void>,
   configService: ConfigService,
-  permissionRegistry: {
-    getPermissions: () => {
+  accessRuleRegistry: {
+    getAccessRules: () => {
       id: string;
       description?: string;
-      isAuthenticatedDefault?: boolean;
-      isPublicDefault?: boolean;
+      isDefault?: boolean;
+      isPublic?: boolean;
     }[];
   }
 ) => {
@@ -155,12 +155,12 @@ export const createAuthRouter = (
     return enabledStrategies.filter((s) => s.enabled);
   });
 
-  const permissions = os.permissions.handler(async ({ context }) => {
+  const accessRulesHandler = os.accessRules.handler(async ({ context }) => {
     const user = context.user;
     if (!isRealUser(user)) {
-      return { permissions: [] };
+      return { accessRules: [] };
     }
-    return { permissions: user.permissions || [] };
+    return { accessRules: user.accessRules || [] };
   });
 
   const getUsers = os.getUsers.handler(async () => {
@@ -214,42 +214,42 @@ export const createAuthRouter = (
 
   const getRoles = os.getRoles.handler(async () => {
     const roles = await internalDb.select().from(schema.role);
-    const rolePermissions = await internalDb
+    const roleAccessRules = await internalDb
       .select()
-      .from(schema.rolePermission);
+      .from(schema.roleAccessRule);
 
     return roles.map((role) => ({
       id: role.id,
       name: role.name,
       description: role.description,
-      permissions: rolePermissions
+      accessRules: roleAccessRules
         .filter((rp) => rp.roleId === role.id)
-        .map((rp) => rp.permissionId),
+        .map((rp) => rp.accessRuleId),
       isSystem: role.isSystem || false,
       // Anonymous role cannot be assigned to users - it's for unauthenticated access
       isAssignable: role.id !== "anonymous",
     }));
   });
 
-  const getPermissions = os.getPermissions.handler(async () => {
-    // Return only currently active permissions (registered by loaded plugins)
-    return permissionRegistry.getPermissions();
+  const getAccessRules = os.getAccessRules.handler(async () => {
+    // Return only currently active access rules (registered by loaded plugins)
+    return accessRuleRegistry.getAccessRules();
   });
 
   const createRole = os.createRole.handler(async ({ input }) => {
-    const { name, description, permissions: inputPermissions } = input;
+    const { name, description, accessRules: inputAccessRules } = input;
 
     // Generate UUID for new role
     const id = crypto.randomUUID();
 
-    // Get active permissions to filter input
-    const activePermissions = new Set(
-      permissionRegistry.getPermissions().map((p) => p.id)
+    // Get active access rules to filter input
+    const activeAccessRules = new Set(
+      accessRuleRegistry.getAccessRules().map((p) => p.id)
     );
 
-    // Filter to only include active permissions
-    const validPermissions = inputPermissions.filter((p) =>
-      activePermissions.has(p)
+    // Filter to only include active access rules
+    const validAccessRules = inputAccessRules.filter((p) =>
+      activeAccessRules.has(p)
     );
 
     await internalDb.transaction(async (tx) => {
@@ -261,12 +261,12 @@ export const createAuthRouter = (
         isSystem: false,
       });
 
-      // Create role-permission mappings
-      if (validPermissions.length > 0) {
-        await tx.insert(schema.rolePermission).values(
-          validPermissions.map((permissionId) => ({
+      // Create role-access rule mappings
+      if (validAccessRules.length > 0) {
+        await tx.insert(schema.roleAccessRule).values(
+          validAccessRules.map((accessRuleId) => ({
             roleId: id,
-            permissionId,
+            accessRuleId,
           }))
         );
       }
@@ -274,9 +274,9 @@ export const createAuthRouter = (
   });
 
   const updateRole = os.updateRole.handler(async ({ input, context }) => {
-    const { id, name, description, permissions: inputPermissions } = input;
+    const { id, name, description, accessRules: inputAccessRules } = input;
 
-    // Track if user has this role (for permission elevation prevention)
+    // Track if user has this role (for access elevation prevention)
     const userRoles = isRealUser(context.user) ? context.user.roles || [] : [];
     const isUserOwnRole = userRoles.includes(id);
 
@@ -296,87 +296,87 @@ export const createAuthRouter = (
     const isAdminRole = id === "admin";
 
     // System roles can have name/description edited, but not deleted
-    // Admin role: permissions cannot be changed (wildcard permission)
-    // Users role: permissions can be changed with default tracking
-    // User's own role: permissions cannot be changed (prevent self-elevation)
+    // Admin role: access rules cannot be changed (wildcard access)
+    // Users role: access rules can be changed with default tracking
+    // User's own role: access rules cannot be changed (prevent access elevation)
 
-    // Get active permissions to filter input
-    const activePermissions = new Set(
-      permissionRegistry.getPermissions().map((p) => p.id)
+    // Get active access rules to filter input
+    const activeAccessRules = new Set(
+      accessRuleRegistry.getAccessRules().map((p) => p.id)
     );
 
-    // Filter to only include active permissions
-    const validPermissions = inputPermissions.filter((p) =>
-      activePermissions.has(p)
+    // Filter to only include active access rules
+    const validAccessRules = inputAccessRules.filter((p) =>
+      activeAccessRules.has(p)
     );
 
-    // Track disabled authenticated default permissions for "users" role
+    // Track disabled authenticated default access rules for "users" role
     if (isUsersRole && !isUserOwnRole) {
-      const allPerms = permissionRegistry.getPermissions();
+      const allPerms = accessRuleRegistry.getAccessRules();
       const defaultPermIds = allPerms
-        .filter((p) => p.isAuthenticatedDefault)
+        .filter((p) => p.isDefault)
         .map((p) => p.id);
 
-      // Find authenticated default permissions that are being removed
+      // Find authenticated default access rules that are being removed
       const removedDefaults = defaultPermIds.filter(
-        (defId) => !validPermissions.includes(defId)
+        (defId) => !validAccessRules.includes(defId)
       );
 
-      // Insert into disabled_default_permission table
+      // Insert into disabled_default_access_rule table
       for (const permId of removedDefaults) {
         await internalDb
-          .insert(schema.disabledDefaultPermission)
+          .insert(schema.disabledDefaultAccessRule)
           .values({
-            permissionId: permId,
+            accessRuleId: permId,
             disabledAt: new Date(),
           })
           .onConflictDoNothing();
       }
 
       // Remove from disabled table if being re-added
-      const readdedDefaults = validPermissions.filter((p) =>
+      const readdedDefaults = validAccessRules.filter((p) =>
         defaultPermIds.includes(p)
       );
       for (const permId of readdedDefaults) {
         await internalDb
-          .delete(schema.disabledDefaultPermission)
-          .where(eq(schema.disabledDefaultPermission.permissionId, permId));
+          .delete(schema.disabledDefaultAccessRule)
+          .where(eq(schema.disabledDefaultAccessRule.accessRuleId, permId));
       }
     }
 
-    // Track disabled public default permissions for "anonymous" role
+    // Track disabled public default access rules for "anonymous" role
     const isAnonymousRole = id === "anonymous";
     if (isAnonymousRole) {
-      const allPerms = permissionRegistry.getPermissions();
+      const allPerms = accessRuleRegistry.getAccessRules();
       const publicDefaultPermIds = allPerms
-        .filter((p) => p.isPublicDefault)
+        .filter((p) => p.isPublic)
         .map((p) => p.id);
 
-      // Find public default permissions that are being removed
+      // Find public default access rules that are being removed
       const removedPublicDefaults = publicDefaultPermIds.filter(
-        (defId) => !validPermissions.includes(defId)
+        (defId) => !validAccessRules.includes(defId)
       );
 
-      // Insert into disabled_public_default_permission table
+      // Insert into disabled_public_default_access_rule table
       for (const permId of removedPublicDefaults) {
         await internalDb
-          .insert(schema.disabledPublicDefaultPermission)
+          .insert(schema.disabledPublicDefaultAccessRule)
           .values({
-            permissionId: permId,
+            accessRuleId: permId,
             disabledAt: new Date(),
           })
           .onConflictDoNothing();
       }
 
       // Remove from disabled table if being re-added
-      const readdedPublicDefaults = validPermissions.filter((p) =>
+      const readdedPublicDefaults = validAccessRules.filter((p) =>
         publicDefaultPermIds.includes(p)
       );
       for (const permId of readdedPublicDefaults) {
         await internalDb
-          .delete(schema.disabledPublicDefaultPermission)
+          .delete(schema.disabledPublicDefaultAccessRule)
           .where(
-            eq(schema.disabledPublicDefaultPermission.permissionId, permId)
+            eq(schema.disabledPublicDefaultAccessRule.accessRuleId, permId)
           );
       }
     }
@@ -391,21 +391,21 @@ export const createAuthRouter = (
         await tx.update(schema.role).set(updates).where(eq(schema.role.id, id));
       }
 
-      // Skip permission changes for admin role (wildcard) or user's own role (prevent self-elevation)
+      // Skip access rule changes for admin role (wildcard) or user's own role (prevent access elevation)
       if (isAdminRole || isUserOwnRole) {
-        return; // Don't modify permissions
+        return; // Don't modify access rules
       }
 
-      // Replace permission mappings for non-admin roles
+      // Replace access rule mappings for non-admin roles
       await tx
-        .delete(schema.rolePermission)
-        .where(eq(schema.rolePermission.roleId, id));
+        .delete(schema.roleAccessRule)
+        .where(eq(schema.roleAccessRule.roleId, id));
 
-      if (validPermissions.length > 0) {
-        await tx.insert(schema.rolePermission).values(
-          validPermissions.map((permissionId) => ({
+      if (validAccessRules.length > 0) {
+        await tx.insert(schema.roleAccessRule).values(
+          validAccessRules.map((accessRuleId) => ({
             roleId: id,
-            permissionId,
+            accessRuleId,
           }))
         );
       }
@@ -441,10 +441,10 @@ export const createAuthRouter = (
 
     // Delete role and related records in transaction
     await internalDb.transaction(async (tx) => {
-      // Delete role-permission mappings
+      // Delete role-access-rule mappings
       await tx
-        .delete(schema.rolePermission)
-        .where(eq(schema.rolePermission.roleId, id));
+        .delete(schema.roleAccessRule)
+        .where(eq(schema.roleAccessRule.roleId, id));
 
       // Delete user-role mappings
       await tx.delete(schema.userRole).where(eq(schema.userRole.roleId, id));
@@ -582,40 +582,40 @@ export const createAuthRouter = (
     }
   );
 
-  const getAnonymousPermissions = os.getAnonymousPermissions.handler(
+  const getAnonymousAccessRules = os.getAnonymousAccessRules.handler(
     async () => {
       const rolePerms = await internalDb
         .select()
-        .from(schema.rolePermission)
-        .where(eq(schema.rolePermission.roleId, "anonymous"));
-      return rolePerms.map((rp) => rp.permissionId);
+        .from(schema.roleAccessRule)
+        .where(eq(schema.roleAccessRule.roleId, "anonymous"));
+      return rolePerms.map((rp) => rp.accessRuleId);
     }
   );
 
-  const filterUsersByPermission = os.filterUsersByPermission.handler(
+  const filterUsersByAccessRule = os.filterUsersByAccessRule.handler(
     async ({ input }) => {
-      const { userIds, permission } = input;
+      const { userIds, accessRule } = input;
 
       if (userIds.length === 0) return [];
 
-      // Single efficient query: join user_role with role_permission
-      // and filter by both userIds AND the specific permission
-      const usersWithPermission = await internalDb
+      // Single efficient query: join user_role with role_access_rule
+      // and filter by both userIds AND the specific access rule
+      const usersWithAccess = await internalDb
         .select({ userId: schema.userRole.userId })
         .from(schema.userRole)
         .innerJoin(
-          schema.rolePermission,
-          eq(schema.userRole.roleId, schema.rolePermission.roleId)
+          schema.roleAccessRule,
+          eq(schema.userRole.roleId, schema.roleAccessRule.roleId)
         )
         .where(
           and(
             inArray(schema.userRole.userId, userIds),
-            eq(schema.rolePermission.permissionId, permission)
+            eq(schema.roleAccessRule.accessRuleId, accessRule)
           )
         )
         .groupBy(schema.userRole.userId);
 
-      return usersWithPermission.map((row) => row.userId);
+      return usersWithAccess.map((row) => row.userId);
     }
   );
 
@@ -1110,7 +1110,7 @@ export const createAuthRouter = (
 
   const updateTeam = os.updateTeam.handler(async ({ input, context }) => {
     const { id, name, description } = input;
-    // TODO: Check if user is manager or has teamsManage permission
+    // TODO: Check if user is manager or has teamsManage access
     const updates: {
       name?: string;
       description?: string | null;
@@ -1288,7 +1288,7 @@ export const createAuthRouter = (
         resourceType,
         resourceId,
         action,
-        hasGlobalPermission,
+        hasGlobalAccess,
       } = input;
 
       const grants = await internalDb
@@ -1301,8 +1301,8 @@ export const createAuthRouter = (
           )
         );
 
-      // No grants = global permission applies
-      if (grants.length === 0) return { hasAccess: hasGlobalPermission };
+      // No grants = global access applies
+      if (grants.length === 0) return { hasAccess: hasGlobalAccess };
 
       // Check resource-level settings for teamOnly
       const settingsRows = await internalDb
@@ -1317,7 +1317,7 @@ export const createAuthRouter = (
         .limit(1);
       const isTeamOnly = settingsRows[0]?.teamOnly ?? false;
 
-      if (!isTeamOnly && hasGlobalPermission) return { hasAccess: true };
+      if (!isTeamOnly && hasGlobalAccess) return { hasAccess: true };
 
       // Get user's teams
       const teamTable =
@@ -1353,7 +1353,7 @@ export const createAuthRouter = (
         resourceType,
         resourceIds,
         action,
-        hasGlobalPermission,
+        hasGlobalAccess,
       } = input;
       if (resourceIds.length === 0) return [];
 
@@ -1410,9 +1410,9 @@ export const createAuthRouter = (
 
       return resourceIds.filter((id) => {
         const resourceGrants = grantsByResource.get(id) || [];
-        if (resourceGrants.length === 0) return hasGlobalPermission;
+        if (resourceGrants.length === 0) return hasGlobalAccess;
         const isTeamOnly = teamOnlyByResource.get(id) ?? false;
-        if (!isTeamOnly && hasGlobalPermission) return true;
+        if (!isTeamOnly && hasGlobalAccess) return true;
         return resourceGrants.some(
           (g) => userTeamIds.has(g.teamId) && g[field]
         );
@@ -1435,11 +1435,11 @@ export const createAuthRouter = (
 
   return os.router({
     getEnabledStrategies,
-    permissions,
+    accessRules: accessRulesHandler,
     getUsers,
     deleteUser,
     getRoles,
-    getPermissions,
+    getAccessRules,
     createRole,
     updateRole,
     deleteRole,
@@ -1450,9 +1450,9 @@ export const createAuthRouter = (
     getRegistrationSchema,
     getRegistrationStatus,
     setRegistrationStatus,
-    getAnonymousPermissions,
+    getAnonymousAccessRules,
     getUserById,
-    filterUsersByPermission,
+    filterUsersByAccessRule,
     findUserByEmail,
     upsertExternalUser,
     createSession,

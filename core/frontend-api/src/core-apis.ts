@@ -1,8 +1,4 @@
-import {
-  PermissionAction,
-  ClientDefinition,
-  InferClient,
-} from "@checkstack/common";
+import { AccessRule, ClientDefinition, InferClient } from "@checkstack/common";
 import { createApiRef } from "./api-ref";
 
 export interface LoggerApi {
@@ -22,16 +18,30 @@ export interface FetchApi {
 export const loggerApiRef = createApiRef<LoggerApi>("core.logger");
 export const fetchApiRef = createApiRef<FetchApi>("core.fetch");
 
-export interface PermissionApi {
-  usePermission(permission: string): { loading: boolean; allowed: boolean };
-  useResourcePermission(
-    resource: string,
-    action: PermissionAction
-  ): { loading: boolean; allowed: boolean };
-  useManagePermission(resource: string): { loading: boolean; allowed: boolean };
+/**
+ * Unified access API for checking user access via AccessRules.
+ *
+ * Uses the same AccessRule objects from plugin common packages
+ * that are used in backend contracts.
+ */
+export interface AccessApi {
+  /**
+   * Check if the current user has access based on an AccessRule.
+   *
+   * @example
+   * ```tsx
+   * import { catalogAccess } from "@checkstack/catalog-common";
+   *
+   * const { allowed, loading } = accessApi.useAccess(catalogAccess.system.manage);
+   * if (allowed) {
+   *   // User can manage systems
+   * }
+   * ```
+   */
+  useAccess(accessRule: AccessRule): { loading: boolean; allowed: boolean };
 }
 
-export const permissionApiRef = createApiRef<PermissionApi>("core.permission");
+export const accessApiRef = createApiRef<AccessApi>("core.access");
 
 export interface RpcApi {
   client: unknown;

@@ -82,7 +82,7 @@ Checkstack uses a strict package type system to maintain clean architecture:
 |--------------|---------------|---------|---------------|
 | **Backend** | `-backend` | REST APIs, business logic, database | Backend packages, common packages |
 | **Frontend** | `-frontend` | UI components, pages, routing | Frontend packages, common packages |
-| **Common** | `-common` | Shared types, permissions, constants | Common packages only |
+| **Common** | `-common` | Shared types, access rules, constants | Common packages only |
 | **Node** | `-node` | Backend-only shared code | Backend packages, common packages |
 | **React** | `-react` | Frontend-only shared components | Frontend packages, common packages |
 
@@ -110,7 +110,7 @@ graph TD
     B --> C[Create Plugin Schema]
     C --> D[Run Migrations]
     D --> E[Call register function]
-    E --> F[Register Permissions]
+    E --> F[Register Access Rules]
     E --> G[Register Services]
     E --> H[Register Extension Points]
     E --> I[Register Init Function]
@@ -221,7 +221,7 @@ sequenceDiagram
     F->>FA: Request with credentials
     FA->>R: HTTPS + JWT
     R->>R: Validate JWT
-    R->>R: Check permissions
+    R->>R: Check access
     R->>B: Route to plugin
     B->>R: Response
     R->>FA: JSON response
@@ -243,27 +243,27 @@ sequenceDiagram
     P2->>P1: Response
 ```
 
-## Permission System
+## Access System
 
-Permissions are defined in common packages and registered by backend plugins:
+Access rules are defined in common packages and registered by backend plugins:
 
 ```typescript
 // In catalog-common
-export const permissions = {
+export const access = {
   entityRead: {
     id: "entity.read",
     description: "Read Systems and Groups",
   },
-} satisfies Record<string, Permission>;
+} satisfies Record<string, AccessRule>;
 
 // In catalog-backend
-env.registerPermissions(permissionList);
+env.registerAccessRules(accessRuleList);
 
 // In catalog-frontend
-const canRead = permissionApi.usePermission(permissions.entityRead.id);
+const canRead = accessApi.useAccess(access.entityRead.id);
 ```
 
-The core automatically prefixes permissions with the plugin ID: `catalog.entity.read`
+The core automatically prefixes access rules with the plugin ID: `catalog.entity.read`
 
 ## Technology Stack
 

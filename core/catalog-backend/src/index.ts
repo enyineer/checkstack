@@ -2,11 +2,11 @@ import { createBackendPlugin } from "@checkstack/backend-api";
 import { type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { coreServices } from "@checkstack/backend-api";
 import {
-  permissionList,
+  catalogAccessRules,
+  catalogAccess,
   pluginMetadata,
   catalogContract,
   catalogRoutes,
-  permissions,
 } from "@checkstack/catalog-common";
 import { createCatalogRouter } from "./router";
 import { NotificationApi } from "@checkstack/notification-common";
@@ -24,7 +24,7 @@ export { catalogHooks } from "./hooks";
 export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
-    env.registerPermissions(permissionList);
+    env.registerAccessRules(catalogAccessRules);
 
     env.registerInit({
       schema,
@@ -89,7 +89,7 @@ export default createBackendPlugin({
               iconName: "Activity",
               route:
                 resolveRoute(catalogRoutes.routes.config) + "?action=create",
-              requiredPermissions: [permissions.catalogManage],
+              requiredAccessRules: [catalogAccess.system.manage],
             },
             {
               id: "manage",
@@ -98,7 +98,7 @@ export default createBackendPlugin({
               iconName: "Activity",
               shortcuts: ["meta+shift+s", "ctrl+shift+s"],
               route: resolveRoute(catalogRoutes.routes.config),
-              requiredPermissions: [permissions.catalogManage],
+              requiredAccessRules: [catalogAccess.system.manage],
             },
           ],
         });

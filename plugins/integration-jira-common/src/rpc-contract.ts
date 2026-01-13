@@ -5,6 +5,7 @@ import {
   createClientDefinition,
   type ProcedureMetadata,
 } from "@checkstack/common";
+import { integrationAccess } from "@checkstack/integration-common";
 import {
   JiraConnectionRedactedSchema,
   CreateJiraConnectionInputSchema,
@@ -30,7 +31,7 @@ export const jiraContract = {
   listConnections: _base
     .meta({
       userType: "user",
-      permissions: ["integration.manage"],
+      access: [integrationAccess.manage],
     })
     .output(z.array(JiraConnectionRedactedSchema)),
 
@@ -38,7 +39,7 @@ export const jiraContract = {
   getConnection: _base
     .meta({
       userType: "user",
-      permissions: ["integration.manage"],
+      access: [integrationAccess.manage],
     })
     .input(z.object({ id: z.string() }))
     .output(JiraConnectionRedactedSchema),
@@ -47,7 +48,7 @@ export const jiraContract = {
   createConnection: _base
     .meta({
       userType: "user",
-      permissions: ["integration.manage"],
+      access: [integrationAccess.manage],
     })
     .input(CreateJiraConnectionInputSchema)
     .output(JiraConnectionRedactedSchema),
@@ -56,7 +57,7 @@ export const jiraContract = {
   updateConnection: _base
     .meta({
       userType: "user",
-      permissions: ["integration.manage"],
+      access: [integrationAccess.manage],
     })
     .input(UpdateJiraConnectionInputSchema)
     .output(JiraConnectionRedactedSchema),
@@ -65,7 +66,7 @@ export const jiraContract = {
   deleteConnection: _base
     .meta({
       userType: "user",
-      permissions: ["integration.manage"],
+      access: [integrationAccess.manage],
     })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
@@ -74,7 +75,7 @@ export const jiraContract = {
   testConnection: _base
     .meta({
       userType: "user",
-      permissions: ["integration.manage"],
+      access: [integrationAccess.manage],
     })
     .input(z.object({ id: z.string() }))
     .output(
@@ -92,7 +93,7 @@ export const jiraContract = {
   getProjects: _base
     .meta({
       userType: "user",
-      permissions: ["integration.manage"],
+      access: [integrationAccess.manage],
     })
     .input(z.object({ connectionId: z.string() }))
     .output(z.array(JiraProjectSchema)),
@@ -101,7 +102,7 @@ export const jiraContract = {
   getIssueTypes: _base
     .meta({
       userType: "user",
-      permissions: ["integration.manage"],
+      access: [integrationAccess.manage],
     })
     .input(
       z.object({
@@ -115,7 +116,7 @@ export const jiraContract = {
   getFields: _base
     .meta({
       userType: "user",
-      permissions: ["integration.manage"],
+      access: [integrationAccess.manage],
     })
     .input(
       z.object({
@@ -130,7 +131,7 @@ export const jiraContract = {
   getPriorities: _base
     .meta({
       userType: "user",
-      permissions: ["integration.manage"],
+      access: [integrationAccess.manage],
     })
     .input(z.object({ connectionId: z.string() }))
     .output(

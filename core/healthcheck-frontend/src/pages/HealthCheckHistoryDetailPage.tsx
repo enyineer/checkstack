@@ -2,10 +2,13 @@ import { useState } from "react";
 import {
   useApi,
   wrapInSuspense,
-  permissionApiRef,
+  accessApiRef,
 } from "@checkstack/frontend-api";
 import { healthCheckApiRef } from "../api";
-import { healthcheckRoutes } from "@checkstack/healthcheck-common";
+import {
+  healthcheckRoutes,
+  healthCheckAccess,
+} from "@checkstack/healthcheck-common";
 import { resolveRoute } from "@checkstack/common";
 import {
   PageLayout,
@@ -32,9 +35,9 @@ const HealthCheckHistoryDetailPageContent = () => {
   }>();
 
   const api = useApi(healthCheckApiRef);
-  const permissionApi = useApi(permissionApiRef);
-  const { allowed: canManage, loading: permissionLoading } =
-    permissionApi.useResourcePermission("healthcheck", "manage");
+  const accessApi = useApi(accessApiRef);
+  const { allowed: canManage, loading: accessLoading } =
+    accessApi.useAccess(healthCheckAccess.configuration.manage);
 
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
 
@@ -65,7 +68,7 @@ const HealthCheckHistoryDetailPageContent = () => {
         0,
         8
       )}...`}
-      loading={permissionLoading}
+      loading={accessLoading}
       allowed={canManage}
       actions={
         <BackLink to={resolveRoute(healthcheckRoutes.routes.history)}>

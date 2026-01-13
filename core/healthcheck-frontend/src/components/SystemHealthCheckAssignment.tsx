@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import {
   useApi,
   type SlotContext,
-  permissionApiRef,
+  accessApiRef,
 } from "@checkstack/frontend-api";
 import { healthCheckApiRef, HealthCheckConfiguration } from "../api";
 import {
@@ -32,6 +32,7 @@ import type { StateThresholds } from "@checkstack/healthcheck-common";
 import {
   DEFAULT_STATE_THRESHOLDS,
   healthcheckRoutes,
+  healthCheckAccess,
 } from "@checkstack/healthcheck-common";
 import { resolveRoute } from "@checkstack/common";
 import { DEFAULT_RETENTION_CONFIG } from "@checkstack/healthcheck-common";
@@ -52,10 +53,9 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
   systemName: _systemName,
 }) => {
   const api = useApi(healthCheckApiRef);
-  const permissionApi = useApi(permissionApiRef);
-  const { allowed: canManage } = permissionApi.useResourcePermission(
-    "healthcheck",
-    "manage"
+  const accessApi = useApi(accessApiRef);
+  const { allowed: canManage } = accessApi.useAccess(
+    healthCheckAccess.configuration.manage
   );
   const [configs, setConfigs] = useState<HealthCheckConfiguration[]>([]);
   const [associations, setAssociations] = useState<AssociationState[]>([]);

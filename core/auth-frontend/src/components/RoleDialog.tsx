@@ -19,20 +19,20 @@ import {
   AlertDescription,
 } from "@checkstack/ui";
 import { Check } from "lucide-react";
-import type { Role, Permission } from "../api";
+import type { Role, AccessRuleEntry } from "../api";
 
 interface RoleDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   role?: Role;
-  permissions: Permission[];
-  /** Whether current user has this role (prevents permission elevation) */
+  accessRulesList: AccessRuleEntry[];
+  /** Whether current user has this role (prevents access elevation) */
   isUserRole?: boolean;
   onSave: (params: {
     id?: string;
     name: string;
     description?: string;
-    permissions: string[];
+    accessRules: string[];
   }) => Promise<void>;
 }
 
@@ -40,14 +40,14 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
   open,
   onOpenChange,
   role,
-  permissions,
+  accessRulesList,
   isUserRole = false,
   onSave,
 }) => {
   const [name, setName] = useState(role?.name || "");
   const [description, setDescription] = useState(role?.description || "");
-  const [selectedPermissions, setSelectedPermissions] = useState<Set<string>>(
-    new Set(role?.permissions || [])
+  const [selectedAccessRules, setSelectedAccessRules] = useState<Set<string>>(
+    new Set(role?.accessRules || [])
   );
   const [saving, setSaving] = useState(false);
 
@@ -55,32 +55,32 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
   React.useEffect(() => {
     setName(role?.name || "");
     setDescription(role?.description || "");
-    setSelectedPermissions(new Set(role?.permissions || []));
+    setSelectedAccessRules(new Set(role?.accessRules || []));
   }, [role]);
 
   const isEditing = !!role;
   const isAdminRole = role?.id === "admin";
-  // Disable permissions for admin (wildcard) or user's own roles (prevent elevation)
-  const permissionsDisabled = isAdminRole || isUserRole;
+  // Disable access rules for admin (wildcard) or user's own roles (prevent elevation)
+  const accessRulesDisabled = isAdminRole || isUserRole;
 
-  // Group permissions by plugin
-  const permissionsByPlugin: Record<string, Permission[]> = {};
-  for (const perm of permissions) {
+  // Group access rules by plugin
+  const accessRulesByPlugin: Record<string, AccessRuleEntry[]> = {};
+  for (const perm of accessRulesList) {
     const [plugin] = perm.id.split(".");
-    if (!permissionsByPlugin[plugin]) {
-      permissionsByPlugin[plugin] = [];
+    if (!accessRulesByPlugin[plugin]) {
+      accessRulesByPlugin[plugin] = [];
     }
-    permissionsByPlugin[plugin].push(perm);
+    accessRulesByPlugin[plugin].push(perm);
   }
 
-  const handleTogglePermission = (permissionId: string) => {
-    const newSelected = new Set(selectedPermissions);
-    if (newSelected.has(permissionId)) {
-      newSelected.delete(permissionId);
+  const handleToggleAccessRule = (accessRuleId: string) => {
+    const newSelected = new Set(selectedAccessRules);
+    if (newSelected.has(accessRuleId)) {
+      newSelected.delete(accessRuleId);
     } else {
-      newSelected.add(permissionId);
+      newSelected.add(accessRuleId);
     }
-    setSelectedPermissions(newSelected);
+    setSelectedAccessRules(newSelected);
   };
 
   const handleSave = async () => {
@@ -90,7 +90,7 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
         ...(isEditing && { id: role.id }),
         name,
         description: description || undefined,
-        permissions: [...selectedPermissions],
+        accessRules: [...selectedAccessRules],
       });
       onOpenChange(false);
     } catch (error) {
@@ -114,8 +114,8 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
           <DialogTitle>{isEditing ? "Edit Role" : "Create Role"}</DialogTitle>
           <DialogDescription className="sr-only">
             {isEditing
-              ? "Modify the settings and permissions for this role"
-              : "Create a new role with specific permissions"}
+              ? "Modify the settings and access rules for this role"
+              : "Create a new role with specific access rules"}
           </DialogDescription>
         </DialogHeader>
 
@@ -141,15 +141,15 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
           </div>
 
           <div>
-            <Label className="text-base">Permissions</Label>
+            <Label className="text-base">Access Rules</Label>
             <p className="text-sm text-muted-foreground mt-1 mb-3">
-              Select permissions to grant to this role. Permissions are
+              Select access rules to grant to this role. Access rules are
               organized by plugin.
             </p>
             {isAdminRole && (
               <Alert variant="info" className="mb-3">
                 <AlertDescription>
-                  The administrator role has wildcard access to all permissions.
+                  The administrator role has wildcard access to all access rules.
                   These cannot be modified.
                 </AlertDescription>
               </Alert>
@@ -157,7 +157,7 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
             {!isAdminRole && isUserRole && (
               <Alert variant="info" className="mb-3">
                 <AlertDescription>
-                  You cannot modify permissions for a role you currently have.
+                  You cannot modify access rules for a role you currently have.
                   This prevents accidental self-lockout from the system.
                 </AlertDescription>
               </Alert>
@@ -165,10 +165,10 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
             <div className="border rounded-lg">
               <Accordion
                 type="multiple"
-                defaultValue={Object.keys(permissionsByPlugin)}
+                defaultValue={Object.keys(accessRulesByPlugin)}
                 className="w-full"
               >
-                {Object.entries(permissionsByPlugin).map(([plugin, perms]) => (
+                {Object.entries(accessRulesByPlugin).map(([plugin, perms]) => (
                   <AccordionItem key={plugin} value={plugin}>
                     <AccordionTrigger className="px-4 hover:no-underline">
                       <div className="flex items-center justify-between flex-1 pr-2">
@@ -177,7 +177,7 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
                         </span>
                         <span className="text-xs text-muted-foreground">
                           {
-                            perms.filter((p) => selectedPermissions.has(p.id))
+                            perms.filter((p) => selectedAccessRules.has(p.id))
                               .length
                           }{" "}
                           / {perms.length} selected
@@ -187,15 +187,15 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
                     <AccordionContent className="px-4">
                       <div
                         className={`space-y-${
-                          permissionsDisabled ? "2" : "3"
+                          accessRulesDisabled ? "2" : "3"
                         } pt-2`}
                       >
                         {perms.map((perm) => {
                           const isAssigned =
-                            isAdminRole || selectedPermissions.has(perm.id);
+                            isAdminRole || selectedAccessRules.has(perm.id);
 
-                          // Use view-style design when permissions are disabled
-                          if (permissionsDisabled) {
+                          // Use view-style design when access rules are disabled
+                          if (accessRulesDisabled) {
                             return (
                               <div
                                 key={perm.id}
@@ -239,7 +239,7 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
                             );
                           }
 
-                          // Use editable checkbox design when permissions are editable
+                          // Use editable checkbox design when access rules are editable
                           return (
                             <div
                               key={perm.id}
@@ -247,9 +247,9 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
                             >
                               <Checkbox
                                 id={`perm-${perm.id}`}
-                                checked={selectedPermissions.has(perm.id)}
+                                checked={selectedAccessRules.has(perm.id)}
                                 onCheckedChange={() =>
-                                  handleTogglePermission(perm.id)
+                                  handleToggleAccessRule(perm.id)
                                 }
                                 className="mt-0.5"
                               />

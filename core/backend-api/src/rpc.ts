@@ -5,7 +5,7 @@ import { CollectorRegistry } from "./collector-registry";
 import { QueuePluginRegistry, QueueManager } from "@checkstack/queue-api";
 import {
   ProcedureMetadata,
-  qualifyPermissionId,
+  qualifyAccessRuleId,
   qualifyResourceType,
 } from "@checkstack/common";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -77,12 +77,18 @@ export type { ProcedureMetadata } from "@checkstack/common";
  *
  * Automatically enforces based on contract metadata:
  * 1. User type (from meta.userType):
- *    - "anonymous": No authentication required, no permission checks
- *    - "public": Anyone can attempt, but permissions are checked (anonymous role for guests)
+ *    - "anonymous": No authentication required, no access checks
+ *    - "public": Anyone can attempt, access checked based on user type
  *    - "user": Only real users (frontend authenticated)
  *    - "service": Only services (backend-to-backend)
  *    - "authenticated": Either users or services, but must be authenticated (default)
- * 2. Permissions (from meta.permissions, only for real users or public anonymous)
+ * 2. Access rules (from meta.access): unified access rules + resource-level access control
+ *
+ * Access Control Logic:
+ * - Rules WITHOUT instanceAccess: require global access
+ * - Rules WITH instanceAccess: S2S call to auth-backend decides based on:
+ *   - Global access OR team grants (when resource is NOT teamOnly)
+ *   - Team grants only (when resource IS teamOnly)
  *
  * Use this in backend routers: `implement(contract).$context<RpcContext>().use(autoAuthMiddleware)`
  */
@@ -90,65 +96,82 @@ export const autoAuthMiddleware = os.middleware(
   async ({ next, context, procedure }, input: unknown) => {
     const meta = procedure["~orpc"]?.meta as ProcedureMetadata | undefined;
     const requiredUserType = meta?.userType || "authenticated";
-    const contractPermissions = meta?.permissions || [];
-    const resourceAccessConfigs = meta?.resourceAccess || [];
+    const accessRules = meta?.access || [];
 
-    // Prefix contract permissions with pluginId to get fully-qualified permission IDs
-    // Contract defines: "catalog.read" -> Stored in DB as: "catalog.catalog.read"
-    const requiredPermissions = contractPermissions.map((p: string) =>
-      qualifyPermissionId(context.pluginMetadata, { id: p })
+    // Build qualified access rule IDs for each access rule
+    const qualifiedRules = accessRules.map((rule) => ({
+      ...rule,
+      qualifiedId: qualifyAccessRuleId(context.pluginMetadata, rule),
+      qualifiedResourceType: qualifyResourceType(
+        context.pluginMetadata.pluginId,
+        rule.resource
+      ),
+    }));
+
+    // Separate rules by type
+    const globalOnlyRules = qualifiedRules.filter((r) => !r.instanceAccess);
+    const instanceRules = qualifiedRules.filter((r) => r.instanceAccess);
+    const singleResourceRules = instanceRules.filter(
+      (r) => r.instanceAccess?.idParam
+    );
+    const listResourceRules = instanceRules.filter(
+      (r) => r.instanceAccess?.listKey
     );
 
-    // 1. Handle anonymous endpoints - no auth required, no permission checks
+    // 1. Handle anonymous endpoints - no auth required, no access checks
     if (requiredUserType === "anonymous") {
       return next({});
     }
 
-    // 2. Handle public endpoints - anyone can attempt, but permissions are checked
+    // 2. Handle public endpoints - anyone can attempt
     if (requiredUserType === "public") {
-      if (context.user) {
-        // Authenticated user or application - check their permissions
-        if (
-          (context.user.type === "user" ||
-            context.user.type === "application") &&
-          requiredPermissions.length > 0
-        ) {
-          const userPermissions = context.user.permissions || [];
-          const hasPermission = requiredPermissions.some(
-            (p: string) =>
-              userPermissions.includes("*") || userPermissions.includes(p)
-          );
+      const user = context.user;
 
-          if (!hasPermission) {
-            throw new ORPCError("FORBIDDEN", {
-              message: `Missing permission: ${requiredPermissions.join(
-                " or "
-              )}`,
-            });
+      // Check global-only rules based on user status
+      if (globalOnlyRules.length > 0) {
+        if (user && (user.type === "user" || user.type === "application")) {
+          // Authenticated user - check their global accesss
+          const userAccessRules = user.accessRules || [];
+          for (const rule of globalOnlyRules) {
+            const hasAccess =
+              userAccessRules.includes("*") ||
+              userAccessRules.includes(rule.qualifiedId);
+            if (!hasAccess) {
+              throw new ORPCError("FORBIDDEN", {
+                message: `Missing access: ${rule.qualifiedId}`,
+              });
+            }
           }
-        }
-        // Services are trusted with all permissions
-      } else {
-        // Anonymous user - check anonymous role permissions
-        if (requiredPermissions.length > 0) {
-          const anonymousPermissions =
-            await context.auth.getAnonymousPermissions();
-          const hasPermission = requiredPermissions.some((p: string) =>
-            anonymousPermissions.includes(p)
-          );
-
-          if (!hasPermission) {
-            throw new ORPCError("FORBIDDEN", {
-              message: `Anonymous access not permitted for this resource`,
-            });
+        } else if (user && user.type === "service") {
+          // Services are trusted
+        } else {
+          // Anonymous - check anonymous role
+          const anonymousAccessRules =
+            await context.auth.getAnonymousAccessRules();
+          for (const rule of globalOnlyRules) {
+            if (!anonymousAccessRules.includes(rule.qualifiedId)) {
+              throw new ORPCError("FORBIDDEN", {
+                message: `Anonymous access not permitted for this resource`,
+              });
+            }
           }
         }
       }
-      return next({});
+
+      // For rules WITH instanceAccess on public endpoints:
+      // - If user is authenticated, check via S2S (step 6)
+      // - If anonymous, they get empty results from list filtering
+      //   (since they have no team grants - S2S will filter everything)
+
+      // If there are no instance rules, we can return early for public endpoints
+      if (instanceRules.length === 0) {
+        return next({});
+      }
+      // Otherwise, fall through to step 6 for instance-level checks
     }
 
     // 3. Enforce authentication for user/service/authenticated types
-    if (!context.user) {
+    if (requiredUserType !== "public" && !context.user) {
       throw new ORPCError("UNAUTHORIZED", {
         message: "Authentication required",
       });
@@ -157,84 +180,74 @@ export const autoAuthMiddleware = os.middleware(
     const user = context.user;
 
     // 4. Enforce user type
-    if (requiredUserType === "user" && user.type !== "user") {
-      throw new ORPCError("FORBIDDEN", {
-        message: "This endpoint is for users only",
-      });
-    }
-    if (requiredUserType === "service" && user.type !== "service") {
-      throw new ORPCError("FORBIDDEN", {
-        message: "This endpoint is for services only",
-      });
-    }
-
-    // 5. Enforce permissions (for real users and applications)
-    if (
-      (user.type === "user" || user.type === "application") &&
-      requiredPermissions.length > 0
-    ) {
-      const userPermissions = user.permissions || [];
-      const hasPermission = requiredPermissions.some(
-        (p: string) =>
-          userPermissions.includes("*") || userPermissions.includes(p)
-      );
-
-      if (!hasPermission) {
+    if (user) {
+      if (requiredUserType === "user" && user.type !== "user") {
         throw new ORPCError("FORBIDDEN", {
-          message: `Missing permission: ${requiredPermissions.join(" or ")}`,
+          message: "This endpoint is for users only",
+        });
+      }
+      if (requiredUserType === "service" && user.type !== "service") {
+        throw new ORPCError("FORBIDDEN", {
+          message: "This endpoint is for services only",
         });
       }
     }
 
-    // 6. Resource-level access control
-    // Skip if no resource access configs or if user is a service
-    if (resourceAccessConfigs.length === 0 || user.type === "service") {
+    // 5. Skip remaining checks for services - they are trusted
+    if (user?.type === "service") {
       return next({});
     }
 
-    const userId = user.id;
-    const userType = user.type;
-    const action = inferActionFromPermissions(contractPermissions);
-    const hasGlobalPermission =
-      user.permissions?.includes("*") ||
-      contractPermissions.some((p) =>
-        user.permissions?.includes(
-          qualifyPermissionId(context.pluginMetadata, { id: p })
-        )
-      );
+    // 6. Check access rules (for real users, applications, and anonymous on public endpoints)
+    const userId = user?.id;
+    const userType = user?.type as "user" | "application" | undefined;
+    const userAccessRules = user?.accessRules || [];
 
-    // Separate single vs list configs
-    const singleConfigs = resourceAccessConfigs.filter(
-      (c) => c.filterMode !== "list"
-    );
-    const listConfigs = resourceAccessConfigs.filter(
-      (c) => c.filterMode === "list"
-    );
+    // Check global-only rules (for non-public endpoints - public already handled above)
+    if (requiredUserType !== "public") {
+      for (const rule of globalOnlyRules) {
+        const hasAccess =
+          userAccessRules.includes("*") ||
+          userAccessRules.includes(rule.qualifiedId);
+        if (!hasAccess) {
+          throw new ORPCError("FORBIDDEN", {
+            message: `Missing access: ${rule.qualifiedId}`,
+          });
+        }
+      }
+    }
 
-    // Pre-check: Single resource access
-    for (const config of singleConfigs) {
-      if (!config.idParam) continue;
-      const resourceId = getNestedValue(input, config.idParam);
+    // Pre-check: Single resource access rules
+    // For these, user MUST have either global access OR team grant
+    for (const rule of singleResourceRules) {
+      const resourceId = getNestedValue(input, rule.instanceAccess!.idParam!);
       if (!resourceId) continue;
 
-      const qualifiedType = qualifyResourceType(
-        context.pluginMetadata.pluginId,
-        config.resourceType
-      );
+      // If no user (anonymous on public endpoint), deny access to single resources
+      // (they can't have team grants)
+      if (!userId || !userType) {
+        throw new ORPCError("FORBIDDEN", {
+          message: `Authentication required to access ${rule.resource}:${resourceId}`,
+        });
+      }
+
+      const hasGlobalAccess =
+        userAccessRules.includes("*") ||
+        userAccessRules.includes(rule.qualifiedId);
 
       const hasAccess = await checkResourceAccessViaS2S({
         auth: context.auth,
         userId,
         userType,
-        resourceType: qualifiedType,
+        resourceType: rule.qualifiedResourceType,
         resourceId,
-        action,
-        hasGlobalPermission,
+        action: rule.level,
+        hasGlobalAccess,
       });
 
       if (!hasAccess) {
         throw new ORPCError("FORBIDDEN", {
-          message: `Access denied to resource ${config.resourceType}:${resourceId}`,
+          message: `Access denied to resource ${rule.resource}:${resourceId}`,
         });
       }
     }
@@ -243,28 +256,21 @@ export const autoAuthMiddleware = os.middleware(
     const result = await next({});
 
     // Post-filter: List endpoints
+    // For these, return only resources user has access to (via global perm OR team grant)
     if (
-      listConfigs.length > 0 &&
+      listResourceRules.length > 0 &&
       result.output &&
       typeof result.output === "object"
     ) {
       const mutableOutput = result.output as Record<string, unknown>;
 
-      for (const config of listConfigs) {
-        if (!config.outputKey) {
-          context.logger.error(
-            `resourceAccess: filterMode "list" requires outputKey`
-          );
-          throw new ORPCError("INTERNAL_SERVER_ERROR", {
-            message: "Invalid resource access configuration",
-          });
-        }
-
-        const items = mutableOutput[config.outputKey];
+      for (const rule of listResourceRules) {
+        const outputKey = rule.instanceAccess!.listKey!;
+        const items = mutableOutput[outputKey];
 
         if (items === undefined) {
           context.logger.error(
-            `resourceAccess: expected "${config.outputKey}" in response but not found`
+            `resourceAccess: expected "${outputKey}" in response but not found`
           );
           throw new ORPCError("INTERNAL_SERVER_ERROR", {
             message: "Invalid response shape for filtered endpoint",
@@ -273,34 +279,39 @@ export const autoAuthMiddleware = os.middleware(
 
         if (!Array.isArray(items)) {
           context.logger.error(
-            `resourceAccess: "${config.outputKey}" must be an array`
+            `resourceAccess: "${outputKey}" must be an array`
           );
           throw new ORPCError("INTERNAL_SERVER_ERROR", {
             message: "Invalid response shape for filtered endpoint",
           });
         }
 
-        const qualifiedType = qualifyResourceType(
-          context.pluginMetadata.pluginId,
-          config.resourceType
-        );
+        // If no user (anonymous), return empty list for team-filtered resources
+        if (!userId || !userType) {
+          mutableOutput[outputKey] = [];
+          continue;
+        }
 
         const resourceIds = items
           .map((item) => (item as { id?: string }).id)
           .filter((id): id is string => typeof id === "string");
 
+        const hasGlobalAccess =
+          userAccessRules.includes("*") ||
+          userAccessRules.includes(rule.qualifiedId);
+
         const accessibleIds = await getAccessibleResourceIdsViaS2S({
           auth: context.auth,
           userId,
           userType,
-          resourceType: qualifiedType,
+          resourceType: rule.qualifiedResourceType,
           resourceIds,
-          action,
-          hasGlobalPermission,
+          action: rule.level,
+          hasGlobalAccess,
         });
 
         const accessibleSet = new Set(accessibleIds);
-        mutableOutput[config.outputKey] = items.filter((item) => {
+        mutableOutput[outputKey] = items.filter((item) => {
           const id = (item as { id?: string }).id;
           return id && accessibleSet.has(id);
         });
@@ -326,15 +337,6 @@ function getNestedValue(obj: unknown, path: string): string | undefined {
 }
 
 /**
- * Determine action from permission suffix (read vs manage).
- */
-function inferActionFromPermissions(permissions: string[]): "read" | "manage" {
-  const perm = permissions[0] || "";
-  if (perm.endsWith(".manage") || perm.endsWith("Manage")) return "manage";
-  return "read";
-}
-
-/**
  * Check resource access via auth service S2S endpoint.
  */
 async function checkResourceAccessViaS2S({
@@ -344,7 +346,7 @@ async function checkResourceAccessViaS2S({
   resourceType,
   resourceId,
   action,
-  hasGlobalPermission,
+  hasGlobalAccess,
 }: {
   auth: AuthService;
   userId: string;
@@ -352,7 +354,7 @@ async function checkResourceAccessViaS2S({
   resourceType: string;
   resourceId: string;
   action: "read" | "manage";
-  hasGlobalPermission: boolean;
+  hasGlobalAccess: boolean;
 }): Promise<boolean> {
   try {
     const result = await auth.checkResourceTeamAccess({
@@ -361,12 +363,12 @@ async function checkResourceAccessViaS2S({
       resourceType,
       resourceId,
       action,
-      hasGlobalPermission,
+      hasGlobalAccess,
     });
     return result.hasAccess;
   } catch {
-    // If team access check fails (e.g., service not available), fall back to global permission
-    return hasGlobalPermission;
+    // If team access check fails (e.g., service not available), fall back to global access
+    return hasGlobalAccess;
   }
 }
 
@@ -380,7 +382,7 @@ async function getAccessibleResourceIdsViaS2S({
   resourceType,
   resourceIds,
   action,
-  hasGlobalPermission,
+  hasGlobalAccess,
 }: {
   auth: AuthService;
   userId: string;
@@ -388,7 +390,7 @@ async function getAccessibleResourceIdsViaS2S({
   resourceType: string;
   resourceIds: string[];
   action: "read" | "manage";
-  hasGlobalPermission: boolean;
+  hasGlobalAccess: boolean;
 }): Promise<string[]> {
   if (resourceIds.length === 0) return [];
 
@@ -399,11 +401,11 @@ async function getAccessibleResourceIdsViaS2S({
       resourceType,
       resourceIds,
       action,
-      hasGlobalPermission,
+      hasGlobalAccess,
     });
   } catch {
-    // If team access check fails, fall back to global permission behavior
-    return hasGlobalPermission ? resourceIds : [];
+    // If team access check fails, fall back to global access behavior
+    return hasGlobalAccess ? resourceIds : [];
   }
 }
 
@@ -417,16 +419,16 @@ async function getAccessibleResourceIdsViaS2S({
  * All plugin contracts should use this builder. It ensures that:
  * 1. All procedures are authenticated by default
  * 2. User type is enforced based on meta.userType
- * 3. Permissions are enforced based on meta.permissions
+ * 3. Access rules are enforced based on meta.access
  *
  * @example
  * import { baseContractBuilder } from "@checkstack/backend-api";
- * import { permissions } from "./permissions";
+ * import { access } from "./access";
  *
  * const myContract = {
- *   // User-only endpoint with specific permission
+ *   // User-only endpoint with specific access rule
  *   getItems: baseContractBuilder
- *     .meta({ userType: "user", permissions: [permissions.myPluginRead.id] })
+ *     .meta({ userType: "user", accessRules: [access.myPluginRead.id] })
  *     .output(z.array(ItemSchema)),
  *
  *   // Service-only endpoint (backend-to-backend)

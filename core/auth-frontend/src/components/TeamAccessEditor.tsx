@@ -26,11 +26,8 @@ import {
   Settings,
   Lock,
 } from "lucide-react";
-import { useApi, rpcApiRef, permissionApiRef } from "@checkstack/frontend-api";
-import {
-  AuthApi,
-  permissions as authPermissions,
-} from "@checkstack/auth-common";
+import { useApi, rpcApiRef, accessApiRef } from "@checkstack/frontend-api";
+import { AuthApi, authAccess } from "@checkstack/auth-common";
 
 interface TeamAccess {
   teamId: string;
@@ -72,12 +69,12 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
   onChange,
 }) => {
   const rpcApi = useApi(rpcApiRef);
-  const permissionApi = useApi(permissionApiRef);
+  const accessApi = useApi(accessApiRef);
   const authClient = rpcApi.forPlugin(AuthApi);
   const toast = useToast();
 
-  const { allowed: canManageTeams } = permissionApi.usePermission(
-    authPermissions.teamsManage.id
+  const { allowed: canManageTeams } = accessApi.useAccess(
+    authAccess.teams.manage
   );
 
   const [expanded, setExpanded] = useState(initialExpanded);
@@ -270,7 +267,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
                     Team Only
                   </Label>
                   <span className="text-xs text-muted-foreground">
-                    (Bypass global permissions)
+                    (Bypass global accesss)
                   </span>
                 </div>
                 <Toggle
@@ -320,7 +317,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
             <div className="space-y-2">
               {accessList.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-2">
-                  No team restrictions. All users with permission can access.
+                  No team restrictions. All users with access can access.
                 </p>
               ) : (
                 accessList.map((access) => (
@@ -472,7 +469,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
                     </Label>
                     <p className="text-xs text-muted-foreground">
                       When enabled, only team members can access (global
-                      permissions bypassed)
+                      access bypassed)
                     </p>
                   </div>
                 </div>
@@ -488,7 +485,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
             {accessList.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4 bg-muted/30 rounded-lg">
                 No team restrictions configured. All users with appropriate
-                permissions can access this resource.
+                access can view this resource.
               </p>
             ) : (
               <div className="border rounded-lg divide-y">

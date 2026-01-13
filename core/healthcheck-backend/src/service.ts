@@ -491,7 +491,7 @@ export class HealthCheckService {
 
   /**
    * Get detailed health check run history with full result data.
-   * Restricted to users with manage permission.
+   * Restricted to users with manage access.
    */
   async getDetailedHistory(props: {
     systemId?: string;
@@ -530,7 +530,7 @@ export class HealthCheckService {
       .limit(limit)
       .offset(offset);
 
-    // Return with full result data for manage permission
+    // Return with full result data for manage access
     return {
       runs: runs.map((run) => ({
         id: run.id,

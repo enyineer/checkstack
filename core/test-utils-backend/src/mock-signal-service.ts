@@ -1,4 +1,4 @@
-import { qualifyPermissionId } from "@checkstack/common";
+import { qualifyAccessRuleId } from "@checkstack/common";
 import type { SignalService, Signal } from "@checkstack/signal-common";
 
 /**
@@ -9,7 +9,7 @@ export interface RecordedSignal<T = unknown> {
   payload: T;
   targetType: "broadcast" | "user" | "users" | "authorized";
   userIds?: string[];
-  permission?: string; // For authorized signals
+  accessRule?: string; // For authorized signals
   timestamp: Date;
 }
 
@@ -48,11 +48,11 @@ export interface MockSignalService extends SignalService {
   wasSignalSentToUser(signalId: string, userId: string): boolean;
 
   /**
-   * Set a permission filter function for sendToAuthorizedUsers testing.
+   * Set a access filter function for sendToAuthorizedUsers testing.
    * If not set, sendToAuthorizedUsers will pass through all users.
    */
-  setPermissionFilter(
-    filter: (userIds: string[], permission: string) => string[]
+  setAccessFilter(
+    filter: (userIds: string[], accessRule: string) => string[]
   ): void;
 }
 
@@ -79,8 +79,8 @@ export interface MockSignalService extends SignalService {
  */
 export function createMockSignalService(): MockSignalService {
   const recordedSignals: RecordedSignal[] = [];
-  let permissionFilter:
-    | ((userIds: string[], permission: string) => string[])
+  let accessFilter:
+    | ((userIds: string[], accessRule: string) => string[])
     | undefined;
 
   return {
@@ -157,17 +157,17 @@ export function createMockSignalService(): MockSignalService {
       userIds: string[],
       payload: T,
       pluginMetadata: { pluginId: string },
-      permission: { id: string }
+      accessRule: { id: string }
     ): Promise<void> {
-      // Construct fully-qualified permission ID
-      const qualifiedPermission = qualifyPermissionId(
+      // Construct fully-qualified access rule ID
+      const qualifiedAccessRule = qualifyAccessRuleId(
         pluginMetadata,
-        permission
+        accessRule
       );
 
-      // Apply permission filter if set
-      const filteredUserIds = permissionFilter
-        ? permissionFilter(userIds, qualifiedPermission)
+      // Apply access filter if set
+      const filteredUserIds = accessFilter
+        ? accessFilter(userIds, qualifiedAccessRule)
         : userIds;
 
       recordedSignals.push({
@@ -175,15 +175,15 @@ export function createMockSignalService(): MockSignalService {
         payload,
         targetType: "authorized",
         userIds: filteredUserIds,
-        permission: qualifiedPermission,
+        accessRule: qualifiedAccessRule,
         timestamp: new Date(),
       });
     },
 
-    setPermissionFilter(
-      filter: (userIds: string[], permission: string) => string[]
+    setAccessFilter(
+      filter: (userIds: string[], accessRule: string) => string[]
     ): void {
-      permissionFilter = filter;
+      accessFilter = filter;
     },
   };
 }

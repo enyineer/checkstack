@@ -33,8 +33,8 @@ export const SearchResultSchema = z.object({
   route: z.string().optional(),
   /** For commands: keyboard shortcuts */
   shortcuts: z.array(z.string()).optional(),
-  /** Permission IDs required to see this result */
-  requiredPermissions: z.array(z.string()).optional(),
+  /** Access rule IDs required to see this result */
+  requiredAccessRules: z.array(z.string()).optional(),
 });
 
 export type SearchResult = z.infer<typeof SearchResultSchema>;
@@ -54,8 +54,8 @@ export const CommandSchema = z.object({
   iconName: z.string().optional(),
   /** Route to navigate to when the command is executed */
   route: z.string(),
-  /** Permission IDs required to see/execute this command */
-  requiredPermissions: z.array(z.string()).optional(),
+  /** Access rule IDs required to see/execute this command */
+  requiredAccessRules: z.array(z.string()).optional(),
 });
 
 export type Command = z.infer<typeof CommandSchema>;
@@ -73,7 +73,7 @@ const _base = oc.$meta<ProcedureMetadata>({});
 export const commandContract = {
   /**
    * Search across all registered search providers.
-   * Returns results filtered by user permissions.
+   * Returns results filtered by user access rules.
    */
   search: _base
     .meta({ userType: "public" })
@@ -82,7 +82,7 @@ export const commandContract = {
 
   /**
    * Get all registered commands (for browsing without a query).
-   * Returns commands filtered by user permissions.
+   * Returns commands filtered by user access rules.
    */
   getCommands: _base
     .meta({ userType: "public" })
@@ -101,32 +101,32 @@ export const CommandApi = createClientDefinition(
 );
 
 // =============================================================================
-// PERMISSION UTILITIES (shared between frontend and backend)
+// ACCESS RULE UTILITIES (shared between frontend and backend)
 // =============================================================================
 
 /**
- * Filter items by user permissions.
- * Items without requiredPermissions are always included.
- * Users with the wildcard "*" permission can see all items.
+ * Filter items by user access rules.
+ * Items without requiredAccessRules are always included.
+ * Users with the wildcard "*" access rule can see all items.
  */
-export function filterByPermissions<
-  T extends { requiredPermissions?: string[] }
->(items: T[], userPermissions: string[]): T[] {
-  // Wildcard permission means access to everything
-  const hasWildcard = userPermissions.includes("*");
+export function filterByAccessRules<
+  T extends { requiredAccessRules?: string[] }
+>(items: T[], userAccessRules: string[]): T[] {
+  // Wildcard access rule means access to everything
+  const hasWildcard = userAccessRules.includes("*");
 
   return items.filter((item) => {
-    // No permissions required - always visible
-    if (!item.requiredPermissions || item.requiredPermissions.length === 0) {
+    // No access rules required - always visible
+    if (!item.requiredAccessRules || item.requiredAccessRules.length === 0) {
       return true;
     }
     // Wildcard user can see everything
     if (hasWildcard) {
       return true;
     }
-    // Check if user has all required permissions
-    return item.requiredPermissions.every((perm) =>
-      userPermissions.includes(perm)
+    // Check if user has all required access rules
+    return item.requiredAccessRules.every((rule) =>
+      userAccessRules.includes(rule)
     );
   });
 }

@@ -213,7 +213,7 @@ routes: [
     route: myRoutes.routes.home,
     element: <ItemListPage />,
     title: "Items", // Optional: page title
-    permission: permissions.itemRead.id, // Optional: required permission
+    accessRule: access.itemRead.id, // Optional: required access rule
   },
 ]
 ```
@@ -349,14 +349,14 @@ const rpcApi = useApi(rpcApiRef);
 const client = rpcApi.forPlugin(MyPluginApi);
 ```
 
-### `permissionApiRef`
+### `accessApiRef`
 
-Check user permissions.
+Check user access rules.
 
 ```typescript
-const permissionApi = useApi(permissionApiRef);
+const accessApi = useApi(accessApiRef);
 
-const canManage = permissionApi.usePermission(permissions.itemManage.id);
+const canManage = accessApi.useAccess(access.itemManage.id);
 
 if (canManage.allowed) {
   // Show management UI
@@ -377,33 +377,33 @@ if (session.user) {
 }
 ```
 
-## Permission Gating
+## Access Gating
 
-### Route-Level Permissions
+### Route-Level Access
 
 ```typescript
-import { permissions } from "@checkstack/myplugin-common";
+import { access } from "@checkstack/myplugin-common";
 
 routes: [
   {
     path: "/config",
     element: <ItemConfigPage />,
-    permission: permissions.itemManage.id,
+    accessRule: access.itemManage.id,
   },
 ]
 ```
 
-Users without the permission will see an "Access Denied" page.
+Users without access will see an "Access Denied" page.
 
-### Component-Level Permissions
+### Component-Level Access
 
 ```typescript
-import { useApi, permissionApiRef } from "@checkstack/frontend-api";
-import { permissions } from "@checkstack/myplugin-common";
+import { useApi, accessApiRef } from "@checkstack/frontend-api";
+import { access } from "@checkstack/myplugin-common";
 
 export const ItemListPage = () => {
-  const permissionApi = useApi(permissionApiRef);
-  const canCreate = permissionApi.usePermission(permissions.itemCreate.id);
+  const accessApi = useApi(accessApiRef);
+  const canCreate = accessApi.useAccess(access.itemCreate.id);
 
   return (
     <div>
@@ -416,17 +416,17 @@ export const ItemListPage = () => {
 };
 ```
 
-### Permission Loading State
+### Access Loading State
 
 ```typescript
-const permission = permissionApi.usePermission(permissions.itemManage.id);
+const accessState = accessApi.useAccess(access.itemManage.id);
 
-if (permission.loading) {
+if (accessState.loading) {
   return <LoadingSpinner />;
 }
 
-if (!permission.allowed) {
-  return <PermissionDenied />;
+if (!accessState.allowed) {
+  return <AccessDenied />;
 }
 
 return <ItemConfigPage />;
@@ -950,12 +950,12 @@ Check that:
 2. Route definitions use `route:` with RouteDefinition from common
 3. Element is a valid React component
 
-### Permission Errors
+### Access Errors
 
 Check that:
-1. Permission ID matches backend permission
-2. User has required role/permission
-3. Permission check is not in loading state
+1. Access rule ID matches backend access rule
+2. User has required role/access
+3. Access check is not in loading state
 
 ### 404 Errors from Backend
 

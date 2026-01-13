@@ -1,12 +1,15 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useApi, permissionApiRef, rpcApiRef } from "@checkstack/frontend-api";
+import { useApi, accessApiRef, rpcApiRef } from "@checkstack/frontend-api";
 import { PageLayout, useToast, Tabs, TabPanel } from "@checkstack/ui";
-import { authApiRef, AuthUser, Role, AuthStrategy, Permission } from "../api";
 import {
-  permissions as authPermissions,
-  AuthApi,
-} from "@checkstack/auth-common";
+  authApiRef,
+  AuthUser,
+  Role,
+  AuthStrategy,
+  AccessRuleEntry,
+} from "../api";
+import { authAccess, AuthApi } from "@checkstack/auth-common";
 import { Shield, Settings2, Users, Key, Users2 } from "lucide-react";
 import { UsersTab } from "./UsersTab";
 import { RolesTab } from "./RolesTab";
@@ -18,7 +21,7 @@ export const AuthSettingsPage: React.FC = () => {
   const authApi = useApi(authApiRef);
   const rpcApi = useApi(rpcApiRef);
   const authClient = rpcApi.forPlugin(AuthApi);
-  const permissionApi = useApi(permissionApiRef);
+  const accessApi = useApi(accessApiRef);
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -29,13 +32,11 @@ export const AuthSettingsPage: React.FC = () => {
   >("users");
   const [users, setUsers] = useState<(AuthUser & { roles: string[] })[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
-  const [permissions, setPermissions] = useState<Permission[]>([]);
+  const [accessRuleEntries, setAccessRuleEntries] = useState<AccessRuleEntry[]>([]);
   const [strategies, setStrategies] = useState<AuthStrategy[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const canReadUsers = permissionApi.usePermission(
-    authPermissions.usersRead.id
-  );
+  const canReadUsers = accessApi.useAccess(authAccess.users.read);
 
   // Handle ?tab= URL parameters (from command palette)
   useEffect(() => {
@@ -58,44 +59,20 @@ export const AuthSettingsPage: React.FC = () => {
     }
   }, [searchParams, setSearchParams]);
 
-  const canManageUsers = permissionApi.usePermission(
-    authPermissions.usersManage.id
-  );
-  const canCreateUsers = permissionApi.usePermission(
-    authPermissions.usersCreate.id
-  );
-  const canReadRoles = permissionApi.usePermission(
-    authPermissions.rolesRead.id
-  );
-  const canCreateRoles = permissionApi.usePermission(
-    authPermissions.rolesCreate.id
-  );
-  const canUpdateRoles = permissionApi.usePermission(
-    authPermissions.rolesUpdate.id
-  );
-  const canDeleteRoles = permissionApi.usePermission(
-    authPermissions.rolesDelete.id
-  );
-  const canManageRoles = permissionApi.usePermission(
-    authPermissions.rolesManage.id
-  );
-  const canManageStrategies = permissionApi.usePermission(
-    authPermissions.strategiesManage.id
-  );
-  const canManageRegistration = permissionApi.usePermission(
-    authPermissions.registrationManage.id
-  );
-  const canManageApplications = permissionApi.usePermission(
-    authPermissions.applicationsManage.id
-  );
-  const canReadTeams = permissionApi.usePermission(
-    authPermissions.teamsRead.id
-  );
-  const canManageTeams = permissionApi.usePermission(
-    authPermissions.teamsManage.id
-  );
+  const canManageUsers = accessApi.useAccess(authAccess.users.manage);
+  const canCreateUsers = accessApi.useAccess(authAccess.users.create);
+  const canReadRoles = accessApi.useAccess(authAccess.roles.read);
+  const canCreateRoles = accessApi.useAccess(authAccess.roles.create);
+  const canUpdateRoles = accessApi.useAccess(authAccess.roles.update);
+  const canDeleteRoles = accessApi.useAccess(authAccess.roles.delete);
+  const canManageRoles = accessApi.useAccess(authAccess.roles.manage);
+  const canManageStrategies = accessApi.useAccess(authAccess.strategies);
+  const canManageRegistration = accessApi.useAccess(authAccess.registration);
+  const canManageApplications = accessApi.useAccess(authAccess.applications);
+  const canReadTeams = accessApi.useAccess(authAccess.teams.read);
+  const canManageTeams = accessApi.useAccess(authAccess.teams.manage);
 
-  const permissionsLoading =
+  const accessRulesLoading =
     loading ||
     canReadUsers.loading ||
     canReadRoles.loading ||
@@ -103,17 +80,17 @@ export const AuthSettingsPage: React.FC = () => {
     canManageApplications.loading ||
     canReadTeams.loading;
 
-  const hasAnyPermission =
+  const hasAnyAccess =
     canReadUsers.allowed ||
     canReadRoles.allowed ||
     canManageStrategies.allowed ||
     canManageApplications.allowed ||
     canReadTeams.allowed;
 
-  // Special case: if user is not logged in, show permission denied
-  const isAllowed = session.data?.user ? hasAnyPermission : false;
+  // Special case: if user is not logged in, show access denied
+  const isAllowed = session.data?.user ? hasAnyAccess : false;
 
-  // Compute visible tabs based on permissions
+  // Compute visible tabs based on access rules
   const visibleTabs = useMemo(() => {
     const tabs: Array<{
       id: "users" | "roles" | "teams" | "strategies" | "applications";
@@ -129,7 +106,7 @@ export const AuthSettingsPage: React.FC = () => {
     if (canReadRoles.allowed)
       tabs.push({
         id: "roles",
-        label: "Roles & Permissions",
+        label: "Roles & Access Rules",
         icon: <Shield size={18} />,
       });
     if (canReadTeams.allowed)
@@ -176,11 +153,11 @@ export const AuthSettingsPage: React.FC = () => {
         roles: string[];
       })[];
       const rolesData = await authClient.getRoles();
-      const permissionsData = await authClient.getPermissions();
+      const accessRulesData = await authClient.getAccessRules();
       const strategiesData = await authClient.getStrategies();
       setUsers(usersData);
       setRoles(rolesData);
-      setPermissions(permissionsData);
+      setAccessRuleEntries(accessRulesData);
       setStrategies(strategiesData);
     } catch (error: unknown) {
       const message =
@@ -204,7 +181,7 @@ export const AuthSettingsPage: React.FC = () => {
   return (
     <PageLayout
       title="Authentication Settings"
-      loading={permissionsLoading}
+      loading={accessRulesLoading}
       allowed={isAllowed}
     >
       <Tabs
@@ -235,7 +212,7 @@ export const AuthSettingsPage: React.FC = () => {
       <TabPanel id="roles" activeTab={activeTab}>
         <RolesTab
           roles={roles}
-          permissions={permissions}
+          accessRulesList={accessRuleEntries}
           userRoleIds={currentUserRoleIds}
           canReadRoles={canReadRoles.allowed}
           canCreateRoles={canCreateRoles.allowed}

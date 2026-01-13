@@ -2,25 +2,19 @@ import { useNavigate } from "react-router-dom";
 import { FileCode2 } from "lucide-react";
 import { DropdownMenuItem } from "@checkstack/ui";
 import type { UserMenuItemsContext } from "@checkstack/frontend-api";
-import { resolveRoute, qualifyPermissionId } from "@checkstack/common";
-import {
-  pluginMetadata,
-  permissions,
-} from "@checkstack/api-docs-common";
+import { resolveRoute } from "@checkstack/common";
+import { pluginMetadata, apiDocsAccess } from "@checkstack/api-docs-common";
 import { apiDocsRoutes } from "./index";
 import React from "react";
 
-const REQUIRED_PERMISSION = qualifyPermissionId(
-  pluginMetadata,
-  permissions.apiDocsView
-);
+const REQUIRED_ACCESS_RULE = `${pluginMetadata.pluginId}.${apiDocsAccess.view.id}`;
 
 export function ApiDocsMenuItem({
-  permissions: userPerms,
+  accessRules: userPerms,
 }: UserMenuItemsContext) {
   const navigate = useNavigate();
   const canView =
-    userPerms.includes("*") || userPerms.includes(REQUIRED_PERMISSION);
+    userPerms.includes("*") || userPerms.includes(REQUIRED_ACCESS_RULE);
 
   if (!canView) return <React.Fragment />;
 

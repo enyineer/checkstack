@@ -830,19 +830,19 @@ await queue.consume(async (job) => {
 });
 ```
 
-#### Pattern 2: Distributed Permission Sync
+#### Pattern 2: Distributed Access Sync
 
 ```typescript
 // Broadcast pattern - all instances must sync
-const queue = queueManager.getQueue<PermissionSyncData>('permission-sync');
+const queue = queueManager.getQueue<AccessRuleSyncData>('access-sync');
 
 await queue.consume(async (job) => {
   const { userId, roles } = job.data;
   
-  // Update local permission cache
-  await permissionCache.refresh(userId, roles);
+  // Update local access cache
+  await accessCache.refresh(userId, roles);
 }, {
-  consumerGroup: `permission-sync:${instanceId}`, // Unique per instance = broadcast
+  consumerGroup: `access-sync:${instanceId}`, // Unique per instance = broadcast
   maxRetries: 3,
 });
 

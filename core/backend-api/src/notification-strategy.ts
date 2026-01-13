@@ -366,10 +366,10 @@ export interface RegisteredNotificationStrategy<
   /** Plugin that registered this strategy */
   ownerPluginId: string;
   /**
-   * Dynamically generated permission ID for this strategy.
+   * Dynamically generated access rule ID for this strategy.
    * Format: `{ownerPluginId}.strategy.{id}.use`
    */
-  permissionId: string;
+  accessRuleId: string;
 }
 
 /**
@@ -404,12 +404,12 @@ export interface NotificationStrategyRegistry {
   getStrategies(): RegisteredNotificationStrategy<unknown, unknown, unknown>[];
 
   /**
-   * Get all strategies that a user has permission to use.
+   * Get all strategies that a user has access to use.
    *
-   * @param userPermissions - Set of permission IDs the user has
+   * @param userAccessRules - Set of access rule IDs the user has
    */
   getStrategiesForUser(
-    userPermissions: Set<string>
+    userAccessRules: Set<string>
   ): RegisteredNotificationStrategy<unknown, unknown, unknown>[];
 }
 

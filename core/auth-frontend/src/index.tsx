@@ -1,8 +1,8 @@
 import React from "react";
 import {
   ApiRef,
-  permissionApiRef,
-  PermissionApi,
+  accessApiRef,
+  AccessApi,
   createFrontendPlugin,
   createSlotExtension,
   NavbarRightSlot,
@@ -22,71 +22,52 @@ import { ChangePasswordPage } from "./components/ChangePasswordPage";
 import { authApiRef, AuthApi, AuthSession } from "./api";
 import { getAuthClientLazy } from "./lib/auth-client";
 
-import { usePermissions } from "./hooks/usePermissions";
+import { useAccessRules } from "./hooks/useAccessRules";
 
-import { PermissionAction, qualifyPermissionId } from "@checkstack/common";
+import type { AccessRule } from "@checkstack/common";
 import { useNavigate } from "react-router-dom";
 import { Settings2, Key } from "lucide-react";
 import { DropdownMenuItem } from "@checkstack/ui";
 import { UserMenuItemsContext } from "@checkstack/frontend-api";
 import { AuthSettingsPage } from "./components/AuthSettingsPage";
 import {
-  permissions as authPermissions,
+  authAccess,
   authRoutes,
   pluginMetadata,
 } from "@checkstack/auth-common";
 import { resolveRoute } from "@checkstack/common";
 
-class AuthPermissionApi implements PermissionApi {
-  usePermission(permission: string): { loading: boolean; allowed: boolean } {
-    const { permissions, loading } = usePermissions();
+/**
+ * Unified access API implementation.
+ * Uses AccessRule objects for access checks.
+ */
+class AuthAccessApi implements AccessApi {
+  useAccess(accessRule: AccessRule): { loading: boolean; allowed: boolean } {
+    const { accessRules, loading } = useAccessRules();
 
     if (loading) {
       return { loading: true, allowed: false };
     }
 
-    // If no user, or user has no permissions, return false
-    if (!permissions || permissions.length === 0) {
+    // If no user, or user has no access rules, return false
+    if (!accessRules || accessRules.length === 0) {
       return { loading: false, allowed: false };
     }
-    const allowed =
-      permissions.includes("*") || permissions.includes(permission);
+
+    const accessRuleId = accessRule.id;
+
+    // Check wildcard, exact match, or manage implies read
+    const isWildcard = accessRules.includes("*");
+    const hasExact = accessRules.includes(accessRuleId);
+
+    // For read actions, also check if user has manage access for the same resource
+    const hasManage =
+      accessRule.level === "read"
+        ? accessRules.includes(`${accessRule.resource}.manage`)
+        : false;
+
+    const allowed = isWildcard || hasExact || hasManage;
     return { loading: false, allowed };
-  }
-
-  useResourcePermission(
-    resource: string,
-    action: PermissionAction
-  ): { loading: boolean; allowed: boolean } {
-    const { permissions, loading } = usePermissions();
-
-    if (loading) {
-      return { loading: true, allowed: false };
-    }
-
-    if (!permissions || permissions.length === 0) {
-      return { loading: false, allowed: false };
-    }
-
-    const isWildcard = permissions.includes("*");
-    const hasResourceManage = permissions.includes(`${resource}.manage`);
-    const hasSpecificPermission = permissions.includes(`${resource}.${action}`);
-
-    // manage implies read
-    const isAllowed =
-      isWildcard ||
-      hasResourceManage ||
-      (action === "read" && hasResourceManage) ||
-      hasSpecificPermission;
-
-    return { loading: false, allowed: isAllowed };
-  }
-
-  useManagePermission(resource: string): {
-    loading: boolean;
-    allowed: boolean;
-  } {
-    return this.useResourcePermission(resource, "manage");
   }
 }
 
@@ -180,8 +161,8 @@ export const authPlugin = createFrontendPlugin({
       factory: () => new BetterAuthApi(),
     },
     {
-      ref: permissionApiRef as ApiRef<unknown>,
-      factory: () => new AuthPermissionApi(),
+      ref: accessApiRef as ApiRef<unknown>,
+      factory: () => new AuthAccessApi(),
     },
   ],
   routes: [
@@ -222,12 +203,9 @@ export const authPlugin = createFrontendPlugin({
     },
     createSlotExtension(UserMenuItemsSlot, {
       id: "auth.user-menu.settings",
-      component: ({ permissions: userPerms }: UserMenuItemsContext) => {
+      component: ({ accessRules: userPerms }: UserMenuItemsContext) => {
         const navigate = useNavigate();
-        const qualifiedId = qualifyPermissionId(
-          pluginMetadata,
-          authPermissions.strategiesManage
-        );
+        const qualifiedId = `${pluginMetadata.pluginId}.${authAccess.strategies.id}`;
         const canManage =
           userPerms.includes("*") || userPerms.includes(qualifiedId);
 

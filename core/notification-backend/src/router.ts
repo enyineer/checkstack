@@ -85,8 +85,8 @@ function resolveContact({
 /**
  * Creates the notification router using contract-based implementation.
  *
- * Auth and permissions are automatically enforced via autoAuthMiddleware
- * based on the contract's meta.userType and meta.permissions.
+ * Auth and access rules are automatically enforced via autoAuthMiddleware
+ * based on the contract's meta.userType and meta.access.
  */
 export const createNotificationRouter = (
   database: NodePgDatabase<typeof schema>,
@@ -260,7 +260,7 @@ export const createNotificationRouter = (
   return os.router({
     // ==========================================================================
     // USER NOTIFICATION ENDPOINTS
-    // Contract meta: userType: "user", permissions: [notificationRead]
+    // Contract meta: userType: "user", accessRules: [notificationRead]
     // ==========================================================================
 
     getNotifications: os.getNotifications.handler(
@@ -364,7 +364,7 @@ export const createNotificationRouter = (
 
     // ==========================================================================
     // ADMIN SETTINGS ENDPOINTS
-    // Contract meta: userType: "user", permissions: [notificationAdmin]
+    // Contract meta: userType: "user", accessRules: [notificationAdmin]
     // ==========================================================================
 
     getRetentionSchema: os.getRetentionSchema.handler(() => {

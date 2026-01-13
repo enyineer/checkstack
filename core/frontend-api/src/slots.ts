@@ -44,10 +44,10 @@ export const NavbarRightSlot = createSlot("core.layout.navbar.right");
 
 /**
  * Context for user menu item slots.
- * Provides the user's permissions array and authentication info for synchronous checks.
+ * Provides the user's access rules array and authentication info for synchronous checks.
  */
 export interface UserMenuItemsContext {
-  permissions: string[];
+  accessRules: string[];
   hasCredentialAccount: boolean;
 }
 

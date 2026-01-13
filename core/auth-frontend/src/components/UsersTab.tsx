@@ -130,7 +130,7 @@ export const UsersTab: React.FC<UsersTabProps> = ({
             <AlertDescription>
               You cannot modify roles for your own account. This security
               measure prevents accidental self-lockout from the system and
-              permission elevation.
+              access elevation.
             </AlertDescription>
           </Alert>
           {canReadUsers ? (
@@ -210,7 +210,7 @@ export const UsersTab: React.FC<UsersTabProps> = ({
             )
           ) : (
             <p className="text-muted-foreground">
-              You don't have permission to list users.
+              You don't have access to list users.
             </p>
           )}
         </CardContent>

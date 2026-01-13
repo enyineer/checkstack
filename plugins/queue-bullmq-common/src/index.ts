@@ -1,16 +1,1 @@
-import { createPermission, Permission } from "@checkstack/common";
-
-export const permissions = {
-  queueRead: createPermission(
-    "queue-bullmq",
-    "read",
-    "View queue configuration and statistics"
-  ),
-  queueWrite: createPermission(
-    "queue-bullmq",
-    "manage",
-    "Modify queue configuration"
-  ),
-};
-
-export const permissionList: Permission[] = Object.values(permissions);
+export { queueBullmqAccess, queueBullmqAccessRules } from "./access";

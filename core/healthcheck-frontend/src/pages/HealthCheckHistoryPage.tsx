@@ -1,7 +1,7 @@
 import {
   useApi,
   wrapInSuspense,
-  permissionApiRef,
+  accessApiRef,
 } from "@checkstack/frontend-api";
 import { healthCheckApiRef } from "../api";
 import {
@@ -16,12 +16,13 @@ import {
   HealthCheckRunsTable,
   type HealthCheckRunDetailed,
 } from "../components/HealthCheckRunsTable";
+import { healthCheckAccess } from "@checkstack/healthcheck-common";
 
 const HealthCheckHistoryPageContent = () => {
   const api = useApi(healthCheckApiRef);
-  const permissionApi = useApi(permissionApiRef);
-  const { allowed: canManage, loading: permissionLoading } =
-    permissionApi.useResourcePermission("healthcheck", "manage");
+  const accessApi = useApi(accessApiRef);
+  const { allowed: canManage, loading: accessLoading } =
+    accessApi.useAccess(healthCheckAccess.configuration.manage);
 
   const {
     items: runs,
@@ -42,7 +43,7 @@ const HealthCheckHistoryPageContent = () => {
     <PageLayout
       title="Health Check History"
       subtitle="Detailed run history with full result data"
-      loading={permissionLoading}
+      loading={accessLoading}
       allowed={canManage}
     >
       <Card>

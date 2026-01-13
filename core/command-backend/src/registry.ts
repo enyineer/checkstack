@@ -1,8 +1,8 @@
 import type { SearchResult } from "@checkstack/command-common";
 import {
-  qualifyPermissionId,
+  qualifyAccessRuleId,
   type PluginMetadata,
-  type Permission,
+  type AccessRule,
   type LucideIconName,
 } from "@checkstack/common";
 
@@ -14,13 +14,13 @@ import {
  * Context provided to search providers during search operations.
  */
 export interface SearchContext {
-  /** The user's permission IDs for filtering results */
-  userPermissions: string[];
+  /** The user's access rule IDs for filtering results */
+  userAccessRules: string[];
 }
 
 /**
  * A command definition for simple registration.
- * Permissions will be automatically qualified using the plugin's metadata.
+ * Access rules will be automatically qualified using the plugin's metadata.
  */
 export interface CommandDefinition {
   /** Unique command ID (will be prefixed with plugin ID) */
@@ -33,8 +33,8 @@ export interface CommandDefinition {
   shortcuts?: string[];
   /** Route to navigate to when executed */
   route: string;
-  /** Permissions required (will be auto-qualified with plugin ID) */
-  requiredPermissions?: Permission[];
+  /** Access rules required (will be auto-qualified with plugin ID) */
+  requiredAccessRules?: AccessRule[];
 }
 
 /**
@@ -49,7 +49,7 @@ export interface BackendSearchProvider {
   priority?: number;
   /**
    * Search function that returns results matching the query.
-   * Results should NOT be pre-filtered by permissions - the registry handles that.
+   * Results should NOT be pre-filtered by access rules - the registry handles that.
    */
   search: (
     query: string,
@@ -61,13 +61,13 @@ export interface BackendSearchProvider {
  * Options for registering a search provider.
  */
 export interface RegisterSearchProviderOptions {
-  /** The plugin's metadata - used to qualify permission IDs */
+  /** The plugin's metadata - used to qualify access rule IDs */
   pluginMetadata: PluginMetadata;
 
   /**
    * Simple command definitions. These will be automatically:
    * - Converted to a search provider
-   * - Have permissions qualified with pluginId
+   * - Have access rules qualified with pluginId
    * - Be searchable by title, subtitle, and category
    */
   commands?: CommandDefinition[];
@@ -75,7 +75,7 @@ export interface RegisterSearchProviderOptions {
   /**
    * Custom search provider for more complex search logic.
    * Use this for entity search (e.g., catalog systems).
-   * Permissions in returned results will be auto-qualified.
+   * Access rules in returned results will be auto-qualified.
    */
   provider?: Omit<BackendSearchProvider, "id"> & {
     /** Provider ID (will be prefixed with plugin ID) */
@@ -93,7 +93,7 @@ const searchProviders = new Map<string, BackendSearchProvider>();
  * Register a search provider with the command palette.
  *
  * This is the main API for plugins to contribute to command palette search.
- * Permissions are automatically qualified with the plugin's ID.
+ * Access rules are automatically qualified with the plugin's ID.
  *
  * @example Simple command registration:
  * ```ts
@@ -107,7 +107,7 @@ const searchProviders = new Map<string, BackendSearchProvider>();
  *       iconName: "AlertCircle",
  *       shortcuts: ["meta+shift+i", "ctrl+shift+i"],
  *       route: "/incidents?action=create",
- *       requiredPermissions: [permissions.incidentManage],
+ *       requiredAccessRules: [access.incidentManage],
  *     },
  *   ],
  * });
@@ -146,7 +146,7 @@ export function registerSearchProvider(
     searchProviders.set(commandProvider.id, commandProvider);
   }
 
-  // Register custom provider with auto-qualified permissions
+  // Register custom provider with auto-qualified access rules
   if (provider) {
     const qualifiedProvider = createQualifiedProvider(pluginMetadata, provider);
     searchProviders.set(qualifiedProvider.id, qualifiedProvider);
@@ -160,7 +160,7 @@ function createCommandProvider(
   pluginMetadata: PluginMetadata,
   commands: CommandDefinition[]
 ): BackendSearchProvider {
-  // Pre-qualify all permissions and build SearchResult objects
+  // Pre-qualify all access rules and build SearchResult objects
   const searchableCommands: SearchResult[] = commands.map((cmd) => ({
     id: `${pluginMetadata.pluginId}.${cmd.id}`,
     type: "command" as const,
@@ -170,8 +170,8 @@ function createCommandProvider(
     category: capitalize(pluginMetadata.pluginId),
     shortcuts: cmd.shortcuts,
     route: cmd.route,
-    requiredPermissions: cmd.requiredPermissions?.map((perm) =>
-      qualifyPermissionId(pluginMetadata, perm)
+    requiredAccessRules: cmd.requiredAccessRules?.map((rule) =>
+      qualifyAccessRuleId(pluginMetadata, rule)
     ),
   }));
 
@@ -197,7 +197,7 @@ function createCommandProvider(
 }
 
 /**
- * Wrap a custom provider to auto-qualify permissions in results.
+ * Wrap a custom provider to auto-qualify access rules in results.
  */
 function createQualifiedProvider(
   pluginMetadata: PluginMetadata,
@@ -209,17 +209,17 @@ function createQualifiedProvider(
     search: async (query, context) => {
       const results = await provider.search(query, context);
 
-      // Auto-qualify permission IDs in results
+      // Auto-qualify access rule IDs in results
       return results.map((result) => ({
         ...result,
         id: result.id.includes(".")
           ? result.id
           : `${pluginMetadata.pluginId}.${result.id}`,
-        requiredPermissions: result.requiredPermissions?.map((permId) =>
+        requiredAccessRules: result.requiredAccessRules?.map((ruleId) =>
           // If already qualified (contains the plugin ID prefix), leave it
-          permId.startsWith(`${pluginMetadata.pluginId}.`)
-            ? permId
-            : `${pluginMetadata.pluginId}.${permId}`
+          ruleId.startsWith(`${pluginMetadata.pluginId}.`)
+            ? ruleId
+            : `${pluginMetadata.pluginId}.${ruleId}`
         ),
       }));
     },

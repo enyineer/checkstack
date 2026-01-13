@@ -10,7 +10,7 @@ import {
   maintenanceRoutes,
   MaintenanceApi,
   pluginMetadata,
-  permissions,
+  maintenanceAccess,
 } from "@checkstack/maintenance-common";
 import {
   SystemDetailsTopSlot,
@@ -30,7 +30,7 @@ export default createFrontendPlugin({
       route: maintenanceRoutes.routes.config,
       element: <MaintenanceConfigPage />,
       title: "Maintenances",
-      permission: permissions.maintenanceManage,
+      accessRule: maintenanceAccess.maintenance.manage,
     },
     {
       route: maintenanceRoutes.routes.systemHistory,

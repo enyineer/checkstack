@@ -3,13 +3,10 @@ import { ShieldAlert } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "./Card";
 import { cn } from "../utils";
 
-export const PermissionDenied: React.FC<{
+export const AccessDenied: React.FC<{
   message?: string;
   className?: string;
-}> = ({
-  message = "You do not have permission to view this page.",
-  className,
-}) => {
+}> = ({ message = "You do not have access to this page.", className }) => {
   return (
     <div
       className={cn(

@@ -4,7 +4,7 @@ import type { SlotDefinition } from "./slots";
 import type {
   RouteDefinition,
   PluginMetadata,
-  Permission,
+  AccessRule,
 } from "@checkstack/common";
 
 /**
@@ -51,8 +51,8 @@ export interface PluginRoute {
   /** Page title */
   title?: string;
 
-  /** Permission required to access this route (use permission object from common package) */
-  permission?: Permission;
+  /** Access rule required to access this route (use access object from common package) */
+  accessRule?: AccessRule;
 }
 
 /**

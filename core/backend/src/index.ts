@@ -25,9 +25,8 @@ import {
 import { createPluginAdminRouter } from "./plugin-manager/plugin-admin-router";
 import {
   pluginMetadata as apiDocsMetadata,
-  permissions as apiDocsPermissions,
+  apiDocsAccess,
 } from "@checkstack/api-docs-common";
-import { qualifyPermissionId } from "@checkstack/common";
 
 import { cors } from "hono/cors";
 
@@ -241,10 +240,7 @@ const init = async () => {
       pluginManager,
       authService,
       baseUrl,
-      requiredPermission: qualifyPermissionId(
-        apiDocsMetadata,
-        apiDocsPermissions.apiDocsView
-      ),
+      requiredAccessRule: `${apiDocsMetadata.pluginId}.${apiDocsAccess.view.id}`,
     });
     app.get("/api/openapi.json", async (c) => {
       const response = await openApiHandler(c.req.raw);
@@ -260,7 +256,7 @@ const init = async () => {
   // 3. Load Plugins
   await pluginManager.loadPlugins(app);
 
-  // 4. Wire up auth client for permission-based signal filtering
+  // 4. Wire up auth client for access-based signal filtering
   // This must happen AFTER plugins load so auth-backend is available
   const rpcClient = await pluginManager.getService(coreServices.rpcClient);
   if (rpcClient) {
@@ -268,7 +264,7 @@ const init = async () => {
     const authClient = rpcClient.forPlugin(AuthApi);
     signalService.setAuthClient(authClient);
     rootLogger.debug(
-      "SignalService: Auth client configured for permission filtering"
+      "SignalService: Auth client configured for access filtering"
     );
   } else {
     rootLogger.warn(

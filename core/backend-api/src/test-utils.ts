@@ -34,7 +34,7 @@ export function createMockRpcContext(
     auth: {
       authenticate: mock(),
       getCredentials: mock().mockResolvedValue({ headers: {} }),
-      getAnonymousPermissions: mock().mockResolvedValue([]),
+      getAnonymousAccessRules: mock().mockResolvedValue([]),
       checkResourceTeamAccess: mock().mockResolvedValue({ hasAccess: true }),
       getAccessibleResourceIds: mock().mockImplementation(
         (params: { resourceIds: string[] }) =>

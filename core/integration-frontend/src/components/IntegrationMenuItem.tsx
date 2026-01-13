@@ -2,22 +2,19 @@ import { useNavigate } from "react-router-dom";
 import { Webhook } from "lucide-react";
 import { DropdownMenuItem } from "@checkstack/ui";
 import type { UserMenuItemsContext } from "@checkstack/frontend-api";
-import { qualifyPermissionId, resolveRoute } from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import {
   integrationRoutes,
-  permissions,
+  integrationAccess,
   pluginMetadata,
 } from "@checkstack/integration-common";
 import React from "react";
 
 export const IntegrationMenuItem = ({
-  permissions: userPerms,
+  accessRules: userPerms,
 }: UserMenuItemsContext) => {
   const navigate = useNavigate();
-  const qualifiedId = qualifyPermissionId(
-    pluginMetadata,
-    permissions.integrationManage
-  );
+  const qualifiedId = `${pluginMetadata.pluginId}.${integrationAccess.manage.id}`;
   const allowed = userPerms.includes("*") || userPerms.includes(qualifiedId);
 
   if (!allowed) {

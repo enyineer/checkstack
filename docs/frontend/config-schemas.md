@@ -49,7 +49,7 @@ const os = implement(myPluginContract)
 
 export const createMyPluginRouter = () => {
   return os.router({
-    // Auth and permissions auto-enforced from contract meta
+    // Auth and access rules auto-enforced from contract meta
     getPlugins: os.getPlugins.handler(async ({ context }) => {
       const plugins = context.myPluginRegistry.getPlugins().map((p) => ({
         id: p.id,

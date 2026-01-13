@@ -4,7 +4,7 @@ import {
   PageHeader,
   PageContent,
   LoadingSpinner,
-  PermissionDenied,
+  AccessDenied,
 } from "..";
 
 interface PageLayoutProps {
@@ -39,7 +39,7 @@ export const PageLayout: React.FC<PageLayoutProps> = ({
 }) => {
   // If loading is explicitly true, show loading state
   // If loading is undefined and allowed is false, also show loading state
-  // (this prevents "Access Denied" flash when permissions are still being fetched)
+  // (this prevents "Access Denied" flash when access rules are still being fetched)
   const isLoading =
     loading === true || (loading === undefined && allowed === false);
 
@@ -56,13 +56,13 @@ export const PageLayout: React.FC<PageLayoutProps> = ({
     );
   }
 
-  // Only show permission denied when loading is explicitly false and allowed is false
+  // Only show access denied when loading is explicitly false and allowed is false
   if (allowed === false) {
     return (
       <Page>
         <PageHeader title={title} subtitle={subtitle} actions={actions} />
         <PageContent>
-          <PermissionDenied />
+          <AccessDenied />
         </PageContent>
       </Page>
     );

@@ -19,11 +19,11 @@ describe("RPC REST Compatibility", () => {
     app = new Hono();
   });
 
-  it("should handle GET /api/auth/permissions via oRPC router", async () => {
+  it("should handle GET /api/auth/accessRules via oRPC router", async () => {
     // 1. Setup a mock auth router
     const authRouter = os.router({
-      permissions: os.handler(async () => {
-        return { permissions: ["test-perm"] };
+      accessRules: os.handler(async () => {
+        return { accessRules: ["test-perm"] };
       }),
     });
 
@@ -33,11 +33,11 @@ describe("RPC REST Compatibility", () => {
     // The new API auto-prefixes based on pluginId, but for test we need to manually set the map key
     // Since we're testing the router handler directly, we use the derived name "auth"
     // Second argument is the contract (for OpenAPI generation) - using a mock object for test
-    rpcService?.registerRouter(authRouter, { permissions: {} });
+    rpcService?.registerRouter(authRouter, { accessRules: {} });
 
     // 3. Mock the auth service to skip real authentication
     const mockAuth: any = {
-      authenticate: mock(async () => ({ id: "user-1", permissions: ["*"] })),
+      authenticate: mock(async () => ({ id: "user-1", accessRules: ["*"] })),
     };
     pluginManager.registerService(coreServices.auth, mockAuth);
 
@@ -63,7 +63,7 @@ describe("RPC REST Compatibility", () => {
     await pluginManager.loadPlugins(app);
 
     // 5. Simulate the request that frontend makes (now /api/auth instead of /api/auth-backend)
-    const res = await app.request("/api/auth/permissions", {
+    const res = await app.request("/api/auth/accessRules", {
       method: "GET",
     });
 
@@ -72,7 +72,7 @@ describe("RPC REST Compatibility", () => {
     if (res.status === 200) {
       const body = await res.json();
       console.log("Response body:", JSON.stringify(body));
-      expect(body.permissions).toContain("test-perm");
+      expect(body.accessRules).toContain("test-perm");
     } else {
       console.log("Response text:", await res.text());
     }

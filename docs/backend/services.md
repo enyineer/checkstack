@@ -78,7 +78,7 @@ import { pluginMetadata } from "./plugin-metadata";
 
 export const authContract = {
   getRegistrationStatus: oc
-    .meta({ permissions: [] }) // Public endpoint
+    .meta({ access: [] }) // Public endpoint
     .output(z.object({ 
       allowRegistration: z.boolean().describe(
         "When enabled, new users can create accounts. When disabled, only existing users can sign in."
@@ -86,7 +86,7 @@ export const authContract = {
     })),
     
   setRegistrationStatus: oc
-    .meta({ permissions: ["registration.manage"] })
+    .meta({ access: [access.registrationManage] })
     .input(z.object({ 
       allowRegistration: z.boolean() 
     }))
@@ -275,7 +275,7 @@ Service-to-service calls are automatically authenticated with **service tokens**
 
 1. Each plugin receives a scoped `rpcClient` via dependency injection
 2. The client automatically includes service tokens in all requests
-3. Service tokens grant full permissions (`*`) to bypass authorization
+3. Service tokens grant full access (`*`) to bypass authorization
 4. Target plugin sees the request as coming from a trusted service
 
 You don't need to handle authentication manually - it's automatic!

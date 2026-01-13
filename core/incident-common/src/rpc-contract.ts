@@ -2,10 +2,9 @@ import { oc } from "@orpc/contract";
 import { z } from "zod";
 import {
   createClientDefinition,
-  createResourceAccessList,
   type ProcedureMetadata,
 } from "@checkstack/common";
-import { permissions } from "./permissions";
+import { incidentAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
 import {
   IncidentWithSystemsSchema,
@@ -19,16 +18,12 @@ import {
 
 const _base = oc.$meta<ProcedureMetadata>({});
 
-// Resource access configurations for team-based access control
-const incidentListAccess = createResourceAccessList("incident", "incidents");
-
 export const incidentContract = {
   /** List all incidents with optional filters */
   listIncidents: _base
     .meta({
       userType: "public",
-      permissions: [permissions.incidentRead.id],
-      resourceAccess: [incidentListAccess],
+      access: [incidentAccess.incident.read],
     })
     .input(
       z
@@ -45,7 +40,7 @@ export const incidentContract = {
   getIncident: _base
     .meta({
       userType: "public",
-      permissions: [permissions.incidentRead.id],
+      access: [incidentAccess.incident.read],
     })
     .input(z.object({ id: z.string() }))
     .output(IncidentDetailSchema.nullable()),
@@ -54,7 +49,7 @@ export const incidentContract = {
   getIncidentsForSystem: _base
     .meta({
       userType: "public",
-      permissions: [permissions.incidentRead.id],
+      access: [incidentAccess.incident.read],
     })
     .input(z.object({ systemId: z.string() }))
     .output(z.array(IncidentWithSystemsSchema)),
@@ -63,7 +58,7 @@ export const incidentContract = {
   createIncident: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.incidentManage.id],
+      access: [incidentAccess.incident.manage],
     })
     .input(CreateIncidentInputSchema)
     .output(IncidentWithSystemsSchema),
@@ -72,7 +67,7 @@ export const incidentContract = {
   updateIncident: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.incidentManage.id],
+      access: [incidentAccess.incident.manage],
     })
     .input(UpdateIncidentInputSchema)
     .output(IncidentWithSystemsSchema),
@@ -81,7 +76,7 @@ export const incidentContract = {
   addUpdate: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.incidentManage.id],
+      access: [incidentAccess.incident.manage],
     })
     .input(AddIncidentUpdateInputSchema)
     .output(IncidentUpdateSchema),
@@ -90,7 +85,7 @@ export const incidentContract = {
   resolveIncident: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.incidentManage.id],
+      access: [incidentAccess.incident.manage],
     })
     .input(z.object({ id: z.string(), message: z.string().optional() }))
     .output(IncidentWithSystemsSchema),
@@ -99,7 +94,7 @@ export const incidentContract = {
   deleteIncident: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.incidentManage.id],
+      access: [incidentAccess.incident.manage],
     })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),

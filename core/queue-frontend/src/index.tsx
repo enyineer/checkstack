@@ -12,7 +12,7 @@ import {
   queueRoutes,
   QueueApi,
   pluginMetadata,
-  permissions,
+  queueAccess,
 } from "@checkstack/queue-common";
 
 export const queuePlugin = createFrontendPlugin({
@@ -30,7 +30,7 @@ export const queuePlugin = createFrontendPlugin({
     {
       route: queueRoutes.routes.config,
       element: <QueueConfigPage />,
-      permission: permissions.queueRead,
+      accessRule: queueAccess.settings.read,
     },
   ],
   extensions: [

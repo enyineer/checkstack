@@ -8,11 +8,15 @@ import {
   type NotificationStrategyRegistry,
 } from "@checkstack/backend-api";
 import {
-  permissionList,
+  notificationAccessRules,
   pluginMetadata,
   notificationContract,
 } from "@checkstack/notification-common";
-import type { PluginMetadata } from "@checkstack/common";
+import {
+  access,
+  type PluginMetadata,
+  type AccessRule,
+} from "@checkstack/common";
 import { eq } from "drizzle-orm";
 
 import * as schema from "./schema";
@@ -49,9 +53,8 @@ export const notificationStrategyExtensionPoint =
  * Create a new notification strategy registry instance.
  */
 function createNotificationStrategyRegistry(): NotificationStrategyRegistry & {
-  getNewPermissions: () => Array<{
-    id: string;
-    description: string;
+  getNewAccessRules: () => Array<{
+    accessRule: AccessRule;
     ownerPluginId: string;
   }>;
 } {
@@ -59,9 +62,8 @@ function createNotificationStrategyRegistry(): NotificationStrategyRegistry & {
     string,
     RegisteredNotificationStrategy<unknown, unknown, unknown>
   >();
-  const newPermissions: Array<{
-    id: string;
-    description: string;
+  const newAccessRules: Array<{
+    accessRule: AccessRule;
     ownerPluginId: string;
   }> = [];
 
@@ -71,7 +73,7 @@ function createNotificationStrategyRegistry(): NotificationStrategyRegistry & {
       metadata: PluginMetadata
     ): void {
       const qualifiedId = `${metadata.pluginId}.${strategy.id}`;
-      const permissionId = `${metadata.pluginId}.strategy.${strategy.id}.use`;
+      const accessRuleId = `${metadata.pluginId}.strategy.${strategy.id}.use`;
 
       // Cast to unknown for storage - registry stores heterogeneous strategies
       const registered: RegisteredNotificationStrategy<
@@ -82,15 +84,18 @@ function createNotificationStrategyRegistry(): NotificationStrategyRegistry & {
         ...(strategy as NotificationStrategy<unknown, unknown, unknown>),
         qualifiedId,
         ownerPluginId: metadata.pluginId,
-        permissionId,
+        accessRuleId,
       };
 
       strategies.set(qualifiedId, registered);
 
-      // Track new permission for later registration
-      newPermissions.push({
-        id: permissionId,
-        description: `Use ${strategy.displayName} notification channel`,
+      // Track new access rule for later registration
+      newAccessRules.push({
+        accessRule: access(
+          `strategy.${strategy.id}`,
+          "manage",
+          `Use ${strategy.displayName} notification channel`
+        ),
         ownerPluginId: metadata.pluginId,
       });
     },
@@ -110,15 +115,15 @@ function createNotificationStrategyRegistry(): NotificationStrategyRegistry & {
     },
 
     getStrategiesForUser(
-      userPermissions: Set<string>
+      userAccessRules: Set<string>
     ): RegisteredNotificationStrategy<unknown, unknown, unknown>[] {
       return [...strategies.values()].filter((s) =>
-        userPermissions.has(s.permissionId)
+        userAccessRules.has(s.accessRuleId)
       );
     },
 
-    getNewPermissions() {
-      return newPermissions;
+    getNewAccessRules() {
+      return newAccessRules;
     },
   };
 }
@@ -134,8 +139,8 @@ export default createBackendPlugin({
     // Create the strategy registry
     const strategyRegistry = createNotificationStrategyRegistry();
 
-    // Register static permissions
-    env.registerPermissions(permissionList);
+    // Register static access rules
+    env.registerAccessRules(notificationAccessRules);
 
     // Register the extension point
     env.registerExtensionPoint(notificationStrategyExtensionPoint, {
@@ -214,32 +219,26 @@ export default createBackendPlugin({
             .join(", ")}`
         );
 
-        // Emit dynamic permissions for strategies
-        const newPermissions = strategyRegistry.getNewPermissions();
-        if (newPermissions.length > 0) {
+        // Emit dynamic access rules for strategies
+        const newAccessRules = strategyRegistry.getNewAccessRules();
+        if (newAccessRules.length > 0) {
           logger.debug(
-            `🔐 Registering ${newPermissions.length} dynamic strategy permissions`
+            `🔐 Registering ${newAccessRules.length} dynamic strategy access rules`
           );
 
-          // Group permissions by owner plugin and emit hooks
-          const byPlugin = new Map<
-            string,
-            Array<{ id: string; description: string }>
-          >();
-          for (const perm of newPermissions) {
-            const existing = byPlugin.get(perm.ownerPluginId) ?? [];
-            existing.push({ id: perm.id, description: perm.description });
-            byPlugin.set(perm.ownerPluginId, existing);
+          // Group access rules by owner plugin and emit hooks
+          const byPlugin = new Map<string, AccessRule[]>();
+          for (const item of newAccessRules) {
+            const existing = byPlugin.get(item.ownerPluginId) ?? [];
+            existing.push(item.accessRule);
+            byPlugin.set(item.ownerPluginId, existing);
           }
 
-          // Emit permissions registered hook for each plugin's permissions
-          for (const [ownerPluginId, permissions] of byPlugin) {
-            await emitHook(coreHooks.permissionsRegistered, {
+          // Emit access rules registered hook for each plugin's rules
+          for (const [ownerPluginId, accessRules] of byPlugin) {
+            await emitHook(coreHooks.accessRulesRegistered, {
               pluginId: ownerPluginId,
-              permissions: permissions.map((p) => ({
-                id: p.id,
-                description: p.description,
-              })),
+              accessRules,
             });
           }
         }

@@ -272,7 +272,7 @@ export const DEFAULT_RETENTION_CONFIG: RetentionConfig = {
 /**
  * Base schema for aggregated health check data buckets.
  * Contains core metrics only (no strategy-specific data).
- * Used by getAggregatedHistory endpoint (healthCheckStatusRead permission).
+ * Used by getAggregatedHistory endpoint (healthCheckStatusRead access).
  */
 export const AggregatedBucketBaseSchema = z.object({
   bucketStart: z.date(),
@@ -292,7 +292,7 @@ export type AggregatedBucketBase = z.infer<typeof AggregatedBucketBaseSchema>;
 
 /**
  * Extended schema with strategy-specific aggregated result.
- * Used by getDetailedAggregatedHistory endpoint (healthCheckDetailsRead permission).
+ * Used by getDetailedAggregatedHistory endpoint (healthCheckDetailsRead access).
  */
 export const AggregatedBucketSchema = AggregatedBucketBaseSchema.extend({
   aggregatedResult: z.record(z.string(), z.unknown()).optional(),

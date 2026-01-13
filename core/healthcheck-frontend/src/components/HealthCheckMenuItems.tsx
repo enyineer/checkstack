@@ -3,20 +3,17 @@ import { Link } from "react-router-dom";
 import { Activity } from "lucide-react";
 import type { UserMenuItemsContext } from "@checkstack/frontend-api";
 import { DropdownMenuItem } from "@checkstack/ui";
-import { qualifyPermissionId, resolveRoute } from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import {
   healthcheckRoutes,
-  permissions,
+  healthCheckAccess,
   pluginMetadata,
 } from "@checkstack/healthcheck-common";
 
 export const HealthCheckMenuItems = ({
-  permissions: userPerms,
+  accessRules: userPerms,
 }: UserMenuItemsContext) => {
-  const qualifiedId = qualifyPermissionId(
-    pluginMetadata,
-    permissions.healthCheckRead
-  );
+  const qualifiedId = `${pluginMetadata.pluginId}.${healthCheckAccess.configuration.read.id}`;
   const canRead = userPerms.includes("*") || userPerms.includes(qualifiedId);
 
   if (!canRead) {

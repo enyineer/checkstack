@@ -18,7 +18,7 @@ import {
   HookSubscribeOptions,
   RpcContext,
 } from "@checkstack/backend-api";
-import type { Permission } from "@checkstack/common";
+import type { AccessRule } from "@checkstack/common";
 import { getPluginSchemaName } from "@checkstack/drizzle-helper";
 import { rootLogger } from "../logger";
 import type { ServiceRegistry } from "../services/service-registry";
@@ -41,8 +41,8 @@ export interface PluginLoaderDeps {
   pluginRpcRouters: Map<string, unknown>;
   pluginHttpHandlers: Map<string, (req: Request) => Promise<Response>>;
   extensionPointManager: ExtensionPointManager;
-  registeredPermissions: (Permission & { pluginId: string })[];
-  getAllPermissions: () => Permission[];
+  registeredAccessRules: (AccessRule & { pluginId: string })[];
+  getAllAccessRules: () => AccessRule[];
   db: NodePgDatabase<Record<string, unknown>>;
   /**
    * Map of pluginId -> PluginMetadata for request-time context injection.
@@ -121,18 +121,16 @@ export function registerPlugin({
     getExtensionPoint: (ref) => {
       return deps.extensionPointManager.getExtensionPoint(ref);
     },
-    registerPermissions: (permissions: Permission[]) => {
-      // Store permissions with pluginId prefix to namespace them
-      const prefixed = permissions.map((p) => ({
+    registerAccessRules: (accessRules: AccessRule[]) => {
+      // Store access rules with pluginId prefix to namespace them
+      const prefixed = accessRules.map((rule) => ({
+        ...rule,
         pluginId: pluginId,
-        id: `${pluginId}.${p.id}`,
-        description: p.description,
-        isAuthenticatedDefault: p.isAuthenticatedDefault,
-        isPublicDefault: p.isPublicDefault,
+        id: `${pluginId}.${rule.id}`,
       }));
-      deps.registeredPermissions.push(...prefixed);
+      deps.registeredAccessRules.push(...prefixed);
       rootLogger.debug(
-        `   -> Registered ${prefixed.length} permissions for ${pluginId}`
+        `   -> Registered ${prefixed.length} access rules for ${pluginId}`
       );
     },
     registerRouter: (
@@ -150,7 +148,7 @@ export function registerPlugin({
       rootLogger.debug(`   -> Registered cleanup handler for ${pluginId}`);
     },
     pluginManager: {
-      getAllPermissions: () => deps.getAllPermissions(),
+      getAllAccessRules: () => deps.getAllAccessRules(),
     },
   });
 }
@@ -374,29 +372,24 @@ export async function loadPlugins({
   // Phase 3: Run afterPluginsReady callbacks
   rootLogger.debug("🔄 Running afterPluginsReady callbacks...");
 
-  // Emit permission registration hooks at start of Phase 3
+  // Emit access rule registration hooks at start of Phase 3
   // (EventBus already retrieved above, all plugins can receive notifications)
-  const permissionsByPlugin = new Map<string, Permission[]>();
-  for (const perm of deps.registeredPermissions) {
-    if (!permissionsByPlugin.has(perm.pluginId)) {
-      permissionsByPlugin.set(perm.pluginId, []);
+  const accessRulesByPlugin = new Map<string, AccessRule[]>();
+  for (const { pluginId, ...rule } of deps.registeredAccessRules) {
+    if (!accessRulesByPlugin.has(pluginId)) {
+      accessRulesByPlugin.set(pluginId, []);
     }
-    permissionsByPlugin.get(perm.pluginId)!.push({
-      id: perm.id,
-      description: perm.description,
-      isAuthenticatedDefault: perm.isAuthenticatedDefault,
-      isPublicDefault: perm.isPublicDefault,
-    });
+    accessRulesByPlugin.get(pluginId)!.push(rule);
   }
-  for (const [pluginId, permissions] of permissionsByPlugin) {
+  for (const [pluginId, accessRules] of accessRulesByPlugin) {
     try {
-      await eventBus.emit(coreHooks.permissionsRegistered, {
+      await eventBus.emit(coreHooks.accessRulesRegistered, {
         pluginId,
-        permissions,
+        accessRules,
       });
     } catch (error) {
       rootLogger.error(
-        `Failed to emit permissionsRegistered hook for ${pluginId}:`,
+        `Failed to emit accessRulesRegistered hook for ${pluginId}:`,
         error
       );
     }

@@ -28,7 +28,7 @@ This will create a complete plugin structure with:
 - ✅ Package configuration with all required dependencies
 - ✅ TypeScript configuration
 - ✅ Drizzle database schema template
-- ✅ oRPC router with permission middleware
+- ✅ oRPC router with access middleware
 - ✅ Service layer with CRUD operations
 - ✅ Plugin registration
 - ✅ Initial changeset for version management
@@ -130,8 +130,8 @@ import { myFeatureContract } from "@checkstack/myfeature-common";
 
 /**
  * Create the router using contract-based implementation.
- * Auth and permissions are automatically enforced via autoAuthMiddleware
- * based on the contract's meta.userType and meta.permissions.
+ * Auth and access rules are automatically enforced via autoAuthMiddleware
+ * based on the contract's meta.userType and meta.access.
  */
 const os = implement(myFeatureContract)
   .$context<RpcContext>()
@@ -186,66 +186,66 @@ Creates a backend plugin with the specified configuration.
 
 The `register` function receives an environment object with these methods:
 
-#### `env.registerPermissions(permissions: Permission[])`
+#### `env.registerAccessRules(accessRules: AccessRule[])`
 
-Register permissions that this plugin provides.
+Register access rules that this plugin provides.
 
 ```typescript
-env.registerPermissions([
+env.registerAccessRules([
   { id: "item.read", description: "Read items", isDefault: true },
   { id: "item.manage", description: "Manage items" },
 ]);
 ```
 
-> **Note**: The core automatically prefixes permission IDs with the plugin ID.
+> **Note**: The core automatically prefixes access rule IDs with the plugin ID.
 > `item.read` becomes `myplugin.item.read`
 
-##### Permission Options
+##### Access Rule Options
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | `string` | Unique permission identifier (auto-prefixed with plugin ID) |
+| `id` | `string` | Unique access rule identifier (auto-prefixed with plugin ID) |
 | `description` | `string?` | Human-readable description |
-| `isDefault` | `boolean?` | If `true`, permission is auto-assigned to the "users" role |
+| `isDefault` | `boolean?` | If `true`, access rule is auto-assigned to the "users" role |
 
-##### Default Permissions and the "Users" Role
+##### Default Access Rules and the "Users" Role
 
-The platform has a built-in **"users"** system role that is automatically assigned to newly registered users. Permissions marked with `isDefault: true` are automatically synced to this role during backend startup.
+The platform has a built-in **"users"** system role that is automatically assigned to newly registered users. Access rules marked with `isDefault: true` are automatically synced to this role during backend startup.
 
 **How it works:**
 
-1. On startup, the `auth-backend` collects all permissions from all plugins
-2. Permissions with `isDefault: true` are synced to the "users" role
-3. Administrators can still manually remove default permissions from the "users" role
-4. Removed defaults are tracked in the `disabled_default_permission` table
-5. Re-adding a default permission via the admin UI clears the disabled flag
+1. On startup, the `auth-backend` collects all access rules from all plugins
+2. Access rules with `isDefault: true` are synced to the "users" role
+3. Administrators can still manually remove default access rules from the "users" role
+4. Removed defaults are tracked in the `disabled_default_access_rule` table
+5. Re-adding a default access rule via the admin UI clears the disabled flag
 
 **Example:**
 
 ```typescript
-// In your permissions definition
-export const permissions = {
-  // This permission will be auto-assigned to all new users
+// In your access rules definition
+export const access = {
+  // This access rule will be auto-assigned to all new users
   itemRead: { 
     id: "item.read", 
     description: "Read items",
     isDefault: true  // ✅ Granted to "users" role
   },
-  // This permission requires manual role assignment
+  // This access rule requires manual role assignment
   itemManage: { 
     id: "item.manage", 
     description: "Manage items" 
     // isDefault: false by default
   },
-} as const satisfies Record<string, Permission>;
+} as const satisfies Record<string, AccessRule>;
 ```
 
 **System Roles:**
 
 | Role | Type | Description |
 |------|------|-------------|
-| `admin` | System | Wildcard access to all permissions. Cannot delete. Permissions not editable. |
-| `users` | System | Auto-assigned to new users. Default permissions synced here. Cannot delete. |
+| `admin` | System | Wildcard access to all access rules. Cannot delete. Access rules not editable. |
+| `users` | System | Auto-assigned to new users. Default access rules synced here. Cannot delete. |
 
 > **See also:** For resource-level access control (restricting access to specific systems, health checks, etc.), see [Teams and Resource-Level Access Control](./teams.md).
 
@@ -313,13 +313,13 @@ afterPluginsReady: async ({ onHook }) => {
 
   // Work-queue mode - only one instance handles
   onHook(
-    coreHooks.permissionsRegistered,
-    async ({ pluginId, permissions }) => {
+    coreHooks.accessRulesRegistered,
+    async ({ pluginId, accessRules }) => {
       // Sync to database
     },
     {
       mode: "work-queue",
-      workerGroup: "permission-sync", // Namespaced automatically
+      workerGroup: "access-rule-sync", // Namespaced automatically
       maxRetries: 5,
     }
   );
@@ -352,7 +352,7 @@ afterPluginsReady: async ({ emitHook }) => {
 
 | Hook | Payload | Description |
 |------|---------|-------------|
-| `permissionsRegistered` | `{ pluginId, permissions }` | Plugin registered permissions |
+| `accessRulesRegistered` | `{ pluginId, accessRules }` | Plugin registered access rules |
 | `configUpdated` | `{ pluginId, key, value }` | Configuration changed |
 | `pluginInitialized` | `{ pluginId }` | Plugin completed init (Phase 2) |
 | **Installation** | | |
@@ -506,12 +506,12 @@ The backend router implements the contract using the **contract-based approach**
 ```typescript
 import { implement } from "@orpc/server";
 import { autoAuthMiddleware, type RpcContext } from "@checkstack/backend-api";
-import { myPluginContract, permissionList } from "@checkstack/myplugin-common";
+import { myPluginContract, accessRuleList } from "@checkstack/myplugin-common";
 
 /**
  * Creates the router using contract-based implementation.
- * Auth and permissions are automatically enforced via autoAuthMiddleware
- * based on the contract's meta.userType and meta.permissions.
+ * Auth and access rules are automatically enforced via autoAuthMiddleware
+ * based on the contract's meta.userType and meta.access.
  */
 const os = implement(myPluginContract)
   .$context<RpcContext>()
@@ -521,7 +521,7 @@ export const createMyPluginRouter = (database: Database) => {
   return os.router({
     // Handler names must match contract procedure names
     getItems: os.getItems.handler(async () => {
-      // Auth and permissions auto-enforced from contract meta
+      // Auth and access rules auto-enforced from contract meta
       // Implementation
     }),
   });
@@ -532,7 +532,7 @@ export const createMyPluginRouter = (database: Database) => {
 
 The project uses **contract-driven security enforcement**:
 
-- **Contracts declare** auth requirements via `.meta({ userType: "user", permissions: [...] })`
+- **Contracts declare** auth requirements via `.meta({ userType: "user", access: [...] })`
 - **autoAuthMiddleware** automatically enforces these requirements at runtime
 
 This pattern ensures security is:
@@ -547,9 +547,9 @@ import type { ProcedureMetadata } from "@checkstack/common";
 const _base = oc.$meta<ProcedureMetadata>({});
 
 export const myPluginContract = {
-  // Requires authenticated user with specific permission
+  // Requires authenticated user with specific access
   getItems: _base
-    .meta({ userType: "user", permissions: [permissions.itemRead.id] })
+    .meta({ userType: "user", access: [access.itemRead.id] })
     .output(z.array(ItemSchema)),
 
   // Public endpoint (no auth required)

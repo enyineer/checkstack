@@ -10,10 +10,10 @@ import {
 } from "@checkstack/backend-api";
 import {
   pluginMetadata,
-  permissionList,
+  authAccessRules,
+  authAccess,
   authContract,
   authRoutes,
-  permissions,
 } from "@checkstack/auth-common";
 import { NotificationApi } from "@checkstack/notification-common";
 import * as schema from "./schema";
@@ -47,145 +47,148 @@ export const betterAuthExtensionPoint =
   );
 
 /**
- * Sync permissions to database and assign to admin role.
+ * Sync access rules to database and assign to admin role.
  * @param fullSync - If true, also performs orphan cleanup and default role sync.
- *                   Should only be true when syncing ALL permissions (not per-plugin hooks).
+ *                   Should only be true when syncing ALL access rules (not per-plugin hooks).
  */
-async function syncPermissionsToDb({
+async function syncAccessRulesToDb({
   database,
   logger,
-  permissions,
+  accessRules,
   fullSync = false,
 }: {
   database: NodePgDatabase<typeof schema>;
   logger: { debug: (msg: string) => void };
-  permissions: {
+  accessRules: {
     id: string;
     description?: string;
-    isAuthenticatedDefault?: boolean;
-    isPublicDefault?: boolean;
+    isDefault?: boolean;
+    isPublic?: boolean;
   }[];
   fullSync?: boolean;
 }) {
-  logger.debug(`🔑 Syncing ${permissions.length} permissions to database...`);
+  logger.debug(`🔑 Syncing ${accessRules.length} access rules to database...`);
 
-  for (const perm of permissions) {
+  for (const rule of accessRules) {
+    // Map AccessRule fields to DB fields
+    const dbRecord = {
+      id: rule.id,
+      description: rule.description,
+      isAuthenticatedDefault: rule.isDefault,
+      isPublicDefault: rule.isPublic,
+    };
     const existing = await database
       .select()
-      .from(schema.permission)
-      .where(eq(schema.permission.id, perm.id));
+      .from(schema.accessRule)
+      .where(eq(schema.accessRule.id, rule.id));
 
     if (existing.length === 0) {
-      await database.insert(schema.permission).values(perm);
-      logger.debug(`   -> Created permission: ${perm.id}`);
+      await database.insert(schema.accessRule).values(dbRecord);
+      logger.debug(`   -> Created access rule: ${rule.id}`);
     } else {
       await database
-        .update(schema.permission)
-        .set({ description: perm.description })
-        .where(eq(schema.permission.id, perm.id));
+        .update(schema.accessRule)
+        .set({ description: rule.description })
+        .where(eq(schema.accessRule.id, rule.id));
     }
   }
 
-  // Assign all permissions to admin role
-  const adminRolePermissions = await database
+  // Assign all access rules to admin role
+  const adminRoleAccessRules = await database
     .select()
-    .from(schema.rolePermission)
-    .where(eq(schema.rolePermission.roleId, "admin"));
+    .from(schema.roleAccessRule)
+    .where(eq(schema.roleAccessRule.roleId, "admin"));
 
-  for (const perm of permissions) {
-    const hasPermission = adminRolePermissions.some(
-      (rp) => rp.permissionId === perm.id
+  for (const rule of accessRules) {
+    const hasAccess = adminRoleAccessRules.some(
+      (rp) => rp.accessRuleId === rule.id
     );
 
-    if (!hasPermission) {
+    if (!hasAccess) {
       await database
-        .insert(schema.rolePermission)
+        .insert(schema.roleAccessRule)
         .values({
           roleId: "admin",
-          permissionId: perm.id,
+          accessRuleId: rule.id,
         })
         .onConflictDoNothing();
-      logger.debug(`   -> Assigned permission ${perm.id} to admin role`);
+      logger.debug(`   -> Assigned access rule ${rule.id} to admin role`);
     }
   }
 
   // Only perform orphan cleanup and default sync when doing a full sync
-  // (i.e., when we have ALL permissions, not just one plugin's permissions from a hook)
+  // (i.e., when we have ALL access rules, not just one plugin's access rules from a hook)
   if (!fullSync) {
     return;
   }
 
-  // Cleanup orphan permissions (no longer registered by any plugin)
-  const registeredIds = new Set(permissions.map((p) => p.id));
-  const allDbPermissions = await database.select().from(schema.permission);
-  const orphanPermissions = allDbPermissions.filter(
+  // Cleanup orphan access rules (no longer registered by any plugin)
+  const registeredIds = new Set(accessRules.map((r) => r.id));
+  const allDbAccessRules = await database.select().from(schema.accessRule);
+  const orphanAccessRules = allDbAccessRules.filter(
     (p) => !registeredIds.has(p.id)
   );
 
-  if (orphanPermissions.length > 0) {
+  if (orphanAccessRules.length > 0) {
     logger.debug(
-      `🧹 Removing ${orphanPermissions.length} orphan permission(s)...`
+      `🧹 Removing ${orphanAccessRules.length} orphan access rule(s)...`
     );
-    for (const orphan of orphanPermissions) {
-      // Delete role_permission entries first (FK doesn't cascade)
+    for (const orphan of orphanAccessRules) {
+      // Delete role_access_rule entries first (FK doesn't cascade)
       await database
-        .delete(schema.rolePermission)
-        .where(eq(schema.rolePermission.permissionId, orphan.id));
-      // Then delete the permission itself
+        .delete(schema.roleAccessRule)
+        .where(eq(schema.roleAccessRule.accessRuleId, orphan.id));
+      // Then delete the access rule itself
       await database
-        .delete(schema.permission)
-        .where(eq(schema.permission.id, orphan.id));
-      logger.debug(`   -> Removed orphan permission: ${orphan.id}`);
+        .delete(schema.accessRule)
+        .where(eq(schema.accessRule.id, orphan.id));
+      logger.debug(`   -> Removed orphan access rule: ${orphan.id}`);
     }
   }
 
-  // Sync authenticated default permissions to users role
-  await syncAuthenticatedDefaultPermissionsToUsersRole({
+  // Sync authenticated default access rules to users role
+  await syncAuthenticatedDefaultAccessRulesToUsersRole({
     database,
     logger,
-    permissions,
+    accessRules,
   });
 
-  // Sync public default permissions to anonymous role
-  await syncPublicDefaultPermissionsToAnonymousRole({
+  // Sync public default access rules to anonymous role
+  await syncPublicDefaultAccessRulesToAnonymousRole({
     database,
     logger,
-    permissions,
+    accessRules,
   });
 }
 
 /**
- * Sync authenticated default permissions (isAuthenticatedDefault=true) to the "users" role.
- * Respects admin-disabled defaults stored in disabled_default_permission table.
+ * Sync authenticated default access rules (isAuthenticatedDefault=true) to the "users" role.
+ * Respects admin-disabled defaults stored in disabled_default_access_rule table.
  */
-async function syncAuthenticatedDefaultPermissionsToUsersRole({
+async function syncAuthenticatedDefaultAccessRulesToUsersRole({
   database,
   logger,
-  permissions,
+  accessRules,
 }: {
   database: NodePgDatabase<typeof schema>;
   logger: { debug: (msg: string) => void };
-  permissions: { id: string; isAuthenticatedDefault?: boolean }[];
+  accessRules: { id: string; isDefault?: boolean }[];
 }) {
-  // Debug: log all permissions with their isAuthenticatedDefault status
+  // Debug: log all access rules with their isDefault status
   logger.debug(
-    `[DEBUG] All permissions received (${permissions.length} total):`
+    `[DEBUG] All access rules received (${accessRules.length} total):`
   );
-  for (const p of permissions) {
-    logger.debug(
-      `   -> ${p.id}: isAuthenticatedDefault=${p.isAuthenticatedDefault}`
-    );
+  for (const r of accessRules) {
+    logger.debug(`   -> ${r.id}: isDefault=${r.isDefault}`);
   }
 
-  const defaultPermissions = permissions.filter(
-    (p) => p.isAuthenticatedDefault
-  );
+  const defaultRules = accessRules.filter((r) => r.isDefault);
   logger.debug(
-    `👥 Found ${defaultPermissions.length} authenticated default permissions to sync to users role`
+    `👥 Found ${defaultRules.length} authenticated default access rules to sync to users role`
   );
-  if (defaultPermissions.length === 0) {
+  if (defaultRules.length === 0) {
     logger.debug(
-      `   -> No authenticated default permissions found, skipping sync`
+      `   -> No authenticated default access rules found, skipping sync`
     );
     return;
   }
@@ -193,90 +196,90 @@ async function syncAuthenticatedDefaultPermissionsToUsersRole({
   // Get already disabled defaults (admin has removed them)
   const disabledDefaults = await database
     .select()
-    .from(schema.disabledDefaultPermission);
-  const disabledIds = new Set(disabledDefaults.map((d) => d.permissionId));
+    .from(schema.disabledDefaultAccessRule);
+  const disabledIds = new Set(disabledDefaults.map((d) => d.accessRuleId));
 
-  // Get current users role permissions
-  const usersRolePermissions = await database
+  // Get current users role access rules
+  const usersRoleAccessRules = await database
     .select()
-    .from(schema.rolePermission)
-    .where(eq(schema.rolePermission.roleId, "users"));
+    .from(schema.roleAccessRule)
+    .where(eq(schema.roleAccessRule.roleId, "users"));
 
-  for (const perm of defaultPermissions) {
+  for (const rule of defaultRules) {
     // Skip if admin has disabled this default
-    if (disabledIds.has(perm.id)) {
-      logger.debug(`   -> Skipping disabled authenticated default: ${perm.id}`);
+    if (disabledIds.has(rule.id)) {
+      logger.debug(`   -> Skipping disabled authenticated default: ${rule.id}`);
       continue;
     }
 
-    const hasPermission = usersRolePermissions.some(
-      (rp) => rp.permissionId === perm.id
+    const hasAccess = usersRoleAccessRules.some(
+      (rp) => rp.accessRuleId === rule.id
     );
 
-    if (!hasPermission) {
-      await database.insert(schema.rolePermission).values({
+    if (!hasAccess) {
+      await database.insert(schema.roleAccessRule).values({
         roleId: "users",
-        permissionId: perm.id,
+        accessRuleId: rule.id,
       });
       logger.debug(
-        `   -> Assigned authenticated default permission ${perm.id} to users role`
+        `   -> Assigned authenticated default access rule ${rule.id} to users role`
       );
     }
   }
 }
 
 /**
- * Sync public default permissions (isPublicDefault=true) to the "anonymous" role.
- * Respects admin-disabled defaults stored in disabled_public_default_permission table.
+ * Sync public default access rules (isPublic=true) to the "anonymous" role.
+ * Respects admin-disabled defaults stored in disabled_public_default_access_rule table.
  */
-async function syncPublicDefaultPermissionsToAnonymousRole({
+async function syncPublicDefaultAccessRulesToAnonymousRole({
   database,
   logger,
-  permissions,
+  accessRules,
 }: {
   database: NodePgDatabase<typeof schema>;
   logger: { debug: (msg: string) => void };
-  permissions: { id: string; isPublicDefault?: boolean }[];
+  accessRules: { id: string; isPublic?: boolean }[];
 }) {
-  const publicDefaults = permissions.filter((p) => p.isPublicDefault);
+  const publicDefaults = accessRules.filter((r) => r.isPublic);
   logger.debug(
-    `🌐 Found ${publicDefaults.length} public default permissions to sync to anonymous role`
+    `🌐 Found ${publicDefaults.length} public default access rules to sync to anonymous role`
   );
   if (publicDefaults.length === 0) {
-    logger.debug(`   -> No public default permissions found, skipping sync`);
+    logger.debug(`   -> No public default access rules found, skipping sync`);
     return;
   }
 
   // Get already disabled public defaults (admin has removed them)
   const disabledDefaults = await database
     .select()
-    .from(schema.disabledPublicDefaultPermission);
-  const disabledIds = new Set(disabledDefaults.map((d) => d.permissionId));
+    .from(schema.disabledPublicDefaultAccessRule);
+  const disabledIds = new Set(disabledDefaults.map((d) => d.accessRuleId));
 
-  // Get current anonymous role permissions
-  const anonymousRolePermissions = await database
+  // Get current anonymous role access rules
+  const anonymousRoleAccessRules = await database
     .select()
-    .from(schema.rolePermission)
-    .where(eq(schema.rolePermission.roleId, "anonymous"));
+    .from(schema.roleAccessRule)
+    .where(eq(schema.roleAccessRule.roleId, "anonymous"));
 
-  for (const perm of publicDefaults) {
+  for (const rule of publicDefaults) {
     // Skip if admin has disabled this public default
-    if (disabledIds.has(perm.id)) {
-      logger.debug(`   -> Skipping disabled public default: ${perm.id}`);
+    if (disabledIds.has(rule.id)) {
+      logger.debug(`   -> Skipping disabled public default: ${rule.id}`);
       continue;
     }
 
-    const hasPermission = anonymousRolePermissions.some(
-      (rp) => rp.permissionId === perm.id
+    const hasAccess = anonymousRoleAccessRules.some(
+      (rp) => rp.accessRuleId === rule.id
     );
 
-    if (!hasPermission) {
-      await database.insert(schema.rolePermission).values({
+    if (!hasAccess) {
+      await database.insert(schema.roleAccessRule).values({
         roleId: "anonymous",
-        permissionId: perm.id,
+        accessRuleId: rule.id,
       });
       logger.debug(
-        `   -> Assigned public default permission ${perm.id} to anonymous role`
+        `   -> Assigned public default access rule ${rule.id} to anonymous role`
       );
     }
   }
@@ -295,15 +298,15 @@ export default createBackendPlugin({
       getStrategies: () => strategies,
     };
 
-    // Permission registry - gets all permissions from PluginManager
-    const permissionRegistry = {
-      getPermissions: () => {
-        // Get all permissions from the central PluginManager registry
-        return env.pluginManager.getAllPermissions();
+    // Access rule registry - gets all access rules from PluginManager
+    const accessRuleRegistry = {
+      getAccessRules: () => {
+        // Get all access rules from the central PluginManager registry
+        return env.pluginManager.getAllAccessRules();
       },
     };
 
-    env.registerPermissions(permissionList);
+    env.registerAccessRules(authAccessRules);
 
     env.registerExtensionPoint(betterAuthExtensionPoint, {
       addStrategy: (s) => {
@@ -321,7 +324,7 @@ export default createBackendPlugin({
       },
     });
 
-    // Helper to fetch permissions
+    // Helper to fetch access rules
     const enrichUserLocal = async (user: User) => {
       if (!db) return user;
       return enrichUser(user, db);
@@ -377,7 +380,7 @@ export default createBackendPlugin({
                       // Ignore errors from lastUsedAt update
                     });
 
-                  // Fetch roles and compute permissions for the application
+                  // Fetch roles and compute access rules for the application
                   const appRoles = await db
                     .select({ roleId: schema.applicationRole.roleId })
                     .from(schema.applicationRole)
@@ -387,18 +390,18 @@ export default createBackendPlugin({
 
                   const roleIds = appRoles.map((r) => r.roleId);
 
-                  // Get permissions for these roles
-                  let permissions: string[] = [];
+                  // Get access rules for these roles
+                  let accessRulesArray: string[] = [];
                   if (roleIds.length > 0) {
                     const rolePerms = await db
                       .select({
-                        permissionId: schema.rolePermission.permissionId,
+                        accessRuleId: schema.roleAccessRule.accessRuleId,
                       })
-                      .from(schema.rolePermission)
-                      .where(inArray(schema.rolePermission.roleId, roleIds));
+                      .from(schema.roleAccessRule)
+                      .where(inArray(schema.roleAccessRule.roleId, roleIds));
 
-                    permissions = [
-                      ...new Set(rolePerms.map((rp) => rp.permissionId)),
+                    accessRulesArray = [
+                      ...new Set(rolePerms.map((rp) => rp.accessRuleId)),
                     ];
                   }
 
@@ -417,7 +420,7 @@ export default createBackendPlugin({
                     id: app.id,
                     name: app.name,
                     roles: roleIds,
-                    permissions,
+                    accessRulesArray,
                     teamIds,
                   };
                 }
@@ -634,7 +637,7 @@ export default createBackendPlugin({
           logger.info("[auth-backend] ✅ Authentication reloaded successfully");
         };
 
-        // IMPORTANT: Seed roles BEFORE syncing permissions so default perms can be assigned
+        // IMPORTANT: Seed roles BEFORE syncing access rules so default perms can be assigned
         logger.debug("🌱 Checking for initial roles...");
         const adminRole = await database
           .select()
@@ -649,7 +652,7 @@ export default createBackendPlugin({
           logger.info("   -> Created 'admin' role.");
         }
 
-        // Seed "users" role for default permissions
+        // Seed "users" role for default access rules
         const usersRole = await database
           .select()
           .from(schema.role)
@@ -673,7 +676,7 @@ export default createBackendPlugin({
           await database.insert(schema.role).values({
             id: "anonymous",
             name: "Anonymous Users",
-            description: "Permissions for unauthenticated (anonymous) users",
+            description: "Access rules for unauthenticated (anonymous) users",
             isSystem: true,
           });
           logger.info("   -> Created 'anonymous' role.");
@@ -694,7 +697,7 @@ export default createBackendPlugin({
           logger.info("   -> Created 'applications' role.");
         }
 
-        // Note: Permission sync happens in afterPluginsReady (when all plugins have registered)
+        // Note: Access rule sync happens in afterPluginsReady (when all plugins have registered)
 
         // 4. Register oRPC router
         const authRouter = createAuthRouter(
@@ -702,7 +705,7 @@ export default createBackendPlugin({
           strategyRegistry,
           reloadAuth,
           config,
-          permissionRegistry
+          accessRuleRegistry
         );
         rpc.registerRouter(authRouter, authContract);
 
@@ -766,7 +769,7 @@ export default createBackendPlugin({
               iconName: "Users",
               shortcuts: ["meta+shift+u", "ctrl+shift+u"],
               route: resolveRoute(authRoutes.routes.settings) + "?tab=users",
-              requiredPermissions: [permissions.usersRead],
+              requiredAccessRules: [authAccess.users.read],
             },
             {
               id: "createUser",
@@ -776,15 +779,15 @@ export default createBackendPlugin({
               route:
                 resolveRoute(authRoutes.routes.settings) +
                 "?tab=users&action=create",
-              requiredPermissions: [permissions.usersCreate],
+              requiredAccessRules: [authAccess.users.create],
             },
             {
               id: "roles",
               title: "Manage Roles",
-              subtitle: "Manage roles and permissions",
+              subtitle: "Manage roles and access rules",
               iconName: "Shield",
               route: resolveRoute(authRoutes.routes.settings) + "?tab=roles",
-              requiredPermissions: [permissions.rolesRead],
+              requiredAccessRules: [authAccess.roles.read],
             },
             {
               id: "applications",
@@ -793,82 +796,82 @@ export default createBackendPlugin({
               iconName: "Key",
               route:
                 resolveRoute(authRoutes.routes.settings) + "?tab=applications",
-              requiredPermissions: [permissions.applicationsManage],
+              requiredAccessRules: [authAccess.applications],
             },
           ],
         });
 
         logger.debug("✅ Auth Backend initialized.");
       },
-      // Phase 3: After all plugins are ready - sync all permissions including defaults
+      // Phase 3: After all plugins are ready - sync all access rules including defaults
       afterPluginsReady: async ({ database, logger, onHook }) => {
-        // Now that all plugins are ready, sync permissions including defaults
+        // Now that all plugins are ready, sync access rules including defaults
         // This is critical because during init, other plugins haven't registered yet
-        const allPermissions = permissionRegistry.getPermissions();
+        const allAccessRules = accessRuleRegistry.getAccessRules();
         logger.debug(
-          `[auth-backend] afterPluginsReady: syncing ${allPermissions.length} permissions from all plugins`
+          `[auth-backend] afterPluginsReady: syncing ${allAccessRules.length} access rules from all plugins`
         );
-        await syncPermissionsToDb({
+        await syncAccessRulesToDb({
           database: database as NodePgDatabase<typeof schema>,
           logger,
-          permissions: allPermissions,
+          accessRules: allAccessRules,
           fullSync: true,
         });
 
-        // Subscribe to permission registration hook for future registrations
-        // This syncs new permissions when other plugins register them dynamically
+        // Subscribe to access rule registration hook for future registrations
+        // This syncs new access rules when other plugins register them dynamically
         onHook(
-          coreHooks.permissionsRegistered,
-          async ({ permissions }) => {
-            await syncPermissionsToDb({
+          coreHooks.accessRulesRegistered,
+          async ({ accessRules }) => {
+            await syncAccessRulesToDb({
               database: database as NodePgDatabase<typeof schema>,
               logger,
-              permissions,
+              accessRules,
             });
           },
           {
             mode: "work-queue",
-            workerGroup: "permission-db-sync",
+            workerGroup: "access-rule-db-sync",
             maxRetries: 5,
           }
         );
 
-        // Subscribe to plugin deregistered hook for permission cleanup
-        // When a plugin is removed at runtime, delete its permissions from DB
+        // Subscribe to plugin deregistered hook for access rule cleanup
+        // When a plugin is removed at runtime, delete its access rules from DB
         onHook(
           coreHooks.pluginDeregistered,
           async ({ pluginId }) => {
             logger.debug(
-              `[auth-backend] Cleaning up permissions for deregistered plugin: ${pluginId}`
+              `[auth-backend] Cleaning up access rules for deregistered plugin: ${pluginId}`
             );
 
-            // Delete all permissions with this plugin's prefix
-            const allDbPermissions = await database
+            // Delete all access rules with this plugin's prefix
+            const allDbAccessRules = await database
               .select()
-              .from(schema.permission);
-            const pluginPermissions = allDbPermissions.filter((p) =>
+              .from(schema.accessRule);
+            const pluginAccessRules = allDbAccessRules.filter((p) =>
               p.id.startsWith(`${pluginId}.`)
             );
 
-            for (const perm of pluginPermissions) {
-              // Delete role_permission entries first
+            for (const perm of pluginAccessRules) {
+              // Delete role_access_rule entries first
               await database
-                .delete(schema.rolePermission)
-                .where(eq(schema.rolePermission.permissionId, perm.id));
-              // Then delete the permission itself
+                .delete(schema.roleAccessRule)
+                .where(eq(schema.roleAccessRule.accessRuleId, perm.id));
+              // Then delete the access rule itself
               await database
-                .delete(schema.permission)
-                .where(eq(schema.permission.id, perm.id));
-              logger.debug(`   -> Removed permission: ${perm.id}`);
+                .delete(schema.accessRule)
+                .where(eq(schema.accessRule.id, perm.id));
+              logger.debug(`   -> Removed access rule: ${perm.id}`);
             }
 
             logger.debug(
-              `[auth-backend] Cleaned up ${pluginPermissions.length} permissions for ${pluginId}`
+              `[auth-backend] Cleaned up ${pluginAccessRules.length} access rules for ${pluginId}`
             );
           },
           {
             mode: "work-queue",
-            workerGroup: "permission-cleanup",
+            workerGroup: "access-rule-cleanup",
             maxRetries: 3,
           }
         );

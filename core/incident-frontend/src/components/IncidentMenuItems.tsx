@@ -3,20 +3,17 @@ import { Link } from "react-router-dom";
 import { AlertTriangle } from "lucide-react";
 import type { UserMenuItemsContext } from "@checkstack/frontend-api";
 import { DropdownMenuItem } from "@checkstack/ui";
-import { qualifyPermissionId, resolveRoute } from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import {
   incidentRoutes,
-  permissions,
+  incidentAccess,
   pluginMetadata,
 } from "@checkstack/incident-common";
 
 export const IncidentMenuItems = ({
-  permissions: userPerms,
+  accessRules: userPerms,
 }: UserMenuItemsContext) => {
-  const qualifiedId = qualifyPermissionId(
-    pluginMetadata,
-    permissions.incidentManage
-  );
+  const qualifiedId = `${pluginMetadata.pluginId}.${incidentAccess.incident.manage.id}`;
   const canManage = userPerms.includes("*") || userPerms.includes(qualifiedId);
 
   if (!canManage) {

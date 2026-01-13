@@ -163,11 +163,11 @@ async getAggregatedHistory(
 )
 ```
 
-## Permission Model
+## Access Model
 
-Aggregated data access follows the same tiered permission model as raw data:
+Aggregated data access follows the same tiered access model as raw data:
 
-| Endpoint | Permission | Returns |
+| Endpoint | Access | Returns |
 |----------|------------|---------|
 | `getAggregatedHistory` | `healthCheckStatusRead` | Core metrics only (`AggregatedBucketBase`) |
 | `getDetailedAggregatedHistory` | `healthCheckDetailsRead` | Core metrics + `aggregatedResult` |

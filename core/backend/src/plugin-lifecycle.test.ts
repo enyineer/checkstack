@@ -233,18 +233,18 @@ describe("Plugin Lifecycle", () => {
       expect(pluginRpcRouters.has("test-plugin")).toBe(false);
     });
 
-    it("should clear permissions for plugin", async () => {
-      const registeredPermissions = (pluginManager as never)[
-        "registeredPermissions"
+    it("should clear access rules for plugin", async () => {
+      const registeredAccessRules = (pluginManager as never)[
+        "registeredAccessRules"
       ] as { pluginId: string; id: string }[];
 
-      // Clear existing permissions first
-      while (registeredPermissions.length > 0) {
-        registeredPermissions.pop();
+      // Clear existing access rules first
+      while (registeredAccessRules.length > 0) {
+        registeredAccessRules.pop();
       }
 
-      // Add test permissions
-      registeredPermissions.push(
+      // Add test access rules
+      registeredAccessRules.push(
         { pluginId: "test-plugin", id: "test-plugin.perm1" },
         { pluginId: "test-plugin", id: "test-plugin.perm2" },
         { pluginId: "other-plugin", id: "other-plugin.perm1" }
@@ -254,8 +254,8 @@ describe("Plugin Lifecycle", () => {
         deleteSchema: false,
       });
 
-      // Use getAllPermissions() which returns the current array
-      const remaining = pluginManager.getAllPermissions();
+      // Use getAllAccessRules() which returns the current array
+      const remaining = pluginManager.getAllAccessRules();
       expect(remaining).toHaveLength(1);
       expect(remaining[0].id).toBe("other-plugin.perm1");
     });

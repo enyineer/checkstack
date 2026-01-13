@@ -8,15 +8,11 @@ import {
   SectionHeader,
   DynamicForm,
 } from "@checkstack/ui";
-import {
-  useApi,
-  rpcApiRef,
-  permissionApiRef,
-} from "@checkstack/frontend-api";
+import { useApi, rpcApiRef, accessApiRef } from "@checkstack/frontend-api";
 import type { EnrichedSubscription } from "@checkstack/notification-common";
 import {
   NotificationApi,
-  permissions,
+  notificationAccess,
 } from "@checkstack/notification-common";
 import {
   StrategyCard,
@@ -29,13 +25,13 @@ import {
 
 export const NotificationSettingsPage = () => {
   const rpcApi = useApi(rpcApiRef);
-  const permissionApi = useApi(permissionApiRef);
+  const accessApi = useApi(accessApiRef);
   const notificationClient = rpcApi.forPlugin(NotificationApi);
   const toast = useToast();
 
-  // Check if user has admin permission
-  const { allowed: isAdmin } = permissionApi.usePermission(
-    permissions.notificationAdmin.id
+  // Check if user has admin access
+  const { allowed: isAdmin } = accessApi.useAccess(
+    notificationAccess.admin
   );
 
   // Retention settings state

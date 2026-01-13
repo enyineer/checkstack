@@ -275,8 +275,8 @@ function MyCustomVisualization({ systemId, configurationId, strategyId, dateRang
     loading,        // Loading state
     isAggregated,   // Whether aggregated mode is active
     retentionConfig, // Current retention settings
-    hasPermission,  // User has healthCheckDetailsRead
-    permissionLoading,
+    hasAccess,  // User has healthCheckDetailsRead
+    accessLoading,
   } = useHealthCheckData({
     systemId,
     configurationId,
@@ -287,7 +287,7 @@ function MyCustomVisualization({ systemId, configurationId, strategyId, dateRang
   });
 
   if (loading) return <LoadingSpinner />;
-  if (!hasPermission) return <NoPermissionBanner />;
+  if (!hasAccess) return <NoAccessBanner />;
   if (!context) return null;
 
   // Render based on context.type
@@ -320,7 +320,7 @@ function MyPage({ systemId, configurationId, strategyId, dateRange }) {
 
 This component:
 - Handles loading states
-- Shows permission banners
+- Shows access banners
 - Displays `AggregatedDataBanner` when in aggregated mode
 - Renders the `HealthCheckDiagramSlot` with proper context
 

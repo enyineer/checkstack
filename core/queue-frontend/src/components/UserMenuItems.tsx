@@ -3,20 +3,17 @@ import { Link } from "react-router-dom";
 import { ListOrdered } from "lucide-react";
 import type { UserMenuItemsContext } from "@checkstack/frontend-api";
 import { DropdownMenuItem } from "@checkstack/ui";
-import { qualifyPermissionId, resolveRoute } from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import {
   queueRoutes,
-  permissions,
+  queueAccess,
   pluginMetadata,
 } from "@checkstack/queue-common";
 
 export const QueueUserMenuItems = ({
-  permissions: userPerms,
+  accessRules: userPerms,
 }: UserMenuItemsContext) => {
-  const qualifiedId = qualifyPermissionId(
-    pluginMetadata,
-    permissions.queueRead
-  );
+  const qualifiedId = `${pluginMetadata.pluginId}.${queueAccess.settings.read.id}`;
   const canRead = userPerms.includes("*") || userPerms.includes(qualifiedId);
 
   if (!canRead) {

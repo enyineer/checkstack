@@ -1,22 +1,20 @@
 import { z } from "zod";
 import { oc } from "@orpc/contract";
-import type { ProcedureMetadata } from "@checkstack/common";
-import type { Permission } from "@checkstack/common";
+import { access, type ProcedureMetadata } from "@checkstack/common";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Permissions
+// Access Rules
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const pluginAdminPermissions = {
-  install: {
-    id: "plugin.install",
-    description: "Install new plugins from npm",
-  },
-  deregister: {
-    id: "plugin.deregister",
-    description: "Deregister (uninstall) plugins",
-  },
-} as const satisfies Record<string, Permission>;
+export const pluginAdminAccess = {
+  install: access("plugin", "manage", "Install new plugins from npm"),
+  deregister: access("plugin", "manage", "Deregister (uninstall) plugins"),
+};
+
+export const pluginAdminAccessRules = [
+  pluginAdminAccess.install,
+  pluginAdminAccess.deregister,
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Contract
@@ -31,7 +29,7 @@ export const pluginAdminContract = {
   install: _base
     .meta({
       userType: "user",
-      permissions: [pluginAdminPermissions.install.id],
+      access: [pluginAdminAccess.install],
     })
     .input(
       z.object({
@@ -52,7 +50,7 @@ export const pluginAdminContract = {
   deregister: _base
     .meta({
       userType: "user",
-      permissions: [pluginAdminPermissions.deregister.id],
+      access: [pluginAdminAccess.deregister],
     })
     .input(
       z.object({

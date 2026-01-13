@@ -1,4 +1,4 @@
-export { permissions, permissionList } from "./permissions";
+export { incidentAccess, incidentAccessRules } from "./access";
 export {
   incidentContract,
   IncidentApi,

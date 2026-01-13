@@ -66,23 +66,23 @@ export const role = pgTable("role", {
   isSystem: boolean("is_system").default(false), // Prevent deletion of core roles
 });
 
-export const permission = pgTable("permission", {
+export const accessRule = pgTable("access_rule", {
   id: text("id").primaryKey(), // 'core.manage-users', etc.
   description: text("description"),
 });
 
-export const rolePermission = pgTable(
-  "role_permission",
+export const roleAccessRule = pgTable(
+  "role_access_rule",
   {
     roleId: text("role_id")
       .notNull()
       .references(() => role.id),
-    permissionId: text("permission_id")
+    accessRuleId: text("access_rule_id")
       .notNull()
-      .references(() => permission.id),
+      .references(() => accessRule.id),
   },
   (t) => ({
-    pk: primaryKey({ columns: [t.roleId, t.permissionId] }),
+    pk: primaryKey({ columns: [t.roleId, t.accessRuleId] }),
   })
 );
 
@@ -102,31 +102,31 @@ export const userRole = pgTable(
 );
 
 /**
- * Tracks authenticated default permissions that have been disabled by admins.
- * When a plugin registers a permission with isAuthenticatedDefault=true, it gets assigned
+ * Tracks authenticated default access rules that have been disabled by admins.
+ * When a plugin registers an access rule with isAuthenticatedDefault=true, it gets assigned
  * to the "users" role unless it's in this table.
  */
-export const disabledDefaultPermission = pgTable(
-  "disabled_default_permission",
+export const disabledDefaultAccessRule = pgTable(
+  "disabled_default_access_rule",
   {
-    permissionId: text("permission_id")
+    accessRuleId: text("access_rule_id")
       .primaryKey()
-      .references(() => permission.id),
+      .references(() => accessRule.id),
     disabledAt: timestamp("disabled_at").notNull(),
   }
 );
 
 /**
- * Tracks public default permissions that have been disabled by admins.
- * When a plugin registers a permission with isPublicDefault=true, it gets assigned
+ * Tracks public default access rules that have been disabled by admins.
+ * When a plugin registers an access rule with isPublicDefault=true, it gets assigned
  * to the "anonymous" role unless it's in this table.
  */
-export const disabledPublicDefaultPermission = pgTable(
-  "disabled_public_default_permission",
+export const disabledPublicDefaultAccessRule = pgTable(
+  "disabled_public_default_access_rule",
   {
-    permissionId: text("permission_id")
+    accessRuleId: text("access_rule_id")
       .primaryKey()
-      .references(() => permission.id),
+      .references(() => accessRule.id),
     disabledAt: timestamp("disabled_at").notNull(),
   }
 );
@@ -245,14 +245,14 @@ export const teamManager = pgTable(
 
 /**
  * Resource-level access settings.
- * Controls whether a resource requires team membership (teamOnly) vs allowing global permissions.
+ * Controls whether a resource requires team membership (teamOnly) vs allowing global access.
  */
 export const resourceAccessSettings = pgTable(
   "resource_access_settings",
   {
     resourceType: text("resource_type").notNull(), // e.g., "catalog.system"
     resourceId: text("resource_id").notNull(),
-    teamOnly: boolean("team_only").notNull().default(false), // If true, global permissions don't apply
+    teamOnly: boolean("team_only").notNull().default(false), // If true, global access doesn't apply
   },
   (t) => ({
     pk: primaryKey({ columns: [t.resourceType, t.resourceId] }),

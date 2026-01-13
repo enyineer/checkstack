@@ -14,7 +14,7 @@ interface ResolvedRoute {
   pluginId: string;
   element?: React.ReactNode;
   title?: string;
-  permission?: string;
+  accessRule?: string;
 }
 
 class PluginRegistry {
@@ -61,7 +61,7 @@ class PluginRegistry {
         pluginId: route.route.pluginId,
         element: route.element,
         title: route.title,
-        permission: route.permission?.id,
+        accessRule: route.accessRule?.id,
       };
 
       // Add to route map for resolution
@@ -175,7 +175,7 @@ class PluginRegistry {
           path: fullPath,
           element: route.element,
           title: route.title,
-          permission: route.permission?.id,
+          accessRule: route.accessRule?.id,
         };
       });
     });

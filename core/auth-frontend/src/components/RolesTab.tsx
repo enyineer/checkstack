@@ -19,12 +19,12 @@ import { Plus, Edit, Trash2 } from "lucide-react";
 import { useApi } from "@checkstack/frontend-api";
 import { rpcApiRef } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
-import type { Role, Permission } from "../api";
+import type { Role, AccessRuleEntry } from "../api";
 import { RoleDialog } from "./RoleDialog";
 
 export interface RolesTabProps {
   roles: Role[];
-  permissions: Permission[];
+  accessRulesList: AccessRuleEntry[];
   userRoleIds: string[];
   canReadRoles: boolean;
   canCreateRoles: boolean;
@@ -35,7 +35,7 @@ export interface RolesTabProps {
 
 export const RolesTab: React.FC<RolesTabProps> = ({
   roles,
-  permissions,
+  accessRulesList,
   userRoleIds,
   canReadRoles,
   canCreateRoles,
@@ -65,7 +65,7 @@ export const RolesTab: React.FC<RolesTabProps> = ({
     id?: string;
     name: string;
     description?: string;
-    permissions: string[];
+    accessRules: string[];
   }) => {
     try {
       if (params.id) {
@@ -73,14 +73,14 @@ export const RolesTab: React.FC<RolesTabProps> = ({
           id: params.id,
           name: params.name,
           description: params.description,
-          permissions: params.permissions,
+          accessRules: params.accessRules,
         });
         toast.success("Role updated successfully");
       } else {
         await authClient.createRole({
           name: params.name,
           description: params.description,
-          permissions: params.permissions,
+          accessRules: params.accessRules,
         });
         toast.success("Role created successfully");
       }
@@ -128,7 +128,7 @@ export const RolesTab: React.FC<RolesTabProps> = ({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Role</TableHead>
-                    <TableHead>Permissions</TableHead>
+                    <TableHead>Access Rules</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -159,7 +159,7 @@ export const RolesTab: React.FC<RolesTabProps> = ({
                         </TableCell>
                         <TableCell>
                           <span className="text-sm text-muted-foreground">
-                            {role.permissions?.length || 0} permissions
+                            {role.accessRules?.length || 0} access rules
                           </span>
                         </TableCell>
                         <TableCell className="text-right">
@@ -192,7 +192,7 @@ export const RolesTab: React.FC<RolesTabProps> = ({
             )
           ) : (
             <p className="text-muted-foreground">
-              You don't have permission to view roles.
+              You don't have access to view roles.
             </p>
           )}
         </CardContent>
@@ -202,7 +202,7 @@ export const RolesTab: React.FC<RolesTabProps> = ({
         open={roleDialogOpen}
         onOpenChange={setRoleDialogOpen}
         role={editingRole}
-        permissions={permissions}
+        accessRulesList={accessRulesList}
         isUserRole={editingRole ? userRoleIds.includes(editingRole.id) : false}
         onSave={handleSaveRole}
       />

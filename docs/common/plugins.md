@@ -4,7 +4,7 @@
 
 ## Overview
 
-Common plugins (e.g., `catalog-common`, `healthcheck-common`) are special plugin packages designed to define **contracts** and share types, schemas, and permissions between frontend and backend plugins. They contain code that is agnostic to the runtime environment and can safely be imported by both frontend and backend packages.
+Common plugins (e.g., `catalog-common`, `healthcheck-common`) are special plugin packages designed to define **contracts** and share types, schemas, and access rules between frontend and backend plugins. They contain code that is agnostic to the runtime environment and can safely be imported by both frontend and backend packages.
 
 **Key Purpose**: Common packages define the **contract** for type-safe RPC communication using oRPC, serving as the single source of truth for API definitions.
 
@@ -23,7 +23,7 @@ This ensures clean separation of concerns and prevents runtime-specific code fro
 Create a common plugin when you need to:
 
 1. **Define RPC Contracts**: Create type-safe oRPC contracts that both frontend and backend implement
-2. **Share Permission Definitions**: Export permission constants that both frontend and backend need to reference
+2. **Share Access Rule Definitions**: Export access rule constants that both frontend and backend need to reference
 3. **Share Type Definitions**: Define types/interfaces used across frontend and backend (via Zod schemas)
 4. **Share Validation Schemas**: Define Zod schemas for data validation and type inference
 5. **Share Constants**: Export enums, configuration constants, or other shared values
@@ -40,14 +40,14 @@ Create a common plugin when you need to:
   
   export const myContract = {
     getData: _base
-      .meta({ permissions: [permissions.read.id] })
+      .meta({ access: [access.read.id] })
       .output(z.array(DataSchema)),
   };
   ```
 
-- **Permission Definitions**: Type-safe permission objects and lists
+- **Access Rule Definitions: Type-safe access rule objects and lists
   ```typescript
-  export const permissions = {
+  export const access = {
     entityRead: {
       id: "entity.read",
       description: "Read entity data",
@@ -96,7 +96,7 @@ bun run create
 This will create a complete common package with:
 - ✅ Package configuration with required dependencies (`@orpc/contract`, `zod`)
 - ✅ TypeScript configuration
-- ✅ Permission definitions (read/manage pattern)
+- ✅ Access rule definitions (read/manage pattern)
 - ✅ Example Zod schemas with input/output types
 - ✅ Complete oRPC contract with CRUD operations
 - ✅ Barrel exports following circular dependency prevention
@@ -112,7 +112,7 @@ plugins/myfeature-common/
 ├── README.md                   # Documentation
 └── src/
     ├── index.ts                # Barrel exports
-    ├── permissions.ts          # Permission definitions
+    ├── access.ts              # Access rule definitions
     ├── schemas.ts              # Zod schemas
     └── rpc-contract.ts         # oRPC contract
 ```
@@ -128,27 +128,27 @@ bun install
 
 The generated plugin is a working example. Customize it for your domain:
 
-#### Update Permissions
+#### Update Access Rules
 
-**src/permissions.ts:**
+**src/access.ts:**
 
 ```typescript
-import { createPermission } from "@checkstack/common";
+import { accessPair } from "@checkstack/common";
 
-export const permissions = {
-  myFeatureRead: createPermission(
+export const access = {
+  myFeatureRead: accessPair(
     "myfeature",
     "read",
     "Read myfeature data"
   ),
-  myFeatureManage: createPermission(
+  myFeatureManage: accessPair(
     "myfeature",
     "manage",
     "Manage myfeature data"
   ),
 };
 
-export const permissionList = Object.values(permissions);
+export const accessRuleList = Object.values(access);
 ```
 
 #### Define Your Schemas
@@ -186,21 +186,21 @@ export type CreateMyItem = z.infer<typeof CreateMyItemSchema>;
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 import { MyItemSchema, CreateMyItemSchema } from "./schemas";
-import { permissions } from "./permissions";
+import { access } from "./access";
 
 export interface MyFeatureMetadata {
-  permissions?: string[];
+  access?: string[];
 }
 
 const _base = oc.$meta<MyFeatureMetadata>({});
 
 export const myFeatureContract = {
   getItems: _base
-    .meta({ permissions: [permissions.myFeatureRead.id] })
+    .meta({ access: [access.myFeatureRead.id] })
     .output(z.array(MyItemSchema)),
 
   createItem: _base
-    .meta({ permissions: [permissions.myFeatureManage.id] })
+    .meta({ access: [access.myFeatureManage.id] })
     .input(CreateMyItemSchema)
     .output(MyItemSchema),
 };
@@ -225,8 +225,8 @@ That's it! Your common package is ready to be consumed by backend and frontend p
 The `@checkstack/common` package is a special core package located in `core/common/` that provides shared type definitions and utilities used across the entire codebase. This is the foundation that all common plugins can depend on.
 
 **What it contains:**
-- Core type definitions (e.g., `Permission`, `PluginMetadata`)
-- Permission utilities (`createPermission`, `qualifyPermissionId`)
+- Core type definitions (e.g., `AccessRule`, `PluginMetadata`)
+- Access rule utilities (`accessPair`, `qualifyAccessRuleId`)
 - Fundamental interfaces used across plugins
 - Zero runtime dependencies
 
@@ -236,36 +236,36 @@ The `@checkstack/common` package is a special core package located in `core/comm
 - ✅ Frontend API packages (like `@checkstack/frontend-api`)
 - ✅ Backend and frontend plugins (when they need core types)
 
-### Permission Types
+### Access Rule Types
 
 ```typescript
-import type { Permission, ResourcePermission, PermissionAction } from "@checkstack/common";
+import type { AccessRule, AccessLevel } from "@checkstack/common";
 
-// PermissionAction: "read" | "manage"
+// AccessLevel: "read" | "manage"
 
-// Permission interface
-interface Permission {
+// AccessRule interface
+interface AccessRule {
   id: string;
   description?: string;
   isAuthenticatedDefault?: boolean;
   isPublicDefault?: boolean;
 }
 
-// ResourcePermission extends Permission with resource and action
-interface ResourcePermission extends Permission {
+// ResourceAccessRule extends AccessRule with resource and action
+interface ResourceAccessRule extends AccessRule {
   resource: string;
-  action: PermissionAction;
+  level: AccessLevel;
 }
 ```
 
-### createPermission
+### accessPair
 
-Creates a standardized resource permission with automatic ID generation:
+Creates a standardized resource access rule with automatic ID generation:
 
 ```typescript
-import { createPermission } from "@checkstack/common";
+import { accessPair } from "@checkstack/common";
 
-const permission = createPermission(
+const accessRule = accessPair(
   "catalog",           // resource name
   "read",              // action ("read" | "manage")
   "Read catalog data", // optional description
@@ -278,20 +278,20 @@ const permission = createPermission(
 // Result: { id: "catalog.read", resource: "catalog", action: "read", ... }
 ```
 
-### qualifyPermissionId
+### qualifyAccessRuleId
 
-Creates a fully-qualified permission ID by prefixing with the plugin ID. This is used internally by the RPC middleware and SignalService for authorization checks:
+Creates a fully-qualified access rule ID by prefixing with the plugin ID. This is used internally by the RPC middleware and SignalService for authorization checks:
 
 ```typescript
-import { qualifyPermissionId } from "@checkstack/common";
+import { qualifyAccessRuleId } from "@checkstack/common";
 import { pluginMetadata } from "./plugin-metadata";
-import { permissions } from "./permissions";
+import { access } from "./access";
 
-const qualifiedId = qualifyPermissionId(pluginMetadata, permissions.catalogRead);
-// Result: "catalog.catalog.read" (format: ${pluginId}.${permission.id})
+const qualifiedId = qualifyAccessRuleId(pluginMetadata, access.catalogRead);
+// Result: "catalog.catalog.read" (format: ${pluginId}.${accessRule.id})
 ```
 
-> **Note:** You typically don't need to call `qualifyPermissionId` directly. The platform handles permission namespacing automatically during registration and authorization checks.
+> **Note:** You typically don't need to call `qualifyAccessRuleId` directly. The platform handles access rule namespacing automatically during registration and authorization checks.
 
 This ensures that all packages can reference core types without creating circular dependencies or violating the architecture rules.
 
@@ -306,7 +306,7 @@ plugins/
     tsconfig.json
     src/
       index.ts          # Barrel export
-      permissions.ts    # Permission definitions
+      access.ts              # Access rule definitions
       schemas.ts        # Zod schemas and type definitions
       rpc-contract.ts   # oRPC contract definition
       constants.ts      # Shared constants (optional)
@@ -354,7 +354,7 @@ The `-common` package must have these dependencies to support oRPC contracts:
 
 **Key points:**
 - Use `workspace:*` for internal dependencies
-- Only depend on `@checkstack/common` for shared type definitions like `Permission`
+- Only depend on `@checkstack/common` for shared type definitions like `AccessRule`
 - Include `@orpc/contract` and `zod` for contract and schema definitions
 - Do NOT depend on `@checkstack/backend-api`, `@checkstack/frontend-api`, or any runtime-specific packages
 - Common plugins must maintain minimal dependencies to ensure they can be safely imported anywhere
@@ -378,7 +378,7 @@ To prevent circular dependencies (which cause `ReferenceError: Cannot access 'X'
 
 ### File Organization
 
-1. **`src/permissions.ts`**: Define permissions using `createPermission`
+1. **`src/access.ts`**: Define access rules using `accessPair`
 2. **`src/schemas.ts`**: Define all Zod schemas and derive types
 3. **`src/rpc-contract.ts`**: Define the oRPC contract
 4. **`src/index.ts`**: Barrel file that exports everything
@@ -391,33 +391,33 @@ Doing so creates a circular loop when the barrel file also exports the contract,
 
 ```typescript
 // ✅ Good - Import from specific files
-import { permissions } from "./permissions";
+import { access } from "./access";
 import { SystemSchema } from "./schemas";
 
 // ❌ Bad - Creates circular dependency
-import { permissions, SystemSchema } from "./index";
+import { access, SystemSchema } from "./index";
 ```
 
 ### Example Structure
 
-**src/permissions.ts:**
+**src/access.ts:**
 ```typescript
-import { createPermission } from "@checkstack/common";
+import { accessPair } from "@checkstack/common";
 
-export const permissions = {
-  catalogRead: createPermission(
+export const access = {
+  catalogRead: accessPair(
     "catalog",
     "read",
     "Read catalog entities"
   ),
-  catalogManage: createPermission(
+  catalogManage: accessPair(
     "catalog",
     "manage",
     "Manage catalog entities"
   ),
 };
 
-export const permissionList = Object.values(permissions);
+export const accessRuleList = Object.values(access);
 ```
 
 **src/schemas.ts:**
@@ -446,11 +446,11 @@ export const CreateSystemSchema = z.object({
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 import { SystemSchema, CreateSystemSchema } from "./schemas"; // Direct import
-import { permissions } from "./permissions"; // Direct import
+import { access } from "./access"; // Direct import
 
-// 1. Define metadata type (must match backend-api's PermissionMetadata structure)
+// 1. Define metadata type (must match backend-api's ProcedureMetadata structure)
 export interface CatalogMetadata {
-  permissions?: string[];
+  access?: string[];
 }
 
 // 2. Create base builder with metadata support
@@ -458,11 +458,11 @@ const _base = oc.$meta<CatalogMetadata>({});
 
 export const catalogContract = {
   getSystems: _base
-    .meta({ permissions: [permissions.catalogRead.id] })
+    .meta({ access: [access.catalogRead.id] })
     .output(z.array(SystemSchema)),
   
   createSystem: _base
-    .meta({ permissions: [permissions.catalogManage.id] })
+    .meta({ access: [access.catalogManage.id] })
     .input(CreateSystemSchema)
     .output(SystemSchema),
 };
@@ -472,8 +472,8 @@ export type CatalogContract = typeof catalogContract;
 
 **src/index.ts:**
 ```typescript
-// Export permissions
-export { permissions, permissionList } from "./permissions";
+// Export access rules
+export { access, accessRuleList } from "./access";
 
 // Export schemas and types
 export * from "./schemas";
@@ -529,24 +529,24 @@ import { oc } from "@orpc/contract";
 import type { ProcedureMetadata } from "@checkstack/common";
 import { z } from "zod";
 import { SystemSchema, CreateSystemSchema, UpdateSystemSchema } from "./schemas";
-import { permissions } from "./permissions";
+import { access } from "./access";
 
 // Use ProcedureMetadata from @checkstack/common for full auth control
 const _base = oc.$meta<ProcedureMetadata>({});
 
 export const catalogContract = {
-  // User-only endpoints with permission requirements
+  // User-only endpoints with access requirements
   getSystems: _base
-    .meta({ userType: "user", permissions: [permissions.catalogRead.id] })
+    .meta({ userType: "user", access: [access.catalogRead.id] })
     .output(z.array(SystemSchema)),
   
   getSystem: _base
-    .meta({ userType: "user", permissions: [permissions.catalogRead.id] })
+    .meta({ userType: "user", access: [access.catalogRead.id] })
     .input(z.string())
     .output(SystemSchema),
   
   createSystem: _base
-    .meta({ userType: "user", permissions: [permissions.catalogManage.id] })
+    .meta({ userType: "user", access: [access.catalogManage.id] })
     .input(CreateSystemSchema)
     .output(SystemSchema),
   
@@ -574,7 +574,7 @@ import type { ProcedureMetadata } from "@checkstack/common";
 // ProcedureMetadata interface:
 interface ProcedureMetadata {
   userType?: "anonymous" | "user" | "service" | "authenticated";
-  permissions?: string[];
+  access?: string[];
 }
 ```
 
@@ -601,7 +601,7 @@ const os = implement(catalogContract)
   .$context<RpcContext>()
   .use(autoAuthMiddleware);
 
-// Auth and permissions are automatically enforced!
+// Auth and access rules are automatically enforced!
 return os.router({
   getSystems: os.getSystems.handler(async ({ context }) => {
     // context.user is guaranteed to be RealUser by contract meta
@@ -616,19 +616,19 @@ This approach:
 - **Automatic enforcement**: No manual middleware chaining needed
 - **Type-safe**: Contract meta determines context.user type
 
-### In Common Plugin (`catalog-common/src/permissions.ts`)
+### In Common Plugin (`catalog-common/src/access.ts`)
 
 ```typescript
-import { createPermission } from "@checkstack/common";
+import { accessPair } from "@checkstack/common";
 
-export const permissions = {
-  catalogRead: createPermission(
+export const access = {
+  catalogRead: accessPair(
     "catalog",
     "read",
     "Read catalog entities",
     { isAuthenticatedDefault: true } // Auto-assigned to "users" role
   ),
-  catalogManage: createPermission(
+  catalogManage: accessPair(
     "catalog",
     "manage",
     "Manage catalog entities"
@@ -636,23 +636,23 @@ export const permissions = {
 };
 
 // Export as array for backend registration
-export const permissionList = Object.values(permissions);
+export const accessRuleList = Object.values(access);
 ```
 
-> **Note**: Permissions with `isDefault: true` are automatically synced to the built-in "users" role on startup. See [Backend Plugin Development](../backend/plugins.md#default-permissions-and-the-users-role) for details.
+> **Note**: Access rules with `isDefault: true` are automatically synced to the built-in "users" role on startup. See [Backend Plugin Development](../backend/plugins.md#default-access-rules-and-the-users-role) for details.
 
 ### In Backend Plugin
 
 ```typescript
 import { implement } from "@orpc/server";
 import { autoAuthMiddleware, type RpcContext, type RealUser } from "@checkstack/backend-api";
-import { catalogContract, permissionList } from "@checkstack/catalog-common";
+import { catalogContract, accessRuleList } from "@checkstack/catalog-common";
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
-    // Register all permissions with the core
-    env.registerPermissions(permissionList);
+    // Register all access rules with the core
+    env.registerAccessRules(accessRuleList);
 
     env.registerInit({
       // ...
@@ -664,7 +664,7 @@ export default createBackendPlugin({
         
         const router = os.router({
           getSystems: os.getSystems.handler(async ({ context }) => {
-            // Auth and permissions auto-enforced from contract meta
+            // Auth and access rules auto-enforced from contract meta
             const userId = (context.user as RealUser).id;
             // Implementation...
           }),
@@ -680,14 +680,14 @@ export default createBackendPlugin({
 ### In Frontend Plugin
 
 ```typescript
-import { permissions } from "@checkstack/catalog-common";
-import { useApi, permissionApiRef } from "@checkstack/frontend-api";
+import { access } from "@checkstack/catalog-common";
+import { useApi, accessApiRef } from "@checkstack/frontend-api";
 
 export const CatalogConfigPage = () => {
-  const permissionApi = useApi(permissionApiRef);
+  const accessApi = useApi(accessApiRef);
   
-  // Use typed permission constants - no hardcoded strings!
-  const canManage = permissionApi.usePermission(permissions.catalogManage.id);
+  // Use typed access rule constants - no hardcoded strings!
+  const canManage = accessApi.useAccess(access.catalogManage.id);
   
   // ...
 };
@@ -700,7 +700,7 @@ export const CatalogConfigPage = () => {
 3. **No Contract Drift**: Compile-time errors if backend implementation doesn't match contract
 4. **Improved DX**: Auto-completion and type checking for all RPC calls
 5. **Single Source of Truth**: Contract definition is the authoritative API specification
-6. **Self-Documenting**: Permission requirements declared in contract metadata
+6. **Self-Documenting**: Access requirements declared in contract metadata
 7. **Refactoring Support**: IDE can find all usages when renaming
 8. **No Duplication**: Eliminates hardcoded strings and duplicate type definitions
 
@@ -725,12 +725,12 @@ To migrate to the oRPC pattern:
 
    export const myContract = {
      getData: _base
-       .meta({ permissions: [permissions.myRead.id] })
+       .meta({ access: [access.myRead.id] })
        .input(z.string())
        .output(z.array(DataSchema)),
 
      updateData: _base
-       .meta({ permissions: [permissions.myManage.id] })
+       .meta({ access: [access.myManage.id] })
        .input(z.object({ id: z.string(), data: DataSchema.partial() }))
        .output(DataSchema),
    };
@@ -787,8 +787,8 @@ If a member remains missing despite being in `src/index.ts`, it is likely being 
 ## Naming Conventions
 
 - **Package Name**: `@checkstack/<plugin>-common`
-- **Permission IDs**: Use dot notation: `entity.read`, `incident.manage`
-- **Permission Constants**: Use camelCase: `entityRead`, `incidentManage`
+- **Access rule IDs**: Use dot notation: `entity.read`, `incident.manage`
+- **Access rule constants**: Use camelCase: `entityRead`, `incidentManage`
 - **Contract Names**: Use camelCase suffix: `catalogContract`, `healthCheckContract`
 - **Exports**: Always use barrel exports in `index.ts`
 
@@ -798,23 +798,23 @@ Common plugins should be tested with unit tests that verify:
 - Type definitions are correct
 - Validation schemas work as expected
 - Utility functions produce correct outputs
-- Permission lists contain expected permissions
+- Access rule lists contain expected access rules
 - Contract metadata is properly defined
 
 Since common plugins have minimal runtime dependencies, they're easy to test:
 
 ```typescript
 import { describe, expect, test } from "bun:test";
-import { permissions, permissionList } from "./permissions";
+import { access, accessRuleList } from "./access";
 import { SystemSchema } from "./schemas";
 
-describe("Permissions", () => {
-  test("permission list contains all permissions", () => {
-    expect(permissionList).toHaveLength(2);
+describe("Access Rules", () => {
+  test("access rule list contains all access rules", () => {
+    expect(accessRuleList).toHaveLength(2);
   });
 
-  test("permission IDs are correctly formatted", () => {
-    expect(permissions.catalogRead.id).toBe("catalog.read");
+  test("access rule IDs are correctly formatted", () => {
+    expect(access.catalogRead.id).toBe("catalog.read");
   });
 });
 

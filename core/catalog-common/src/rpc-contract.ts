@@ -1,21 +1,15 @@
 import { oc } from "@orpc/contract";
 import {
   createClientDefinition,
-  createResourceAccess,
-  createResourceAccessList,
   type ProcedureMetadata,
 } from "@checkstack/common";
 import { pluginMetadata } from "./plugin-metadata";
 import { z } from "zod";
 import { SystemSchema, GroupSchema, ViewSchema } from "./types";
-import { permissions } from "./permissions";
+import { catalogAccess } from "./access";
 
 // Base builder with full metadata support
 const _base = oc.$meta<ProcedureMetadata>({});
-
-// Resource access configurations for team-based access control
-const systemAccess = createResourceAccess("system", "systemId");
-const systemListAccess = createResourceAccessList("system", "systems");
 
 // Input schemas that match the service layer expectations
 const CreateSystemInputSchema = z.object({
@@ -57,14 +51,13 @@ const CreateViewInputSchema = z.object({
 // Catalog RPC Contract using oRPC's contract-first pattern
 export const catalogContract = {
   // ==========================================================================
-  // ENTITY READ ENDPOINTS (userType: "public" - accessible by anyone with permission)
+  // ENTITY READ ENDPOINTS (userType: "public" - accessible by anyone with access)
   // ==========================================================================
 
   getEntities: _base
     .meta({
       userType: "public",
-      permissions: [permissions.catalogRead.id],
-      resourceAccess: [systemListAccess],
+      access: [catalogAccess.system.read],
     })
     .output(
       z.object({
@@ -76,32 +69,30 @@ export const catalogContract = {
   getSystems: _base
     .meta({
       userType: "public",
-      permissions: [permissions.catalogRead.id],
-      resourceAccess: [systemListAccess],
+      access: [catalogAccess.system.read],
     })
     .output(z.object({ systems: z.array(SystemSchema) })),
 
   getSystem: _base
     .meta({
       userType: "public",
-      permissions: [permissions.catalogRead.id],
-      resourceAccess: [systemAccess],
+      access: [catalogAccess.system.read],
     })
     .input(z.object({ systemId: z.string() }))
     .output(SystemSchema.nullable()),
 
   getGroups: _base
-    .meta({ userType: "public", permissions: [permissions.catalogRead.id] })
+    .meta({ userType: "public", access: [catalogAccess.group.read] })
     .output(z.array(GroupSchema)),
 
   // ==========================================================================
-  // SYSTEM MANAGEMENT (userType: "authenticated" with manage permission)
+  // SYSTEM MANAGEMENT (userType: "authenticated" with manage access)
   // ==========================================================================
 
   createSystem: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.catalogManage.id],
+      access: [catalogAccess.system.manage],
     })
     .input(CreateSystemInputSchema)
     .output(SystemSchema),
@@ -109,7 +100,7 @@ export const catalogContract = {
   updateSystem: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.catalogManage.id],
+      access: [catalogAccess.system.manage],
     })
     .input(UpdateSystemInputSchema)
     .output(SystemSchema),
@@ -117,19 +108,19 @@ export const catalogContract = {
   deleteSystem: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.catalogManage.id],
+      access: [catalogAccess.system.manage],
     })
     .input(z.string())
     .output(z.object({ success: z.boolean() })),
 
   // ==========================================================================
-  // GROUP MANAGEMENT (userType: "authenticated" with manage permission)
+  // GROUP MANAGEMENT (userType: "authenticated" with manage access)
   // ==========================================================================
 
   createGroup: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.catalogManage.id],
+      access: [catalogAccess.group.manage],
     })
     .input(CreateGroupInputSchema)
     .output(GroupSchema),
@@ -137,7 +128,7 @@ export const catalogContract = {
   updateGroup: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.catalogManage.id],
+      access: [catalogAccess.group.manage],
     })
     .input(UpdateGroupInputSchema)
     .output(GroupSchema),
@@ -145,19 +136,19 @@ export const catalogContract = {
   deleteGroup: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.catalogManage.id],
+      access: [catalogAccess.group.manage],
     })
     .input(z.string())
     .output(z.object({ success: z.boolean() })),
 
   // ==========================================================================
-  // SYSTEM-GROUP RELATIONSHIPS (userType: "authenticated" with manage permission)
+  // SYSTEM-GROUP RELATIONSHIPS (userType: "authenticated" with manage access)
   // ==========================================================================
 
   addSystemToGroup: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.catalogManage.id],
+      access: [catalogAccess.system.manage],
     })
     .input(
       z.object({
@@ -170,7 +161,7 @@ export const catalogContract = {
   removeSystemFromGroup: _base
     .meta({
       userType: "authenticated",
-      permissions: [permissions.catalogManage.id],
+      access: [catalogAccess.system.manage],
     })
     .input(
       z.object({
@@ -185,11 +176,11 @@ export const catalogContract = {
   // ==========================================================================
 
   getViews: _base
-    .meta({ userType: "user", permissions: [permissions.catalogRead.id] })
+    .meta({ userType: "user", access: [catalogAccess.view.read] })
     .output(z.array(ViewSchema)),
 
   createView: _base
-    .meta({ userType: "user", permissions: [permissions.catalogManage.id] })
+    .meta({ userType: "user", access: [catalogAccess.view.manage] })
     .input(CreateViewInputSchema)
     .output(ViewSchema),
 

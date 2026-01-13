@@ -38,7 +38,7 @@ import {
 } from "@checkstack/ui";
 import { authApiRef } from "../api";
 import { useEnabledStrategies } from "../hooks/useEnabledStrategies";
-import { usePermissions } from "../hooks/usePermissions";
+import { useAccessRules } from "../hooks/useAccessRules";
 import { useAuthClient } from "../lib/auth-client";
 import { SocialProviderButton } from "./SocialProviderButton";
 import { useEffect } from "react";
@@ -273,7 +273,7 @@ export const LogoutMenuItem = (_props: UserMenuItemsContext) => {
 export const LoginNavbarAction = () => {
   const authApi = useApi(authApiRef);
   const { data: session, isPending } = authApi.useSession();
-  const { permissions, loading: permissionsLoading } = usePermissions();
+  const { accessRules, loading: accessRulesLoading } = useAccessRules();
   const authClient = useAuthClient();
   const [hasCredentialAccount, setHasCredentialAccount] =
     useState<boolean>(false);
@@ -295,7 +295,7 @@ export const LoginNavbarAction = () => {
     });
   }, [session?.user, authClient]);
 
-  if (isPending || permissionsLoading || credentialLoading) {
+  if (isPending || accessRulesLoading || credentialLoading) {
     return <div className="w-20 h-9 bg-muted animate-pulse rounded-full" />;
   }
 
@@ -306,7 +306,7 @@ export const LoginNavbarAction = () => {
     );
     const hasBottomItems = bottomExtensions.length > 0;
     const menuContext: UserMenuItemsContext = {
-      permissions,
+      accessRules,
       hasCredentialAccount,
     };
 

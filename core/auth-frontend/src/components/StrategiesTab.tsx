@@ -64,7 +64,7 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
     setStrategyConfigs(configs);
   }, [strategies]);
 
-  // Fetch registration data when we have permission
+  // Fetch registration data when we have access
   useEffect(() => {
     if (!canManageRegistration) {
       setLoadingRegistration(false);
@@ -206,7 +206,7 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
             )
           ) : (
             <p className="text-sm text-muted-foreground">
-              You don't have permission to manage registration settings.
+              You don't have access to manage registration settings.
             </p>
           )}
         </CardContent>
@@ -268,7 +268,7 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
 
       {!canManageStrategies && (
         <p className="text-xs text-muted-foreground mt-4">
-          You don't have permission to manage strategies.
+          You don't have access to manage strategies.
         </p>
       )}
     </div>

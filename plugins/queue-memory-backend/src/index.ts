@@ -1,15 +1,12 @@
-import {
-  createBackendPlugin,
-  coreServices,
-} from "@checkstack/backend-api";
+import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
 import { InMemoryQueuePlugin } from "./plugin";
-import { permissionList } from "@checkstack/queue-memory-common";
+import { queueMemoryAccessRules } from "@checkstack/queue-memory-common";
 import { pluginMetadata } from "./plugin-metadata";
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
-    env.registerPermissions(permissionList);
+    env.registerAccessRules(queueMemoryAccessRules);
 
     env.registerInit({
       deps: {

@@ -10,7 +10,7 @@ import {
   incidentRoutes,
   IncidentApi,
   pluginMetadata,
-  permissions,
+  incidentAccess,
 } from "@checkstack/incident-common";
 import {
   SystemDetailsTopSlot,
@@ -30,7 +30,7 @@ export default createFrontendPlugin({
       route: incidentRoutes.routes.config,
       element: <IncidentConfigPage />,
       title: "Incidents",
-      permission: permissions.incidentManage,
+      accessRule: incidentAccess.incident.manage,
     },
     {
       route: incidentRoutes.routes.detail,

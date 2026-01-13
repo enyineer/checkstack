@@ -1,15 +1,12 @@
-import {
-  createBackendPlugin,
-  coreServices,
-} from "@checkstack/backend-api";
+import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
 import { BullMQPlugin } from "./plugin";
-import { permissionList } from "@checkstack/queue-bullmq-common";
+import { queueBullmqAccessRules } from "@checkstack/queue-bullmq-common";
 import { pluginMetadata } from "./plugin-metadata";
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
-    env.registerPermissions(permissionList);
+    env.registerAccessRules(queueBullmqAccessRules);
 
     env.registerInit({
       deps: {

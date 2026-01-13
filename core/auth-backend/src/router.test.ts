@@ -17,7 +17,7 @@ describe("Auth Router", () => {
   const mockUser = {
     type: "user" as const,
     id: "test-user",
-    permissions: ["*"],
+    accessRules: ["*"],
     roles: ["admin"],
   } as any;
 
@@ -69,8 +69,8 @@ describe("Auth Router", () => {
     list: mock(() => Promise.resolve([])),
   };
 
-  const mockPermissionRegistry = {
-    getPermissions: () => [
+  const mockAccessRuleRegistry = {
+    getAccessRules: () => [
       { id: "auth-backend.users.read", description: "List all users" },
       { id: "auth-backend.users.manage", description: "Delete users" },
       { id: "auth-backend.roles.read", description: "Read and list roles" },
@@ -82,13 +82,13 @@ describe("Auth Router", () => {
     mockRegistry,
     async () => {},
     mockConfigService,
-    mockPermissionRegistry
+    mockAccessRuleRegistry
   );
 
-  it("getPermissions returns current user permissions", async () => {
+  it("getAccessRules returns current user access rules", async () => {
     const context = createMockRpcContext({ user: mockUser });
-    const result = await call(router.permissions, undefined, { context });
-    expect(result.permissions).toContain("*");
+    const result = await call(router.accessRules, undefined, { context });
+    expect(result.accessRules).toContain("*");
   });
 
   it("getUsers lists users with roles", async () => {
@@ -145,21 +145,21 @@ describe("Auth Router", () => {
     expect(deletedTables.includes(schema.user)).toBe(true);
   });
 
-  it("getRoles returns all roles with permissions", async () => {
+  it("getRoles returns all roles with accesss", async () => {
     const context = createMockRpcContext({ user: mockUser });
     mockDb.select.mockImplementationOnce(() => ({
       from: mock(() => createChain([{ id: "admin", name: "Admin" }])),
     }));
     mockDb.select.mockImplementationOnce(() => ({
       from: mock(() =>
-        createChain([{ roleId: "admin", permissionId: "users.manage" }])
+        createChain([{ roleId: "admin", accessRuleId: "users.manage" }])
       ),
     }));
 
     const result = await call(router.getRoles, undefined, { context });
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe("admin");
-    expect(result[0].permissions).toContain("users.manage");
+    expect(result[0].accessRules).toContain("users.manage");
   });
 
   it("updateUserRoles updates user roles", async () => {
@@ -214,7 +214,7 @@ describe("Auth Router", () => {
     expect(result.allowRegistration).toBe(true);
   });
 
-  it("setRegistrationStatus updates flag and requires permission", async () => {
+  it("setRegistrationStatus updates flag and requires access", async () => {
     const context = createMockRpcContext({ user: mockUser });
     const result = await call(
       router.setRegistrationStatus,

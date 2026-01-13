@@ -129,7 +129,7 @@ bun run db:studio        # Open Drizzle Studio
 Decide what type of plugin you're creating:
 - **Backend**: REST APIs, business logic, database
 - **Frontend**: UI components, pages, routing
-- **Common**: Shared types, permissions, constants
+- **Common**: Shared types, access rules, constants
 
 Most plugins will have all three.
 
@@ -415,7 +415,7 @@ None
 - ✅ Use Hono for routing
 - ✅ Use Drizzle for database
 - ✅ Use Zod for validation
-- ✅ Implement permission checks
+- ✅ Implement access checks
 - ✅ Write comprehensive tests
 - ✅ Document all endpoints
 - ❌ Don't use `pgSchema()` in Drizzle
@@ -426,7 +426,7 @@ None
 
 - ✅ Use React hooks
 - ✅ Use ShadCN components
-- ✅ Implement permission checks
+- ✅ Implement access checks
 - ✅ Handle loading states
 - ✅ Handle error states
 - ✅ Use TypeScript
@@ -436,7 +436,7 @@ None
 
 ### Common Plugins
 
-- ✅ Export permissions
+- ✅ Export access rules
 - ✅ Export shared types
 - ✅ Use Zod for schemas
 - ✅ Keep dependencies minimal

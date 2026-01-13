@@ -5,11 +5,11 @@ import {
   createServiceRef,
 } from "@checkstack/backend-api";
 import {
-  permissionList,
+  integrationAccessRules,
+  integrationAccess,
   pluginMetadata,
   integrationContract,
   integrationRoutes,
-  permissions,
 } from "@checkstack/integration-common";
 import { resolveRoute } from "@checkstack/common";
 import type { PluginMetadata } from "@checkstack/common";
@@ -106,8 +106,8 @@ export default createBackendPlugin({
     const eventRegistry = createIntegrationEventRegistry();
     const providerRegistry = createIntegrationProviderRegistry();
 
-    // Register static permissions
-    env.registerPermissions(permissionList);
+    // Register static access rules
+    env.registerAccessRules(integrationAccessRules);
 
     // Register the event extension point
     env.registerExtensionPoint(integrationEventExtensionPoint, {
@@ -221,7 +221,7 @@ export default createBackendPlugin({
               iconName: "Webhook",
               route:
                 resolveRoute(integrationRoutes.routes.list) + "?action=create",
-              requiredPermissions: [permissions.integrationManage],
+              requiredAccessRules: [integrationAccess.manage],
             },
             {
               id: "manage",
@@ -230,7 +230,7 @@ export default createBackendPlugin({
               iconName: "Webhook",
               shortcuts: ["meta+shift+g", "ctrl+shift+g"],
               route: resolveRoute(integrationRoutes.routes.list),
-              requiredPermissions: [permissions.integrationManage],
+              requiredAccessRules: [integrationAccess.manage],
             },
             {
               id: "logs",
@@ -238,7 +238,7 @@ export default createBackendPlugin({
               subtitle: "View integration delivery logs",
               iconName: "FileText",
               route: resolveRoute(integrationRoutes.routes.logs),
-              requiredPermissions: [permissions.integrationManage],
+              requiredAccessRules: [integrationAccess.manage],
             },
           ],
         });

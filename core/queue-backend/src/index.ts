@@ -1,9 +1,6 @@
+import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
 import {
-  createBackendPlugin,
-  coreServices,
-} from "@checkstack/backend-api";
-import {
-  permissionList,
+  queueAccessRules,
   pluginMetadata,
   queueContract,
 } from "@checkstack/queue-common";
@@ -12,7 +9,7 @@ import { createQueueRouter } from "./router";
 export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
-    env.registerPermissions(permissionList);
+    env.registerAccessRules(queueAccessRules);
 
     env.registerInit({
       deps: {

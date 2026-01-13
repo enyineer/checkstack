@@ -2,11 +2,14 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   useApi,
-  permissionApiRef,
+  accessApiRef,
   ExtensionSlot,
 } from "@checkstack/frontend-api";
 import { catalogApiRef, System, Group } from "../api";
-import { CatalogSystemActionsSlot } from "@checkstack/catalog-common";
+import {
+  CatalogSystemActionsSlot,
+  catalogAccess,
+} from "@checkstack/catalog-common";
 import {
   SectionHeader,
   Card,
@@ -17,7 +20,7 @@ import {
   Label,
   LoadingSpinner,
   EmptyState,
-  PermissionDenied,
+  AccessDenied,
   EditableText,
   ConfirmationModal,
   useToast,
@@ -28,11 +31,11 @@ import { GroupEditor } from "./GroupEditor";
 
 export const CatalogConfigPage = () => {
   const catalogApi = useApi(catalogApiRef);
-  const permissionApi = useApi(permissionApiRef);
+  const accessApi = useApi(accessApiRef);
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { allowed: canManage, loading: permissionLoading } =
-    permissionApi.useManagePermission("catalog");
+  const { allowed: canManage, loading: accessLoading } =
+    accessApi.useAccess(catalogAccess.system.manage);
 
   const [systems, setSystems] = useState<System[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -219,10 +222,10 @@ export const CatalogConfigPage = () => {
     }
   };
 
-  if (loading || permissionLoading) return <LoadingSpinner />;
+  if (loading || accessLoading) return <LoadingSpinner />;
 
   if (!canManage) {
-    return <PermissionDenied />;
+    return <AccessDenied />;
   }
 
   const selectedGroup = groups.find((g) => g.id === selectedGroupId);

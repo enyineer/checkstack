@@ -125,9 +125,9 @@ await signalService.sendToUsers(NOTIFICATION_RECEIVED, [user1, user2], {
 });
 ```
 
-#### To Authorized Users Only (Permission-Based)
+#### To Authorized Users Only (Access-Based)
 
-For sensitive signals that should only reach users with specific permissions:
+For sensitive signals that should only reach users with specific access rules:
 
 ```mermaid
 sequenceDiagram
@@ -136,26 +136,26 @@ sequenceDiagram
     participant Auth as AuthApi (RPC)
     participant WS as WebSocket
 
-    Plugin->>Signal: sendToAuthorizedUsers(signal, userIds, payload, permission)
-    Signal->>Auth: filterUsersByPermission(userIds, permission)
+    Plugin->>Signal: sendToAuthorizedUsers(signal, userIds, payload, accessRule)
+    Signal->>Auth: filterUsersByAccessRule(userIds, accessRule)
     Auth-->>Signal: authorizedUserIds[]
     Signal->>WS: sendToUsers(signal, authorizedUserIds, payload)
 ```
 
 ```typescript
-import { pluginMetadata, permissions, HEALTH_STATE_CHANGED } from "@checkstack/healthcheck-common";
+import { pluginMetadata, access, HEALTH_STATE_CHANGED } from "@checkstack/healthcheck-common";
 
-// Only users with the permission receive the signal
+// Only users with the access rule receive the signal
 await signalService.sendToAuthorizedUsers(
   HEALTH_STATE_CHANGED,
   subscriberUserIds,
   { systemId, newState: "degraded" },
   pluginMetadata,  // Typed PluginMetadata from common package
-  permissions.healthcheckStatusRead
+  access.healthcheckStatusRead
 );
 ```
 
-> **Note**: This method uses S2S RPC to filter users via the `auth` plugin's `filterUsersByPermission` endpoint. Users with the `admin` role receive the signal because all permissions are synced to the admin role.
+> **Note**: This method uses S2S RPC to filter users via the `auth` plugin's `filterUsersByAccessRule` endpoint. Users with the `admin` role receive the signal because all access rules are synced to the admin role.
 
 ---
 
@@ -458,7 +458,7 @@ interface SignalService {
     userIds: string[],
     payload: T,
     pluginMetadata: PluginMetadata,
-    permission: Permission
+    accessRule: AccessRule
   ): Promise<void>;
 }
 ```

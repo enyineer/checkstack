@@ -8,7 +8,7 @@ describe("HealthCheck Router", () => {
   const mockUser = {
     type: "user" as const,
     id: "test-user",
-    permissions: ["*"],
+    accessRules: ["*"],
     roles: ["admin"],
   };
 

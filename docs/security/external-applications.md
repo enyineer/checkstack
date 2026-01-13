@@ -10,7 +10,7 @@ External Applications provide programmatic access to the Checkstack API for non-
 
 - **Identity Type**: Applications are RBAC-controlled identities (like users), not trusted services
 - **Authentication**: Bearer token via the `Authorization` header
-- **Permissions**: Enforced by standard RBAC - applications must be assigned roles with appropriate permissions
+- **Access**: Enforced by standard RBAC - applications must be assigned roles with appropriate access rules
 
 ## Creating an Application
 
@@ -149,7 +149,7 @@ Each plugin exposes its procedures at `/api/{pluginId}/`. Common endpoints inclu
 | `maintenance` | `/api/maintenance/` | `getWindows`, `scheduleWindow` |
 | `incident` | `/api/incident/` | `getIncidents`, `createIncident` |
 
-> **Note**: Available procedures depend on your application's assigned permissions. Check each plugin's contract definition for the full procedure list and required permissions.
+> **Note**: Available procedures depend on your application's assigned access. Check each plugin's contract definition for the full procedure list and required accesss.
 
 ## Error Handling
 
@@ -158,13 +158,13 @@ oRPC returns structured error responses:
 ```json
 {
   "code": "FORBIDDEN",
-  "message": "Missing permission: catalog.catalog.read"
+  "message": "Missing access: catalog.catalog.read"
 }
 ```
 
 Common error codes:
 - **`UNAUTHORIZED`**: Missing or invalid API key
-- **`FORBIDDEN`**: Valid key but missing required permission
+- **`FORBIDDEN`**: Valid key but missing required access
 - **`NOT_FOUND`**: Procedure or resource not found
 - **`BAD_REQUEST`**: Invalid input parameters
 
@@ -172,19 +172,19 @@ Common error codes:
 
 1. **Store secrets securely** - Use environment variables or secret managers
 2. **Rotate secrets periodically** - Use the "Regenerate Secret" button in the UI
-3. **Apply least privilege** - Assign only the roles/permissions needed
+3. **Apply least privilege** - Assign only the roles/access rules needed
 4. **Monitor usage** - Check the "Last Used" column for inactive applications
 5. **Delete unused applications** - Expired keys stop working immediately
 
-## Permissions Reference
+## Access Reference
 
-Applications use the same RBAC system as users. To call an endpoint, the application must have a role with the required permission. Permission format:
+Applications use the same RBAC system as users. To call an endpoint, the application must have a role with the required access rule. Access rule format:
 
 ```
-{pluginId}.{permissionId}
+{pluginId}.{accessRuleId}
 ```
 
-Example: To call `catalog.getSystems`, the application needs a role with `catalog.catalog.read` permission.
+Example: To call `catalog.getSystems`, the application needs a role with `catalog.catalog.read` access rule.
 
 ## Team Assignments
 

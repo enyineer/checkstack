@@ -25,10 +25,10 @@ export interface Role {
   description?: string | null;
   isSystem?: boolean;
   isAssignable?: boolean; // False for anonymous role - not assignable to users
-  permissions?: string[];
+  accessRules?: string[];
 }
 
-export interface Permission {
+export interface AccessRuleEntry {
   id: string;
   description?: string;
 }

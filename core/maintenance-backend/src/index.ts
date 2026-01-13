@@ -2,16 +2,13 @@ import * as schema from "./schema";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import {
-  permissionList,
+  maintenanceAccessRules,
+  maintenanceAccess,
   pluginMetadata,
   maintenanceContract,
   maintenanceRoutes,
-  permissions,
 } from "@checkstack/maintenance-common";
-import {
-  createBackendPlugin,
-  coreServices,
-} from "@checkstack/backend-api";
+import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
 import { integrationEventExtensionPoint } from "@checkstack/integration-backend";
 import { MaintenanceService } from "./service";
 import { createRouter } from "./router";
@@ -52,7 +49,7 @@ const maintenanceUpdatedPayloadSchema = z.object({
 export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
-    env.registerPermissions(permissionList);
+    env.registerAccessRules(maintenanceAccessRules);
 
     // Register hooks as integration events
     const integrationEvents = env.getExtensionPoint(
@@ -117,7 +114,7 @@ export default createBackendPlugin({
               route:
                 resolveRoute(maintenanceRoutes.routes.config) +
                 "?action=create",
-              requiredPermissions: [permissions.maintenanceManage],
+              requiredAccessRules: [maintenanceAccess.maintenance.manage],
             },
             {
               id: "manage",
@@ -126,7 +123,7 @@ export default createBackendPlugin({
               iconName: "Wrench",
               shortcuts: ["meta+shift+m", "ctrl+shift+m"],
               route: resolveRoute(maintenanceRoutes.routes.config),
-              requiredPermissions: [permissions.maintenanceManage],
+              requiredAccessRules: [maintenanceAccess.maintenance.manage],
             },
           ],
         });

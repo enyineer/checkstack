@@ -5,11 +5,11 @@ import {
 import * as schema from "./schema";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import {
-  permissionList,
+  healthCheckAccessRules,
+  healthCheckAccess,
   pluginMetadata,
   healthCheckContract,
   healthcheckRoutes,
-  permissions,
 } from "@checkstack/healthcheck-common";
 import {
   createBackendPlugin,
@@ -55,7 +55,7 @@ let storedEmitHook: EmitHookFn | undefined;
 export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
-    env.registerPermissions(permissionList);
+    env.registerAccessRules(healthCheckAccessRules);
 
     // Register hooks as integration events
     const integrationEvents = env.getExtensionPoint(
@@ -142,7 +142,7 @@ export default createBackendPlugin({
               route:
                 resolveRoute(healthcheckRoutes.routes.config) +
                 "?action=create",
-              requiredPermissions: [permissions.healthCheckManage],
+              requiredAccessRules: [healthCheckAccess.configuration.manage],
             },
             {
               id: "manage",
@@ -151,7 +151,7 @@ export default createBackendPlugin({
               iconName: "HeartPulse",
               shortcuts: ["meta+shift+h", "ctrl+shift+h"],
               route: resolveRoute(healthcheckRoutes.routes.config),
-              requiredPermissions: [permissions.healthCheckManage],
+              requiredAccessRules: [healthCheckAccess.configuration.manage],
             },
           ],
         });

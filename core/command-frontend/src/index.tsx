@@ -118,16 +118,16 @@ export function formatShortcut(shortcut: string, isMac: boolean): string {
  *
  * @param commands - Array of commands with shortcuts
  * @param navigate - Navigation function to call when a command is triggered
- * @param userPermissions - Array of permission IDs the user has
+ * @param userAccessRules - Array of access rule IDs the user has
  */
 export function useGlobalShortcuts(
   commands: SearchResult[],
   navigate: (route: string) => void,
-  userPermissions: string[]
+  userAccessRules: string[]
 ): void {
   useEffect(() => {
-    // Check if user has wildcard permission (admin)
-    const hasWildcard = userPermissions.includes("*");
+    // Check if user has wildcard access rule (admin)
+    const hasWildcard = userAccessRules.includes("*");
 
     const handleKeyDown = (event: KeyboardEvent) => {
       // Don't trigger in input fields
@@ -144,12 +144,12 @@ export function useGlobalShortcuts(
       for (const command of commands) {
         if (!command.shortcuts || !command.route) continue;
 
-        // Check permissions (skip if user has wildcard)
-        if (!hasWildcard && command.requiredPermissions?.length) {
-          const hasPermission = command.requiredPermissions.every((perm) =>
-            userPermissions.includes(perm)
+        // Check access rules (skip if user has wildcard)
+        if (!hasWildcard && command.requiredAccessRules?.length) {
+          const hasAccess = command.requiredAccessRules.every((rule) =>
+            userAccessRules.includes(rule)
           );
-          if (!hasPermission) continue;
+          if (!hasAccess) continue;
         }
 
         for (const shortcut of command.shortcuts) {
@@ -165,7 +165,7 @@ export function useGlobalShortcuts(
 
     globalThis.addEventListener("keydown", handleKeyDown);
     return () => globalThis.removeEventListener("keydown", handleKeyDown);
-  }, [commands, navigate, userPermissions]);
+  }, [commands, navigate, userAccessRules]);
 }
 
 /**
@@ -359,7 +359,7 @@ export function GlobalShortcuts(): React.ReactNode {
     globalThis.location.href = route;
   }, []);
 
-  // For now, pass "*" as permission since the backend already filters by permission
+  // For now, pass "*" as access rule since the backend already filters
   // The commands returned from getCommands are already filtered
   useGlobalShortcuts(commands, navigate, ["*"]);
 

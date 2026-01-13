@@ -5,7 +5,7 @@ import { User } from "better-auth/types";
 // Mock Drizzle DB
 const createMockDb = (data: {
   roles?: unknown[];
-  permissions?: unknown[];
+  accessRules?: unknown[];
   teams?: unknown[];
 }) => {
   const mockDb: unknown = {
@@ -16,7 +16,7 @@ const createMockDb = (data: {
   };
 
   // Track call count for sequential responses
-  // Call order in enrichUser: 1=roles, 2+=permissions per role, final=teams
+  // Call order in enrichUser: 1=roles, 2+=access rules per role, final=teams
   let callCount = 0;
   const nonAdminRoles = (data.roles || []).filter(
     (r) => (r as { roleId: string }).roleId !== "admin"
@@ -30,8 +30,8 @@ const createMockDb = (data: {
       return resolve(data.roles || []);
     }
     if (callCount <= 1 + nonAdminRoles.length && nonAdminRoles.length > 0) {
-      // Permission calls for each non-admin role
-      return resolve(data.permissions || []);
+      // Access rule calls for each non-admin role
+      return resolve(data.accessRules || []);
     }
     // Team memberships (final call)
     return resolve(data.teams || []);
@@ -50,7 +50,7 @@ describe("enrichUser", () => {
     updatedAt: new Date(),
   };
 
-  it("should enrich user with admin role and wildcard permission", async () => {
+  it("should enrich user with admin role and wildcard access", async () => {
     const mockDb = createMockDb({
       roles: [{ roleId: "admin" }],
       teams: [{ teamId: "team-1" }],
@@ -62,14 +62,14 @@ describe("enrichUser", () => {
     );
 
     expect(result.roles).toContain("admin");
-    expect(result.permissions).toContain("*");
+    expect(result.accessRules).toContain("*");
     expect(result.teamIds).toEqual(["team-1"]);
   });
 
-  it("should enrich user with custom roles and permissions", async () => {
+  it("should enrich user with custom roles and access rules", async () => {
     const mockDb = createMockDb({
       roles: [{ roleId: "editor" }],
-      permissions: [{ permissionId: "blog.edit" }],
+      accessRules: [{ accessRuleId: "blog.edit" }],
       teams: [],
     });
 
@@ -79,7 +79,7 @@ describe("enrichUser", () => {
     );
 
     expect(result.roles).toContain("editor");
-    expect(result.permissions).toContain("blog.edit");
+    expect(result.accessRules).toContain("blog.edit");
     expect(result.teamIds).toEqual([]);
   });
 
@@ -95,7 +95,7 @@ describe("enrichUser", () => {
     );
 
     expect(result.roles).toEqual([]);
-    expect(result.permissions).toEqual([]);
+    expect(result.accessRules).toEqual([]);
     expect(result.teamIds).toEqual([]);
   });
 

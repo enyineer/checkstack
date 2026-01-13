@@ -20,20 +20,21 @@ type AuthDatabase = NodePgDatabase<typeof schema>;
  * - S2S access checks (checkResourceTeamAccess, getAccessibleResourceIds)
  */
 describe("Teams and Resource Access Control", () => {
-  // Mock user with admin permissions
+  // Mock user with admin accesss
   const mockAdminUser = {
     type: "user" as const,
     id: "admin-user",
-    permissions: ["*"],
+    accessRules: ["*"],
     roles: ["admin"],
     teamIds: ["team-alpha"],
   };
 
-  // Mock regular user with limited permissions
+  // Mock regular user with limited access
+  // Note: Uses test-plugin prefix to match createMockRpcContext's pluginMetadata
   const mockRegularUser = {
     type: "user" as const,
     id: "regular-user",
-    permissions: ["auth.teams.read"],
+    accessRules: ["test-plugin.teams.read"],
     roles: ["users"],
     teamIds: ["team-beta"],
   };
@@ -117,8 +118,8 @@ describe("Teams and Resource Access Control", () => {
     list: mock(() => Promise.resolve([])),
   };
 
-  const mockPermissionRegistry = {
-    getPermissions: () => [
+  const mockAccessRuleRegistry = {
+    getAccessRules: () => [
       { id: "auth.teams.read", description: "View teams" },
       { id: "auth.teams.manage", description: "Manage teams" },
     ],
@@ -136,7 +137,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -186,7 +187,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -208,6 +209,115 @@ describe("Teams and Resource Access Control", () => {
         isManager: false,
       });
     });
+
+    it("returns teams for regular user with read-only access", async () => {
+      const mockDb = createMockDb();
+
+      // Mock teams query
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            {
+              id: "team-alpha",
+              name: "Alpha Team",
+              description: "First team",
+            },
+            {
+              id: "team-beta",
+              name: "Beta Team",
+              description: "Second team",
+            },
+          ])
+        ),
+      }));
+
+      // Mock member counts query
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            { teamId: "team-alpha" },
+            { teamId: "team-beta" },
+            { teamId: "team-beta" },
+          ])
+        ),
+      }));
+
+      // Mock manager query (regular-user is not a manager of any team)
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      // Use mockRegularUser who has only auth.teams.read access
+      const context = createMockRpcContext({ user: mockRegularUser });
+      const result = await call(router.getTeams, undefined, { context });
+
+      expect(result).toHaveLength(2);
+      expect(result[0]).toEqual({
+        id: "team-alpha",
+        name: "Alpha Team",
+        description: "First team",
+        memberCount: 1,
+        isManager: false,
+      });
+      expect(result[1]).toEqual({
+        id: "team-beta",
+        name: "Beta Team",
+        description: "Second team",
+        memberCount: 2,
+        isManager: false,
+      });
+    });
+
+    it("shows correct manager status for regular user who is a team manager", async () => {
+      const mockDb = createMockDb();
+
+      // Mock teams query
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            {
+              id: "team-beta",
+              name: "Beta Team",
+              description: "User's team",
+            },
+          ])
+        ),
+      }));
+
+      // Mock member counts query
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-beta" }])),
+      }));
+
+      // Mock manager query (regular-user IS a manager of team-beta)
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([{ teamId: "team-beta", userId: "regular-user" }])
+        ),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({ user: mockRegularUser });
+      const result = await call(router.getTeams, undefined, { context });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].isManager).toBe(true);
+    });
   });
 
   describe("getTeam", () => {
@@ -223,7 +333,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -279,7 +389,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -313,7 +423,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -343,7 +453,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -377,7 +487,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -410,7 +520,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -447,7 +557,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -486,7 +596,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -511,7 +621,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -548,7 +658,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -573,7 +683,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -606,7 +716,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -653,7 +763,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -680,7 +790,7 @@ describe("Teams and Resource Access Control", () => {
   });
 
   describe("setResourceTeamAccess", () => {
-    it("creates new grant with default permissions", async () => {
+    it("creates new grant with default access", async () => {
       const mockDb = createMockDb();
       let insertedData: Record<string, unknown> | undefined;
 
@@ -698,7 +808,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -720,7 +830,7 @@ describe("Teams and Resource Access Control", () => {
       expect(insertedData?.canManage).toBe(false);
     });
 
-    it("creates grant with custom permissions", async () => {
+    it("creates grant with custom access", async () => {
       const mockDb = createMockDb();
       let insertedData: Record<string, unknown> | undefined;
 
@@ -738,7 +848,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -768,7 +878,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -791,7 +901,7 @@ describe("Teams and Resource Access Control", () => {
   // ==========================================================================
 
   describe("checkResourceTeamAccess (S2S)", () => {
-    it("allows access when no grants exist and user has global permission", async () => {
+    it("allows access when no grants exist and user has global access", async () => {
       const mockDb = createMockDb();
 
       // No grants exist
@@ -804,7 +914,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -816,7 +926,7 @@ describe("Teams and Resource Access Control", () => {
           resourceType: "catalog.system",
           resourceId: "sys-1",
           action: "read",
-          hasGlobalPermission: true,
+          hasGlobalAccess: true,
         },
         { context }
       );
@@ -824,7 +934,7 @@ describe("Teams and Resource Access Control", () => {
       expect(result.hasAccess).toBe(true);
     });
 
-    it("denies access when no grants exist and user lacks global permission", async () => {
+    it("denies access when no grants exist and user lacks global access", async () => {
       const mockDb = createMockDb();
 
       // No grants exist
@@ -837,7 +947,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -849,7 +959,7 @@ describe("Teams and Resource Access Control", () => {
           resourceType: "catalog.system",
           resourceId: "sys-1",
           action: "read",
-          hasGlobalPermission: false,
+          hasGlobalAccess: false,
         },
         { context }
       );
@@ -888,7 +998,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -900,7 +1010,7 @@ describe("Teams and Resource Access Control", () => {
           resourceType: "catalog.system",
           resourceId: "sys-1",
           action: "read",
-          hasGlobalPermission: false,
+          hasGlobalAccess: false,
         },
         { context }
       );
@@ -911,7 +1021,7 @@ describe("Teams and Resource Access Control", () => {
     it("denies access when user's team has grant but lacks canManage for manage action", async () => {
       const mockDb = createMockDb();
 
-      // Grant exists for team-1 with only read permission
+      // Grant exists for team-1 with only read access
       (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
         from: mock(() =>
           createChain([
@@ -939,7 +1049,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -951,7 +1061,7 @@ describe("Teams and Resource Access Control", () => {
           resourceType: "catalog.system",
           resourceId: "sys-1",
           action: "manage",
-          hasGlobalPermission: false,
+          hasGlobalAccess: false,
         },
         { context }
       );
@@ -992,7 +1102,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1004,7 +1114,7 @@ describe("Teams and Resource Access Control", () => {
           resourceType: "catalog.system",
           resourceId: "sys-1",
           action: "read",
-          hasGlobalPermission: true, // Global permission doesn't help with teamOnly
+          hasGlobalAccess: true, // Global access doesn't help with teamOnly
         },
         { context }
       );
@@ -1045,7 +1155,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1057,7 +1167,423 @@ describe("Teams and Resource Access Control", () => {
           resourceType: "catalog.system",
           resourceId: "sys-1",
           action: "read",
-          hasGlobalPermission: true, // Global permission doesn't help with teamOnly
+          hasGlobalAccess: true, // Global access doesn't help with teamOnly
+        },
+        { context }
+      );
+
+      expect(result.hasAccess).toBe(false);
+    });
+
+    it("allows manage access when user's team has canManage grant", async () => {
+      const mockDb = createMockDb();
+
+      // Grant exists for team-1 with canManage
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            {
+              teamId: "team-1",
+              canRead: true,
+              canManage: true,
+            },
+          ])
+        ),
+      }));
+
+      // Settings query - returns empty (teamOnly = false by default)
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])),
+      }));
+
+      // User is member of team-1
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-1" }])),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({ user: mockServiceUser });
+      const result = await call(
+        router.checkResourceTeamAccess,
+        {
+          userId: "user-1",
+          userType: "user",
+          resourceType: "catalog.system",
+          resourceId: "sys-1",
+          action: "manage",
+          hasGlobalAccess: false,
+        },
+        { context }
+      );
+
+      expect(result.hasAccess).toBe(true);
+    });
+
+    it("allows access via global access when grants exist but resource is not teamOnly", async () => {
+      const mockDb = createMockDb();
+
+      // Grant exists for team-1 but user is not in team-1
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            {
+              teamId: "team-1",
+              canRead: true,
+              canManage: false,
+            },
+          ])
+        ),
+      }));
+
+      // Settings query - returns empty (teamOnly = false by default)
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({ user: mockServiceUser });
+      const result = await call(
+        router.checkResourceTeamAccess,
+        {
+          userId: "user-1",
+          userType: "user",
+          resourceType: "catalog.system",
+          resourceId: "sys-1",
+          action: "read",
+          hasGlobalAccess: true, // User has global access
+        },
+        { context }
+      );
+
+      expect(result.hasAccess).toBe(true);
+    });
+
+    it("denies access when user is not in any team and lacks global access", async () => {
+      const mockDb = createMockDb();
+
+      // Grant exists for team-1
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            {
+              teamId: "team-1",
+              canRead: true,
+              canManage: false,
+            },
+          ])
+        ),
+      }));
+
+      // Settings query - returns empty (teamOnly = false by default)
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])),
+      }));
+
+      // User is not in any team
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({ user: mockServiceUser });
+      const result = await call(
+        router.checkResourceTeamAccess,
+        {
+          userId: "user-1",
+          userType: "user",
+          resourceType: "catalog.system",
+          resourceId: "sys-1",
+          action: "read",
+          hasGlobalAccess: false,
+        },
+        { context }
+      );
+
+      expect(result.hasAccess).toBe(false);
+    });
+
+    it("allows access when user is in multiple teams and one has the required grant", async () => {
+      const mockDb = createMockDb();
+
+      // Grant exists for team-2 only
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            {
+              teamId: "team-2",
+              canRead: true,
+              canManage: false,
+            },
+          ])
+        ),
+      }));
+
+      // Settings query - returns empty (teamOnly = false by default)
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])),
+      }));
+
+      // User is member of team-1 AND team-2
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([{ teamId: "team-1" }, { teamId: "team-2" }])
+        ),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({ user: mockServiceUser });
+      const result = await call(
+        router.checkResourceTeamAccess,
+        {
+          userId: "user-1",
+          userType: "user",
+          resourceType: "catalog.system",
+          resourceId: "sys-1",
+          action: "read",
+          hasGlobalAccess: false,
+        },
+        { context }
+      );
+
+      expect(result.hasAccess).toBe(true);
+    });
+
+    it("allows access when resource has grants from multiple teams and user is in one of them", async () => {
+      const mockDb = createMockDb();
+
+      // Grants exist for team-1 and team-2
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            {
+              teamId: "team-1",
+              canRead: true,
+              canManage: false,
+            },
+            {
+              teamId: "team-2",
+              canRead: true,
+              canManage: true,
+            },
+          ])
+        ),
+      }));
+
+      // Settings query - teamOnly = true
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([{ teamOnly: true, resourceId: "sys-1" }])
+        ),
+      }));
+
+      // User is member of team-2 only
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-2" }])),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({ user: mockServiceUser });
+      const result = await call(
+        router.checkResourceTeamAccess,
+        {
+          userId: "user-1",
+          userType: "user",
+          resourceType: "catalog.system",
+          resourceId: "sys-1",
+          action: "manage",
+          hasGlobalAccess: false,
+        },
+        { context }
+      );
+
+      expect(result.hasAccess).toBe(true);
+    });
+
+    it("allows access for application user with proper team grant", async () => {
+      const mockDb = createMockDb();
+
+      // Grant exists for team-1
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            {
+              teamId: "team-1",
+              canRead: true,
+              canManage: false,
+            },
+          ])
+        ),
+      }));
+
+      // Settings query - returns empty (teamOnly = false by default)
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])),
+      }));
+
+      // Application is member of team-1
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-1" }])),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({ user: mockServiceUser });
+      const result = await call(
+        router.checkResourceTeamAccess,
+        {
+          userId: "app-1",
+          userType: "application",
+          resourceType: "catalog.system",
+          resourceId: "sys-1",
+          action: "read",
+          hasGlobalAccess: false,
+        },
+        { context }
+      );
+
+      expect(result.hasAccess).toBe(true);
+    });
+
+    it("denies access for application user when not in granted team", async () => {
+      const mockDb = createMockDb();
+
+      // Grant exists for team-1
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            {
+              teamId: "team-1",
+              canRead: true,
+              canManage: false,
+            },
+          ])
+        ),
+      }));
+
+      // Settings query - teamOnly = true
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([{ teamOnly: true, resourceId: "sys-1" }])
+        ),
+      }));
+
+      // Application is member of team-2 (not team-1)
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-2" }])),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({ user: mockServiceUser });
+      const result = await call(
+        router.checkResourceTeamAccess,
+        {
+          userId: "app-1",
+          userType: "application",
+          resourceType: "catalog.system",
+          resourceId: "sys-1",
+          action: "read",
+          hasGlobalAccess: true,
+        },
+        { context }
+      );
+
+      expect(result.hasAccess).toBe(false);
+    });
+
+    it("denies read access when user is in team but grant only has canManage (no canRead)", async () => {
+      const mockDb = createMockDb();
+
+      // Grant exists for team-1 with only canManage (canRead = false)
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            {
+              teamId: "team-1",
+              canRead: false,
+              canManage: true,
+            },
+          ])
+        ),
+      }));
+
+      // Settings query - teamOnly = true
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([{ teamOnly: true, resourceId: "sys-1" }])
+        ),
+      }));
+
+      // User is member of team-1
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-1" }])),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({ user: mockServiceUser });
+      const result = await call(
+        router.checkResourceTeamAccess,
+        {
+          userId: "user-1",
+          userType: "user",
+          resourceType: "catalog.system",
+          resourceId: "sys-1",
+          action: "read",
+          hasGlobalAccess: false,
         },
         { context }
       );
@@ -1075,7 +1601,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1087,7 +1613,7 @@ describe("Teams and Resource Access Control", () => {
           resourceType: "catalog.system",
           resourceIds: [],
           action: "read",
-          hasGlobalPermission: true,
+          hasGlobalAccess: true,
         },
         { context }
       );
@@ -1095,7 +1621,7 @@ describe("Teams and Resource Access Control", () => {
       expect(result).toEqual([]);
     });
 
-    it("returns all resources when no grants exist and user has global permission", async () => {
+    it("returns all resources when no grants exist and user has global access", async () => {
       const mockDb = createMockDb();
 
       // No grants exist
@@ -1113,7 +1639,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1125,7 +1651,7 @@ describe("Teams and Resource Access Control", () => {
           resourceType: "catalog.system",
           resourceIds: ["sys-1", "sys-2", "sys-3"],
           action: "read",
-          hasGlobalPermission: true,
+          hasGlobalAccess: true,
         },
         { context }
       );
@@ -1176,7 +1702,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1188,17 +1714,246 @@ describe("Teams and Resource Access Control", () => {
           resourceType: "catalog.system",
           resourceIds: ["sys-1", "sys-2", "sys-3"],
           action: "read",
-          hasGlobalPermission: true,
+          hasGlobalAccess: true,
         },
         { context }
       );
 
       // sys-1: user is in team-1, granted
       // sys-2: user is not in team-2, denied (teamOnly)
-      // sys-3: no grants, allowed by global permission
+      // sys-3: no grants, allowed by global access
       expect(result).toContain("sys-1");
       expect(result).not.toContain("sys-2");
       expect(result).toContain("sys-3");
+    });
+
+    it("returns no resources when user lacks global access and has no grants", async () => {
+      const mockDb = createMockDb();
+
+      // No grants exist
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])),
+      }));
+
+      // Settings query - empty
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])),
+      }));
+
+      // User teams - empty
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({ user: mockServiceUser });
+      const result = await call(
+        router.getAccessibleResourceIds,
+        {
+          userId: "user-1",
+          userType: "user",
+          resourceType: "catalog.system",
+          resourceIds: ["sys-1", "sys-2", "sys-3"],
+          action: "read",
+          hasGlobalAccess: false,
+        },
+        { context }
+      );
+
+      expect(result).toEqual([]);
+    });
+
+    it("filters manage action based on canManage grants", async () => {
+      const mockDb = createMockDb();
+
+      // Grants exist - sys-1 has canManage, sys-2 only has canRead
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            {
+              resourceId: "sys-1",
+              teamId: "team-1",
+              canRead: true,
+              canManage: true,
+            },
+            {
+              resourceId: "sys-2",
+              teamId: "team-1",
+              canRead: true,
+              canManage: false,
+            },
+          ])
+        ),
+      }));
+
+      // Settings query - both are teamOnly
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            { resourceId: "sys-1", teamOnly: true },
+            { resourceId: "sys-2", teamOnly: true },
+          ])
+        ),
+      }));
+
+      // User is member of team-1
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-1" }])),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({ user: mockServiceUser });
+      const result = await call(
+        router.getAccessibleResourceIds,
+        {
+          userId: "user-1",
+          userType: "user",
+          resourceType: "catalog.system",
+          resourceIds: ["sys-1", "sys-2"],
+          action: "manage",
+          hasGlobalAccess: false,
+        },
+        { context }
+      );
+
+      // sys-1: has canManage, granted
+      // sys-2: only canRead, denied for manage action
+      expect(result).toContain("sys-1");
+      expect(result).not.toContain("sys-2");
+    });
+
+    it("filters resources for application user based on applicationTeam", async () => {
+      const mockDb = createMockDb();
+
+      // Grants exist for sys-1 (team-1)
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            {
+              resourceId: "sys-1",
+              teamId: "team-1",
+              canRead: true,
+              canManage: false,
+            },
+          ])
+        ),
+      }));
+
+      // Settings query - sys-1 is teamOnly
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([{ resourceId: "sys-1", teamOnly: true }])
+        ),
+      }));
+
+      // Application is member of team-1
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-1" }])),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({ user: mockServiceUser });
+      const result = await call(
+        router.getAccessibleResourceIds,
+        {
+          userId: "app-1",
+          userType: "application",
+          resourceType: "catalog.system",
+          resourceIds: ["sys-1", "sys-2"],
+          action: "read",
+          hasGlobalAccess: true,
+        },
+        { context }
+      );
+
+      // sys-1: application is in team-1, granted
+      // sys-2: no grants, allowed by global access
+      expect(result).toContain("sys-1");
+      expect(result).toContain("sys-2");
+    });
+
+    it("handles mixed teamOnly and non-teamOnly resources correctly", async () => {
+      const mockDb = createMockDb();
+
+      // Grants exist for sys-1 (teamOnly) and sys-2 (not teamOnly)
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            {
+              resourceId: "sys-1",
+              teamId: "team-1",
+              canRead: true,
+              canManage: false,
+            },
+            {
+              resourceId: "sys-2",
+              teamId: "team-1",
+              canRead: true,
+              canManage: false,
+            },
+          ])
+        ),
+      }));
+
+      // Settings query - only sys-1 is teamOnly
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([{ resourceId: "sys-1", teamOnly: true }])
+        ),
+      }));
+
+      // User is member of team-2 (NOT team-1)
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-2" }])),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({ user: mockServiceUser });
+      const result = await call(
+        router.getAccessibleResourceIds,
+        {
+          userId: "user-1",
+          userType: "user",
+          resourceType: "catalog.system",
+          resourceIds: ["sys-1", "sys-2"],
+          action: "read",
+          hasGlobalAccess: true,
+        },
+        { context }
+      );
+
+      // sys-1: teamOnly=true, user not in team-1, denied
+      // sys-2: teamOnly=false, user has global access, granted
+      expect(result).not.toContain("sys-1");
+      expect(result).toContain("sys-2");
     });
   });
 
@@ -1211,7 +1966,7 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockPermissionRegistry
+        mockAccessRuleRegistry
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });

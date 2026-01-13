@@ -3,20 +3,18 @@ import { Link } from "react-router-dom";
 import { Settings } from "lucide-react";
 import type { UserMenuItemsContext } from "@checkstack/frontend-api";
 import { DropdownMenuItem } from "@checkstack/ui";
-import { qualifyPermissionId, resolveRoute } from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import {
   catalogRoutes,
-  permissions,
+  catalogAccess,
   pluginMetadata,
 } from "@checkstack/catalog-common";
 
 export const CatalogUserMenuItems = ({
-  permissions: userPerms,
+  accessRules: userPerms,
 }: UserMenuItemsContext) => {
-  const qualifiedId = qualifyPermissionId(
-    pluginMetadata,
-    permissions.catalogManage
-  );
+  // Use the access rule's id directly
+  const qualifiedId = `${pluginMetadata.pluginId}.${catalogAccess.system.manage.id}`;
   const canManage = userPerms.includes("*") || userPerms.includes(qualifiedId);
 
   if (!canManage) {

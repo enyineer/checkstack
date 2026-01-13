@@ -44,20 +44,20 @@ export function HealthCheckDiagram({
 }
 
 /**
- * Wrapper that shows permission message when user lacks access.
+ * Wrapper that shows access message when user lacks access.
  */
-export function HealthCheckDiagramPermissionGate({
-  hasPermission,
+export function HealthCheckDiagramAccessGate({
+  hasAccess,
   children,
 }: {
-  hasPermission: boolean;
+  hasAccess: boolean;
   children: React.ReactNode;
 }) {
-  if (!hasPermission) {
+  if (!hasAccess) {
     return (
       <InfoBanner variant="info">
         Additional strategy-specific visualizations are available with the
-        &quot;Read Health Check Details&quot; permission.
+        &quot;Read Health Check Details&quot; access rule.
       </InfoBanner>
     );
   }

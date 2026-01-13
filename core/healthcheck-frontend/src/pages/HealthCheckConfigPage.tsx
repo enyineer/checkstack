@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import {
   useApi,
   wrapInSuspense,
-  permissionApiRef,
+  accessApiRef,
 } from "@checkstack/frontend-api";
 import { healthCheckApiRef } from "../api";
 import {
@@ -11,6 +11,7 @@ import {
   HealthCheckStrategyDto,
   CreateHealthCheckConfiguration,
   healthcheckRoutes,
+  healthCheckAccess,
 } from "@checkstack/healthcheck-common";
 import { HealthCheckList } from "../components/HealthCheckList";
 import { HealthCheckEditor } from "../components/HealthCheckEditor";
@@ -21,13 +22,12 @@ import { resolveRoute } from "@checkstack/common";
 
 const HealthCheckConfigPageContent = () => {
   const api = useApi(healthCheckApiRef);
-  const permissionApi = useApi(permissionApiRef);
+  const accessApi = useApi(accessApiRef);
   const [searchParams, setSearchParams] = useSearchParams();
-  const { allowed: canRead, loading: permissionLoading } =
-    permissionApi.useResourcePermission("healthcheck", "read");
-  const { allowed: canManage } = permissionApi.useResourcePermission(
-    "healthcheck",
-    "manage"
+  const { allowed: canRead, loading: accessLoading } =
+    accessApi.useAccess(healthCheckAccess.configuration.read);
+  const { allowed: canManage } = accessApi.useAccess(
+    healthCheckAccess.configuration.manage
   );
 
   const [configurations, setConfigurations] = useState<
@@ -113,7 +113,7 @@ const HealthCheckConfigPageContent = () => {
     <PageLayout
       title="Health Checks"
       subtitle="Manage health check configurations"
-      loading={permissionLoading}
+      loading={accessLoading}
       allowed={canRead}
       actions={
         <div className="flex gap-2">

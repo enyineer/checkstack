@@ -108,8 +108,8 @@ interface RouterDeps {
 /**
  * Creates the integration router using contract-based implementation.
  *
- * Auth and permissions are automatically enforced via autoAuthMiddleware
- * based on the contract's meta.userType and meta.permissions.
+ * Auth and access rules are automatically enforced via autoAuthMiddleware
+ * based on the contract's meta.userType and meta.access.
  */
 export function createIntegrationRouter(deps: RouterDeps) {
   const {

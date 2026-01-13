@@ -1,7 +1,7 @@
 import { createFrontendPlugin, rpcApiRef, type ApiRef } from "@checkstack/frontend-api";
 import { {{pluginNameCamel}}ApiRef, type {{pluginNamePascal}}ApiClient } from "./api";
 import { {{pluginNamePascal}}ListPage } from "./components/{{pluginNamePascal}}ListPage";
-import { {{pluginNameCamel}}Routes, {{pluginNamePascal}}Api, pluginMetadata, permissions } from "@checkstack/{{pluginBaseName}}-common";
+import { {{pluginNameCamel}}Routes, {{pluginNamePascal}}Api, pluginMetadata, {{pluginNameCamel}}Access } from "@checkstack/{{pluginBaseName}}-common";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
@@ -12,7 +12,7 @@ export default createFrontendPlugin({
       route: {{pluginNameCamel}}Routes.routes.home,
       element: <{{pluginNamePascal}}ListPage />,
       title: "{{pluginNamePascal}}",
-      permission: permissions.{{pluginNameCamel}}Read,
+      accessRule: {{pluginNameCamel}}Access.read,
     },
   ],
 
@@ -30,4 +30,3 @@ export default createFrontendPlugin({
 });
 
 export * from "./api";
-

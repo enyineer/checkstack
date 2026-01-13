@@ -100,8 +100,8 @@ export function registerCoreServices({
   });
 
   // 3. Auth Factory (Scoped)
-  // Cache for anonymous permissions to avoid repeated DB queries
-  let anonymousPermissionsCache: string[] | undefined;
+  // Cache for anonymous access rules to avoid repeated DB queries
+  let anonymousAccessRulesCache: string[] | undefined;
   let anonymousCacheTime = 0;
   const CACHE_TTL_MS = 60_000; // 1 minute cache
 
@@ -146,33 +146,33 @@ export function registerCoreServices({
         return { headers: { Authorization: `Bearer ${token}` } };
       },
 
-      getAnonymousPermissions: async (): Promise<string[]> => {
+      getAnonymousAccessRules: async (): Promise<string[]> => {
         const now = Date.now();
         // Return cached value if still valid
         if (
-          anonymousPermissionsCache !== undefined &&
+          anonymousAccessRulesCache !== undefined &&
           now - anonymousCacheTime < CACHE_TTL_MS
         ) {
-          return anonymousPermissionsCache;
+          return anonymousAccessRulesCache;
         }
 
-        // Use RPC client to call auth-backend's getAnonymousPermissions endpoint
+        // Use RPC client to call auth-backend's getAnonymousAccessRules endpoint
         try {
           const rpcClient = await registry.get(coreServices.rpcClient, {
             pluginId: "core",
           });
           const authClient = rpcClient.forPlugin(AuthApi);
-          const permissions = await authClient.getAnonymousPermissions();
+          const accessRulesResult = await authClient.getAnonymousAccessRules();
 
           // Update cache
-          anonymousPermissionsCache = permissions;
+          anonymousAccessRulesCache = accessRulesResult;
           anonymousCacheTime = now;
 
-          return permissions;
+          return accessRulesResult;
         } catch (error) {
           // RPC client not available yet (during startup), return empty
           rootLogger.warn(
-            `[auth] getAnonymousPermissions: RPC failed, returning empty array. Error: ${error}`
+            `[auth] getAnonymousAccessRules: RPC failed, returning empty array. Error: ${error}`
           );
           return [];
         }
@@ -186,8 +186,8 @@ export function registerCoreServices({
           const authClient = rpcClient.forPlugin(AuthApi);
           return await authClient.checkResourceTeamAccess(params);
         } catch {
-          // Fall back to global permission on error
-          return { hasAccess: params.hasGlobalPermission };
+          // Fall back to global access on error
+          return { hasAccess: params.hasGlobalAccess };
         }
       },
 
@@ -199,8 +199,8 @@ export function registerCoreServices({
           const authClient = rpcClient.forPlugin(AuthApi);
           return await authClient.getAccessibleResourceIds(params);
         } catch {
-          // Fall back to global permission on error
-          return params.hasGlobalPermission ? params.resourceIds : [];
+          // Fall back to global access on error
+          return params.hasGlobalAccess ? params.resourceIds : [];
         }
       },
     };

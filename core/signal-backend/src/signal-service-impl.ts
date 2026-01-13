@@ -1,5 +1,5 @@
 import type { EventBus, Logger } from "@checkstack/backend-api";
-import { qualifyPermissionId } from "@checkstack/common";
+import { qualifyAccessRuleId } from "@checkstack/common";
 import type {
   Signal,
   SignalMessage,
@@ -12,9 +12,9 @@ import { SIGNAL_BROADCAST_HOOK, SIGNAL_USER_HOOK } from "./hooks";
  * This is a subset of the AuthApi client to avoid circular dependencies.
  */
 interface AuthClientForSignals {
-  filterUsersByPermission: (input: {
+  filterUsersByAccessRule: (input: {
     userIds: string[];
-    permission: string;
+    accessRule: string;
   }) => Promise<string[]>;
 }
 
@@ -30,7 +30,7 @@ export class SignalServiceImpl implements SignalService {
   constructor(private eventBus: EventBus, private logger: Logger) {}
 
   /**
-   * Set the auth client for permission-based signal filtering.
+   * Set the auth client for access-based signal filtering.
    * This should be called after plugins have loaded.
    */
   setAuthClient(client: AuthClientForSignals): void {
@@ -81,7 +81,7 @@ export class SignalServiceImpl implements SignalService {
     userIds: string[],
     payload: T,
     pluginMetadata: { pluginId: string },
-    permission: { id: string }
+    accessRule: { id: string }
   ): Promise<void> {
     if (userIds.length === 0) return;
 
@@ -92,18 +92,18 @@ export class SignalServiceImpl implements SignalService {
       return;
     }
 
-    // Construct fully-qualified permission ID: ${pluginMetadata.pluginId}.${permission.id}
-    const qualifiedPermission = qualifyPermissionId(pluginMetadata, permission);
+    // Construct fully-qualified access rule ID: ${pluginMetadata.pluginId}.${accessRule.id}
+    const qualifiedAccessRule = qualifyAccessRuleId(pluginMetadata, accessRule);
 
     // Filter users via auth RPC
-    const authorizedIds = await this.authClient.filterUsersByPermission({
+    const authorizedIds = await this.authClient.filterUsersByAccessRule({
       userIds,
-      permission: qualifiedPermission,
+      accessRule: qualifiedAccessRule,
     });
 
     if (authorizedIds.length === 0) {
       this.logger.debug(
-        `No users authorized for signal ${signal.id} with permission ${qualifiedPermission}`
+        `No users authorized for signal ${signal.id} with access ${qualifiedAccessRule}`
       );
       return;
     }

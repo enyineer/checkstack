@@ -12,16 +12,16 @@ import type { PluginManager } from "./plugin-manager";
 import type { AuthService } from "@checkstack/backend-api";
 
 /**
- * Check if a user has a specific permission.
+ * Check if a user has a specific access rule.
  * Supports wildcard (*) for admin access.
  */
-function hasPermission(
-  user: { permissions?: string[] },
-  permission: string
+function hasAccess(
+  user: { accessRules?: string[] },
+  accessRule: string
 ): boolean {
-  if (!user.permissions) return false;
+  if (!user.accessRules) return false;
   return (
-    user.permissions.includes("*") || user.permissions.includes(permission)
+    user.accessRules.includes("*") || user.accessRules.includes(accessRule)
   );
 }
 
@@ -30,9 +30,9 @@ function hasPermission(
  */
 function extractProcedureMetadata(
   contract: unknown
-): { userType?: string; permissions?: string[] } | undefined {
+): { userType?: string; accessRules?: string[] } | undefined {
   const orpcData = (contract as Record<string, unknown>)?.["~orpc"] as
-    | { meta?: { userType?: string; permissions?: string[] } }
+    | { meta?: { userType?: string; accessRules?: string[] } }
     | undefined;
   return orpcData?.meta;
 }
@@ -43,10 +43,10 @@ function extractProcedureMetadata(
  */
 function buildMetadataLookup(
   contracts: Map<string, AnyContractRouter>
-): Map<string, { userType?: string; permissions?: string[] }> {
+): Map<string, { userType?: string; accessRules?: string[] }> {
   const lookup = new Map<
     string,
-    { userType?: string; permissions?: string[] }
+    { userType?: string; accessRules?: string[] }
   >();
 
   for (const [pluginId, contract] of contracts) {
@@ -141,12 +141,12 @@ export function createOpenApiHandler({
   pluginManager,
   authService,
   baseUrl,
-  requiredPermission,
+  requiredAccessRule,
 }: {
   pluginManager: PluginManager;
   authService: AuthService;
   baseUrl: string;
-  requiredPermission: string;
+  requiredAccessRule: string;
 }): (req: Request) => Promise<Response> {
   return async (req: Request) => {
     // Authenticate request
@@ -156,9 +156,9 @@ export function createOpenApiHandler({
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Check permission (applications.manage from auth plugin)
-    // Services don't have permissions, so deny them access to docs
-    if (user.type === "service" || !hasPermission(user, requiredPermission)) {
+    // Check access rule (applications.manage from auth plugin)
+    // Services don't have accesss, so deny them access to docs
+    if (user.type === "service" || !hasAccess(user, requiredAccessRule)) {
       return Response.json({ error: "Forbidden" }, { status: 403 });
     }
 

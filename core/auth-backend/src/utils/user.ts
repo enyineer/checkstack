@@ -5,7 +5,7 @@ import type { RealUser } from "@checkstack/backend-api";
 import * as schema from "../schema";
 
 /**
- * Enriches a better-auth User with roles, permissions, and team memberships from the database.
+ * Enriches a better-auth User with roles, access rules, and team memberships from the database.
  * Returns a RealUser type for use in the RPC context.
  */
 export const enrichUser = async (
@@ -23,28 +23,28 @@ export const enrichUser = async (
     .where(eq(schema.userRole.userId, user.id));
 
   const roles = userRoles.map((r) => r.roleId);
-  const permissions = new Set<string>();
+  const accessRulesSet = new Set<string>();
 
-  // 2. Get Permissions for each role
+  // 2. Get access rules for each role
   for (const roleId of roles) {
     if (roleId === "admin") {
-      permissions.add("*");
+      accessRulesSet.add("*");
       continue;
     }
 
-    const rolePermissions = await db
+    const roleAccessRules = await db
       .select({
-        permissionId: schema.permission.id,
+        accessRuleId: schema.accessRule.id,
       })
-      .from(schema.rolePermission)
+      .from(schema.roleAccessRule)
       .innerJoin(
-        schema.permission,
-        eq(schema.permission.id, schema.rolePermission.permissionId)
+        schema.accessRule,
+        eq(schema.accessRule.id, schema.roleAccessRule.accessRuleId)
       )
-      .where(eq(schema.rolePermission.roleId, roleId));
+      .where(eq(schema.roleAccessRule.roleId, roleId));
 
-    for (const p of rolePermissions) {
-      permissions.add(p.permissionId);
+    for (const p of roleAccessRules) {
+      accessRulesSet.add(p.accessRuleId);
     }
   }
 
@@ -64,7 +64,7 @@ export const enrichUser = async (
     email: user.email,
     name: user.name,
     roles,
-    permissions: [...permissions],
+    accessRules: [...accessRulesSet],
     teamIds,
   };
 };

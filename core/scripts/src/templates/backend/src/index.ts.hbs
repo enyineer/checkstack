@@ -3,7 +3,7 @@ import {
   coreServices,
 } from "@checkstack/backend-api";
 import {
-  permissionList,
+  {{pluginNameCamel}}AccessRules,
   pluginMetadata,
   {{pluginNameCamel}}Contract,
 } from "@checkstack/{{pluginBaseName}}-common";
@@ -13,7 +13,7 @@ import { create{{pluginNamePascal}}Router } from "./router";
 export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
-    env.registerPermissions(permissionList);
+    env.registerAccessRules({{pluginNameCamel}}AccessRules);
 
     env.registerInit({
       schema,

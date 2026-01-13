@@ -303,7 +303,7 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
 
           {!canManageApplications && (
             <p className="text-xs text-muted-foreground mt-4">
-              You don't have permission to manage applications.
+              You don't have access to manage applications.
             </p>
           )}
         </CardContent>

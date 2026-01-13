@@ -1,0 +1,28 @@
+import { accessPair } from "@checkstack/common";
+
+/**
+ * Access rules for the {{pluginBaseName}} plugin.
+ * Uses accessPair() to create read/manage access rule pairs.
+ */
+export const {{pluginNameCamel}}Access = {
+  /**
+   * Access rules for {{pluginBaseName}} data operations.
+   * - read: View {{pluginBaseName}} data (auto-assigned to authenticated users)
+   * - manage: Create, update, and delete {{pluginBaseName}} data
+   */
+  ...accessPair(
+    "{{pluginBaseName}}",
+    {
+      read: "Read {{pluginBaseName}} data",
+      manage: "Manage {{pluginBaseName}} data",
+    },
+    {
+      readIsDefault: true, // read is auto-assigned to "users" role
+    }
+  ),
+};
+
+/**
+ * List of all access rules for registration.
+ */
+export const {{pluginNameCamel}}AccessRules = Object.values({{pluginNameCamel}}Access);

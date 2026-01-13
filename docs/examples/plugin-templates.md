@@ -22,7 +22,7 @@ export const pluginMetadata = definePluginMetadata({
 ```typescript
 // plugins/my-feature-backend/src/index.ts
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
-import { permissionList } from "@checkstack/my-feature-common";
+import { myFeatureAccessRules } from "@checkstack/my-feature-common";
 import { createMyFeatureRouter } from "./router";
 import { pluginMetadata } from "./plugin-metadata";
 import * as schema from "./schema";
@@ -30,7 +30,7 @@ import * as schema from "./schema";
 export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
-    env.registerPermissions(permissionList);
+    env.registerAccessRules(myFeatureAccessRules);
 
     env.registerInit({
       schema,
@@ -100,17 +100,17 @@ export function createMyFeatureRouter({ database }) {
 import { oc } from "@orpc/contract";
 import type { ProcedureMetadata } from "@checkstack/common";
 import { z } from "zod";
-import { permissions } from "./permissions";
+import { myFeatureAccess } from "./access";
 
 const _base = oc.$meta<ProcedureMetadata>({});
 
 export const myFeatureContract = {
   getItems: _base
-    .meta({ userType: "user", permissions: [permissions.read.id] })
+    .meta({ userType: "user", access: [myFeatureAccess.myfeatureRead] })
     .output(z.array(ItemSchema)),
 
   createItem: _base
-    .meta({ userType: "user", permissions: [permissions.manage.id] })
+    .meta({ userType: "user", access: [myFeatureAccess.myfeatureManage] })
     .input(CreateItemSchema)
     .output(ItemSchema),
 };
@@ -118,28 +118,25 @@ export const myFeatureContract = {
 
 ---
 
-## Minimal Permissions
+## Minimal Access Rules
 
 ```typescript
-// plugins/my-feature-common/src/permissions.ts
-import { createPermission } from "@checkstack/common";
+// plugins/my-feature-common/src/access.ts
+import { accessPair } from "@checkstack/common";
 
-export const permissions = {
-  read: createPermission(
-    "myfeature",
-    "read",
-    "View items",
-    { isAuthenticatedDefault: true }
-  ),
-  
-  manage: createPermission(
-    "myfeature",
-    "manage",
-    "Create, update, delete items"
-  ),
+/**
+ * Access rules for my-feature plugin.
+ * Uses accessPair() to create read/manage pairs.
+ */
+export const myFeatureAccess = {
+  ...accessPair("myfeature", {
+    readDescription: "View items",
+    manageDescription: "Create, update, delete items",
+    isDefault: true, // read is auto-assigned to "users" role
+  }),
 };
 
-export const permissionList = Object.values(permissions);
+export const myFeatureAccessRules = Object.values(myFeatureAccess);
 ```
 
 ---
@@ -164,7 +161,7 @@ export const myFeatureRoutes = createRoutes("my-feature", {
 import { createFrontendPlugin, rpcApiRef, type ApiRef } from "@checkstack/frontend-api";
 import { myFeatureApiRef, type MyFeatureApiClient } from "./api";
 import { ItemsPage } from "./components/ItemsPage";
-import { myFeatureRoutes, MyFeatureApi, pluginMetadata } from "@checkstack/my-feature-common";
+import { myFeatureRoutes, MyFeatureApi, pluginMetadata, myFeatureAccess } from "@checkstack/my-feature-common";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
@@ -174,7 +171,7 @@ export default createFrontendPlugin({
       route: myFeatureRoutes.routes.home,
       element: <ItemsPage />,
       title: "Items",
-      permission: "my-feature.read",
+      accessRule: myFeatureAccess.myfeatureRead,
     },
   ],
 

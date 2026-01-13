@@ -370,7 +370,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
             )
           ) : (
             <p className="text-muted-foreground">
-              You don't have permission to view teams.
+              You don't have access to view teams.
             </p>
           )}
         </CardContent>

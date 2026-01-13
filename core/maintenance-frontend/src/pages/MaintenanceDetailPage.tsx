@@ -9,11 +9,14 @@ import {
   useApi,
   rpcApiRef,
   wrapInSuspense,
-  permissionApiRef,
+  accessApiRef,
 } from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
 import { maintenanceApiRef } from "../api";
-import { maintenanceRoutes } from "@checkstack/maintenance-common";
+import {
+  maintenanceRoutes,
+  maintenanceAccess,
+} from "@checkstack/maintenance-common";
 import type { MaintenanceDetail } from "@checkstack/maintenance-common";
 import {
   catalogRoutes,
@@ -53,14 +56,13 @@ const MaintenanceDetailPageContent: React.FC = () => {
   const [searchParams] = useSearchParams();
   const api = useApi(maintenanceApiRef);
   const rpcApi = useApi(rpcApiRef);
-  const permissionApi = useApi(permissionApiRef);
+  const accessApi = useApi(accessApiRef);
   const toast = useToast();
 
   const catalogApi = useMemo(() => rpcApi.forPlugin(CatalogApi), [rpcApi]);
 
-  const { allowed: canManage } = permissionApi.useResourcePermission(
-    "maintenance",
-    "manage"
+  const { allowed: canManage } = accessApi.useAccess(
+    maintenanceAccess.maintenance.manage
   );
 
   const [maintenance, setMaintenance] = useState<MaintenanceDetail>();

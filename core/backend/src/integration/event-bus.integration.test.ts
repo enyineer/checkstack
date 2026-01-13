@@ -19,43 +19,43 @@ describe("EventBus Integration Tests", () => {
     eventBus = new EventBus(mockQueueManager, mockLogger);
   });
 
-  describe("Permission Sync Scenario", () => {
-    it("should sync permissions across plugins using work-queue mode", async () => {
-      // Simulate the permissionsRegistered hook
-      const permissionsRegistered = createHook<{
+  describe("Access Rule Sync Scenario", () => {
+    it("should sync access rules across plugins using work-queue mode", async () => {
+      // Simulate the accessRulesRegistered hook
+      const accessRulesRegistered = createHook<{
         pluginId: string;
-        permissions: Array<{ id: string; description?: string }>;
-      }>("core.permissionsRegistered");
+        accessRules: Array<{ id: string; description?: string }>;
+      }>("core.accessRulesRegistered");
 
-      const syncedPermissions: Array<{ id: string; description?: string }> = [];
+      const syncedAccessRules: Array<{ id: string; description?: string }> = [];
 
-      // Auth-backend subscribes to sync permissions (work-queue mode)
+      // Auth-backend subscribes to sync access rules (work-queue mode)
       await eventBus.subscribe(
         "auth-backend",
-        permissionsRegistered,
-        async ({ permissions }) => {
+        accessRulesRegistered,
+        async ({ accessRules }) => {
           // Simulate DB sync
-          syncedPermissions.push(...permissions);
+          syncedAccessRules.push(...accessRules);
         },
         {
           mode: "work-queue",
-          workerGroup: "permission-db-sync",
+          workerGroup: "access-rule-db-sync",
           maxRetries: 3,
         }
       );
 
-      // Emit permission registration events from different plugins
-      await eventBus.emit(permissionsRegistered, {
+      // Emit access rule registration events from different plugins
+      await eventBus.emit(accessRulesRegistered, {
         pluginId: "catalog",
-        permissions: [
+        accessRules: [
           { id: "catalog-backend.read", description: "Read catalog" },
           { id: "catalog-backend.manage", description: "Manage catalog" },
         ],
       });
 
-      await eventBus.emit(permissionsRegistered, {
+      await eventBus.emit(accessRulesRegistered, {
         pluginId: "queue",
-        permissions: [
+        accessRules: [
           { id: "queue-backend.read", description: "Read queue" },
           { id: "queue-backend.manage", description: "Manage queue" },
         ],
@@ -64,18 +64,18 @@ describe("EventBus Integration Tests", () => {
       // Wait for async processing
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // All permissions should be synced
-      expect(syncedPermissions.length).toBe(4);
-      expect(syncedPermissions.map((p) => p.id)).toContain(
+      // All access rules should be synced
+      expect(syncedAccessRules.length).toBe(4);
+      expect(syncedAccessRules.map((p) => p.id)).toContain(
         "catalog-backend.read"
       );
-      expect(syncedPermissions.map((p) => p.id)).toContain(
+      expect(syncedAccessRules.map((p) => p.id)).toContain(
         "catalog-backend.manage"
       );
-      expect(syncedPermissions.map((p) => p.id)).toContain(
+      expect(syncedAccessRules.map((p) => p.id)).toContain(
         "queue-backend.read"
       );
-      expect(syncedPermissions.map((p) => p.id)).toContain(
+      expect(syncedAccessRules.map((p) => p.id)).toContain(
         "queue-backend.manage"
       );
     });

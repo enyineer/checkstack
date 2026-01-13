@@ -28,7 +28,7 @@ For most plugins, use the simplified `commands` API:
 
 ```typescript
 import { registerSearchProvider } from "@checkstack/command-backend";
-import { pluginMetadata, permissions } from "@checkstack/my-plugin-common";
+import { pluginMetadata, access } from "@checkstack/my-plugin-common";
 import { resolveRoute } from "@checkstack/common";
 import { myRoutes } from "./routes";
 
@@ -43,7 +43,7 @@ registerSearchProvider({
       iconName: "Plus", // Lucide icon name
       shortcuts: ["meta+shift+n", "ctrl+shift+n"],
       route: resolveRoute(myRoutes.routes.config) + "?action=create",
-      requiredPermissions: [permissions.myPermission],
+      requiredAccessRules: [access.myAccess],
     },
     {
       id: "manage",
@@ -51,7 +51,7 @@ registerSearchProvider({
       subtitle: "View and manage all items",
       iconName: "List",
       route: resolveRoute(myRoutes.routes.config),
-      // No requiredPermissions = visible to all users
+      // No requiredAccessRules = visible to all users
     },
   ],
 });
@@ -67,7 +67,7 @@ registerSearchProvider({
 | `iconName` | `string` | ❌ | Lucide icon name (e.g., "AlertCircle", "Wrench") |
 | `shortcuts` | `string[]` | ❌ | Keyboard shortcuts (e.g., `["meta+shift+i", "ctrl+shift+i"]`) |
 | `route` | `string` | ✅ | Navigation route when command is executed |
-| `requiredPermissions` | `Permission[]` | ❌ | Permission objects (auto-qualified) |
+| `requiredAccessRules` | `AccessRule[]` | ❌ | AccessRule objects (auto-qualified) |
 
 ### Keyboard Shortcuts
 
@@ -98,7 +98,7 @@ registerSearchProvider({
     id: "items",
     name: "Items",
     priority: 100, // Higher = appears first (default: 0)
-    search: async (query, { userPermissions }) => {
+    search: async (query, { userAccessRules }) => {
       const db = getDatabase(); // Your database access
       const items = await db.select().from(schema.items);
       const q = query.toLowerCase();
@@ -118,7 +118,7 @@ registerSearchProvider({
           category: "Items",
           iconName: "Box",
           route: resolveRoute(myRoutes.routes.detail, { itemId: item.id }),
-          // Optional: requiredPermissions for permission filtering
+          // Optional: requiredAccessRules for access filtering
         }));
     },
   },
@@ -137,22 +137,22 @@ registerSearchProvider({
 | `iconName` | `string` | ❌ | Lucide icon name |
 | `route` | `string` | ❌ | Navigation route |
 | `shortcuts` | `string[]` | ❌ | Keyboard shortcuts (commands only) |
-| `requiredPermissions` | `string[]` | ❌ | Required permission IDs |
+| `requiredAccessRules` | `string[]` | ❌ | Required access rule IDs |
 
-## Permission Handling
+## Access Handling
 
-Permissions are **automatically qualified** with the plugin ID:
+Access rules are **automatically qualified** with the plugin ID:
 
 ```typescript
 // You provide:
-requiredPermissions: [permissions.myManage]
+requiredAccessRules: [access.myManage]
 // which has id: "my.manage"
 
 // Becomes fully qualified:
 // "my-plugin.my.manage"
 ```
 
-Users with the `"*"` (wildcard) permission see all commands regardless of requirements.
+Users with the `"*"` (wildcard) access see all commands regardless of requirements.
 
 ## URL Action Parameters
 
@@ -188,7 +188,7 @@ Here's how the incident plugin registers its commands:
 import { registerSearchProvider } from "@checkstack/command-backend";
 import {
   pluginMetadata,
-  permissions,
+  access,
   incidentRoutes,
 } from "@checkstack/incident-common";
 import { resolveRoute } from "@checkstack/common";
@@ -212,7 +212,7 @@ export default createBackendPlugin({
               iconName: "AlertCircle",
               shortcuts: ["meta+shift+i", "ctrl+shift+i"],
               route: resolveRoute(incidentRoutes.routes.config) + "?action=create",
-              requiredPermissions: [permissions.incidentManage],
+              requiredAccessRules: [access.incidentManage],
             },
           ],
         });
@@ -231,7 +231,7 @@ export default createBackendPlugin({
 3. When a search query comes in:
    - All providers are queried in parallel
    - Results are flattened and sorted by priority
-   - Results are filtered by user permissions
+   - Results are filtered by user access rules
    - Filtered results are returned to the frontend
 
 ### Frontend Flow
@@ -242,10 +242,10 @@ export default createBackendPlugin({
 4. As the user types, results are filtered by the query
 5. Selecting a result navigates to the specified route
 
-### Permission Filtering
+### Access Filtering
 
 Results are filtered twice:
-1. **Backend**: `filterByPermissions()` removes results the user can't access
-2. **Frontend**: Global shortcuts also check permissions before triggering
+1. **Backend**: `filterByAccessRules()` removes results the user can't access
+2. **Frontend**: Global shortcuts also check access before triggering
 
-Users with the `"*"` wildcard permission bypass all permission checks.
+Users with the `"*"` wildcard access bypass all access checks.

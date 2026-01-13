@@ -240,7 +240,7 @@ export async function createCommand() {
         break;
       }
       case "common": {
-        console.log(`  3. Define your permissions in src/permissions.ts`);
+        console.log(`  3. Define your access rules in src/access.ts`);
         console.log(`  4. Define your schemas in src/schemas.ts`);
         console.log(`  5. Define your contract in src/rpc-contract.ts`);
         break;

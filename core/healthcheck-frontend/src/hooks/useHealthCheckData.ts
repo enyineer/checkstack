@@ -1,8 +1,8 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { useApi, permissionApiRef } from "@checkstack/frontend-api";
+import { useApi, accessApiRef } from "@checkstack/frontend-api";
 import { healthCheckApiRef } from "../api";
 import {
-  permissions,
+  healthCheckAccess,
   DEFAULT_RETENTION_CONFIG,
   type RetentionConfig,
   HEALTH_CHECK_RUN_COMPLETED,
@@ -36,10 +36,10 @@ interface UseHealthCheckDataResult {
   isAggregated: boolean;
   /** The resolved retention config */
   retentionConfig: RetentionConfig;
-  /** Whether user has permission to view detailed data */
-  hasPermission: boolean;
-  /** Whether permission is still loading */
-  permissionLoading: boolean;
+  /** Whether user has access to view detailed data */
+  hasAccess: boolean;
+  /** Whether access is still loading */
+  accessLoading: boolean;
 }
 
 /**
@@ -52,14 +52,14 @@ interface UseHealthCheckDataResult {
  *
  * @example
  * ```tsx
- * const { context, loading, hasPermission } = useHealthCheckData({
+ * const { context, loading, hasAccess } = useHealthCheckData({
  *   systemId,
  *   configurationId,
  *   strategyId,
  *   dateRange: { startDate, endDate },
  * });
  *
- * if (!hasPermission) return <NoPermissionMessage />;
+ * if (!hasAccess) return <NoAccessMessage />;
  * if (loading) return <LoadingSpinner />;
  * if (!context) return null;
  *
@@ -75,11 +75,11 @@ export function useHealthCheckData({
   offset = 0,
 }: UseHealthCheckDataProps): UseHealthCheckDataResult {
   const api = useApi(healthCheckApiRef);
-  const permissionApi = useApi(permissionApiRef);
+  const accessApi = useApi(accessApiRef);
 
-  // Permission state
-  const { allowed: hasPermission, loading: permissionLoading } =
-    permissionApi.usePermission(permissions.healthCheckDetailsRead.id);
+  // Access state
+  const { allowed: hasAccess, loading: accessLoading } =
+    accessApi.useAccess(healthCheckAccess.details);
 
   // Retention config state
   const [retentionConfig, setRetentionConfig] = useState<RetentionConfig>(
@@ -160,24 +160,24 @@ export function useHealthCheckData({
 
   // Fetch raw data when in raw mode
   useEffect(() => {
-    if (!hasPermission || permissionLoading || retentionLoading || isAggregated)
+    if (!hasAccess || accessLoading || retentionLoading || isAggregated)
       return;
     fetchRawData(true);
   }, [
     fetchRawData,
-    hasPermission,
-    permissionLoading,
+    hasAccess,
+    accessLoading,
     retentionLoading,
     isAggregated,
   ]);
 
   // Listen for realtime health check updates to refresh data silently
   useSignal(HEALTH_CHECK_RUN_COMPLETED, ({ systemId: changedId }) => {
-    // Only refresh if we're in raw mode (not aggregated) and have permission
+    // Only refresh if we're in raw mode (not aggregated) and have access
     if (
       changedId === systemId &&
-      hasPermission &&
-      !permissionLoading &&
+      hasAccess &&
+      !accessLoading &&
       !retentionLoading &&
       !isAggregated
     ) {
@@ -188,8 +188,8 @@ export function useHealthCheckData({
   // Fetch aggregated data when in aggregated mode
   useEffect(() => {
     if (
-      !hasPermission ||
-      permissionLoading ||
+      !hasAccess ||
+      accessLoading ||
       retentionLoading ||
       !isAggregated
     )
@@ -198,7 +198,7 @@ export function useHealthCheckData({
     setAggregatedLoading(true);
     // Use daily buckets for ranges > 30 days, hourly otherwise
     const bucketSize = dateRangeDays > 30 ? "daily" : "hourly";
-    // Use detailed endpoint to get aggregatedResult since we have permission
+    // Use detailed endpoint to get aggregatedResult since we have access
     api
       .getDetailedAggregatedHistory({
         systemId,
@@ -217,8 +217,8 @@ export function useHealthCheckData({
     api,
     systemId,
     configurationId,
-    hasPermission,
-    permissionLoading,
+    hasAccess,
+    accessLoading,
     retentionLoading,
     isAggregated,
     dateRangeDays,
@@ -227,7 +227,7 @@ export function useHealthCheckData({
   ]);
 
   const context = useMemo((): HealthCheckDiagramSlotContext | undefined => {
-    if (!hasPermission || permissionLoading || retentionLoading) {
+    if (!hasAccess || accessLoading || retentionLoading) {
       return undefined;
     }
 
@@ -249,8 +249,8 @@ export function useHealthCheckData({
       runs: rawRuns,
     };
   }, [
-    hasPermission,
-    permissionLoading,
+    hasAccess,
+    accessLoading,
     retentionLoading,
     isAggregated,
     systemId,
@@ -261,7 +261,7 @@ export function useHealthCheckData({
   ]);
 
   const loading =
-    permissionLoading ||
+    accessLoading ||
     retentionLoading ||
     (isAggregated ? aggregatedLoading : rawLoading);
 
@@ -270,7 +270,7 @@ export function useHealthCheckData({
     loading,
     isAggregated,
     retentionConfig,
-    hasPermission,
-    permissionLoading,
+    hasAccess,
+    accessLoading,
   };
 }

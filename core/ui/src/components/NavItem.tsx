@@ -2,13 +2,15 @@ import React, { useState, useRef, useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import { ChevronDown } from "lucide-react";
 import { cn } from "../utils";
-import { useApi, permissionApiRef } from "@checkstack/frontend-api";
+import { useApi, accessApiRef } from "@checkstack/frontend-api";
+import type { AccessRule } from "@checkstack/common";
 
 export interface NavItemProps {
   to?: string;
   label: string;
   icon?: React.ReactNode;
-  permission?: string;
+  /** Access rule to check - if not provided, always shows */
+  accessRule?: AccessRule;
   children?: React.ReactNode;
   className?: string;
 }
@@ -17,7 +19,7 @@ export const NavItem: React.FC<NavItemProps> = ({
   to,
   label,
   icon,
-  permission,
+  accessRule,
   children,
   className,
 }) => {
@@ -25,11 +27,17 @@ export const NavItem: React.FC<NavItemProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Always call hooks at top level
-  // We assume permissionApi is available if we use it. Safe fallback?
-  // ApiProvider guarantees it if registered. App.tsx registers a default.
-  const permissionApi = useApi(permissionApiRef);
-  const { allowed, loading } = permissionApi.usePermission(permission || "");
-  const hasAccess = permission ? allowed : true;
+  const accessApi = useApi(accessApiRef);
+
+  // Create a dummy access rule for when accessRule is undefined
+  const dummyRule: AccessRule = {
+    id: "",
+    resource: "",
+    level: "read",
+    description: "",
+  };
+  const { allowed, loading } = accessApi.useAccess(accessRule ?? dummyRule);
+  const hasAccess = accessRule ? allowed : true;
 
   // Handle click outside for dropdown
   useEffect(() => {

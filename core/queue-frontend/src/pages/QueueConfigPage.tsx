@@ -2,10 +2,10 @@ import { useEffect, useState } from "react";
 import {
   useApi,
   wrapInSuspense,
-  permissionApiRef,
+  accessApiRef,
 } from "@checkstack/frontend-api";
 import { queueApiRef } from "../api";
-import { QueuePluginDto } from "@checkstack/queue-common";
+import { QueuePluginDto, queueAccess } from "@checkstack/queue-common";
 import {
   Button,
   Alert,
@@ -24,11 +24,13 @@ import { AlertTriangle, Save } from "lucide-react";
 
 const QueueConfigPageContent = () => {
   const api = useApi(queueApiRef);
-  const permissionApi = useApi(permissionApiRef);
+  const accessApi = useApi(accessApiRef);
   const toast = useToast();
-  const { allowed: canRead, loading: permissionLoading } =
-    permissionApi.useResourcePermission("queue", "read");
-  const { allowed: canUpdate } = permissionApi.useManagePermission("queue");
+  const { allowed: canRead, loading: accessLoading } =
+    accessApi.useAccess(queueAccess.settings.read);
+  const { allowed: canUpdate } = accessApi.useAccess(
+    queueAccess.settings.manage
+  );
 
   const [plugins, setPlugins] = useState<QueuePluginDto[]>([]);
   const [selectedPluginId, setSelectedPluginId] = useState<string>("");
@@ -71,7 +73,7 @@ const QueueConfigPageContent = () => {
     <PageLayout
       title="Queue Settings"
       subtitle="Configure the queue system for background jobs"
-      loading={permissionLoading}
+      loading={accessLoading}
       allowed={canRead}
       maxWidth="3xl"
     >

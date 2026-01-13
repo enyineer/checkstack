@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Permission, PluginMetadata } from "@checkstack/common";
+import type { AccessRule, PluginMetadata } from "@checkstack/common";
 
 // =============================================================================
 // SIGNAL DEFINITION
@@ -121,25 +121,25 @@ export interface SignalService {
   ): Promise<void>;
 
   /**
-   * Emit a signal only to users from the provided list who have the required permission.
+   * Emit a signal only to users from the provided list who have the required access.
    * Uses S2S RPC to filter users via AuthApi before sending.
    *
    * @param signal - The signal to emit
    * @param userIds - List of user IDs to potentially send to
    * @param payload - Signal payload
-   * @param pluginMetadata - The plugin metadata (for constructing fully-qualified permission ID)
-   * @param permission - Permission object with native ID (will be prefixed with pluginId)
+   * @param pluginMetadata - The plugin metadata (for constructing fully-qualified access rule ID)
+   * @param accessRule - Access rule object with native ID (will be prefixed with pluginId)
    *
    * @example
    * ```typescript
-   * import { pluginMetadata, permissions } from "@checkstack/healthcheck-common";
+   * import { pluginMetadata, healthCheckAccess } from "@checkstack/healthcheck-common";
    *
    * await signalService.sendToAuthorizedUsers(
    *   HEALTH_STATE_CHANGED,
    *   subscriberUserIds,
    *   { systemId, newState: "degraded" },
    *   pluginMetadata,
-   *   permissions.healthcheckStatusRead
+   *   healthCheckAccess.status
    * );
    * ```
    */
@@ -148,7 +148,7 @@ export interface SignalService {
     userIds: string[],
     payload: T,
     pluginMetadata: PluginMetadata,
-    permission: Permission
+    accessRule: AccessRule
   ): Promise<void>;
 }
 

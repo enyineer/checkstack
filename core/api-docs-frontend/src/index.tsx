@@ -4,10 +4,7 @@ import {
   UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
 import { createRoutes } from "@checkstack/common";
-import {
-  pluginMetadata,
-  permissions,
-} from "@checkstack/api-docs-common";
+import { pluginMetadata, apiDocsAccess } from "@checkstack/api-docs-common";
 import { ApiDocsPage } from "./ApiDocsPage";
 import { ApiDocsMenuItem } from "./ApiDocsMenuItem";
 
@@ -21,7 +18,7 @@ export const apiDocsPlugin = createFrontendPlugin({
     {
       route: apiDocsRoutes.routes.docs,
       element: <ApiDocsPage />,
-      permission: permissions.apiDocsView,
+      accessRule: apiDocsAccess.view,
     },
   ],
   extensions: [

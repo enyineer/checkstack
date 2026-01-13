@@ -375,54 +375,76 @@ describe("PluginManager", () => {
     });
   });
 
-  describe("Permission Registration", () => {
-    it("should store permissions in the registry", () => {
-      // Permissions are now stored directly via the registeredPermissions array
+  describe("Access Rule Registration", () => {
+    it("should store access rules in the registry", () => {
+      // Access rules are now stored directly via the registeredAccessRules array
       // and hooks are emitted in Phase 3 (afterPluginsReady)
       const perms = (
         pluginManager as unknown as {
-          registeredPermissions: {
+          registeredAccessRules: {
             pluginId: string;
             id: string;
-            description?: string;
+            resource: string;
+            level: string;
+            description: string;
           }[];
         }
-      ).registeredPermissions;
+      ).registeredAccessRules;
 
-      // Add permissions directly (simulating what plugin-loader does)
+      // Add access rules directly (simulating what plugin-loader does)
       perms.push({
         pluginId: "test-plugin",
-        id: "test-plugin.test.permission",
-        description: "Test permission",
+        id: "test-plugin.test.accessRule",
+        resource: "test",
+        level: "read",
+        description: "Test access rule",
       });
 
-      // getAllPermissions should return them (without pluginId in the output)
-      const all = pluginManager.getAllPermissions();
+      // getAllAccessRules should return them (without pluginId in the output)
+      const all = pluginManager.getAllAccessRules();
       expect(all.length).toBe(1);
-      expect(all[0]).toEqual({
-        id: "test-plugin.test.permission",
-        description: "Test permission",
-      });
+      expect(all[0].id).toBe("test-plugin.test.accessRule");
+      expect(all[0].description).toBe("Test access rule");
     });
 
-    it("should aggregate permissions from multiple plugins", () => {
+    it("should aggregate access rules from multiple plugins", () => {
       const perms = (
         pluginManager as unknown as {
-          registeredPermissions: {
+          registeredAccessRules: {
             pluginId: string;
             id: string;
-            description?: string;
+            resource: string;
+            level: string;
+            description: string;
           }[];
         }
-      ).registeredPermissions;
+      ).registeredAccessRules;
 
       perms.push(
-        { pluginId: "plugin-1", id: "plugin-1.perm.1", description: undefined },
-        { pluginId: "plugin-1", id: "plugin-1.perm.2", description: undefined },
-        { pluginId: "plugin-2", id: "plugin-2.perm.3", description: undefined }
+        {
+          pluginId: "plugin-1",
+          id: "plugin-1.perm.1",
+          resource: "perm",
+          level: "read",
+          description: "Access Rule 1",
+        },
+        {
+          pluginId: "plugin-1",
+          id: "plugin-1.perm.2",
+          resource: "perm",
+          level: "manage",
+          description: "Access Rule 2",
+        },
+        {
+          pluginId: "plugin-2",
+          id: "plugin-2.perm.3",
+          resource: "perm",
+          level: "read",
+          description: "Access Rule 3",
+        }
       );
 
-      const all = pluginManager.getAllPermissions();
+      const all = pluginManager.getAllAccessRules();
       expect(all.length).toBe(3);
     });
   });

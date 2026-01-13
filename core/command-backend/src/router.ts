@@ -1,11 +1,8 @@
 import { implement } from "@orpc/server";
-import {
-  autoAuthMiddleware,
-  type RpcContext,
-} from "@checkstack/backend-api";
+import { autoAuthMiddleware, type RpcContext } from "@checkstack/backend-api";
 import {
   commandContract,
-  filterByPermissions,
+  filterByAccessRules,
   type SearchResult,
 } from "@checkstack/command-common";
 import { getSearchProviders } from "./registry";
@@ -13,24 +10,24 @@ import { getSearchProviders } from "./registry";
 /**
  * Creates the command router using contract-based implementation.
  *
- * Auth and permissions are automatically enforced via autoAuthMiddleware
- * based on the contract's meta.userType and meta.permissions.
+ * Auth and access rules are automatically enforced via autoAuthMiddleware
+ * based on the contract's meta.userType and meta.access.
  */
 const os = implement(commandContract)
   .$context<RpcContext>()
   .use(autoAuthMiddleware);
 
 /**
- * Extract permissions from the context user.
- * Only RealUser and ApplicationUser have permissions; ServiceUser doesn't.
+ * Extract access rules from the context user.
+ * Only RealUser and ApplicationUser have access rules; ServiceUser doesn't.
  */
-function getUserPermissions(context: RpcContext): string[] {
+function getUserAccessRules(context: RpcContext): string[] {
   const user = context.user;
   if (!user) return [];
   if (user.type === "user" || user.type === "application") {
-    return user.permissions ?? [];
+    return user.accessRules ?? [];
   }
-  // ServiceUser has no permissions array - treated as having all permissions
+  // ServiceUser has no accesss array - treated as having all access
   // but for search filtering, return empty (no filtering applied)
   return [];
 }
@@ -38,21 +35,23 @@ function getUserPermissions(context: RpcContext): string[] {
 export const createCommandRouter = () => {
   /**
    * Search across all registered search providers.
-   * Results are aggregated from all providers, filtered by permissions,
+   * Results are aggregated from all providers, filtered by access rules,
    * and returned in priority order.
    */
   const search = os.search.handler(async ({ input, context }) => {
     const providers = getSearchProviders();
     const query = input.query.toLowerCase().trim();
 
-    // Get user permissions for filtering
-    const userPermissions = getUserPermissions(context);
+    // Get user access rules for filtering
+    const userAccessRules = getUserAccessRules(context);
 
     // Execute all provider searches in parallel
     const providerResults = await Promise.all(
       providers.map(async (provider) => {
         try {
-          const results = await provider.search(query, { userPermissions });
+          const results = await provider.search(query, {
+            userAccessRules: userAccessRules,
+          });
           return results;
         } catch (error) {
           // Log but don't fail - one failing provider shouldn't break search
@@ -62,25 +61,27 @@ export const createCommandRouter = () => {
       })
     );
 
-    // Flatten and filter by permissions
+    // Flatten and filter by access rules
     const allResults = providerResults.flat();
-    return filterByPermissions(allResults, userPermissions);
+    return filterByAccessRules(allResults, userAccessRules);
   });
 
   /**
    * Get all registered commands for browsing.
-   * Returns commands filtered by user permissions.
+   * Returns commands filtered by user access rules.
    */
   const getCommands = os.getCommands.handler(async ({ context }) => {
     const providers = getSearchProviders();
-    const userPermissions = getUserPermissions(context);
+    const userAccessRules = getUserAccessRules(context);
 
     // Get all results with empty query (commands return all when query is empty)
     const providerResults = await Promise.all(
       providers.map(async (provider) => {
         try {
           // Empty query = return all items
-          const results = await provider.search("", { userPermissions });
+          const results = await provider.search("", {
+            userAccessRules: userAccessRules,
+          });
           // Filter to only commands for this endpoint
           return results.filter(
             (r): r is SearchResult & { type: "command" } => r.type === "command"
@@ -93,7 +94,7 @@ export const createCommandRouter = () => {
     );
 
     const allCommands = providerResults.flat();
-    return filterByPermissions(allCommands, userPermissions);
+    return filterByAccessRules(allCommands, userAccessRules);
   });
 
   return os.router({

@@ -12,8 +12,8 @@ import { eq } from "drizzle-orm";
 /**
  * Creates the catalog router using contract-based implementation.
  *
- * Auth and permissions are automatically enforced via autoAuthMiddleware
- * based on the contract's meta.userType and meta.permissions.
+ * Auth and access rules are automatically enforced via autoAuthMiddleware
+ * based on the contract's meta.userType and meta.access.
  */
 const os = implement(catalogContract)
   .$context<RpcContext>()

@@ -1,7 +1,7 @@
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { ServiceRef } from "./service-ref";
 import { ExtensionPoint } from "./extension-point";
-import type { Permission, PluginMetadata } from "@checkstack/common";
+import type { AccessRule, PluginMetadata } from "@checkstack/common";
 import type { Hook, HookSubscribeOptions, HookUnsubscribe } from "./hooks";
 import { Router } from "@orpc/server";
 import { RpcContext } from "./rpc";
@@ -70,7 +70,10 @@ export type BackendPluginRegistry = {
   registerService: <S>(ref: ServiceRef<S>, impl: S) => void;
   registerExtensionPoint: <T>(ref: ExtensionPoint<T>, impl: T) => void;
   getExtensionPoint: <T>(ref: ExtensionPoint<T>) => T;
-  registerPermissions: (permissions: Permission[]) => void;
+  /**
+   * Register access rules for this plugin.
+   */
+  registerAccessRules: (accessRules: AccessRule[]) => void;
   /**
    * Registers an oRPC router and its contract for this plugin.
    * The contract is used for OpenAPI generation.
@@ -85,7 +88,7 @@ export type BackendPluginRegistry = {
    */
   registerCleanup: (cleanup: () => Promise<void>) => void;
   pluginManager: {
-    getAllPermissions: () => { id: string; description?: string }[];
+    getAllAccessRules: () => { id: string; description?: string }[];
   };
 };
 

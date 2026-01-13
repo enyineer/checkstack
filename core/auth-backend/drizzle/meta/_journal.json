@@ -29,6 +29,13 @@
       "when": 1768332454744,
       "tag": "0003_tranquil_sally_floyd",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1768390244988,
+      "tag": "0004_lucky_power_man",
+      "breakpoints": true
     }
   ]
 }

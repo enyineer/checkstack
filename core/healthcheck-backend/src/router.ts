@@ -14,8 +14,8 @@ import { toJsonSchemaWithChartMeta } from "./schema-utils";
 /**
  * Creates the healthcheck router using contract-based implementation.
  *
- * Auth and permissions are automatically enforced via autoAuthMiddleware
- * based on the contract's meta.userType and meta.permissions.
+ * Auth and access rules are automatically enforced via autoAuthMiddleware
+ * based on the contract's meta.userType and meta.access.
  */
 export const createHealthCheckRouter = (
   database: NodePgDatabase<typeof schema>,

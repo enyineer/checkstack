@@ -10,7 +10,7 @@ import {
   ApiProvider,
   ApiRegistryBuilder,
   loggerApiRef,
-  permissionApiRef,
+  accessApiRef,
   fetchApiRef,
   rpcApiRef,
   useApi,
@@ -28,17 +28,14 @@ import { ConsoleLoggerApi } from "./apis/logger-api";
 import { CoreFetchApi } from "./apis/fetch-api";
 import { CoreRpcApi } from "./apis/rpc-api";
 import {
-  PermissionDenied,
+  AccessDenied,
   LoadingSpinner,
   ToastProvider,
   AmbientBackground,
 } from "@checkstack/ui";
 import { SignalProvider } from "@checkstack/signal-frontend";
 import { usePluginLifecycle } from "./hooks/usePluginLifecycle";
-import {
-  useCommands,
-  useGlobalShortcuts,
-} from "@checkstack/command-frontend";
+import { useCommands, useGlobalShortcuts } from "@checkstack/command-frontend";
 
 /**
  * Component that registers global keyboard shortcuts for all commands.
@@ -48,7 +45,7 @@ function GlobalShortcuts() {
   const { commands } = useCommands();
   const navigate = useNavigate();
 
-  // Pass "*" as permission since backend already filters by permission
+  // Pass "*" as access since backend already filters by access
   useGlobalShortcuts(commands, navigate, ["*"]);
 
   // This component renders nothing - it only registers event listeners
@@ -57,10 +54,16 @@ function GlobalShortcuts() {
 
 const RouteGuard: React.FC<{
   children: React.ReactNode;
-  permission?: string;
-}> = ({ children, permission }) => {
-  const permissionApi = useApi(permissionApiRef);
-  const { allowed, loading } = permissionApi.usePermission(permission || "");
+  accessRule?: string;
+}> = ({ children, accessRule }) => {
+  const accessApi = useApi(accessApiRef);
+  // If there's an access rule requirement, use useAccess with a minimal AccessRule-like object
+  // the route.accessRule is already the qualified access rule ID string
+  const { allowed, loading } = accessRule
+    ? accessApi.useAccess({ id: accessRule } as Parameters<
+        typeof accessApi.useAccess
+      >[0])
+    : { allowed: true, loading: false };
 
   if (loading) {
     return (
@@ -70,10 +73,8 @@ const RouteGuard: React.FC<{
     );
   }
 
-  const isAllowed = permission ? allowed : true;
-
-  if (!isAllowed) {
-    return <PermissionDenied />;
+  if (!allowed) {
+    return <AccessDenied />;
   }
 
   return <>{children}</>;
@@ -130,7 +131,7 @@ function AppContent() {
                 key={route.path}
                 path={route.path}
                 element={
-                  <RouteGuard permission={route.permission}>
+                  <RouteGuard accessRule={route.accessRule}>
                     {route.element}
                   </RouteGuard>
                 }
@@ -154,10 +155,8 @@ function AppWithApis() {
     // Initialize API Registry with core apiRefs
     const registryBuilder = new ApiRegistryBuilder()
       .register(loggerApiRef, new ConsoleLoggerApi())
-      .register(permissionApiRef, {
-        usePermission: () => ({ loading: false, allowed: true }), // Default to allow all if no auth plugin present
-        useResourcePermission: () => ({ loading: false, allowed: true }),
-        useManagePermission: () => ({ loading: false, allowed: true }),
+      .register(accessApiRef, {
+        useAccess: () => ({ loading: false, allowed: true }), // Default to allow all if no auth plugin present
       })
       .registerFactory(fetchApiRef, (_registry) => {
         return new CoreFetchApi(baseUrl);

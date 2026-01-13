@@ -1,2 +1,2 @@
-export { permissions, permissionList } from "./permissions";
+export { apiDocsAccess, apiDocsAccessRules } from "./access";
 export { pluginMetadata } from "./plugin-metadata";

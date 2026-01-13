@@ -10,7 +10,7 @@ import {
   catalogRoutes,
   CatalogApi,
   pluginMetadata,
-  permissions,
+  catalogAccess,
 } from "@checkstack/catalog-common";
 
 import { CatalogPage } from "./components/CatalogPage";
@@ -38,7 +38,7 @@ export const catalogPlugin = createFrontendPlugin({
     {
       route: catalogRoutes.routes.config,
       element: <CatalogConfigPage />,
-      permission: permissions.catalogManage,
+      accessRule: catalogAccess.system.manage,
     },
     {
       route: catalogRoutes.routes.systemDetail,

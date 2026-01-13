@@ -585,24 +585,24 @@ User menu slots (`UserMenuItemsSlot`, `UserMenuItemsBottomSlot`) receive a `User
 
 ```typescript
 interface UserMenuItemsContext {
-  permissions: string[];      // Pre-fetched user permissions
+  accessRules: string[];      // Pre-fetched user access rules
   hasCredentialAccount: boolean;  // Whether user has credential auth
 }
 ```
 
-**Permission-gated menu item:**
+**Access-gated menu item:**
 ```typescript
 import type { UserMenuItemsContext } from "@checkstack/frontend-api";
-import { qualifyPermissionId, resolveRoute } from "@checkstack/common";
-import { permissions, pluginMetadata, myRoutes } from "@checkstack/myplugin-common";
+import { qualifyAccessRuleId, resolveRoute } from "@checkstack/common";
+import { access, pluginMetadata, myRoutes } from "@checkstack/myplugin-common";
 import { DropdownMenuItem } from "@checkstack/ui";
 import { Link } from "react-router-dom";
 import { Settings } from "lucide-react";
 
 export const MyPluginMenuItems = ({
-  permissions: userPerms,
+  accessRules: userPerms,
 }: UserMenuItemsContext) => {
-  const qualifiedId = qualifyPermissionId(pluginMetadata, permissions.myPermission);
+  const qualifiedId = qualifyAccessRuleId(pluginMetadata, access.myAccess);
   const canAccess = userPerms.includes("*") || userPerms.includes(qualifiedId);
 
   if (!canAccess) return null;

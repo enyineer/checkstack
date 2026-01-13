@@ -5,8 +5,8 @@
 Checkstack provides a comprehensive **Teams** system for organizing users and controlling access to resources. Teams enable:
 
 - **Group Management**: Organize users into logical groups (e.g., "Platform Team", "API Developers")
-- **Resource-Level Access Control (RLAC)**: Grant teams specific permissions on individual resources
-- **Granular Permissions**: Support for read, manage, and exclusive access modes
+- **Resource-Level Access Control (RLAC)**: Grant teams specific access on individual resources
+- **Granular Access Rules**: Support for read, manage, and exclusive access modes
 
 This system complements the existing role-based access control (RBAC) by adding resource-level granularity.
 
@@ -19,7 +19,7 @@ This system complements the existing role-based access control (RBAC) by adding 
 | **Team** | A named group of users with optional description |
 | **Team Member** | A user belonging to a team |
 | **Team Manager** | A user who can manage team membership and settings |
-| **Resource Grant** | A permission entry linking a team to a specific resource |
+| **Resource Grant** | An access entry linking a team to a specific resource |
 
 ### Database Schema
 
@@ -58,7 +58,7 @@ When a user authenticates, their team memberships are automatically loaded and i
 interface RealUser {
   type: "user";
   id: string;
-  permissions: string[];
+  accessRules: string[];
   roles: string[];
   teamIds: string[];  // All teams the user belongs to
 }
@@ -67,7 +67,7 @@ interface ApplicationUser {
   type: "application";
   id: string;
   name: string;
-  permissions: string[];
+  accessRules: string[];
   teamIds: string[];  // Teams the application is assigned to
 }
 ```
@@ -80,7 +80,7 @@ This enrichment happens in:
 
 ### Team Management Endpoints
 
-All team endpoints require the `auth.teams.manage` permission unless noted.
+All team endpoints require the `auth.teams.manage` access rule unless noted.
 
 #### `getTeams`
 Lists all teams with member count and manager status for the current user.
@@ -243,7 +243,7 @@ Updates resource-level access settings.
 {
   resourceType: string;
   resourceId: string;
-  teamOnly: boolean;  // If true, global permissions don't apply
+  teamOnly: boolean;  // If true, global access don't apply
 }
 ```
 
@@ -304,7 +304,7 @@ export const catalogContract = {
   getSystem: _base
     .meta({
       userType: "user",
-      permissions: [permissions.read.id],
+      access: [access.read.id],
       resourceAccess: [systemAccess],  // Array of resource access configs
     })
     .input(z.object({ systemId: z.string() }))
@@ -314,7 +314,7 @@ export const catalogContract = {
   getSystems: _base
     .meta({
       userType: "user",
-      permissions: [permissions.read.id],
+      access: [access.read.id],
       resourceAccess: [systemListAccess],
     })
     .output(z.object({ systems: z.array(SystemSchema) })),
@@ -330,20 +330,20 @@ export const catalogContract = {
 
 > **Note:** `resourceAccess` is an **array**, so you can specify multiple resource access configs if an endpoint needs to check access to multiple resource types.
 
-### Permission Levels
+### Access Levels
 
-| Permission | Description |
+| Access | Description |
 |------------|-------------|
 | `canRead` | User can view the resource |
 | `canManage` | User can modify the resource |
-| `teamOnly` | Only team members can access (disables global permissions) |
+| `teamOnly` | Only team members can access (disables global access) |
 
 ### Access Resolution Logic
 
 When checking access to a resource:
 
 1. **Check for grants**: Look for `resourceTeamAccess` entries matching `(resourceType, resourceId)`
-2. **If no grants exist**: Resource is unrestricted, allow access if user has the required permission
+2. **If no grants exist**: Resource is unrestricted, allow access if user has the required access rule
 3. **If grants exist**:
    - Check if user is in any team with access
    - If `teamOnly` is set on any grant, only team-based access is allowed
@@ -355,7 +355,7 @@ function checkAccess(user, resourceType, resourceId, checkManage) {
   const grants = getGrants(resourceType, resourceId);
   
   if (grants.length === 0) {
-    // No restrictions - allow anyone with permission
+    // No restrictions - allow anyone with access
     return true;
   }
   
@@ -390,7 +390,7 @@ export const myPluginContract = {
   getItem: _base
     .meta({
       userType: "user",
-      permissions: [permissions.itemRead.id],
+      access: [access.itemRead.id],
       resourceAccess: [itemAccess],  // Must be an array
     })
     .input(z.object({ id: z.string() }))
@@ -399,7 +399,7 @@ export const myPluginContract = {
   listItems: _base
     .meta({
       userType: "user",
-      permissions: [permissions.itemRead.id],
+      access: [access.itemRead.id],
       resourceAccess: [itemListAccess],
     })
     .output(z.object({ items: z.array(ItemSchema) })),
@@ -458,11 +458,11 @@ Add `@checkstack/auth-frontend` to your frontend package:
 }
 ```
 
-## Permissions
+## Access Rules
 
-The teams system defines these permissions:
+The teams system defines these access rules:
 
-| Permission ID | Description | Default |
+| Access Rule ID | Description | Default |
 |---------------|-------------|---------|
 | `auth.teams.read` | View teams and membership | ✓ |
 | `auth.teams.manage` | Create, update, delete teams and manage membership | |
@@ -504,7 +504,7 @@ When testing RLAC in your plugin:
 const user = {
   type: "user",
   id: "test-user",
-  permissions: ["myplugin.item.read"],
+  access: [access.itemRead],
   roles: ["users"],
   teamIds: ["team-1"],
 };
@@ -523,7 +523,7 @@ const mockAuth = {
 ### "Access denied" for resources without grants
 
 Check that:
-1. User has the required permission for the endpoint
+1. User has the required access rule for the endpoint
 2. No other team has `teamOnly` set on the resource
 
 ### List endpoints not filtering
@@ -537,5 +537,5 @@ Verify:
 
 Ensure:
 1. Team exists in the database
-2. User has `auth.teams.manage` permission to assign access
+2. User has `auth.teams.manage` access to assign access
 3. Resource type in frontend uses fully qualified name (e.g., `catalog.system`, not just `system`)

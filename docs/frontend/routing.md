@@ -47,7 +47,7 @@ export default createFrontendPlugin({
     {
       route: yourPluginRoutes.routes.config,
       element: <ConfigPage />,
-      permission: "your-plugin.manage",
+      accessRule: yourPluginAccess.manage,
     },
     {
       route: yourPluginRoutes.routes.detail,
