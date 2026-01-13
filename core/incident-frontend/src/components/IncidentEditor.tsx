@@ -30,6 +30,7 @@ import {
 import { Plus, MessageSquare, Loader2, AlertCircle } from "lucide-react";
 import { IncidentUpdateForm } from "./IncidentUpdateForm";
 import { getIncidentStatusBadge } from "../utils/badges";
+import { TeamAccessEditor } from "@checkstack/auth-frontend";
 
 interface Props {
   open: boolean;
@@ -300,6 +301,16 @@ export const IncidentEditor: React.FC<Props> = ({
                 />
               )}
             </div>
+          )}
+
+          {/* Team Access Editor - only shown when editing existing incident */}
+          {incident?.id && (
+            <TeamAccessEditor
+              resourceType="incident.incident"
+              resourceId={incident.id}
+              compact
+              expanded
+            />
           )}
         </div>
 

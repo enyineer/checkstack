@@ -1,10 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import {
-  useApi,
-  rpcApiRef,
-  wrapInSuspense,
-} from "@checkstack/frontend-api";
+import { useApi, rpcApiRef, wrapInSuspense } from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
 import { maintenanceApiRef } from "../api";
 import { maintenanceRoutes } from "@checkstack/maintenance-common";
@@ -53,10 +49,11 @@ const SystemMaintenanceHistoryPageContent: React.FC = () => {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [maintenanceList, systemList] = await Promise.all([
-          api.listMaintenances({ systemId }),
-          catalogApi.getSystems(),
-        ]);
+        const [{ maintenances: maintenanceList }, { systems: systemList }] =
+          await Promise.all([
+            api.listMaintenances({ systemId }),
+            catalogApi.getSystems(),
+          ]);
         setMaintenances(maintenanceList);
         const system = systemList.find((s) => s.id === systemId);
         setSystemName(system?.name ?? "Unknown System");

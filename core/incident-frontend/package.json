@@ -9,6 +9,7 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
+    "@checkstack/auth-frontend": "workspace:*",
     "@checkstack/catalog-common": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",

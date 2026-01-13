@@ -59,6 +59,7 @@ Authentication and secrets management:
 - **[Secrets Encryption](./security/secrets.md)** - Secret storage and encryption
 - **[Auth Error Handling](./security/auth-error-handling.md)** - Custom authentication error patterns
 - **[External Applications](./security/external-applications.md)** - Service accounts and API access
+- **[Teams and Resource Access Control](./backend/teams.md)** - Team-based access to specific resources
 
 ## Testing
 

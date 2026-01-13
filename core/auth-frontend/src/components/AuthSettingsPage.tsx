@@ -1,21 +1,18 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import {
-  useApi,
-  permissionApiRef,
-  rpcApiRef,
-} from "@checkstack/frontend-api";
+import { useApi, permissionApiRef, rpcApiRef } from "@checkstack/frontend-api";
 import { PageLayout, useToast, Tabs, TabPanel } from "@checkstack/ui";
 import { authApiRef, AuthUser, Role, AuthStrategy, Permission } from "../api";
 import {
   permissions as authPermissions,
   AuthApi,
 } from "@checkstack/auth-common";
-import { Shield, Settings2, Users, Key } from "lucide-react";
+import { Shield, Settings2, Users, Key, Users2 } from "lucide-react";
 import { UsersTab } from "./UsersTab";
 import { RolesTab } from "./RolesTab";
 import { StrategiesTab } from "./StrategiesTab";
 import { ApplicationsTab } from "./ApplicationsTab";
+import { TeamsTab } from "./TeamsTab";
 
 export const AuthSettingsPage: React.FC = () => {
   const authApi = useApi(authApiRef);
@@ -28,7 +25,7 @@ export const AuthSettingsPage: React.FC = () => {
   const session = authApi.useSession();
 
   const [activeTab, setActiveTab] = useState<
-    "users" | "roles" | "strategies" | "applications"
+    "users" | "roles" | "teams" | "strategies" | "applications"
   >("users");
   const [users, setUsers] = useState<(AuthUser & { roles: string[] })[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
@@ -44,8 +41,13 @@ export const AuthSettingsPage: React.FC = () => {
   useEffect(() => {
     const tab = searchParams.get("tab");
 
-    if (tab && ["users", "roles", "strategies", "applications"].includes(tab)) {
-      setActiveTab(tab as "users" | "roles" | "strategies" | "applications");
+    if (
+      tab &&
+      ["users", "roles", "teams", "strategies", "applications"].includes(tab)
+    ) {
+      setActiveTab(
+        tab as "users" | "roles" | "teams" | "strategies" | "applications"
+      );
     }
 
     // Clear the URL params after processing
@@ -86,20 +88,27 @@ export const AuthSettingsPage: React.FC = () => {
   const canManageApplications = permissionApi.usePermission(
     authPermissions.applicationsManage.id
   );
+  const canReadTeams = permissionApi.usePermission(
+    authPermissions.teamsRead.id
+  );
+  const canManageTeams = permissionApi.usePermission(
+    authPermissions.teamsManage.id
+  );
 
-  // Compute loading and permission states for PageLayout
   const permissionsLoading =
     loading ||
     canReadUsers.loading ||
     canReadRoles.loading ||
     canManageStrategies.loading ||
-    canManageApplications.loading;
+    canManageApplications.loading ||
+    canReadTeams.loading;
 
   const hasAnyPermission =
     canReadUsers.allowed ||
     canReadRoles.allowed ||
     canManageStrategies.allowed ||
-    canManageApplications.allowed;
+    canManageApplications.allowed ||
+    canReadTeams.allowed;
 
   // Special case: if user is not logged in, show permission denied
   const isAllowed = session.data?.user ? hasAnyPermission : false;
@@ -107,7 +116,7 @@ export const AuthSettingsPage: React.FC = () => {
   // Compute visible tabs based on permissions
   const visibleTabs = useMemo(() => {
     const tabs: Array<{
-      id: "users" | "roles" | "strategies" | "applications";
+      id: "users" | "roles" | "teams" | "strategies" | "applications";
       label: string;
       icon: React.ReactNode;
     }> = [];
@@ -122,6 +131,12 @@ export const AuthSettingsPage: React.FC = () => {
         id: "roles",
         label: "Roles & Permissions",
         icon: <Shield size={18} />,
+      });
+    if (canReadTeams.allowed)
+      tabs.push({
+        id: "teams",
+        label: "Teams",
+        icon: <Users2 size={18} />,
       });
     if (canManageStrategies.allowed)
       tabs.push({
@@ -139,6 +154,7 @@ export const AuthSettingsPage: React.FC = () => {
   }, [
     canReadUsers.allowed,
     canReadRoles.allowed,
+    canReadTeams.allowed,
     canManageStrategies.allowed,
     canManageApplications.allowed,
   ]);
@@ -196,7 +212,7 @@ export const AuthSettingsPage: React.FC = () => {
         activeTab={activeTab}
         onTabChange={(tabId) =>
           setActiveTab(
-            tabId as "users" | "roles" | "strategies" | "applications"
+            tabId as "users" | "roles" | "teams" | "strategies" | "applications"
           )
         }
         className="mb-6"
@@ -225,6 +241,15 @@ export const AuthSettingsPage: React.FC = () => {
           canCreateRoles={canCreateRoles.allowed}
           canUpdateRoles={canUpdateRoles.allowed}
           canDeleteRoles={canDeleteRoles.allowed}
+          onDataChange={fetchData}
+        />
+      </TabPanel>
+
+      <TabPanel id="teams" activeTab={activeTab}>
+        <TeamsTab
+          users={users}
+          canReadTeams={canReadTeams.allowed}
+          canManageTeams={canManageTeams.allowed}
           onDataChange={fetchData}
         />
       </TabPanel>

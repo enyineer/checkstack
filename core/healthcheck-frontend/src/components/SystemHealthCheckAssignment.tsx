@@ -80,10 +80,11 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
   const loadData = async () => {
     setLoading(true);
     try {
-      const [allConfigs, systemAssociations] = await Promise.all([
-        api.getConfigurations(),
-        api.getSystemAssociations({ systemId }),
-      ]);
+      const [{ configurations: allConfigs }, systemAssociations] =
+        await Promise.all([
+          api.getConfigurations(),
+          api.getSystemAssociations({ systemId }),
+        ]);
       setConfigs(allConfigs);
       setAssociations(systemAssociations);
     } catch (error) {

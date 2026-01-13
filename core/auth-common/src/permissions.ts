@@ -45,6 +45,14 @@ export const permissions = {
     id: "applications.manage",
     description: "Create, update, delete, and view external applications",
   },
+  teamsRead: {
+    id: "teams.read",
+    description: "View teams and team memberships",
+  },
+  teamsManage: {
+    id: "teams.manage",
+    description: "Create, delete, and manage all teams and resource access",
+  },
 } satisfies Record<string, Permission>;
 
 export const permissionList = Object.values(permissions);

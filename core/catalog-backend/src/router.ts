@@ -1,8 +1,5 @@
 import { implement, ORPCError } from "@orpc/server";
-import {
-  autoAuthMiddleware,
-  type RpcContext,
-} from "@checkstack/backend-api";
+import { autoAuthMiddleware, type RpcContext } from "@checkstack/backend-api";
 import { catalogContract } from "@checkstack/catalog-common";
 import { EntityService } from "./services/entity-service";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -95,9 +92,11 @@ export const createCatalogRouter = ({
 
   const getSystems = os.getSystems.handler(async () => {
     const systems = await entityService.getSystems();
-    return systems as unknown as Array<
-      (typeof systems)[number] & { metadata: Record<string, unknown> | null }
-    >;
+    return {
+      systems: systems as unknown as Array<
+        (typeof systems)[number] & { metadata: Record<string, unknown> | null }
+      >,
+    };
   });
 
   const getSystem = os.getSystem.handler(async ({ input }) => {

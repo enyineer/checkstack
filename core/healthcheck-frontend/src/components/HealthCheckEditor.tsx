@@ -20,6 +20,7 @@ import {
 } from "@checkstack/ui";
 import { useCollectors } from "../hooks/useCollectors";
 import { CollectorList } from "./CollectorList";
+import { TeamAccessEditor } from "@checkstack/auth-frontend";
 
 interface HealthCheckEditorProps {
   strategies: HealthCheckStrategyDto[];
@@ -152,6 +153,16 @@ export const HealthCheckEditor: React.FC<HealthCheckEditorProps> = ({
                 onChange={setCollectors}
                 loading={collectorsLoading}
                 onValidChange={setCollectorsValid}
+              />
+            )}
+
+            {/* Team Access Editor - only shown for existing configurations */}
+            {initialData?.id && (
+              <TeamAccessEditor
+                resourceType="healthcheck.configuration"
+                resourceId={initialData.id}
+                compact
+                expanded
               />
             )}
           </div>

@@ -60,6 +60,12 @@ mock.module(coreServicesPath, () => ({
       authenticate: async () => {},
       getCredentials: async () => ({ headers: {} }),
       getAnonymousPermissions: async () => [],
+      checkResourceTeamAccess: async () => ({ hasAccess: true }),
+      getAccessibleResourceIds: async ({
+        resourceIds,
+      }: {
+        resourceIds: string[];
+      }) => resourceIds,
     }));
 
     // Register mock fetch factory

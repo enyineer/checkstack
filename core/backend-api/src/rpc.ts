@@ -3,7 +3,11 @@ import { AnyContractRouter } from "@orpc/contract";
 import { HealthCheckRegistry } from "./health-check";
 import { CollectorRegistry } from "./collector-registry";
 import { QueuePluginRegistry, QueueManager } from "@checkstack/queue-api";
-import { ProcedureMetadata, qualifyPermissionId } from "@checkstack/common";
+import {
+  ProcedureMetadata,
+  qualifyPermissionId,
+  qualifyResourceType,
+} from "@checkstack/common";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import {
   Logger,
@@ -83,10 +87,11 @@ export type { ProcedureMetadata } from "@checkstack/common";
  * Use this in backend routers: `implement(contract).$context<RpcContext>().use(autoAuthMiddleware)`
  */
 export const autoAuthMiddleware = os.middleware(
-  async ({ next, context, procedure }) => {
+  async ({ next, context, procedure }, input: unknown) => {
     const meta = procedure["~orpc"]?.meta as ProcedureMetadata | undefined;
     const requiredUserType = meta?.userType || "authenticated";
     const contractPermissions = meta?.permissions || [];
+    const resourceAccessConfigs = meta?.resourceAccess || [];
 
     // Prefix contract permissions with pluginId to get fully-qualified permission IDs
     // Contract defines: "catalog.read" -> Stored in DB as: "catalog.catalog.read"
@@ -94,30 +99,9 @@ export const autoAuthMiddleware = os.middleware(
       qualifyPermissionId(context.pluginMetadata, { id: p })
     );
 
-    // Helper to wrap next() with error logging
-    const nextWithErrorLogging = async () => {
-      try {
-        return await next({});
-      } catch (error) {
-        // Log the full error before oRPC sanitizes it to a generic 500
-        if (error instanceof ORPCError) {
-          // ORPCError is intentional - log at debug level
-          context.logger.debug("RPC error response:", {
-            code: error.code,
-            message: error.message,
-            data: error.data,
-          });
-        } else {
-          // Unexpected error - log at error level with full stack trace
-          context.logger.error("Unexpected RPC error:", error);
-        }
-        throw error;
-      }
-    };
-
     // 1. Handle anonymous endpoints - no auth required, no permission checks
     if (requiredUserType === "anonymous") {
-      return nextWithErrorLogging();
+      return next({});
     }
 
     // 2. Handle public endpoints - anyone can attempt, but permissions are checked
@@ -160,7 +144,7 @@ export const autoAuthMiddleware = os.middleware(
           }
         }
       }
-      return nextWithErrorLogging();
+      return next({});
     }
 
     // 3. Enforce authentication for user/service/authenticated types
@@ -202,10 +186,226 @@ export const autoAuthMiddleware = os.middleware(
       }
     }
 
-    // Pass through - services are trusted with all permissions
-    return nextWithErrorLogging();
+    // 6. Resource-level access control
+    // Skip if no resource access configs or if user is a service
+    if (resourceAccessConfigs.length === 0 || user.type === "service") {
+      return next({});
+    }
+
+    const userId = user.id;
+    const userType = user.type;
+    const action = inferActionFromPermissions(contractPermissions);
+    const hasGlobalPermission =
+      user.permissions?.includes("*") ||
+      contractPermissions.some((p) =>
+        user.permissions?.includes(
+          qualifyPermissionId(context.pluginMetadata, { id: p })
+        )
+      );
+
+    // Separate single vs list configs
+    const singleConfigs = resourceAccessConfigs.filter(
+      (c) => c.filterMode !== "list"
+    );
+    const listConfigs = resourceAccessConfigs.filter(
+      (c) => c.filterMode === "list"
+    );
+
+    // Pre-check: Single resource access
+    for (const config of singleConfigs) {
+      if (!config.idParam) continue;
+      const resourceId = getNestedValue(input, config.idParam);
+      if (!resourceId) continue;
+
+      const qualifiedType = qualifyResourceType(
+        context.pluginMetadata.pluginId,
+        config.resourceType
+      );
+
+      const hasAccess = await checkResourceAccessViaS2S({
+        auth: context.auth,
+        userId,
+        userType,
+        resourceType: qualifiedType,
+        resourceId,
+        action,
+        hasGlobalPermission,
+      });
+
+      if (!hasAccess) {
+        throw new ORPCError("FORBIDDEN", {
+          message: `Access denied to resource ${config.resourceType}:${resourceId}`,
+        });
+      }
+    }
+
+    // Execute handler
+    const result = await next({});
+
+    // Post-filter: List endpoints
+    if (
+      listConfigs.length > 0 &&
+      result.output &&
+      typeof result.output === "object"
+    ) {
+      const mutableOutput = result.output as Record<string, unknown>;
+
+      for (const config of listConfigs) {
+        if (!config.outputKey) {
+          context.logger.error(
+            `resourceAccess: filterMode "list" requires outputKey`
+          );
+          throw new ORPCError("INTERNAL_SERVER_ERROR", {
+            message: "Invalid resource access configuration",
+          });
+        }
+
+        const items = mutableOutput[config.outputKey];
+
+        if (items === undefined) {
+          context.logger.error(
+            `resourceAccess: expected "${config.outputKey}" in response but not found`
+          );
+          throw new ORPCError("INTERNAL_SERVER_ERROR", {
+            message: "Invalid response shape for filtered endpoint",
+          });
+        }
+
+        if (!Array.isArray(items)) {
+          context.logger.error(
+            `resourceAccess: "${config.outputKey}" must be an array`
+          );
+          throw new ORPCError("INTERNAL_SERVER_ERROR", {
+            message: "Invalid response shape for filtered endpoint",
+          });
+        }
+
+        const qualifiedType = qualifyResourceType(
+          context.pluginMetadata.pluginId,
+          config.resourceType
+        );
+
+        const resourceIds = items
+          .map((item) => (item as { id?: string }).id)
+          .filter((id): id is string => typeof id === "string");
+
+        const accessibleIds = await getAccessibleResourceIdsViaS2S({
+          auth: context.auth,
+          userId,
+          userType,
+          resourceType: qualifiedType,
+          resourceIds,
+          action,
+          hasGlobalPermission,
+        });
+
+        const accessibleSet = new Set(accessibleIds);
+        mutableOutput[config.outputKey] = items.filter((item) => {
+          const id = (item as { id?: string }).id;
+          return id && accessibleSet.has(id);
+        });
+      }
+    }
+
+    return result;
   }
 );
+
+/**
+ * Extract a nested value from an object using dot notation.
+ * E.g., getNestedValue({ params: { id: "123" } }, "params.id") => "123"
+ */
+function getNestedValue(obj: unknown, path: string): string | undefined {
+  const parts = path.split(".");
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (current === null || current === undefined) return undefined;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return typeof current === "string" ? current : undefined;
+}
+
+/**
+ * Determine action from permission suffix (read vs manage).
+ */
+function inferActionFromPermissions(permissions: string[]): "read" | "manage" {
+  const perm = permissions[0] || "";
+  if (perm.endsWith(".manage") || perm.endsWith("Manage")) return "manage";
+  return "read";
+}
+
+/**
+ * Check resource access via auth service S2S endpoint.
+ */
+async function checkResourceAccessViaS2S({
+  auth,
+  userId,
+  userType,
+  resourceType,
+  resourceId,
+  action,
+  hasGlobalPermission,
+}: {
+  auth: AuthService;
+  userId: string;
+  userType: "user" | "application";
+  resourceType: string;
+  resourceId: string;
+  action: "read" | "manage";
+  hasGlobalPermission: boolean;
+}): Promise<boolean> {
+  try {
+    const result = await auth.checkResourceTeamAccess({
+      userId,
+      userType,
+      resourceType,
+      resourceId,
+      action,
+      hasGlobalPermission,
+    });
+    return result.hasAccess;
+  } catch {
+    // If team access check fails (e.g., service not available), fall back to global permission
+    return hasGlobalPermission;
+  }
+}
+
+/**
+ * Get accessible resource IDs via auth service S2S endpoint.
+ */
+async function getAccessibleResourceIdsViaS2S({
+  auth,
+  userId,
+  userType,
+  resourceType,
+  resourceIds,
+  action,
+  hasGlobalPermission,
+}: {
+  auth: AuthService;
+  userId: string;
+  userType: "user" | "application";
+  resourceType: string;
+  resourceIds: string[];
+  action: "read" | "manage";
+  hasGlobalPermission: boolean;
+}): Promise<string[]> {
+  if (resourceIds.length === 0) return [];
+
+  try {
+    return await auth.getAccessibleResourceIds({
+      userId,
+      userType,
+      resourceType,
+      resourceIds,
+      action,
+      hasGlobalPermission,
+    });
+  } catch {
+    // If team access check fails, fall back to global permission behavior
+    return hasGlobalPermission ? resourceIds : [];
+  }
+}
 
 // =============================================================================
 // CONTRACT BUILDER

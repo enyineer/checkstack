@@ -22,7 +22,7 @@ import {
   ConfirmationModal,
   useToast,
 } from "@checkstack/ui";
-import { Plus, Trash2, LayoutGrid, Server, Settings } from "lucide-react";
+import { Plus, Trash2, LayoutGrid, Server, Settings, Edit } from "lucide-react";
 import { SystemEditor } from "./SystemEditor";
 import { GroupEditor } from "./GroupEditor";
 
@@ -40,6 +40,7 @@ export const CatalogConfigPage = () => {
 
   // Dialog state
   const [isSystemEditorOpen, setIsSystemEditorOpen] = useState(false);
+  const [editingSystem, setEditingSystem] = useState<System | undefined>();
   const [isGroupEditorOpen, setIsGroupEditorOpen] = useState(false);
 
   const [selectedGroupId, setSelectedGroupId] = useState("");
@@ -61,7 +62,7 @@ export const CatalogConfigPage = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [s, g] = await Promise.all([
+      const [{ systems: s }, g] = await Promise.all([
         catalogApi.getSystems(),
         catalogApi.getGroups(),
       ]);
@@ -94,12 +95,25 @@ export const CatalogConfigPage = () => {
     }
   }, [searchParams, canManage, setSearchParams]);
 
-  const handleCreateSystem = async (data: {
+  // Unified save handler for both create and edit
+  const handleSaveSystem = async (data: {
     name: string;
     description?: string;
   }) => {
-    await catalogApi.createSystem(data);
-    toast.success("System created successfully");
+    if (editingSystem) {
+      // Update existing system
+      await catalogApi.updateSystem({
+        id: editingSystem.id,
+        data,
+      });
+      toast.success("System updated successfully");
+      setEditingSystem(undefined);
+    } else {
+      // Create new system
+      await catalogApi.createSystem(data);
+      toast.success("System created successfully");
+    }
+    setIsSystemEditorOpen(false);
     await loadData();
   };
 
@@ -191,42 +205,6 @@ export const CatalogConfigPage = () => {
     }
   };
 
-  const handleUpdateSystemName = async (id: string, newName: string) => {
-    try {
-      await catalogApi.updateSystem({ id, data: { name: newName } });
-      toast.success("System name updated successfully");
-      loadData();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to update system name";
-      toast.error(message);
-      console.error("Failed to update system name:", error);
-      throw error;
-    }
-  };
-
-  const handleUpdateSystemDescription = async (
-    id: string,
-    newDescription: string
-  ) => {
-    try {
-      await catalogApi.updateSystem({
-        id,
-        data: { description: newDescription },
-      });
-      toast.success("System description updated successfully");
-      loadData();
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to update system description";
-      toast.error(message);
-      console.error("Failed to update system description:", error);
-      throw error;
-    }
-  };
-
   const handleUpdateGroupName = async (id: string, newName: string) => {
     try {
       await catalogApi.updateGroup({ id, data: { name: newName } });
@@ -285,13 +263,9 @@ export const CatalogConfigPage = () => {
                   >
                     <div className="flex-1 space-y-1">
                       <div className="flex items-center justify-between">
-                        <EditableText
-                          value={system.name}
-                          onSave={(newName) =>
-                            handleUpdateSystemName(system.id, newName)
-                          }
-                          className="font-medium text-foreground"
-                        />
+                        <span className="font-medium text-foreground">
+                          {system.name}
+                        </span>
                         <ExtensionSlot
                           slot={CatalogSystemActionsSlot}
                           context={{
@@ -300,25 +274,30 @@ export const CatalogConfigPage = () => {
                           }}
                         />
                       </div>
-                      <EditableText
-                        value={system.description || "No description"}
-                        onSave={(newDescription) =>
-                          handleUpdateSystemDescription(
-                            system.id,
-                            newDescription
-                          )
-                        }
-                        className="text-xs text-muted-foreground font-mono"
-                        placeholder="Add description..."
-                      />
+                      <p className="text-xs text-muted-foreground">
+                        {system.description || "No description"}
+                      </p>
                     </div>
-                    <Button
-                      variant="ghost"
-                      className="text-destructive hover:text-destructive/90 hover:bg-destructive/10 h-8 w-8 p-0"
-                      onClick={() => handleDeleteSystem(system.id)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => {
+                          setEditingSystem(system);
+                          setIsSystemEditorOpen(true);
+                        }}
+                      >
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive/90 hover:bg-destructive/10 h-8 w-8 p-0"
+                        onClick={() => handleDeleteSystem(system.id)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -466,8 +445,20 @@ export const CatalogConfigPage = () => {
       {/* Dialogs */}
       <SystemEditor
         open={isSystemEditorOpen}
-        onClose={() => setIsSystemEditorOpen(false)}
-        onSave={handleCreateSystem}
+        onClose={() => {
+          setIsSystemEditorOpen(false);
+          setEditingSystem(undefined);
+        }}
+        onSave={handleSaveSystem}
+        initialData={
+          editingSystem
+            ? {
+                id: editingSystem.id,
+                name: editingSystem.name,
+                description: editingSystem.description ?? undefined,
+              }
+            : undefined
+        }
       />
 
       <GroupEditor

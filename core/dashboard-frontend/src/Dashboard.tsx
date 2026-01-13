@@ -1,10 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  useApi,
-  rpcApiRef,
-  ExtensionSlot,
-} from "@checkstack/frontend-api";
+import { useApi, rpcApiRef, ExtensionSlot } from "@checkstack/frontend-api";
 import { catalogApiRef } from "@checkstack/catalog-frontend";
 import {
   catalogRoutes,
@@ -136,7 +132,7 @@ export const Dashboard: React.FC = () => {
       incidentApi.listIncidents({ includeResolved: false }),
       maintenanceApi.listMaintenances({ status: "in_progress" }),
     ])
-      .then(([groups, systems, incidents, maintenances]) => {
+      .then(([groups, { systems }, { incidents }, { maintenances }]) => {
         // Set overview statistics
         setSystemsCount(systems.length);
         setActiveIncidentsCount(incidents.length);

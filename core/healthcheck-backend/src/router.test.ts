@@ -82,7 +82,8 @@ describe("HealthCheck Router", () => {
     });
 
     const result = await call(router.getConfigurations, undefined, { context });
-    expect(Array.isArray(result)).toBe(true);
+    expect(result).toHaveProperty("configurations");
+    expect(Array.isArray(result.configurations)).toBe(true);
   });
 
   it("getCollectors returns collectors for strategy", async () => {

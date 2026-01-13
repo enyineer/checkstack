@@ -168,6 +168,10 @@ class BetterAuthApi implements AuthApi {
   }
 }
 
+// Re-export TeamAccessEditor for use in other plugins
+export { TeamAccessEditor } from "./components/TeamAccessEditor";
+export type { TeamAccessEditorProps } from "./components/TeamAccessEditor";
+
 export const authPlugin = createFrontendPlugin({
   metadata: pluginMetadata,
   apis: [

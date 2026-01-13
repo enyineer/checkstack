@@ -79,7 +79,7 @@ export const createHealthCheckRouter = (
     }),
 
     getConfigurations: os.getConfigurations.handler(async () => {
-      return service.getConfigurations();
+      return { configurations: await service.getConfigurations() };
     }),
 
     createConfiguration: os.createConfiguration.handler(async ({ input }) => {

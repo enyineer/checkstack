@@ -5,7 +5,7 @@ import type { RealUser } from "@checkstack/backend-api";
 import * as schema from "../schema";
 
 /**
- * Enriches a better-auth User with roles and permissions from the database.
+ * Enriches a better-auth User with roles, permissions, and team memberships from the database.
  * Returns a RealUser type for use in the RPC context.
  */
 export const enrichUser = async (
@@ -48,6 +48,13 @@ export const enrichUser = async (
     }
   }
 
+  // 3. Get Team memberships
+  const userTeams = await db
+    .select({ teamId: schema.userTeam.teamId })
+    .from(schema.userTeam)
+    .where(eq(schema.userTeam.userId, user.id));
+  const teamIds = userTeams.map((t) => t.teamId);
+
   return {
     // Spread user first to preserve additional properties
     ...user,
@@ -58,5 +65,6 @@ export const enrichUser = async (
     name: user.name,
     roles,
     permissions: [...permissions],
+    teamIds,
   };
 };

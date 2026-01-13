@@ -247,6 +247,8 @@ export const permissions = {
 | `admin` | System | Wildcard access to all permissions. Cannot delete. Permissions not editable. |
 | `users` | System | Auto-assigned to new users. Default permissions synced here. Cannot delete. |
 
+> **See also:** For resource-level access control (restricting access to specific systems, health checks, etc.), see [Teams and Resource-Level Access Control](./teams.md).
+
 #### `env.registerInit(config)`
 
 Register the plugin's initialization function.

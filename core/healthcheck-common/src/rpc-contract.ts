@@ -1,6 +1,7 @@
 import { oc } from "@orpc/contract";
 import {
   createClientDefinition,
+  createResourceAccessList,
   type ProcedureMetadata,
 } from "@checkstack/common";
 import { pluginMetadata } from "./plugin-metadata";
@@ -24,6 +25,12 @@ import {
 
 // Base builder with full metadata support
 const _base = oc.$meta<ProcedureMetadata>({});
+
+// Resource access configurations for team-based access control
+const configListAccess = createResourceAccessList(
+  "configuration",
+  "configurations"
+);
 
 // --- Response Schemas for Evaluated Status ---
 
@@ -74,8 +81,11 @@ export const healthCheckContract = {
     .meta({
       userType: "authenticated",
       permissions: [permissions.healthCheckRead.id],
+      resourceAccess: [configListAccess],
     })
-    .output(z.array(HealthCheckConfigurationSchema)),
+    .output(
+      z.object({ configurations: z.array(HealthCheckConfigurationSchema) })
+    ),
 
   createConfiguration: _base
     .meta({

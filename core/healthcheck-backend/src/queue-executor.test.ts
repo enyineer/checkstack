@@ -61,7 +61,7 @@ const createMockCatalogClient = () => ({
   notifySystemSubscribers: mock(async () => ({ notifiedCount: 0 })),
   // Other methods not used in queue-executor
   getEntities: mock(async () => ({ systems: [], groups: [] })),
-  getSystems: mock(async () => []),
+  getSystems: mock(async () => ({ systems: [] })),
   getGroups: mock(async () => []),
   createSystem: mock(async () => ({})),
   updateSystem: mock(async () => ({})),

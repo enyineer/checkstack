@@ -185,3 +185,9 @@ Applications use the same RBAC system as users. To call an endpoint, the applica
 ```
 
 Example: To call `catalog.getSystems`, the application needs a role with `catalog.catalog.read` permission.
+
+## Team Assignments
+
+Applications can be assigned to teams for resource-level access control. When an application is a member of a team, it can access resources that team has been granted access to.
+
+See [Teams and Resource-Level Access Control](../backend/teams.md) for details on managing team access to resources.

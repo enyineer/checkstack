@@ -1,6 +1,8 @@
 import { oc } from "@orpc/contract";
 import {
   createClientDefinition,
+  createResourceAccess,
+  createResourceAccessList,
   type ProcedureMetadata,
 } from "@checkstack/common";
 import { pluginMetadata } from "./plugin-metadata";
@@ -10,6 +12,10 @@ import { permissions } from "./permissions";
 
 // Base builder with full metadata support
 const _base = oc.$meta<ProcedureMetadata>({});
+
+// Resource access configurations for team-based access control
+const systemAccess = createResourceAccess("system", "systemId");
+const systemListAccess = createResourceAccessList("system", "systems");
 
 // Input schemas that match the service layer expectations
 const CreateSystemInputSchema = z.object({
@@ -55,7 +61,11 @@ export const catalogContract = {
   // ==========================================================================
 
   getEntities: _base
-    .meta({ userType: "public", permissions: [permissions.catalogRead.id] })
+    .meta({
+      userType: "public",
+      permissions: [permissions.catalogRead.id],
+      resourceAccess: [systemListAccess],
+    })
     .output(
       z.object({
         systems: z.array(SystemSchema),
@@ -64,11 +74,19 @@ export const catalogContract = {
     ),
 
   getSystems: _base
-    .meta({ userType: "public", permissions: [permissions.catalogRead.id] })
-    .output(z.array(SystemSchema)),
+    .meta({
+      userType: "public",
+      permissions: [permissions.catalogRead.id],
+      resourceAccess: [systemListAccess],
+    })
+    .output(z.object({ systems: z.array(SystemSchema) })),
 
   getSystem: _base
-    .meta({ userType: "public", permissions: [permissions.catalogRead.id] })
+    .meta({
+      userType: "public",
+      permissions: [permissions.catalogRead.id],
+      resourceAccess: [systemAccess],
+    })
     .input(z.object({ systemId: z.string() }))
     .output(SystemSchema.nullable()),
 

@@ -69,7 +69,7 @@ const IncidentDetailPageContent: React.FC = () => {
     if (!incidentId) return;
 
     try {
-      const [incidentData, systemList] = await Promise.all([
+      const [incidentData, { systems: systemList }] = await Promise.all([
         api.getIncident({ id: incidentId }),
         catalogApi.getSystems(),
       ]);

@@ -433,13 +433,13 @@
       "name": "@checkstack/healthcheck-frontend",
       "version": "0.1.0",
       "dependencies": {
+        "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
-        "@types/prismjs": "^1.26.5",
         "ajv": "^8.17.1",
         "ajv-formats": "^3.0.1",
         "date-fns": "^4.1.0",
@@ -454,6 +454,7 @@
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
+        "@types/prismjs": "^1.26.5",
         "@types/react": "^18.2.0",
         "typescript": "^5.0.0",
       },
@@ -505,6 +506,7 @@
       "name": "@checkstack/incident-frontend",
       "version": "0.0.4",
       "dependencies": {
+        "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
@@ -629,6 +631,7 @@
       "name": "@checkstack/maintenance-frontend",
       "version": "0.0.4",
       "dependencies": {
+        "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",

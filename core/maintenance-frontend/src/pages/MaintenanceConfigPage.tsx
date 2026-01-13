@@ -86,12 +86,13 @@ const MaintenanceConfigPageContent: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [maintenanceList, systemList] = await Promise.all([
-        api.listMaintenances(
-          statusFilter === "all" ? undefined : { status: statusFilter }
-        ),
-        catalogApi.getSystems(),
-      ]);
+      const [{ maintenances: maintenanceList }, { systems: systemList }] =
+        await Promise.all([
+          api.listMaintenances(
+            statusFilter === "all" ? undefined : { status: statusFilter }
+          ),
+          catalogApi.getSystems(),
+        ]);
       setMaintenances(maintenanceList);
       setSystems(systemList);
     } catch (error) {

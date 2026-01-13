@@ -11,12 +11,13 @@ import {
   DialogFooter,
   useToast,
 } from "@checkstack/ui";
+import { TeamAccessEditor } from "@checkstack/auth-frontend";
 
 interface SystemEditorProps {
   open: boolean;
   onClose: () => void;
   onSave: (data: { name: string; description?: string }) => Promise<void>;
-  initialData?: { name: string; description?: string };
+  initialData?: { id: string; name: string; description?: string };
 }
 
 export const SystemEditor: React.FC<SystemEditorProps> = ({
@@ -98,6 +99,16 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
                 rows={3}
               />
             </div>
+
+            {/* Team Access Editor - only shown for existing systems */}
+            {initialData?.id && (
+              <TeamAccessEditor
+                resourceType="catalog.system"
+                resourceId={initialData.id}
+                compact
+                expanded
+              />
+            )}
           </div>
 
           <DialogFooter>

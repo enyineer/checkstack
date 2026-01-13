@@ -84,14 +84,15 @@ const IncidentConfigPageContent: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [incidentList, systemList] = await Promise.all([
-        api.listIncidents(
-          statusFilter === "all"
-            ? { includeResolved: showResolved }
-            : { status: statusFilter, includeResolved: showResolved }
-        ),
-        catalogApi.getSystems(),
-      ]);
+      const [{ incidents: incidentList }, { systems: systemList }] =
+        await Promise.all([
+          api.listIncidents(
+            statusFilter === "all"
+              ? { includeResolved: showResolved }
+              : { status: statusFilter, includeResolved: showResolved }
+          ),
+          catalogApi.getSystems(),
+        ]);
       setIncidents(incidentList);
       setSystems(systemList);
     } catch (error) {

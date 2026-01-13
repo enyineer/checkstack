@@ -45,7 +45,7 @@ const HealthCheckConfigPageContent = () => {
   const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchData = async () => {
-    const [configs, strats] = await Promise.all([
+    const [{ configurations: configs }, strats] = await Promise.all([
       api.getConfigurations(),
       api.getStrategies(),
     ]);

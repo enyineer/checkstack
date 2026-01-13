@@ -2,6 +2,7 @@ import { oc } from "@orpc/contract";
 import { z } from "zod";
 import {
   createClientDefinition,
+  createResourceAccessList,
   type ProcedureMetadata,
 } from "@checkstack/common";
 import { permissions } from "./permissions";
@@ -18,12 +19,16 @@ import {
 
 const _base = oc.$meta<ProcedureMetadata>({});
 
+// Resource access configurations for team-based access control
+const incidentListAccess = createResourceAccessList("incident", "incidents");
+
 export const incidentContract = {
   /** List all incidents with optional filters */
   listIncidents: _base
     .meta({
       userType: "public",
       permissions: [permissions.incidentRead.id],
+      resourceAccess: [incidentListAccess],
     })
     .input(
       z
@@ -34,7 +39,7 @@ export const incidentContract = {
         })
         .optional()
     )
-    .output(z.array(IncidentWithSystemsSchema)),
+    .output(z.object({ incidents: z.array(IncidentWithSystemsSchema) })),
 
   /** Get a single incident with all details */
   getIncident: _base

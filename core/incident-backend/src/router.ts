@@ -83,7 +83,7 @@ export function createRouter(
 
   return os.router({
     listIncidents: os.listIncidents.handler(async ({ input }) => {
-      return service.listIncidents(input ?? {});
+      return { incidents: await service.listIncidents(input ?? {}) };
     }),
 
     getIncident: os.getIncident.handler(async ({ input }) => {

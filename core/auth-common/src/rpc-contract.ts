@@ -385,6 +385,225 @@ export const authContract = {
     })
     .input(z.string())
     .output(z.object({ secret: z.string() })), // New secret - shown once
+
+  // ==========================================================================
+  // TEAM MANAGEMENT (userType: "authenticated" with permissions)
+  // Resource-level access control via teams
+  // Both users and applications can manage teams with proper permissions
+  // ==========================================================================
+
+  getTeams: _base
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.teamsRead.id],
+    })
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          description: z.string().optional().nullable(),
+          memberCount: z.number(),
+          isManager: z.boolean(),
+        })
+      )
+    ),
+
+  getTeam: _base
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.teamsRead.id],
+    })
+    .input(z.object({ teamId: z.string() }))
+    .output(
+      z
+        .object({
+          id: z.string(),
+          name: z.string(),
+          description: z.string().optional().nullable(),
+          members: z.array(
+            z.object({ id: z.string(), name: z.string(), email: z.string() })
+          ),
+          managers: z.array(
+            z.object({ id: z.string(), name: z.string(), email: z.string() })
+          ),
+        })
+        .optional()
+    ),
+
+  createTeam: _base
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.teamsManage.id],
+    })
+    .input(
+      z.object({
+        name: z.string().min(1).max(100),
+        description: z.string().max(500).optional(),
+      })
+    )
+    .output(z.object({ id: z.string() })),
+
+  updateTeam: _base
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.teamsRead.id],
+    })
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string().optional(),
+        description: z.string().optional().nullable(),
+      })
+    )
+    .output(z.void()),
+
+  deleteTeam: _base
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.teamsManage.id],
+    })
+    .input(z.string())
+    .output(z.void()),
+
+  addUserToTeam: _base
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.teamsRead.id],
+    })
+    .input(z.object({ teamId: z.string(), userId: z.string() }))
+    .output(z.void()),
+
+  removeUserFromTeam: _base
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.teamsRead.id],
+    })
+    .input(z.object({ teamId: z.string(), userId: z.string() }))
+    .output(z.void()),
+
+  addTeamManager: _base
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.teamsManage.id],
+    })
+    .input(z.object({ teamId: z.string(), userId: z.string() }))
+    .output(z.void()),
+
+  removeTeamManager: _base
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.teamsManage.id],
+    })
+    .input(z.object({ teamId: z.string(), userId: z.string() }))
+    .output(z.void()),
+
+  getResourceTeamAccess: _base
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.teamsRead.id],
+    })
+    .input(z.object({ resourceType: z.string(), resourceId: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          teamId: z.string(),
+          teamName: z.string(),
+          canRead: z.boolean(),
+          canManage: z.boolean(),
+        })
+      )
+    ),
+
+  setResourceTeamAccess: _base
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.teamsManage.id],
+    })
+    .input(
+      z.object({
+        resourceType: z.string(),
+        resourceId: z.string(),
+        teamId: z.string(),
+        canRead: z.boolean().optional(),
+        canManage: z.boolean().optional(),
+      })
+    )
+    .output(z.void()),
+
+  removeResourceTeamAccess: _base
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.teamsManage.id],
+    })
+    .input(
+      z.object({
+        resourceType: z.string(),
+        resourceId: z.string(),
+        teamId: z.string(),
+      })
+    )
+    .output(z.void()),
+
+  // Resource-level access settings (teamOnly flag)
+  getResourceAccessSettings: _base
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.teamsRead.id],
+    })
+    .input(z.object({ resourceType: z.string(), resourceId: z.string() }))
+    .output(z.object({ teamOnly: z.boolean() })),
+
+  setResourceAccessSettings: _base
+    .meta({
+      userType: "authenticated",
+      permissions: [permissions.teamsManage.id],
+    })
+    .input(
+      z.object({
+        resourceType: z.string(),
+        resourceId: z.string(),
+        teamOnly: z.boolean(),
+      })
+    )
+    .output(z.void()),
+
+  // ==========================================================================
+  // S2S ENDPOINTS FOR TEAM ACCESS (userType: "service")
+  // ==========================================================================
+
+  checkResourceTeamAccess: _base
+    .meta({ userType: "service" })
+    .input(
+      z.object({
+        userId: z.string(),
+        userType: z.enum(["user", "application"]),
+        resourceType: z.string(),
+        resourceId: z.string(),
+        action: z.enum(["read", "manage"]),
+        hasGlobalPermission: z.boolean(),
+      })
+    )
+    .output(z.object({ hasAccess: z.boolean() })),
+
+  getAccessibleResourceIds: _base
+    .meta({ userType: "service" })
+    .input(
+      z.object({
+        userId: z.string(),
+        userType: z.enum(["user", "application"]),
+        resourceType: z.string(),
+        resourceIds: z.array(z.string()),
+        action: z.enum(["read", "manage"]),
+        hasGlobalPermission: z.boolean(),
+      })
+    )
+    .output(z.array(z.string())),
+
+  deleteResourceGrants: _base
+    .meta({ userType: "service" })
+    .input(z.object({ resourceType: z.string(), resourceId: z.string() }))
+    .output(z.void()),
 };
 
 // Export contract type

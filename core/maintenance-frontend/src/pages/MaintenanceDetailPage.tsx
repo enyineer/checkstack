@@ -73,7 +73,7 @@ const MaintenanceDetailPageContent: React.FC = () => {
 
     setLoading(true);
     try {
-      const [maintenanceData, systemList] = await Promise.all([
+      const [maintenanceData, { systems: systemList }] = await Promise.all([
         api.getMaintenance({ id: maintenanceId }),
         catalogApi.getSystems(),
       ]);

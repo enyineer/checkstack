@@ -69,7 +69,7 @@ export function createRouter(
 
   return os.router({
     listMaintenances: os.listMaintenances.handler(async ({ input }) => {
-      return service.listMaintenances(input ?? {});
+      return { maintenances: await service.listMaintenances(input ?? {}) };
     }),
 
     getMaintenance: os.getMaintenance.handler(async ({ input }) => {

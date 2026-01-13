@@ -1,10 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
-import {
-  useApi,
-  rpcApiRef,
-  wrapInSuspense,
-} from "@checkstack/frontend-api";
+import { useApi, rpcApiRef, wrapInSuspense } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
 import { resolveRoute } from "@checkstack/common";
 import { incidentApiRef } from "../api";
@@ -48,10 +44,11 @@ const SystemIncidentHistoryPageContent: React.FC = () => {
 
     setLoading(true);
     try {
-      const [incidentList, systemList] = await Promise.all([
-        api.listIncidents({ systemId, includeResolved: true }),
-        catalogApi.getSystems(),
-      ]);
+      const [{ incidents: incidentList }, { systems: systemList }] =
+        await Promise.all([
+          api.listIncidents({ systemId, includeResolved: true }),
+          catalogApi.getSystems(),
+        ]);
       const systemData = systemList.find((s) => s.id === systemId);
       setIncidents(incidentList);
       setSystem(systemData);

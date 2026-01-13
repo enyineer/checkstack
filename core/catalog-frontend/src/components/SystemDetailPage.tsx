@@ -57,7 +57,7 @@ export const SystemDetailPage: React.FC = () => {
     }
 
     Promise.all([catalogApi.getSystems(), catalogApi.getGroups()])
-      .then(([systems, allGroups]) => {
+      .then(([{ systems }, allGroups]) => {
         const foundSystem = systems.find((s) => s.id === systemId);
 
         if (!foundSystem) {

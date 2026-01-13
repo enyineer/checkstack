@@ -171,3 +171,110 @@ export const applicationRole = pgTable(
     pk: primaryKey({ columns: [t.applicationId, t.roleId] }),
   })
 );
+
+// --- Teams Schema ---
+
+/**
+ * Teams for resource-level access control.
+ * Users can be members of multiple teams, and resources can be scoped to teams.
+ */
+export const team = pgTable("team", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/**
+ * User-to-Team membership (M:N).
+ * Users can belong to multiple teams.
+ */
+export const userTeam = pgTable(
+  "user_team",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => team.id, { onDelete: "cascade" }),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.teamId] }),
+  })
+);
+
+/**
+ * Application-to-Team membership (M:N).
+ * API keys can belong to teams for resource access.
+ */
+export const applicationTeam = pgTable(
+  "application_team",
+  {
+    applicationId: text("application_id")
+      .notNull()
+      .references(() => application.id, { onDelete: "cascade" }),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => team.id, { onDelete: "cascade" }),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.applicationId, t.teamId] }),
+  })
+);
+
+/**
+ * Team managers - users who can manage a specific team's membership and resource access.
+ * Team managers cannot delete the team or manage other teams.
+ */
+export const teamManager = pgTable(
+  "team_manager",
+  {
+    teamId: text("team_id")
+      .notNull()
+      .references(() => team.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.teamId, t.userId] }),
+  })
+);
+
+/**
+ * Resource-level access settings.
+ * Controls whether a resource requires team membership (teamOnly) vs allowing global permissions.
+ */
+export const resourceAccessSettings = pgTable(
+  "resource_access_settings",
+  {
+    resourceType: text("resource_type").notNull(), // e.g., "catalog.system"
+    resourceId: text("resource_id").notNull(),
+    teamOnly: boolean("team_only").notNull().default(false), // If true, global permissions don't apply
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.resourceType, t.resourceId] }),
+  })
+);
+
+/**
+ * Centralized resource-level access control.
+ * Stores team grants for all resource types across the platform.
+ */
+export const resourceTeamAccess = pgTable(
+  "resource_team_access",
+  {
+    resourceType: text("resource_type").notNull(), // e.g., "catalog.system"
+    resourceId: text("resource_id").notNull(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => team.id, { onDelete: "cascade" }),
+    canRead: boolean("can_read").notNull().default(true),
+    canManage: boolean("can_manage").notNull().default(false),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.resourceType, t.resourceId, t.teamId] }),
+  })
+);

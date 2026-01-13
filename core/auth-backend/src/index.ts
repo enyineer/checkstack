@@ -402,6 +402,15 @@ export default createBackendPlugin({
                     ];
                   }
 
+                  // Get team memberships for this application
+                  const appTeams = await db
+                    .select({ teamId: schema.applicationTeam.teamId })
+                    .from(schema.applicationTeam)
+                    .where(
+                      eq(schema.applicationTeam.applicationId, applicationId)
+                    );
+                  const teamIds = appTeams.map((t) => t.teamId);
+
                   // Return ApplicationUser
                   return {
                     type: "application" as const,
@@ -409,6 +418,7 @@ export default createBackendPlugin({
                     name: app.name,
                     roles: roleIds,
                     permissions,
+                    teamIds,
                   };
                 }
               }

@@ -1016,6 +1016,423 @@ export const createAuthRouter = (
     }
   );
 
+  // ==========================================================================
+  // TEAM MANAGEMENT HANDLERS
+  // ==========================================================================
+
+  const getTeams = os.getTeams.handler(async ({ context }) => {
+    const teams = await internalDb.select().from(schema.team);
+    const memberCounts = await internalDb
+      .select({ teamId: schema.userTeam.teamId })
+      .from(schema.userTeam);
+
+    const userId = isRealUser(context.user) ? context.user.id : undefined;
+    const managerRows = userId
+      ? await internalDb
+          .select()
+          .from(schema.teamManager)
+          .where(eq(schema.teamManager.userId, userId))
+      : [];
+    const managedTeamIds = new Set(managerRows.map((m) => m.teamId));
+
+    return teams.map((t) => ({
+      id: t.id,
+      name: t.name,
+      description: t.description,
+      memberCount: memberCounts.filter((m) => m.teamId === t.id).length,
+      isManager: managedTeamIds.has(t.id),
+    }));
+  });
+
+  const getTeam = os.getTeam.handler(async ({ input }) => {
+    const teams = await internalDb
+      .select()
+      .from(schema.team)
+      .where(eq(schema.team.id, input.teamId))
+      .limit(1);
+    if (teams.length === 0) return;
+
+    const team = teams[0];
+    const memberRows = await internalDb
+      .select({ userId: schema.userTeam.userId })
+      .from(schema.userTeam)
+      .where(eq(schema.userTeam.teamId, team.id));
+    const managerRows = await internalDb
+      .select({ userId: schema.teamManager.userId })
+      .from(schema.teamManager)
+      .where(eq(schema.teamManager.teamId, team.id));
+
+    const userIds = [
+      ...new Set([
+        ...memberRows.map((m) => m.userId),
+        ...managerRows.map((m) => m.userId),
+      ]),
+    ];
+    const users =
+      userIds.length > 0
+        ? await internalDb
+            .select({
+              id: schema.user.id,
+              name: schema.user.name,
+              email: schema.user.email,
+            })
+            .from(schema.user)
+            .where(inArray(schema.user.id, userIds))
+        : [];
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    return {
+      id: team.id,
+      name: team.name,
+      description: team.description,
+      members: memberRows
+        .map((m) => userMap.get(m.userId))
+        .filter((u): u is NonNullable<typeof u> => u !== undefined),
+      managers: managerRows
+        .map((m) => userMap.get(m.userId))
+        .filter((u): u is NonNullable<typeof u> => u !== undefined),
+    };
+  });
+
+  const createTeam = os.createTeam.handler(async ({ input, context }) => {
+    const id = crypto.randomUUID();
+    const now = new Date();
+    await internalDb.insert(schema.team).values({
+      id,
+      name: input.name,
+      description: input.description,
+      createdAt: now,
+      updatedAt: now,
+    });
+    context.logger.info(`[auth-backend] Created team: ${input.name}`);
+    return { id };
+  });
+
+  const updateTeam = os.updateTeam.handler(async ({ input, context }) => {
+    const { id, name, description } = input;
+    // TODO: Check if user is manager or has teamsManage permission
+    const updates: {
+      name?: string;
+      description?: string | null;
+      updatedAt: Date;
+    } = {
+      updatedAt: new Date(),
+    };
+    if (name !== undefined) updates.name = name;
+    if (description !== undefined) updates.description = description;
+    await internalDb
+      .update(schema.team)
+      .set(updates)
+      .where(eq(schema.team.id, id));
+    context.logger.info(`[auth-backend] Updated team: ${id}`);
+  });
+
+  const deleteTeam = os.deleteTeam.handler(async ({ input: id, context }) => {
+    await internalDb.transaction(async (tx) => {
+      await tx.delete(schema.userTeam).where(eq(schema.userTeam.teamId, id));
+      await tx
+        .delete(schema.teamManager)
+        .where(eq(schema.teamManager.teamId, id));
+      await tx
+        .delete(schema.applicationTeam)
+        .where(eq(schema.applicationTeam.teamId, id));
+      await tx
+        .delete(schema.resourceTeamAccess)
+        .where(eq(schema.resourceTeamAccess.teamId, id));
+      await tx.delete(schema.team).where(eq(schema.team.id, id));
+    });
+    context.logger.info(`[auth-backend] Deleted team: ${id}`);
+  });
+
+  const addUserToTeam = os.addUserToTeam.handler(async ({ input }) => {
+    await internalDb
+      .insert(schema.userTeam)
+      .values({ userId: input.userId, teamId: input.teamId })
+      .onConflictDoNothing();
+  });
+
+  const removeUserFromTeam = os.removeUserFromTeam.handler(
+    async ({ input }) => {
+      await internalDb
+        .delete(schema.userTeam)
+        .where(
+          and(
+            eq(schema.userTeam.userId, input.userId),
+            eq(schema.userTeam.teamId, input.teamId)
+          )
+        );
+    }
+  );
+
+  const addTeamManager = os.addTeamManager.handler(async ({ input }) => {
+    await internalDb
+      .insert(schema.teamManager)
+      .values({ userId: input.userId, teamId: input.teamId })
+      .onConflictDoNothing();
+  });
+
+  const removeTeamManager = os.removeTeamManager.handler(async ({ input }) => {
+    await internalDb
+      .delete(schema.teamManager)
+      .where(
+        and(
+          eq(schema.teamManager.userId, input.userId),
+          eq(schema.teamManager.teamId, input.teamId)
+        )
+      );
+  });
+
+  const getResourceTeamAccess = os.getResourceTeamAccess.handler(
+    async ({ input }) => {
+      const rows = await internalDb
+        .select()
+        .from(schema.resourceTeamAccess)
+        .innerJoin(
+          schema.team,
+          eq(schema.resourceTeamAccess.teamId, schema.team.id)
+        )
+        .where(
+          and(
+            eq(schema.resourceTeamAccess.resourceType, input.resourceType),
+            eq(schema.resourceTeamAccess.resourceId, input.resourceId)
+          )
+        );
+      return rows.map((r) => ({
+        teamId: r.resource_team_access.teamId,
+        teamName: r.team.name,
+        canRead: r.resource_team_access.canRead,
+        canManage: r.resource_team_access.canManage,
+      }));
+    }
+  );
+
+  const setResourceTeamAccess = os.setResourceTeamAccess.handler(
+    async ({ input }) => {
+      const { resourceType, resourceId, teamId, canRead, canManage } = input;
+      await internalDb
+        .insert(schema.resourceTeamAccess)
+        .values({
+          resourceType,
+          resourceId,
+          teamId,
+          canRead: canRead ?? true,
+          canManage: canManage ?? false,
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.resourceTeamAccess.resourceType,
+            schema.resourceTeamAccess.resourceId,
+            schema.resourceTeamAccess.teamId,
+          ],
+          set: {
+            canRead: canRead ?? true,
+            canManage: canManage ?? false,
+          },
+        });
+    }
+  );
+
+  const removeResourceTeamAccess = os.removeResourceTeamAccess.handler(
+    async ({ input }) => {
+      await internalDb
+        .delete(schema.resourceTeamAccess)
+        .where(
+          and(
+            eq(schema.resourceTeamAccess.resourceType, input.resourceType),
+            eq(schema.resourceTeamAccess.resourceId, input.resourceId),
+            eq(schema.resourceTeamAccess.teamId, input.teamId)
+          )
+        );
+    }
+  );
+
+  // Resource-level access settings
+  const getResourceAccessSettings = os.getResourceAccessSettings.handler(
+    async ({ input }) => {
+      const rows = await internalDb
+        .select()
+        .from(schema.resourceAccessSettings)
+        .where(
+          and(
+            eq(schema.resourceAccessSettings.resourceType, input.resourceType),
+            eq(schema.resourceAccessSettings.resourceId, input.resourceId)
+          )
+        )
+        .limit(1);
+      return { teamOnly: rows[0]?.teamOnly ?? false };
+    }
+  );
+
+  const setResourceAccessSettings = os.setResourceAccessSettings.handler(
+    async ({ input }) => {
+      const { resourceType, resourceId, teamOnly } = input;
+      await internalDb
+        .insert(schema.resourceAccessSettings)
+        .values({ resourceType, resourceId, teamOnly })
+        .onConflictDoUpdate({
+          target: [
+            schema.resourceAccessSettings.resourceType,
+            schema.resourceAccessSettings.resourceId,
+          ],
+          set: { teamOnly },
+        });
+    }
+  );
+
+  // S2S Endpoints for middleware
+  const checkResourceTeamAccess = os.checkResourceTeamAccess.handler(
+    async ({ input }) => {
+      const {
+        userId,
+        userType,
+        resourceType,
+        resourceId,
+        action,
+        hasGlobalPermission,
+      } = input;
+
+      const grants = await internalDb
+        .select()
+        .from(schema.resourceTeamAccess)
+        .where(
+          and(
+            eq(schema.resourceTeamAccess.resourceType, resourceType),
+            eq(schema.resourceTeamAccess.resourceId, resourceId)
+          )
+        );
+
+      // No grants = global permission applies
+      if (grants.length === 0) return { hasAccess: hasGlobalPermission };
+
+      // Check resource-level settings for teamOnly
+      const settingsRows = await internalDb
+        .select()
+        .from(schema.resourceAccessSettings)
+        .where(
+          and(
+            eq(schema.resourceAccessSettings.resourceType, resourceType),
+            eq(schema.resourceAccessSettings.resourceId, resourceId)
+          )
+        )
+        .limit(1);
+      const isTeamOnly = settingsRows[0]?.teamOnly ?? false;
+
+      if (!isTeamOnly && hasGlobalPermission) return { hasAccess: true };
+
+      // Get user's teams
+      const teamTable =
+        userType === "user" ? schema.userTeam : schema.applicationTeam;
+      const userIdCol =
+        userType === "user"
+          ? schema.userTeam.userId
+          : schema.applicationTeam.applicationId;
+      const userTeams = await internalDb
+        .select({
+          teamId:
+            userType === "user"
+              ? schema.userTeam.teamId
+              : schema.applicationTeam.teamId,
+        })
+        .from(teamTable)
+        .where(eq(userIdCol, userId));
+      const userTeamIds = new Set(userTeams.map((t) => t.teamId));
+
+      const field = action === "manage" ? "canManage" : "canRead";
+      const hasAccess = grants.some(
+        (g) => userTeamIds.has(g.teamId) && g[field]
+      );
+      return { hasAccess };
+    }
+  );
+
+  const getAccessibleResourceIds = os.getAccessibleResourceIds.handler(
+    async ({ input }) => {
+      const {
+        userId,
+        userType,
+        resourceType,
+        resourceIds,
+        action,
+        hasGlobalPermission,
+      } = input;
+      if (resourceIds.length === 0) return [];
+
+      // Get all grants for these resources
+      const grants = await internalDb
+        .select()
+        .from(schema.resourceTeamAccess)
+        .where(
+          and(
+            eq(schema.resourceTeamAccess.resourceType, resourceType),
+            inArray(schema.resourceTeamAccess.resourceId, resourceIds)
+          )
+        );
+
+      // Get resource-level settings for teamOnly
+      const settingsRows = await internalDb
+        .select()
+        .from(schema.resourceAccessSettings)
+        .where(
+          and(
+            eq(schema.resourceAccessSettings.resourceType, resourceType),
+            inArray(schema.resourceAccessSettings.resourceId, resourceIds)
+          )
+        );
+      const teamOnlyByResource = new Map(
+        settingsRows.map((s) => [s.resourceId, s.teamOnly])
+      );
+
+      // Get user's teams
+      const teamTable =
+        userType === "user" ? schema.userTeam : schema.applicationTeam;
+      const userIdCol =
+        userType === "user"
+          ? schema.userTeam.userId
+          : schema.applicationTeam.applicationId;
+      const userTeams = await internalDb
+        .select({
+          teamId:
+            userType === "user"
+              ? schema.userTeam.teamId
+              : schema.applicationTeam.teamId,
+        })
+        .from(teamTable)
+        .where(eq(userIdCol, userId));
+      const userTeamIds = new Set(userTeams.map((t) => t.teamId));
+
+      const field = action === "manage" ? "canManage" : "canRead";
+      const grantsByResource = new Map<string, typeof grants>();
+      for (const g of grants) {
+        const existing = grantsByResource.get(g.resourceId) || [];
+        existing.push(g);
+        grantsByResource.set(g.resourceId, existing);
+      }
+
+      return resourceIds.filter((id) => {
+        const resourceGrants = grantsByResource.get(id) || [];
+        if (resourceGrants.length === 0) return hasGlobalPermission;
+        const isTeamOnly = teamOnlyByResource.get(id) ?? false;
+        if (!isTeamOnly && hasGlobalPermission) return true;
+        return resourceGrants.some(
+          (g) => userTeamIds.has(g.teamId) && g[field]
+        );
+      });
+    }
+  );
+
+  const deleteResourceGrants = os.deleteResourceGrants.handler(
+    async ({ input }) => {
+      await internalDb
+        .delete(schema.resourceTeamAccess)
+        .where(
+          and(
+            eq(schema.resourceTeamAccess.resourceType, input.resourceType),
+            eq(schema.resourceTeamAccess.resourceId, input.resourceId)
+          )
+        );
+    }
+  );
+
   return os.router({
     getEnabledStrategies,
     permissions,
@@ -1045,6 +1462,24 @@ export const createAuthRouter = (
     updateApplication,
     deleteApplication,
     regenerateApplicationSecret,
+    // Teams
+    getTeams,
+    getTeam,
+    createTeam,
+    updateTeam,
+    deleteTeam,
+    addUserToTeam,
+    removeUserFromTeam,
+    addTeamManager,
+    removeTeamManager,
+    getResourceTeamAccess,
+    setResourceTeamAccess,
+    removeResourceTeamAccess,
+    getResourceAccessSettings,
+    setResourceAccessSettings,
+    checkResourceTeamAccess,
+    getAccessibleResourceIds,
+    deleteResourceGrants,
   });
 };
 

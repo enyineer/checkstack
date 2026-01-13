@@ -25,6 +25,7 @@ import {
 import { Plus, MessageSquare, Loader2, AlertCircle } from "lucide-react";
 import { MaintenanceUpdateForm } from "./MaintenanceUpdateForm";
 import { getMaintenanceStatusBadge } from "../utils/badges";
+import { TeamAccessEditor } from "@checkstack/auth-frontend";
 
 interface Props {
   open: boolean;
@@ -306,6 +307,16 @@ export const MaintenanceEditor: React.FC<Props> = ({
                 />
               )}
             </div>
+          )}
+
+          {/* Team Access Editor - only shown when editing existing maintenance */}
+          {maintenance?.id && (
+            <TeamAccessEditor
+              resourceType="maintenance.maintenance"
+              resourceId={maintenance.id}
+              compact
+              expanded
+            />
           )}
         </div>
 

@@ -31,6 +31,7 @@ export interface RealUser {
   name?: string;
   permissions?: string[];
   roles?: string[];
+  teamIds?: string[];
   [key: string]: unknown;
 }
 
@@ -53,6 +54,7 @@ export interface ApplicationUser {
   name: string;
   permissions?: string[];
   roles?: string[];
+  teamIds?: string[];
 }
 
 /**
@@ -70,6 +72,29 @@ export interface AuthService {
    * users on "public" userType endpoints.
    */
   getAnonymousPermissions(): Promise<string[]>;
+  /**
+   * Check if a user has access to a specific resource via team grants.
+   */
+  checkResourceTeamAccess(params: {
+    userId: string;
+    userType: "user" | "application";
+    resourceType: string;
+    resourceId: string;
+    action: "read" | "manage";
+    hasGlobalPermission: boolean;
+  }): Promise<{ hasAccess: boolean }>;
+  /**
+   * Get IDs of resources the user can access from a given list.
+   * Used for bulk filtering of list endpoints.
+   */
+  getAccessibleResourceIds(params: {
+    userId: string;
+    userType: "user" | "application";
+    resourceType: string;
+    resourceIds: string[];
+    action: "read" | "manage";
+    hasGlobalPermission: boolean;
+  }): Promise<string[]>;
 }
 
 /**

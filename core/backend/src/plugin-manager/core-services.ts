@@ -177,6 +177,32 @@ export function registerCoreServices({
           return [];
         }
       },
+
+      checkResourceTeamAccess: async (params) => {
+        try {
+          const rpcClient = await registry.get(coreServices.rpcClient, {
+            pluginId: "core",
+          });
+          const authClient = rpcClient.forPlugin(AuthApi);
+          return await authClient.checkResourceTeamAccess(params);
+        } catch {
+          // Fall back to global permission on error
+          return { hasAccess: params.hasGlobalPermission };
+        }
+      },
+
+      getAccessibleResourceIds: async (params) => {
+        try {
+          const rpcClient = await registry.get(coreServices.rpcClient, {
+            pluginId: "core",
+          });
+          const authClient = rpcClient.forPlugin(AuthApi);
+          return await authClient.getAccessibleResourceIds(params);
+        } catch {
+          // Fall back to global permission on error
+          return params.hasGlobalPermission ? params.resourceIds : [];
+        }
+      },
     };
     return authService;
   });

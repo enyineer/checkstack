@@ -9,13 +9,13 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
+    "@checkstack/auth-frontend": "workspace:*",
     "@checkstack/catalog-common": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
-    "@types/prismjs": "^1.26.5",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "date-fns": "^4.1.0",
@@ -28,6 +28,7 @@
     "zod": "^4.2.1"
   },
   "devDependencies": {
+    "@types/prismjs": "^1.26.5",
     "typescript": "^5.0.0",
     "@types/react": "^18.2.0",
     "@checkstack/tsconfig": "workspace:*",

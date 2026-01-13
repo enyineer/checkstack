@@ -2,6 +2,7 @@ import { oc } from "@orpc/contract";
 import { z } from "zod";
 import {
   createClientDefinition,
+  createResourceAccessList,
   type ProcedureMetadata,
 } from "@checkstack/common";
 import { permissions } from "./permissions";
@@ -18,12 +19,19 @@ import {
 
 const _base = oc.$meta<ProcedureMetadata>({});
 
+// Resource access configurations for team-based access control
+const maintenanceListAccess = createResourceAccessList(
+  "maintenance",
+  "maintenances"
+);
+
 export const maintenanceContract = {
   /** List all maintenances with optional status filter */
   listMaintenances: _base
     .meta({
       userType: "public",
       permissions: [permissions.maintenanceRead.id],
+      resourceAccess: [maintenanceListAccess],
     })
     .input(
       z
@@ -33,7 +41,7 @@ export const maintenanceContract = {
         })
         .optional()
     )
-    .output(z.array(MaintenanceWithSystemsSchema)),
+    .output(z.object({ maintenances: z.array(MaintenanceWithSystemsSchema) })),
 
   /** Get a single maintenance with all details */
   getMaintenance: _base
