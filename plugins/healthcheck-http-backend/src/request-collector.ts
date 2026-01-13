@@ -10,6 +10,7 @@ import {
   healthResultString,
   healthResultBoolean,
   healthResultJSONPath,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "./plugin-metadata";
 import type { HttpTransportClient } from "./transport-client";
@@ -42,7 +43,7 @@ export type RequestConfig = z.infer<typeof requestConfigSchema>;
 // RESULT SCHEMAS
 // ============================================================================
 
-const requestResultSchema = z.object({
+const requestResultSchema = healthResultSchema({
   statusCode: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Status Code",
@@ -70,7 +71,7 @@ const requestResultSchema = z.object({
 
 export type RequestResult = z.infer<typeof requestResultSchema>;
 
-const requestAggregatedSchema = z.object({
+const requestAggregatedSchema = healthResultSchema({
   avgResponseTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Response Time",

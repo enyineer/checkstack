@@ -8,6 +8,7 @@ import {
 import {
   healthResultNumber,
   healthResultString,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import type {
   PingTransportClient,
@@ -43,7 +44,7 @@ interface PingConfigV1 {
 /**
  * Per-run result metadata.
  */
-const pingResultSchema = z.object({
+const pingResultSchema = healthResultSchema({
   packetsSent: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Packets Sent",
@@ -83,7 +84,7 @@ type PingResult = z.infer<typeof pingResultSchema>;
 /**
  * Aggregated metadata for buckets.
  */
-const pingAggregatedSchema = z.object({
+const pingAggregatedSchema = healthResultSchema({
   avgPacketLoss: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Avg Packet Loss",

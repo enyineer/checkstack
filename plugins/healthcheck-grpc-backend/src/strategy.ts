@@ -10,6 +10,7 @@ import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import type {
   GrpcTransportClient,
@@ -57,7 +58,7 @@ export type GrpcConfigInput = z.input<typeof grpcConfigSchema>;
 /**
  * Per-run result metadata.
  */
-const grpcResultSchema = z.object({
+const grpcResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
@@ -82,7 +83,7 @@ type GrpcResult = z.infer<typeof grpcResultSchema>;
 /**
  * Aggregated metadata for buckets.
  */
-const grpcAggregatedSchema = z.object({
+const grpcAggregatedSchema = healthResultSchema({
   avgResponseTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Response Time",

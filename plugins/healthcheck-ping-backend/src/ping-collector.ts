@@ -5,7 +5,10 @@ import {
   type CollectorResult,
   type CollectorStrategy,
 } from "@checkstack/backend-api";
-import { healthResultNumber } from "@checkstack/healthcheck-common";
+import {
+  healthResultNumber,
+  healthResultSchema,
+} from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "./plugin-metadata";
 import type { PingTransportClient } from "./transport-client";
 
@@ -35,7 +38,7 @@ export type PingConfig = z.infer<typeof pingConfigSchema>;
 // RESULT SCHEMAS
 // ============================================================================
 
-const pingResultSchema = z.object({
+const pingResultSchema = healthResultSchema({
   packetsSent: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Packets Sent",
@@ -68,7 +71,7 @@ const pingResultSchema = z.object({
 
 export type PingResult = z.infer<typeof pingResultSchema>;
 
-const pingAggregatedSchema = z.object({
+const pingAggregatedSchema = healthResultSchema({
   avgPacketLoss: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Avg Packet Loss",

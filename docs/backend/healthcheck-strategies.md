@@ -108,16 +108,17 @@ Fields marked with `"x-secret": true` are:
 
 ## Result Schemas with Chart Metadata
 
-Use `healthResultNumber`, `healthResultString`, etc. from `@checkstack/healthcheck-common` to annotate fields for auto-chart generation:
+Use `healthResultNumber`, `healthResultString`, etc. from `@checkstack/healthcheck-common` to annotate fields for auto-chart generation. **Always use `healthResultSchema()` for result schemas** - this enforces the use of factory functions at compile-time:
 
 ```typescript
 import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 
-const sshResultSchema = z.object({
+const sshResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
@@ -152,7 +153,7 @@ const sshResultSchema = z.object({
 For bucket-level summaries during retention processing:
 
 ```typescript
-const sshAggregatedSchema = z.object({
+const sshAggregatedSchema = healthResultSchema({
   avgConnectionTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Connection Time",
@@ -187,6 +188,7 @@ import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 
 // Configuration schema
@@ -207,7 +209,7 @@ interface SshTransportClient {
 }
 
 // Per-run result
-const sshResultSchema = z.object({
+const sshResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
@@ -226,7 +228,7 @@ const sshResultSchema = z.object({
 type SshResult = z.infer<typeof sshResultSchema>;
 
 // Aggregated result
-const sshAggregatedSchema = z.object({
+const sshAggregatedSchema = healthResultSchema({
   avgConnectionTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Connection Time",

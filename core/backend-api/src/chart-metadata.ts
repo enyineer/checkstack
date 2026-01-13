@@ -26,30 +26,7 @@
  * ```
  */
 
-/**
- * Available chart types for auto-generated visualizations.
- *
- * Numeric types:
- * - line: Time series line chart for numeric metrics over time
- * - bar: Bar chart for distributions (record of string to number)
- * - counter: Simple count display with trend indicator
- * - gauge: Percentage gauge for rates/percentages (0-100)
- *
- * Non-numeric types:
- * - boolean: Boolean indicator (success/failure, connected/disconnected)
- * - text: Text display for string values
- * - status: Status badge for error/warning states
- *
- * Note: Fields without chart annotations simply won't render - no "hidden" type needed.
- */
-export type ChartType =
-  | "line"
-  | "bar"
-  | "counter"
-  | "gauge"
-  | "boolean"
-  | "text"
-  | "status";
+import type { ChartType } from "@checkstack/common";
 
 /**
  * Chart metadata to attach to Zod schema fields via .meta().

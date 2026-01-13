@@ -10,6 +10,7 @@ import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import type {
   TlsTransportClient,
@@ -53,7 +54,7 @@ export type TlsConfig = z.infer<typeof tlsConfigSchema>;
 /**
  * Per-run result metadata.
  */
-const tlsResultSchema = z.object({
+const tlsResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
@@ -82,7 +83,7 @@ type TlsResult = z.infer<typeof tlsResultSchema>;
 /**
  * Aggregated metadata for buckets.
  */
-const tlsAggregatedSchema = z.object({
+const tlsAggregatedSchema = healthResultSchema({
   avgDaysUntilExpiry: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Days Until Expiry",

@@ -12,6 +12,7 @@ import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import type { SshTransportClient, SshCommandResult } from "./transport-client";
 
@@ -47,7 +48,7 @@ export type SshConfigInput = z.input<typeof sshConfigSchema>;
 /**
  * Per-run result metadata.
  */
-const sshResultSchema = z.object({
+const sshResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
@@ -68,7 +69,7 @@ type SshResult = z.infer<typeof sshResultSchema>;
 /**
  * Aggregated metadata for buckets.
  */
-const sshAggregatedSchema = z.object({
+const sshAggregatedSchema = healthResultSchema({
   avgConnectionTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Connection Time",

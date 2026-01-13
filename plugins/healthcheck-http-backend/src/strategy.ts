@@ -8,6 +8,7 @@ import {
 import {
   healthResultNumber,
   healthResultString,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import type {
   HttpTransportClient,
@@ -47,7 +48,7 @@ interface HttpConfigV2 extends HttpConfigV1 {
 }
 
 /** Per-run result metadata */
-const httpResultMetadataSchema = z.object({
+const httpResultMetadataSchema = healthResultSchema({
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
@@ -57,7 +58,7 @@ const httpResultMetadataSchema = z.object({
 type HttpResultMetadata = z.infer<typeof httpResultMetadataSchema>;
 
 /** Aggregated metadata for buckets */
-const httpAggregatedMetadataSchema = z.object({
+const httpAggregatedMetadataSchema = healthResultSchema({
   errorCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",

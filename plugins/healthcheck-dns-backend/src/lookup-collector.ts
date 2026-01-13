@@ -5,7 +5,11 @@ import {
   type CollectorResult,
   type CollectorStrategy,
 } from "@checkstack/backend-api";
-import { healthResultNumber } from "@checkstack/healthcheck-common";
+import {
+  healthResultNumber,
+  healthResultArray,
+  healthResultSchema,
+} from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "./plugin-metadata";
 import type { DnsTransportClient } from "./transport-client";
 
@@ -28,8 +32,8 @@ export type LookupConfig = z.infer<typeof lookupConfigSchema>;
 // RESULT SCHEMAS
 // ============================================================================
 
-const lookupResultSchema = z.object({
-  values: z.array(z.string()).meta({
+const lookupResultSchema = healthResultSchema({
+  values: healthResultArray({
     "x-chart-type": "text",
     "x-chart-label": "Resolved Values",
   }),
@@ -46,7 +50,7 @@ const lookupResultSchema = z.object({
 
 export type LookupResult = z.infer<typeof lookupResultSchema>;
 
-const lookupAggregatedSchema = z.object({
+const lookupAggregatedSchema = healthResultSchema({
   avgResolutionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Resolution Time",

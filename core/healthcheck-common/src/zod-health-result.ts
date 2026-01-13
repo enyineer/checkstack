@@ -1,54 +1,95 @@
 import { z } from "zod";
+import type { HealthResultMeta } from "@checkstack/common";
 
 // ============================================================================
 // HEALTH RESULT REGISTRY - Typed metadata for chart annotations
 // ============================================================================
 
 /**
- * Chart types for auto-generated health check visualizations.
- *
- * Numeric types:
- * - line: Time series line chart for numeric metrics over time
- * - bar: Bar chart for distributions (record of string to number)
- * - pie: Pie chart for category distributions (record of string to number)
- * - counter: Simple count display with trend indicator
- * - gauge: Percentage gauge for rates/percentages (0-100)
- *
- * Non-numeric types:
- * - boolean: Boolean indicator (success/failure, connected/disconnected)
- * - text: Text display for string values
- * - status: Status badge for error/warning states
- */
-export type ChartType =
-  | "line"
-  | "bar"
-  | "pie"
-  | "counter"
-  | "gauge"
-  | "boolean"
-  | "text"
-  | "status";
-
-/**
- * Metadata type for health check result schemas.
- * Provides autocompletion for `.meta()` calls on result fields.
- */
-export interface HealthResultMeta {
-  /** The type of chart to render for this field */
-  "x-chart-type"?: ChartType;
-  /** Human-readable label for the chart (defaults to field name) */
-  "x-chart-label"?: string;
-  /** Unit suffix for values (e.g., 'ms', '%', 'req/s') */
-  "x-chart-unit"?: string;
-  /** Whether this field supports JSONPath assertions */
-  "x-jsonpath"?: boolean;
-}
-
-/**
  * Registry for health result schema metadata.
  * Used by auto-chart components for visualization inference.
  */
 export const healthResultRegistry = z.registry<HealthResultMeta>();
+
+// ============================================================================
+// BRANDED TYPES FOR COMPILE-TIME ENFORCEMENT
+// ============================================================================
+
+/**
+ * Unique symbol for branding health result fields.
+ * This enables compile-time enforcement that developers use factory functions.
+ */
+declare const HealthResultBrand: unique symbol;
+
+/**
+ * A branded Zod schema type that marks it as a health result field.
+ * Only schemas created via factory functions (healthResultNumber, healthResultString, etc.)
+ * carry this brand.
+ */
+export type HealthResultField<T extends z.ZodTypeAny> = T & {
+  [HealthResultBrand]: true;
+};
+
+/**
+ * Allowed field types in a health result schema.
+ * Supports direct fields, optional fields, and fields with defaults.
+ */
+export type HealthResultFieldType =
+  | HealthResultField<z.ZodTypeAny>
+  | z.ZodOptional<HealthResultField<z.ZodTypeAny>>
+  | z.ZodDefault<HealthResultField<z.ZodTypeAny>>
+  | z.ZodNullable<HealthResultField<z.ZodTypeAny>>;
+
+/**
+ * Constraint for health result schema shapes.
+ * All fields must use factory functions (healthResultNumber, healthResultString, etc.)
+ *
+ * @example
+ * ```typescript
+ * // ✅ Valid - uses factory functions
+ * const validSchema = z.object({
+ *   value: healthResultNumber({ "x-chart-type": "line" }),
+ *   error: healthResultString({ "x-chart-type": "status" }).optional(),
+ * });
+ *
+ * // ❌ Invalid - uses raw z.number()
+ * const invalidSchema = z.object({
+ *   value: z.number(), // Type error!
+ * });
+ * ```
+ */
+export type HealthResultShape = Record<string, HealthResultFieldType>;
+
+// ============================================================================
+// HEALTH RESULT SCHEMA BUILDER
+// ============================================================================
+
+/**
+ * Create a health result schema that enforces the use of factory functions.
+ *
+ * This builder ensures all fields use healthResultNumber(), healthResultString(),
+ * healthResultBoolean(), or healthResultJSONPath() - raw Zod schemas like z.number()
+ * will cause a compile-time error.
+ *
+ * @example
+ * ```typescript
+ * // ✅ Valid - all fields use factory functions
+ * const schema = healthResultSchema({
+ *   responseTime: healthResultNumber({ "x-chart-type": "line", "x-chart-label": "Response Time" }),
+ *   error: healthResultString({ "x-chart-type": "status" }).optional(),
+ * });
+ *
+ * // ❌ Invalid - raw z.number() causes type error
+ * const schema = healthResultSchema({
+ *   value: z.number(), // Type error: not assignable to HealthResultFieldType
+ * });
+ * ```
+ */
+export function healthResultSchema<T extends HealthResultShape>(
+  shape: T
+): z.ZodObject<T> {
+  return z.object(shape);
+}
 
 // ============================================================================
 // TYPED HEALTH RESULT FACTORIES
@@ -69,28 +110,53 @@ type ChartMeta = Omit<HealthResultMeta, "x-jsonpath">;
  * });
  * ```
  */
-export function healthResultString(meta: ChartMeta) {
+export function healthResultString(
+  meta: ChartMeta
+): HealthResultField<z.ZodString> {
   const schema = z.string();
   schema.register(healthResultRegistry, meta);
-  return schema;
+  return schema as HealthResultField<z.ZodString>;
 }
 
 /**
  * Create a health result number field with typed chart metadata.
  */
-export function healthResultNumber(meta: ChartMeta) {
+export function healthResultNumber(
+  meta: ChartMeta
+): HealthResultField<z.ZodNumber> {
   const schema = z.number();
   schema.register(healthResultRegistry, meta);
-  return schema;
+  return schema as HealthResultField<z.ZodNumber>;
 }
 
 /**
  * Create a health result boolean field with typed chart metadata.
  */
-export function healthResultBoolean(meta: ChartMeta) {
+export function healthResultBoolean(
+  meta: ChartMeta
+): HealthResultField<z.ZodBoolean> {
   const schema = z.boolean();
   schema.register(healthResultRegistry, meta);
-  return schema;
+  return schema as HealthResultField<z.ZodBoolean>;
+}
+
+/**
+ * Create a health result array field with typed chart metadata.
+ * For arrays of strings (e.g., DNS resolved values, list of hosts).
+ *
+ * @example
+ * ```typescript
+ * const resultSchema = healthResultSchema({
+ *   resolvedValues: healthResultArray({ "x-chart-type": "text", "x-chart-label": "Values" }),
+ * });
+ * ```
+ */
+export function healthResultArray(
+  meta: ChartMeta
+): HealthResultField<z.ZodArray<z.ZodString>> {
+  const schema = z.array(z.string());
+  schema.register(healthResultRegistry, meta);
+  return schema as HealthResultField<z.ZodArray<z.ZodString>>;
 }
 
 /**
@@ -106,10 +172,12 @@ export function healthResultBoolean(meta: ChartMeta) {
  * });
  * ```
  */
-export function healthResultJSONPath(meta: ChartMeta) {
+export function healthResultJSONPath(
+  meta: ChartMeta
+): HealthResultField<z.ZodString> {
   const schema = z.string();
   schema.register(healthResultRegistry, { ...meta, "x-jsonpath": true });
-  return schema;
+  return schema as HealthResultField<z.ZodString>;
 }
 
 // ============================================================================

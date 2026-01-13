@@ -12,6 +12,7 @@ import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import type {
   MysqlTransportClient,
@@ -49,7 +50,7 @@ export type MysqlConfigInput = z.input<typeof mysqlConfigSchema>;
 /**
  * Per-run result metadata.
  */
-const mysqlResultSchema = z.object({
+const mysqlResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
@@ -70,7 +71,7 @@ type MysqlResult = z.infer<typeof mysqlResultSchema>;
 /**
  * Aggregated metadata for buckets.
  */
-const mysqlAggregatedSchema = z.object({
+const mysqlAggregatedSchema = healthResultSchema({
   avgConnectionTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Connection Time",

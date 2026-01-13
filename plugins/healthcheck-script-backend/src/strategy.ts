@@ -10,6 +10,7 @@ import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import type {
   ScriptTransportClient,
@@ -48,7 +49,7 @@ interface ScriptConfigV1 {
 /**
  * Per-run result metadata.
  */
-const scriptResultSchema = z.object({
+const scriptResultSchema = healthResultSchema({
   executed: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Executed",
@@ -81,7 +82,7 @@ type ScriptResult = z.infer<typeof scriptResultSchema>;
 /**
  * Aggregated metadata for buckets.
  */
-const scriptAggregatedSchema = z.object({
+const scriptAggregatedSchema = healthResultSchema({
   avgExecutionTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Execution Time",

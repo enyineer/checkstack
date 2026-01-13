@@ -9,6 +9,7 @@ import {
   healthResultNumber,
   healthResultString,
   healthResultBoolean,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "./plugin-metadata";
 import type { RedisTransportClient } from "./transport-client";
@@ -34,7 +35,7 @@ export type CommandConfig = z.infer<typeof commandConfigSchema>;
 // RESULT SCHEMAS
 // ============================================================================
 
-const commandResultSchema = z.object({
+const commandResultSchema = healthResultSchema({
   response: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Response",
@@ -52,7 +53,7 @@ const commandResultSchema = z.object({
 
 export type CommandResult = z.infer<typeof commandResultSchema>;
 
-const commandAggregatedSchema = z.object({
+const commandAggregatedSchema = healthResultSchema({
   avgResponseTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Response Time",

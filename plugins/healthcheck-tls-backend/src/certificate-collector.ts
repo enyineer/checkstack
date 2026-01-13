@@ -9,6 +9,7 @@ import {
   healthResultNumber,
   healthResultString,
   healthResultBoolean,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "./plugin-metadata";
 import type { TlsTransportClient } from "./transport-client";
@@ -27,7 +28,7 @@ export type CertificateConfig = z.infer<typeof certificateConfigSchema>;
 // RESULT SCHEMAS
 // ============================================================================
 
-const certificateResultSchema = z.object({
+const certificateResultSchema = healthResultSchema({
   subject: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Subject",
@@ -57,7 +58,7 @@ const certificateResultSchema = z.object({
 
 export type CertificateResult = z.infer<typeof certificateResultSchema>;
 
-const certificateAggregatedSchema = z.object({
+const certificateAggregatedSchema = healthResultSchema({
   avgDaysRemaining: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Avg Days Remaining",

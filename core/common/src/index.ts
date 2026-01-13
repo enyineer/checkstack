@@ -7,3 +7,4 @@ export * from "./access-utils";
 export * from "./icons";
 export * from "./transport-client";
 export * from "./json-schema";
+export * from "./chart-types";

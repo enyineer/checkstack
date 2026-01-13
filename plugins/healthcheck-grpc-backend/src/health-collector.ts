@@ -9,6 +9,7 @@ import {
   healthResultNumber,
   healthResultString,
   healthResultBoolean,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "./plugin-metadata";
 import type { GrpcTransportClient } from "./transport-client";
@@ -30,7 +31,7 @@ export type HealthConfig = z.infer<typeof healthConfigSchema>;
 // RESULT SCHEMAS
 // ============================================================================
 
-const healthResultSchema = z.object({
+const grpcHealthResultSchema = healthResultSchema({
   status: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Status",
@@ -46,9 +47,9 @@ const healthResultSchema = z.object({
   }),
 });
 
-export type HealthResult = z.infer<typeof healthResultSchema>;
+export type HealthResult = z.infer<typeof grpcHealthResultSchema>;
 
-const healthAggregatedSchema = z.object({
+const healthAggregatedSchema = healthResultSchema({
   avgResponseTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Response Time",
@@ -89,7 +90,7 @@ export class HealthCollector
   allowMultiple = true;
 
   config = new Versioned({ version: 1, schema: healthConfigSchema });
-  result = new Versioned({ version: 1, schema: healthResultSchema });
+  result = new Versioned({ version: 1, schema: grpcHealthResultSchema });
   aggregatedResult = new Versioned({
     version: 1,
     schema: healthAggregatedSchema,

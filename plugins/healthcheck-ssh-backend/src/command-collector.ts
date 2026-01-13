@@ -8,6 +8,7 @@ import {
 import {
   healthResultNumber,
   healthResultString,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import { pluginMetadata as sshPluginMetadata } from "./plugin-metadata";
 import type { SshTransportClient } from "@checkstack/healthcheck-ssh-common";
@@ -26,7 +27,7 @@ export type CommandConfig = z.infer<typeof commandConfigSchema>;
 // RESULT SCHEMAS
 // ============================================================================
 
-const commandResultSchema = z.object({
+const commandResultSchema = healthResultSchema({
   exitCode: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Exit Code",
@@ -48,7 +49,7 @@ const commandResultSchema = z.object({
 
 export type CommandResult = z.infer<typeof commandResultSchema>;
 
-const commandAggregatedSchema = z.object({
+const commandAggregatedSchema = healthResultSchema({
   avgExecutionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Execution Time",

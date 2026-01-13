@@ -9,6 +9,8 @@ import {
 import {
   healthResultNumber,
   healthResultString,
+  healthResultArray,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import type {
   DnsTransportClient,
@@ -46,8 +48,8 @@ interface DnsConfigV1 {
 /**
  * Per-run result metadata.
  */
-const dnsResultSchema = z.object({
-  resolvedValues: z.array(z.string()).meta({
+const dnsResultSchema = healthResultSchema({
+  resolvedValues: healthResultArray({
     "x-chart-type": "text",
     "x-chart-label": "Resolved Values",
   }),
@@ -71,7 +73,7 @@ type DnsResult = z.infer<typeof dnsResultSchema>;
 /**
  * Aggregated metadata for buckets.
  */
-const dnsAggregatedSchema = z.object({
+const dnsAggregatedSchema = healthResultSchema({
   avgResolutionTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Resolution Time",

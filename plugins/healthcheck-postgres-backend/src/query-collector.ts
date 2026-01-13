@@ -8,6 +8,7 @@ import {
 import {
   healthResultNumber,
   healthResultBoolean,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "./plugin-metadata";
 import type { PostgresTransportClient } from "./transport-client";
@@ -26,7 +27,7 @@ export type QueryConfig = z.infer<typeof queryConfigSchema>;
 // RESULT SCHEMAS
 // ============================================================================
 
-const queryResultSchema = z.object({
+const queryResultSchema = healthResultSchema({
   rowCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Row Count",
@@ -44,7 +45,7 @@ const queryResultSchema = z.object({
 
 export type QueryResult = z.infer<typeof queryResultSchema>;
 
-const queryAggregatedSchema = z.object({
+const queryAggregatedSchema = healthResultSchema({
   avgExecutionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Execution Time",

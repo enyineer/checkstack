@@ -13,6 +13,7 @@ import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import type {
   PostgresTransportClient,
@@ -51,7 +52,7 @@ export type PostgresConfigInput = z.input<typeof postgresConfigSchema>;
 /**
  * Per-run result metadata.
  */
-const postgresResultSchema = z.object({
+const postgresResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
@@ -72,7 +73,7 @@ type PostgresResult = z.infer<typeof postgresResultSchema>;
 /**
  * Aggregated metadata for buckets.
  */
-const postgresAggregatedSchema = z.object({
+const postgresAggregatedSchema = healthResultSchema({
   avgConnectionTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Connection Time",

@@ -9,6 +9,7 @@ import {
   healthResultNumber,
   healthResultString,
   healthResultBoolean,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "./plugin-metadata";
 import type { TcpTransportClient } from "./transport-client";
@@ -31,7 +32,7 @@ export type BannerConfig = z.infer<typeof bannerConfigSchema>;
 // RESULT SCHEMAS
 // ============================================================================
 
-const bannerResultSchema = z.object({
+const bannerResultSchema = healthResultSchema({
   banner: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Banner",
@@ -49,7 +50,7 @@ const bannerResultSchema = z.object({
 
 export type BannerResult = z.infer<typeof bannerResultSchema>;
 
-const bannerAggregatedSchema = z.object({
+const bannerAggregatedSchema = healthResultSchema({
   avgReadTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Read Time",

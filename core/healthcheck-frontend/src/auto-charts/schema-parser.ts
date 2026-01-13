@@ -7,8 +7,8 @@
  * Supports nested schemas under `collectors.*` for per-collector metrics.
  */
 
-import type { ChartType } from "@checkstack/healthcheck-common";
 import type {
+  ChartType,
   JsonSchemaPropertyCore,
   JsonSchemaBase,
 } from "@checkstack/common";

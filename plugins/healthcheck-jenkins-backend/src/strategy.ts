@@ -10,6 +10,8 @@ import {
 import {
   healthResultNumber,
   healthResultString,
+  healthResultBoolean,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import type {
   JenkinsTransportClient,
@@ -46,8 +48,8 @@ export const jenkinsConfigSchema = z.object({
 export type JenkinsConfig = z.infer<typeof jenkinsConfigSchema>;
 
 /** Per-run result metadata */
-const jenkinsResultSchema = z.object({
-  connected: z.boolean().meta({
+const jenkinsResultSchema = healthResultSchema({
+  connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
   }),
@@ -65,7 +67,7 @@ const jenkinsResultSchema = z.object({
 type JenkinsResult = z.infer<typeof jenkinsResultSchema>;
 
 /** Aggregated metadata for buckets */
-const jenkinsAggregatedSchema = z.object({
+const jenkinsAggregatedSchema = healthResultSchema({
   successRate: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",

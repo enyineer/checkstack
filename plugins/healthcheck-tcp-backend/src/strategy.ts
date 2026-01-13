@@ -9,6 +9,7 @@ import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import type {
   TcpTransportClient,
@@ -47,7 +48,7 @@ interface TcpConfigV1 {
 /**
  * Per-run result metadata.
  */
-const tcpResultSchema = z.object({
+const tcpResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
@@ -72,7 +73,7 @@ type TcpResult = z.infer<typeof tcpResultSchema>;
 /**
  * Aggregated metadata for buckets.
  */
-const tcpAggregatedSchema = z.object({
+const tcpAggregatedSchema = healthResultSchema({
   avgConnectionTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Connection Time",

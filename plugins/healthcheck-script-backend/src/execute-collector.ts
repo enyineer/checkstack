@@ -9,6 +9,7 @@ import {
   healthResultNumber,
   healthResultString,
   healthResultBoolean,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "./plugin-metadata";
 import type { ScriptTransportClient } from "./transport-client";
@@ -38,7 +39,7 @@ export type ExecuteConfig = z.infer<typeof executeConfigSchema>;
 // RESULT SCHEMAS
 // ============================================================================
 
-const executeResultSchema = z.object({
+const executeResultSchema = healthResultSchema({
   exitCode: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Exit Code",
@@ -68,7 +69,7 @@ const executeResultSchema = z.object({
 
 export type ExecuteResult = z.infer<typeof executeResultSchema>;
 
-const executeAggregatedSchema = z.object({
+const executeAggregatedSchema = healthResultSchema({
   avgExecutionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Execution Time",

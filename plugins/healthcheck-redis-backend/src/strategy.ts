@@ -13,6 +13,7 @@ import {
   healthResultBoolean,
   healthResultNumber,
   healthResultString,
+  healthResultSchema,
 } from "@checkstack/healthcheck-common";
 import type {
   RedisTransportClient,
@@ -56,7 +57,7 @@ export type RedisConfigInput = z.input<typeof redisConfigSchema>;
 /**
  * Per-run result metadata.
  */
-const redisResultSchema = z.object({
+const redisResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
@@ -77,7 +78,7 @@ type RedisResult = z.infer<typeof redisResultSchema>;
 /**
  * Aggregated metadata for buckets.
  */
-const redisAggregatedSchema = z.object({
+const redisAggregatedSchema = healthResultSchema({
   avgConnectionTime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Connection Time",
