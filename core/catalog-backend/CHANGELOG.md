@@ -1,5 +1,43 @@
 # @checkstack/catalog-backend
 
+## 0.1.0
+
+### Minor Changes
+
+- 8e43507: BREAKING: `getSystems` now returns `{ systems: [...] }` instead of plain array
+
+  This change enables resource-level access control filtering for the catalog plugin. The middleware needs a consistent object format with named keys to perform post-execution filtering on list endpoints.
+
+  ## Breaking Changes
+
+  - `getSystems()` now returns `{ systems: System[] }` instead of `System[]`
+  - All call sites must update to destructure: `const { systems } = await api.getSystems()`
+
+  ## New Features
+
+  - Added `resourceAccess` metadata to catalog endpoints:
+    - `getSystems`: List filtering by team access
+    - `getSystem`: Single resource pre-check by team access
+    - `getEntities`: List filtering for systems by team access
+
+  ## Migration
+
+  ```diff
+  - const systems = await catalogApi.getSystems();
+  + const { systems } = await catalogApi.getSystems();
+  ```
+
+### Patch Changes
+
+- Updated dependencies [97c5a6b]
+- Updated dependencies [8e43507]
+- Updated dependencies [8e43507]
+  - @checkstack/backend-api@0.2.0
+  - @checkstack/catalog-common@1.0.0
+  - @checkstack/common@0.1.0
+  - @checkstack/command-backend@0.0.4
+  - @checkstack/notification-common@0.0.4
+
 ## 0.0.3
 
 ### Patch Changes

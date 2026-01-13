@@ -1,5 +1,34 @@
 # @checkstack/ui
 
+## 0.1.0
+
+### Minor Changes
+
+- 8e43507: # Button component defaults to type="button"
+
+  The `Button` component now defaults to `type="button"` instead of the HTML default `type="submit"`. This prevents accidental form submissions when buttons are placed inside forms but aren't intended to submit.
+
+  ## Changes
+
+  - Default `type` prop is now `"button"` instead of the HTML implicit `"submit"`
+  - Form submission buttons must now explicitly set `type="submit"`
+
+  ## Migration
+
+  No migration needed if your submit buttons already have `type="submit"` explicitly set (recommended practice). If you have buttons that should submit forms but don't have an explicit type, add `type="submit"`:
+
+  ```diff
+  - <Button onClick={handleSubmit}>Submit</Button>
+  + <Button type="submit">Submit</Button>
+  ```
+
+### Patch Changes
+
+- 97c5a6b: Fixed DOM clobbering issue in DynamicForm by prefixing field IDs with 'field-'. Previously, schema fields with names matching native DOM properties (like 'nodeName', 'tagName', 'innerHTML') could shadow those properties, causing floating-ui and React to crash during DOM traversal.
+- Updated dependencies [8e43507]
+  - @checkstack/common@0.1.0
+  - @checkstack/frontend-api@0.0.4
+
 ## 0.0.4
 
 ### Patch Changes

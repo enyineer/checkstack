@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/theme-backend",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {

@@ -1,5 +1,29 @@
 # @checkstack/healthcheck-http-backend
 
+## 0.1.1
+
+### Patch Changes
+
+- 97c5a6b: Add UUID-based collector identification for better multiple collector support
+
+  **Breaking Change**: Existing health check configurations with collectors need to be recreated.
+
+  - Each collector instance now has a unique UUID assigned on creation
+  - Collector results are stored under the UUID key with `_collectorId` and `_assertionFailed` metadata
+  - Auto-charts correctly display separate charts for each collector instance
+  - Charts are now grouped by collector instance with clear headings
+  - Assertion status card shows pass/fail for each collector
+  - Renamed "Success" to "HTTP Success" to clarify it's about HTTP request success
+  - Fixed deletion of collectors not persisting to database
+  - Fixed duplicate React key warnings in auto-chart grid
+
+- Updated dependencies [97c5a6b]
+- Updated dependencies [8e43507]
+- Updated dependencies [97c5a6b]
+  - @checkstack/backend-api@0.2.0
+  - @checkstack/common@0.1.0
+  - @checkstack/healthcheck-common@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes
