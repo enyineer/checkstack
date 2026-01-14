@@ -78,6 +78,7 @@ jobs:
     outputs:
       published: ${{ steps.changesets.outputs.published }}
       publishedPackages: ${{ steps.changesets.outputs.publishedPackages }}
+      releasePublished: ${{ steps.check-release.outputs.releasePublished }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -104,15 +105,26 @@ jobs:
         with:
           version: bun run version-packages
           publish: npx changeset publish
+          createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Check if @checkstack/release was published
+        id: check-release
+        run: |
+          PACKAGES='${{ steps.changesets.outputs.publishedPackages }}'
+          if echo "$PACKAGES" | jq -e '.[] | select(.name == "@checkstack/release")' > /dev/null 2>&1; then
+            echo "releasePublished=true" >> $GITHUB_OUTPUT
+          else
+            echo "releasePublished=false" >> $GITHUB_OUTPUT
+          fi
+
   docker:
     name: Build and Push Docker Image
     needs: release
-    if: needs.release.outputs.published == 'true'
+    if: needs.release.outputs.releasePublished == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -160,7 +172,7 @@ jobs:
   create-github-release:
     name: Create GitHub Release
     needs: [release, docker]
-    if: needs.release.outputs.published == 'true'
+    if: needs.release.outputs.releasePublished == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
