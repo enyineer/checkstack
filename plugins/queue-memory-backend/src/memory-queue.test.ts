@@ -376,7 +376,7 @@ describe("InMemoryQueue Consumer Groups", () => {
       expect(processed).toEqual(["immediate"]);
 
       // Wait for delayed job (100ms + generous buffer for CI)
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await new Promise((resolve) => setTimeout(resolve, 300));
       expect(processed).toEqual(["immediate", "delayed"]);
     });
 
