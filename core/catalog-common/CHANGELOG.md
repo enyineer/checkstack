@@ -1,5 +1,80 @@
 # @checkstack/catalog-common
 
+## 1.1.0
+
+### Minor Changes
+
+- 9faec1f: # Unified AccessRule Terminology Refactoring
+
+  This release completes a comprehensive terminology refactoring from "permission" to "accessRule" across the entire codebase, establishing a consistent and modern access control vocabulary.
+
+  ## Changes
+
+  ### Core Infrastructure (`@checkstack/common`)
+
+  - Introduced `AccessRule` interface as the primary access control type
+  - Added `accessPair()` helper for creating read/manage access rule pairs
+  - Added `access()` builder for individual access rules
+  - Replaced `Permission` type with `AccessRule` throughout
+
+  ### API Changes
+
+  - `env.registerPermissions()` → `env.registerAccessRules()`
+  - `meta.permissions` → `meta.access` in RPC contracts
+  - `usePermission()` → `useAccess()` in frontend hooks
+  - Route `permission:` field → `accessRule:` field
+
+  ### UI Changes
+
+  - "Roles & Permissions" tab → "Roles & Access Rules"
+  - "You don't have permission..." → "You don't have access..."
+  - All permission-related UI text updated
+
+  ### Documentation & Templates
+
+  - Updated 18 documentation files with AccessRule terminology
+  - Updated 7 scaffolding templates with `accessPair()` pattern
+  - All code examples use new AccessRule API
+
+  ## Migration Guide
+
+  ### Backend Plugins
+
+  ```diff
+  - import { permissionList } from "./permissions";
+  - env.registerPermissions(permissionList);
+  + import { accessRules } from "./access";
+  + env.registerAccessRules(accessRules);
+  ```
+
+  ### RPC Contracts
+
+  ```diff
+  - .meta({ userType: "user", permissions: [permissions.read.id] })
+  + .meta({ userType: "user", access: [access.read] })
+  ```
+
+  ### Frontend Hooks
+
+  ```diff
+  - const canRead = accessApi.usePermission(permissions.read.id);
+  + const canRead = accessApi.useAccess(access.read);
+  ```
+
+  ### Routes
+
+  ```diff
+  - permission: permissions.entityRead.id,
+  + accessRule: access.read,
+  ```
+
+### Patch Changes
+
+- Updated dependencies [9faec1f]
+- Updated dependencies [f533141]
+  - @checkstack/common@0.2.0
+  - @checkstack/frontend-api@0.1.0
+
 ## 1.0.0
 
 ### Major Changes

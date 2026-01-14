@@ -1,5 +1,115 @@
 # @checkstack/backend-api
 
+## 0.3.0
+
+### Minor Changes
+
+- 9faec1f: # Unified AccessRule Terminology Refactoring
+
+  This release completes a comprehensive terminology refactoring from "permission" to "accessRule" across the entire codebase, establishing a consistent and modern access control vocabulary.
+
+  ## Changes
+
+  ### Core Infrastructure (`@checkstack/common`)
+
+  - Introduced `AccessRule` interface as the primary access control type
+  - Added `accessPair()` helper for creating read/manage access rule pairs
+  - Added `access()` builder for individual access rules
+  - Replaced `Permission` type with `AccessRule` throughout
+
+  ### API Changes
+
+  - `env.registerPermissions()` → `env.registerAccessRules()`
+  - `meta.permissions` → `meta.access` in RPC contracts
+  - `usePermission()` → `useAccess()` in frontend hooks
+  - Route `permission:` field → `accessRule:` field
+
+  ### UI Changes
+
+  - "Roles & Permissions" tab → "Roles & Access Rules"
+  - "You don't have permission..." → "You don't have access..."
+  - All permission-related UI text updated
+
+  ### Documentation & Templates
+
+  - Updated 18 documentation files with AccessRule terminology
+  - Updated 7 scaffolding templates with `accessPair()` pattern
+  - All code examples use new AccessRule API
+
+  ## Migration Guide
+
+  ### Backend Plugins
+
+  ```diff
+  - import { permissionList } from "./permissions";
+  - env.registerPermissions(permissionList);
+  + import { accessRules } from "./access";
+  + env.registerAccessRules(accessRules);
+  ```
+
+  ### RPC Contracts
+
+  ```diff
+  - .meta({ userType: "user", permissions: [permissions.read.id] })
+  + .meta({ userType: "user", access: [access.read] })
+  ```
+
+  ### Frontend Hooks
+
+  ```diff
+  - const canRead = accessApi.usePermission(permissions.read.id);
+  + const canRead = accessApi.useAccess(access.read);
+  ```
+
+  ### Routes
+
+  ```diff
+  - permission: permissions.entityRead.id,
+  + accessRule: access.read,
+  ```
+
+- 827b286: Add array assertion operators for string array fields
+
+  New operators for asserting on array fields (e.g., playerNames in RCON collectors):
+
+  - **includes** - Check if array contains a specific value
+  - **notIncludes** - Check if array does NOT contain a specific value
+  - **lengthEquals** - Check if array length equals a value
+  - **lengthGreaterThan** - Check if array length is greater than a value
+  - **lengthLessThan** - Check if array length is less than a value
+  - **isEmpty** - Check if array is empty
+  - **isNotEmpty** - Check if array has at least one element
+
+  Also exports a new `arrayField()` schema factory for creating array assertion schemas.
+
+### Patch Changes
+
+- f533141: Enforce health result factory function usage via branded types
+
+  - Added `healthResultSchema()` builder that enforces the use of factory functions at compile-time
+  - Added `healthResultArray()` factory for array fields (e.g., DNS resolved values)
+  - Added branded `HealthResultField<T>` type to mark schemas created by factory functions
+  - Consolidated `ChartType` and `HealthResultMeta` into `@checkstack/common` as single source of truth
+  - Updated all 12 health check strategies and 11 collectors to use `healthResultSchema()`
+  - Using raw `z.number()` etc. inside `healthResultSchema()` now causes a TypeScript error
+
+- aa4a8ab: Fix anonymous users not seeing public list endpoints
+
+  Anonymous users with global access rules (e.g., `catalog.system.read` assigned to the "anonymous" role) were incorrectly getting empty results from list endpoints with `instanceAccess.listKey`. The middleware now properly checks if anonymous users have global access before filtering.
+
+  Added comprehensive test suite for `autoAuthMiddleware` covering:
+
+  - Anonymous endpoints (userType: "anonymous")
+  - Public endpoints with global and instance-level access rules
+  - Authenticated, user-only, and service-only endpoints
+  - Single resource access with team-based filtering
+
+- Updated dependencies [9faec1f]
+- Updated dependencies [f533141]
+  - @checkstack/common@0.2.0
+  - @checkstack/signal-common@0.1.0
+  - @checkstack/queue-api@0.0.5
+
 ## 0.2.0
 
 ### Minor Changes

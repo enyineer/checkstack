@@ -1,5 +1,26 @@
 # @checkstack/healthcheck-dns-backend
 
+## 0.1.2
+
+### Patch Changes
+
+- f533141: Enforce health result factory function usage via branded types
+
+  - Added `healthResultSchema()` builder that enforces the use of factory functions at compile-time
+  - Added `healthResultArray()` factory for array fields (e.g., DNS resolved values)
+  - Added branded `HealthResultField<T>` type to mark schemas created by factory functions
+  - Consolidated `ChartType` and `HealthResultMeta` into `@checkstack/common` as single source of truth
+  - Updated all 12 health check strategies and 11 collectors to use `healthResultSchema()`
+  - Using raw `z.number()` etc. inside `healthResultSchema()` now causes a TypeScript error
+
+- Updated dependencies [9faec1f]
+- Updated dependencies [827b286]
+- Updated dependencies [f533141]
+- Updated dependencies [aa4a8ab]
+  - @checkstack/backend-api@0.3.0
+  - @checkstack/common@0.2.0
+  - @checkstack/healthcheck-common@0.3.0
+
 ## 0.1.1
 
 ### Patch Changes
