@@ -158,6 +158,7 @@ Organize your infrastructure into **Systems** and **Groups**. Track dependencies
 | | MySQL | Connection testing, custom queries, row count assertions |
 | | Redis | PING latency, server role detection, version checking |
 | **Protocol** | gRPC | Standard Health Checking Protocol (grpc.health.v1) |
+| | RCON | Game server monitoring (Minecraft, CS:GO/CS2) with player counts |
 | **Scripted** | SSH | Remote command execution with exit code validation |
 | | Script | Local command/script execution with output parsing |
 
