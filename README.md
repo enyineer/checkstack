@@ -243,14 +243,29 @@ API keys are managed via **Settings → External Applications** with full RBAC p
 
 ---
 
-### Flexible Authentication
-> *Secure access for every team*
+### Flexible Authentication & Access Control
+> *Secure access with enterprise-grade granularity*
 
+**Authentication Methods:**
 - **Credential Login** - Built-in username/password with secure password reset
 - **GitHub OAuth** - Single sign-on with GitHub
 - **LDAP/AD** - Enterprise directory integration
-- **RBAC** - Role-based permissions with granular controls
 - **API Tokens** - Service accounts for machine-to-machine access
+
+**Role-Based Access Control (RBAC):**
+- Define custom roles with specific permissions
+- Assign roles to users for platform-wide access rules
+- Preconfigured roles for common use cases (Admin, Viewer, etc.)
+
+**Resource-Level Access Control (RLAC):**
+- Grant teams fine-grained access to individual resources
+- Configure read-only or full management permissions per resource
+- Enable "Team Only" mode to restrict resources exclusively to team members
+
+**Team Management:**
+- Organize users into logical teams (e.g., "Platform Team", "API Developers")
+- Designate **Team Managers** who can manage membership and settings
+- Assign **External Applications** (API keys) to teams for automated workflows
 
 ---
 
