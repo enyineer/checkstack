@@ -1,5 +1,18 @@
 # @checkstack/release
 
+## 0.5.0
+
+### Minor Changes
+
+- f533141: Enforce health result factory function usage via branded types
+
+  - Added `healthResultSchema()` builder that enforces the use of factory functions at compile-time
+  - Added `healthResultArray()` factory for array fields (e.g., DNS resolved values)
+  - Added branded `HealthResultField<T>` type to mark schemas created by factory functions
+  - Consolidated `ChartType` and `HealthResultMeta` into `@checkstack/common` as single source of truth
+  - Updated all 12 health check strategies and 11 collectors to use `healthResultSchema()`
+  - Using raw `z.number()` etc. inside `healthResultSchema()` now causes a TypeScript error
+
 ## 0.4.0
 
 ### Minor Changes
