@@ -81,6 +81,13 @@ const OPERATORS: Record<FieldType, { value: string; label: string }[]> = {
   ],
   enum: [{ value: "equals", label: "Equals" }],
   array: [
+    { value: "includes", label: "Includes" },
+    { value: "notIncludes", label: "Not Includes" },
+    { value: "lengthEquals", label: "Length Equals" },
+    { value: "lengthGreaterThan", label: "Length Greater Than" },
+    { value: "lengthLessThan", label: "Length Less Than" },
+    { value: "isEmpty", label: "Is Empty" },
+    { value: "isNotEmpty", label: "Is Not Empty" },
     { value: "exists", label: "Exists" },
     { value: "notExists", label: "Not Exists" },
   ],
@@ -98,6 +105,7 @@ const OPERATORS: Record<FieldType, { value: string; label: string }[]> = {
 // Operators that don't need a value input
 const VALUE_LESS_OPERATORS = new Set([
   "isEmpty",
+  "isNotEmpty",
   "isTrue",
   "isFalse",
   "exists",

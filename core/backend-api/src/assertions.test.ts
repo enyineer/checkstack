@@ -9,6 +9,7 @@ import {
   booleanField,
   enumField,
   jsonPathField,
+  arrayField,
 } from "./assertions";
 import { z } from "zod";
 
@@ -130,6 +131,32 @@ describe("Assertion Schema Factories", () => {
     });
   });
 
+  describe("arrayField", () => {
+    it("creates a schema with array operators", () => {
+      const schema = arrayField("playerNames");
+
+      const includes = schema.safeParse({
+        field: "playerNames",
+        operator: "includes",
+        value: "Steve",
+      });
+      expect(includes.success).toBe(true);
+
+      const lengthEquals = schema.safeParse({
+        field: "playerNames",
+        operator: "lengthEquals",
+        value: 5,
+      });
+      expect(lengthEquals.success).toBe(true);
+
+      const isEmpty = schema.safeParse({
+        field: "playerNames",
+        operator: "isEmpty",
+      });
+      expect(isEmpty.success).toBe(true);
+    });
+  });
+
   describe("jsonPathField", () => {
     it("creates a schema with dynamic operators", () => {
       const schema = jsonPathField();
@@ -236,6 +263,107 @@ describe("evaluateAssertion", () => {
         { isExpired: false }
       );
       expect(result.passed).toBe(true);
+    });
+  });
+
+  describe("array operators", () => {
+    it("evaluates includes correctly", () => {
+      const result = evaluateAssertion(
+        { field: "playerNames", operator: "includes", value: "Steve" },
+        { playerNames: ["Steve", "Alex", "Notch"] }
+      );
+      expect(result.passed).toBe(true);
+
+      const failed = evaluateAssertion(
+        { field: "playerNames", operator: "includes", value: "Herobrine" },
+        { playerNames: ["Steve", "Alex", "Notch"] }
+      );
+      expect(failed.passed).toBe(false);
+      expect(failed.message).toContain("to include");
+    });
+
+    it("evaluates notIncludes correctly", () => {
+      const result = evaluateAssertion(
+        { field: "playerNames", operator: "notIncludes", value: "Herobrine" },
+        { playerNames: ["Steve", "Alex"] }
+      );
+      expect(result.passed).toBe(true);
+
+      const failed = evaluateAssertion(
+        { field: "playerNames", operator: "notIncludes", value: "Steve" },
+        { playerNames: ["Steve", "Alex"] }
+      );
+      expect(failed.passed).toBe(false);
+    });
+
+    it("evaluates lengthEquals correctly", () => {
+      const result = evaluateAssertion(
+        { field: "playerNames", operator: "lengthEquals", value: 3 },
+        { playerNames: ["Steve", "Alex", "Notch"] }
+      );
+      expect(result.passed).toBe(true);
+
+      const failed = evaluateAssertion(
+        { field: "playerNames", operator: "lengthEquals", value: 5 },
+        { playerNames: ["Steve", "Alex", "Notch"] }
+      );
+      expect(failed.passed).toBe(false);
+    });
+
+    it("evaluates lengthGreaterThan correctly", () => {
+      const result = evaluateAssertion(
+        { field: "playerNames", operator: "lengthGreaterThan", value: 2 },
+        { playerNames: ["Steve", "Alex", "Notch"] }
+      );
+      expect(result.passed).toBe(true);
+
+      const failed = evaluateAssertion(
+        { field: "playerNames", operator: "lengthGreaterThan", value: 5 },
+        { playerNames: ["Steve", "Alex"] }
+      );
+      expect(failed.passed).toBe(false);
+    });
+
+    it("evaluates lengthLessThan correctly", () => {
+      const result = evaluateAssertion(
+        { field: "playerNames", operator: "lengthLessThan", value: 5 },
+        { playerNames: ["Steve", "Alex"] }
+      );
+      expect(result.passed).toBe(true);
+
+      const failed = evaluateAssertion(
+        { field: "playerNames", operator: "lengthLessThan", value: 2 },
+        { playerNames: ["Steve", "Alex", "Notch"] }
+      );
+      expect(failed.passed).toBe(false);
+    });
+
+    it("evaluates isEmpty correctly for arrays", () => {
+      const result = evaluateAssertion(
+        { field: "playerNames", operator: "isEmpty" },
+        { playerNames: [] }
+      );
+      expect(result.passed).toBe(true);
+
+      const failed = evaluateAssertion(
+        { field: "playerNames", operator: "isEmpty" },
+        { playerNames: ["Steve"] }
+      );
+      expect(failed.passed).toBe(false);
+    });
+
+    it("evaluates isNotEmpty correctly for arrays", () => {
+      const result = evaluateAssertion(
+        { field: "playerNames", operator: "isNotEmpty" },
+        { playerNames: ["Steve", "Alex"] }
+      );
+      expect(result.passed).toBe(true);
+
+      const failed = evaluateAssertion(
+        { field: "playerNames", operator: "isNotEmpty" },
+        { playerNames: [] }
+      );
+      expect(failed.passed).toBe(false);
     });
   });
 

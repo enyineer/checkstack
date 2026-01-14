@@ -41,6 +41,21 @@ export const StringOperators = z.enum([
 export const BooleanOperators = z.enum(["isTrue", "isFalse"]);
 
 /**
+ * Operators for array fields.
+ */
+export const ArrayOperators = z.enum([
+  "includes",
+  "notIncludes",
+  "lengthEquals",
+  "lengthGreaterThan",
+  "lengthLessThan",
+  "isEmpty",
+  "isNotEmpty",
+  "exists",
+  "notExists",
+]);
+
+/**
  * Universal operators for dynamic/unknown types (JSONPath values).
  * Works via runtime type coercion.
  */
@@ -115,6 +130,23 @@ export function booleanField(name: string) {
     field: z.literal(name),
     operator: BooleanOperators,
     // No value needed - operator determines expected boolean
+  });
+}
+
+/**
+ * Creates an assertion schema for array fields.
+ * Supports checking array contents and length.
+ */
+export function arrayField(name: string) {
+  return z.object({
+    field: z.literal(name),
+    operator: ArrayOperators,
+    value: z
+      .union([z.string(), z.number()])
+      .optional()
+      .describe(
+        "Value to check (string for includes, number for length operators)"
+      ),
   });
 }
 
@@ -258,8 +290,38 @@ function evaluateOperator(
   if (op === "isTrue") return actual === true;
   if (op === "isFalse") return actual === false;
 
-  // Empty check
+  // Array operators
+  if (Array.isArray(actual)) {
+    switch (op) {
+      case "includes": {
+        const strExpected = String(expected ?? "");
+        return actual.some((item) => String(item) === strExpected);
+      }
+      case "notIncludes": {
+        const strExpected = String(expected ?? "");
+        return !actual.some((item) => String(item) === strExpected);
+      }
+      case "lengthEquals": {
+        return actual.length === Number(expected);
+      }
+      case "lengthGreaterThan": {
+        return actual.length > Number(expected);
+      }
+      case "lengthLessThan": {
+        return actual.length < Number(expected);
+      }
+      case "isEmpty": {
+        return actual.length === 0;
+      }
+      case "isNotEmpty": {
+        return actual.length > 0;
+      }
+    }
+  }
+
+  // Empty check (for strings)
   if (op === "isEmpty") return !actual || String(actual).trim() === "";
+  if (op === "isNotEmpty") return !!actual && String(actual).trim() !== "";
 
   // For numeric operators, try to coerce to numbers
   if (
@@ -350,17 +412,30 @@ function formatFailureMessage(
     endsWith: "to end with",
     matches: "to match pattern",
     isEmpty: "to be empty",
+    isNotEmpty: "to not be empty",
     exists: "to exist",
     notExists: "not to exist",
     isTrue: "to be true",
     isFalse: "to be false",
+    includes: "to include",
+    notIncludes: "to not include",
+    lengthEquals: "to have length equal to",
+    lengthGreaterThan: "to have length greater than",
+    lengthLessThan: "to have length less than",
   };
 
   const opLabel = opLabels[operator] || operator;
 
   // For operators without expected values
   if (
-    ["isEmpty", "exists", "notExists", "isTrue", "isFalse"].includes(operator)
+    [
+      "isEmpty",
+      "isNotEmpty",
+      "exists",
+      "notExists",
+      "isTrue",
+      "isFalse",
+    ].includes(operator)
   ) {
     return `${field}: expected ${opLabel}, got ${JSON.stringify(actual)}`;
   }
