@@ -1,5 +1,12 @@
 # @checkstack/backend-api
 
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [9a27800]
+  - @checkstack/queue-api@0.0.6
+
 ## 0.3.0
 
 ### Minor Changes

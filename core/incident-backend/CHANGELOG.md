@@ -1,5 +1,14 @@
 # @checkstack/incident-backend
 
+## 0.2.1
+
+### Patch Changes
+
+- @checkstack/backend-api@0.3.1
+- @checkstack/integration-backend@0.1.1
+- @checkstack/catalog-backend@0.2.1
+- @checkstack/command-backend@0.1.1
+
 ## 0.2.0
 
 ### Minor Changes

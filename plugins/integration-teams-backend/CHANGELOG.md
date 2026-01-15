@@ -1,5 +1,12 @@
 # @checkstack/integration-teams-backend
 
+## 0.0.6
+
+### Patch Changes
+
+- @checkstack/backend-api@0.3.1
+- @checkstack/integration-backend@0.1.1
+
 ## 0.0.5
 
 ### Patch Changes

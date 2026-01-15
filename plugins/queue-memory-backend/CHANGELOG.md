@@ -1,5 +1,41 @@
 # @checkstack/queue-memory-backend
 
+## 0.2.0
+
+### Minor Changes
+
+- 9a27800: Changed recurring job scheduling from completion-based to wall-clock scheduling.
+
+  **Breaking Change:** Recurring jobs now run on a fixed interval (like BullMQ) regardless of whether the previous job has completed. If a job takes longer than `intervalSeconds`, multiple jobs may run concurrently.
+
+  **Improvements:**
+
+  - Fixed job ID collision bug when rescheduling within the same millisecond
+  - Configuration updates via `scheduleRecurring()` now properly cancel old intervals before starting new ones
+  - Added `heartbeatIntervalMs` to config for resilient job recovery after system sleep
+
+### Patch Changes
+
+- 9a27800: Fix recurring jobs resilience and add logger support
+
+  **Rescheduling Fix:**
+  Previously, recurring job rescheduling logic was inside the `try` block of `processJob()`. When a job handler threw an exception and `maxRetries` was exhausted (or 0), the recurring job would never be rescheduled, permanently breaking the scheduling chain.
+
+  This fix moves the rescheduling logic to the `finally` block, ensuring recurring jobs are always rescheduled after execution, regardless of success or failure.
+
+  **Heartbeat Mechanism:**
+  Added a periodic heartbeat (default: 5 seconds) that checks for ready jobs and triggers processing. This ensures jobs are processed even if `setTimeout` callbacks fail to fire (e.g., after system sleep/wake cycles). Configurable via `heartbeatIntervalMs` option; set to 0 to disable.
+
+  **Logger Service Integration:**
+
+  - Added optional `logger` parameter to `QueuePlugin.createQueue()` interface
+  - `InMemoryQueue` now uses the provided logger instead of raw `console.error`
+  - Consistent with the rest of the codebase's logging patterns
+
+- Updated dependencies [9a27800]
+  - @checkstack/queue-api@0.0.6
+  - @checkstack/backend-api@0.3.1
+
 ## 0.1.0
 
 ### Minor Changes

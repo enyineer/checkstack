@@ -1,5 +1,12 @@
 # @checkstack/notification-backstage-backend
 
+## 0.1.2
+
+### Patch Changes
+
+- @checkstack/backend-api@0.3.1
+- @checkstack/notification-backend@0.1.1
+
 ## 0.1.1
 
 ### Patch Changes
