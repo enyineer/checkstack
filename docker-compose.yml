@@ -1,23 +1,29 @@
 name: checkstack
 
 services:
+  checkstack:
+    image: ghcr.io/enyineer/checkstack:latest
+    restart: always
+    env_file: .env
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-checkstack}:${POSTGRES_PASSWORD:-checkstack}@postgres:5432/${POSTGRES_DB:-checkstack}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
     image: postgres:16-alpine
     restart: always
     env_file: .env
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-
-  pgadmin:
-    image: dpage/pgadmin4
-    restart: always
-    env_file: .env
-    ports:
-      - "5050:80"
-    volumes:
-      - ./servers.json:/pgadmin4/servers.json
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-checkstack}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:

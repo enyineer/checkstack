@@ -299,6 +299,24 @@ The easiest way to run Checkstack — works for both **production deployment** a
 
 **👉 [Full Docker Getting Started Guide](./docs/getting-started/docker.md)**
 
+#### Quick Start with Docker Compose
+
+The repository includes a ready-to-use `docker-compose.yml`:
+
+```bash
+# Create .env with required secrets (see docs for details)
+# Then start everything
+docker compose up -d
+```
+
+To update to the latest version:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+#### Single Container
+
 Checkstack requires four environment variables:
 
 | Variable | Description | How to Generate |

@@ -7,13 +7,13 @@
     "plugins/_test-scaffolds/*"
   ],
   "scripts": {
-    "dev": "docker compose up -d && bun run --filter '@checkstack/backend' --filter '@checkstack/frontend' dev",
+    "dev": "docker compose -f docker-compose-dev.yml up -d && bun run --filter '@checkstack/backend' --filter '@checkstack/frontend' dev",
     "typecheck": "bun run scripts/typecheck.ts",
     "lint": "bun run lint:code && bun run lint:deps",
     "lint:code": "bun run eslint .",
     "lint:deps": "bun run scripts/validate-dependencies.ts",
     "bundle-vendor": "bun run scripts/bundle-vendor.ts",
-    "docker:stop": "docker compose down",
+    "docker:stop": "docker compose -f docker-compose-dev.yml down",
     "changeset": "changeset",
     "version-packages": "bun run scripts/inject-release.ts && changeset version",
     "create": "bun run core/scripts/src/commands/create.ts"

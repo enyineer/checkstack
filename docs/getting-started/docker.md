@@ -65,59 +65,60 @@ docker run -d \
   ghcr.io/enyineer/checkstack:latest
 ```
 
-## Docker Compose
+## Docker Compose (Recommended)
 
-For a more robust setup, use Docker Compose:
-
-```yaml
-version: "3.8"
-
-services:
-  checkstack:
-    image: ghcr.io/enyineer/checkstack:latest
-    ports:
-      - "3000:3000"
-    environment:
-      DATABASE_URL: postgresql://checkstack:checkstack@postgres:5432/checkstack
-      ENCRYPTION_MASTER_KEY: ${ENCRYPTION_MASTER_KEY}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
-      BASE_URL: ${BASE_URL:-http://localhost:3000}
-      LOG_LEVEL: info
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: checkstack
-      POSTGRES_PASSWORD: checkstack
-      POSTGRES_DB: checkstack
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U checkstack"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  postgres_data:
-```
-
-Create a `.env` file alongside your `docker-compose.yml`:
+The Checkstack repository includes a ready-to-use `docker-compose.yml` in the project root that runs both Checkstack and PostgreSQL:
 
 ```bash
-# Generate and paste your secrets here
-ENCRYPTION_MASTER_KEY=<your-64-char-hex-key>
-BETTER_AUTH_SECRET=<your-32-char-secret>
+# Clone the repository (or download just the docker-compose.yml)
+git clone https://github.com/enyineer/checkstack.git
+cd checkstack
+
+# Create your .env file with required secrets
+cat > .env << EOF
+POSTGRES_USER=checkstack
+POSTGRES_PASSWORD=checkstack
+POSTGRES_DB=checkstack
+ENCRYPTION_MASTER_KEY=$(openssl rand -hex 32)
+BETTER_AUTH_SECRET=$(openssl rand -base64 32)
 BASE_URL=http://localhost:3000
+EOF
+
+# Start everything
+docker compose up -d
 ```
 
-Then start:
+### Updating the Checkstack Image
+
+To update to a newer version:
 
 ```bash
+# Pull the latest image
+docker compose pull
+
+# Recreate containers with the new image
 docker compose up -d
+```
+
+> [!TIP]
+> You can also pin to a specific version by editing the `image:` line in `docker-compose.yml`:
+> ```yaml
+> image: ghcr.io/enyineer/checkstack:v1.2.3
+> ```
+
+## Quick Start (Single Container)
+
+If you already have a PostgreSQL database, you can run Checkstack as a single container:
+
+```bash
+docker run -d \
+  --name checkstack \
+  -e DATABASE_URL="postgresql://user:password@host:5432/checkstack" \
+  -e ENCRYPTION_MASTER_KEY="<your-64-char-hex-key>" \
+  -e BETTER_AUTH_SECRET="<your-32-char-secret>" \
+  -e BASE_URL="http://localhost:3000" \
+  -p 3000:3000 \
+  ghcr.io/enyineer/checkstack:latest
 ```
 
 ## Optional Environment Variables
