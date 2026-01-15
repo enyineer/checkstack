@@ -1,5 +1,12 @@
 # @checkstack/theme-backend
 
+## 0.1.1
+
+### Patch Changes
+
+- @checkstack/backend-api@0.3.1
+- @checkstack/auth-backend@0.2.1
+
 ## 0.1.0
 
 ### Minor Changes
