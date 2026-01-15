@@ -70,6 +70,7 @@ interface RecurringJobMetadata<T> {
   payload: T;
   priority: number;
   enabled: boolean; // For cancellation
+  intervalId?: ReturnType<typeof setInterval>; // For wall-clock scheduling
 }
 
 /**
@@ -229,7 +230,11 @@ export class InMemoryQueue<T> implements Queue<T> {
     // Check if this is an update to an existing recurring job
     const existingMetadata = this.recurringJobs.get(jobId);
     if (existingMetadata) {
-      // UPDATE CASE: Cancel pending executions
+      // UPDATE CASE: Clear existing interval and pending executions
+      if (existingMetadata.intervalId) {
+        clearInterval(existingMetadata.intervalId);
+      }
+
       // Find and remove any pending jobs for this recurring job
       this.jobs = this.jobs.filter((job) => {
         // Check if this job belongs to the recurring job being updated
@@ -244,18 +249,40 @@ export class InMemoryQueue<T> implements Queue<T> {
       });
     }
 
-    // Store or update recurring job metadata
+    // Calculate interval in ms with delay multiplier
+    const intervalMs =
+      intervalSeconds * 1000 * (this.config.delayMultiplier ?? 1);
+
+    // Create interval for wall-clock scheduling
+    const intervalId = setInterval(() => {
+      if (!this.stopped) {
+        // Add random suffix to ensure unique job IDs
+        const uniqueId = `${jobId}:${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}`;
+        void this.enqueue(data, {
+          jobId: uniqueId,
+          priority,
+        });
+      }
+    }, intervalMs);
+
+    // Store recurring job metadata with interval ID
     this.recurringJobs.set(jobId, {
       jobId,
       intervalSeconds,
       payload: data,
       priority,
       enabled: true,
+      intervalId,
     });
 
-    // Schedule first execution with new configuration
+    // Schedule first execution (with optional startDelay)
+    const firstJobId = `${jobId}:${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
     await this.enqueue(data, {
-      jobId: `${jobId}:${Date.now()}`, // Unique ID for this execution
+      jobId: firstJobId,
       startDelay,
       priority,
     });
@@ -266,7 +293,13 @@ export class InMemoryQueue<T> implements Queue<T> {
   async cancelRecurring(jobId: string): Promise<void> {
     const metadata = this.recurringJobs.get(jobId);
     if (metadata) {
-      metadata.enabled = false; // Mark as disabled to stop future rescheduling
+      metadata.enabled = false; // Mark as disabled
+
+      // Clear the interval timer
+      if (metadata.intervalId) {
+        clearInterval(metadata.intervalId);
+        metadata.intervalId = undefined;
+      }
 
       // Also cancel any pending jobs
       this.jobs = this.jobs.filter((job) => {
@@ -398,57 +431,11 @@ export class InMemoryQueue<T> implements Queue<T> {
       this.processing--;
       this.semaphore.release();
 
-      // ALWAYS reschedule recurring jobs after execution (unless retrying)
-      // This ensures the recurring job chain is never broken, even if the handler throws
-      let didRescheduleRecurring = false;
-      if (!isRetrying) {
-        const recurringJobId = this.findRecurringJobId(job.id);
-        if (recurringJobId) {
-          const metadata = this.recurringJobs.get(recurringJobId);
-          if (metadata?.enabled) {
-            // Add random suffix to prevent ID collision when rescheduling
-            // within the same millisecond
-            const uniqueId = `${recurringJobId}:${Date.now()}-${Math.random()
-              .toString(36)
-              .slice(2, 8)}`;
-            void this.enqueue(metadata.payload, {
-              jobId: uniqueId,
-              startDelay: metadata.intervalSeconds,
-              priority: metadata.priority,
-            });
-            // Mark that we rescheduled - don't call processNext below as
-            // enqueue's scheduleDelayed handles it. This prevents a race
-            // condition where processNext consumes the job before the
-            // scheduled delay has properly elapsed.
-            didRescheduleRecurring = true;
-          }
-        }
-      }
-
-      // Process next job if available (but not if we're retrying or just rescheduled recurring)
-      if (
-        !isRetrying &&
-        !didRescheduleRecurring &&
-        this.jobs.length > 0 &&
-        !this.stopped
-      ) {
+      // Process next job if available (but not if we're retrying - setTimeout will handle it)
+      if (!isRetrying && this.jobs.length > 0 && !this.stopped) {
         void this.processNext();
       }
     }
-  }
-
-  /**
-   * Extract the recurring job ID from an execution job ID
-   * Execution jobs have format: "recurringJobId:timestamp"
-   */
-  private findRecurringJobId(executionJobId: string): string | undefined {
-    // Check if this execution job belongs to any recurring job
-    for (const [recurringId] of this.recurringJobs) {
-      if (executionJobId.startsWith(recurringId + ":")) {
-        return recurringId;
-      }
-    }
-    return undefined;
   }
 
   async stop(): Promise<void> {
@@ -458,6 +445,15 @@ export class InMemoryQueue<T> implements Queue<T> {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = undefined;
+    }
+
+    // Clear all recurring job intervals
+    for (const metadata of this.recurringJobs.values()) {
+      if (metadata.intervalId) {
+        clearInterval(metadata.intervalId);
+        metadata.intervalId = undefined;
+      }
+      metadata.enabled = false;
     }
 
     // Wait for all processing jobs to complete

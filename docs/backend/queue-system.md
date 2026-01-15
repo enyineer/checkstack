@@ -329,6 +329,25 @@ The Queue system provides **at-least-once delivery**:
 - A failure in one consumer group does NOT affect other groups
 - Groups can have different `maxRetries` settings
 
+### Recurring Job Scheduling
+
+When using `scheduleRecurring()`, jobs run on a **fixed wall-clock interval** (same as BullMQ):
+
+```
+T=0:   Job A starts (intervalSeconds = 1)
+T=1:   Job B starts (Job A still running)
+T=2:   Job C starts (Job A still running, Job B running)
+T=3:   Job A completes
+```
+
+**Key implications:**
+
+- **Fixed timing**: Jobs start exactly at the configured interval, regardless of execution time
+- **Potential overlap**: If jobs take longer than `intervalSeconds`, multiple jobs may run concurrently
+- **Configuration updates**: Calling `scheduleRecurring()` with an existing `jobId` cancels the old interval and starts a new one with the updated configuration
+
+> **Recommendation:** Set `intervalSeconds` to a value greater than the expected maximum execution time to avoid job accumulation. For health checks, consider the network timeout plus processing time.
+
 ### Graceful Shutdown
 
 `queue.stop()` behavior:
@@ -599,7 +618,31 @@ const configSchema = z.object({
     .max(1)
     .default(1)
     .describe('Delay multiplier (default: 1). Only change for testing purposes - set to 0.01 for 100x faster test execution.'),
+  heartbeatIntervalMs: z
+    .number()
+    .min(0)
+    .default(5000)
+    .describe('Interval for heartbeat checks that recover jobs after system sleep/wake (0 to disable).'),
 });
+```
+
+#### Constructor
+
+The `InMemoryQueue` constructor requires a `Logger` instance for diagnostic output:
+
+```typescript
+import { InMemoryQueue } from '@checkstack/queue-memory-backend';
+import type { Logger } from '@checkstack/backend-api';
+
+const queue = new InMemoryQueue<MyJobData>(
+  'my-queue-name',
+  {
+    concurrency: 10,
+    maxQueueSize: 100,
+    heartbeatIntervalMs: 5000,
+  },
+  logger  // Required: Logger instance for debug/error output
+);
 ```
 
 #### Testing Configuration: delayMultiplier

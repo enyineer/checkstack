@@ -136,4 +136,69 @@ describe("InMemoryQueue Recurring Jobs", () => {
     expect(countBeforeCancel).toBeGreaterThanOrEqual(1);
     expect(executionCount).toBe(countBeforeCancel);
   });
+
+  it("should update recurring job when called with same jobId", async () => {
+    queue = createTestQueue("test-update");
+
+    const payloads: string[] = [];
+    await queue.consume(
+      async (job) => {
+        payloads.push(job.data);
+      },
+      { consumerGroup: "test", maxRetries: 0 }
+    );
+
+    // Schedule with original payload
+    await queue.scheduleRecurring("original-payload", {
+      jobId: "recurring-update",
+      intervalSeconds: 5, // 50ms with multiplier - slow interval
+    });
+
+    await Bun.sleep(20);
+
+    // Update to new payload and faster interval
+    await queue.scheduleRecurring("updated-payload", {
+      jobId: "recurring-update",
+      intervalSeconds: 0.5, // 5ms with multiplier
+    });
+
+    await Bun.sleep(80);
+
+    // Should have the updated payload multiple times
+    const updatedPayloads = payloads.filter((p) => p === "updated-payload");
+    expect(updatedPayloads.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("should cancel old interval and pending jobs when updating", async () => {
+    queue = createTestQueue("test-update-cancels-old");
+
+    let executionCount = 0;
+    await queue.consume(
+      async () => {
+        executionCount++;
+      },
+      { consumerGroup: "test", maxRetries: 0 }
+    );
+
+    // Schedule with a long interval (won't fire again during test)
+    await queue.scheduleRecurring("payload", {
+      jobId: "recurring-test",
+      intervalSeconds: 100, // Very long, should only execute once initially
+    });
+
+    await Bun.sleep(30);
+    const countAfterFirst = executionCount;
+
+    // Update to a short interval
+    await queue.scheduleRecurring("payload", {
+      jobId: "recurring-test",
+      intervalSeconds: 0.5, // 5ms with multiplier
+    });
+
+    await Bun.sleep(80);
+
+    // Should have executed multiple times with new interval
+    expect(executionCount).toBeGreaterThan(countAfterFirst);
+    expect(executionCount - countAfterFirst).toBeGreaterThanOrEqual(2);
+  });
 });
