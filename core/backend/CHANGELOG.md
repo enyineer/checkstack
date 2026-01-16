@@ -1,5 +1,55 @@
 # @checkstack/backend
 
+## 0.4.0
+
+### Minor Changes
+
+- 180be38: # Queue Lag Warning
+
+  Added a queue lag warning system that displays alerts when pending jobs exceed configurable thresholds.
+
+  ## Features
+
+  - **Backend Stats API**: New `getStats`, `getLagStatus`, and `updateLagThresholds` RPC endpoints
+  - **Signal-based Updates**: `QUEUE_LAG_CHANGED` signal for real-time frontend updates
+  - **Aggregated Stats**: `QueueManager.getAggregatedStats()` sums stats across all queues
+  - **Configurable Thresholds**: Warning (default 100) and Critical (default 500) thresholds stored in config
+  - **Dashboard Integration**: Queue lag alert displayed on main Dashboard (access-gated)
+  - **Queue Settings Page**: Lag alert and Performance Tuning guidance card with concurrency tips
+
+  ## UI Changes
+
+  - Queue lag alert banner appears on Dashboard and Queue Settings when pending jobs exceed thresholds
+  - New "Performance Tuning" card with concurrency settings guidance and bottleneck indicators
+
+- 747206a: ### Schema-Scoped Database: Improved Builder Detection and Security
+
+  **Features:**
+
+  - Implemented `entityKind`-based detection of Drizzle query builders, replacing the hardcoded method name list. This automatically handles new Drizzle methods that use existing builder types.
+  - Added `ScopedDatabase<TSchema>` type that excludes the relational query API (`db.query.*`) at compile-time, providing better developer experience for plugin authors.
+
+  **Security:**
+
+  - Blocked access to `db.query.*` (relational query API) in schema-scoped databases because it bypasses schema isolation. Plugins must use the standard query builder API (`db.select().from(table)`) instead.
+  - Runtime error with helpful message is thrown if `db.query` is accessed, guiding developers to the correct API.
+
+  **Documentation:**
+
+  - Added comprehensive internal documentation explaining the chain-recording approach, why transactions are required for `SET LOCAL`, and how the proxy works.
+
+### Patch Changes
+
+- Updated dependencies [180be38]
+- Updated dependencies [7a23261]
+  - @checkstack/queue-api@0.1.0
+  - @checkstack/common@0.3.0
+  - @checkstack/backend-api@0.3.2
+  - @checkstack/auth-common@0.3.0
+  - @checkstack/api-docs-common@0.1.1
+  - @checkstack/signal-backend@0.1.2
+  - @checkstack/signal-common@0.1.1
+
 ## 0.3.1
 
 ### Patch Changes

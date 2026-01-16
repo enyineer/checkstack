@@ -1,5 +1,67 @@
 # @checkstack/auth-frontend
 
+## 0.3.0
+
+### Minor Changes
+
+- 7a23261: ## TanStack Query Integration
+
+  Migrated all frontend components to use `usePluginClient` hook with TanStack Query integration, replacing the legacy `forPlugin()` pattern.
+
+  ### New Features
+
+  - **`usePluginClient` hook**: Provides type-safe access to plugin APIs with `.useQuery()` and `.useMutation()` methods
+  - **Automatic request deduplication**: Multiple components requesting the same data share a single network request
+  - **Built-in caching**: Configurable stale time and cache duration per query
+  - **Loading/error states**: TanStack Query provides `isLoading`, `error`, `isRefetching` states automatically
+  - **Background refetching**: Stale data is automatically refreshed when components mount
+
+  ### Contract Changes
+
+  All RPC contracts now require `operationType: "query"` or `operationType: "mutation"` metadata:
+
+  ```typescript
+  const getItems = proc()
+    .meta({ operationType: "query", access: [access.read] })
+    .output(z.array(itemSchema))
+    .query();
+
+  const createItem = proc()
+    .meta({ operationType: "mutation", access: [access.manage] })
+    .input(createItemSchema)
+    .output(itemSchema)
+    .mutation();
+  ```
+
+  ### Migration
+
+  ```typescript
+  // Before (forPlugin pattern)
+  const api = useApi(myPluginApiRef);
+  const [items, setItems] = useState<Item[]>([]);
+  useEffect(() => {
+    api.getItems().then(setItems);
+  }, [api]);
+
+  // After (usePluginClient pattern)
+  const client = usePluginClient(MyPluginApi);
+  const { data: items, isLoading } = client.getItems.useQuery({});
+  ```
+
+  ### Bug Fixes
+
+  - Fixed `rpc.test.ts` test setup for middleware type inference
+  - Fixed `SearchDialog` to use `setQuery` instead of deprecated `search` method
+  - Fixed null→undefined warnings in notification and queue frontends
+
+### Patch Changes
+
+- Updated dependencies [7a23261]
+  - @checkstack/frontend-api@0.2.0
+  - @checkstack/common@0.3.0
+  - @checkstack/auth-common@0.3.0
+  - @checkstack/ui@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes
