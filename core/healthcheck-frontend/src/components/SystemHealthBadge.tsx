@@ -28,10 +28,14 @@ export const SystemHealthBadge: React.FC<Props> = ({ system }) => {
   const providerStatus = providerData?.health?.status;
 
   // Query for health status if not using provider
+  // When badgeData exists (inside provider), this query is disabled
   const { data: healthData, refetch } =
     healthCheckClient.getSystemHealthStatus.useQuery(
       { systemId: system?.id ?? "" },
-      { enabled: !badgeData && !!system?.id }
+      {
+        enabled: !badgeData && !!system?.id,
+        staleTime: 30_000, // Prevent unnecessary refetches
+      }
     );
 
   const localStatus = healthData?.status;

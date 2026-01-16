@@ -330,11 +330,12 @@ function createProcedureHook<TInput, TOutput>(
 
   return {
     useQuery: (input, options) => {
+      // Get base query options from oRPC
       const queryOpts = proc.queryOptions({
         input: input as TInput,
-        ...options,
       });
-      return useQuery(queryOpts);
+      // Spread caller options AFTER to ensure they take precedence (e.g., enabled: false)
+      return useQuery({ ...queryOpts, ...options });
     },
   };
 }
