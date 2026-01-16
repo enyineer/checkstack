@@ -1,14 +1,24 @@
 import * as React from "react";
-import {
-  usePagination,
-  type UsePaginationOptions,
-  type PaginationState,
-} from "../hooks/usePagination";
+import { type PaginationState } from "../hooks/usePagination";
 import { Pagination } from "./Pagination";
 import { cn } from "../utils";
 
-export interface PaginatedListProps<TResponse, TItem, TExtraParams = object>
-  extends UsePaginationOptions<TResponse, TItem, TExtraParams> {
+export interface PaginatedListProps<TItem> {
+  /**
+   * Items to display
+   */
+  items: TItem[];
+
+  /**
+   * Loading state
+   */
+  loading: boolean;
+
+  /**
+   * Pagination state from usePagination hook
+   */
+  pagination: PaginationState;
+
   /**
    * Render function for the items
    */
@@ -64,23 +74,31 @@ export interface PaginatedListProps<TResponse, TItem, TExtraParams = object>
 }
 
 /**
- * All-in-one paginated list component with automatic data fetching.
+ * Paginated list component for rendering paginated data.
+ * Use with usePagination() hook and TanStack Query.
  *
  * @example
  * ```tsx
+ * const pagination = usePagination({ defaultLimit: 20 });
+ * const { data, isLoading } = notificationClient.getNotifications.useQuery({
+ *   limit: pagination.limit,
+ *   offset: pagination.offset,
+ * });
+ * usePaginationSync(pagination, data?.total);
+ *
  * <PaginatedList
- *   fetchFn={(p) => client.getNotifications(p)}
- *   getItems={(r) => r.notifications}
- *   getTotal={(r) => r.total}
- *   extraParams={{ unreadOnly: true }}
+ *   items={data?.notifications ?? []}
+ *   loading={isLoading}
+ *   pagination={pagination}
  * >
- *   {(items, loading) =>
- *     loading ? null : items.map((item) => <Card key={item.id} {...item} />)
- *   }
+ *   {(items) => items.map((item) => <Card key={item.id} {...item} />)}
  * </PaginatedList>
  * ```
  */
-export function PaginatedList<TResponse, TItem, TExtraParams = object>({
+export function PaginatedList<TItem>({
+  items,
+  loading,
+  pagination,
   children,
   showLoadingSpinner = true,
   emptyContent,
@@ -90,10 +108,7 @@ export function PaginatedList<TResponse, TItem, TExtraParams = object>({
   pageSizes,
   className,
   paginationClassName,
-  ...paginationOptions
-}: PaginatedListProps<TResponse, TItem, TExtraParams>) {
-  const { items, loading, pagination } = usePagination(paginationOptions);
-
+}: PaginatedListProps<TItem>) {
   const showEmpty = !loading && items.length === 0 && emptyContent;
 
   return (

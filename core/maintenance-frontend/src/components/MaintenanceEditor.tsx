@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { useApi } from "@checkstack/frontend-api";
-import { maintenanceApiRef } from "../api";
+import React, { useState, useEffect } from "react";
+import { usePluginClient } from "@checkstack/frontend-api";
+import { MaintenanceApi } from "../api";
 import type {
   MaintenanceWithSystems,
   MaintenanceUpdate,
@@ -42,7 +42,7 @@ export const MaintenanceEditor: React.FC<Props> = ({
   systems,
   onSave,
 }) => {
-  const api = useApi(maintenanceApiRef);
+  const maintenanceClient = usePluginClient(MaintenanceApi);
   const toast = useToast();
 
   // Maintenance fields
@@ -53,29 +53,45 @@ export const MaintenanceEditor: React.FC<Props> = ({
   const [selectedSystemIds, setSelectedSystemIds] = useState<Set<string>>(
     new Set()
   );
-  const [saving, setSaving] = useState(false);
 
   // Status update fields
   const [updates, setUpdates] = useState<MaintenanceUpdate[]>([]);
-  const [loadingUpdates, setLoadingUpdates] = useState(false);
   const [showUpdateForm, setShowUpdateForm] = useState(false);
 
-  const loadMaintenanceDetails = useCallback(
-    async (id: string) => {
-      setLoadingUpdates(true);
-      try {
-        const detail = await api.getMaintenance({ id });
-        if (detail) {
-          setUpdates(detail.updates);
-        }
-      } catch (error) {
-        console.error("Failed to load maintenance details:", error);
-      } finally {
-        setLoadingUpdates(false);
-      }
+  // Query for maintenance details (only when editing)
+  const { data: maintenanceDetail, refetch: refetchDetail } =
+    maintenanceClient.getMaintenance.useQuery(
+      { id: maintenance?.id ?? "" },
+      { enabled: !!maintenance?.id && open }
+    );
+
+  // Mutations
+  const createMutation = maintenanceClient.createMaintenance.useMutation({
+    onSuccess: () => {
+      toast.success("Maintenance created");
+      onSave();
     },
-    [api]
-  );
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to save");
+    },
+  });
+
+  const updateMutation = maintenanceClient.updateMaintenance.useMutation({
+    onSuccess: () => {
+      toast.success("Maintenance updated");
+      onSave();
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to save");
+    },
+  });
+
+  // Sync updates from query
+  useEffect(() => {
+    if (maintenanceDetail) {
+      setUpdates(maintenanceDetail.updates);
+    }
+  }, [maintenanceDetail]);
 
   // Reset form when maintenance changes
   useEffect(() => {
@@ -85,8 +101,6 @@ export const MaintenanceEditor: React.FC<Props> = ({
       setStartAt(new Date(maintenance.startAt));
       setEndAt(new Date(maintenance.endAt));
       setSelectedSystemIds(new Set(maintenance.systemIds));
-      // Load full maintenance with updates
-      loadMaintenanceDetails(maintenance.id);
     } else {
       // Default to 1 hour from now to 2 hours from now
       const now = new Date();
@@ -100,7 +114,7 @@ export const MaintenanceEditor: React.FC<Props> = ({
       setUpdates([]);
       setShowUpdateForm(false);
     }
-  }, [maintenance, open, loadMaintenanceDetails]);
+  }, [maintenance, open]);
 
   const handleSystemToggle = (systemId: string) => {
     setSelectedSystemIds((prev) => {
@@ -114,7 +128,7 @@ export const MaintenanceEditor: React.FC<Props> = ({
     });
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     if (!title.trim()) {
       toast.error("Title is required");
       return;
@@ -128,45 +142,37 @@ export const MaintenanceEditor: React.FC<Props> = ({
       return;
     }
 
-    setSaving(true);
-    try {
-      if (maintenance) {
-        await api.updateMaintenance({
-          id: maintenance.id,
-          title,
-          description: description || undefined,
-          startAt,
-          endAt,
-          systemIds: [...selectedSystemIds],
-        });
-        toast.success("Maintenance updated");
-      } else {
-        await api.createMaintenance({
-          title,
-          description,
-          startAt,
-          endAt,
-          systemIds: [...selectedSystemIds],
-        });
-        toast.success("Maintenance created");
-      }
-      onSave();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to save";
-      toast.error(message);
-    } finally {
-      setSaving(false);
+    if (maintenance) {
+      updateMutation.mutate({
+        id: maintenance.id,
+        title,
+        description: description || undefined,
+        startAt,
+        endAt,
+        systemIds: [...selectedSystemIds],
+      });
+    } else {
+      createMutation.mutate({
+        title,
+        description,
+        startAt,
+        endAt,
+        systemIds: [...selectedSystemIds],
+      });
     }
   };
 
   const handleUpdateSuccess = () => {
     if (maintenance) {
-      loadMaintenanceDetails(maintenance.id);
+      void refetchDetail();
     }
     setShowUpdateForm(false);
     // Notify parent to refresh list (status may have changed)
     onSave();
   };
+
+  const saving = createMutation.isPending || updateMutation.isPending;
+  const loadingUpdates = false; // Now handled by useQuery
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

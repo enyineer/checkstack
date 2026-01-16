@@ -1,13 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
-import { useApi } from "@checkstack/frontend-api";
-import { healthCheckApiRef } from "../api";
-import { CollectorDto } from "@checkstack/healthcheck-common";
+import { usePluginClient } from "@checkstack/frontend-api";
+import { CollectorDto, HealthCheckApi } from "@checkstack/healthcheck-common";
 
 interface UseCollectorsResult {
   collectors: CollectorDto[];
   loading: boolean;
   error: Error | undefined;
-  refetch: () => Promise<void>;
+  refetch: () => void;
 }
 
 /**
@@ -15,38 +13,27 @@ interface UseCollectorsResult {
  * @param strategyId - The strategy ID to fetch collectors for
  */
 export function useCollectors(strategyId: string): UseCollectorsResult {
-  const api = useApi(healthCheckApiRef);
-  const [collectors, setCollectors] = useState<CollectorDto[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<Error>();
+  const healthCheckClient = usePluginClient(HealthCheckApi);
 
-  const refetch = useCallback(async () => {
-    if (!strategyId) {
-      setCollectors([]);
-      return;
-    }
+  const {
+    data,
+    isLoading: loading,
+    error: queryError,
+    refetch,
+  } = healthCheckClient.getCollectors.useQuery(
+    { strategyId },
+    { enabled: !!strategyId }
+  );
 
-    setLoading(true);
-    setError(undefined);
-    try {
-      const result = await api.getCollectors({ strategyId });
-      setCollectors(result);
-    } catch (error_) {
-      setError(
-        error_ instanceof Error
-          ? error_
-          : new Error("Failed to fetch collectors")
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [api, strategyId]);
+  const collectors = data ?? [];
+  const error = queryError instanceof Error ? queryError : undefined;
 
-  useEffect(() => {
-    refetch();
-  }, [refetch]);
-
-  return { collectors, loading, error, refetch };
+  return {
+    collectors,
+    loading,
+    error,
+    refetch: () => void refetch(),
+  };
 }
 
 /**

@@ -1,275 +1,277 @@
-import { describe, it, expect, mock } from "bun:test";
-import { renderHook, act } from "@checkstack/test-utils-frontend";
-import { usePagination } from "./usePagination";
+import { describe, expect, it } from "bun:test";
+import { renderHook, act } from "@testing-library/react";
+import { usePagination, usePaginationSync } from "./usePagination";
 
 describe("usePagination", () => {
-  // Create a deferred promise for controlled async testing
-  interface MockResponse {
-    items: { id: string; name: string }[];
-    total: number;
-  }
+  describe("initial state", () => {
+    it("should return default initial state", () => {
+      const { result } = renderHook(() => usePagination());
 
-  const createControlledMock = () => {
-    let resolvePromise: ((value: MockResponse) => void) | null = null;
-    const mockFn = mock(
-      ({
-        limit,
-        offset,
-      }: {
-        limit: number;
-        offset: number;
-      }): Promise<MockResponse> => {
-        return new Promise((resolve) => {
-          resolvePromise = resolve;
-          // Auto-resolve after a microtask to simulate instant response
-          queueMicrotask(() => {
-            resolve({
-              items: Array.from(
-                { length: Math.min(limit, 100 - offset) },
-                (_, i) => ({
-                  id: `item-${offset + i}`,
-                  name: `Item ${offset + i}`,
-                })
-              ),
-              total: 100,
-            });
-          });
-        });
-      }
-    );
-    return { mockFn, getResolver: () => resolvePromise };
-  };
+      expect(result.current.page).toBe(1);
+      expect(result.current.limit).toBe(10);
+      expect(result.current.offset).toBe(0);
+      expect(result.current.total).toBe(0);
+      expect(result.current.totalPages).toBe(1);
+      expect(result.current.hasNext).toBe(false);
+      expect(result.current.hasPrev).toBe(false);
+    });
 
-  // Simple sync mock for tests that don't need controlled timing
-  const createSyncMock = () =>
-    mock(({ limit, offset }: { limit: number; offset: number }) =>
-      Promise.resolve({
-        items: Array.from(
-          { length: Math.min(limit, 100 - offset) },
-          (_, i) => ({
-            id: `item-${offset + i}`,
-            name: `Item ${offset + i}`,
-          })
-        ),
-        total: 100,
-      })
-    );
+    it("should accept custom default values", () => {
+      const { result } = renderHook(() =>
+        usePagination({ defaultPage: 2, defaultLimit: 25 })
+      );
 
-  it("should initialize with correct defaults", () => {
-    const mockFetchFn = createSyncMock();
-
-    const { result } = renderHook(() =>
-      usePagination({
-        fetchFn: mockFetchFn,
-        getItems: (r) => r.items,
-        getTotal: (r) => r.total,
-        fetchOnMount: false,
-      })
-    );
-
-    expect(result.current.loading).toBe(false);
-    expect(result.current.items).toEqual([]);
-    expect(result.current.pagination.page).toBe(1);
-    expect(result.current.pagination.limit).toBe(10);
-    expect(result.current.pagination.total).toBe(0);
-    expect(result.current.pagination.totalPages).toBe(1);
-  });
-
-  it("should not fetch on mount when fetchOnMount is false", () => {
-    const mockFetchFn = createSyncMock();
-
-    renderHook(() =>
-      usePagination({
-        fetchFn: mockFetchFn,
-        getItems: (r) => r.items,
-        getTotal: (r) => r.total,
-        fetchOnMount: false,
-      })
-    );
-
-    expect(mockFetchFn).not.toHaveBeenCalled();
-  });
-
-  it("should start loading immediately when fetchOnMount is true", () => {
-    const mockFetchFn = createSyncMock();
-
-    const { result } = renderHook(() =>
-      usePagination({
-        fetchFn: mockFetchFn,
-        getItems: (r) => r.items,
-        getTotal: (r) => r.total,
-        defaultLimit: 10,
-      })
-    );
-
-    // Should be loading immediately after render
-    expect(result.current.loading).toBe(true);
-    expect(mockFetchFn).toHaveBeenCalledWith({ limit: 10, offset: 0 });
-  });
-
-  it("should call fetch with correct params on mount", async () => {
-    const { mockFn } = createControlledMock();
-
-    renderHook(() =>
-      usePagination({
-        fetchFn: mockFn,
-        getItems: (r) => r.items,
-        getTotal: (r) => r.total,
-        defaultLimit: 20,
-      })
-    );
-
-    expect(mockFn).toHaveBeenCalledWith({ limit: 20, offset: 0 });
-  });
-
-  it("should pass extra params to fetch function", async () => {
-    const { mockFn } = createControlledMock();
-
-    renderHook(() =>
-      usePagination({
-        fetchFn: mockFn,
-        getItems: (r) => r.items,
-        getTotal: (r) => r.total,
-        defaultLimit: 10,
-        extraParams: { unreadOnly: true, category: "alerts" },
-      })
-    );
-
-    expect(mockFn).toHaveBeenCalledWith({
-      limit: 10,
-      offset: 0,
-      unreadOnly: true,
-      category: "alerts",
+      expect(result.current.page).toBe(2);
+      expect(result.current.limit).toBe(25);
+      expect(result.current.offset).toBe(25); // (2-1) * 25
     });
   });
 
-  it("should update page when setPage is called", async () => {
-    const mockFetchFn = createSyncMock();
+  describe("setPage", () => {
+    it("should update page and recalculate offset", () => {
+      const { result } = renderHook(() => usePagination({ defaultLimit: 10 }));
 
-    const { result } = renderHook(() =>
-      usePagination({
-        fetchFn: mockFetchFn,
-        getItems: (r) => r.items,
-        getTotal: (r) => r.total,
-        fetchOnMount: false,
-      })
-    );
+      act(() => {
+        result.current.setPage(3);
+      });
 
-    act(() => {
-      result.current.pagination.setPage(5);
+      expect(result.current.page).toBe(3);
+      expect(result.current.offset).toBe(20); // (3-1) * 10
     });
 
-    expect(result.current.pagination.page).toBe(5);
-    // Should trigger fetch with correct offset
-    expect(mockFetchFn).toHaveBeenCalledWith({ limit: 10, offset: 40 });
+    it("should not allow page below 1", () => {
+      const { result } = renderHook(() => usePagination());
+
+      act(() => {
+        result.current.setPage(0);
+      });
+
+      expect(result.current.page).toBe(1);
+
+      act(() => {
+        result.current.setPage(-5);
+      });
+
+      expect(result.current.page).toBe(1);
+    });
   });
 
-  it("should update limit and reset to page 1 when setLimit is called", async () => {
-    const mockFetchFn = createSyncMock();
+  describe("setLimit", () => {
+    it("should update limit and reset page to 1", () => {
+      const { result } = renderHook(() => usePagination());
 
-    const { result } = renderHook(() =>
-      usePagination({
-        fetchFn: mockFetchFn,
-        getItems: (r) => r.items,
-        getTotal: (r) => r.total,
-        fetchOnMount: false,
-      })
-    );
+      // First go to page 3
+      act(() => {
+        result.current.setPage(3);
+      });
 
-    // First go to page 3
-    act(() => {
-      result.current.pagination.setPage(3);
+      expect(result.current.page).toBe(3);
+
+      // Then change limit - should reset to page 1
+      act(() => {
+        result.current.setLimit(25);
+      });
+
+      expect(result.current.limit).toBe(25);
+      expect(result.current.page).toBe(1);
+      expect(result.current.offset).toBe(0);
     });
-
-    expect(result.current.pagination.page).toBe(3);
-
-    // Then change limit
-    act(() => {
-      result.current.pagination.setLimit(25);
-    });
-
-    // Should reset to page 1
-    expect(result.current.pagination.page).toBe(1);
-    expect(result.current.pagination.limit).toBe(25);
-    // Should fetch with new limit at offset 0
-    expect(mockFetchFn).toHaveBeenLastCalledWith({ limit: 25, offset: 0 });
   });
 
-  it("should call nextPage correctly", async () => {
-    const mockFetchFn = createSyncMock();
+  describe("setTotal", () => {
+    it("should update total and recalculate totalPages", () => {
+      const { result } = renderHook(() => usePagination({ defaultLimit: 10 }));
 
-    const { result } = renderHook(() =>
-      usePagination({
-        fetchFn: mockFetchFn,
-        getItems: (r) => r.items,
-        getTotal: (r) => r.total,
-        fetchOnMount: false,
-      })
-    );
+      act(() => {
+        result.current.setTotal(45);
+      });
 
-    // First set page to 1 (which triggers fetch that sets total)
-    act(() => {
-      result.current.pagination.setPage(1);
+      expect(result.current.total).toBe(45);
+      expect(result.current.totalPages).toBe(5); // ceil(45/10)
     });
 
-    // After fetch completes, hasNext should be calculated based on total
-    // Since our mock returns total: 100 and limit: 10, hasNext should be true
-    // We need to manually set up the condition where hasNext is true
-    // For now, test that nextPage at least calls the function - even if hasNext blocks it
-    const callsBefore = mockFetchFn.mock.calls.length;
+    it("should update hasNext and hasPrev correctly", () => {
+      const { result } = renderHook(() => usePagination({ defaultLimit: 10 }));
 
-    act(() => {
-      result.current.pagination.nextPage();
+      // Set total to have 5 pages
+      act(() => {
+        result.current.setTotal(50);
+      });
+
+      // On page 1, should have next but no prev
+      expect(result.current.hasNext).toBe(true);
+      expect(result.current.hasPrev).toBe(false);
+
+      // Go to middle page
+      act(() => {
+        result.current.setPage(3);
+      });
+
+      expect(result.current.hasNext).toBe(true);
+      expect(result.current.hasPrev).toBe(true);
+
+      // Go to last page
+      act(() => {
+        result.current.setPage(5);
+      });
+
+      expect(result.current.hasNext).toBe(false);
+      expect(result.current.hasPrev).toBe(true);
     });
-
-    // nextPage should attempt to increment page (if hasNext allows)
-    // The actual behavior depends on whether fetchData has completed
-    // Since we can't await async in happy-dom, just verify the method doesn't throw
-    expect(mockFetchFn.mock.calls.length).toBeGreaterThanOrEqual(callsBefore);
   });
 
-  it("should call prevPage correctly", async () => {
-    const mockFetchFn = createSyncMock();
+  describe("nextPage", () => {
+    it("should increment page when hasNext is true", () => {
+      const { result } = renderHook(() => usePagination({ defaultLimit: 10 }));
 
-    const { result } = renderHook(() =>
-      usePagination({
-        fetchFn: mockFetchFn,
-        getItems: (r) => r.items,
-        getTotal: (r) => r.total,
-        fetchOnMount: false,
-      })
-    );
+      act(() => {
+        result.current.setTotal(30);
+      });
 
-    // Go to page 3 first
-    act(() => {
-      result.current.pagination.setPage(3);
+      expect(result.current.page).toBe(1);
+      expect(result.current.hasNext).toBe(true);
+
+      act(() => {
+        result.current.nextPage();
+      });
+
+      expect(result.current.page).toBe(2);
     });
 
-    act(() => {
-      result.current.pagination.prevPage();
-    });
+    it("should not increment page when on last page", () => {
+      const { result } = renderHook(() => usePagination({ defaultLimit: 10 }));
 
-    expect(result.current.pagination.page).toBe(2);
+      act(() => {
+        result.current.setTotal(10);
+      });
+
+      expect(result.current.hasNext).toBe(false);
+
+      act(() => {
+        result.current.nextPage();
+      });
+
+      expect(result.current.page).toBe(1);
+    });
   });
 
-  it("should trigger refetch when refetch is called", async () => {
-    const mockFetchFn = createSyncMock();
+  describe("prevPage", () => {
+    it("should decrement page when hasPrev is true", () => {
+      const { result } = renderHook(() => usePagination({ defaultLimit: 10 }));
 
-    const { result } = renderHook(() =>
-      usePagination({
-        fetchFn: mockFetchFn,
-        getItems: (r) => r.items,
-        getTotal: (r) => r.total,
-        fetchOnMount: false,
-      })
-    );
+      act(() => {
+        result.current.setTotal(30);
+        result.current.setPage(3);
+      });
 
-    const initialCallCount = mockFetchFn.mock.calls.length;
+      expect(result.current.hasPrev).toBe(true);
 
-    act(() => {
-      result.current.pagination.refetch();
+      act(() => {
+        result.current.prevPage();
+      });
+
+      expect(result.current.page).toBe(2);
     });
 
-    expect(mockFetchFn.mock.calls.length).toBeGreaterThan(initialCallCount);
+    it("should not decrement page when on first page", () => {
+      const { result } = renderHook(() => usePagination());
+
+      expect(result.current.hasPrev).toBe(false);
+
+      act(() => {
+        result.current.prevPage();
+      });
+
+      expect(result.current.page).toBe(1);
+    });
+  });
+
+  describe("offset calculation", () => {
+    it("should calculate correct offset for different page/limit combinations", () => {
+      const { result } = renderHook(() => usePagination({ defaultLimit: 20 }));
+
+      expect(result.current.offset).toBe(0);
+
+      act(() => {
+        result.current.setPage(2);
+      });
+
+      expect(result.current.offset).toBe(20);
+
+      act(() => {
+        result.current.setPage(5);
+      });
+
+      expect(result.current.offset).toBe(80);
+
+      act(() => {
+        result.current.setLimit(50);
+      });
+
+      // Limit change resets to page 1
+      expect(result.current.offset).toBe(0);
+
+      act(() => {
+        result.current.setPage(3);
+      });
+
+      expect(result.current.offset).toBe(100);
+    });
+  });
+
+  describe("totalPages edge cases", () => {
+    it("should have minimum of 1 totalPages even with 0 total", () => {
+      const { result } = renderHook(() => usePagination());
+
+      expect(result.current.totalPages).toBe(1);
+    });
+
+    it("should round up for partial pages", () => {
+      const { result } = renderHook(() => usePagination({ defaultLimit: 10 }));
+
+      act(() => {
+        result.current.setTotal(25);
+      });
+
+      expect(result.current.totalPages).toBe(3); // 25/10 = 2.5, ceil = 3
+    });
+  });
+});
+
+describe("usePaginationSync", () => {
+  it("should sync total from query response", () => {
+    const { result, rerender } = renderHook(
+      ({ total }: { total?: number }) => {
+        const pagination = usePagination();
+        usePaginationSync(pagination, total);
+        return pagination;
+      },
+      { initialProps: { total: undefined as number | undefined } }
+    );
+
+    expect(result.current.total).toBe(0);
+
+    rerender({ total: 100 });
+
+    expect(result.current.total).toBe(100);
+    expect(result.current.totalPages).toBe(10);
+  });
+
+  it("should not update when total is undefined", () => {
+    const { result, rerender } = renderHook(
+      ({ total }: { total?: number }) => {
+        const pagination = usePagination();
+        usePaginationSync(pagination, total);
+        return pagination;
+      },
+      { initialProps: { total: 50 as number | undefined } }
+    );
+
+    expect(result.current.total).toBe(50);
+
+    rerender({ total: undefined });
+
+    // Should keep the old value
+    expect(result.current.total).toBe(50);
   });
 });

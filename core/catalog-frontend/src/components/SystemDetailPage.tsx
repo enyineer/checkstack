@@ -1,8 +1,11 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useApi, rpcApiRef } from "@checkstack/frontend-api";
-import { catalogApiRef, System, Group } from "../api";
-import { ExtensionSlot } from "@checkstack/frontend-api";
+import {
+  usePluginClient,
+  ExtensionSlot,
+  useApi,
+} from "@checkstack/frontend-api";
+import { Group, CatalogApi } from "../api";
 import {
   SystemDetailsSlot,
   SystemDetailsTopSlot,
@@ -28,16 +31,13 @@ const CATALOG_PLUGIN_ID = "catalog";
 export const SystemDetailPage: React.FC = () => {
   const { systemId } = useParams<{ systemId: string }>();
   const navigate = useNavigate();
-  const catalogApi = useApi(catalogApiRef);
-  const rpcApi = useApi(rpcApiRef);
-  const notificationApi = rpcApi.forPlugin(NotificationApi);
+  const catalogClient = usePluginClient(CatalogApi);
+  const notificationClient = usePluginClient(NotificationApi);
   const toast = useToast();
   const authApi = useApi(authApiRef);
   const { data: session } = authApi.useSession();
 
-  const [system, setSystem] = useState<System | undefined>();
   const [groups, setGroups] = useState<Group[]>([]);
-  const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
   // Subscription state
@@ -49,85 +49,84 @@ export const SystemDetailPage: React.FC = () => {
     return `${CATALOG_PLUGIN_ID}.system.${systemId}`;
   }, [systemId]);
 
-  useEffect(() => {
-    if (!systemId) {
-      setNotFound(true);
-      setLoading(false);
-      return;
-    }
+  // Fetch system data with useQuery
+  const { data: systemsData, isLoading: systemsLoading } =
+    catalogClient.getSystems.useQuery({});
 
-    Promise.all([catalogApi.getSystems(), catalogApi.getGroups()])
-      .then(([{ systems }, allGroups]) => {
-        const foundSystem = systems.find((s) => s.id === systemId);
+  // Fetch groups data with useQuery
+  const { data: groupsData, isLoading: groupsLoading } =
+    catalogClient.getGroups.useQuery({});
 
-        if (!foundSystem) {
-          setNotFound(true);
-          return;
-        }
+  // Find the system from the fetched data
+  const system = systemsData?.systems.find((s) => s.id === systemId);
+  const loading = systemsLoading || groupsLoading;
 
-        setSystem(foundSystem);
+  // Fetch subscriptions with useQuery
+  const { data: subscriptions, refetch: refetchSubscriptions } =
+    notificationClient.getSubscriptions.useQuery({});
 
-        // Find groups that contain this system
-        const systemGroups = allGroups.filter((group) =>
-          group.systemIds?.includes(systemId)
-        );
-        setGroups(systemGroups);
-      })
-      .catch((error) => {
-        console.error("Error fetching system details:", error);
-        setNotFound(true);
-      })
-      .finally(() => setLoading(false));
-  }, [systemId, catalogApi]);
-
-  // Check subscription status
-  useEffect(() => {
-    if (!systemId) return;
-
-    setSubscriptionLoading(true);
-    notificationApi
-      .getSubscriptions()
-      .then((subscriptions) => {
-        const groupId = getSystemGroupId();
-        const hasSubscription = subscriptions.some(
-          (s) => s.groupId === groupId
-        );
-        setIsSubscribed(hasSubscription);
-      })
-      .catch((error) => {
-        console.error("Failed to check subscription status:", error);
-      })
-      .finally(() => setSubscriptionLoading(false));
-  }, [systemId, notificationApi, getSystemGroupId]);
-
-  const handleSubscribe = async () => {
-    setSubscriptionLoading(true);
-    try {
-      await notificationApi.subscribe({ groupId: getSystemGroupId() });
+  // Subscribe/unsubscribe mutations
+  const subscribeMutation = notificationClient.subscribe.useMutation({
+    onSuccess: () => {
       setIsSubscribed(true);
       toast.success("Subscribed to system notifications");
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to subscribe";
-      toast.error(message);
-    } finally {
-      setSubscriptionLoading(false);
-    }
-  };
+      void refetchSubscriptions();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to subscribe"
+      );
+    },
+  });
 
-  const handleUnsubscribe = async () => {
-    setSubscriptionLoading(true);
-    try {
-      await notificationApi.unsubscribe({ groupId: getSystemGroupId() });
+  const unsubscribeMutation = notificationClient.unsubscribe.useMutation({
+    onSuccess: () => {
       setIsSubscribed(false);
       toast.success("Unsubscribed from system notifications");
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to unsubscribe";
-      toast.error(message);
-    } finally {
+      void refetchSubscriptions();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to unsubscribe"
+      );
+    },
+  });
+
+  // Update not found state
+  useEffect(() => {
+    if (!systemsLoading && !system && systemId) {
+      setNotFound(true);
+    }
+  }, [system, systemsLoading, systemId]);
+
+  // Update groups that contain this system
+  useEffect(() => {
+    if (groupsData && systemId) {
+      const systemGroups = groupsData.filter((group) =>
+        group.systemIds?.includes(systemId)
+      );
+      setGroups(systemGroups);
+    }
+  }, [groupsData, systemId]);
+
+  // Update subscription status from query
+  useEffect(() => {
+    if (subscriptions && systemId) {
+      const groupId = getSystemGroupId();
+      const hasSubscription = subscriptions.some((s) => s.groupId === groupId);
+      setIsSubscribed(hasSubscription);
       setSubscriptionLoading(false);
     }
+  }, [subscriptions, systemId, getSystemGroupId]);
+
+  const handleSubscribe = () => {
+    setSubscriptionLoading(true);
+    subscribeMutation.mutate({ groupId: getSystemGroupId() });
+  };
+
+  const handleUnsubscribe = () => {
+    setSubscriptionLoading(true);
+    unsubscribeMutation.mutate({ groupId: getSystemGroupId() });
   };
 
   if (loading) {
@@ -175,7 +174,11 @@ export const SystemDetailPage: React.FC = () => {
               isSubscribed={isSubscribed}
               onSubscribe={handleSubscribe}
               onUnsubscribe={handleUnsubscribe}
-              loading={subscriptionLoading}
+              loading={
+                subscriptionLoading ||
+                subscribeMutation.isPending ||
+                unsubscribeMutation.isPending
+              }
             />
           )}
           <BackLink onClick={() => navigate("/")}>Back to Dashboard</BackLink>

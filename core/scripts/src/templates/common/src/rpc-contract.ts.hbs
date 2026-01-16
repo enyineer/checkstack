@@ -16,24 +16,24 @@ const _base = oc.$meta<ProcedureMetadata>({});
 export const {{pluginNameCamel}}Contract = {
   // List all items - requires authenticated user with read access
   getItems: _base
-    .meta({ userType: "user", access: [{{pluginNameCamel}}Access.read] })
+    .meta({ operationType: "query", userType: "user", access: [{{pluginNameCamel}}Access.read] })
     .output(z.array({{pluginNamePascal}}ItemSchema)),
 
   // Get single item
   getItem: _base
-    .meta({ userType: "user", access: [{{pluginNameCamel}}Access.read] })
-    .input(z.string())
+    .meta({ operationType: "query", userType: "user", access: [{{pluginNameCamel}}Access.read] })
+    .input(z.object({ id: z.string() }))
     .output({{pluginNamePascal}}ItemSchema),
 
   // Create item
   createItem: _base
-    .meta({ userType: "user", access: [{{pluginNameCamel}}Access.manage] })
+    .meta({ operationType: "mutation", userType: "user", access: [{{pluginNameCamel}}Access.manage] })
     .input(Create{{pluginNamePascal}}ItemSchema)
     .output({{pluginNamePascal}}ItemSchema),
 
   // Update item
   updateItem: _base
-    .meta({ userType: "user", access: [{{pluginNameCamel}}Access.manage] })
+    .meta({ operationType: "mutation", userType: "user", access: [{{pluginNameCamel}}Access.manage] })
     .input(
       z.object({
         id: z.string(),
@@ -44,16 +44,17 @@ export const {{pluginNameCamel}}Contract = {
 
   // Delete item
   deleteItem: _base
-    .meta({ userType: "user", access: [{{pluginNameCamel}}Access.manage] })
-    .input(z.string())
+    .meta({ operationType: "mutation", userType: "user", access: [{{pluginNameCamel}}Access.manage] })
+    .input(z.object({ id: z.string() }))
     .output(z.void()),
 };
 
 // Export contract type
 export type {{pluginNamePascal}}Contract = typeof {{pluginNameCamel}}Contract;
 
-// Export client definition for type-safe forPlugin usage
-// Use: const client = rpcApi.forPlugin({{pluginNamePascal}}Api);
+// Export client definition for type-safe usePluginClient usage
+// Frontend: const client = usePluginClient({{pluginNamePascal}}Api);
+// Backend:  const client = rpcClient.forPlugin({{pluginNamePascal}}Api);
 export const {{pluginNamePascal}}Api = createClientDefinition(
   {{pluginNameCamel}}Contract,
   pluginMetadata

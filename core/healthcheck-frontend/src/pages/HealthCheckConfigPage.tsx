@@ -1,39 +1,42 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  useApi,
+  usePluginClient,
   wrapInSuspense,
   accessApiRef,
+  useApi,
 } from "@checkstack/frontend-api";
-import { healthCheckApiRef } from "../api";
+import { HealthCheckApi } from "../api";
 import {
   HealthCheckConfiguration,
-  HealthCheckStrategyDto,
   CreateHealthCheckConfiguration,
   healthcheckRoutes,
   healthCheckAccess,
 } from "@checkstack/healthcheck-common";
 import { HealthCheckList } from "../components/HealthCheckList";
 import { HealthCheckEditor } from "../components/HealthCheckEditor";
-import { Button, ConfirmationModal, PageLayout } from "@checkstack/ui";
+import {
+  Button,
+  ConfirmationModal,
+  PageLayout,
+  useToast,
+} from "@checkstack/ui";
 import { Plus, History } from "lucide-react";
 import { Link } from "react-router-dom";
 import { resolveRoute } from "@checkstack/common";
 
 const HealthCheckConfigPageContent = () => {
-  const api = useApi(healthCheckApiRef);
+  const healthCheckClient = usePluginClient(HealthCheckApi);
   const accessApi = useApi(accessApiRef);
+  const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { allowed: canRead, loading: accessLoading } =
-    accessApi.useAccess(healthCheckAccess.configuration.read);
+  const { allowed: canRead, loading: accessLoading } = accessApi.useAccess(
+    healthCheckAccess.configuration.read
+  );
   const { allowed: canManage } = accessApi.useAccess(
     healthCheckAccess.configuration.manage
   );
 
-  const [configurations, setConfigurations] = useState<
-    HealthCheckConfiguration[]
-  >([]);
-  const [strategies, setStrategies] = useState<HealthCheckStrategyDto[]>([]);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingConfig, setEditingConfig] = useState<
     HealthCheckConfiguration | undefined
@@ -42,20 +45,17 @@ const HealthCheckConfigPageContent = () => {
   // Delete modal state
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [idToDelete, setIdToDelete] = useState<string | undefined>();
-  const [isDeleting, setIsDeleting] = useState(false);
 
-  const fetchData = async () => {
-    const [{ configurations: configs }, strats] = await Promise.all([
-      api.getConfigurations(),
-      api.getStrategies(),
-    ]);
-    setConfigurations(configs);
-    setStrategies(strats);
-  };
+  // Fetch configurations with useQuery
+  const { data: configurationsData, refetch: refetchConfigurations } =
+    healthCheckClient.getConfigurations.useQuery({});
 
-  useEffect(() => {
-    fetchData();
-  }, [api]);
+  // Fetch strategies with useQuery
+  const { data: strategies = [] } = healthCheckClient.getStrategies.useQuery(
+    {}
+  );
+
+  const configurations = configurationsData?.configurations ?? [];
 
   // Handle ?action=create URL parameter (from command palette)
   useEffect(() => {
@@ -67,6 +67,38 @@ const HealthCheckConfigPageContent = () => {
       setSearchParams(searchParams, { replace: true });
     }
   }, [searchParams, canManage, setSearchParams]);
+
+  // Mutations
+  const createMutation = healthCheckClient.createConfiguration.useMutation({
+    onSuccess: () => {
+      setIsEditorOpen(false);
+      void refetchConfigurations();
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to create");
+    },
+  });
+
+  const updateMutation = healthCheckClient.updateConfiguration.useMutation({
+    onSuccess: () => {
+      setIsEditorOpen(false);
+      void refetchConfigurations();
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to update");
+    },
+  });
+
+  const deleteMutation = healthCheckClient.deleteConfiguration.useMutation({
+    onSuccess: () => {
+      setIsDeleteModalOpen(false);
+      setIdToDelete(undefined);
+      void refetchConfigurations();
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to delete");
+    },
+  });
 
   const handleCreate = () => {
     setEditingConfig(undefined);
@@ -83,25 +115,17 @@ const HealthCheckConfigPageContent = () => {
     setIsDeleteModalOpen(true);
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = () => {
     if (!idToDelete) return;
-    setIsDeleting(true);
-    try {
-      await api.deleteConfiguration(idToDelete);
-      await fetchData();
-    } finally {
-      setIsDeleting(false);
-      setIsDeleteModalOpen(false);
-      setIdToDelete(undefined);
-    }
+    deleteMutation.mutate(idToDelete);
   };
 
   const handleSave = async (data: CreateHealthCheckConfiguration) => {
-    await (editingConfig
-      ? api.updateConfiguration({ id: editingConfig.id, body: data })
-      : api.createConfiguration(data));
-    setIsEditorOpen(false);
-    await fetchData();
+    if (editingConfig) {
+      updateMutation.mutate({ id: editingConfig.id, body: data });
+    } else {
+      createMutation.mutate(data);
+    }
   };
 
   const handleEditorClose = () => {
@@ -153,7 +177,7 @@ const HealthCheckConfigPageContent = () => {
         message="Are you sure you want to delete this health check configuration? This action cannot be undone."
         confirmText="Delete"
         variant="danger"
-        isLoading={isDeleting}
+        isLoading={deleteMutation.isPending}
       />
     </PageLayout>
   );

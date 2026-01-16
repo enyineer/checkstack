@@ -1,10 +1,6 @@
-import { oc } from "@orpc/contract";
 import { z } from "zod";
 import { pluginMetadata } from "./plugin-metadata";
-import {
-  createClientDefinition,
-  type ProcedureMetadata,
-} from "@checkstack/common";
+import { createClientDefinition, proc } from "@checkstack/common";
 import { integrationAccess } from "@checkstack/integration-common";
 import {
   JiraConnectionRedactedSchema,
@@ -14,9 +10,6 @@ import {
   JiraIssueTypeSchema,
   JiraFieldSchema,
 } from "./schemas";
-
-// Base builder with full metadata support
-const _base = oc.$meta<ProcedureMetadata>({});
 
 /**
  * RPC contract for Jira-specific operations.
@@ -28,55 +21,54 @@ export const jiraContract = {
   // ==========================================================================
 
   /** List all Jira connections (redacted - no API tokens) */
-  listConnections: _base
-    .meta({
-      userType: "user",
-      access: [integrationAccess.manage],
-    })
-    .output(z.array(JiraConnectionRedactedSchema)),
+  listConnections: proc({
+    operationType: "query",
+    userType: "user",
+    access: [integrationAccess.manage],
+  }).output(z.array(JiraConnectionRedactedSchema)),
 
   /** Get a single connection (redacted) */
-  getConnection: _base
-    .meta({
-      userType: "user",
-      access: [integrationAccess.manage],
-    })
+  getConnection: proc({
+    operationType: "query",
+    userType: "user",
+    access: [integrationAccess.manage],
+  })
     .input(z.object({ id: z.string() }))
     .output(JiraConnectionRedactedSchema),
 
   /** Create a new Jira connection */
-  createConnection: _base
-    .meta({
-      userType: "user",
-      access: [integrationAccess.manage],
-    })
+  createConnection: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [integrationAccess.manage],
+  })
     .input(CreateJiraConnectionInputSchema)
     .output(JiraConnectionRedactedSchema),
 
   /** Update a Jira connection */
-  updateConnection: _base
-    .meta({
-      userType: "user",
-      access: [integrationAccess.manage],
-    })
+  updateConnection: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [integrationAccess.manage],
+  })
     .input(UpdateJiraConnectionInputSchema)
     .output(JiraConnectionRedactedSchema),
 
   /** Delete a Jira connection */
-  deleteConnection: _base
-    .meta({
-      userType: "user",
-      access: [integrationAccess.manage],
-    })
+  deleteConnection: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [integrationAccess.manage],
+  })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
 
   /** Test a Jira connection */
-  testConnection: _base
-    .meta({
-      userType: "user",
-      access: [integrationAccess.manage],
-    })
+  testConnection: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [integrationAccess.manage],
+  })
     .input(z.object({ id: z.string() }))
     .output(
       z.object({
@@ -90,20 +82,20 @@ export const jiraContract = {
   // ==========================================================================
 
   /** Get projects available in a Jira connection */
-  getProjects: _base
-    .meta({
-      userType: "user",
-      access: [integrationAccess.manage],
-    })
+  getProjects: proc({
+    operationType: "query",
+    userType: "user",
+    access: [integrationAccess.manage],
+  })
     .input(z.object({ connectionId: z.string() }))
     .output(z.array(JiraProjectSchema)),
 
   /** Get issue types available for a project */
-  getIssueTypes: _base
-    .meta({
-      userType: "user",
-      access: [integrationAccess.manage],
-    })
+  getIssueTypes: proc({
+    operationType: "query",
+    userType: "user",
+    access: [integrationAccess.manage],
+  })
     .input(
       z.object({
         connectionId: z.string(),
@@ -113,11 +105,11 @@ export const jiraContract = {
     .output(z.array(JiraIssueTypeSchema)),
 
   /** Get fields available for a project and issue type */
-  getFields: _base
-    .meta({
-      userType: "user",
-      access: [integrationAccess.manage],
-    })
+  getFields: proc({
+    operationType: "query",
+    userType: "user",
+    access: [integrationAccess.manage],
+  })
     .input(
       z.object({
         connectionId: z.string(),
@@ -128,11 +120,11 @@ export const jiraContract = {
     .output(z.array(JiraFieldSchema)),
 
   /** Get priorities available in Jira */
-  getPriorities: _base
-    .meta({
-      userType: "user",
-      access: [integrationAccess.manage],
-    })
+  getPriorities: proc({
+    operationType: "query",
+    userType: "user",
+    access: [integrationAccess.manage],
+  })
     .input(z.object({ connectionId: z.string() }))
     .output(
       z.array(

@@ -1,34 +1,30 @@
-import { useEffect, useState } from "react";
-import { useApi } from "@checkstack/frontend-api";
-import { {{pluginNameCamel}}ApiRef, type {{pluginNamePascal}}Item } from "../api";
+import { usePluginClient } from "@checkstack/frontend-api";
+import { useQueryClient } from "@tanstack/react-query";
+import { {{pluginNamePascal}}Api } from "@checkstack/{{pluginBaseName}}-common";
+import type { {{pluginNamePascal}}Item } from "../api";
 import { Button, Card } from "@checkstack/ui";
 import { useNavigate } from "react-router-dom";
 
 export const {{pluginNamePascal}}ListPage = () => {
-  const api = useApi({{pluginNameCamel}}ApiRef);
+  const client = usePluginClient({{pluginNamePascal}}Api);
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [items, setItems] = useState<{{pluginNamePascal}}Item[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error>();
 
-  useEffect(() => {
-    api
-      .getItems()
-      .then(setItems)
-      .catch(setError)
-      .finally(() => setLoading(false));
-  }, [api]);
+  // Query for items - automatic loading and error states
+  const { data: items = [], isLoading, error } = client.getItems.useQuery({});
 
-  const handleDelete = async (id: string) => {
-    try {
-      await api.deleteItem(id);
-      setItems(items.filter((item) => item.id !== id));
-    } catch (error) {
-      console.error("Failed to delete item:", error);
-    }
+  // Delete mutation with cache invalidation
+  const deleteMutation = client.deleteItem.useMutation({
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["{{pluginBaseName}}"] });
+    },
+  });
+
+  const handleDelete = (id: string) => {
+    deleteMutation.mutate({ id });
   };
 
-  if (loading) return <div className="p-6">Loading...</div>;
+  if (isLoading) return <div className="p-6">Loading...</div>;
   if (error) return <div className="p-6 text-red-500">Error: {error.message}</div>;
 
   return (
@@ -41,7 +37,7 @@ export const {{pluginNamePascal}}ListPage = () => {
       </div>
 
       <div className="grid gap-4">
-        {items.map((item) => (
+        {items.map((item: {{pluginNamePascal}}Item) => (
           <Card key={item.id} className="p-4">
             <div className="flex justify-between items-start">
               <div>
@@ -62,8 +58,9 @@ export const {{pluginNamePascal}}ListPage = () => {
                   variant="destructive"
                   size="sm"
                   onClick={() => handleDelete(item.id)}
+                  disabled={deleteMutation.isPending}
                 >
-                  Delete
+                  {deleteMutation.isPending ? "Deleting..." : "Delete"}
                 </Button>
               </div>
             </div>

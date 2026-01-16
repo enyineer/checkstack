@@ -1,11 +1,7 @@
-import { oc } from "@orpc/contract";
 import { z } from "zod";
 import { notificationAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
-import {
-  createClientDefinition,
-  type ProcedureMetadata,
-} from "@checkstack/common";
+import { createClientDefinition, proc } from "@checkstack/common";
 import {
   NotificationSchema,
   NotificationGroupSchema,
@@ -14,9 +10,6 @@ import {
   PaginationInputSchema,
 } from "./schemas";
 
-// Base builder with full metadata support (userType + access)
-const _base = oc.$meta<ProcedureMetadata>({});
-
 // Notification RPC Contract
 export const notificationContract = {
   // ==========================================================================
@@ -24,10 +17,11 @@ export const notificationContract = {
   // ==========================================================================
 
   // Get current user's notifications (paginated)
-  getNotifications: _base
-    .meta({
-      userType: "user",
-    })
+  getNotifications: proc({
+    operationType: "query",
+    userType: "user",
+    access: [],
+  })
     .input(PaginationInputSchema)
     .output(
       z.object({
@@ -37,17 +31,18 @@ export const notificationContract = {
     ),
 
   // Get unread count for badge
-  getUnreadCount: _base
-    .meta({
-      userType: "user",
-    })
-    .output(z.object({ count: z.number() })),
+  getUnreadCount: proc({
+    operationType: "query",
+    userType: "user",
+    access: [],
+  }).output(z.object({ count: z.number() })),
 
   // Mark notification(s) as read
-  markAsRead: _base
-    .meta({
-      userType: "user",
-    })
+  markAsRead: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [],
+  })
     .input(
       z.object({
         notificationId: z.string().uuid().optional(), // If not provided, mark all as read
@@ -56,10 +51,11 @@ export const notificationContract = {
     .output(z.void()),
 
   // Delete a notification
-  deleteNotification: _base
-    .meta({
-      userType: "user",
-    })
+  deleteNotification: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [],
+  })
     .input(z.object({ notificationId: z.string().uuid() }))
     .output(z.void()),
 
@@ -68,61 +64,61 @@ export const notificationContract = {
   // ==========================================================================
 
   // Get all available notification groups
-  getGroups: _base
-    .meta({
-      userType: "authenticated", // Services can read groups too
-    })
-    .output(z.array(NotificationGroupSchema)),
+  getGroups: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [],
+  }).output(z.array(NotificationGroupSchema)),
 
   // Get current user's subscriptions with group details
-  getSubscriptions: _base
-    .meta({
-      userType: "user",
-    })
-    .output(z.array(EnrichedSubscriptionSchema)),
+  getSubscriptions: proc({
+    operationType: "query",
+    userType: "user",
+    access: [],
+  }).output(z.array(EnrichedSubscriptionSchema)),
 
   // Subscribe to a notification group
-  subscribe: _base
-    .meta({
-      userType: "user",
-    })
+  subscribe: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [],
+  })
     .input(z.object({ groupId: z.string() }))
     .output(z.void()),
 
   // Unsubscribe from a notification group
-  unsubscribe: _base
-    .meta({
-      userType: "user",
-    })
+  unsubscribe: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [],
+  })
     .input(z.object({ groupId: z.string() }))
     .output(z.void()),
 
   // ==========================================================================
-  // ADMIN SETTINGS ENDPOINTS (userType: "user" with admin accesss)
+  // ADMIN SETTINGS ENDPOINTS (userType: "user" with admin access)
   // ==========================================================================
 
   // Get retention schema for DynamicForm
-  getRetentionSchema: _base
-    .meta({
-      userType: "user",
-      access: [notificationAccess.admin],
-    })
-    .output(z.record(z.string(), z.unknown())),
+  getRetentionSchema: proc({
+    operationType: "query",
+    userType: "user",
+    access: [notificationAccess.admin],
+  }).output(z.record(z.string(), z.unknown())),
 
   // Get retention settings
-  getRetentionSettings: _base
-    .meta({
-      userType: "user",
-      access: [notificationAccess.admin],
-    })
-    .output(RetentionSettingsSchema),
+  getRetentionSettings: proc({
+    operationType: "query",
+    userType: "user",
+    access: [notificationAccess.admin],
+  }).output(RetentionSettingsSchema),
 
   // Update retention settings
-  setRetentionSettings: _base
-    .meta({
-      userType: "user",
-      access: [notificationAccess.admin],
-    })
+  setRetentionSettings: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [notificationAccess.admin],
+  })
     .input(RetentionSettingsSchema)
     .output(z.void()),
 
@@ -131,8 +127,11 @@ export const notificationContract = {
   // ==========================================================================
 
   // Create a notification group (for plugins to register their groups)
-  createGroup: _base
-    .meta({ userType: "service" })
+  createGroup: proc({
+    operationType: "mutation",
+    userType: "service",
+    access: [],
+  })
     .input(
       z.object({
         groupId: z
@@ -150,8 +149,11 @@ export const notificationContract = {
     .output(z.object({ id: z.string() })),
 
   // Delete a notification group
-  deleteGroup: _base
-    .meta({ userType: "service" })
+  deleteGroup: proc({
+    operationType: "mutation",
+    userType: "service",
+    access: [],
+  })
     .input(
       z.object({
         groupId: z.string().describe("Full namespaced group ID to delete"),
@@ -163,8 +165,11 @@ export const notificationContract = {
     .output(z.object({ success: z.boolean() })),
 
   // Get subscribers for a specific notification group
-  getGroupSubscribers: _base
-    .meta({ userType: "service" })
+  getGroupSubscribers: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
     .input(
       z.object({
         groupId: z
@@ -175,16 +180,17 @@ export const notificationContract = {
     .output(z.object({ userIds: z.array(z.string()) })),
 
   // Send notifications to a list of users (deduplicated by caller)
-  notifyUsers: _base
-    .meta({ userType: "service" })
+  notifyUsers: proc({
+    operationType: "mutation",
+    userType: "service",
+    access: [],
+  })
     .input(
       z.object({
         userIds: z.array(z.string()),
         title: z.string(),
-        /** Notification body in markdown format */
         body: z.string().describe("Notification body (supports markdown)"),
         importance: z.enum(["info", "warning", "critical"]).optional(),
-        /** Primary action button */
         action: z
           .object({
             label: z.string(),
@@ -196,20 +202,19 @@ export const notificationContract = {
     .output(z.object({ notifiedCount: z.number() })),
 
   // Notify all subscribers of multiple groups (deduplicates internally)
-  // Use this when an event affects multiple groups and you want to avoid
-  // duplicate notifications for users subscribed to multiple affected groups.
-  notifyGroups: _base
-    .meta({ userType: "service" })
+  notifyGroups: proc({
+    operationType: "mutation",
+    userType: "service",
+    access: [],
+  })
     .input(
       z.object({
         groupIds: z
           .array(z.string())
           .describe("Full namespaced group IDs to notify"),
         title: z.string(),
-        /** Notification body in markdown format */
         body: z.string().describe("Notification body (supports markdown)"),
         importance: z.enum(["info", "warning", "critical"]).optional(),
-        /** Primary action button */
         action: z
           .object({
             label: z.string(),
@@ -220,11 +225,12 @@ export const notificationContract = {
     )
     .output(z.object({ notifiedCount: z.number() })),
 
-  // Send transactional notification via ALL enabled strategies (no internal notification created)
-  // For security-critical messages like password reset, 2FA, account verification, etc.
-  // Unlike regular notifications, this bypasses user preferences and does not create a bell notification.
-  sendTransactional: _base
-    .meta({ userType: "service" })
+  // Send transactional notification via ALL enabled strategies
+  sendTransactional: proc({
+    operationType: "mutation",
+    userType: "service",
+    access: [],
+  })
     .input(
       z.object({
         userId: z.string().describe("User to notify"),
@@ -256,62 +262,57 @@ export const notificationContract = {
     ),
 
   // ==========================================================================
-  // DELIVERY STRATEGY ADMIN ENDPOINTS (userType: "user" with admin accesss)
+  // DELIVERY STRATEGY ADMIN ENDPOINTS (userType: "user" with admin access)
   // ==========================================================================
 
   // Get all registered delivery strategies with current config
-  getDeliveryStrategies: _base
-    .meta({
-      userType: "user",
-      access: [notificationAccess.admin],
-    })
-    .output(
-      z.array(
-        z.object({
-          qualifiedId: z.string(),
-          displayName: z.string(),
-          description: z.string().optional(),
-          icon: z.string().optional(),
-          ownerPluginId: z.string(),
-          contactResolution: z.object({
-            type: z.enum([
-              "auth-email",
-              "auth-provider",
-              "user-config",
-              "oauth-link",
-              "custom",
-            ]),
-            provider: z.string().optional(),
-            field: z.string().optional(),
-          }),
-          requiresUserConfig: z.boolean(),
-          requiresOAuthLink: z.boolean(),
-          configSchema: z.record(z.string(), z.unknown()),
-          userConfigSchema: z.record(z.string(), z.unknown()).optional(),
-          /** Layout config schema for admin customization (logo, colors, etc.) */
-          layoutConfigSchema: z.record(z.string(), z.unknown()).optional(),
-          enabled: z.boolean(),
-          config: z.record(z.string(), z.unknown()).optional(),
-          /** Current layout config values */
-          layoutConfig: z.record(z.string(), z.unknown()).optional(),
-          /** Markdown instructions for admins (setup guides, etc.) */
-          adminInstructions: z.string().optional(),
-        })
-      )
-    ),
+  getDeliveryStrategies: proc({
+    operationType: "query",
+    userType: "user",
+    access: [notificationAccess.admin],
+  }).output(
+    z.array(
+      z.object({
+        qualifiedId: z.string(),
+        displayName: z.string(),
+        description: z.string().optional(),
+        icon: z.string().optional(),
+        ownerPluginId: z.string(),
+        contactResolution: z.object({
+          type: z.enum([
+            "auth-email",
+            "auth-provider",
+            "user-config",
+            "oauth-link",
+            "custom",
+          ]),
+          provider: z.string().optional(),
+          field: z.string().optional(),
+        }),
+        requiresUserConfig: z.boolean(),
+        requiresOAuthLink: z.boolean(),
+        configSchema: z.record(z.string(), z.unknown()),
+        userConfigSchema: z.record(z.string(), z.unknown()).optional(),
+        layoutConfigSchema: z.record(z.string(), z.unknown()).optional(),
+        enabled: z.boolean(),
+        config: z.record(z.string(), z.unknown()).optional(),
+        layoutConfig: z.record(z.string(), z.unknown()).optional(),
+        adminInstructions: z.string().optional(),
+      })
+    )
+  ),
 
   // Update strategy enabled state and config
-  updateDeliveryStrategy: _base
-    .meta({
-      userType: "user",
-      access: [notificationAccess.admin],
-    })
+  updateDeliveryStrategy: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [notificationAccess.admin],
+  })
     .input(
       z.object({
         strategyId: z.string().describe("Qualified strategy ID"),
         enabled: z.boolean(),
         config: z.record(z.string(), z.unknown()).optional(),
-        /** Layout customization (logo, colors, footer) */
         layoutConfig: z.record(z.string(), z.unknown()).optional(),
       })
     )
@@ -322,7 +323,11 @@ export const notificationContract = {
   // ==========================================================================
 
   // Get available delivery channels for current user
-  getUserDeliveryChannels: _base.meta({ userType: "user" }).output(
+  getUserDeliveryChannels: proc({
+    operationType: "query",
+    userType: "user",
+    access: [],
+  }).output(
     z.array(
       z.object({
         strategyId: z.string(),
@@ -340,19 +345,19 @@ export const notificationContract = {
         enabled: z.boolean(),
         isConfigured: z.boolean(),
         linkedAt: z.coerce.date().optional(),
-        /** JSON Schema for user config (for DynamicForm) */
         userConfigSchema: z.record(z.string(), z.unknown()).optional(),
-        /** Current user config values */
         userConfig: z.record(z.string(), z.unknown()).optional(),
-        /** Markdown instructions for users (connection guides, etc.) */
         userInstructions: z.string().optional(),
       })
     )
   ),
 
   // Update user's preference for a delivery channel
-  setUserDeliveryPreference: _base
-    .meta({ userType: "user" })
+  setUserDeliveryPreference: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [],
+  })
     .input(
       z.object({
         strategyId: z.string(),
@@ -363,8 +368,11 @@ export const notificationContract = {
     .output(z.void()),
 
   // Get OAuth link URL for a strategy (starts OAuth flow)
-  getDeliveryOAuthUrl: _base
-    .meta({ userType: "user" })
+  getDeliveryOAuthUrl: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [],
+  })
     .input(
       z.object({
         strategyId: z.string(),
@@ -374,14 +382,20 @@ export const notificationContract = {
     .output(z.object({ authUrl: z.string() })),
 
   // Unlink OAuth-connected delivery channel
-  unlinkDeliveryChannel: _base
-    .meta({ userType: "user" })
+  unlinkDeliveryChannel: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [],
+  })
     .input(z.object({ strategyId: z.string() }))
     .output(z.void()),
 
   // Send a test notification to the current user via a specific strategy
-  sendTestNotification: _base
-    .meta({ userType: "user" })
+  sendTestNotification: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [],
+  })
     .input(z.object({ strategyId: z.string() }))
     .output(
       z.object({

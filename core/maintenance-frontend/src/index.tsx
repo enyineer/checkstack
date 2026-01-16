@@ -1,14 +1,10 @@
 import {
   createFrontendPlugin,
   createSlotExtension,
-  rpcApiRef,
-  type ApiRef,
   UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
-import { maintenanceApiRef, type MaintenanceApiClient } from "./api";
 import {
   maintenanceRoutes,
-  MaintenanceApi,
   pluginMetadata,
   maintenanceAccess,
 } from "@checkstack/maintenance-common";
@@ -43,17 +39,8 @@ export default createFrontendPlugin({
       title: "Maintenance Details",
     },
   ],
-  apis: [
-    {
-      ref: maintenanceApiRef,
-      factory: (deps: {
-        get: <T>(ref: ApiRef<T>) => T;
-      }): MaintenanceApiClient => {
-        const rpcApi = deps.get(rpcApiRef);
-        return rpcApi.forPlugin(MaintenanceApi);
-      },
-    },
-  ],
+  // No APIs needed - components use usePluginClient() directly
+  apis: [],
   extensions: [
     createSlotExtension(UserMenuItemsSlot, {
       id: "maintenance.user-menu.items",

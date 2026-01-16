@@ -1,14 +1,13 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React from "react";
 import { Link } from "react-router-dom";
-import { useApi, type SlotContext } from "@checkstack/frontend-api";
+import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
 import { resolveRoute } from "@checkstack/common";
 import { SystemDetailsSlot } from "@checkstack/catalog-common";
-import { maintenanceApiRef } from "../api";
+import { MaintenanceApi } from "../api";
 import {
   maintenanceRoutes,
   MAINTENANCE_UPDATED,
-  type MaintenanceWithSystems,
 } from "@checkstack/maintenance-common";
 import {
   Card,
@@ -29,31 +28,22 @@ type Props = SlotContext<typeof SystemDetailsSlot>;
  * Listens for realtime updates via signals.
  */
 export const SystemMaintenancePanel: React.FC<Props> = ({ system }) => {
-  const api = useApi(maintenanceApiRef);
-  const [maintenances, setMaintenances] = useState<MaintenanceWithSystems[]>(
-    []
+  const maintenanceClient = usePluginClient(MaintenanceApi);
+
+  // Fetch maintenances with useQuery
+  const {
+    data: maintenances = [],
+    isLoading: loading,
+    refetch,
+  } = maintenanceClient.getMaintenancesForSystem.useQuery(
+    { systemId: system?.id ?? "" },
+    { enabled: !!system?.id }
   );
-  const [loading, setLoading] = useState(true);
-
-  const refetch = useCallback(() => {
-    if (!system?.id) return;
-
-    api
-      .getMaintenancesForSystem({ systemId: system.id })
-      .then(setMaintenances)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [system?.id, api]);
-
-  // Initial fetch
-  useEffect(() => {
-    refetch();
-  }, [refetch]);
 
   // Listen for realtime maintenance updates
   useSignal(MAINTENANCE_UPDATED, ({ systemIds }) => {
     if (system?.id && systemIds.includes(system.id)) {
-      refetch();
+      void refetch();
     }
   });
 

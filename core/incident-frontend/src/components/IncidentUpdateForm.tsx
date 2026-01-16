@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { useApi } from "@checkstack/frontend-api";
-import { incidentApiRef } from "../api";
+import { usePluginClient } from "@checkstack/frontend-api";
+import { IncidentApi } from "../api";
 import type { IncidentStatus } from "@checkstack/incident-common";
 import {
   Button,
@@ -30,37 +30,37 @@ export const IncidentUpdateForm: React.FC<IncidentUpdateFormProps> = ({
   onSuccess,
   onCancel,
 }) => {
-  const api = useApi(incidentApiRef);
+  const incidentClient = usePluginClient(IncidentApi);
   const toast = useToast();
 
   const [message, setMessage] = useState("");
   const [statusChange, setStatusChange] = useState<IncidentStatus | "">("");
-  const [isPosting, setIsPosting] = useState(false);
 
-  const handleSubmit = async () => {
+  const addUpdateMutation = incidentClient.addUpdate.useMutation({
+    onSuccess: () => {
+      toast.success("Update posted");
+      setMessage("");
+      setStatusChange("");
+      onSuccess();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to post update"
+      );
+    },
+  });
+
+  const handleSubmit = () => {
     if (!message.trim()) {
       toast.error("Update message is required");
       return;
     }
 
-    setIsPosting(true);
-    try {
-      await api.addUpdate({
-        incidentId,
-        message,
-        statusChange: statusChange || undefined,
-      });
-      toast.success("Update posted");
-      setMessage("");
-      setStatusChange("");
-      onSuccess();
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Failed to post update";
-      toast.error(errorMessage);
-    } finally {
-      setIsPosting(false);
-    }
+    addUpdateMutation.mutate({
+      incidentId,
+      message,
+      statusChange: statusChange || undefined,
+    });
   };
 
   return (
@@ -107,9 +107,9 @@ export const IncidentUpdateForm: React.FC<IncidentUpdateFormProps> = ({
         <Button
           size="sm"
           onClick={handleSubmit}
-          disabled={isPosting || !message.trim()}
+          disabled={addUpdateMutation.isPending || !message.trim()}
         >
-          {isPosting ? (
+          {addUpdateMutation.isPending ? (
             <>
               <Loader2 className="h-4 w-4 mr-1 animate-spin" />
               Posting...

@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { useApi, type SlotContext } from "@checkstack/frontend-api";
-import { healthCheckApiRef, HealthCheckRunPublic } from "../api";
+import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
+import { HealthCheckApi } from "../api";
 import { SystemDetailsSlot } from "@checkstack/catalog-common";
 import {
   Table,
@@ -25,18 +24,15 @@ export const HealthCheckHistory: React.FC<SlotProps> = (props) => {
   const { system, configurationId, limit } = props as Props;
   const systemId = system?.id;
 
-  const healthCheckApi = useApi(healthCheckApiRef);
-  const [history, setHistory] = useState<HealthCheckRunPublic[]>([]);
-  const [loading, setLoading] = useState(true);
+  const healthCheckClient = usePluginClient(HealthCheckApi);
 
-  useEffect(() => {
-    // If it's used in a context that doesn't provide systemId or configurationId,
-    // we might want to skip or handle it.
-    healthCheckApi
-      .getHistory({ systemId, configurationId, limit })
-      .then((response) => setHistory(response.runs))
-      .finally(() => setLoading(false));
-  }, [healthCheckApi, systemId, configurationId, limit]);
+  // Fetch history with useQuery
+  const { data, isLoading: loading } = healthCheckClient.getHistory.useQuery(
+    { systemId, configurationId, limit },
+    { enabled: true }
+  );
+
+  const history = data?.runs ?? [];
 
   if (loading) return <LoadingSpinner />;
 

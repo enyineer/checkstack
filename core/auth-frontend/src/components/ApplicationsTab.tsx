@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Card,
   CardHeader,
@@ -25,8 +25,7 @@ import {
   useToast,
 } from "@checkstack/ui";
 import { Plus, Trash2, RotateCcw, Copy } from "lucide-react";
-import { useApi } from "@checkstack/frontend-api";
-import { rpcApiRef } from "@checkstack/frontend-api";
+import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
 import type { Role } from "../api";
 
@@ -49,12 +48,9 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
   roles,
   canManageApplications,
 }) => {
-  const rpcApi = useApi(rpcApiRef);
-  const authClient = rpcApi.forPlugin(AuthApi);
+  const authClient = usePluginClient(AuthApi);
   const toast = useToast();
 
-  const [applications, setApplications] = useState<Application[]>([]);
-  const [loading, setLoading] = useState(true);
   const [applicationToDelete, setApplicationToDelete] = useState<string>();
   const [applicationToRegenerateSecret, setApplicationToRegenerateSecret] =
     useState<{ id: string; name: string }>();
@@ -67,36 +63,19 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
   const [newAppName, setNewAppName] = useState("");
   const [newAppDescription, setNewAppDescription] = useState("");
 
-  const fetchApplications = async () => {
-    if (!canManageApplications) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const data = await authClient.getApplications();
-      setApplications(data as Application[]);
-    } catch (error) {
-      console.error("Failed to fetch applications:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Query: Applications list
+  const {
+    data: applications = [],
+    isLoading: loading,
+    refetch: refetchApplications,
+  } = authClient.getApplications.useQuery(
+    {},
+    { enabled: canManageApplications }
+  );
 
-  useEffect(() => {
-    fetchApplications();
-  }, [canManageApplications]);
-
-  const handleCreateApplication = async () => {
-    if (!newAppName.trim()) {
-      toast.error("Application name is required");
-      return;
-    }
-    try {
-      const result = await authClient.createApplication({
-        name: newAppName.trim(),
-        description: newAppDescription.trim() || undefined,
-      });
+  // Mutations
+  const createApplicationMutation = authClient.createApplication.useMutation({
+    onSuccess: (result) => {
       setCreateAppDialogOpen(false);
       setNewAppName("");
       setNewAppDescription("");
@@ -105,15 +84,68 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
         secret: result.secret,
         applicationName: result.application.name,
       });
-      await fetchApplications();
-    } catch (error: unknown) {
+      void refetchApplications();
+    },
+    onError: (error) => {
       toast.error(
         error instanceof Error ? error.message : "Failed to create application"
       );
+    },
+  });
+
+  const updateApplicationMutation = authClient.updateApplication.useMutation({
+    onSuccess: () => {
+      void refetchApplications();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update application"
+      );
+    },
+  });
+
+  const deleteApplicationMutation = authClient.deleteApplication.useMutation({
+    onSuccess: () => {
+      toast.success("Application deleted successfully");
+      setApplicationToDelete(undefined);
+      void refetchApplications();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete application"
+      );
+    },
+  });
+
+  const regenerateSecretMutation =
+    authClient.regenerateApplicationSecret.useMutation({
+      onSuccess: (result) => {
+        setNewSecretDialog({
+          open: true,
+          secret: result.secret,
+          applicationName: applicationToRegenerateSecret?.name ?? "",
+        });
+        setApplicationToRegenerateSecret(undefined);
+      },
+      onError: (error) => {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to regenerate secret"
+        );
+      },
+    });
+
+  const handleCreateApplication = () => {
+    if (!newAppName.trim()) {
+      toast.error("Application name is required");
+      return;
     }
+    createApplicationMutation.mutate({
+      name: newAppName.trim(),
+      description: newAppDescription.trim() || undefined,
+    });
   };
 
-  const handleToggleApplicationRole = async (
+  const handleToggleApplicationRole = (
     appId: string,
     roleId: string,
     currentRoles: string[]
@@ -122,56 +154,20 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
       ? currentRoles.filter((r) => r !== roleId)
       : [...currentRoles, roleId];
 
-    try {
-      await authClient.updateApplication({
-        id: appId,
-        roles: newRoles,
-      });
-      setApplications(
-        applications.map((a) =>
-          a.id === appId ? { ...a, roles: newRoles } : a
-        )
-      );
-    } catch (error: unknown) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to update application roles"
-      );
-    }
+    updateApplicationMutation.mutate({
+      id: appId,
+      roles: newRoles,
+    });
   };
 
-  const handleDeleteApplication = async () => {
+  const handleDeleteApplication = () => {
     if (!applicationToDelete) return;
-    try {
-      await authClient.deleteApplication(applicationToDelete);
-      toast.success("Application deleted successfully");
-      setApplicationToDelete(undefined);
-      await fetchApplications();
-    } catch (error: unknown) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to delete application"
-      );
-    }
+    deleteApplicationMutation.mutate(applicationToDelete);
   };
 
-  const handleRegenerateSecret = async () => {
+  const handleRegenerateSecret = () => {
     if (!applicationToRegenerateSecret) return;
-    try {
-      const result = await authClient.regenerateApplicationSecret(
-        applicationToRegenerateSecret.id
-      );
-      setApplicationToRegenerateSecret(undefined);
-      setNewSecretDialog({
-        open: true,
-        secret: result.secret,
-        applicationName: applicationToRegenerateSecret.name,
-      });
-    } catch (error: unknown) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to regenerate secret"
-      );
-    }
+    regenerateSecretMutation.mutate(applicationToRegenerateSecret.id);
   };
 
   return (
@@ -199,7 +195,7 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
             <div className="flex justify-center py-4">
               <LoadingSpinner />
             </div>
-          ) : applications.length === 0 ? (
+          ) : (applications as Application[]).length === 0 ? (
             <p className="text-muted-foreground">
               No external applications configured yet.
             </p>
@@ -214,7 +210,7 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {applications.map((app) => (
+                {(applications as Application[]).map((app) => (
                   <TableRow key={app.id}>
                     <TableCell>
                       <div className="flex flex-col">
@@ -322,7 +318,7 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
       <ConfirmationModal
         isOpen={!!applicationToRegenerateSecret}
         onClose={() => setApplicationToRegenerateSecret(undefined)}
-        onConfirm={() => void handleRegenerateSecret()}
+        onConfirm={handleRegenerateSecret}
         title="Regenerate Application Secret"
         message={`Are you sure you want to regenerate the secret for "${
           applicationToRegenerateSecret?.name ?? ""
@@ -365,7 +361,7 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  navigator.clipboard.writeText(newSecretDialog.secret);
+                  void navigator.clipboard.writeText(newSecretDialog.secret);
                   toast.success("Secret copied to clipboard");
                 }}
               >
@@ -448,8 +444,11 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
             >
               Cancel
             </Button>
-            <Button onClick={() => void handleCreateApplication()}>
-              Create
+            <Button
+              onClick={handleCreateApplication}
+              disabled={createApplicationMutation.isPending}
+            >
+              {createApplicationMutation.isPending ? "Creating..." : "Create"}
             </Button>
           </DialogFooter>
         </DialogContent>

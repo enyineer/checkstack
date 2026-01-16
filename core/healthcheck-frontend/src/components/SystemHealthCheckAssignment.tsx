@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
+  usePluginClient,
   useApi,
   type SlotContext,
   accessApiRef,
 } from "@checkstack/frontend-api";
-import { healthCheckApiRef, HealthCheckConfiguration } from "../api";
+import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import {
   Button,
   Dialog,
@@ -52,17 +53,19 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
   systemId,
   systemName: _systemName,
 }) => {
-  const api = useApi(healthCheckApiRef);
+  const healthCheckClient = usePluginClient(HealthCheckApi);
   const accessApi = useApi(accessApiRef);
   const { allowed: canManage } = accessApi.useAccess(
     healthCheckAccess.configuration.manage
   );
-  const [configs, setConfigs] = useState<HealthCheckConfiguration[]>([]);
-  const [associations, setAssociations] = useState<AssociationState[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+
+  // UI state
   const [isOpen, setIsOpen] = useState(false);
   const [selectedPanel, setSelectedPanel] = useState<SelectedPanel>();
+  const [localThresholds, setLocalThresholds] = useState<
+    Record<string, StateThresholds>
+  >({});
   const [retentionData, setRetentionData] = useState<
     Record<
       string,
@@ -71,82 +74,119 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
         hourlyRetentionDays: number;
         dailyRetentionDays: number;
         isCustom: boolean;
-        loading: boolean;
       }
     >
   >({});
-  const toast = useToast();
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [{ configurations: allConfigs }, systemAssociations] =
-        await Promise.all([
-          api.getConfigurations(),
-          api.getSystemAssociations({ systemId }),
-        ]);
-      setConfigs(allConfigs);
-      setAssociations(systemAssociations);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to load data";
-      toast.error(message);
-    } finally {
-      setLoading(false);
+  // Query: Fetch configurations
+  const { data: configurationsData, isLoading: configsLoading } =
+    healthCheckClient.getConfigurations.useQuery({}, { enabled: isOpen });
+
+  // Query: Fetch associations
+  const {
+    data: associations = [],
+    isLoading: associationsLoading,
+    refetch: refetchAssociations,
+  } = healthCheckClient.getSystemAssociations.useQuery(
+    { systemId },
+    { enabled: true }
+  );
+
+  // Query: Fetch retention config for selected panel
+  const selectedConfigId =
+    selectedPanel?.panel === "retention" ? selectedPanel.configId : undefined;
+  const { data: retentionConfigData } =
+    healthCheckClient.getRetentionConfig.useQuery(
+      { systemId, configurationId: selectedConfigId ?? "" },
+      { enabled: !!selectedConfigId && !retentionData[selectedConfigId] }
+    );
+
+  // Update retention data when fetched
+  React.useEffect(() => {
+    if (
+      retentionConfigData &&
+      selectedConfigId &&
+      !retentionData[selectedConfigId]
+    ) {
+      setRetentionData((prev) => ({
+        ...prev,
+        [selectedConfigId]: {
+          rawRetentionDays:
+            retentionConfigData.retentionConfig?.rawRetentionDays ??
+            DEFAULT_RETENTION_CONFIG.rawRetentionDays,
+          hourlyRetentionDays:
+            retentionConfigData.retentionConfig?.hourlyRetentionDays ??
+            DEFAULT_RETENTION_CONFIG.hourlyRetentionDays,
+          dailyRetentionDays:
+            retentionConfigData.retentionConfig?.dailyRetentionDays ??
+            DEFAULT_RETENTION_CONFIG.dailyRetentionDays,
+          isCustom: !!retentionConfigData.retentionConfig,
+        },
+      }));
     }
-  };
+  }, [retentionConfigData, selectedConfigId, retentionData]);
 
-  // Load association count on mount (for button badge)
-  useEffect(() => {
-    api.getSystemAssociations({ systemId }).then(setAssociations);
-  }, [api, systemId]);
+  // Mutation: Associate system
+  const associateMutation = healthCheckClient.associateSystem.useMutation({
+    onSuccess: () => {
+      void refetchAssociations();
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to update");
+    },
+  });
 
-  // Load full data when dialog opens
-  useEffect(() => {
-    if (isOpen) {
-      loadData();
+  // Mutation: Disassociate system
+  const disassociateMutation = healthCheckClient.disassociateSystem.useMutation(
+    {
+      onSuccess: () => {
+        void refetchAssociations();
+      },
+      onError: (error) => {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to update"
+        );
+      },
     }
-  }, [systemId, isOpen]);
+  );
 
-  const handleToggleAssignment = async (
+  // Mutation: Update retention config
+  const updateRetentionMutation =
+    healthCheckClient.updateRetentionConfig.useMutation({
+      onSuccess: () => {
+        toast.success("Retention settings saved");
+        setSelectedPanel(undefined);
+      },
+      onError: (error) => {
+        toast.error(error instanceof Error ? error.message : "Failed to save");
+      },
+    });
+
+  const configs = configurationsData?.configurations ?? [];
+  const loading = configsLoading || associationsLoading;
+  const saving =
+    associateMutation.isPending ||
+    disassociateMutation.isPending ||
+    updateRetentionMutation.isPending;
+
+  const handleToggleAssignment = (
     configId: string,
     isCurrentlyAssigned: boolean
   ) => {
     const config = configs.find((c) => c.id === configId);
     if (!config) return;
 
-    setSaving(true);
-    try {
-      if (isCurrentlyAssigned) {
-        await api.disassociateSystem({ systemId, configId });
-        setAssociations((prev) =>
-          prev.filter((a) => a.configurationId !== configId)
-        );
-      } else {
-        await api.associateSystem({
-          systemId,
-          body: {
-            configurationId: configId,
-            enabled: true,
-            stateThresholds: DEFAULT_STATE_THRESHOLDS,
-          },
-        });
-        setAssociations((prev) => [
-          ...prev,
-          {
-            configurationId: configId,
-            configurationName: config.name,
-            enabled: true,
-            stateThresholds: DEFAULT_STATE_THRESHOLDS,
-          },
-        ]);
-      }
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to update";
-      toast.error(message);
-    } finally {
-      setSaving(false);
+    if (isCurrentlyAssigned) {
+      disassociateMutation.mutate({ systemId, configId });
+    } else {
+      associateMutation.mutate({
+        systemId,
+        body: {
+          configurationId: configId,
+          enabled: true,
+          stateThresholds: DEFAULT_STATE_THRESHOLDS,
+        },
+      });
     }
   };
 
@@ -154,43 +194,103 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
     configId: string,
     thresholds: StateThresholds
   ) => {
-    setAssociations((prev) =>
-      prev.map((a) =>
-        a.configurationId === configId
-          ? { ...a, stateThresholds: thresholds }
-          : a
-      )
-    );
+    setLocalThresholds((prev) => ({
+      ...prev,
+      [configId]: thresholds,
+    }));
   };
 
-  const handleSaveThresholds = async (configId: string) => {
+  const handleSaveThresholds = (configId: string) => {
     const assoc = associations.find((a) => a.configurationId === configId);
+    const thresholds = localThresholds[configId] ?? assoc?.stateThresholds;
     if (!assoc) return;
 
-    setSaving(true);
-    try {
-      await api.associateSystem({
+    associateMutation.mutate(
+      {
         systemId,
         body: {
           configurationId: configId,
           enabled: assoc.enabled,
-          stateThresholds: assoc.stateThresholds,
+          stateThresholds: thresholds,
         },
-      });
-      toast.success("Thresholds saved");
-      setSelectedPanel(undefined);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to save";
-      toast.error(message);
-    } finally {
-      setSaving(false);
-    }
+      },
+      {
+        onSuccess: () => {
+          toast.success("Thresholds saved");
+          setSelectedPanel(undefined);
+          setLocalThresholds((prev) => {
+            const next = { ...prev };
+            delete next[configId];
+            return next;
+          });
+        },
+      }
+    );
+  };
+
+  const handleSaveRetention = (configId: string) => {
+    const data = retentionData[configId];
+    if (!data) return;
+
+    updateRetentionMutation.mutate({
+      systemId,
+      configurationId: configId,
+      retentionConfig: {
+        rawRetentionDays: data.rawRetentionDays,
+        hourlyRetentionDays: data.hourlyRetentionDays,
+        dailyRetentionDays: data.dailyRetentionDays,
+      },
+    });
+  };
+
+  const handleResetRetention = (configId: string) => {
+    updateRetentionMutation.mutate(
+      {
+        systemId,
+        configurationId: configId,
+        // eslint-disable-next-line unicorn/no-null -- RPC contract uses nullable()
+        retentionConfig: null,
+      },
+      {
+        onSuccess: () => {
+          setRetentionData((prev) => ({
+            ...prev,
+            [configId]: {
+              rawRetentionDays: DEFAULT_RETENTION_CONFIG.rawRetentionDays,
+              hourlyRetentionDays: DEFAULT_RETENTION_CONFIG.hourlyRetentionDays,
+              dailyRetentionDays: DEFAULT_RETENTION_CONFIG.dailyRetentionDays,
+              isCustom: false,
+            },
+          }));
+          toast.success("Reset to defaults");
+        },
+      }
+    );
+  };
+
+  const updateRetentionField = (
+    configId: string,
+    field: string,
+    value: number
+  ) => {
+    setRetentionData((prev) => ({
+      ...prev,
+      [configId]: { ...prev[configId], [field]: value, isCustom: true },
+    }));
   };
 
   const assignedIds = associations.map((a) => a.configurationId);
 
+  const getEffectiveThresholds = (assoc: AssociationState): StateThresholds => {
+    return (
+      localThresholds[assoc.configurationId] ??
+      assoc.stateThresholds ??
+      DEFAULT_STATE_THRESHOLDS
+    );
+  };
+
   const renderThresholdEditor = (assoc: AssociationState) => {
-    const thresholds = assoc.stateThresholds || DEFAULT_STATE_THRESHOLDS;
+    const thresholds = getEffectiveThresholds(assoc);
 
     return (
       <div className="mt-4 space-y-4">
@@ -455,129 +555,10 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
     );
   };
 
-  // Load retention data when retention panel is expanded
-  const loadRetentionConfig = async (configId: string) => {
-    if (retentionData[configId]) return; // Already loaded
-
-    setRetentionData((prev) => ({
-      ...prev,
-      [configId]: {
-        rawRetentionDays: DEFAULT_RETENTION_CONFIG.rawRetentionDays,
-        hourlyRetentionDays: DEFAULT_RETENTION_CONFIG.hourlyRetentionDays,
-        dailyRetentionDays: DEFAULT_RETENTION_CONFIG.dailyRetentionDays,
-        isCustom: false,
-        loading: true,
-      },
-    }));
-
-    try {
-      const response = await api.getRetentionConfig({
-        systemId,
-        configurationId: configId,
-      });
-      setRetentionData((prev) => ({
-        ...prev,
-        [configId]: {
-          rawRetentionDays:
-            response.retentionConfig?.rawRetentionDays ??
-            DEFAULT_RETENTION_CONFIG.rawRetentionDays,
-          hourlyRetentionDays:
-            response.retentionConfig?.hourlyRetentionDays ??
-            DEFAULT_RETENTION_CONFIG.hourlyRetentionDays,
-          dailyRetentionDays:
-            response.retentionConfig?.dailyRetentionDays ??
-            DEFAULT_RETENTION_CONFIG.dailyRetentionDays,
-          isCustom: !!response.retentionConfig,
-          loading: false,
-        },
-      }));
-    } catch {
-      setRetentionData((prev) => ({
-        ...prev,
-        [configId]: { ...prev[configId], loading: false },
-      }));
-    }
-  };
-
-  const handleSaveRetention = async (configId: string) => {
-    const data = retentionData[configId];
-    if (!data) return;
-
-    setSaving(true);
-    try {
-      await api.updateRetentionConfig({
-        systemId,
-        configurationId: configId,
-        retentionConfig: {
-          rawRetentionDays: data.rawRetentionDays,
-          hourlyRetentionDays: data.hourlyRetentionDays,
-          dailyRetentionDays: data.dailyRetentionDays,
-        },
-      });
-      toast.success("Retention settings saved");
-      setSelectedPanel(undefined);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to save";
-      toast.error(message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleResetRetention = async (configId: string) => {
-    setSaving(true);
-    try {
-      await api.updateRetentionConfig({
-        systemId,
-        configurationId: configId,
-        // eslint-disable-next-line unicorn/no-null -- RPC contract uses nullable()
-        retentionConfig: null,
-      });
-      setRetentionData((prev) => ({
-        ...prev,
-        [configId]: {
-          rawRetentionDays: DEFAULT_RETENTION_CONFIG.rawRetentionDays,
-          hourlyRetentionDays: DEFAULT_RETENTION_CONFIG.hourlyRetentionDays,
-          dailyRetentionDays: DEFAULT_RETENTION_CONFIG.dailyRetentionDays,
-          isCustom: false,
-          loading: false,
-        },
-      }));
-      toast.success("Reset to defaults");
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to reset";
-      toast.error(message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const updateRetentionField = (
-    configId: string,
-    field: string,
-    value: number
-  ) => {
-    setRetentionData((prev) => ({
-      ...prev,
-      [configId]: { ...prev[configId], [field]: value, isCustom: true },
-    }));
-  };
-
   const renderRetentionEditor = (configId: string) => {
     const data = retentionData[configId];
 
-    // Trigger load if not loaded
     if (!data) {
-      loadRetentionConfig(configId);
-      return (
-        <div className="mt-4 flex justify-center py-4">
-          <LoadingSpinner />
-        </div>
-      );
-    }
-
-    if (data.loading) {
       return (
         <div className="mt-4 flex justify-center py-4">
           <LoadingSpinner />

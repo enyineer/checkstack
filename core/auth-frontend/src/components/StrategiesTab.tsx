@@ -15,8 +15,7 @@ import {
   useToast,
 } from "@checkstack/ui";
 import { Shield, RefreshCw } from "lucide-react";
-import { useApi } from "@checkstack/frontend-api";
-import { rpcApiRef } from "@checkstack/frontend-api";
+import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
 import type { AuthStrategy } from "../api";
 import { AuthStrategyCard } from "./AuthStrategyCard";
@@ -34,8 +33,7 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
   canManageRegistration,
   onDataChange,
 }) => {
-  const rpcApi = useApi(rpcApiRef);
-  const authClient = rpcApi.forPlugin(AuthApi);
+  const authClient = usePluginClient(AuthApi);
   const toast = useToast();
 
   const [reloading, setReloading] = useState(false);
@@ -45,14 +43,9 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
   >({});
 
   // Registration state
-  const [registrationSchema, setRegistrationSchema] = useState<
-    Record<string, unknown> | undefined
-  >();
   const [registrationSettings, setRegistrationSettings] = useState<{
     allowRegistration: boolean;
   }>({ allowRegistration: true });
-  const [loadingRegistration, setLoadingRegistration] = useState(true);
-  const [savingRegistration, setSavingRegistration] = useState(false);
   const [registrationValid, setRegistrationValid] = useState(true);
 
   // Initialize strategy configs when strategies change
@@ -64,104 +57,101 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
     setStrategyConfigs(configs);
   }, [strategies]);
 
-  // Fetch registration data when we have access
-  useEffect(() => {
-    if (!canManageRegistration) {
-      setLoadingRegistration(false);
-      return;
-    }
+  // Query: Registration schema (admin only)
+  const { data: registrationSchema, isLoading: schemaLoading } =
+    authClient.getRegistrationSchema.useQuery(
+      {},
+      { enabled: canManageRegistration }
+    );
 
-    const fetchRegistrationData = async () => {
-      setLoadingRegistration(true);
-      try {
-        const [schema, status] = await Promise.all([
-          authClient.getRegistrationSchema(),
-          authClient.getRegistrationStatus(),
-        ]);
-        setRegistrationSchema(schema);
-        setRegistrationSettings(status);
-      } catch (error) {
-        console.error("Failed to fetch registration data:", error);
-      } finally {
-        setLoadingRegistration(false);
-      }
-    };
-    fetchRegistrationData();
-  }, [canManageRegistration, authClient]);
+  // Query: Registration status (admin only)
+  const { data: registrationStatus, isLoading: statusLoading } =
+    authClient.getRegistrationStatus.useQuery(
+      {},
+      { enabled: canManageRegistration }
+    );
+
+  // Sync fetched settings to local state
+  useEffect(() => {
+    if (registrationStatus) {
+      setRegistrationSettings(registrationStatus);
+    }
+  }, [registrationStatus]);
+
+  const loadingRegistration = schemaLoading || statusLoading;
+
+  // Mutations
+  const updateStrategyMutation = authClient.updateStrategy.useMutation({
+    onSuccess: () => {
+      toast.success("Strategy updated");
+      void onDataChange();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update strategy"
+      );
+    },
+  });
+
+  const setRegistrationMutation = authClient.setRegistrationStatus.useMutation({
+    onSuccess: () => {
+      toast.success("Registration settings saved");
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to save settings"
+      );
+    },
+  });
+
+  const reloadAuthMutation = authClient.reloadAuth.useMutation({
+    onSuccess: () => {
+      toast.success("Authentication system reloaded");
+      void onDataChange();
+      setReloading(false);
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to reload auth"
+      );
+      setReloading(false);
+    },
+  });
 
   const handleToggleStrategy = async (strategyId: string, enabled: boolean) => {
-    try {
-      await authClient.updateStrategy({ id: strategyId, enabled });
-      await onDataChange();
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Failed to toggle strategy";
-      toast.error(message);
-    }
+    await updateStrategyMutation.mutateAsync({ id: strategyId, enabled });
   };
 
   const handleSaveStrategyConfig = async (
     strategyId: string,
     config: Record<string, unknown>
   ) => {
-    try {
-      const strategy = strategies.find((s) => s.id === strategyId);
-      if (!strategy) {
-        toast.error("Strategy not found");
-        return;
-      }
-      setStrategyConfigs({
-        ...strategyConfigs,
-        [strategyId]: config,
-      });
-      await authClient.updateStrategy({
-        id: strategyId,
-        enabled: strategy.enabled,
-        config,
-      });
-      toast.success(
-        "Configuration saved successfully! Click 'Reload Authentication' to apply changes."
-      );
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to save strategy configuration";
-      toast.error(message);
+    const strategy = strategies.find((s) => s.id === strategyId);
+    if (!strategy) {
+      toast.error("Strategy not found");
+      return;
     }
+    setStrategyConfigs({
+      ...strategyConfigs,
+      [strategyId]: config,
+    });
+    await updateStrategyMutation.mutateAsync({
+      id: strategyId,
+      enabled: strategy.enabled,
+      config,
+    });
+    toast.success(
+      "Configuration saved successfully! Click 'Reload Authentication' to apply changes."
+    );
   };
 
-  const handleSaveRegistration = async () => {
-    setSavingRegistration(true);
-    try {
-      await authClient.setRegistrationStatus(registrationSettings);
-      toast.success("Registration settings saved successfully");
-    } catch (error: unknown) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to save registration settings"
-      );
-    } finally {
-      setSavingRegistration(false);
-    }
+  const handleSaveRegistration = () => {
+    setRegistrationMutation.mutate(registrationSettings);
   };
 
-  const handleReloadAuth = async () => {
+  const handleReloadAuth = () => {
     setReloading(true);
-    try {
-      await authClient.reloadAuth();
-      toast.success("Authentication system reloaded successfully");
-      await onDataChange();
-    } catch (error: unknown) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to reload authentication"
-      );
-    } finally {
-      setReloading(false);
-    }
+    reloadAuthMutation.mutate({});
   };
 
   const enabledStrategies = strategies.filter((s) => s.enabled);
@@ -183,7 +173,7 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
             ) : registrationSchema ? (
               <div className="space-y-4">
                 <DynamicForm
-                  schema={registrationSchema}
+                  schema={registrationSchema as Record<string, unknown>}
                   value={registrationSettings}
                   onChange={(value) =>
                     setRegistrationSettings(
@@ -193,10 +183,14 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
                   onValidChange={setRegistrationValid}
                 />
                 <Button
-                  onClick={() => void handleSaveRegistration()}
-                  disabled={savingRegistration || !registrationValid}
+                  onClick={handleSaveRegistration}
+                  disabled={
+                    setRegistrationMutation.isPending || !registrationValid
+                  }
                 >
-                  {savingRegistration ? "Saving..." : "Save Settings"}
+                  {setRegistrationMutation.isPending
+                    ? "Saving..."
+                    : "Save Settings"}
                 </Button>
               </div>
             ) : (

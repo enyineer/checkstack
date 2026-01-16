@@ -1,5 +1,9 @@
-import React, { useEffect, useState } from "react";
-import { useApi, rpcApiRef, accessApiRef } from "@checkstack/frontend-api";
+import React from "react";
+import {
+  useApi,
+  accessApiRef,
+  usePluginClient,
+} from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
 import {
   QueueApi,
@@ -17,53 +21,48 @@ interface QueueLagAlertProps {
 
 /**
  * Displays a warning alert when queue is lagging (high pending jobs).
- * Uses signal for real-time updates + initial fetch on mount.
+ * Uses signal for real-time updates + initial fetch via useQuery.
  */
 export const QueueLagAlert: React.FC<QueueLagAlertProps> = ({
   requireAccess = true,
 }) => {
-  const rpcApi = useApi(rpcApiRef);
   const accessApi = useApi(accessApiRef);
-  const queueApi = rpcApi.forPlugin(QueueApi);
-
-  const [pending, setPending] = useState(0);
-  const [severity, setSeverity] = useState<LagSeverity>("none");
-  const [loading, setLoading] = useState(true);
+  const queueClient = usePluginClient(QueueApi);
 
   // Check access if required
   const { allowed, loading: accessLoading } = accessApi.useAccess(
     queueAccess.settings.read
   );
 
-  // Fetch initial status on mount
-  useEffect(() => {
-    if (requireAccess && !allowed) {
-      setLoading(false);
-      return;
+  // Fetch lag status via useQuery
+  const { data: lagStatus, isLoading } = queueClient.getLagStatus.useQuery(
+    undefined,
+    {
+      enabled: !requireAccess || allowed,
+      staleTime: 30_000, // Cache for 30 seconds
     }
+  );
 
-    queueApi
-      .getLagStatus()
-      .then((status) => {
-        setPending(status.pending);
-        setSeverity(status.severity);
-      })
-      .catch(() => {
-        // Silently fail - alert won't show
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, [queueApi, requireAccess, allowed]);
+  // State for real-time updates via signal
+  const [signalData, setSignalData] = React.useState<
+    | {
+        pending: number;
+        severity: LagSeverity;
+      }
+    | undefined
+  >();
 
   // Listen for real-time lag updates
   useSignal(QUEUE_LAG_CHANGED, (payload) => {
-    setPending(payload.pending);
-    setSeverity(payload.severity);
+    setSignalData({ pending: payload.pending, severity: payload.severity });
   });
 
+  // Use signal data if available, otherwise use query data
+  const pending = signalData?.pending ?? lagStatus?.pending ?? 0;
+  const severity = signalData?.severity ?? lagStatus?.severity ?? "none";
+
   // Don't render if loading, no access, or no lag
-  if (loading || accessLoading) {
+  if (isLoading || accessLoading) {
     return;
   }
 

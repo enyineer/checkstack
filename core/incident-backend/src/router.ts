@@ -98,6 +98,24 @@ export function createRouter(
       }
     ),
 
+    getBulkIncidentsForSystems: os.getBulkIncidentsForSystems.handler(
+      async ({ input }) => {
+        const incidents: Record<
+          string,
+          Awaited<ReturnType<typeof service.getIncidentsForSystem>>
+        > = {};
+
+        // Fetch incidents for each system in parallel
+        await Promise.all(
+          input.systemIds.map(async (systemId) => {
+            incidents[systemId] = await service.getIncidentsForSystem(systemId);
+          })
+        );
+
+        return { incidents };
+      }
+    ),
+
     createIncident: os.createIncident.handler(async ({ input, context }) => {
       const userId =
         context.user && "id" in context.user ? context.user.id : undefined;

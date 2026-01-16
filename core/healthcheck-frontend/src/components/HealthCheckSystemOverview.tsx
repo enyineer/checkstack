@@ -1,9 +1,11 @@
-import React, { useState } from "react";
-import { useApi, type SlotContext } from "@checkstack/frontend-api";
+import React, { useState, useCallback } from "react";
+import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
-import { healthCheckApiRef } from "../api";
 import { SystemDetailsSlot } from "@checkstack/catalog-common";
-import { HEALTH_CHECK_RUN_COMPLETED } from "@checkstack/healthcheck-common";
+import {
+  HEALTH_CHECK_RUN_COMPLETED,
+  HealthCheckApi,
+} from "@checkstack/healthcheck-common";
 import {
   HealthBadge,
   LoadingSpinner,
@@ -16,6 +18,7 @@ import {
   Tooltip,
   Pagination,
   usePagination,
+  usePaginationSync,
   DateRangeFilter,
 } from "@checkstack/ui";
 import { formatDistanceToNow } from "date-fns";
@@ -50,7 +53,7 @@ interface ExpandedRowProps {
 }
 
 const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
-  const api = useApi(healthCheckApiRef);
+  const healthCheckClient = usePluginClient(HealthCheckApi);
 
   // Date range state for filtering
   const [dateRange, setDateRange] = useState<{
@@ -79,42 +82,33 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
     limit: 1000,
   });
 
-  // Paginated history for the table
+  // Pagination state for history table
+  const pagination = usePagination({ defaultLimit: 10 });
+
+  // Fetch paginated history with useQuery
   const {
-    items: runs,
-    loading,
-    pagination,
-  } = usePagination({
-    fetchFn: (params: {
-      limit: number;
-      offset: number;
-      systemId: string;
-      configurationId: string;
-      startDate?: Date;
-    }) =>
-      api.getHistory({
-        systemId: params.systemId,
-        configurationId: params.configurationId,
-        limit: params.limit,
-        offset: params.offset,
-        startDate: params.startDate,
-        // Don't pass endDate - backend defaults to 'now' so new runs are included
-      }),
-    getItems: (response) => response.runs,
-    getTotal: (response) => response.total,
-    extraParams: {
-      systemId,
-      configurationId: item.configurationId,
-      startDate: dateRange.startDate,
-    },
-    defaultLimit: 10,
+    data: historyData,
+    isLoading: loading,
+    refetch,
+  } = healthCheckClient.getHistory.useQuery({
+    systemId,
+    configurationId: item.configurationId,
+    limit: pagination.limit,
+    offset: pagination.offset,
+    startDate: dateRange.startDate,
+    // Don't pass endDate - backend defaults to 'now' so new runs are included
   });
+
+  // Sync total from response
+  usePaginationSync(pagination, historyData?.total);
+
+  const runs = historyData?.runs ?? [];
 
   // Listen for realtime health check updates to refresh history table
   // Charts are refreshed automatically by useHealthCheckData
   useSignal(HEALTH_CHECK_RUN_COMPLETED, ({ systemId: changedId }) => {
     if (changedId === systemId) {
-      pagination.silentRefetch();
+      void refetch();
     }
   });
 
@@ -248,99 +242,48 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
 
 export function HealthCheckSystemOverview(props: SlotProps) {
   const systemId = props.system.id;
-  const api = useApi(healthCheckApiRef);
+  const healthCheckClient = usePluginClient(HealthCheckApi);
 
-  // Fetch health check overview
-  const [overview, setOverview] = React.useState<HealthCheckOverviewItem[]>([]);
-  const [initialLoading, setInitialLoading] = React.useState(true);
   const [expandedRow, setExpandedRow] = React.useState<string | undefined>();
 
-  const fetchOverview = React.useCallback(() => {
-    api.getSystemHealthOverview({ systemId }).then((data) => {
-      setOverview(
-        data.checks.map((check) => ({
-          configurationId: check.configurationId,
-          strategyId: check.strategyId,
-          name: check.configurationName,
-          state: check.status,
-          intervalSeconds: check.intervalSeconds,
-          lastRunAt: check.recentRuns[0]?.timestamp
-            ? new Date(check.recentRuns[0].timestamp)
-            : undefined,
-          stateThresholds: check.stateThresholds,
-          recentStatusHistory: check.recentRuns.map((r) => r.status),
-        }))
-      );
-      setInitialLoading(false);
-    });
-  }, [api, systemId]);
-
-  React.useEffect(() => {
-    fetchOverview();
-  }, [fetchOverview]);
-
-  // Listen for realtime health check updates - merge into existing state to avoid remounting expanded content
-  useSignal(HEALTH_CHECK_RUN_COMPLETED, ({ systemId: changedId }) => {
-    if (changedId === systemId) {
-      // Fetch fresh data but merge it into existing state to preserve object identity
-      // for unchanged items, preventing unnecessary re-renders of expanded content
-      api.getSystemHealthOverview({ systemId }).then((data) => {
-        setOverview((prev) => {
-          // Create a map of new items for quick lookup
-          const newItemsMap = new Map(
-            data.checks.map((item) => [item.configurationId, item])
-          );
-
-          // Update existing items in place, add new ones
-          const merged = prev.map((existing) => {
-            const updated = newItemsMap.get(existing.configurationId);
-            if (updated) {
-              newItemsMap.delete(existing.configurationId);
-              // Map API response to our internal format
-              const mappedItem: HealthCheckOverviewItem = {
-                configurationId: updated.configurationId,
-                strategyId: updated.strategyId,
-                name: updated.configurationName,
-                state: updated.status,
-                intervalSeconds: updated.intervalSeconds,
-                lastRunAt: updated.recentRuns[0]?.timestamp
-                  ? new Date(updated.recentRuns[0].timestamp)
-                  : undefined,
-                stateThresholds: updated.stateThresholds,
-                recentStatusHistory: updated.recentRuns.map((r) => r.status),
-              };
-              // Return updated data but preserve reference if nothing changed
-              return JSON.stringify(existing) === JSON.stringify(mappedItem)
-                ? existing
-                : mappedItem;
-            }
-            return existing;
-          });
-
-          // Add any new items that weren't in the previous list
-          for (const newItem of newItemsMap.values()) {
-            merged.push({
-              configurationId: newItem.configurationId,
-              strategyId: newItem.strategyId,
-              name: newItem.configurationName,
-              state: newItem.status,
-              intervalSeconds: newItem.intervalSeconds,
-              lastRunAt: newItem.recentRuns[0]?.timestamp
-                ? new Date(newItem.recentRuns[0].timestamp)
-                : undefined,
-              stateThresholds: newItem.stateThresholds,
-              recentStatusHistory: newItem.recentRuns.map((r) => r.status),
-            });
-          }
-
-          // Remove items that no longer exist
-          return merged.filter((item) =>
-            data.checks.some((c) => c.configurationId === item.configurationId)
-          );
-        });
-      });
-    }
+  // Fetch health check overview using useQuery
+  const {
+    data: overviewData,
+    isLoading: initialLoading,
+    refetch,
+  } = healthCheckClient.getSystemHealthOverview.useQuery({
+    systemId,
   });
+
+  // Transform API response to component format
+  const overview: HealthCheckOverviewItem[] = React.useMemo(() => {
+    if (!overviewData) return [];
+    return overviewData.checks.map((check) => ({
+      configurationId: check.configurationId,
+      strategyId: check.strategyId,
+      name: check.configurationName,
+      state: check.status,
+      intervalSeconds: check.intervalSeconds,
+      lastRunAt: check.recentRuns[0]?.timestamp
+        ? new Date(check.recentRuns[0].timestamp)
+        : undefined,
+      stateThresholds: check.stateThresholds,
+      recentStatusHistory: check.recentRuns.map((r) => r.status),
+    }));
+  }, [overviewData]);
+
+  // Listen for realtime health check updates to refresh overview
+  useSignal(
+    HEALTH_CHECK_RUN_COMPLETED,
+    useCallback(
+      ({ systemId: changedId }) => {
+        if (changedId === systemId) {
+          void refetch();
+        }
+      },
+      [systemId, refetch]
+    )
+  );
 
   if (initialLoading) {
     return <LoadingSpinner />;

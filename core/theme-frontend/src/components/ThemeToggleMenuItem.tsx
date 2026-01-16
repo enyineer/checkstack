@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 import { Toggle, useTheme, useToast } from "@checkstack/ui";
-import { useApi, rpcApiRef } from "@checkstack/frontend-api";
+import { usePluginClient } from "@checkstack/frontend-api";
 import { ThemeApi } from "@checkstack/theme-common";
 
 /**
@@ -14,10 +14,9 @@ import { ThemeApi } from "@checkstack/theme-common";
  */
 export const ThemeToggleMenuItem = () => {
   const { theme, setTheme } = useTheme();
-  const rpcApi = useApi(rpcApiRef);
-  const themeClient = rpcApi.forPlugin(ThemeApi);
+  const themeClient = usePluginClient(ThemeApi);
+  const setThemeMutation = themeClient.setTheme.useMutation();
 
-  const [saving, setSaving] = useState(false);
   const [isDark, setIsDark] = useState(theme === "dark");
   const toast = useToast();
 
@@ -34,9 +33,8 @@ export const ThemeToggleMenuItem = () => {
     setTheme(newTheme); // Also updates local storage via ThemeProvider
 
     // Save to backend
-    setSaving(true);
     try {
-      await themeClient.setTheme({ theme: newTheme });
+      await setThemeMutation.mutateAsync({ theme: newTheme });
     } catch (error) {
       const message =
         error instanceof Error
@@ -47,8 +45,6 @@ export const ThemeToggleMenuItem = () => {
       // Revert on error
       setIsDark(!checked);
       setTheme(checked ? "light" : "dark");
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -61,7 +57,7 @@ export const ThemeToggleMenuItem = () => {
       <Toggle
         checked={isDark}
         onCheckedChange={handleToggle}
-        disabled={saving}
+        disabled={setThemeMutation.isPending}
         aria-label="Toggle dark mode"
       />
     </div>

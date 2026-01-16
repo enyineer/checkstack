@@ -1,10 +1,9 @@
-import { createApiRef } from "@checkstack/frontend-api";
-import { IncidentApi } from "@checkstack/incident-common";
-import type { InferClient } from "@checkstack/common";
-
-// IncidentApiClient type inferred from the client definition
-export type IncidentApiClient = InferClient<typeof IncidentApi>;
-
-export const incidentApiRef = createApiRef<IncidentApiClient>(
-  "plugin.incident.api"
-);
+// Re-export types for convenience
+export type {
+  IncidentWithSystems,
+  IncidentDetail,
+  IncidentUpdate,
+  IncidentStatus,
+} from "@checkstack/incident-common";
+// Client definition is in @checkstack/incident-common - use with usePluginClient
+export { IncidentApi } from "@checkstack/incident-common";

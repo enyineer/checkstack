@@ -1,66 +1,17 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 
 /**
- * Pagination parameters passed to the fetch function
- */
-export interface PaginationParams {
-  limit: number;
-  offset: number;
-}
-
-/**
- * Options for usePagination hook
- */
-export interface UsePaginationOptions<TResponse, TItem, TExtraParams = object> {
-  /**
-   * Fetch function that receives pagination + extra params and returns response
-   */
-  fetchFn: (params: PaginationParams & TExtraParams) => Promise<TResponse>;
-
-  /**
-   * Extract items array from the response
-   */
-  getItems: (response: TResponse) => TItem[];
-
-  /**
-   * Extract total count from the response
-   */
-  getTotal: (response: TResponse) => number;
-
-  /**
-   * Extra parameters to pass to fetchFn (merged with pagination params)
-   * Changes to this object will trigger a refetch
-   */
-  extraParams?: TExtraParams;
-
-  /**
-   * Initial page number (1-indexed)
-   * @default 1
-   */
-  defaultPage?: number;
-
-  /**
-   * Items per page
-   * @default 10
-   */
-  defaultLimit?: number;
-
-  /**
-   * Whether to fetch on mount
-   * @default true
-   */
-  fetchOnMount?: boolean;
-}
-
-/**
- * Pagination state returned by usePagination hook
+ * Pagination state and controls.
+ * Used with TanStack Query's useQuery hook for paginated data.
  */
 export interface PaginationState {
   /** Current page (1-indexed) */
   page: number;
   /** Items per page */
   limit: number;
-  /** Total number of items */
+  /** Offset for query (calculated from page and limit) */
+  offset: number;
+  /** Total number of items (set via setTotal) */
   total: number;
   /** Total number of pages */
   totalPages: number;
@@ -72,130 +23,74 @@ export interface PaginationState {
   setPage: (page: number) => void;
   /** Change items per page (resets to page 1) */
   setLimit: (limit: number) => void;
+  /** Update total count from query response */
+  setTotal: (total: number) => void;
   /** Go to next page */
   nextPage: () => void;
   /** Go to previous page */
   prevPage: () => void;
-  /** Refresh current page (shows loading state) */
-  refetch: () => void;
-  /** Refresh current page silently (no loading state, prevents UI flicker) */
-  silentRefetch: () => void;
 }
 
 /**
- * Return value of usePagination hook
+ * Options for usePagination hook.
  */
-export interface UsePaginationResult<TItem> {
-  /** Current page items */
-  items: TItem[];
-  /** Loading state */
-  loading: boolean;
-  /** Error if fetch failed */
-  error: Error | undefined;
-  /** Pagination controls and state */
-  pagination: PaginationState;
+export interface UsePaginationOptions {
+  /**
+   * Initial page number (1-indexed)
+   * @default 1
+   */
+  defaultPage?: number;
+
+  /**
+   * Items per page
+   * @default 10
+   */
+  defaultLimit?: number;
 }
 
 /**
- * Hook for managing paginated data fetching with automatic state management.
+ * Hook for managing pagination state to use with TanStack Query.
+ *
+ * This hook manages page/limit state and provides computed offset for queries.
+ * Use with useQuery to build paginated data fetching.
  *
  * @example
  * ```tsx
- * const { items, loading, pagination } = usePagination({
- *   fetchFn: (p) => client.getNotifications(p),
- *   getItems: (r) => r.notifications,
- *   getTotal: (r) => r.total,
- *   extraParams: { unreadOnly: true },
+ * // Simple usage with usePluginClient
+ * const pagination = usePagination({ defaultLimit: 20 });
+ *
+ * const { data, isLoading } = notificationClient.getNotifications.useQuery({
+ *   limit: pagination.limit,
+ *   offset: pagination.offset,
+ *   unreadOnly: true,
  * });
+ *
+ * // Update total when data changes
+ * useEffect(() => {
+ *   if (data) pagination.setTotal(data.total);
+ * }, [data, pagination]);
  *
  * return (
  *   <>
- *     {items.map(item => <Card key={item.id} {...item} />)}
- *     <Pagination {...pagination} />
+ *     {data?.notifications.map(n => <Notification key={n.id} {...n} />)}
+ *     <Pagination {...pagination} loading={isLoading} />
  *   </>
  * );
  * ```
  */
-export function usePagination<TResponse, TItem, TExtraParams = object>({
-  fetchFn,
-  getItems,
-  getTotal,
-  extraParams,
+export function usePagination({
   defaultPage = 1,
   defaultLimit = 10,
-  fetchOnMount = true,
-}: UsePaginationOptions<
-  TResponse,
-  TItem,
-  TExtraParams
->): UsePaginationResult<TItem> {
-  const [items, setItems] = useState<TItem[]>([]);
-  const [loading, setLoading] = useState(fetchOnMount);
-  const [error, setError] = useState<Error>();
+}: UsePaginationOptions = {}): PaginationState {
   const [page, setPageState] = useState(defaultPage);
   const [limit, setLimitState] = useState(defaultLimit);
-  const [total, setTotal] = useState(0);
+  const [total, setTotalState] = useState(0);
 
-  // Use refs for callback functions to avoid re-creating fetchData when they change
-  // This is better DX - callers don't need to memoize their functions
-  const fetchFnRef = useRef(fetchFn);
-  const getItemsRef = useRef(getItems);
-  const getTotalRef = useRef(getTotal);
-  const extraParamsRef = useRef(extraParams);
-
-  // Update refs when functions change
-  fetchFnRef.current = fetchFn;
-  getItemsRef.current = getItems;
-  getTotalRef.current = getTotal;
-  extraParamsRef.current = extraParams;
-
-  // Memoize extraParams to detect changes
-  const extraParamsKey = useMemo(
-    () => JSON.stringify(extraParams ?? {}),
-    [extraParams]
+  const offset = useMemo(() => (page - 1) * limit, [page, limit]);
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(total / limit)),
+    [total, limit]
   );
-
-  const fetchData = useCallback(
-    async (showLoading = true) => {
-      if (showLoading) {
-        setLoading(true);
-      }
-      setError(undefined);
-
-      try {
-        const offset = (page - 1) * limit;
-        const params = {
-          limit,
-          offset,
-          ...extraParamsRef.current,
-        } as PaginationParams & TExtraParams;
-
-        const response = await fetchFnRef.current(params);
-        setItems(getItemsRef.current(response));
-        setTotal(getTotalRef.current(response));
-      } catch (error_) {
-        setError(error_ instanceof Error ? error_ : new Error(String(error_)));
-        setItems([]);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [page, limit, extraParamsKey]
-  );
-
-  // Fetch on mount and when dependencies change
-  useEffect(() => {
-    if (fetchOnMount || page !== defaultPage || limit !== defaultLimit) {
-      void fetchData(true);
-    }
-  }, [fetchData, fetchOnMount, page, limit, defaultPage, defaultLimit]);
-
-  // Reset to page 1 when extraParams change
-  useEffect(() => {
-    setPageState(1);
-  }, [extraParamsKey]);
-
-  const totalPages = Math.max(1, Math.ceil(total / limit));
   const hasNext = page < totalPages;
   const hasPrev = page > 1;
 
@@ -206,6 +101,10 @@ export function usePagination<TResponse, TItem, TExtraParams = object>({
   const setLimit = useCallback((newLimit: number) => {
     setLimitState(newLimit);
     setPageState(1); // Reset to first page when limit changes
+  }, []);
+
+  const setTotal = useCallback((newTotal: number) => {
+    setTotalState(newTotal);
   }, []);
 
   const nextPage = useCallback(() => {
@@ -220,28 +119,46 @@ export function usePagination<TResponse, TItem, TExtraParams = object>({
     }
   }, [hasPrev]);
 
-  const refetch = useCallback(() => {
-    void fetchData(true);
-  }, [fetchData]);
-
-  const silentRefetch = useCallback(() => {
-    void fetchData(false);
-  }, [fetchData]);
-
-  const pagination: PaginationState = {
+  return {
     page,
     limit,
+    offset,
     total,
     totalPages,
     hasNext,
     hasPrev,
     setPage,
     setLimit,
+    setTotal,
     nextPage,
     prevPage,
-    refetch,
-    silentRefetch,
   };
+}
 
-  return { items, loading, error, pagination };
+/**
+ * Helper hook to sync query total with pagination state.
+ * Use this to automatically update pagination.total when query data changes.
+ *
+ * @example
+ * ```tsx
+ * const pagination = usePagination({ defaultLimit: 20 });
+ *
+ * const { data, isLoading } = notificationClient.getNotifications.useQuery({
+ *   limit: pagination.limit,
+ *   offset: pagination.offset,
+ * });
+ *
+ * // Auto-sync total from response
+ * usePaginationSync(pagination, data?.total);
+ * ```
+ */
+export function usePaginationSync(
+  pagination: PaginationState,
+  total: number | undefined
+): void {
+  useEffect(() => {
+    if (total !== undefined) {
+      pagination.setTotal(total);
+    }
+  }, [total, pagination]);
 }

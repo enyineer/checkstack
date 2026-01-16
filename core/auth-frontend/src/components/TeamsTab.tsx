@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Card,
   CardHeader,
@@ -39,8 +39,7 @@ import {
   UserPlus,
   UserMinus,
 } from "lucide-react";
-import { useApi } from "@checkstack/frontend-api";
-import { rpcApiRef } from "@checkstack/frontend-api";
+import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
 import type { AuthUser } from "../api";
 
@@ -73,45 +72,148 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
   canManageTeams,
   onDataChange,
 }) => {
-  const rpcApi = useApi(rpcApiRef);
-  const authClient = rpcApi.forPlugin(AuthApi);
+  const authClient = usePluginClient(AuthApi);
   const toast = useToast();
 
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [loading, setLoading] = useState(true);
   const [teamToDelete, setTeamToDelete] = useState<string>();
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingTeam, setEditingTeam] = useState<Team | undefined>();
   const [membersDialogOpen, setMembersDialogOpen] = useState(false);
-  const [selectedTeamDetail, setSelectedTeamDetail] = useState<TeamDetail>();
-  const [membersLoading, setMembersLoading] = useState(false);
+  const [selectedTeamId, setSelectedTeamId] = useState<string>();
 
   // Team form state
   const [formName, setFormName] = useState("");
   const [formDescription, setFormDescription] = useState("");
-  const [formSaving, setFormSaving] = useState(false);
 
   // Member management state
   const [selectedUserId, setSelectedUserId] = useState("");
-  const [addingMember, setAddingMember] = useState(false);
 
-  const loadTeams = useCallback(async () => {
-    setLoading(true);
-    try {
-      const teamsData = await authClient.getTeams();
-      setTeams(teamsData);
-    } catch (error) {
+  // Query: Teams list
+  const {
+    data: teams = [],
+    isLoading: loading,
+    refetch: refetchTeams,
+  } = authClient.getTeams.useQuery({}, { enabled: canReadTeams });
+
+  // Query: Team detail (for members dialog)
+  const {
+    data: selectedTeamDetail,
+    isLoading: membersLoading,
+    refetch: refetchTeamDetail,
+  } = authClient.getTeam.useQuery(
+    { teamId: selectedTeamId ?? "" },
+    { enabled: !!selectedTeamId && membersDialogOpen }
+  );
+
+  // Mutations
+  const createTeamMutation = authClient.createTeam.useMutation({
+    onSuccess: () => {
+      toast.success("Team created successfully");
+      setEditDialogOpen(false);
+      void refetchTeams();
+      void onDataChange();
+    },
+    onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to load teams"
+        error instanceof Error ? error.message : "Failed to create team"
       );
-    } finally {
-      setLoading(false);
-    }
-  }, [authClient, toast]);
+    },
+  });
 
+  const updateTeamMutation = authClient.updateTeam.useMutation({
+    onSuccess: () => {
+      toast.success("Team updated successfully");
+      setEditDialogOpen(false);
+      void refetchTeams();
+      void onDataChange();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update team"
+      );
+    },
+  });
+
+  const deleteTeamMutation = authClient.deleteTeam.useMutation({
+    onSuccess: () => {
+      toast.success("Team deleted successfully");
+      setTeamToDelete(undefined);
+      void refetchTeams();
+      void onDataChange();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete team"
+      );
+    },
+  });
+
+  const addMemberMutation = authClient.addUserToTeam.useMutation({
+    onSuccess: () => {
+      toast.success("Member added successfully");
+      setSelectedUserId("");
+      void refetchTeamDetail();
+      void refetchTeams();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to add member"
+      );
+    },
+  });
+
+  const removeMemberMutation = authClient.removeUserFromTeam.useMutation({
+    onSuccess: () => {
+      toast.success("Member removed");
+      void refetchTeamDetail();
+      void refetchTeams();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to remove member"
+      );
+    },
+  });
+
+  const addManagerMutation = authClient.addTeamManager.useMutation({
+    onSuccess: () => {
+      toast.success("Member promoted to manager");
+      void refetchTeamDetail();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to promote to manager"
+      );
+    },
+  });
+
+  const removeManagerMutation = authClient.removeTeamManager.useMutation({
+    onSuccess: () => {
+      toast.success("Manager role removed");
+      void refetchTeamDetail();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to remove manager role"
+      );
+    },
+  });
+
+  // Reset form when dialog closes
   useEffect(() => {
-    loadTeams();
-  }, [loadTeams]);
+    if (!editDialogOpen) {
+      setEditingTeam(undefined);
+      setFormName("");
+      setFormDescription("");
+    }
+  }, [editDialogOpen]);
+
+  // Reset selected team when members dialog closes
+  useEffect(() => {
+    if (!membersDialogOpen) {
+      setSelectedTeamId(undefined);
+    }
+  }, [membersDialogOpen]);
 
   const handleCreateTeam = () => {
     setEditingTeam(undefined);
@@ -127,159 +229,77 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     setEditDialogOpen(true);
   };
 
-  const handleSaveTeam = async () => {
+  const handleSaveTeam = () => {
     if (!formName.trim()) {
       toast.error("Team name is required");
       return;
     }
 
-    setFormSaving(true);
-    try {
-      if (editingTeam) {
-        await authClient.updateTeam({
-          id: editingTeam.id,
-          name: formName,
-          description: formDescription || undefined,
-        });
-        toast.success("Team updated successfully");
-      } else {
-        await authClient.createTeam({
-          name: formName,
-          description: formDescription || undefined,
-        });
-        toast.success("Team created successfully");
-      }
-      setEditDialogOpen(false);
-      await loadTeams();
-      await onDataChange();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to save team"
-      );
-    } finally {
-      setFormSaving(false);
+    if (editingTeam) {
+      updateTeamMutation.mutate({
+        id: editingTeam.id,
+        name: formName,
+        description: formDescription || undefined,
+      });
+    } else {
+      createTeamMutation.mutate({
+        name: formName,
+        description: formDescription || undefined,
+      });
     }
   };
 
-  const handleDeleteTeam = async () => {
+  const handleDeleteTeam = () => {
     if (!teamToDelete) return;
-    try {
-      await authClient.deleteTeam(teamToDelete);
-      toast.success("Team deleted successfully");
-      setTeamToDelete(undefined);
-      await loadTeams();
-      await onDataChange();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to delete team"
-      );
-    }
+    deleteTeamMutation.mutate(teamToDelete);
   };
 
-  const openMembersDialog = async (teamId: string) => {
-    setMembersLoading(true);
+  const openMembersDialog = (teamId: string) => {
+    setSelectedTeamId(teamId);
     setMembersDialogOpen(true);
-    try {
-      const detail = await authClient.getTeam({ teamId });
-      setSelectedTeamDetail(detail ?? undefined);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to load team details"
-      );
-      setMembersDialogOpen(false);
-    } finally {
-      setMembersLoading(false);
-    }
   };
 
-  const handleAddMember = async () => {
-    if (!selectedTeamDetail || !selectedUserId) return;
-
-    setAddingMember(true);
-    try {
-      await authClient.addUserToTeam({
-        teamId: selectedTeamDetail.id,
-        userId: selectedUserId,
-      });
-      toast.success("Member added successfully");
-      // Reload team details
-      const detail = await authClient.getTeam({
-        teamId: selectedTeamDetail.id,
-      });
-      setSelectedTeamDetail(detail ?? undefined);
-      setSelectedUserId("");
-      await loadTeams();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to add member"
-      );
-    } finally {
-      setAddingMember(false);
-    }
+  const handleAddMember = () => {
+    if (!selectedTeamId || !selectedUserId) return;
+    addMemberMutation.mutate({
+      teamId: selectedTeamId,
+      userId: selectedUserId,
+    });
   };
 
-  const handleRemoveMember = async (userId: string) => {
-    if (!selectedTeamDetail) return;
+  const handleRemoveMember = (userId: string) => {
+    if (!selectedTeamId) return;
+    removeMemberMutation.mutate({
+      teamId: selectedTeamId,
+      userId,
+    });
+  };
 
-    try {
-      await authClient.removeUserFromTeam({
-        teamId: selectedTeamDetail.id,
+  const handleToggleManager = (userId: string, isCurrentlyManager: boolean) => {
+    if (!selectedTeamId) return;
+
+    if (isCurrentlyManager) {
+      removeManagerMutation.mutate({
+        teamId: selectedTeamId,
         userId,
       });
-      toast.success("Member removed");
-      // Reload team details
-      const detail = await authClient.getTeam({
-        teamId: selectedTeamDetail.id,
+    } else {
+      addManagerMutation.mutate({
+        teamId: selectedTeamId,
+        userId,
       });
-      setSelectedTeamDetail(detail ?? undefined);
-      await loadTeams();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to remove member"
-      );
-    }
-  };
-
-  const handleToggleManager = async (
-    userId: string,
-    isCurrentlyManager: boolean
-  ) => {
-    if (!selectedTeamDetail) return;
-
-    try {
-      if (isCurrentlyManager) {
-        await authClient.removeTeamManager({
-          teamId: selectedTeamDetail.id,
-          userId,
-        });
-        toast.success("Manager role removed");
-      } else {
-        await authClient.addTeamManager({
-          teamId: selectedTeamDetail.id,
-          userId,
-        });
-        toast.success("Member promoted to manager");
-      }
-      // Reload team details
-      const detail = await authClient.getTeam({
-        teamId: selectedTeamDetail.id,
-      });
-      setSelectedTeamDetail(detail ?? undefined);
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to update manager status"
-      );
     }
   };
 
   // Get users not already in the team
-  const availableUsers = selectedTeamDetail
-    ? users.filter(
-        (u) => !selectedTeamDetail.members.some((m) => m.id === u.id)
-      )
+  const teamDetailData = selectedTeamDetail as TeamDetail | undefined;
+  const availableUsers = teamDetailData
+    ? users.filter((u) => !teamDetailData.members.some((m) => m.id === u.id))
     : [];
+
+  const formSaving =
+    createTeamMutation.isPending || updateTeamMutation.isPending;
+  const addingMember = addMemberMutation.isPending;
 
   return (
     <>
@@ -299,7 +319,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
               <div className="flex justify-center py-8">
                 <LoadingSpinner />
               </div>
-            ) : teams.length === 0 ? (
+            ) : (teams as Team[]).length === 0 ? (
               <p className="text-muted-foreground">No teams found.</p>
             ) : (
               <Table>
@@ -311,7 +331,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {teams.map((team) => (
+                  {(teams as Team[]).map((team) => (
                     <TableRow key={team.id}>
                       <TableCell>
                         <div className="flex flex-col">
@@ -429,9 +449,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
       <Dialog open={membersDialogOpen} onOpenChange={setMembersDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>
-              {selectedTeamDetail?.name ?? "Team"} Members
-            </DialogTitle>
+            <DialogTitle>{teamDetailData?.name ?? "Team"} Members</DialogTitle>
             <DialogDescription>
               Manage team membership and assign managers.
             </DialogDescription>
@@ -441,10 +459,10 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
             <div className="flex justify-center py-8">
               <LoadingSpinner />
             </div>
-          ) : selectedTeamDetail ? (
+          ) : teamDetailData ? (
             <div className="space-y-4">
               {/* Add Member Form */}
-              {(selectedTeamDetail.managers.some((m) =>
+              {(teamDetailData.managers.some((m) =>
                 users.some((u) => u.id === m.id)
               ) ||
                 canManageTeams) && (
@@ -483,13 +501,13 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
 
               {/* Member List */}
               <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
-                {selectedTeamDetail.members.length === 0 ? (
+                {teamDetailData.members.length === 0 ? (
                   <p className="text-muted-foreground text-center py-4">
                     No members yet
                   </p>
                 ) : (
-                  selectedTeamDetail.members.map((member) => {
-                    const isManager = selectedTeamDetail.managers.some(
+                  teamDetailData.members.map((member) => {
+                    const isManager = teamDetailData.managers.some(
                       (m) => m.id === member.id
                     );
                     return (

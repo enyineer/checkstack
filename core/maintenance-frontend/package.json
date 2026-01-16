@@ -12,6 +12,7 @@
     "@checkstack/auth-frontend": "workspace:*",
     "@checkstack/catalog-common": "workspace:*",
     "@checkstack/common": "workspace:*",
+    "@checkstack/dashboard-frontend": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",
     "@checkstack/maintenance-common": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",

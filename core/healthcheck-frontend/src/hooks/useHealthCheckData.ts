@@ -1,6 +1,10 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
-import { useApi, accessApiRef } from "@checkstack/frontend-api";
-import { healthCheckApiRef } from "../api";
+import { useMemo } from "react";
+import {
+  usePluginClient,
+  accessApiRef,
+  useApi,
+} from "@checkstack/frontend-api";
+import { HealthCheckApi } from "../api";
 import {
   healthCheckAccess,
   DEFAULT_RETENTION_CONFIG,
@@ -49,22 +53,6 @@ interface UseHealthCheckDataResult {
  * - The configured rawRetentionDays for the assignment
  *
  * Returns a ready-to-use context for HealthCheckDiagramSlot.
- *
- * @example
- * ```tsx
- * const { context, loading, hasAccess } = useHealthCheckData({
- *   systemId,
- *   configurationId,
- *   strategyId,
- *   dateRange: { startDate, endDate },
- * });
- *
- * if (!hasAccess) return <NoAccessMessage />;
- * if (loading) return <LoadingSpinner />;
- * if (!context) return null;
- *
- * return <ExtensionSlot slot={HealthCheckDiagramSlot} context={context} />;
- * ```
  */
 export function useHealthCheckData({
   systemId,
@@ -74,30 +62,13 @@ export function useHealthCheckData({
   limit = 100,
   offset = 0,
 }: UseHealthCheckDataProps): UseHealthCheckDataResult {
-  const api = useApi(healthCheckApiRef);
+  const healthCheckClient = usePluginClient(HealthCheckApi);
   const accessApi = useApi(accessApiRef);
 
   // Access state
-  const { allowed: hasAccess, loading: accessLoading } =
-    accessApi.useAccess(healthCheckAccess.details);
-
-  // Retention config state
-  const [retentionConfig, setRetentionConfig] = useState<RetentionConfig>(
-    DEFAULT_RETENTION_CONFIG
+  const { allowed: hasAccess, loading: accessLoading } = accessApi.useAccess(
+    healthCheckAccess.details
   );
-  const [retentionLoading, setRetentionLoading] = useState(true);
-
-  // Raw data state
-  const [rawRuns, setRawRuns] = useState<
-    TypedHealthCheckRun<Record<string, unknown>>[]
-  >([]);
-  const [rawLoading, setRawLoading] = useState(false);
-
-  // Aggregated data state
-  const [aggregatedBuckets, setAggregatedBuckets] = useState<
-    TypedAggregatedBucket<Record<string, unknown>>[]
-  >([]);
-  const [aggregatedLoading, setAggregatedLoading] = useState(false);
 
   // Calculate date range in days
   const dateRangeDays = useMemo(() => {
@@ -107,69 +78,64 @@ export function useHealthCheckData({
     );
   }, [dateRange.startDate, dateRange.endDate]);
 
+  // Query: Fetch retention config
+  const { data: retentionData, isLoading: retentionLoading } =
+    healthCheckClient.getRetentionConfig.useQuery(
+      { systemId, configurationId },
+      { enabled: !!systemId && !!configurationId && hasAccess }
+    );
+
+  const retentionConfig =
+    retentionData?.retentionConfig ?? DEFAULT_RETENTION_CONFIG;
+
   // Determine if we should use aggregated data
   const isAggregated = dateRangeDays > retentionConfig.rawRetentionDays;
 
-  // Fetch retention config on mount
-  useEffect(() => {
-    setRetentionLoading(true);
-    api
-      .getRetentionConfig({ systemId, configurationId })
-      .then((response) =>
-        setRetentionConfig(response.retentionConfig ?? DEFAULT_RETENTION_CONFIG)
-      )
-      .catch(() => {
-        // Fall back to default on error
-        setRetentionConfig(DEFAULT_RETENTION_CONFIG);
-      })
-      .finally(() => setRetentionLoading(false));
-  }, [api, systemId, configurationId]);
-
-  // Fetch raw data function - extracted for reuse by signal handler
-  const fetchRawData = useCallback(
-    (showLoading = true) => {
-      if (showLoading) {
-        setRawLoading(true);
-      }
-      api
-        .getDetailedHistory({
-          systemId,
-          configurationId,
-          startDate: dateRange.startDate,
-          // Don't pass endDate for live updates - backend defaults to 'now'
-          limit,
-          offset,
-        })
-        .then((response) => {
-          setRawRuns(
-            response.runs.map((r) => ({
-              id: r.id,
-              configurationId,
-              systemId,
-              status: r.status,
-              timestamp: r.timestamp,
-              latencyMs: r.latencyMs,
-              result: r.result,
-            }))
-          );
-        })
-        .finally(() => setRawLoading(false));
+  // Query: Fetch raw data (when in raw mode)
+  const {
+    data: rawData,
+    isLoading: rawLoading,
+    refetch: refetchRawData,
+  } = healthCheckClient.getDetailedHistory.useQuery(
+    {
+      systemId,
+      configurationId,
+      startDate: dateRange.startDate,
+      limit,
+      offset,
     },
-    [api, systemId, configurationId, dateRange.startDate, limit, offset]
+    {
+      enabled:
+        !!systemId &&
+        !!configurationId &&
+        hasAccess &&
+        !accessLoading &&
+        !retentionLoading &&
+        !isAggregated,
+    }
   );
 
-  // Fetch raw data when in raw mode
-  useEffect(() => {
-    if (!hasAccess || accessLoading || retentionLoading || isAggregated)
-      return;
-    fetchRawData(true);
-  }, [
-    fetchRawData,
-    hasAccess,
-    accessLoading,
-    retentionLoading,
-    isAggregated,
-  ]);
+  // Query: Fetch aggregated data (when in aggregated mode)
+  const bucketSize = dateRangeDays > 30 ? "daily" : "hourly";
+  const { data: aggregatedData, isLoading: aggregatedLoading } =
+    healthCheckClient.getDetailedAggregatedHistory.useQuery(
+      {
+        systemId,
+        configurationId,
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
+        bucketSize,
+      },
+      {
+        enabled:
+          !!systemId &&
+          !!configurationId &&
+          hasAccess &&
+          !accessLoading &&
+          !retentionLoading &&
+          isAggregated,
+      }
+    );
 
   // Listen for realtime health check updates to refresh data silently
   useSignal(HEALTH_CHECK_RUN_COMPLETED, ({ systemId: changedId }) => {
@@ -181,50 +147,35 @@ export function useHealthCheckData({
       !retentionLoading &&
       !isAggregated
     ) {
-      fetchRawData(false);
+      void refetchRawData();
     }
   });
 
-  // Fetch aggregated data when in aggregated mode
-  useEffect(() => {
-    if (
-      !hasAccess ||
-      accessLoading ||
-      retentionLoading ||
-      !isAggregated
-    )
-      return;
+  // Transform raw runs to typed format
+  const rawRuns = useMemo((): TypedHealthCheckRun<
+    Record<string, unknown>
+  >[] => {
+    if (!rawData?.runs) return [];
+    return rawData.runs.map((r) => ({
+      id: r.id,
+      configurationId,
+      systemId,
+      status: r.status,
+      timestamp: r.timestamp,
+      latencyMs: r.latencyMs,
+      result: r.result as Record<string, unknown>,
+    }));
+  }, [rawData, configurationId, systemId]);
 
-    setAggregatedLoading(true);
-    // Use daily buckets for ranges > 30 days, hourly otherwise
-    const bucketSize = dateRangeDays > 30 ? "daily" : "hourly";
-    // Use detailed endpoint to get aggregatedResult since we have access
-    api
-      .getDetailedAggregatedHistory({
-        systemId,
-        configurationId,
-        startDate: dateRange.startDate,
-        endDate: dateRange.endDate,
-        bucketSize,
-      })
-      .then((response) => {
-        setAggregatedBuckets(
-          response.buckets as TypedAggregatedBucket<Record<string, unknown>>[]
-        );
-      })
-      .finally(() => setAggregatedLoading(false));
-  }, [
-    api,
-    systemId,
-    configurationId,
-    hasAccess,
-    accessLoading,
-    retentionLoading,
-    isAggregated,
-    dateRangeDays,
-    dateRange.startDate,
-    dateRange.endDate,
-  ]);
+  // Transform aggregated buckets
+  const aggregatedBuckets = useMemo((): TypedAggregatedBucket<
+    Record<string, unknown>
+  >[] => {
+    if (!aggregatedData?.buckets) return [];
+    return aggregatedData.buckets as TypedAggregatedBucket<
+      Record<string, unknown>
+    >[];
+  }, [aggregatedData]);
 
   const context = useMemo((): HealthCheckDiagramSlotContext | undefined => {
     if (!hasAccess || accessLoading || retentionLoading) {

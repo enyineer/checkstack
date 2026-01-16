@@ -1,8 +1,4 @@
-import { oc } from "@orpc/contract";
-import {
-  createClientDefinition,
-  type ProcedureMetadata,
-} from "@checkstack/common";
+import { createClientDefinition, proc } from "@checkstack/common";
 import { pluginMetadata } from "./plugin-metadata";
 import { z } from "zod";
 
@@ -10,14 +6,15 @@ import { z } from "zod";
 export const ThemeSchema = z.enum(["light", "dark", "system"]);
 export type Theme = z.infer<typeof ThemeSchema>;
 
-// Base builder with full metadata support
-const _base = oc.$meta<ProcedureMetadata>({});
-
 // Theme RPC Contract
 export const themeContract = {
   // Get current user's theme preference
   // User-only - each user reads their own theme
-  getTheme: _base.meta({ userType: "user" }).output(
+  getTheme: proc({
+    operationType: "query",
+    userType: "user",
+    access: [],
+  }).output(
     z.object({
       theme: ThemeSchema,
     })
@@ -25,8 +22,11 @@ export const themeContract = {
 
   // Set current user's theme preference
   // User-only - each user sets their own theme
-  setTheme: _base
-    .meta({ userType: "user" })
+  setTheme: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [],
+  })
     .input(
       z.object({
         theme: ThemeSchema,

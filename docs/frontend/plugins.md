@@ -119,24 +119,12 @@ export const MyFeaturePage = () => {
 **src/index.tsx:**
 
 ```typescript
-import { createFrontendPlugin, rpcApiRef, type ApiRef } from "@checkstack/frontend-api";
-import { myFeatureApiRef, type MyFeatureApiClient } from "./api";
+import { createFrontendPlugin } from "@checkstack/frontend-api";
 import { MyFeaturePage } from "./components/MyFeaturePage";
-import { myFeatureRoutes, MyFeatureApi, pluginMetadata } from "@checkstack/myfeature-common";
+import { myFeatureRoutes, pluginMetadata } from "@checkstack/myfeature-common";
 
-export const myFeaturePlugin = createFrontendPlugin({
+export default createFrontendPlugin({
   metadata: pluginMetadata,
-
-  // Register client API using Api definition
-  apis: [
-    {
-      ref: myFeatureApiRef,
-      factory: (deps: { get: <T>(ref: ApiRef<T>) => T }): MyFeatureApiClient => {
-        const rpcApi = deps.get(rpcApiRef);
-        return rpcApi.forPlugin(MyFeatureApi);
-      },
-    },
-  ],
 
   // Register routes using typed route definitions
   routes: [
@@ -180,27 +168,6 @@ import { pluginMetadata } from "@checkstack/myplugin-common";
 metadata: pluginMetadata
 ```
 
-#### `apis` (optional)
-
-Register client-side APIs that components can use.
-
-```typescript
-import { MyPluginApi } from "@checkstack/myplugin-common";
-import type { InferClient } from "@checkstack/common";
-
-export type MyPluginApiClient = InferClient<typeof MyPluginApi>;
-
-apis: [
-  {
-    ref: myPluginApiRef,
-    factory: (deps): MyPluginApiClient => {
-      const rpcApi = deps.get(rpcApiRef);
-      return rpcApi.forPlugin(MyPluginApi);
-    },
-  },
-]
-```
-
 #### `routes` (optional)
 
 Register pages and their routes using RouteDefinitions from the common package.
@@ -234,92 +201,72 @@ extensions: [
 ]
 ```
 
-## Contract-Based Client API Pattern
+## Using Plugin APIs in Components
 
-The frontend consumes Api definitions from `-common` packages to get type-safe RPC clients with automatic type inference.
+Components access plugin APIs using the `usePluginClient` hook with TanStack Query integration.
 
-### Step 1: Import Api and Create Client Type
-
-**src/api.ts:**
+### Basic Usage
 
 ```typescript
-import { createApiRef } from "@checkstack/frontend-api";
+import { usePluginClient } from "@checkstack/frontend-api";
 import { MyPluginApi } from "@checkstack/myplugin-common";
-import type { InferClient } from "@checkstack/common";
-
-// Re-export types from common for convenience
-export type { Item, CreateItem, UpdateItem } from "@checkstack/myplugin-common";
-
-// Derive client type from Api definition
-export type MyPluginApiClient = InferClient<typeof MyPluginApi>;
-
-export const myPluginApiRef = createApiRef<MyPluginApiClient>("myplugin-api");
-```
-
-**Why import Api from common?**
-- Api definition contains pluginId and contract bundled together
-- Provides compile-time type safety for all RPC calls
-- No string plugin IDs - automatic type inference
-- Usable by both frontend and backend for type-safe calls
-
-### Step 2: Register API Factory
-
-**src/index.tsx:**
-
-```typescript
-import { rpcApiRef, type ApiRef } from "@checkstack/frontend-api";
-import { myPluginApiRef, type MyPluginApiClient } from "./api";
-import { MyPluginApi, pluginMetadata } from "@checkstack/myplugin-common";
-
-export const myPlugin = createFrontendPlugin({
-  metadata: pluginMetadata,
-  
-  apis: [
-    {
-      ref: myPluginApiRef,
-      factory: (deps: { get: <T>(ref: ApiRef<T>) => T }): MyPluginApiClient => {
-        const rpcApi = deps.get(rpcApiRef);
-        // Create a client using the Api definition
-        // The pluginId is automatically extracted from MyPluginApi
-        return rpcApi.forPlugin(MyPluginApi);
-      },
-    },
-  ],
-});
-```
-
-**Key changes from legacy pattern:**
-- Uses `metadata: pluginMetadata` instead of `name: "..."`
-- Uses `forPlugin(MyPluginApi)` instead of `forPlugin<Type>("pluginId")`
-- Type inference is automatic - no explicit type parameter needed
-
-### Step 3: Use in Components
-
-```typescript
-import { useApi } from "@checkstack/frontend-api";
-import { myPluginApiRef } from "../api";
 
 export const ItemListPage = () => {
-  const api = useApi(myPluginApiRef);
-  const [items, setItems] = useState<Item[]>([]);
+  const client = usePluginClient(MyPluginApi);
 
-  useEffect(() => {
-    // Type-safe RPC call - no manual URL construction!
-    api.getItems().then(setItems);
-  }, [api]);
+  // Queries - automatic caching, loading states, deduplication
+  const { data: items, isLoading, error } = client.getItems.useQuery({});
 
-  const handleCreate = async (data: CreateItem) => {
-    // Input types are automatically inferred from the contract
-    const newItem = await api.createItem(data);
-    setItems([...items, newItem]);
-  };
+  if (isLoading) return <div>Loading...</div>;
+  if (error) return <div>Error: {error.message}</div>;
 
   return (
     <div>
-      {items.map((item) => (
+      {items?.map((item) => (
         <div key={item.id}>{item.name}</div>
       ))}
     </div>
+  );
+};
+```
+
+### Mutations with Cache Invalidation
+
+```typescript
+import { useQueryClient } from "@tanstack/react-query";
+
+export const CreateItemForm = () => {
+  const client = usePluginClient(MyPluginApi);
+  const queryClient = useQueryClient();
+
+  const createMutation = client.createItem.useMutation({
+    onSuccess: () => {
+      // Invalidate cache to refetch list
+      queryClient.invalidateQueries({ queryKey: ["myplugin"] });
+    },
+  });
+
+  const handleSubmit = (data: CreateItem) => {
+    createMutation.mutate(data);
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <Button disabled={createMutation.isPending}>
+        {createMutation.isPending ? "Creating..." : "Create"}
+      </Button>
+    </form>
+  );
+};
+```
+
+### Benefits
+
+1. **No Manual State Management**: TanStack Query handles loading, error, and data states
+2. **Automatic Request Deduplication**: Multiple components using the same query share one request
+3. **Built-in Caching**: Configurable stale time and cache duration
+4. **Background Refetching**: Stale data is automatically refreshed
+5. **Type Safety**: Full TypeScript inference from contract definitions
   );
 };
 ```
@@ -336,18 +283,46 @@ export const ItemListPage = () => {
 
 The core provides these APIs for use in components:
 
-### `rpcApiRef`
+### `usePluginClient`
 
-The oRPC client factory for creating type-safe plugin clients.
+Access plugin APIs with TanStack Query integration for automatic caching, loading states, and request deduplication:
 
 ```typescript
+import { usePluginClient } from "@checkstack/frontend-api";
 import { MyPluginApi } from "@checkstack/myplugin-common";
 
-const rpcApi = useApi(rpcApiRef);
+const client = usePluginClient(MyPluginApi);
 
-// Create a client for a specific backend plugin using its Api definition
-const client = rpcApi.forPlugin(MyPluginApi);
+// Queries - automatic caching and loading states
+const { data, isLoading } = client.getItems.useQuery({});
+
+// Mutations - with cache invalidation
+const mutation = client.createItem.useMutation({
+  onSuccess: () => queryClient.invalidateQueries({ queryKey: ["items"] }),
+});
 ```
+
+> **Note:** Contracts must include `operationType: "query"` or `operationType: "mutation"` in their metadata.
+
+#### Mutation Dependency Hazard
+
+> [!CAUTION]
+> **Never put mutation objects in dependency arrays.** `useMutation()` returns a new object on every render, which causes infinite re-renders if used in `useEffect`, `useMemo`, or `useCallback` dependencies.
+
+```typescript
+// ❌ BAD - causes infinite loop
+const mutation = client.createItem.useMutation();
+const callback = useMemo(() => {...}, [mutation]); // mutation changes every render!
+
+// ✅ GOOD - mutation is stable when accessed inside the callback, not as a dependency
+const mutation = client.createItem.useMutation();
+const callback = useMemo(() => {
+  return () => mutation.mutate(data);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [/* other stable deps */]);
+```
+
+The ESLint rule `checkstack/no-mutation-in-deps` catches this pattern.
 
 ### `accessApiRef`
 
@@ -603,6 +578,77 @@ export const ItemListPage = () => {
   return <ItemList items={items} />;
 };
 ```
+
+### Server State with TanStack Query (Recommended)
+
+The preferred approach is using `usePluginClient` with TanStack Query integration. This provides automatic caching, deduplication, loading states, and background refetching.
+
+```typescript
+import { usePluginClient } from "@checkstack/frontend-api";
+import { MyPluginApi } from "@checkstack/myplugin-common";
+
+export const ItemListPage = () => {
+  const client = usePluginClient(MyPluginApi);
+
+  // Queries - automatic loading/error states
+  const { data: items, isLoading, error } = client.getItems.useQuery({});
+
+  if (isLoading) return <LoadingSpinner />;
+  if (error) return <ErrorMessage error={error} />;
+
+  return <ItemList items={items ?? []} />;
+};
+```
+
+#### useQuery for Data Fetching
+
+```typescript
+// Query with no parameters
+const { data, isLoading } = client.getItems.useQuery();
+
+// Query with parameters
+const { data: item } = client.getItem.useQuery({ id: itemId });
+
+// Query with options (disable until ready)
+const { data } = client.getItems.useQuery({ filter }, {
+  enabled: !!filter,
+  staleTime: 60_000, // Cache for 1 minute
+});
+```
+
+#### useMutation for Data Modifications
+
+```typescript
+export const ItemForm = () => {
+  const client = usePluginClient(MyPluginApi);
+  const queryClient = useQueryClient();
+
+  const createMutation = client.createItem.useMutation({
+    onSuccess: () => {
+      // Invalidate cache to refetch list
+      queryClient.invalidateQueries({ queryKey: ['items'] });
+      toast.success("Item created!");
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const handleSubmit = (data: CreateItem) => {
+    createMutation.mutate(data);
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <Button disabled={createMutation.isPending}>
+        {createMutation.isPending ? "Creating..." : "Create"}
+      </Button>
+    </form>
+  );
+};
+```
+
+> **Note:** Contracts must include `operationType: "query"` or `operationType: "mutation"` in their metadata. Queries expose `.useQuery()`, mutations expose `.useMutation()`.
 
 ## Forms
 
@@ -930,10 +976,9 @@ test("create item", async ({ page }) => {
 ### API Not Found
 
 Check that:
-1. API is registered in plugin `apis` array
-2. API ref is created with `createApiRef`
-3. Factory function uses `rpcApi.forPlugin(*Api)` with the Api definition from common
-4. Api definition's `pluginId` matches backend router registration name
+1. The Api definition is exported from the `-common` package
+2. Contract's `pluginId` matches backend router registration name
+3. Backend for this plugin is running
 
 ### Type Errors with Contract
 
@@ -963,58 +1008,6 @@ If RPC calls return 404:
 1. Verify backend router is registered with correct plugin ID
 2. Ensure frontend uses the correct Api definition that matches backend pluginId
 3. Check backend plugin is loaded (check backend logs)
-
-## Migrating from Legacy REST Clients
-
-If you have legacy clients using manual `fetch()` calls:
-
-### Before (Legacy Pattern)
-
-```typescript
-export class MyPluginClient implements MyPluginApi {
-  constructor(private fetchApi: FetchApi) {}
-
-  async getItems(): Promise<Item[]> {
-    return this.fetchApi.fetch("/api/myplugin/items");
-  }
-
-  async createItem(data: CreateItem): Promise<Item> {
-    return this.fetchApi.fetch("/api/myplugin/items", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-  }
-}
-```
-
-### After (oRPC Pattern)
-
-```typescript
-// src/api.ts
-import { createApiRef } from "@checkstack/frontend-api";
-import { MyPluginApi } from "@checkstack/myplugin-common";
-import type { InferClient } from "@checkstack/common";
-
-export type MyPluginApiClient = InferClient<typeof MyPluginApi>;
-export const myPluginApiRef = createApiRef<MyPluginApiClient>("myplugin-api");
-
-// src/index.tsx
-apis: [
-  {
-    ref: myPluginApiRef,
-    factory: (deps): MyPluginApiClient => {
-      const rpcApi = deps.get(rpcApiRef);
-      return rpcApi.forPlugin(MyPluginApi);
-    },
-  },
-]
-```
-
-**Benefits:**
-- No manual client class needed
-- No hardcoded URLs or plugin IDs
-- Automatic type inference from Api definition
-- Compile-time contract validation
 
 ## Dynamic Plugin Loading
 

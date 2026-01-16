@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Trash2, ScrollText } from "lucide-react";
 import {
@@ -23,15 +23,13 @@ import {
   ConfirmationModal,
   type LucideIconName,
 } from "@checkstack/ui";
-import { useApi, rpcApiRef } from "@checkstack/frontend-api";
+import { usePluginClient } from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
 import {
   IntegrationApi,
   integrationRoutes,
   type WebhookSubscription,
   type IntegrationProviderInfo,
-  type IntegrationEventInfo,
-  type ProviderConnectionRedacted,
   type PayloadProperty,
 } from "@checkstack/integration-common";
 import { ProviderDocumentation } from "./ProviderDocumentation";
@@ -60,8 +58,7 @@ export const SubscriptionDialog = ({
   onUpdated,
   onDeleted,
 }: SubscriptionDialogProps) => {
-  const rpcApi = useApi(rpcApiRef);
-  const client = rpcApi.forPlugin(IntegrationApi);
+  const client = usePluginClient(IntegrationApi);
   const toast = useToast();
 
   // Edit mode detection
@@ -70,16 +67,11 @@ export const SubscriptionDialog = ({
   const [step, setStep] = useState<"provider" | "config">("provider");
   const [selectedProvider, setSelectedProvider] =
     useState<IntegrationProviderInfo>();
-  const [events, setEvents] = useState<IntegrationEventInfo[]>([]);
   const [saving, setSaving] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   // Connection state for providers with connectionSchema
-  const [connections, setConnections] = useState<ProviderConnectionRedacted[]>(
-    []
-  );
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
-  const [loadingConnections, setLoadingConnections] = useState(false);
 
   // Form state
   const [name, setName] = useState("");
@@ -88,69 +80,78 @@ export const SubscriptionDialog = ({
     {}
   );
   const [selectedEventId, setSelectedEventId] = useState<string>("");
-  const [payloadProperties, setPayloadProperties] = useState<PayloadProperty[]>(
-    []
-  );
   // Track whether DynamicForm fields are valid (all required fields filled)
   const [providerConfigValid, setProviderConfigValid] = useState(false);
 
-  // Fetch events when dialog opens
-  const fetchEvents = useCallback(async () => {
-    try {
-      const result = await client.listEventTypes();
-      setEvents(result);
-    } catch (error) {
-      console.error("Failed to fetch events:", error);
-    }
-  }, [client]);
-
-  // Fetch connections for providers with connectionSchema
-  const fetchConnections = useCallback(
-    async (providerId: string) => {
-      setLoadingConnections(true);
-      try {
-        const result = await client.listConnections({ providerId });
-        setConnections(result);
-        // Auto-select if only one connection
-        if (result.length === 1) {
-          setSelectedConnectionId(result[0].id);
-        }
-      } catch (error) {
-        console.error("Failed to fetch connections:", error);
-      } finally {
-        setLoadingConnections(false);
-      }
-    },
-    [client]
+  // Queries using hooks
+  const { data: events = [] } = client.listEventTypes.useQuery(
+    {},
+    { enabled: open }
   );
 
+  const { data: connections = [], isLoading: loadingConnections } =
+    client.listConnections.useQuery(
+      { providerId: selectedProvider?.qualifiedId ?? "" },
+      { enabled: open && !!selectedProvider?.hasConnectionSchema }
+    );
+
+  const { data: payloadSchemaData } = client.getEventPayloadSchema.useQuery(
+    { eventId: selectedEventId },
+    { enabled: open && !!selectedEventId }
+  );
+
+  const payloadProperties: PayloadProperty[] =
+    payloadSchemaData?.availableProperties ?? [];
+
+  // Mutations
+  const createMutation = client.createSubscription.useMutation({
+    onSuccess: (result) => {
+      onCreated?.(result);
+      toast.success("Subscription created");
+      setSaving(false);
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create subscription"
+      );
+      setSaving(false);
+    },
+  });
+
+  const updateMutation = client.updateSubscription.useMutation({
+    onSuccess: () => {
+      toast.success("Subscription updated");
+      onUpdated?.(subscription!);
+      onOpenChange(false);
+      setSaving(false);
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update subscription"
+      );
+      setSaving(false);
+    },
+  });
+
+  const deleteMutation = client.deleteSubscription.useMutation({
+    onSuccess: () => {
+      toast.success("Subscription deleted");
+      onDeleted?.(subscription!.id);
+      onOpenChange(false);
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete subscription"
+      );
+    },
+  });
+
+  // Auto-select if only one connection
   useEffect(() => {
-    if (open) {
-      void fetchEvents();
+    if (connections.length === 1 && !selectedConnectionId) {
+      setSelectedConnectionId(connections[0].id);
     }
-  }, [open, fetchEvents]);
-
-  // Fetch payload schema when event changes
-  useEffect(() => {
-    if (!selectedEventId) {
-      setPayloadProperties([]);
-      return;
-    }
-
-    const fetchPayloadSchema = async () => {
-      try {
-        const result = await client.getEventPayloadSchema({
-          eventId: selectedEventId,
-        });
-        setPayloadProperties(result.availableProperties);
-      } catch (error) {
-        console.error("Failed to fetch payload schema:", error);
-        setPayloadProperties([]);
-      }
-    };
-
-    void fetchPayloadSchema();
-  }, [selectedEventId, client]);
+  }, [connections, selectedConnectionId]);
 
   // Pre-populate form in edit mode
   useEffect(() => {
@@ -162,9 +163,6 @@ export const SubscriptionDialog = ({
       if (provider) {
         setSelectedProvider(provider);
         setStep("config"); // Skip provider selection
-        if (provider.hasConnectionSchema) {
-          void fetchConnections(provider.qualifiedId);
-        }
       }
       // Populate form fields
       setName(subscription.name);
@@ -177,7 +175,7 @@ export const SubscriptionDialog = ({
         setSelectedConnectionId(connId);
       }
     }
-  }, [open, subscription, providers, fetchConnections]);
+  }, [open, subscription, providers]);
 
   // Reset when dialog closes (only in create mode)
   useEffect(() => {
@@ -188,8 +186,6 @@ export const SubscriptionDialog = ({
       setDescription("");
       setProviderConfig({});
       setSelectedEventId("");
-      setPayloadProperties([]);
-      setConnections([]);
       setSelectedConnectionId("");
       setDeleteDialogOpen(false);
       setProviderConfigValid(false);
@@ -217,62 +213,39 @@ export const SubscriptionDialog = ({
   const handleProviderSelect = (provider: IntegrationProviderInfo) => {
     setSelectedProvider(provider);
     setStep("config");
-    // Fetch connections if provider supports them
-    if (provider.hasConnectionSchema) {
-      void fetchConnections(provider.qualifiedId);
-    }
   };
 
   // Handle update (edit mode)
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!subscription || !selectedProvider) return;
 
-    try {
-      setSaving(true);
-      // Include connectionId in providerConfig for providers with connections
-      const configWithConnection = selectedProvider.hasConnectionSchema
-        ? { ...providerConfig, connectionId: selectedConnectionId }
-        : providerConfig;
+    setSaving(true);
+    // Include connectionId in providerConfig for providers with connections
+    const configWithConnection = selectedProvider.hasConnectionSchema
+      ? { ...providerConfig, connectionId: selectedConnectionId }
+      : providerConfig;
 
-      await client.updateSubscription({
-        id: subscription.id,
-        updates: {
-          name,
-          description: description || undefined,
-          providerConfig: configWithConnection,
-          eventId:
-            selectedEventId === subscription.eventId
-              ? undefined
-              : selectedEventId,
-        },
-      });
-      toast.success("Subscription updated");
-      onUpdated?.(subscription);
-      onOpenChange(false);
-    } catch (error) {
-      console.error("Failed to update subscription:", error);
-      toast.error("Failed to update subscription");
-    } finally {
-      setSaving(false);
-    }
+    updateMutation.mutate({
+      id: subscription.id,
+      updates: {
+        name,
+        description: description || undefined,
+        providerConfig: configWithConnection,
+        eventId:
+          selectedEventId === subscription.eventId
+            ? undefined
+            : selectedEventId,
+      },
+    });
   };
 
   // Handle delete
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!subscription) return;
-
-    try {
-      await client.deleteSubscription({ id: subscription.id });
-      toast.success("Subscription deleted");
-      onDeleted?.(subscription.id);
-      onOpenChange(false);
-    } catch (error) {
-      console.error("Failed to delete subscription:", error);
-      toast.error("Failed to delete subscription");
-    }
+    deleteMutation.mutate({ id: subscription.id });
   };
 
-  const handleCreate = async () => {
+  const handleCreate = () => {
     if (!selectedProvider) return;
 
     // For providers with connections, require a connection to be selected
@@ -281,31 +254,23 @@ export const SubscriptionDialog = ({
       return;
     }
 
-    try {
-      setSaving(true);
-      // Include connectionId in providerConfig for providers with connections
-      const configWithConnection = selectedProvider.hasConnectionSchema
-        ? { ...providerConfig, connectionId: selectedConnectionId }
-        : providerConfig;
+    setSaving(true);
+    // Include connectionId in providerConfig for providers with connections
+    const configWithConnection = selectedProvider.hasConnectionSchema
+      ? { ...providerConfig, connectionId: selectedConnectionId }
+      : providerConfig;
 
-      const result = await client.createSubscription({
-        name,
-        description: description || undefined,
-        providerId: selectedProvider.qualifiedId,
-        providerConfig: configWithConnection,
-        eventId: selectedEventId,
-      });
-      onCreated?.(result);
-      toast.success("Subscription created");
-    } catch (error) {
-      console.error("Failed to create subscription:", error);
-      toast.error(
-        error instanceof Error ? error.message : "Failed to create subscription"
-      );
-    } finally {
-      setSaving(false);
-    }
+    createMutation.mutate({
+      name,
+      description: description || undefined,
+      providerId: selectedProvider.qualifiedId,
+      providerConfig: configWithConnection,
+      eventId: selectedEventId,
+    });
   };
+
+  // Mutation for fetching dynamic dropdown options (called at component level)
+  const getOptionsMutation = client.getConnectionOptions.useMutation();
 
   // Create optionsResolvers for dynamic dropdown fields (x-options-resolver)
   // Uses a Proxy to handle any resolver name dynamically
@@ -319,10 +284,10 @@ export const SubscriptionDialog = ({
       {},
       {
         get: (_target, resolverName: string) => {
-          // Return a resolver function for this resolver name
+          // Return a resolver function that uses mutateAsync from the hook defined above
           return async (formValues: Record<string, unknown>) => {
             try {
-              const result = await client.getConnectionOptions({
+              const result = await getOptionsMutation.mutateAsync({
                 providerId: selectedProvider.qualifiedId,
                 connectionId: selectedConnectionId,
                 resolverName,
@@ -349,7 +314,8 @@ export const SubscriptionDialog = ({
         formValues: Record<string, unknown>
       ) => Promise<{ value: string; label: string }[]>
     >;
-  }, [client, selectedProvider, selectedConnectionId]);
+    // Note: getOptionsMutation intentionally omitted - mutation objects change on every render
+  }, [selectedProvider, selectedConnectionId]);
 
   return (
     <>

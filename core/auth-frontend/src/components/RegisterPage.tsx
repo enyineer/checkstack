@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { AlertCircle } from "lucide-react";
-import { useApi, rpcApiRef } from "@checkstack/frontend-api";
+import { useApi, usePluginClient } from "@checkstack/frontend-api";
 import { authApiRef } from "../api";
 import { AuthApi, authRoutes, passwordSchema } from "@checkstack/auth-common";
 import { resolveRoute } from "@checkstack/common";
@@ -33,12 +33,9 @@ export const RegisterPage = () => {
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
   const authApi = useApi(authApiRef);
-  const rpcApi = useApi(rpcApiRef);
-  const authRpcClient = rpcApi.forPlugin(AuthApi);
+  const authClient = usePluginClient(AuthApi);
   const { strategies, loading: strategiesLoading } = useEnabledStrategies();
-  const [registrationAllowed, setRegistrationAllowed] = useState<boolean>(true);
-  const [checkingRegistration, setCheckingRegistration] = useState(true);
-  const authClient = useAuthClient();
+  const authBetterClient = useAuthClient();
 
   // Validate password on change
   useEffect(() => {
@@ -54,19 +51,10 @@ export const RegisterPage = () => {
     }
   }, [password]);
 
-  useEffect(() => {
-    authRpcClient
-      .getRegistrationStatus()
-      .then(({ allowRegistration }) => {
-        setRegistrationAllowed(allowRegistration);
-      })
-      .catch((error: Error) => {
-        console.error("Failed to check registration status:", error);
-        // Default to allowed on error to avoid blocking
-        setRegistrationAllowed(true);
-      })
-      .finally(() => setCheckingRegistration(false));
-  }, [authRpcClient]);
+  // Query: Registration status
+  const { data: registrationData, isLoading: checkingRegistration } =
+    authClient.getRegistrationStatus.useQuery({});
+  const registrationAllowed = registrationData?.allowRegistration ?? true;
 
   const handleCredentialRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,7 +67,11 @@ export const RegisterPage = () => {
 
     setLoading(true);
     try {
-      const res = await authClient.signUp.email({ name, email, password });
+      const res = await authBetterClient.signUp.email({
+        name,
+        email,
+        password,
+      });
       if (res.error) {
         console.error("Registration failed:", res.error);
       } else {

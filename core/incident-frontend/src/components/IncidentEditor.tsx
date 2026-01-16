@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { useApi } from "@checkstack/frontend-api";
-import { incidentApiRef } from "../api";
+import React, { useState, useEffect } from "react";
+import { usePluginClient } from "@checkstack/frontend-api";
+import { IncidentApi } from "../api";
 import type {
   IncidentWithSystems,
   IncidentSeverity,
@@ -47,7 +47,7 @@ export const IncidentEditor: React.FC<Props> = ({
   systems,
   onSave,
 }) => {
-  const api = useApi(incidentApiRef);
+  const incidentClient = usePluginClient(IncidentApi);
   const toast = useToast();
 
   // Incident fields
@@ -57,29 +57,46 @@ export const IncidentEditor: React.FC<Props> = ({
   const [selectedSystemIds, setSelectedSystemIds] = useState<Set<string>>(
     new Set()
   );
-  const [saving, setSaving] = useState(false);
 
   // Status update fields
   const [updates, setUpdates] = useState<IncidentUpdate[]>([]);
-  const [loadingUpdates, setLoadingUpdates] = useState(false);
+  const [loadingUpdates, _setLoadingUpdates] = useState(false);
   const [showUpdateForm, setShowUpdateForm] = useState(false);
 
-  const loadIncidentDetails = useCallback(
-    async (id: string) => {
-      setLoadingUpdates(true);
-      try {
-        const detail = await api.getIncident({ id });
-        if (detail) {
-          setUpdates(detail.updates);
-        }
-      } catch (error) {
-        console.error("Failed to load incident details:", error);
-      } finally {
-        setLoadingUpdates(false);
-      }
+  // Mutations
+  const createMutation = incidentClient.createIncident.useMutation({
+    onSuccess: () => {
+      toast.success("Incident created");
+      onSave();
     },
-    [api]
-  );
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to save");
+    },
+  });
+
+  const updateMutation = incidentClient.updateIncident.useMutation({
+    onSuccess: () => {
+      toast.success("Incident updated");
+      onSave();
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to save");
+    },
+  });
+
+  // Query for incident details (only when editing)
+  const { data: incidentDetail, refetch: refetchDetail } =
+    incidentClient.getIncident.useQuery(
+      { id: incident?.id ?? "" },
+      { enabled: !!incident?.id && open }
+    );
+
+  // Sync updates from query
+  useEffect(() => {
+    if (incidentDetail) {
+      setUpdates(incidentDetail.updates);
+    }
+  }, [incidentDetail]);
 
   // Reset form when incident changes
   useEffect(() => {
@@ -88,8 +105,6 @@ export const IncidentEditor: React.FC<Props> = ({
       setDescription(incident.description ?? "");
       setSeverity(incident.severity);
       setSelectedSystemIds(new Set(incident.systemIds));
-      // Load full incident with updates
-      loadIncidentDetails(incident.id);
     } else {
       setTitle("");
       setDescription("");
@@ -98,7 +113,7 @@ export const IncidentEditor: React.FC<Props> = ({
       setUpdates([]);
       setShowUpdateForm(false);
     }
-  }, [incident, open, loadIncidentDetails]);
+  }, [incident, open]);
 
   const handleSystemToggle = (systemId: string) => {
     setSelectedSystemIds((prev) => {
@@ -112,7 +127,7 @@ export const IncidentEditor: React.FC<Props> = ({
     });
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     if (!title.trim()) {
       toast.error("Title is required");
       return;
@@ -122,43 +137,34 @@ export const IncidentEditor: React.FC<Props> = ({
       return;
     }
 
-    setSaving(true);
-    try {
-      if (incident) {
-        await api.updateIncident({
-          id: incident.id,
-          title,
-          description: description || undefined,
-          severity,
-          systemIds: [...selectedSystemIds],
-        });
-        toast.success("Incident updated");
-      } else {
-        await api.createIncident({
-          title,
-          description,
-          severity,
-          systemIds: [...selectedSystemIds],
-        });
-        toast.success("Incident created");
-      }
-      onSave();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to save";
-      toast.error(message);
-    } finally {
-      setSaving(false);
+    if (incident) {
+      updateMutation.mutate({
+        id: incident.id,
+        title,
+        description: description || undefined,
+        severity,
+        systemIds: [...selectedSystemIds],
+      });
+    } else {
+      createMutation.mutate({
+        title,
+        description,
+        severity,
+        systemIds: [...selectedSystemIds],
+      });
     }
   };
 
   const handleUpdateSuccess = () => {
     if (incident) {
-      loadIncidentDetails(incident.id);
+      void refetchDetail();
     }
     setShowUpdateForm(false);
     // Notify parent to refresh list (status may have changed)
     onSave();
   };
+
+  const saving = createMutation.isPending || updateMutation.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

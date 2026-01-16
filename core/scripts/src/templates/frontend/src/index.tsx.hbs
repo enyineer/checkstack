@@ -1,7 +1,6 @@
-import { createFrontendPlugin, rpcApiRef, type ApiRef } from "@checkstack/frontend-api";
-import { {{pluginNameCamel}}ApiRef, type {{pluginNamePascal}}ApiClient } from "./api";
+import { createFrontendPlugin } from "@checkstack/frontend-api";
 import { {{pluginNamePascal}}ListPage } from "./components/{{pluginNamePascal}}ListPage";
-import { {{pluginNameCamel}}Routes, {{pluginNamePascal}}Api, pluginMetadata, {{pluginNameCamel}}Access } from "@checkstack/{{pluginBaseName}}-common";
+import { {{pluginNameCamel}}Routes, pluginMetadata, {{pluginNameCamel}}Access } from "@checkstack/{{pluginBaseName}}-common";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
@@ -13,18 +12,6 @@ export default createFrontendPlugin({
       element: <{{pluginNamePascal}}ListPage />,
       title: "{{pluginNamePascal}}",
       accessRule: {{pluginNameCamel}}Access.read,
-    },
-  ],
-
-  // Register client API using oRPC
-  apis: [
-    {
-      ref: {{pluginNameCamel}}ApiRef,
-      factory: (deps: { get: <T>(ref: ApiRef<T>) => T }): {{pluginNamePascal}}ApiClient => {
-        const rpcApi = deps.get(rpcApiRef);
-        // Create type-safe client using the plugin's Api definition
-        return rpcApi.forPlugin({{pluginNamePascal}}Api);
-      },
     },
   ],
 });

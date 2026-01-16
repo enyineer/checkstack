@@ -83,21 +83,17 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
     setSelectedAccessRules(newSelected);
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     setSaving(true);
-    try {
-      await onSave({
-        ...(isEditing && { id: role.id }),
-        name,
-        description: description || undefined,
-        accessRules: [...selectedAccessRules],
-      });
-      onOpenChange(false);
-    } catch (error) {
-      console.error("Failed to save role:", error);
-    } finally {
-      setSaving(false);
-    }
+    onSave({
+      ...(isEditing && { id: role.id }),
+      name,
+      description: description || undefined,
+      accessRules: [...selectedAccessRules],
+    });
+    // Dialog closing and saving state are managed by the parent via onDataChange callback
+    onOpenChange(false);
+    setSaving(false);
   };
 
   let buttonText = "Create";
@@ -149,8 +145,8 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
             {isAdminRole && (
               <Alert variant="info" className="mb-3">
                 <AlertDescription>
-                  The administrator role has wildcard access to all access rules.
-                  These cannot be modified.
+                  The administrator role has wildcard access to all access
+                  rules. These cannot be modified.
                 </AlertDescription>
               </Alert>
             )}

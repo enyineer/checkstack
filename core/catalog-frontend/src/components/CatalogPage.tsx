@@ -1,14 +1,12 @@
 import React from "react";
 import { useApi, loggerApiRef } from "@checkstack/frontend-api";
-import { catalogApiRef } from "../api";
 
 export const CatalogPage = () => {
   const logger = useApi(loggerApiRef);
-  const catalog = useApi(catalogApiRef);
 
   React.useEffect(() => {
-    logger.info("Catalog Page loaded", catalog);
-  }, [logger, catalog]);
+    logger.info("Catalog Page loaded");
+  }, [logger]);
 
   return (
     <div className="p-4 rounded-lg bg-white shadow">

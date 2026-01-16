@@ -1,6 +1,7 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import unicorn from "eslint-plugin-unicorn";
+import checkstackPlugin from "./scripts/eslint-rules/checkstack-plugin.mjs";
 
 export default tseslint.config(
   {
@@ -18,6 +19,7 @@ export default tseslint.config(
   {
     plugins: {
       unicorn,
+      checkstack: checkstackPlugin,
     },
     rules: {
       "@typescript-eslint/no-explicit-any": "error",
@@ -30,6 +32,10 @@ export default tseslint.config(
       "unicorn/prevent-abbreviations": "off",
       "unicorn/prefer-module": "off",
       "unicorn/no-nested-ternary": "off",
+      // Custom checkstack rules
+      "checkstack/no-direct-rpc-in-components": "error",
+      "checkstack/no-mutation-in-deps": "error",
+      "checkstack/enforce-architecture-deps": "error",
     },
   }
 );

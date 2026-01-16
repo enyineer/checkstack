@@ -1,7 +1,15 @@
 import { useEffect, useState } from "react";
-import { useApi, wrapInSuspense, accessApiRef } from "@checkstack/frontend-api";
-import { queueApiRef } from "../api";
-import { QueuePluginDto, queueAccess } from "@checkstack/queue-common";
+import {
+  wrapInSuspense,
+  accessApiRef,
+  useApi,
+  usePluginClient,
+} from "@checkstack/frontend-api";
+import {
+  QueuePluginDto,
+  queueAccess,
+  QueueApi,
+} from "@checkstack/queue-common";
 import {
   Button,
   Alert,
@@ -20,7 +28,7 @@ import { AlertTriangle, Save, Info, Gauge, Activity } from "lucide-react";
 import { QueueLagAlert } from "../components/QueueLagAlert";
 
 const QueueConfigPageContent = () => {
-  const api = useApi(queueApiRef);
+  const queueClient = usePluginClient(QueueApi);
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
   const { allowed: canRead, loading: accessLoading } = accessApi.useAccess(
@@ -30,42 +38,41 @@ const QueueConfigPageContent = () => {
     queueAccess.settings.manage
   );
 
-  const [plugins, setPlugins] = useState<QueuePluginDto[]>([]);
+  // Fetch plugins and configuration
+  const { data: pluginsList } = queueClient.getPlugins.useQuery();
+  const { data: configuration, refetch: refetchConfig } =
+    queueClient.getConfiguration.useQuery();
+  const updateConfigMutation = queueClient.updateConfiguration.useMutation();
+
   const [selectedPluginId, setSelectedPluginId] = useState<string>("");
   const [config, setConfig] = useState<Record<string, unknown>>({});
-  const [isSaving, setIsSaving] = useState(false);
 
+  // Sync state with fetched data
   useEffect(() => {
-    const fetchData = async () => {
-      const [pluginsList, configuration] = await Promise.all([
-        api.getPlugins(),
-        api.getConfiguration(),
-      ]);
-      setPlugins(pluginsList);
+    if (configuration) {
       setSelectedPluginId(configuration.pluginId);
       setConfig(configuration.config);
-    };
-    fetchData();
-  }, [api]);
+    }
+  }, [configuration]);
 
   const handleSave = async () => {
     if (!selectedPluginId) return;
-    setIsSaving(true);
     try {
-      await api.updateConfiguration({
+      await updateConfigMutation.mutateAsync({
         pluginId: selectedPluginId,
         config,
       });
       toast.success("Configuration saved successfully!");
+      refetchConfig();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast.error(`Failed to save configuration: ${message}`);
-    } finally {
-      setIsSaving(false);
     }
   };
 
   const isMemoryQueue = selectedPluginId === "memory";
+  const plugins: QueuePluginDto[] = pluginsList ?? [];
+  const isSaving = updateConfigMutation.isPending;
 
   return (
     <PageLayout

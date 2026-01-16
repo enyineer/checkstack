@@ -5,7 +5,7 @@ import {
   useApi,
   ExtensionSlot,
   pluginRegistry,
-  rpcApiRef,
+  usePluginClient,
   UserMenuItemsSlot,
   UserMenuItemsBottomSlot,
   UserMenuItemsContext,
@@ -49,22 +49,14 @@ export const LoginPage = () => {
   const [loading, setLoading] = useState(false);
 
   const authApi = useApi(authApiRef);
-  const rpcApi = useApi(rpcApiRef);
-  const authRpcClient = rpcApi.forPlugin(AuthApi);
+  const authClient = usePluginClient(AuthApi);
   const { strategies, loading: strategiesLoading } = useEnabledStrategies();
-  const [registrationAllowed, setRegistrationAllowed] = useState<boolean>(true);
 
-  useEffect(() => {
-    authRpcClient
-      .getRegistrationStatus()
-      .then(({ allowRegistration }) => {
-        setRegistrationAllowed(allowRegistration);
-      })
-      .catch((error: Error) => {
-        console.error("Failed to check registration status:", error);
-        setRegistrationAllowed(true);
-      });
-  }, [authRpcClient]);
+  // Query: Registration status
+  const { data: registrationData } = authClient.getRegistrationStatus.useQuery(
+    {}
+  );
+  const registrationAllowed = registrationData?.allowRegistration ?? true;
 
   const handleCredentialLogin = async (e: React.FormEvent) => {
     e.preventDefault();

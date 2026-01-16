@@ -42,7 +42,16 @@ export interface ProcedureMetadata {
    * - "service": Only services (backend-to-backend)
    * - "authenticated": Either users or services, but must be authenticated (default)
    */
-  userType?: "anonymous" | "public" | "user" | "service" | "authenticated";
+  userType: "anonymous" | "public" | "user" | "service" | "authenticated";
+
+  /**
+   * Operation type for TanStack Query integration.
+   * - "query": Read-only operation, uses useQuery hook
+   * - "mutation": Write operation, uses useMutation hook
+   *
+   * This is REQUIRED for all procedures to enable type-safe frontend hooks.
+   */
+  operationType: "query" | "mutation";
 
   /**
    * Unified access rules combining access rules and resource-level access control.
@@ -57,5 +66,5 @@ export interface ProcedureMetadata {
    * access: [catalogAccess.groups.manage, catalogAccess.systems.manage] // Both required
    * ```
    */
-  access?: AccessRule[];
+  access: AccessRule[];
 }

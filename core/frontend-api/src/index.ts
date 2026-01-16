@@ -8,3 +8,4 @@ export * from "./utils";
 export * from "./slots";
 export * from "./use-plugin-route";
 export * from "./runtime-config";
+export * from "./orpc-query";

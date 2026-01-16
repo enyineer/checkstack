@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Plus, Webhook, ArrowRight, Activity } from "lucide-react";
 import {
@@ -19,7 +19,7 @@ import {
   useToast,
   type LucideIconName,
 } from "@checkstack/ui";
-import { useApi, rpcApiRef } from "@checkstack/frontend-api";
+import { usePluginClient } from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
 import {
   IntegrationApi,
@@ -30,48 +30,44 @@ import {
 import { SubscriptionDialog } from "../components/CreateSubscriptionDialog";
 
 export const IntegrationsPage = () => {
-  const rpcApi = useApi(rpcApiRef);
-  const client = rpcApi.forPlugin(IntegrationApi);
+  const client = usePluginClient(IntegrationApi);
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [subscriptions, setSubscriptions] = useState<WebhookSubscription[]>([]);
-  const [providers, setProviders] = useState<IntegrationProviderInfo[]>([]);
-  const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSubscription, setSelectedSubscription] =
     useState<WebhookSubscription>();
 
-  // Stats state
-  const [stats, setStats] = useState<{
-    total: number;
-    successful: number;
-    failed: number;
-    retrying: number;
-    pending: number;
-  }>();
+  // Queries using hooks
+  const {
+    data: subscriptionsData,
+    isLoading: subsLoading,
+    refetch: refetchSubs,
+  } = client.listSubscriptions.useQuery({ page: 1, pageSize: 100 });
 
-  const fetchData = useCallback(async () => {
-    try {
-      const [subsResult, providersResult, statsResult] = await Promise.all([
-        client.listSubscriptions({ page: 1, pageSize: 100 }),
-        client.listProviders(),
-        client.getDeliveryStats({ hours: 24 }),
-      ]);
-      setSubscriptions(subsResult.subscriptions);
-      setProviders(providersResult);
-      setStats(statsResult);
-    } catch (error) {
-      console.error("Failed to load integrations data:", error);
-      toast.error("Failed to load integrations data");
-    } finally {
-      setLoading(false);
-    }
-  }, [client, toast]);
+  const { data: providers = [], isLoading: providersLoading } =
+    client.listProviders.useQuery({});
 
-  useEffect(() => {
-    void fetchData();
-  }, [fetchData]);
+  const { data: stats, isLoading: statsLoading } =
+    client.getDeliveryStats.useQuery({ hours: 24 });
+
+  // Mutation for toggling
+  const toggleMutation = client.toggleSubscription.useMutation({
+    onSuccess: (_result, variables) => {
+      toast.success(
+        variables.enabled ? "Subscription enabled" : "Subscription disabled"
+      );
+      void refetchSubs();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to toggle subscription"
+      );
+    },
+  });
+
+  const subscriptions = subscriptionsData?.subscriptions ?? [];
+  const loading = subsLoading || providersLoading || statsLoading;
 
   // Handle ?action=create URL parameter (from command palette)
   useEffect(() => {
@@ -87,37 +83,29 @@ export const IntegrationsPage = () => {
   const getProviderInfo = (
     providerId: string
   ): IntegrationProviderInfo | undefined => {
-    return providers.find((p) => p.qualifiedId === providerId);
+    return (providers as IntegrationProviderInfo[]).find(
+      (p) => p.qualifiedId === providerId
+    );
   };
 
-  const handleToggle = async (id: string, enabled: boolean) => {
-    try {
-      await client.toggleSubscription({ id, enabled });
-      setSubscriptions((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, enabled } : s))
-      );
-      toast.success(enabled ? "Subscription enabled" : "Subscription disabled");
-    } catch (error) {
-      console.error("Failed to toggle subscription:", error);
-      toast.error("Failed to toggle subscription");
-    }
+  const handleToggle = (id: string, enabled: boolean) => {
+    toggleMutation.mutate({ id, enabled });
   };
 
-  const handleCreated = (newSub: WebhookSubscription) => {
-    setSubscriptions((prev) => [newSub, ...prev]);
+  const handleCreated = () => {
+    void refetchSubs();
     setDialogOpen(false);
     setSelectedSubscription(undefined);
   };
 
   const handleUpdated = () => {
-    // Refresh data after update
-    void fetchData();
+    void refetchSubs();
     setDialogOpen(false);
     setSelectedSubscription(undefined);
   };
 
-  const handleDeleted = (id: string) => {
-    setSubscriptions((prev) => prev.filter((s) => s.id !== id));
+  const handleDeleted = () => {
+    void refetchSubs();
     setDialogOpen(false);
     setSelectedSubscription(undefined);
   };
@@ -277,7 +265,7 @@ export const IntegrationsPage = () => {
                             size="sm"
                             onClick={(e) => {
                               e.stopPropagation();
-                              void handleToggle(sub.id, !sub.enabled);
+                              handleToggle(sub.id, !sub.enabled);
                             }}
                           >
                             {sub.enabled ? "Disable" : "Enable"}
@@ -308,7 +296,7 @@ export const IntegrationsPage = () => {
             description="Providers handle the delivery of events to external systems"
           />
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {providers.map((provider) => (
+            {(providers as IntegrationProviderInfo[]).map((provider) => (
               <Card key={provider.qualifiedId}>
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
@@ -344,7 +332,7 @@ export const IntegrationsPage = () => {
                 </CardContent>
               </Card>
             ))}
-            {providers.length === 0 && (
+            {(providers as IntegrationProviderInfo[]).length === 0 && (
               <Card className="col-span-full">
                 <CardContent className="p-4">
                   <div className="text-center text-muted-foreground py-4">
@@ -364,7 +352,7 @@ export const IntegrationsPage = () => {
           setDialogOpen(open);
           if (!open) setSelectedSubscription(undefined);
         }}
-        providers={providers}
+        providers={providers as IntegrationProviderInfo[]}
         subscription={selectedSubscription}
         onCreated={handleCreated}
         onUpdated={handleUpdated}

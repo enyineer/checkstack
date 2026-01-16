@@ -1,43 +1,32 @@
-import { useEffect, useState } from "react";
-import { useAuthClient } from "../lib/auth-client";
-import { rpcApiRef, useApi } from "@checkstack/frontend-api";
+import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
+import { useAuthClient } from "../lib/auth-client";
 
 export const useAccessRules = () => {
-  const authClient = useAuthClient();
-  const { data: session, isPending: sessionPending } = authClient.useSession();
-  const [accessRules, setAccessRules] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const rpcApi = useApi(rpcApiRef);
+  const authBetterClient = useAuthClient();
+  const authClient = usePluginClient(AuthApi);
+  const { data: session, isPending: sessionPending } =
+    authBetterClient.useSession();
 
-  useEffect(() => {
-    // Don't set loading=false while session is still pending
-    // This prevents "Access Denied" flash during initial page load
-    if (sessionPending) {
-      return;
+  // Query: Fetch access rules (only when user is authenticated)
+  const { data, isLoading } = authClient.accessRules.useQuery(
+    {},
+    {
+      enabled: !sessionPending && !!session?.user,
     }
+  );
 
-    if (!session?.user) {
-      setAccessRules([]);
-      setLoading(false);
-      return;
-    }
+  // If no session or pending, return empty access rules
+  if (sessionPending) {
+    return { accessRules: [], loading: true };
+  }
 
-    const fetchAccessRules = async () => {
-      try {
-        const authRpc = rpcApi.forPlugin(AuthApi);
-        const data = await authRpc.accessRules();
-        if (Array.isArray(data.accessRules)) {
-          setAccessRules(data.accessRules);
-        }
-      } catch (error) {
-        console.error("Failed to fetch access rules", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchAccessRules();
-  }, [session?.user?.id, sessionPending, rpcApi]);
+  if (!session?.user) {
+    return { accessRules: [], loading: false };
+  }
 
-  return { accessRules, loading };
+  return {
+    accessRules: data?.accessRules ?? [],
+    loading: isLoading,
+  };
 };

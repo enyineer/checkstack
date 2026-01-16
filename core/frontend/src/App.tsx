@@ -23,7 +23,10 @@ import {
   RuntimeConfigProvider,
   useRuntimeConfigLoading,
   useRuntimeConfig,
+  OrpcQueryProvider,
 } from "@checkstack/frontend-api";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ConsoleLoggerApi } from "./apis/logger-api";
 import { CoreFetchApi } from "./apis/fetch-api";
 import { CoreRpcApi } from "./apis/rpc-api";
@@ -36,6 +39,20 @@ import {
 import { SignalProvider } from "@checkstack/signal-frontend";
 import { usePluginLifecycle } from "./hooks/usePluginLifecycle";
 import { useCommands, useGlobalShortcuts } from "@checkstack/command-frontend";
+
+// Create a stable query client instance
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Default stale time of 30 seconds for all queries
+      staleTime: 30_000,
+      // Keep unused data in cache for 5 minutes
+      gcTime: 5 * 60 * 1000,
+      // Don't refetch on window focus by default (can be overridden per query)
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 /**
  * Component that registers global keyboard shortcuts for all commands.
@@ -194,13 +211,19 @@ function AppWithApis() {
   }
 
   return (
-    <ApiProvider registry={apiRegistry}>
-      <SignalProvider backendUrl={baseUrl}>
-        <ToastProvider>
-          <AppContent />
-        </ToastProvider>
-      </SignalProvider>
-    </ApiProvider>
+    <QueryClientProvider client={queryClient}>
+      <ApiProvider registry={apiRegistry}>
+        <OrpcQueryProvider>
+          <SignalProvider backendUrl={baseUrl}>
+            <ToastProvider>
+              <AppContent />
+            </ToastProvider>
+          </SignalProvider>
+        </OrpcQueryProvider>
+      </ApiProvider>
+      {/* DevTools only in development - toggle with keyboard or floating button */}
+      <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-left" />
+    </QueryClientProvider>
   );
 }
 

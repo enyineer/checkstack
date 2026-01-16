@@ -1,10 +1,13 @@
 import { useMemo } from "react";
 import { createAuthClient } from "better-auth/react";
-import { useRuntimeConfig } from "@checkstack/frontend-api";
+import {
+  useRuntimeConfig,
+  getCachedRuntimeConfig,
+} from "@checkstack/frontend-api";
 
 // Cache for lazy-initialized client
 let cachedClient: ReturnType<typeof createAuthClient> | undefined;
-let configPromise: Promise<string> | undefined;
+let cachedBaseUrl: string | undefined;
 
 /**
  * React hook to get the auth client with proper runtime config.
@@ -25,31 +28,23 @@ export function useAuthClient() {
 
 /**
  * Lazy-initialized auth client for class-based APIs.
- * Fetches config from /api/config if not already cached.
- * Use useAuthClient hook in React components instead.
+ * Uses the cached runtime config from RuntimeConfigProvider.
+ *
+ * Note: This should only be called AFTER RuntimeConfigProvider has loaded.
+ * Components rendered inside the provider tree are guaranteed to have config available.
  */
 export function getAuthClientLazy(): ReturnType<typeof createAuthClient> {
-  if (!cachedClient) {
-    // Create with default URL initially
+  const config = getCachedRuntimeConfig();
+  const baseUrl = config?.baseUrl ?? "http://localhost:3000";
+
+  // Recreate client if baseUrl changed or not yet created
+  if (!cachedClient || cachedBaseUrl !== baseUrl) {
+    cachedBaseUrl = baseUrl;
     cachedClient = createAuthClient({
-      baseURL: "http://localhost:3000",
+      baseURL: baseUrl,
       basePath: "/api/auth",
     });
-
-    // Fetch real config and update
-    if (!configPromise) {
-      configPromise = fetch("/api/config")
-        .then((res) => res.json())
-        .then((data: { baseUrl: string }) => data.baseUrl)
-        .catch(() => "http://localhost:3000");
-    }
-
-    configPromise.then((baseUrl) => {
-      cachedClient = createAuthClient({
-        baseURL: baseUrl,
-        basePath: "/api/auth",
-      });
-    });
   }
+
   return cachedClient;
 }

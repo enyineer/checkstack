@@ -1,15 +1,9 @@
-import { createApiRef } from "@checkstack/frontend-api";
-import type { InferClient } from "@checkstack/common";
-import { {{pluginNamePascal}}Api } from "@checkstack/{{pluginBaseName}}-common";
-
-// Re-export types for convenience
+// Re-export types from common for convenience
 export type {
   {{pluginNamePascal}}Item,
   Create{{pluginNamePascal}}Item,
   Update{{pluginNamePascal}}Item,
 } from "@checkstack/{{pluginBaseName}}-common";
 
-// {{pluginNamePascal}}ApiClient is the client type inferred from the Api definition
-export type {{pluginNamePascal}}ApiClient = InferClient<typeof {{pluginNamePascal}}Api>;
-
-export const {{pluginNameCamel}}ApiRef = createApiRef<{{pluginNamePascal}}ApiClient>("{{pluginBaseName}}-api");
+// Re-export the Api definition for usePluginClient usage
+export { {{pluginNamePascal}}Api } from "@checkstack/{{pluginBaseName}}-common";

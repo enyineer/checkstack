@@ -1,15 +1,8 @@
-import { oc } from "@orpc/contract";
-import {
-  createClientDefinition,
-  type ProcedureMetadata,
-} from "@checkstack/common";
+import { createClientDefinition, proc } from "@checkstack/common";
 import { pluginMetadata } from "./plugin-metadata";
 import { z } from "zod";
 import { SystemSchema, GroupSchema, ViewSchema } from "./types";
 import { catalogAccess } from "./access";
-
-// Base builder with full metadata support
-const _base = oc.$meta<ProcedureMetadata>({});
 
 // Input schemas that match the service layer expectations
 const CreateSystemInputSchema = z.object({
@@ -23,9 +16,9 @@ const UpdateSystemInputSchema = z.object({
   id: z.string(),
   data: z.object({
     name: z.string().optional(),
-    description: z.string().nullable().optional(), // Allow nullable for updates
+    description: z.string().nullable().optional(),
     owner: z.string().nullable().optional(),
-    metadata: z.record(z.string(), z.unknown()).nullable().optional(), // Allow nullable
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   }),
 });
 
@@ -38,7 +31,7 @@ const UpdateGroupInputSchema = z.object({
   id: z.string(),
   data: z.object({
     name: z.string().optional(),
-    metadata: z.record(z.string(), z.unknown()).nullable().optional(), // Allow nullable
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   }),
 });
 
@@ -54,62 +47,62 @@ export const catalogContract = {
   // ENTITY READ ENDPOINTS (userType: "public" - accessible by anyone with access)
   // ==========================================================================
 
-  getEntities: _base
-    .meta({
-      userType: "public",
-      access: [catalogAccess.system.read],
+  getEntities: proc({
+    operationType: "query",
+    userType: "public",
+    access: [catalogAccess.system.read],
+  }).output(
+    z.object({
+      systems: z.array(SystemSchema),
+      groups: z.array(GroupSchema),
     })
-    .output(
-      z.object({
-        systems: z.array(SystemSchema),
-        groups: z.array(GroupSchema),
-      })
-    ),
+  ),
 
-  getSystems: _base
-    .meta({
-      userType: "public",
-      access: [catalogAccess.system.read],
-    })
-    .output(z.object({ systems: z.array(SystemSchema) })),
+  getSystems: proc({
+    operationType: "query",
+    userType: "public",
+    access: [catalogAccess.system.read],
+  }).output(z.object({ systems: z.array(SystemSchema) })),
 
-  getSystem: _base
-    .meta({
-      userType: "public",
-      access: [catalogAccess.system.read],
-    })
+  getSystem: proc({
+    operationType: "query",
+    userType: "public",
+    access: [catalogAccess.system.read],
+  })
     .input(z.object({ systemId: z.string() }))
     .output(SystemSchema.nullable()),
 
-  getGroups: _base
-    .meta({ userType: "public", access: [catalogAccess.group.read] })
-    .output(z.array(GroupSchema)),
+  getGroups: proc({
+    operationType: "query",
+    userType: "public",
+    access: [catalogAccess.group.read],
+  }).output(z.array(GroupSchema)),
 
   // ==========================================================================
   // SYSTEM MANAGEMENT (userType: "authenticated" with manage access)
   // ==========================================================================
 
-  createSystem: _base
-    .meta({
-      userType: "authenticated",
-      access: [catalogAccess.system.manage],
-    })
+  createSystem: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.system.manage],
+  })
     .input(CreateSystemInputSchema)
     .output(SystemSchema),
 
-  updateSystem: _base
-    .meta({
-      userType: "authenticated",
-      access: [catalogAccess.system.manage],
-    })
+  updateSystem: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.system.manage],
+  })
     .input(UpdateSystemInputSchema)
     .output(SystemSchema),
 
-  deleteSystem: _base
-    .meta({
-      userType: "authenticated",
-      access: [catalogAccess.system.manage],
-    })
+  deleteSystem: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.system.manage],
+  })
     .input(z.string())
     .output(z.object({ success: z.boolean() })),
 
@@ -117,27 +110,27 @@ export const catalogContract = {
   // GROUP MANAGEMENT (userType: "authenticated" with manage access)
   // ==========================================================================
 
-  createGroup: _base
-    .meta({
-      userType: "authenticated",
-      access: [catalogAccess.group.manage],
-    })
+  createGroup: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.group.manage],
+  })
     .input(CreateGroupInputSchema)
     .output(GroupSchema),
 
-  updateGroup: _base
-    .meta({
-      userType: "authenticated",
-      access: [catalogAccess.group.manage],
-    })
+  updateGroup: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.group.manage],
+  })
     .input(UpdateGroupInputSchema)
     .output(GroupSchema),
 
-  deleteGroup: _base
-    .meta({
-      userType: "authenticated",
-      access: [catalogAccess.group.manage],
-    })
+  deleteGroup: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.group.manage],
+  })
     .input(z.string())
     .output(z.object({ success: z.boolean() })),
 
@@ -145,11 +138,11 @@ export const catalogContract = {
   // SYSTEM-GROUP RELATIONSHIPS (userType: "authenticated" with manage access)
   // ==========================================================================
 
-  addSystemToGroup: _base
-    .meta({
-      userType: "authenticated",
-      access: [catalogAccess.system.manage],
-    })
+  addSystemToGroup: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.system.manage],
+  })
     .input(
       z.object({
         groupId: z.string(),
@@ -158,11 +151,11 @@ export const catalogContract = {
     )
     .output(z.object({ success: z.boolean() })),
 
-  removeSystemFromGroup: _base
-    .meta({
-      userType: "authenticated",
-      access: [catalogAccess.system.manage],
-    })
+  removeSystemFromGroup: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.system.manage],
+  })
     .input(
       z.object({
         groupId: z.string(),
@@ -175,12 +168,17 @@ export const catalogContract = {
   // VIEW MANAGEMENT (userType: "user")
   // ==========================================================================
 
-  getViews: _base
-    .meta({ userType: "user", access: [catalogAccess.view.read] })
-    .output(z.array(ViewSchema)),
+  getViews: proc({
+    operationType: "query",
+    userType: "user",
+    access: [catalogAccess.view.read],
+  }).output(z.array(ViewSchema)),
 
-  createView: _base
-    .meta({ userType: "user", access: [catalogAccess.view.manage] })
+  createView: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [catalogAccess.view.manage],
+  })
     .input(CreateViewInputSchema)
     .output(ViewSchema),
 
@@ -197,18 +195,19 @@ export const catalogContract = {
    * deduplicated so users subscribed to both the system AND its groups
    * receive only one notification.
    */
-  notifySystemSubscribers: _base
-    .meta({ userType: "service" })
+  notifySystemSubscribers: proc({
+    operationType: "mutation",
+    userType: "service",
+    access: [], // Service-to-service, no access rules needed
+  })
     .input(
       z.object({
         systemId: z
           .string()
           .describe("The system ID to notify subscribers for"),
         title: z.string().describe("Notification title"),
-        /** Notification body in markdown format */
         body: z.string().describe("Notification body (supports markdown)"),
         importance: z.enum(["info", "warning", "critical"]).optional(),
-        /** Primary action button */
         action: z
           .object({
             label: z.string(),

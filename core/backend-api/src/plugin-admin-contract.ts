@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { oc } from "@orpc/contract";
-import { access, type ProcedureMetadata } from "@checkstack/common";
+import { access, proc } from "@checkstack/common";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Access Rules
@@ -20,17 +19,15 @@ export const pluginAdminAccessRules = [
 // Contract
 // ─────────────────────────────────────────────────────────────────────────────
 
-const _base = oc.$meta<ProcedureMetadata>({});
-
 export const pluginAdminContract = {
   /**
    * Install a plugin from npm and load it across all instances.
    */
-  install: _base
-    .meta({
-      userType: "user",
-      access: [pluginAdminAccess.install],
-    })
+  install: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [pluginAdminAccess.install],
+  })
     .input(
       z.object({
         packageName: z.string().min(1, "Package name is required"),
@@ -47,11 +44,11 @@ export const pluginAdminContract = {
   /**
    * Deregister a plugin across all instances.
    */
-  deregister: _base
-    .meta({
-      userType: "user",
-      access: [pluginAdminAccess.deregister],
-    })
+  deregister: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [pluginAdminAccess.deregister],
+  })
     .input(
       z.object({
         pluginId: z.string().min(1, "Plugin ID is required"),

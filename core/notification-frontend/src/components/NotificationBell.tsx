@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { Bell, CheckCheck } from "lucide-react";
 import {
@@ -11,7 +11,7 @@ import {
   Button,
   stripMarkdown,
 } from "@checkstack/ui";
-import { useApi, rpcApiRef } from "@checkstack/frontend-api";
+import { useApi, usePluginClient } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
 import { resolveRoute } from "@checkstack/common";
 import type { Notification } from "@checkstack/notification-common";
@@ -27,54 +27,42 @@ import { authApiRef } from "@checkstack/auth-frontend/api";
 export const NotificationBell = () => {
   const authApi = useApi(authApiRef);
   const { data: session, isPending: isAuthLoading } = authApi.useSession();
-  const rpcApi = useApi(rpcApiRef);
-  const notificationClient = rpcApi.forPlugin(NotificationApi);
+  const notificationClient = usePluginClient(NotificationApi);
 
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [recentNotifications, setRecentNotifications] = useState<
-    Notification[]
-  >([]);
   const [isOpen, setIsOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
 
-  const fetchUnreadCount = useCallback(async () => {
-    // Skip fetch if not authenticated
-    if (!session) return;
-    try {
-      const { count } = await notificationClient.getUnreadCount();
-      setUnreadCount(count);
-    } catch (error) {
-      console.error("Failed to fetch unread count:", error);
-    }
-  }, [notificationClient, session]);
+  // State for real-time updates
+  const [signalUnreadCount, setSignalUnreadCount] = useState<
+    number | undefined
+  >();
+  const [signalNotifications, setSignalNotifications] = useState<
+    Notification[] | undefined
+  >();
 
-  const fetchRecentNotifications = useCallback(async () => {
-    // Skip fetch if not authenticated
-    if (!session) return;
-    try {
-      const { notifications } = await notificationClient.getNotifications({
-        limit: 5,
-        offset: 0,
-        unreadOnly: true, // Only show unread notifications in the dropdown
-      });
-      setRecentNotifications(notifications);
-    } catch (error) {
-      console.error("Failed to fetch notifications:", error);
-    }
-  }, [notificationClient, session]);
+  // Fetch unread count via useQuery
+  const { data: unreadData, isLoading: unreadLoading } =
+    notificationClient.getUnreadCount.useQuery(undefined, {
+      enabled: !!session,
+      staleTime: 30_000,
+    });
 
-  // Initial fetch
-  useEffect(() => {
-    if (!session) {
-      setLoading(false);
-      return;
-    }
-    const init = async () => {
-      await Promise.all([fetchUnreadCount(), fetchRecentNotifications()]);
-      setLoading(false);
-    };
-    void init();
-  }, [fetchUnreadCount, fetchRecentNotifications, session]);
+  // Fetch recent notifications via useQuery
+  const { data: notificationsData, isLoading: notificationsLoading } =
+    notificationClient.getNotifications.useQuery(
+      { limit: 5, offset: 0, unreadOnly: true },
+      {
+        enabled: !!session && isOpen,
+        staleTime: 30_000,
+      }
+    );
+
+  // Mark all as read mutation
+  const markAsReadMutation = notificationClient.markAsRead.useMutation();
+
+  // Use signal data if available, otherwise use query data
+  const unreadCount = signalUnreadCount ?? unreadData?.count ?? 0;
+  const recentNotifications =
+    signalNotifications ?? notificationsData?.notifications ?? [];
 
   // ==========================================================================
   // REALTIME SIGNAL SUBSCRIPTIONS (replaces polling)
@@ -85,10 +73,10 @@ export const NotificationBell = () => {
     NOTIFICATION_RECEIVED,
     useCallback((payload) => {
       // Increment unread count
-      setUnreadCount((prev) => prev + 1);
+      setSignalUnreadCount((prev) => (prev ?? 0) + 1);
 
       // Add to recent notifications if dropdown is open
-      setRecentNotifications((prev) => [
+      setSignalNotifications((prev) => [
         {
           id: payload.id,
           title: payload.title,
@@ -98,7 +86,7 @@ export const NotificationBell = () => {
           isRead: false,
           createdAt: new Date(),
         },
-        ...prev.slice(0, 4), // Keep only 5 items
+        ...(prev ?? []).slice(0, 4), // Keep only 5 items
       ]);
     }, [])
   );
@@ -107,7 +95,7 @@ export const NotificationBell = () => {
   useSignal(
     NOTIFICATION_COUNT_CHANGED,
     useCallback((payload) => {
-      setUnreadCount(payload.unreadCount);
+      setSignalUnreadCount(payload.unreadCount);
     }, [])
   );
 
@@ -117,32 +105,25 @@ export const NotificationBell = () => {
     useCallback((payload) => {
       if (payload.notificationId) {
         // Single notification marked as read - remove from list
-        setRecentNotifications((prev) =>
-          prev.filter((n) => n.id !== payload.notificationId)
+        setSignalNotifications((prev) =>
+          (prev ?? []).filter((n) => n.id !== payload.notificationId)
         );
-        setUnreadCount((prev) => Math.max(0, prev - 1));
+        setSignalUnreadCount((prev) => Math.max(0, (prev ?? 1) - 1));
       } else {
         // All marked as read - clear the list
-        setRecentNotifications([]);
-        setUnreadCount(0);
+        setSignalNotifications([]);
+        setSignalUnreadCount(0);
       }
     }, [])
   );
 
   // ==========================================================================
 
-  // Fetch notifications when dropdown opens
-  useEffect(() => {
-    if (isOpen) {
-      void fetchRecentNotifications();
-    }
-  }, [isOpen, fetchRecentNotifications]);
-
   const handleMarkAllAsRead = async () => {
     try {
-      await notificationClient.markAsRead({});
-      setUnreadCount(0);
-      setRecentNotifications([]);
+      await markAsReadMutation.mutateAsync({});
+      setSignalUnreadCount(0);
+      setSignalNotifications([]);
     } catch (error) {
       console.error("Failed to mark all as read:", error);
     }
@@ -156,6 +137,8 @@ export const NotificationBell = () => {
   if (isAuthLoading || !session) {
     return;
   }
+
+  const loading = unreadLoading || notificationsLoading;
 
   if (loading) {
     return (

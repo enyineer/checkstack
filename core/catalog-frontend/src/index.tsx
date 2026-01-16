@@ -1,14 +1,10 @@
 import {
-  rpcApiRef,
-  ApiRef,
   UserMenuItemsSlot,
   createSlotExtension,
   createFrontendPlugin,
 } from "@checkstack/frontend-api";
-import { catalogApiRef, type CatalogApiClient } from "./api";
 import {
   catalogRoutes,
-  CatalogApi,
   pluginMetadata,
   catalogAccess,
 } from "@checkstack/catalog-common";
@@ -20,16 +16,8 @@ import { SystemDetailPage } from "./components/SystemDetailPage";
 
 export const catalogPlugin = createFrontendPlugin({
   metadata: pluginMetadata,
-  apis: [
-    {
-      ref: catalogApiRef,
-      factory: (deps: { get: <T>(ref: ApiRef<T>) => T }): CatalogApiClient => {
-        const rpcApi = deps.get(rpcApiRef);
-        // CatalogApiClient is derived from the contract type
-        return rpcApi.forPlugin(CatalogApi);
-      },
-    },
-  ],
+  // No APIs needed - components use usePluginClient() directly
+  apis: [],
   routes: [
     {
       route: catalogRoutes.routes.home,

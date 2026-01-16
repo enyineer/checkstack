@@ -4,7 +4,7 @@
  * Manages site-wide connections for a specific integration provider.
  * Uses the provider's connectionSchema with DynamicForm for the configuration UI.
  */
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   Plus,
@@ -44,7 +44,7 @@ import {
   BackLink,
   type LucideIconName,
 } from "@checkstack/ui";
-import { useApi, rpcApiRef } from "@checkstack/frontend-api";
+import { usePluginClient } from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
 import {
   IntegrationApi,
@@ -55,17 +55,9 @@ import {
 
 export const ProviderConnectionsPage = () => {
   const { providerId } = useParams<{ providerId: string }>();
-  const rpcApi = useApi(rpcApiRef);
-  const client = rpcApi.forPlugin(IntegrationApi);
-  const toast = useToast();
 
-  const [loading, setLoading] = useState(true);
-  const [provider, setProvider] = useState<
-    IntegrationProviderInfo | undefined
-  >();
-  const [connections, setConnections] = useState<ProviderConnectionRedacted[]>(
-    []
-  );
+  const client = usePluginClient(IntegrationApi);
+  const toast = useToast();
 
   // Dialog states
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -89,53 +81,105 @@ export const ProviderConnectionsPage = () => {
   // Form validation state
   const [configValid, setConfigValid] = useState(false);
 
-  const fetchData = useCallback(async () => {
-    if (!providerId) return;
+  // Queries using hooks
+  const { data: providers = [], isLoading: providersLoading } =
+    client.listProviders.useQuery({});
 
-    try {
-      const [providersResult, connectionsResult] = await Promise.all([
-        client.listProviders(),
-        client.listConnections({ providerId }),
-      ]);
+  const {
+    data: connections = [],
+    isLoading: connectionsLoading,
+    refetch: refetchConnections,
+  } = client.listConnections.useQuery(
+    { providerId: providerId ?? "" },
+    { enabled: !!providerId }
+  );
 
-      const foundProvider = providersResult.find(
-        (p) => p.qualifiedId === providerId
-      );
-      setProvider(foundProvider);
-      setConnections(connectionsResult);
-    } catch (error) {
-      console.error("Failed to load connections:", error);
-      toast.error("Failed to load connections");
-    } finally {
-      setLoading(false);
-    }
-  }, [providerId, client, toast]);
+  const loading = providersLoading || connectionsLoading;
+  const provider = (providers as IntegrationProviderInfo[]).find(
+    (p) => p.qualifiedId === providerId
+  );
 
-  useEffect(() => {
-    void fetchData();
-  }, [fetchData]);
-
-  const handleCreate = async () => {
-    if (!providerId || !formName.trim()) return;
-
-    setSaving(true);
-    try {
-      const newConnection = await client.createConnection({
-        providerId,
-        name: formName.trim(),
-        config: formConfig,
-      });
-      setConnections((prev) => [...prev, newConnection]);
+  // Mutations
+  const createMutation = client.createConnection.useMutation({
+    onSuccess: () => {
+      void refetchConnections();
       setCreateDialogOpen(false);
       setFormName("");
       setFormConfig({});
       toast.success("Connection created successfully");
-    } catch (error) {
-      console.error("Failed to create connection:", error);
-      toast.error("Failed to create connection");
-    } finally {
       setSaving(false);
-    }
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create connection"
+      );
+      setSaving(false);
+    },
+  });
+
+  const updateMutation = client.updateConnection.useMutation({
+    onSuccess: () => {
+      void refetchConnections();
+      setEditDialogOpen(false);
+      setSelectedConnection(undefined);
+      toast.success("Connection updated successfully");
+      setSaving(false);
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update connection"
+      );
+      setSaving(false);
+    },
+  });
+
+  const deleteMutation = client.deleteConnection.useMutation({
+    onSuccess: () => {
+      void refetchConnections();
+      setDeleteConfirmOpen(false);
+      setSelectedConnection(undefined);
+      toast.success("Connection deleted");
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete connection"
+      );
+    },
+  });
+
+  const testMutation = client.testConnection.useMutation({
+    onSuccess: (result, variables) => {
+      setTestResults((prev) => ({
+        ...prev,
+        [variables.connectionId]: result,
+      }));
+      if (result.success) {
+        toast.success(result.message ?? "Connection test successful");
+      } else {
+        toast.error(result.message ?? "Connection test failed");
+      }
+      setTestingId(undefined);
+    },
+    onError: (error, variables) => {
+      setTestResults((prev) => ({
+        ...prev,
+        [variables.connectionId]: { success: false, message: "Test failed" },
+      }));
+      toast.error(
+        error instanceof Error ? error.message : "Connection test failed"
+      );
+      setTestingId(undefined);
+    },
+  });
+
+  const handleCreate = () => {
+    if (!providerId || !formName.trim()) return;
+    setSaving(true);
+    createMutation.mutate({
+      providerId,
+      name: formName.trim(),
+      config: formConfig,
+    });
   };
 
   // Reset form when creating
@@ -146,71 +190,26 @@ export const ProviderConnectionsPage = () => {
     setCreateDialogOpen(true);
   };
 
-  const handleUpdate = async () => {
+  const handleUpdate = () => {
     if (!selectedConnection) return;
-
     setSaving(true);
-    try {
-      const updated = await client.updateConnection({
-        connectionId: selectedConnection.id,
-        updates: {
-          name: formName.trim() || selectedConnection.name,
-          config: formConfig,
-        },
-      });
-      setConnections((prev) =>
-        prev.map((c) => (c.id === updated.id ? updated : c))
-      );
-      setEditDialogOpen(false);
-      setSelectedConnection(undefined);
-      toast.success("Connection updated successfully");
-    } catch (error) {
-      console.error("Failed to update connection:", error);
-      toast.error("Failed to update connection");
-    } finally {
-      setSaving(false);
-    }
+    updateMutation.mutate({
+      connectionId: selectedConnection.id,
+      updates: {
+        name: formName.trim() || selectedConnection.name,
+        config: formConfig,
+      },
+    });
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!selectedConnection) return;
-
-    try {
-      await client.deleteConnection({ connectionId: selectedConnection.id });
-      setConnections((prev) =>
-        prev.filter((c) => c.id !== selectedConnection.id)
-      );
-      setDeleteConfirmOpen(false);
-      setSelectedConnection(undefined);
-      toast.success("Connection deleted");
-    } catch (error) {
-      console.error("Failed to delete connection:", error);
-      toast.error("Failed to delete connection");
-    }
+    deleteMutation.mutate({ connectionId: selectedConnection.id });
   };
 
-  const handleTest = async (connectionId: string) => {
+  const handleTest = (connectionId: string) => {
     setTestingId(connectionId);
-    try {
-      const result = await client.testConnection({ connectionId });
-      setTestResults((prev) => ({
-        ...prev,
-        [connectionId]: result,
-      }));
-      if (result.success) {
-        toast.success(result.message ?? "Connection test successful");
-      } else {
-        toast.error(result.message ?? "Connection test failed");
-      }
-    } catch {
-      setTestResults((prev) => ({
-        ...prev,
-        [connectionId]: { success: false, message: "Test failed" },
-      }));
-      toast.error("Connection test failed");
-    } finally {
-      setTestingId(undefined);
-    }
+    testMutation.mutate({ connectionId });
   };
 
   const openEditDialog = (connection: ProviderConnectionRedacted) => {
@@ -271,7 +270,7 @@ export const ProviderConnectionsPage = () => {
         </div>
       }
     >
-      {connections.length === 0 ? (
+      {(connections as ProviderConnectionRedacted[]).length === 0 ? (
         <EmptyState
           icon={
             <DynamicIcon
@@ -309,7 +308,7 @@ export const ProviderConnectionsPage = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {connections.map((conn) => {
+                {(connections as ProviderConnectionRedacted[]).map((conn) => {
                   const testResult = testResults[conn.id];
                   const isTesting = testingId === conn.id;
 

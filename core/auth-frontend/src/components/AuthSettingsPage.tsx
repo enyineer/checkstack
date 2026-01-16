@@ -1,7 +1,11 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useApi, accessApiRef, rpcApiRef } from "@checkstack/frontend-api";
-import { PageLayout, useToast, Tabs, TabPanel } from "@checkstack/ui";
+import {
+  useApi,
+  accessApiRef,
+  usePluginClient,
+} from "@checkstack/frontend-api";
+import { PageLayout, Tabs, TabPanel } from "@checkstack/ui";
 import {
   authApiRef,
   AuthUser,
@@ -19,10 +23,8 @@ import { TeamsTab } from "./TeamsTab";
 
 export const AuthSettingsPage: React.FC = () => {
   const authApi = useApi(authApiRef);
-  const rpcApi = useApi(rpcApiRef);
-  const authClient = rpcApi.forPlugin(AuthApi);
+  const authClient = usePluginClient(AuthApi);
   const accessApi = useApi(accessApiRef);
-  const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const session = authApi.useSession();
@@ -30,11 +32,6 @@ export const AuthSettingsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
     "users" | "roles" | "teams" | "strategies" | "applications"
   >("users");
-  const [users, setUsers] = useState<(AuthUser & { roles: string[] })[]>([]);
-  const [roles, setRoles] = useState<Role[]>([]);
-  const [accessRuleEntries, setAccessRuleEntries] = useState<AccessRuleEntry[]>([]);
-  const [strategies, setStrategies] = useState<AuthStrategy[]>([]);
-  const [loading, setLoading] = useState(true);
 
   const canReadUsers = accessApi.useAccess(authAccess.users.read);
 
@@ -72,8 +69,39 @@ export const AuthSettingsPage: React.FC = () => {
   const canReadTeams = accessApi.useAccess(authAccess.teams.read);
   const canManageTeams = accessApi.useAccess(authAccess.teams.manage);
 
+  // Queries: Fetch data from API
+  const {
+    data: users = [],
+    isLoading: usersLoading,
+    refetch: refetchUsers,
+  } = authClient.getUsers.useQuery({}, { enabled: canReadUsers.allowed });
+
+  const {
+    data: roles = [],
+    isLoading: rolesLoading,
+    refetch: refetchRoles,
+  } = authClient.getRoles.useQuery({}, { enabled: canReadRoles.allowed });
+
+  const {
+    data: accessRuleEntries = [],
+    isLoading: rulesLoading,
+    refetch: refetchRules,
+  } = authClient.getAccessRules.useQuery({}, { enabled: canReadRoles.allowed });
+
+  const {
+    data: strategies = [],
+    isLoading: strategiesLoading,
+    refetch: refetchStrategies,
+  } = authClient.getStrategies.useQuery(
+    {},
+    { enabled: canManageStrategies.allowed }
+  );
+
+  const dataLoading =
+    usersLoading || rolesLoading || rulesLoading || strategiesLoading;
+
   const accessRulesLoading =
-    loading ||
+    dataLoading ||
     canReadUsers.loading ||
     canReadRoles.loading ||
     canManageStrategies.loading ||
@@ -146,37 +174,19 @@ export const AuthSettingsPage: React.FC = () => {
     }
   }, [visibleTabs, activeTab]);
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const usersData = (await authClient.getUsers()) as (AuthUser & {
-        roles: string[];
-      })[];
-      const rolesData = await authClient.getRoles();
-      const accessRulesData = await authClient.getAccessRules();
-      const strategiesData = await authClient.getStrategies();
-      setUsers(usersData);
-      setRoles(rolesData);
-      setAccessRuleEntries(accessRulesData);
-      setStrategies(strategiesData);
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Failed to fetch data";
-      toast.error(message);
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
+  const handleDataChange = async () => {
+    await Promise.all([
+      refetchUsers(),
+      refetchRoles(),
+      refetchRules(),
+      refetchStrategies(),
+    ]);
   };
 
-  // Initial data fetch
-  useEffect(() => {
-    fetchData();
-  }, []);
-
   // Get current user's role IDs for the RolesTab
+  const typedUsers = users as (AuthUser & { roles: string[] })[];
   const currentUserRoleIds =
-    users.find((u) => u.id === session.data?.user?.id)?.roles || [];
+    typedUsers.find((u) => u.id === session.data?.user?.id)?.roles || [];
 
   return (
     <PageLayout
@@ -197,52 +207,52 @@ export const AuthSettingsPage: React.FC = () => {
 
       <TabPanel id="users" activeTab={activeTab}>
         <UsersTab
-          users={users}
-          roles={roles}
-          strategies={strategies}
+          users={typedUsers}
+          roles={roles as Role[]}
+          strategies={strategies as AuthStrategy[]}
           currentUserId={session.data?.user?.id}
           canReadUsers={canReadUsers.allowed}
           canCreateUsers={canCreateUsers.allowed}
           canManageUsers={canManageUsers.allowed}
           canManageRoles={canManageRoles.allowed}
-          onDataChange={fetchData}
+          onDataChange={handleDataChange}
         />
       </TabPanel>
 
       <TabPanel id="roles" activeTab={activeTab}>
         <RolesTab
-          roles={roles}
-          accessRulesList={accessRuleEntries}
+          roles={roles as Role[]}
+          accessRulesList={accessRuleEntries as AccessRuleEntry[]}
           userRoleIds={currentUserRoleIds}
           canReadRoles={canReadRoles.allowed}
           canCreateRoles={canCreateRoles.allowed}
           canUpdateRoles={canUpdateRoles.allowed}
           canDeleteRoles={canDeleteRoles.allowed}
-          onDataChange={fetchData}
+          onDataChange={handleDataChange}
         />
       </TabPanel>
 
       <TabPanel id="teams" activeTab={activeTab}>
         <TeamsTab
-          users={users}
+          users={typedUsers}
           canReadTeams={canReadTeams.allowed}
           canManageTeams={canManageTeams.allowed}
-          onDataChange={fetchData}
+          onDataChange={handleDataChange}
         />
       </TabPanel>
 
       <TabPanel id="strategies" activeTab={activeTab}>
         <StrategiesTab
-          strategies={strategies}
+          strategies={strategies as AuthStrategy[]}
           canManageStrategies={canManageStrategies.allowed}
           canManageRegistration={canManageRegistration.allowed}
-          onDataChange={fetchData}
+          onDataChange={handleDataChange}
         />
       </TabPanel>
 
       <TabPanel id="applications" activeTab={activeTab}>
         <ApplicationsTab
-          roles={roles}
+          roles={roles as Role[]}
           canManageApplications={canManageApplications.allowed}
         />
       </TabPanel>

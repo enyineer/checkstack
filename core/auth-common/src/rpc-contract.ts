@@ -1,15 +1,11 @@
-import { oc } from "@orpc/contract";
 import {
   createClientDefinition,
-  type ProcedureMetadata,
+  proc,
   lucideIconSchema,
 } from "@checkstack/common";
 import { z } from "zod";
 import { authAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
-
-// Base builder with full metadata support
-const _base = oc.$meta<ProcedureMetadata>({});
 
 // Zod schemas for return types
 const UserDtoSchema = z.object({
@@ -25,7 +21,7 @@ const RoleDtoSchema = z.object({
   description: z.string().optional().nullable(),
   accessRules: z.array(z.string()),
   isSystem: z.boolean().optional(),
-  isAssignable: z.boolean().optional(), // False for anonymous role
+  isAssignable: z.boolean().optional(),
 });
 
 const AccessRuleDtoSchema = z.object({
@@ -40,9 +36,9 @@ const StrategyDtoSchema = z.object({
   icon: lucideIconSchema.optional(),
   enabled: z.boolean(),
   configVersion: z.number(),
-  configSchema: z.record(z.string(), z.unknown()), // JSON Schema representation
-  config: z.record(z.string(), z.unknown()).optional(), // VersionedConfig.data (secrets redacted)
-  adminInstructions: z.string().optional(), // Markdown instructions for admins
+  configSchema: z.record(z.string(), z.unknown()),
+  config: z.record(z.string(), z.unknown()).optional(),
+  adminInstructions: z.string().optional(),
 });
 
 const EnabledStrategyDtoSchema = z.object({
@@ -58,32 +54,25 @@ const RegistrationStatusSchema = z.object({
   allowRegistration: z.boolean(),
 });
 
-// ==========================================================================
-// SERVICE-TO-SERVICE SCHEMAS (for auth provider plugins like LDAP)
-// ==========================================================================
-
+// Service-to-service schemas
 const FindUserByEmailInputSchema = z.object({
   email: z.string().email(),
 });
 
-const FindUserByEmailOutputSchema = z
-  .object({
-    id: z.string(),
-  })
-  .optional();
+const FindUserByEmailOutputSchema = z.object({ id: z.string() }).optional();
 
 const UpsertExternalUserInputSchema = z.object({
   email: z.string().email(),
   name: z.string(),
-  providerId: z.string(), // e.g., "ldap"
-  accountId: z.string(), // Provider-specific account ID (e.g., LDAP username)
-  password: z.string(), // Hashed password
-  autoUpdateUser: z.boolean().optional(), // Update existing user's name
+  providerId: z.string(),
+  accountId: z.string(),
+  password: z.string(),
+  autoUpdateUser: z.boolean().optional(),
 });
 
 const UpsertExternalUserOutputSchema = z.object({
   userId: z.string(),
-  created: z.boolean(), // true if new user was created, false if existing
+  created: z.boolean(),
 });
 
 const CreateSessionInputSchema = z.object({
@@ -95,7 +84,7 @@ const CreateSessionInputSchema = z.object({
 const CreateCredentialUserInputSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1),
-  password: z.string(), // Validated against passwordSchema on backend
+  password: z.string(),
 });
 
 const CreateCredentialUserOutputSchema = z.object({
@@ -106,67 +95,85 @@ const CreateCredentialUserOutputSchema = z.object({
 export const authContract = {
   // ==========================================================================
   // ANONYMOUS ENDPOINTS (userType: "anonymous")
-  // These can be called without authentication (login/registration pages)
   // ==========================================================================
 
-  getEnabledStrategies: _base
-    .meta({ userType: "anonymous" })
-    .output(z.array(EnabledStrategyDtoSchema)),
+  getEnabledStrategies: proc({
+    operationType: "query",
+    userType: "anonymous",
+    access: [],
+  }).output(z.array(EnabledStrategyDtoSchema)),
 
-  getRegistrationStatus: _base
-    .meta({ userType: "anonymous" })
-    .output(RegistrationStatusSchema),
+  getRegistrationStatus: proc({
+    operationType: "query",
+    userType: "anonymous",
+    access: [],
+  }).output(RegistrationStatusSchema),
 
   // ==========================================================================
-  // AUTHENTICATED ENDPOINTS (userType: "authenticated" - no specific access rule)
+  // AUTHENTICATED ENDPOINTS (userType: "authenticated")
   // ==========================================================================
 
-  accessRules: _base
-    .meta({ userType: "authenticated" }) // Any authenticated user can check their own access rules
-    .output(z.object({ accessRules: z.array(z.string()) })),
+  accessRules: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [],
+  }).output(z.object({ accessRules: z.array(z.string()) })),
 
   // ==========================================================================
   // USER MANAGEMENT (userType: "user" with access)
   // ==========================================================================
 
-  getUsers: _base
-    .meta({ userType: "user", access: [authAccess.users.read] })
-    .output(z.array(UserDtoSchema)),
+  getUsers: proc({
+    operationType: "query",
+    userType: "user",
+    access: [authAccess.users.read],
+  }).output(z.array(UserDtoSchema)),
 
-  deleteUser: _base
-    .meta({ userType: "user", access: [authAccess.users.manage] })
+  deleteUser: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [authAccess.users.manage],
+  })
     .input(z.string())
     .output(z.void()),
 
-  createCredentialUser: _base
-    .meta({ userType: "user", access: [authAccess.users.create] })
+  createCredentialUser: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [authAccess.users.create],
+  })
     .input(CreateCredentialUserInputSchema)
     .output(CreateCredentialUserOutputSchema),
 
-  updateUserRoles: _base
-    .meta({ userType: "user", access: [authAccess.users.manage] })
-    .input(
-      z.object({
-        userId: z.string(),
-        roles: z.array(z.string()),
-      })
-    )
+  updateUserRoles: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [authAccess.users.manage],
+  })
+    .input(z.object({ userId: z.string(), roles: z.array(z.string()) }))
     .output(z.void()),
 
   // ==========================================================================
   // ROLE MANAGEMENT (userType: "user" with access)
   // ==========================================================================
 
-  getRoles: _base
-    .meta({ userType: "user", access: [authAccess.roles.read] })
-    .output(z.array(RoleDtoSchema)),
+  getRoles: proc({
+    operationType: "query",
+    userType: "user",
+    access: [authAccess.roles.read],
+  }).output(z.array(RoleDtoSchema)),
 
-  getAccessRules: _base
-    .meta({ userType: "user", access: [authAccess.roles.read] })
-    .output(z.array(AccessRuleDtoSchema)),
+  getAccessRules: proc({
+    operationType: "query",
+    userType: "user",
+    access: [authAccess.roles.read],
+  }).output(z.array(AccessRuleDtoSchema)),
 
-  createRole: _base
-    .meta({ userType: "user", access: [authAccess.roles.create] })
+  createRole: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [authAccess.roles.create],
+  })
     .input(
       z.object({
         name: z.string(),
@@ -176,8 +183,11 @@ export const authContract = {
     )
     .output(z.void()),
 
-  updateRole: _base
-    .meta({ userType: "user", access: [authAccess.roles.update] })
+  updateRole: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [authAccess.roles.update],
+  })
     .input(
       z.object({
         id: z.string(),
@@ -188,8 +198,11 @@ export const authContract = {
     )
     .output(z.void()),
 
-  deleteRole: _base
-    .meta({ userType: "user", access: [authAccess.roles.delete] })
+  deleteRole: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [authAccess.roles.delete],
+  })
     .input(z.string())
     .output(z.void()),
 
@@ -197,12 +210,17 @@ export const authContract = {
   // STRATEGY MANAGEMENT (userType: "user" with access)
   // ==========================================================================
 
-  getStrategies: _base
-    .meta({ userType: "user", access: [authAccess.strategies] })
-    .output(z.array(StrategyDtoSchema)),
+  getStrategies: proc({
+    operationType: "query",
+    userType: "user",
+    access: [authAccess.strategies],
+  }).output(z.array(StrategyDtoSchema)),
 
-  updateStrategy: _base
-    .meta({ userType: "user", access: [authAccess.strategies] })
+  updateStrategy: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [authAccess.strategies],
+  })
     .input(
       z.object({
         id: z.string(),
@@ -212,26 +230,27 @@ export const authContract = {
     )
     .output(z.object({ success: z.boolean() })),
 
-  reloadAuth: _base
-    .meta({ userType: "user", access: [authAccess.strategies] })
-    .output(z.object({ success: z.boolean() })),
+  reloadAuth: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [authAccess.strategies],
+  }).output(z.object({ success: z.boolean() })),
 
   // ==========================================================================
   // REGISTRATION MANAGEMENT (userType: "user" with access)
   // ==========================================================================
 
-  getRegistrationSchema: _base
-    .meta({
-      userType: "user",
-      access: [authAccess.registration],
-    })
-    .output(z.record(z.string(), z.unknown())),
+  getRegistrationSchema: proc({
+    operationType: "query",
+    userType: "user",
+    access: [authAccess.registration],
+  }).output(z.record(z.string(), z.unknown())),
 
-  setRegistrationStatus: _base
-    .meta({
-      userType: "user",
-      access: [authAccess.registration],
-    })
+  setRegistrationStatus: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [authAccess.registration],
+  })
     .input(RegistrationStatusSchema)
     .output(z.object({ success: z.boolean() })),
 
@@ -239,48 +258,41 @@ export const authContract = {
   // INTERNAL SERVICE ENDPOINTS (userType: "service")
   // ==========================================================================
 
-  /**
-   * Get access rules assigned to the anonymous role.
-   * Used by core AuthService for access checks on public endpoints.
-   */
-  getAnonymousAccessRules: _base
-    .meta({ userType: "service" })
-    .output(z.array(z.string())),
+  getAnonymousAccessRules: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  }).output(z.array(z.string())),
 
-  /**
-   * Find a user by email address.
-   * Used by external auth providers (e.g., LDAP) to check if a user exists.
-   */
-  findUserByEmail: _base
-    .meta({ userType: "service" })
+  findUserByEmail: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
     .input(FindUserByEmailInputSchema)
     .output(FindUserByEmailOutputSchema),
 
-  /**
-   * Upsert a user from an external auth provider.
-   * Creates user + account if new, or updates user if autoUpdateUser is true.
-   * Used by external auth providers (e.g., LDAP) to sync users.
-   */
-  upsertExternalUser: _base
-    .meta({ userType: "service" })
+  upsertExternalUser: proc({
+    operationType: "mutation",
+    userType: "service",
+    access: [],
+  })
     .input(UpsertExternalUserInputSchema)
     .output(UpsertExternalUserOutputSchema),
 
-  /**
-   * Create a session for a user.
-   * Used by external auth providers (e.g., LDAP) after successful authentication.
-   */
-  createSession: _base
-    .meta({ userType: "service" })
+  createSession: proc({
+    operationType: "mutation",
+    userType: "service",
+    access: [],
+  })
     .input(CreateSessionInputSchema)
     .output(z.object({ sessionId: z.string() })),
 
-  /**
-   * Get a user by their ID.
-   * Used by notification backend to fetch user email for contact resolution.
-   */
-  getUserById: _base
-    .meta({ userType: "service" })
+  getUserById: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
     .input(z.object({ userId: z.string() }))
     .output(
       z
@@ -292,49 +304,46 @@ export const authContract = {
         .optional()
     ),
 
-  /**
-   * Filter a list of user IDs to only those who have a specific access rule.
-   * Used by SignalService to send signals only to authorized users.
-   */
-  filterUsersByAccessRule: _base
-    .meta({ userType: "service" })
+  filterUsersByAccessRule: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
     .input(
       z.object({
         userIds: z.array(z.string()),
-        accessRule: z.string(), // Fully-qualified access rule ID
+        accessRule: z.string(),
       })
     )
-    .output(z.array(z.string())), // Returns filtered user IDs
+    .output(z.array(z.string())),
 
   // ==========================================================================
   // APPLICATION MANAGEMENT (userType: "user" with access)
-  // External API applications (API keys) with RBAC integration
   // ==========================================================================
 
-  getApplications: _base
-    .meta({
-      userType: "user",
-      access: [authAccess.applications],
-    })
-    .output(
-      z.array(
-        z.object({
-          id: z.string(),
-          name: z.string(),
-          description: z.string().optional().nullable(),
-          roles: z.array(z.string()),
-          createdById: z.string(),
-          createdAt: z.coerce.date(),
-          lastUsedAt: z.coerce.date().optional().nullable(),
-        })
-      )
-    ),
+  getApplications: proc({
+    operationType: "query",
+    userType: "user",
+    access: [authAccess.applications],
+  }).output(
+    z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        description: z.string().optional().nullable(),
+        roles: z.array(z.string()),
+        createdById: z.string(),
+        createdAt: z.coerce.date(),
+        lastUsedAt: z.coerce.date().optional().nullable(),
+      })
+    )
+  ),
 
-  createApplication: _base
-    .meta({
-      userType: "user",
-      access: [authAccess.applications],
-    })
+  createApplication: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [authAccess.applications],
+  })
     .input(
       z.object({
         name: z.string().min(1).max(100),
@@ -351,15 +360,15 @@ export const authContract = {
           createdById: z.string(),
           createdAt: z.coerce.date(),
         }),
-        secret: z.string(), // Full secret - ONLY shown once!
+        secret: z.string(),
       })
     ),
 
-  updateApplication: _base
-    .meta({
-      userType: "user",
-      access: [authAccess.applications],
-    })
+  updateApplication: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [authAccess.applications],
+  })
     .input(
       z.object({
         id: z.string(),
@@ -370,50 +379,47 @@ export const authContract = {
     )
     .output(z.void()),
 
-  deleteApplication: _base
-    .meta({
-      userType: "user",
-      access: [authAccess.applications],
-    })
+  deleteApplication: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [authAccess.applications],
+  })
     .input(z.string())
     .output(z.void()),
 
-  regenerateApplicationSecret: _base
-    .meta({
-      userType: "user",
-      access: [authAccess.applications],
-    })
+  regenerateApplicationSecret: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [authAccess.applications],
+  })
     .input(z.string())
-    .output(z.object({ secret: z.string() })), // New secret - shown once
+    .output(z.object({ secret: z.string() })),
 
   // ==========================================================================
   // TEAM MANAGEMENT (userType: "authenticated" with access)
-  // Resource-level access control via teams
-  // Both users and applications can manage teams with proper access
   // ==========================================================================
 
-  getTeams: _base
-    .meta({
-      userType: "authenticated",
-      access: [authAccess.teams.read],
-    })
-    .output(
-      z.array(
-        z.object({
-          id: z.string(),
-          name: z.string(),
-          description: z.string().optional().nullable(),
-          memberCount: z.number(),
-          isManager: z.boolean(),
-        })
-      )
-    ),
+  getTeams: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [authAccess.teams.read],
+  }).output(
+    z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        description: z.string().optional().nullable(),
+        memberCount: z.number(),
+        isManager: z.boolean(),
+      })
+    )
+  ),
 
-  getTeam: _base
-    .meta({
-      userType: "authenticated",
-      access: [authAccess.teams.read],
-    })
+  getTeam: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [authAccess.teams.read],
+  })
     .input(z.object({ teamId: z.string() }))
     .output(
       z
@@ -431,11 +437,11 @@ export const authContract = {
         .optional()
     ),
 
-  createTeam: _base
-    .meta({
-      userType: "authenticated",
-      access: [authAccess.teams.manage],
-    })
+  createTeam: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [authAccess.teams.manage],
+  })
     .input(
       z.object({
         name: z.string().min(1).max(100),
@@ -444,11 +450,11 @@ export const authContract = {
     )
     .output(z.object({ id: z.string() })),
 
-  updateTeam: _base
-    .meta({
-      userType: "authenticated",
-      access: [authAccess.teams.read],
-    })
+  updateTeam: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [authAccess.teams.read],
+  })
     .input(
       z.object({
         id: z.string(),
@@ -458,51 +464,51 @@ export const authContract = {
     )
     .output(z.void()),
 
-  deleteTeam: _base
-    .meta({
-      userType: "authenticated",
-      access: [authAccess.teams.manage],
-    })
+  deleteTeam: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [authAccess.teams.manage],
+  })
     .input(z.string())
     .output(z.void()),
 
-  addUserToTeam: _base
-    .meta({
-      userType: "authenticated",
-      access: [authAccess.teams.read],
-    })
+  addUserToTeam: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [authAccess.teams.read],
+  })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
 
-  removeUserFromTeam: _base
-    .meta({
-      userType: "authenticated",
-      access: [authAccess.teams.read],
-    })
+  removeUserFromTeam: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [authAccess.teams.read],
+  })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
 
-  addTeamManager: _base
-    .meta({
-      userType: "authenticated",
-      access: [authAccess.teams.manage],
-    })
+  addTeamManager: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [authAccess.teams.manage],
+  })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
 
-  removeTeamManager: _base
-    .meta({
-      userType: "authenticated",
-      access: [authAccess.teams.manage],
-    })
+  removeTeamManager: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [authAccess.teams.manage],
+  })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
 
-  getResourceTeamAccess: _base
-    .meta({
-      userType: "authenticated",
-      access: [authAccess.teams.read],
-    })
+  getResourceTeamAccess: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [authAccess.teams.read],
+  })
     .input(z.object({ resourceType: z.string(), resourceId: z.string() }))
     .output(
       z.array(
@@ -515,11 +521,11 @@ export const authContract = {
       )
     ),
 
-  setResourceTeamAccess: _base
-    .meta({
-      userType: "authenticated",
-      access: [authAccess.teams.manage],
-    })
+  setResourceTeamAccess: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [authAccess.teams.manage],
+  })
     .input(
       z.object({
         resourceType: z.string(),
@@ -531,11 +537,11 @@ export const authContract = {
     )
     .output(z.void()),
 
-  removeResourceTeamAccess: _base
-    .meta({
-      userType: "authenticated",
-      access: [authAccess.teams.manage],
-    })
+  removeResourceTeamAccess: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [authAccess.teams.manage],
+  })
     .input(
       z.object({
         resourceType: z.string(),
@@ -545,20 +551,19 @@ export const authContract = {
     )
     .output(z.void()),
 
-  // Resource-level access settings (teamOnly flag)
-  getResourceAccessSettings: _base
-    .meta({
-      userType: "authenticated",
-      access: [authAccess.teams.read],
-    })
+  getResourceAccessSettings: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [authAccess.teams.read],
+  })
     .input(z.object({ resourceType: z.string(), resourceId: z.string() }))
     .output(z.object({ teamOnly: z.boolean() })),
 
-  setResourceAccessSettings: _base
-    .meta({
-      userType: "authenticated",
-      access: [authAccess.teams.manage],
-    })
+  setResourceAccessSettings: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [authAccess.teams.manage],
+  })
     .input(
       z.object({
         resourceType: z.string(),
@@ -572,8 +577,11 @@ export const authContract = {
   // S2S ENDPOINTS FOR TEAM ACCESS (userType: "service")
   // ==========================================================================
 
-  checkResourceTeamAccess: _base
-    .meta({ userType: "service" })
+  checkResourceTeamAccess: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
     .input(
       z.object({
         userId: z.string(),
@@ -586,8 +594,11 @@ export const authContract = {
     )
     .output(z.object({ hasAccess: z.boolean() })),
 
-  getAccessibleResourceIds: _base
-    .meta({ userType: "service" })
+  getAccessibleResourceIds: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
     .input(
       z.object({
         userId: z.string(),
@@ -600,8 +611,11 @@ export const authContract = {
     )
     .output(z.array(z.string())),
 
-  deleteResourceGrants: _base
-    .meta({ userType: "service" })
+  deleteResourceGrants: proc({
+    operationType: "mutation",
+    userType: "service",
+    access: [],
+  })
     .input(z.object({ resourceType: z.string(), resourceId: z.string() }))
     .output(z.void()),
 };

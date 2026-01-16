@@ -18,3 +18,11 @@ export const dashboardPlugin: FrontendPlugin = {
 };
 
 export default dashboardPlugin;
+
+// Export provider for use in other plugins
+export {
+  SystemBadgeDataProvider,
+  useSystemBadgeData,
+  useSystemBadgeDataOptional,
+  type SystemBadgeData,
+} from "./components/SystemBadgeDataProvider";

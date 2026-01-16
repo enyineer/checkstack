@@ -1,5 +1,4 @@
-import { useState, useEffect } from "react";
-import { useApi, rpcApiRef } from "@checkstack/frontend-api";
+import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
 import type { EnabledAuthStrategy } from "../api";
 
@@ -10,45 +9,15 @@ export interface UseEnabledStrategiesResult {
 }
 
 export const useEnabledStrategies = (): UseEnabledStrategiesResult => {
-  const rpcApi = useApi(rpcApiRef);
-  const authClient = rpcApi.forPlugin(AuthApi);
+  const authClient = usePluginClient(AuthApi);
 
-  const [strategies, setStrategies] = useState<EnabledAuthStrategy[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error>();
+  const { data, isLoading, error } = authClient.getEnabledStrategies.useQuery(
+    {}
+  );
 
-  useEffect(() => {
-    let mounted = true;
-
-    const fetchStrategies = async () => {
-      try {
-        setLoading(true);
-        const result = await authClient.getEnabledStrategies();
-        if (mounted) {
-          setStrategies(result);
-          setError(undefined);
-        }
-      } catch (error_) {
-        if (mounted) {
-          setError(
-            error_ instanceof Error
-              ? error_
-              : new Error("Failed to fetch strategies")
-          );
-        }
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    fetchStrategies();
-
-    return () => {
-      mounted = false;
-    };
-  }, [authClient]);
-
-  return { strategies, loading, error };
+  return {
+    strategies: (data ?? []) as EnabledAuthStrategy[],
+    loading: isLoading,
+    error: error ?? undefined,
+  };
 };

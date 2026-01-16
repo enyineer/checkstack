@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from "react";
+import React, { useState } from "react";
 import {
   useParams,
   Link,
@@ -6,23 +6,18 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import {
-  useApi,
-  rpcApiRef,
+  usePluginClient,
   wrapInSuspense,
   accessApiRef,
+  useApi,
 } from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
-import { maintenanceApiRef } from "../api";
+import { MaintenanceApi } from "../api";
 import {
   maintenanceRoutes,
   maintenanceAccess,
 } from "@checkstack/maintenance-common";
-import type { MaintenanceDetail } from "@checkstack/maintenance-common";
-import {
-  catalogRoutes,
-  CatalogApi,
-  type System,
-} from "@checkstack/catalog-common";
+import { catalogRoutes, CatalogApi } from "@checkstack/catalog-common";
 import {
   Card,
   CardHeader,
@@ -54,61 +49,55 @@ const MaintenanceDetailPageContent: React.FC = () => {
   const { maintenanceId } = useParams<{ maintenanceId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const api = useApi(maintenanceApiRef);
-  const rpcApi = useApi(rpcApiRef);
+  const maintenanceClient = usePluginClient(MaintenanceApi);
+  const catalogClient = usePluginClient(CatalogApi);
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
-
-  const catalogApi = useMemo(() => rpcApi.forPlugin(CatalogApi), [rpcApi]);
 
   const { allowed: canManage } = accessApi.useAccess(
     maintenanceAccess.maintenance.manage
   );
 
-  const [maintenance, setMaintenance] = useState<MaintenanceDetail>();
-  const [systems, setSystems] = useState<System[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showUpdateForm, setShowUpdateForm] = useState(false);
 
-  const loadData = useCallback(async () => {
-    if (!maintenanceId) return;
+  // Fetch maintenance with useQuery
+  const {
+    data: maintenance,
+    isLoading: maintenanceLoading,
+    refetch: refetchMaintenance,
+  } = maintenanceClient.getMaintenance.useQuery(
+    { id: maintenanceId ?? "" },
+    { enabled: !!maintenanceId }
+  );
 
-    setLoading(true);
-    try {
-      const [maintenanceData, { systems: systemList }] = await Promise.all([
-        api.getMaintenance({ id: maintenanceId }),
-        catalogApi.getSystems(),
-      ]);
-      setMaintenance(maintenanceData ?? undefined);
-      setSystems(systemList);
-    } catch (error) {
-      console.error("Failed to load maintenance details:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [maintenanceId, api, catalogApi]);
+  // Fetch systems with useQuery
+  const { data: systemsData, isLoading: systemsLoading } =
+    catalogClient.getSystems.useQuery({});
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  const systems = systemsData?.systems ?? [];
+  const loading = maintenanceLoading || systemsLoading;
+
+  // Complete mutation
+  const completeMutation = maintenanceClient.closeMaintenance.useMutation({
+    onSuccess: () => {
+      toast.success("Maintenance completed");
+      void refetchMaintenance();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to complete"
+      );
+    },
+  });
 
   const handleUpdateSuccess = () => {
     setShowUpdateForm(false);
-    loadData();
+    void refetchMaintenance();
   };
 
-  const handleComplete = async () => {
+  const handleComplete = () => {
     if (!maintenanceId) return;
-
-    try {
-      await api.closeMaintenance({ id: maintenanceId });
-      toast.success("Maintenance completed");
-      await loadData();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to complete";
-      toast.error(message);
-    }
+    completeMutation.mutate({ id: maintenanceId });
   };
 
   const getSystemName = (systemId: string): string => {
@@ -182,7 +171,12 @@ const MaintenanceDetailPageContent: React.FC = () => {
               <div className="flex items-center gap-2">
                 {getMaintenanceStatusBadge(maintenance.status)}
                 {canComplete && (
-                  <Button variant="outline" size="sm" onClick={handleComplete}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleComplete}
+                    disabled={completeMutation.isPending}
+                  >
                     <CheckCircle2 className="h-4 w-4 mr-1" />
                     Complete
                   </Button>

@@ -1,11 +1,8 @@
 import {
   createFrontendPlugin,
   createSlotExtension,
-  rpcApiRef,
-  type ApiRef,
   UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
-import { healthCheckApiRef, type HealthCheckApiClient } from "./api";
 import { HealthCheckConfigPage } from "./pages/HealthCheckConfigPage";
 import { HealthCheckHistoryPage } from "./pages/HealthCheckHistoryPage";
 import { HealthCheckHistoryDetailPage } from "./pages/HealthCheckHistoryDetailPage";
@@ -23,7 +20,6 @@ import {
 } from "@checkstack/catalog-common";
 import {
   healthcheckRoutes,
-  HealthCheckApi,
   pluginMetadata,
 } from "@checkstack/healthcheck-common";
 
@@ -64,18 +60,8 @@ export default createFrontendPlugin({
       accessRule: healthCheckAccess.details,
     },
   ],
-  apis: [
-    {
-      ref: healthCheckApiRef,
-      factory: (deps: {
-        get: <T>(ref: ApiRef<T>) => T;
-      }): HealthCheckApiClient => {
-        const rpcApi = deps.get(rpcApiRef);
-        // HealthCheckApiClient is just the RPC contract - return it directly
-        return rpcApi.forPlugin(HealthCheckApi);
-      },
-    },
-  ],
+  // No APIs needed - components use usePluginClient() directly
+  apis: [],
   extensions: [
     createSlotExtension(UserMenuItemsSlot, {
       id: "healthcheck.user-menu.items",

@@ -1,14 +1,10 @@
 import {
   createFrontendPlugin,
   createSlotExtension,
-  rpcApiRef,
-  type ApiRef,
   UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
-import { incidentApiRef, type IncidentApiClient } from "./api";
 import {
   incidentRoutes,
-  IncidentApi,
   pluginMetadata,
   incidentAccess,
 } from "@checkstack/incident-common";
@@ -43,15 +39,8 @@ export default createFrontendPlugin({
       title: "System Incident History",
     },
   ],
-  apis: [
-    {
-      ref: incidentApiRef,
-      factory: (deps: { get: <T>(ref: ApiRef<T>) => T }): IncidentApiClient => {
-        const rpcApi = deps.get(rpcApiRef);
-        return rpcApi.forPlugin(IncidentApi);
-      },
-    },
-  ],
+  // No APIs needed - components use usePluginClient() directly
+  apis: [],
   extensions: [
     createSlotExtension(UserMenuItemsSlot, {
       id: "incident.user-menu.items",

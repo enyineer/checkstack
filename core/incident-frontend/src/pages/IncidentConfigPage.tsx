@@ -1,18 +1,18 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  useApi,
-  rpcApiRef,
+  usePluginClient,
   accessApiRef,
+  useApi,
   wrapInSuspense,
 } from "@checkstack/frontend-api";
-import { incidentApiRef } from "../api";
+import { IncidentApi } from "../api";
 import type {
   IncidentWithSystems,
   IncidentStatus,
 } from "@checkstack/incident-common";
 import { incidentAccess } from "@checkstack/incident-common";
-import { CatalogApi, type System } from "@checkstack/catalog-common";
+import { CatalogApi } from "@checkstack/catalog-common";
 import {
   Card,
   CardHeader,
@@ -49,20 +49,16 @@ import { formatDistanceToNow } from "date-fns";
 import { IncidentEditor } from "../components/IncidentEditor";
 
 const IncidentConfigPageContent: React.FC = () => {
-  const api = useApi(incidentApiRef);
-  const rpcApi = useApi(rpcApiRef);
+  const incidentClient = usePluginClient(IncidentApi);
+  const catalogClient = usePluginClient(CatalogApi);
   const accessApi = useApi(accessApiRef);
   const [searchParams, setSearchParams] = useSearchParams();
-
-  const catalogApi = useMemo(() => rpcApi.forPlugin(CatalogApi), [rpcApi]);
   const toast = useToast();
 
-  const { allowed: canManage, loading: accessLoading } =
-    accessApi.useAccess(incidentAccess.incident.manage);
+  const { allowed: canManage, loading: accessLoading } = accessApi.useAccess(
+    incidentAccess.incident.manage
+  );
 
-  const [incidents, setIncidents] = useState<IncidentWithSystems[]>([]);
-  const [systems, setSystems] = useState<System[]>([]);
-  const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<IncidentStatus | "all">(
     "all"
   );
@@ -76,37 +72,28 @@ const IncidentConfigPageContent: React.FC = () => {
 
   // Delete confirmation state
   const [deleteId, setDeleteId] = useState<string | undefined>();
-  const [isDeleting, setIsDeleting] = useState(false);
 
   // Resolve confirmation state
   const [resolveId, setResolveId] = useState<string | undefined>();
-  const [isResolving, setIsResolving] = useState(false);
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [{ incidents: incidentList }, { systems: systemList }] =
-        await Promise.all([
-          api.listIncidents(
-            statusFilter === "all"
-              ? { includeResolved: showResolved }
-              : { status: statusFilter, includeResolved: showResolved }
-          ),
-          catalogApi.getSystems(),
-        ]);
-      setIncidents(incidentList);
-      setSystems(systemList);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to load";
-      toast.error(message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Fetch incidents with useQuery
+  const {
+    data: incidentsData,
+    isLoading: incidentsLoading,
+    refetch: refetchIncidents,
+  } = incidentClient.listIncidents.useQuery(
+    statusFilter === "all"
+      ? { includeResolved: showResolved }
+      : { status: statusFilter, includeResolved: showResolved }
+  );
 
-  useEffect(() => {
-    loadData();
-  }, [statusFilter, showResolved]);
+  // Fetch systems with useQuery
+  const { data: systemsData, isLoading: systemsLoading } =
+    catalogClient.getSystems.useQuery({});
+
+  const incidents = incidentsData?.incidents ?? [];
+  const systems = systemsData?.systems ?? [];
+  const loading = incidentsLoading || systemsLoading;
 
   // Handle ?action=create URL parameter (from command palette)
   useEffect(() => {
@@ -119,6 +106,29 @@ const IncidentConfigPageContent: React.FC = () => {
     }
   }, [searchParams, canManage, setSearchParams]);
 
+  // Mutations
+  const deleteMutation = incidentClient.deleteIncident.useMutation({
+    onSuccess: () => {
+      toast.success("Incident deleted");
+      void refetchIncidents();
+      setDeleteId(undefined);
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to delete");
+    },
+  });
+
+  const resolveMutation = incidentClient.resolveIncident.useMutation({
+    onSuccess: () => {
+      toast.success("Incident resolved");
+      void refetchIncidents();
+      setResolveId(undefined);
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to resolve");
+    },
+  });
+
   const handleCreate = () => {
     setEditingIncident(undefined);
     setEditorOpen(true);
@@ -129,45 +139,19 @@ const IncidentConfigPageContent: React.FC = () => {
     setEditorOpen(true);
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!deleteId) return;
-
-    setIsDeleting(true);
-    try {
-      await api.deleteIncident({ id: deleteId });
-      toast.success("Incident deleted");
-      loadData();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to delete";
-      toast.error(message);
-    } finally {
-      setIsDeleting(false);
-      setDeleteId(undefined);
-    }
+    deleteMutation.mutate({ id: deleteId });
   };
 
-  const handleResolve = async () => {
+  const handleResolve = () => {
     if (!resolveId) return;
-
-    setIsResolving(true);
-    try {
-      await api.resolveIncident({ id: resolveId });
-      toast.success("Incident resolved");
-      loadData();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to resolve";
-      toast.error(message);
-    } finally {
-      setIsResolving(false);
-      setResolveId(undefined);
-    }
+    resolveMutation.mutate({ id: resolveId });
   };
 
   const handleSave = () => {
     setEditorOpen(false);
-    loadData();
+    void refetchIncidents();
   };
 
   const getStatusBadge = (status: IncidentStatus) => {
@@ -369,7 +353,7 @@ const IncidentConfigPageContent: React.FC = () => {
         confirmText="Delete"
         variant="danger"
         onConfirm={handleDelete}
-        isLoading={isDeleting}
+        isLoading={deleteMutation.isPending}
       />
 
       <ConfirmationModal
@@ -380,7 +364,7 @@ const IncidentConfigPageContent: React.FC = () => {
         confirmText="Resolve"
         variant="info"
         onConfirm={handleResolve}
-        isLoading={isResolving}
+        isLoading={resolveMutation.isPending}
       />
     </PageLayout>
   );

@@ -184,6 +184,24 @@ export const createHealthCheckRouter = (
       }
     ),
 
+    getBulkSystemHealthStatus: os.getBulkSystemHealthStatus.handler(
+      async ({ input }) => {
+        const statuses: Record<
+          string,
+          Awaited<ReturnType<typeof service.getSystemHealthStatus>>
+        > = {};
+
+        // Fetch health status for each system in parallel
+        await Promise.all(
+          input.systemIds.map(async (systemId) => {
+            statuses[systemId] = await service.getSystemHealthStatus(systemId);
+          })
+        );
+
+        return { statuses };
+      }
+    ),
+
     getSystemHealthOverview: os.getSystemHealthOverview.handler(
       async ({ input }) => {
         return service.getSystemHealthOverview(input.systemId);

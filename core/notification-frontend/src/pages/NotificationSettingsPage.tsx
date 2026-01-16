@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Bell, Clock, Zap, Send } from "lucide-react";
 import {
   PageLayout,
@@ -8,7 +8,11 @@ import {
   SectionHeader,
   DynamicForm,
 } from "@checkstack/ui";
-import { useApi, rpcApiRef, accessApiRef } from "@checkstack/frontend-api";
+import {
+  usePluginClient,
+  useApi,
+  accessApiRef,
+} from "@checkstack/frontend-api";
 import type { EnrichedSubscription } from "@checkstack/notification-common";
 import {
   NotificationApi,
@@ -24,287 +28,218 @@ import {
 } from "../components/UserChannelCard";
 
 export const NotificationSettingsPage = () => {
-  const rpcApi = useApi(rpcApiRef);
+  const notificationClient = usePluginClient(NotificationApi);
   const accessApi = useApi(accessApiRef);
-  const notificationClient = rpcApi.forPlugin(NotificationApi);
   const toast = useToast();
 
   // Check if user has admin access
-  const { allowed: isAdmin } = accessApi.useAccess(
-    notificationAccess.admin
-  );
+  const { allowed: isAdmin } = accessApi.useAccess(notificationAccess.admin);
 
-  // Retention settings state
-  const [retentionSchema, setRetentionSchema] = useState<
-    Record<string, unknown> | undefined
-  >();
+  // Local state for editing
   const [retentionSettings, setRetentionSettings] = useState<
     Record<string, unknown>
   >({
     retentionDays: 30,
     enabled: false,
   });
-  const [retentionLoading, setRetentionLoading] = useState(true);
-  const [retentionSaving, setRetentionSaving] = useState(false);
   const [retentionValid, setRetentionValid] = useState(true);
-
-  // Subscription state - now uses enriched subscriptions only
-  const [subscriptions, setSubscriptions] = useState<EnrichedSubscription[]>(
-    []
-  );
-  const [subsLoading, setSubsLoading] = useState(true);
-
-  // Delivery strategies state (admin only)
-  const [strategies, setStrategies] = useState<DeliveryStrategy[]>([]);
-  const [strategiesLoading, setStrategiesLoading] = useState(true);
-  const [strategySaving, setStrategySaving] = useState<string | undefined>();
-
-  // User channels state
-  const [userChannels, setUserChannels] = useState<UserDeliveryChannel[]>([]);
-  const [channelsLoading, setChannelsLoading] = useState(true);
   const [channelSaving, setChannelSaving] = useState<string | undefined>();
   const [channelConnecting, setChannelConnecting] = useState<
     string | undefined
   >();
   const [channelTesting, setChannelTesting] = useState<string | undefined>();
+  const [strategySaving, setStrategySaving] = useState<string | undefined>();
 
-  // Fetch retention settings and schema (admin only)
-  const fetchRetentionData = useCallback(async () => {
-    if (!isAdmin) {
-      setRetentionLoading(false);
-      return;
-    }
-    try {
-      const [schema, settings] = await Promise.all([
-        notificationClient.getRetentionSchema(),
-        notificationClient.getRetentionSettings(),
-      ]);
-      setRetentionSchema(schema as Record<string, unknown>);
-      setRetentionSettings(settings);
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to load retention settings";
-      toast.error(message);
-    } finally {
-      setRetentionLoading(false);
-    }
-  }, [notificationClient, isAdmin, toast]);
+  // Query: Retention schema (admin only)
+  const { data: retentionSchema } =
+    notificationClient.getRetentionSchema.useQuery({}, { enabled: isAdmin });
 
-  // Fetch subscriptions only (no groups needed)
-  const fetchSubscriptionData = useCallback(async () => {
-    try {
-      const subsData = await notificationClient.getSubscriptions();
-      setSubscriptions(subsData);
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to fetch subscriptions";
-      toast.error(message);
-    } finally {
-      setSubsLoading(false);
-    }
-  }, [notificationClient, toast]);
+  // Query: Retention settings (admin only)
+  const { data: fetchedRetentionSettings, isLoading: retentionLoading } =
+    notificationClient.getRetentionSettings.useQuery({}, { enabled: isAdmin });
 
-  // Fetch delivery strategies (admin only)
-  const fetchStrategies = useCallback(async () => {
-    if (!isAdmin) {
-      setStrategiesLoading(false);
-      return;
-    }
-    try {
-      const data = await notificationClient.getDeliveryStrategies();
-      setStrategies(data as DeliveryStrategy[]);
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to load delivery channels";
-      toast.error(message);
-    } finally {
-      setStrategiesLoading(false);
-    }
-  }, [notificationClient, isAdmin, toast]);
+  // Query: Subscriptions
+  const {
+    data: subscriptions = [],
+    isLoading: subsLoading,
+    refetch: refetchSubscriptions,
+  } = notificationClient.getSubscriptions.useQuery({});
 
-  // Fetch user delivery channels
-  const fetchUserChannels = useCallback(async () => {
-    try {
-      const data = await notificationClient.getUserDeliveryChannels();
-      setUserChannels(data as UserDeliveryChannel[]);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to load your channels";
-      toast.error(message);
-    } finally {
-      setChannelsLoading(false);
-    }
-  }, [notificationClient, toast]);
+  // Query: Delivery strategies (admin only)
+  const {
+    data: strategies = [],
+    isLoading: strategiesLoading,
+    refetch: refetchStrategies,
+  } = notificationClient.getDeliveryStrategies.useQuery(
+    {},
+    { enabled: isAdmin }
+  );
 
+  // Query: User delivery channels
+  const {
+    data: userChannels = [],
+    isLoading: channelsLoading,
+    refetch: refetchChannels,
+  } = notificationClient.getUserDeliveryChannels.useQuery({});
+
+  // Sync fetched retention settings to local state
   useEffect(() => {
-    void fetchRetentionData();
-    void fetchSubscriptionData();
-    void fetchStrategies();
-    void fetchUserChannels();
-  }, [
-    fetchRetentionData,
-    fetchSubscriptionData,
-    fetchStrategies,
-    fetchUserChannels,
-  ]);
-
-  const handleSaveRetention = async () => {
-    try {
-      setRetentionSaving(true);
-      await notificationClient.setRetentionSettings(
-        retentionSettings as { enabled: boolean; retentionDays: number }
-      );
-      toast.success("Retention settings saved");
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to save settings";
-      toast.error(message);
-    } finally {
-      setRetentionSaving(false);
+    if (fetchedRetentionSettings) {
+      setRetentionSettings(fetchedRetentionSettings);
     }
-  };
+  }, [fetchedRetentionSettings]);
 
-  const handleUnsubscribe = async (groupId: string) => {
-    try {
-      await notificationClient.unsubscribe({ groupId });
-      setSubscriptions((prev) => prev.filter((s) => s.groupId !== groupId));
+  // Mutations
+  const setRetentionMutation =
+    notificationClient.setRetentionSettings.useMutation({
+      onSuccess: () => {
+        toast.success("Retention settings saved");
+      },
+      onError: (error) => {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to save settings"
+        );
+      },
+    });
+
+  const unsubscribeMutation = notificationClient.unsubscribe.useMutation({
+    onSuccess: () => {
       toast.success("Unsubscribed successfully");
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to unsubscribe";
-      toast.error(message);
-    }
+      void refetchSubscriptions();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to unsubscribe"
+      );
+    },
+  });
+
+  const updateStrategyMutation =
+    notificationClient.updateDeliveryStrategy.useMutation({
+      onSuccess: () => {
+        toast.success("Updated delivery channel");
+        void refetchStrategies();
+        setStrategySaving(undefined);
+      },
+      onError: (error) => {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to update channel"
+        );
+        setStrategySaving(undefined);
+      },
+    });
+
+  const setUserPreferenceMutation =
+    notificationClient.setUserDeliveryPreference.useMutation({
+      onSuccess: () => {
+        toast.success("Updated notification channel");
+        void refetchChannels();
+        setChannelSaving(undefined);
+      },
+      onError: (error) => {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to update preference"
+        );
+        setChannelSaving(undefined);
+      },
+    });
+
+  const unlinkChannelMutation =
+    notificationClient.unlinkDeliveryChannel.useMutation({
+      onSuccess: () => {
+        toast.success("Disconnected notification channel");
+        void refetchChannels();
+        setChannelSaving(undefined);
+      },
+      onError: (error) => {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to disconnect"
+        );
+        setChannelSaving(undefined);
+      },
+    });
+
+  const getOAuthUrlMutation =
+    notificationClient.getDeliveryOAuthUrl.useMutation({
+      onSuccess: (data) => {
+        globalThis.location.href = data.authUrl;
+      },
+      onError: (error) => {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to start OAuth flow"
+        );
+        setChannelConnecting(undefined);
+      },
+    });
+
+  const sendTestMutation = notificationClient.sendTestNotification.useMutation({
+    onSettled: () => {
+      setChannelTesting(undefined);
+    },
+  });
+
+  const handleSaveRetention = () => {
+    setRetentionMutation.mutate(
+      retentionSettings as { enabled: boolean; retentionDays: number }
+    );
   };
 
-  // Handle strategy update (enabled state and config)
+  const handleUnsubscribe = (groupId: string) => {
+    unsubscribeMutation.mutate({ groupId });
+  };
+
   const handleStrategyUpdate = async (
     strategyId: string,
     enabled: boolean,
     config?: Record<string, unknown>,
     layoutConfig?: Record<string, unknown>
   ) => {
-    try {
-      setStrategySaving(strategyId);
-      await notificationClient.updateDeliveryStrategy({
-        strategyId,
-        enabled,
-        config,
-        layoutConfig,
-      });
-      // Update local state
-      setStrategies((prev) =>
-        prev.map((s) =>
-          s.qualifiedId === strategyId
-            ? { ...s, enabled, config, layoutConfig }
-            : s
-        )
-      );
-      toast.success(`${enabled ? "Enabled" : "Disabled"} delivery channel`);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to update channel";
-      toast.error(message);
-    } finally {
-      setStrategySaving(undefined);
-    }
+    setStrategySaving(strategyId);
+    await updateStrategyMutation.mutateAsync({
+      strategyId,
+      enabled,
+      config,
+      layoutConfig,
+    });
   };
 
-  // Handle user channel toggle
   const handleChannelToggle = async (strategyId: string, enabled: boolean) => {
-    try {
-      setChannelSaving(strategyId);
-      await notificationClient.setUserDeliveryPreference({
-        strategyId,
-        enabled,
-      });
-      setUserChannels((prev) =>
-        prev.map((c) => (c.strategyId === strategyId ? { ...c, enabled } : c))
-      );
-      toast.success(`${enabled ? "Enabled" : "Disabled"} notification channel`);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to update preference";
-      toast.error(message);
-    } finally {
-      setChannelSaving(undefined);
-    }
+    setChannelSaving(strategyId);
+    await setUserPreferenceMutation.mutateAsync({
+      strategyId,
+      enabled,
+    });
   };
 
-  // Handle OAuth connect
   const handleChannelConnect = async (strategyId: string) => {
-    try {
-      setChannelConnecting(strategyId);
-      const { authUrl } = await notificationClient.getDeliveryOAuthUrl({
-        strategyId,
-        returnUrl: globalThis.location.pathname,
-      });
-      // Redirect to OAuth provider
-      globalThis.location.href = authUrl;
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to start OAuth flow";
-      toast.error(message);
-      setChannelConnecting(undefined);
-    }
+    setChannelConnecting(strategyId);
+    await getOAuthUrlMutation.mutateAsync({
+      strategyId,
+      returnUrl: globalThis.location.pathname,
+    });
   };
 
-  // Handle OAuth disconnect
   const handleChannelDisconnect = async (strategyId: string) => {
-    try {
-      setChannelSaving(strategyId);
-      await notificationClient.unlinkDeliveryChannel({ strategyId });
-      setUserChannels((prev) =>
-        prev.map((c) =>
-          c.strategyId === strategyId
-            ? { ...c, linkedAt: undefined, enabled: false, isConfigured: false }
-            : c
-        )
-      );
-      toast.success("Disconnected notification channel");
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to disconnect";
-      toast.error(message);
-    } finally {
-      setChannelSaving(undefined);
-    }
+    setChannelSaving(strategyId);
+    await unlinkChannelMutation.mutateAsync({ strategyId });
   };
 
-  // Handle user config save
   const handleChannelConfigSave = async (
     strategyId: string,
     userConfig: Record<string, unknown>
   ) => {
-    try {
-      setChannelSaving(strategyId);
-      await notificationClient.setUserDeliveryPreference({
-        strategyId,
-        enabled:
-          userChannels.find((c) => c.strategyId === strategyId)?.enabled ??
-          false,
-        userConfig,
-      });
-      setUserChannels((prev) =>
-        prev.map((c) =>
-          c.strategyId === strategyId
-            ? { ...c, userConfig, isConfigured: true }
-            : c
-        )
-      );
-      toast.success("Saved channel settings");
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to save settings";
-      toast.error(message);
-    } finally {
-      setChannelSaving(undefined);
-    }
+    setChannelSaving(strategyId);
+    const channel = userChannels.find((c) => c.strategyId === strategyId);
+    await setUserPreferenceMutation.mutateAsync({
+      strategyId,
+      enabled: channel?.enabled ?? false,
+      userConfig,
+    });
+  };
+
+  const handleTest = async (strategyId: string) => {
+    setChannelTesting(strategyId);
+    return sendTestMutation.mutateAsync({ strategyId });
   };
 
   return (
@@ -323,7 +258,7 @@ export const NotificationSettingsPage = () => {
                 Loading your channels...
               </div>
             </Card>
-          ) : userChannels.length === 0 ? (
+          ) : (userChannels as UserDeliveryChannel[]).length === 0 ? (
             <Card className="p-4">
               <div className="text-center py-4 text-muted-foreground">
                 No notification channels available. Contact your administrator
@@ -332,7 +267,7 @@ export const NotificationSettingsPage = () => {
             </Card>
           ) : (
             <div className="space-y-3">
-              {userChannels.map((channel) => (
+              {(userChannels as UserDeliveryChannel[]).map((channel) => (
                 <UserChannelCard
                   key={channel.strategyId}
                   channel={channel}
@@ -340,21 +275,7 @@ export const NotificationSettingsPage = () => {
                   onConnect={handleChannelConnect}
                   onDisconnect={handleChannelDisconnect}
                   onSaveConfig={handleChannelConfigSave}
-                  onTest={async (strategyId) => {
-                    setChannelTesting(strategyId);
-                    try {
-                      const result =
-                        await notificationClient.sendTestNotification({
-                          strategyId,
-                        });
-                      if (!result.success) {
-                        alert(`Test failed: ${result.error}`);
-                      }
-                      return result;
-                    } finally {
-                      setChannelTesting(undefined);
-                    }
-                  }}
+                  onTest={handleTest}
                   saving={channelSaving === channel.strategyId}
                   connecting={channelConnecting === channel.strategyId}
                   testing={channelTesting === channel.strategyId}
@@ -372,13 +293,13 @@ export const NotificationSettingsPage = () => {
             icon={<Bell className="h-5 w-5" />}
           />
           <Card className="p-4">
-            {subscriptions.length === 0 ? (
+            {(subscriptions as EnrichedSubscription[]).length === 0 ? (
               <div className="text-center py-4 text-muted-foreground">
                 No active subscriptions
               </div>
             ) : (
               <div className="space-y-3">
-                {subscriptions.map((sub) => (
+                {(subscriptions as EnrichedSubscription[]).map((sub) => (
                   <div
                     key={sub.groupId}
                     className="flex items-center justify-between py-2 border-b last:border-0"
@@ -395,7 +316,8 @@ export const NotificationSettingsPage = () => {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => void handleUnsubscribe(sub.groupId)}
+                      onClick={() => handleUnsubscribe(sub.groupId)}
+                      disabled={unsubscribeMutation.isPending}
                     >
                       Unsubscribe
                     </Button>
@@ -435,7 +357,7 @@ export const NotificationSettingsPage = () => {
                   Loading delivery channels...
                 </div>
               </Card>
-            ) : strategies.length === 0 ? (
+            ) : (strategies as DeliveryStrategy[]).length === 0 ? (
               <Card className="p-4">
                 <div className="text-center py-4 text-muted-foreground">
                   No delivery channels registered. Plugins can register delivery
@@ -444,7 +366,7 @@ export const NotificationSettingsPage = () => {
               </Card>
             ) : (
               <div className="space-y-3">
-                {strategies.map((strategy) => (
+                {(strategies as DeliveryStrategy[]).map((strategy) => (
                   <StrategyCard
                     key={strategy.qualifiedId}
                     strategy={strategy}
@@ -473,18 +395,18 @@ export const NotificationSettingsPage = () => {
               ) : (
                 <div className="space-y-4">
                   <DynamicForm
-                    schema={retentionSchema}
+                    schema={retentionSchema as Record<string, unknown>}
                     value={retentionSettings}
                     onChange={setRetentionSettings}
                     onValidChange={setRetentionValid}
                   />
                   <Button
-                    onClick={() => {
-                      void handleSaveRetention();
-                    }}
-                    disabled={retentionSaving || !retentionValid}
+                    onClick={handleSaveRetention}
+                    disabled={setRetentionMutation.isPending || !retentionValid}
                   >
-                    {retentionSaving ? "Saving..." : "Save Settings"}
+                    {setRetentionMutation.isPending
+                      ? "Saving..."
+                      : "Save Settings"}
                   </Button>
                 </div>
               )}

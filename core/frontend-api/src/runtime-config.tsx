@@ -15,6 +15,18 @@ interface RuntimeConfigContextValue {
   error: Error | undefined;
 }
 
+// Module-level cache for synchronous access from non-React code
+let cachedConfig: RuntimeConfig | undefined;
+
+/**
+ * Get the cached runtime config synchronously.
+ * Returns undefined if config hasn't been loaded yet.
+ * Use this for class-based APIs that can't use hooks.
+ */
+export function getCachedRuntimeConfig(): RuntimeConfig | undefined {
+  return cachedConfig;
+}
+
 const RuntimeConfigContext = createContext<RuntimeConfigContextValue>({
   config: undefined,
   isLoading: true,
@@ -50,11 +62,14 @@ export const RuntimeConfigProvider: React.FC<RuntimeConfigProviderProps> = ({
           throw new Error(`Failed to fetch config: ${response.status}`);
         }
         const data = (await response.json()) as RuntimeConfig;
+        cachedConfig = data; // Populate module-level cache
         setConfig(data);
       } catch (error_) {
         console.error("RuntimeConfigProvider: Failed to load config", error_);
         // Fallback to localhost for development
-        setConfig({ baseUrl: "http://localhost:3000" });
+        const fallback = { baseUrl: "http://localhost:3000" };
+        cachedConfig = fallback; // Populate cache even on error
+        setConfig(fallback);
         setError(error_ instanceof Error ? error_ : new Error(String(error_)));
       } finally {
         setIsLoading(false);

@@ -1,9 +1,5 @@
-import { oc } from "@orpc/contract";
 import { z } from "zod";
-import {
-  createClientDefinition,
-  type ProcedureMetadata,
-} from "@checkstack/common";
+import { createClientDefinition, proc } from "@checkstack/common";
 import { incidentAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
 import {
@@ -16,15 +12,13 @@ import {
   IncidentStatusEnum,
 } from "./schemas";
 
-const _base = oc.$meta<ProcedureMetadata>({});
-
 export const incidentContract = {
   /** List all incidents with optional filters */
-  listIncidents: _base
-    .meta({
-      userType: "public",
-      access: [incidentAccess.incident.read],
-    })
+  listIncidents: proc({
+    operationType: "query",
+    userType: "public",
+    access: [incidentAccess.incident.read],
+  })
     .input(
       z
         .object({
@@ -37,65 +31,80 @@ export const incidentContract = {
     .output(z.object({ incidents: z.array(IncidentWithSystemsSchema) })),
 
   /** Get a single incident with all details */
-  getIncident: _base
-    .meta({
-      userType: "public",
-      access: [incidentAccess.incident.read],
-    })
+  getIncident: proc({
+    operationType: "query",
+    userType: "public",
+    access: [incidentAccess.incident.read],
+  })
     .input(z.object({ id: z.string() }))
     .output(IncidentDetailSchema.nullable()),
 
   /** Get active incidents for a specific system */
-  getIncidentsForSystem: _base
-    .meta({
-      userType: "public",
-      access: [incidentAccess.incident.read],
-    })
+  getIncidentsForSystem: proc({
+    operationType: "query",
+    userType: "public",
+    access: [incidentAccess.incident.read],
+  })
     .input(z.object({ systemId: z.string() }))
     .output(z.array(IncidentWithSystemsSchema)),
 
+  /** Get active incidents for multiple systems in a single request.
+   * Used for efficient dashboard rendering to avoid N+1 queries.
+   */
+  getBulkIncidentsForSystems: proc({
+    operationType: "query",
+    userType: "public",
+    access: [incidentAccess.bulkIncident],
+  })
+    .input(z.object({ systemIds: z.array(z.string()) }))
+    .output(
+      z.object({
+        incidents: z.record(z.string(), z.array(IncidentWithSystemsSchema)),
+      })
+    ),
+
   /** Create a new incident */
-  createIncident: _base
-    .meta({
-      userType: "authenticated",
-      access: [incidentAccess.incident.manage],
-    })
+  createIncident: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [incidentAccess.incident.manage],
+  })
     .input(CreateIncidentInputSchema)
     .output(IncidentWithSystemsSchema),
 
   /** Update an existing incident */
-  updateIncident: _base
-    .meta({
-      userType: "authenticated",
-      access: [incidentAccess.incident.manage],
-    })
+  updateIncident: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [incidentAccess.incident.manage],
+  })
     .input(UpdateIncidentInputSchema)
     .output(IncidentWithSystemsSchema),
 
   /** Add a status update to an incident */
-  addUpdate: _base
-    .meta({
-      userType: "authenticated",
-      access: [incidentAccess.incident.manage],
-    })
+  addUpdate: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [incidentAccess.incident.manage],
+  })
     .input(AddIncidentUpdateInputSchema)
     .output(IncidentUpdateSchema),
 
   /** Resolve an incident (sets status to resolved) */
-  resolveIncident: _base
-    .meta({
-      userType: "authenticated",
-      access: [incidentAccess.incident.manage],
-    })
+  resolveIncident: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [incidentAccess.incident.manage],
+  })
     .input(z.object({ id: z.string(), message: z.string().optional() }))
     .output(IncidentWithSystemsSchema),
 
   /** Delete an incident */
-  deleteIncident: _base
-    .meta({
-      userType: "authenticated",
-      access: [incidentAccess.incident.manage],
-    })
+  deleteIncident: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [incidentAccess.incident.manage],
+  })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
 };

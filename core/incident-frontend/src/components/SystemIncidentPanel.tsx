@@ -1,10 +1,10 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React from "react";
 import { Link } from "react-router-dom";
-import { useApi, type SlotContext } from "@checkstack/frontend-api";
+import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
 import { resolveRoute } from "@checkstack/common";
 import { SystemDetailsTopSlot } from "@checkstack/catalog-common";
-import { incidentApiRef } from "../api";
+import { IncidentApi } from "../api";
 import {
   incidentRoutes,
   INCIDENT_UPDATED,
@@ -76,29 +76,22 @@ function findMostSevereIncident(
  * Listens for realtime updates via signals.
  */
 export const SystemIncidentPanel: React.FC<Props> = ({ system }) => {
-  const api = useApi(incidentApiRef);
-  const [incidents, setIncidents] = useState<IncidentWithSystems[]>([]);
-  const [loading, setLoading] = useState(true);
+  const incidentClient = usePluginClient(IncidentApi);
 
-  const refetch = useCallback(() => {
-    if (!system?.id) return;
-
-    api
-      .getIncidentsForSystem({ systemId: system.id })
-      .then(setIncidents)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [system?.id, api]);
-
-  // Initial fetch
-  useEffect(() => {
-    refetch();
-  }, [refetch]);
+  // Fetch incidents with useQuery
+  const {
+    data: incidents = [],
+    isLoading: loading,
+    refetch,
+  } = incidentClient.getIncidentsForSystem.useQuery(
+    { systemId: system?.id ?? "" },
+    { enabled: !!system?.id }
+  );
 
   // Listen for realtime incident updates
   useSignal(INCIDENT_UPDATED, ({ systemIds }) => {
     if (system?.id && systemIds.includes(system.id)) {
-      refetch();
+      void refetch();
     }
   });
 

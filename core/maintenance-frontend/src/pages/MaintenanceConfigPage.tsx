@@ -1,18 +1,18 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  useApi,
-  rpcApiRef,
+  usePluginClient,
   accessApiRef,
+  useApi,
   wrapInSuspense,
 } from "@checkstack/frontend-api";
-import { maintenanceApiRef } from "../api";
+import { MaintenanceApi } from "../api";
 import type {
   MaintenanceWithSystems,
   MaintenanceStatus,
 } from "@checkstack/maintenance-common";
 import { maintenanceAccess } from "@checkstack/maintenance-common";
-import { CatalogApi, type System } from "@checkstack/catalog-common";
+import { CatalogApi } from "@checkstack/catalog-common";
 import {
   Card,
   CardHeader,
@@ -50,22 +50,16 @@ import { MaintenanceEditor } from "../components/MaintenanceEditor";
 import { getMaintenanceStatusBadge } from "../utils/badges";
 
 const MaintenanceConfigPageContent: React.FC = () => {
-  const api = useApi(maintenanceApiRef);
-  const rpcApi = useApi(rpcApiRef);
+  const maintenanceClient = usePluginClient(MaintenanceApi);
+  const catalogClient = usePluginClient(CatalogApi);
   const accessApi = useApi(accessApiRef);
   const [searchParams, setSearchParams] = useSearchParams();
-
-  const catalogApi = useMemo(() => rpcApi.forPlugin(CatalogApi), [rpcApi]);
   const toast = useToast();
 
-  const { allowed: canManage, loading: accessLoading } =
-    accessApi.useAccess(maintenanceAccess.maintenance.manage);
-
-  const [maintenances, setMaintenances] = useState<MaintenanceWithSystems[]>(
-    []
+  const { allowed: canManage, loading: accessLoading } = accessApi.useAccess(
+    maintenanceAccess.maintenance.manage
   );
-  const [systems, setSystems] = useState<System[]>([]);
-  const [loading, setLoading] = useState(true);
+
   const [statusFilter, setStatusFilter] = useState<MaintenanceStatus | "all">(
     "all"
   );
@@ -78,35 +72,26 @@ const MaintenanceConfigPageContent: React.FC = () => {
 
   // Delete confirmation state
   const [deleteId, setDeleteId] = useState<string | undefined>();
-  const [isDeleting, setIsDeleting] = useState(false);
 
   // Complete confirmation state
   const [completeId, setCompleteId] = useState<string | undefined>();
-  const [isCompleting, setIsCompleting] = useState(false);
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [{ maintenances: maintenanceList }, { systems: systemList }] =
-        await Promise.all([
-          api.listMaintenances(
-            statusFilter === "all" ? undefined : { status: statusFilter }
-          ),
-          catalogApi.getSystems(),
-        ]);
-      setMaintenances(maintenanceList);
-      setSystems(systemList);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to load";
-      toast.error(message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Fetch maintenances with useQuery
+  const {
+    data: maintenancesData,
+    isLoading: maintenancesLoading,
+    refetch: refetchMaintenances,
+  } = maintenanceClient.listMaintenances.useQuery(
+    statusFilter === "all" ? {} : { status: statusFilter }
+  );
 
-  useEffect(() => {
-    loadData();
-  }, [statusFilter]);
+  // Fetch systems with useQuery
+  const { data: systemsData, isLoading: systemsLoading } =
+    catalogClient.getSystems.useQuery({});
+
+  const maintenances = maintenancesData?.maintenances ?? [];
+  const systems = systemsData?.systems ?? [];
+  const loading = maintenancesLoading || systemsLoading;
 
   // Handle ?action=create URL parameter (from command palette)
   useEffect(() => {
@@ -119,6 +104,31 @@ const MaintenanceConfigPageContent: React.FC = () => {
     }
   }, [searchParams, canManage, setSearchParams]);
 
+  // Mutations
+  const deleteMutation = maintenanceClient.deleteMaintenance.useMutation({
+    onSuccess: () => {
+      toast.success("Maintenance deleted");
+      void refetchMaintenances();
+      setDeleteId(undefined);
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to delete");
+    },
+  });
+
+  const completeMutation = maintenanceClient.closeMaintenance.useMutation({
+    onSuccess: () => {
+      toast.success("Maintenance completed");
+      void refetchMaintenances();
+      setCompleteId(undefined);
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to complete"
+      );
+    },
+  });
+
   const handleCreate = () => {
     setEditingMaintenance(undefined);
     setEditorOpen(true);
@@ -129,45 +139,19 @@ const MaintenanceConfigPageContent: React.FC = () => {
     setEditorOpen(true);
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!deleteId) return;
-
-    setIsDeleting(true);
-    try {
-      await api.deleteMaintenance({ id: deleteId });
-      toast.success("Maintenance deleted");
-      loadData();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to delete";
-      toast.error(message);
-    } finally {
-      setIsDeleting(false);
-      setDeleteId(undefined);
-    }
+    deleteMutation.mutate({ id: deleteId });
   };
 
-  const handleComplete = async () => {
+  const handleComplete = () => {
     if (!completeId) return;
-
-    setIsCompleting(true);
-    try {
-      await api.closeMaintenance({ id: completeId });
-      toast.success("Maintenance completed");
-      loadData();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to complete";
-      toast.error(message);
-    } finally {
-      setIsCompleting(false);
-      setCompleteId(undefined);
-    }
+    completeMutation.mutate({ id: completeId });
   };
 
   const handleSave = () => {
     setEditorOpen(false);
-    loadData();
+    void refetchMaintenances();
   };
 
   const getSystemNames = (systemIds: string[]): string => {
@@ -327,7 +311,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
         confirmText="Delete"
         variant="danger"
         onConfirm={handleDelete}
-        isLoading={isDeleting}
+        isLoading={deleteMutation.isPending}
       />
 
       <ConfirmationModal
@@ -338,7 +322,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
         confirmText="Complete"
         variant="info"
         onConfirm={handleComplete}
-        isLoading={isCompleting}
+        isLoading={completeMutation.isPending}
       />
     </PageLayout>
   );

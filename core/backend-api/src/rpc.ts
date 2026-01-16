@@ -112,10 +112,16 @@ export const autoAuthMiddleware = os.middleware(
     const globalOnlyRules = qualifiedRules.filter((r) => !r.instanceAccess);
     const instanceRules = qualifiedRules.filter((r) => r.instanceAccess);
     const singleResourceRules = instanceRules.filter(
-      (r) => r.instanceAccess?.idParam
+      (r) =>
+        r.instanceAccess?.idParam &&
+        !r.instanceAccess?.listKey &&
+        !r.instanceAccess?.recordKey
     );
     const listResourceRules = instanceRules.filter(
       (r) => r.instanceAccess?.listKey
+    );
+    const recordResourceRules = instanceRules.filter(
+      (r) => r.instanceAccess?.recordKey
     );
 
     // 1. Handle anonymous endpoints - no auth required, no access checks
@@ -328,6 +334,87 @@ export const autoAuthMiddleware = os.middleware(
           const id = (item as { id?: string }).id;
           return id && accessibleSet.has(id);
         });
+      }
+    }
+
+    // Post-filter: Record endpoints (bulk queries returning Record<resourceId, data>)
+    // For these, remove record keys user doesn't have access to
+    if (
+      recordResourceRules.length > 0 &&
+      result.output &&
+      typeof result.output === "object"
+    ) {
+      const mutableOutput = result.output as Record<string, unknown>;
+
+      for (const rule of recordResourceRules) {
+        const outputKey = rule.instanceAccess!.recordKey!;
+        const record = mutableOutput[outputKey];
+
+        if (record === undefined) {
+          context.logger.error(
+            `resourceAccess: expected "${outputKey}" in response but not found`
+          );
+          throw new ORPCError("INTERNAL_SERVER_ERROR", {
+            message: "Invalid response shape for filtered endpoint",
+          });
+        }
+
+        if (
+          typeof record !== "object" ||
+          record === null ||
+          Array.isArray(record)
+        ) {
+          context.logger.error(
+            `resourceAccess: "${outputKey}" must be an object (record)`
+          );
+          throw new ORPCError("INTERNAL_SERVER_ERROR", {
+            message: "Invalid response shape for filtered endpoint",
+          });
+        }
+
+        const recordObj = record as Record<string, unknown>;
+        const resourceIds = Object.keys(recordObj);
+
+        // If no user (anonymous), check if they have global access via anonymous role
+        if (!userId || !userType) {
+          const anonymousAccessRules =
+            await context.auth.getAnonymousAccessRules();
+          const hasGlobalAccess =
+            anonymousAccessRules.includes("*") ||
+            anonymousAccessRules.includes(rule.qualifiedId);
+
+          if (hasGlobalAccess) {
+            // Anonymous user has global access - return all items
+            continue;
+          } else {
+            // No global access and can't have team grants - return empty record
+            mutableOutput[outputKey] = {};
+            continue;
+          }
+        }
+
+        const hasGlobalAccess =
+          userAccessRules.includes("*") ||
+          userAccessRules.includes(rule.qualifiedId);
+
+        const accessibleIds = await getAccessibleResourceIdsViaS2S({
+          auth: context.auth,
+          userId,
+          userType,
+          resourceType: rule.qualifiedResourceType,
+          resourceIds,
+          action: rule.level,
+          hasGlobalAccess,
+        });
+
+        const accessibleSet = new Set(accessibleIds);
+        const filteredRecord: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(recordObj)) {
+          if (accessibleSet.has(key)) {
+            filteredRecord[key] = value;
+          }
+        }
+        mutableOutput[outputKey] = filteredRecord;
       }
     }
 

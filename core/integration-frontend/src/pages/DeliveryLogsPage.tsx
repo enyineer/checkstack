@@ -21,9 +21,10 @@ import {
   TableRow,
   useToast,
   usePagination,
+  usePaginationSync,
   BackLink,
 } from "@checkstack/ui";
-import { useApi, rpcApiRef } from "@checkstack/frontend-api";
+import { usePluginClient } from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
 import {
   IntegrationApi,
@@ -58,49 +59,56 @@ const statusConfig: Record<
 };
 
 export const DeliveryLogsPage = () => {
-  const rpcApi = useApi(rpcApiRef);
-  const client = rpcApi.forPlugin(IntegrationApi);
+  const integrationClient = usePluginClient(IntegrationApi);
   const toast = useToast();
 
   const [retrying, setRetrying] = useState<string>();
 
-  const {
-    items: logs,
-    loading,
-    pagination,
-  } = usePagination({
-    fetchFn: async ({ limit, offset }) => {
-      const page = Math.floor(offset / limit) + 1;
-      return client.getDeliveryLogs({ page, pageSize: limit });
-    },
-    getItems: (response) => response.logs,
-    getTotal: (response) => response.total,
-    defaultLimit: 20,
-  });
+  // Pagination state
+  const pagination = usePagination({ defaultLimit: 20 });
 
-  const handleRetry = async (logId: string) => {
-    try {
-      setRetrying(logId);
-      const result = await client.retryDelivery({ logId });
+  // Fetch data with useQuery
+  const page = Math.floor(pagination.offset / pagination.limit) + 1;
+  const { data, isLoading, refetch } =
+    integrationClient.getDeliveryLogs.useQuery({
+      page,
+      pageSize: pagination.limit,
+    });
+
+  // Sync total from response
+  usePaginationSync(pagination, data?.total);
+
+  const logs = data?.logs ?? [];
+
+  // Retry mutation
+  const retryMutation = integrationClient.retryDelivery.useMutation({
+    onSuccess: (result) => {
       if (result.success) {
         toast.success("Delivery re-queued");
-        pagination.refetch();
+        void refetch();
       } else {
         toast.error(result.message ?? "Failed to retry delivery");
       }
-    } catch (error) {
+    },
+    onError: (error) => {
       console.error("Failed to retry delivery:", error);
       toast.error("Failed to retry delivery");
-    } finally {
+    },
+    onSettled: () => {
       setRetrying(undefined);
-    }
+    },
+  });
+
+  const handleRetry = (logId: string) => {
+    setRetrying(logId);
+    retryMutation.mutate({ logId });
   };
 
   return (
     <PageLayout
       title="Delivery Logs"
       subtitle="View and manage webhook delivery attempts"
-      loading={loading}
+      loading={isLoading}
       actions={
         <BackLink to={resolveRoute(integrationRoutes.routes.list)}>
           Back to Subscriptions
@@ -115,7 +123,7 @@ export const DeliveryLogsPage = () => {
             icon={<FileText className="h-5 w-5" />}
           />
 
-          {logs.length === 0 && !loading ? (
+          {logs.length === 0 && !isLoading ? (
             <Card className="p-8">
               <div className="text-center text-muted-foreground">
                 No delivery logs found
@@ -180,7 +188,7 @@ export const DeliveryLogsPage = () => {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => void handleRetry(log.id)}
+                              onClick={() => handleRetry(log.id)}
                               disabled={retrying === log.id}
                             >
                               <RefreshCw

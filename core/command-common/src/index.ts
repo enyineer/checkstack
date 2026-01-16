@@ -1,9 +1,8 @@
-import { oc } from "@orpc/contract";
 import { z } from "zod";
 import {
   createClientDefinition,
   definePluginMetadata,
-  type ProcedureMetadata,
+  proc,
 } from "@checkstack/common";
 
 // =============================================================================
@@ -64,8 +63,6 @@ export type Command = z.infer<typeof CommandSchema>;
 // RPC CONTRACT
 // =============================================================================
 
-const _base = oc.$meta<ProcedureMetadata>({});
-
 /**
  * Command palette RPC contract.
  * Provides search functionality across all registered providers.
@@ -75,8 +72,11 @@ export const commandContract = {
    * Search across all registered search providers.
    * Returns results filtered by user access rules.
    */
-  search: _base
-    .meta({ userType: "public" })
+  search: proc({
+    operationType: "query",
+    userType: "public",
+    access: [],
+  })
     .input(z.object({ query: z.string() }))
     .output(z.array(SearchResultSchema)),
 
@@ -84,9 +84,11 @@ export const commandContract = {
    * Get all registered commands (for browsing without a query).
    * Returns commands filtered by user access rules.
    */
-  getCommands: _base
-    .meta({ userType: "public" })
-    .output(z.array(SearchResultSchema)),
+  getCommands: proc({
+    operationType: "query",
+    userType: "public",
+    access: [],
+  }).output(z.array(SearchResultSchema)),
 };
 
 export type CommandContract = typeof commandContract;

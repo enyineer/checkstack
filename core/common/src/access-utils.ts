@@ -26,6 +26,13 @@ export interface InstanceAccessConfig {
    * Example: "systems" for response { systems: [...] }
    */
   listKey?: string;
+
+  /**
+   * For bulk record endpoints: key in response containing a Record<resourceId, data>.
+   * When set, post-filters the record keys based on team grants.
+   * Example: "statuses" for response { statuses: { [systemId]: {...} } }
+   */
+  recordKey?: string;
 }
 
 /**
@@ -154,11 +161,13 @@ export function access(
   options?: {
     idParam?: string;
     listKey?: string;
+    recordKey?: string;
     isDefault?: boolean;
     isPublic?: boolean;
   }
 ): AccessRule {
-  const hasInstanceAccess = options?.idParam || options?.listKey;
+  const hasInstanceAccess =
+    options?.idParam || options?.listKey || options?.recordKey;
 
   return {
     id: `${resource}.${level}`,
@@ -171,6 +180,7 @@ export function access(
       ? {
           idParam: options?.idParam,
           listKey: options?.listKey,
+          recordKey: options?.recordKey,
         }
       : undefined,
   };
@@ -208,6 +218,7 @@ export function accessPair(
   options?: {
     idParam?: string;
     listKey?: string;
+    recordKey?: string;
     readIsDefault?: boolean;
     readIsPublic?: boolean;
   }
@@ -216,6 +227,7 @@ export function accessPair(
     read: access(resource, "read", descriptions.read, {
       idParam: options?.idParam,
       listKey: options?.listKey,
+      recordKey: options?.recordKey,
       isDefault: options?.readIsDefault,
       isPublic: options?.readIsPublic,
     }),

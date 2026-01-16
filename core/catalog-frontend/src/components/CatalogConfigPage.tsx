@@ -4,8 +4,9 @@ import {
   useApi,
   accessApiRef,
   ExtensionSlot,
+  usePluginClient,
 } from "@checkstack/frontend-api";
-import { catalogApiRef, System, Group } from "../api";
+import { System, CatalogApi } from "../api";
 import {
   CatalogSystemActionsSlot,
   catalogAccess,
@@ -30,24 +31,21 @@ import { SystemEditor } from "./SystemEditor";
 import { GroupEditor } from "./GroupEditor";
 
 export const CatalogConfigPage = () => {
-  const catalogApi = useApi(catalogApiRef);
+  const catalogClient = usePluginClient(CatalogApi);
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { allowed: canManage, loading: accessLoading } =
-    accessApi.useAccess(catalogAccess.system.manage);
+  const { allowed: canManage, loading: accessLoading } = accessApi.useAccess(
+    catalogAccess.system.manage
+  );
 
-  const [systems, setSystems] = useState<System[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [selectedGroupId, setSelectedGroupId] = useState("");
+  const [selectedSystemToAdd, setSelectedSystemToAdd] = useState("");
 
   // Dialog state
   const [isSystemEditorOpen, setIsSystemEditorOpen] = useState(false);
   const [editingSystem, setEditingSystem] = useState<System | undefined>();
   const [isGroupEditorOpen, setIsGroupEditorOpen] = useState(false);
-
-  const [selectedGroupId, setSelectedGroupId] = useState("");
-  const [selectedSystemToAdd, setSelectedSystemToAdd] = useState("");
 
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -62,31 +60,30 @@ export const CatalogConfigPage = () => {
     onConfirm: () => {},
   });
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [{ systems: s }, g] = await Promise.all([
-        catalogApi.getSystems(),
-        catalogApi.getGroups(),
-      ]);
-      setSystems(s);
-      setGroups(g);
-      if (g.length > 0 && !selectedGroupId) {
-        setSelectedGroupId(g[0].id);
-      }
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to load catalog data";
-      toast.error(message);
-      console.error("Failed to load catalog data:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Fetch systems with useQuery
+  const {
+    data: systemsData,
+    isLoading: systemsLoading,
+    refetch: refetchSystems,
+  } = catalogClient.getSystems.useQuery({});
 
+  // Fetch groups with useQuery
+  const {
+    data: groupsData,
+    isLoading: groupsLoading,
+    refetch: refetchGroups,
+  } = catalogClient.getGroups.useQuery({});
+
+  const systems = systemsData?.systems ?? [];
+  const groups = groupsData ?? [];
+  const loading = systemsLoading || groupsLoading;
+
+  // Set initial group selection
   useEffect(() => {
-    loadData();
-  }, []);
+    if (groups.length > 0 && !selectedGroupId) {
+      setSelectedGroupId(groups[0].id);
+    }
+  }, [groups, selectedGroupId]);
 
   // Handle ?action=create URL parameter (from command palette)
   useEffect(() => {
@@ -98,128 +95,168 @@ export const CatalogConfigPage = () => {
     }
   }, [searchParams, canManage, setSearchParams]);
 
-  // Unified save handler for both create and edit
+  // Mutations
+  const createSystemMutation = catalogClient.createSystem.useMutation({
+    onSuccess: () => {
+      toast.success("System created successfully");
+      setIsSystemEditorOpen(false);
+      void refetchSystems();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create system"
+      );
+    },
+  });
+
+  const updateSystemMutation = catalogClient.updateSystem.useMutation({
+    onSuccess: () => {
+      toast.success("System updated successfully");
+      setIsSystemEditorOpen(false);
+      setEditingSystem(undefined);
+      void refetchSystems();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update system"
+      );
+    },
+  });
+
+  const deleteSystemMutation = catalogClient.deleteSystem.useMutation({
+    onSuccess: () => {
+      toast.success("System deleted successfully");
+      setConfirmModal({ ...confirmModal, isOpen: false });
+      void refetchSystems();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete system"
+      );
+    },
+  });
+
+  const createGroupMutation = catalogClient.createGroup.useMutation({
+    onSuccess: () => {
+      toast.success("Group created successfully");
+      setIsGroupEditorOpen(false);
+      void refetchGroups();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create group"
+      );
+    },
+  });
+
+  const deleteGroupMutation = catalogClient.deleteGroup.useMutation({
+    onSuccess: () => {
+      toast.success("Group deleted successfully");
+      setConfirmModal({ ...confirmModal, isOpen: false });
+      void refetchGroups();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete group"
+      );
+    },
+  });
+
+  const updateGroupMutation = catalogClient.updateGroup.useMutation({
+    onSuccess: () => {
+      toast.success("Group name updated successfully");
+      void refetchGroups();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update group name"
+      );
+      throw error;
+    },
+  });
+
+  const addSystemToGroupMutation = catalogClient.addSystemToGroup.useMutation({
+    onSuccess: () => {
+      toast.success("System added to group successfully");
+      setSelectedSystemToAdd("");
+      void refetchGroups();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to add system to group"
+      );
+    },
+  });
+
+  const removeSystemFromGroupMutation =
+    catalogClient.removeSystemFromGroup.useMutation({
+      onSuccess: () => {
+        toast.success("System removed from group successfully");
+        void refetchGroups();
+      },
+      onError: (error) => {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Failed to remove system from group"
+        );
+      },
+    });
+
+  // Handlers
   const handleSaveSystem = async (data: {
     name: string;
     description?: string;
   }) => {
     if (editingSystem) {
-      // Update existing system
-      await catalogApi.updateSystem({
-        id: editingSystem.id,
-        data,
-      });
-      toast.success("System updated successfully");
-      setEditingSystem(undefined);
+      updateSystemMutation.mutate({ id: editingSystem.id, data });
     } else {
-      // Create new system
-      await catalogApi.createSystem(data);
-      toast.success("System created successfully");
+      createSystemMutation.mutate(data);
     }
-    setIsSystemEditorOpen(false);
-    await loadData();
   };
 
   const handleCreateGroup = async (data: { name: string }) => {
-    await catalogApi.createGroup(data);
-    toast.success("Group created successfully");
-    await loadData();
+    createGroupMutation.mutate(data);
   };
 
-  const handleDeleteSystem = async (id: string) => {
+  const handleDeleteSystem = (id: string) => {
     const system = systems.find((s) => s.id === id);
     setConfirmModal({
       isOpen: true,
       title: "Delete System",
       message: `Are you sure you want to delete "${system?.name}"? This will remove the system from all groups as well.`,
-      onConfirm: async () => {
-        try {
-          await catalogApi.deleteSystem(id);
-          setConfirmModal({ ...confirmModal, isOpen: false });
-          toast.success("System deleted successfully");
-          loadData();
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : "Failed to delete system";
-          toast.error(message);
-          console.error("Failed to delete system:", error);
-        }
+      onConfirm: () => {
+        deleteSystemMutation.mutate(id);
       },
     });
   };
 
-  const handleDeleteGroup = async (id: string) => {
+  const handleDeleteGroup = (id: string) => {
     const group = groups.find((g) => g.id === id);
     setConfirmModal({
       isOpen: true,
       title: "Delete Group",
       message: `Are you sure you want to delete "${group?.name}"? This action cannot be undone.`,
-      onConfirm: async () => {
-        try {
-          await catalogApi.deleteGroup(id);
-          setConfirmModal({ ...confirmModal, isOpen: false });
-          toast.success("Group deleted successfully");
-          loadData();
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : "Failed to delete group";
-          toast.error(message);
-          console.error("Failed to delete group:", error);
-        }
+      onConfirm: () => {
+        deleteGroupMutation.mutate(id);
       },
     });
   };
 
-  const handleAddSystemToGroup = async () => {
+  const handleAddSystemToGroup = () => {
     if (!selectedGroupId || !selectedSystemToAdd) return;
-    try {
-      await catalogApi.addSystemToGroup({
-        groupId: selectedGroupId,
-        systemId: selectedSystemToAdd,
-      });
-      setSelectedSystemToAdd("");
-      toast.success("System added to group successfully");
-      loadData();
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to add system to group";
-      toast.error(message);
-      console.error("Failed to add system to group:", error);
-    }
+    addSystemToGroupMutation.mutate({
+      groupId: selectedGroupId,
+      systemId: selectedSystemToAdd,
+    });
   };
 
-  const handleRemoveSystemFromGroup = async (
-    groupId: string,
-    systemId: string
-  ) => {
-    try {
-      await catalogApi.removeSystemFromGroup({ groupId, systemId });
-      toast.success("System removed from group successfully");
-      loadData();
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to remove system from group";
-      toast.error(message);
-      console.error("Failed to remove system from group:", error);
-    }
+  const handleRemoveSystemFromGroup = (groupId: string, systemId: string) => {
+    removeSystemFromGroupMutation.mutate({ groupId, systemId });
   };
 
-  const handleUpdateGroupName = async (id: string, newName: string) => {
-    try {
-      await catalogApi.updateGroup({ id, data: { name: newName } });
-      toast.success("Group name updated successfully");
-      loadData();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to update group name";
-      toast.error(message);
-      console.error("Failed to update group name:", error);
-      throw error;
-    }
+  const handleUpdateGroupName = (id: string, newName: string) => {
+    updateGroupMutation.mutate({ id, data: { name: newName } });
   };
 
   if (loading || accessLoading) return <LoadingSpinner />;

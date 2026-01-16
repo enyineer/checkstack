@@ -1,8 +1,12 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { useApi, rpcApiRef, ExtensionSlot } from "@checkstack/frontend-api";
-import { catalogApiRef } from "@checkstack/catalog-frontend";
 import {
+  useApi,
+  usePluginClient,
+  ExtensionSlot,
+} from "@checkstack/frontend-api";
+import {
+  CatalogApi,
   catalogRoutes,
   SystemStateBadgesSlot,
   System,
@@ -17,6 +21,7 @@ import { IncidentApi } from "@checkstack/incident-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { HEALTH_CHECK_RUN_COMPLETED } from "@checkstack/healthcheck-common";
 import { useSignal } from "@checkstack/signal-frontend";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Card,
   CardHeader,
@@ -43,20 +48,20 @@ import {
 } from "lucide-react";
 import { authApiRef } from "@checkstack/auth-frontend/api";
 import { QueueLagAlert } from "@checkstack/queue-frontend";
+import { SystemBadgeDataProvider } from "./components/SystemBadgeDataProvider";
 
 const CATALOG_PLUGIN_ID = "catalog";
 const MAX_TERMINAL_ENTRIES = 8;
-
-const getGroupId = (groupId: string) => `${CATALOG_PLUGIN_ID}.group.${groupId}`;
 
 interface GroupWithSystems extends Group {
   systems: System[];
 }
 
-// Map health check status to terminal entry variant
+const getGroupId = (groupId: string) => `${CATALOG_PLUGIN_ID}:${groupId}`;
+
 const statusToVariant = (
-  status: "healthy" | "degraded" | "unhealthy"
-): TerminalEntry["variant"] => {
+  status: string
+): "default" | "success" | "warning" | "error" => {
   switch (status) {
     case "healthy": {
       return "success";
@@ -67,42 +72,117 @@ const statusToVariant = (
     case "unhealthy": {
       return "error";
     }
+    default: {
+      return "default";
+    }
   }
 };
 
 export const Dashboard: React.FC = () => {
-  const catalogApi = useApi(catalogApiRef);
-  const rpcApi = useApi(rpcApiRef);
-  const notificationApi = rpcApi.forPlugin(NotificationApi);
-  const incidentApi = rpcApi.forPlugin(IncidentApi);
-  const maintenanceApi = rpcApi.forPlugin(MaintenanceApi);
+  const catalogClient = usePluginClient(CatalogApi);
+  const notificationClient = usePluginClient(NotificationApi);
+  const incidentClient = usePluginClient(IncidentApi);
+  const maintenanceClient = usePluginClient(MaintenanceApi);
+
   const navigate = useNavigate();
   const toast = useToast();
   const authApi = useApi(authApiRef);
+  const queryClient = useQueryClient();
   const { data: session } = authApi.useSession();
-
-  const [groupsWithSystems, setGroupsWithSystems] = useState<
-    GroupWithSystems[]
-  >([]);
-  const [loading, setLoading] = useState(true);
-
-  // Overview statistics state
-  const [systemsCount, setSystemsCount] = useState(0);
-  const [activeIncidentsCount, setActiveIncidentsCount] = useState(0);
-  const [activeMaintenancesCount, setActiveMaintenancesCount] = useState(0);
 
   // Terminal feed entries from real healthcheck signals
   const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>([]);
 
-  // Subscription state
-  const [subscriptions, setSubscriptions] = useState<EnrichedSubscription[]>(
-    []
-  );
+  // Track per-group loading state for subscribe buttons
   const [subscriptionLoading, setSubscriptionLoading] = useState<
     Record<string, boolean>
   >({});
 
-  // Listen for health check runs and add to terminal feed
+  // -------------------------------------------------------------------------
+  // DATA QUERIES
+  // -------------------------------------------------------------------------
+
+  // Fetch entities from catalog (groups and systems in one call)
+  const { data: entitiesData, isLoading: entitiesLoading } =
+    catalogClient.getEntities.useQuery({}, { staleTime: 30_000 });
+  const groups = entitiesData?.groups ?? [];
+  const systems = entitiesData?.systems ?? [];
+
+  // Fetch active incidents
+  const { data: incidentsData, isLoading: incidentsLoading } =
+    incidentClient.listIncidents.useQuery(
+      { includeResolved: false },
+      { staleTime: 30_000 }
+    );
+  const incidents = incidentsData?.incidents ?? [];
+
+  // Fetch active maintenances
+  const { data: maintenancesData, isLoading: maintenancesLoading } =
+    maintenanceClient.listMaintenances.useQuery(
+      { status: "in_progress" },
+      { staleTime: 30_000 }
+    );
+  const maintenances = maintenancesData?.maintenances ?? [];
+
+  // Fetch subscriptions (only when logged in)
+  const { data: subscriptions = [] } =
+    notificationClient.getSubscriptions.useQuery(
+      {},
+      { enabled: !!session, staleTime: 60_000 }
+    );
+
+  // Combined loading state
+  const loading = entitiesLoading || incidentsLoading || maintenancesLoading;
+
+  // -------------------------------------------------------------------------
+  // MUTATIONS
+  // -------------------------------------------------------------------------
+
+  const subscribeMutation = notificationClient.subscribe.useMutation({
+    onSuccess: () => {
+      toast.success("Subscribed to group notifications");
+      // Invalidate subscriptions query to refetch
+      queryClient.invalidateQueries({ queryKey: ["notification"] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to subscribe");
+    },
+  });
+
+  const unsubscribeMutation = notificationClient.unsubscribe.useMutation({
+    onSuccess: () => {
+      toast.success("Unsubscribed from group notifications");
+      queryClient.invalidateQueries({ queryKey: ["notification"] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to unsubscribe");
+    },
+  });
+
+  // -------------------------------------------------------------------------
+  // COMPUTED DATA
+  // -------------------------------------------------------------------------
+
+  // Derived statistics
+  const systemsCount = systems.length;
+  const activeIncidentsCount = incidents.length;
+  const activeMaintenancesCount = maintenances.length;
+
+  // Map groups to include their systems
+  const groupsWithSystems = useMemo<GroupWithSystems[]>(() => {
+    const systemMap = new Map(systems.map((s) => [s.id, s]));
+    return groups.map((group) => {
+      const groupSystems = (group.systemIds || [])
+        .map((id) => systemMap.get(id))
+        .filter((s): s is System => s !== undefined);
+      return { ...group, systems: groupSystems };
+    });
+  }, [groups, systems]);
+
+  // -------------------------------------------------------------------------
+  // SIGNAL HANDLERS
+  // -------------------------------------------------------------------------
+
   useSignal(
     HEALTH_CHECK_RUN_COMPLETED,
     ({ systemName, configurationName, status, latencyMs }) => {
@@ -120,45 +200,9 @@ export const Dashboard: React.FC = () => {
     }
   );
 
-  useEffect(() => {
-    if (session) {
-      notificationApi.getSubscriptions().then(setSubscriptions);
-    }
-  }, [session, notificationApi]);
-
-  useEffect(() => {
-    Promise.all([
-      catalogApi.getGroups(),
-      catalogApi.getSystems(),
-      incidentApi.listIncidents({ includeResolved: false }),
-      maintenanceApi.listMaintenances({ status: "in_progress" }),
-    ])
-      .then(([groups, { systems }, { incidents }, { maintenances }]) => {
-        // Set overview statistics
-        setSystemsCount(systems.length);
-        setActiveIncidentsCount(incidents.length);
-        setActiveMaintenancesCount(maintenances.length);
-
-        // Create a map of system IDs to systems
-        const systemMap = new Map(systems.map((s) => [s.id, s]));
-
-        // Map groups to include their systems
-        const groupsData: GroupWithSystems[] = groups.map((group) => {
-          const groupSystems = (group.systemIds || [])
-            .map((id) => systemMap.get(id))
-            .filter((s): s is System => s !== undefined);
-
-          return {
-            ...group,
-            systems: groupSystems,
-          };
-        });
-
-        setGroupsWithSystems(groupsData);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [catalogApi, incidentApi, maintenanceApi]);
+  // -------------------------------------------------------------------------
+  // HANDLERS
+  // -------------------------------------------------------------------------
 
   const handleSystemClick = (systemId: string) => {
     navigate(resolveRoute(catalogRoutes.routes.systemDetail, { systemId }));
@@ -166,55 +210,40 @@ export const Dashboard: React.FC = () => {
 
   const isSubscribed = (groupId: string) => {
     const fullId = getGroupId(groupId);
-    return subscriptions.some((s) => s.groupId === fullId);
+    return subscriptions.some(
+      (s: EnrichedSubscription) => s.groupId === fullId
+    );
   };
 
-  const handleSubscribe = useCallback(
-    async (groupId: string) => {
-      const fullId = getGroupId(groupId);
-      setSubscriptionLoading((prev) => ({ ...prev, [groupId]: true }));
-      try {
-        await notificationApi.subscribe({ groupId: fullId });
-        setSubscriptions((prev) => [
-          ...prev,
-          {
-            groupId: fullId,
-            groupName: "",
-            groupDescription: "",
-            ownerPlugin: CATALOG_PLUGIN_ID,
-            subscribedAt: new Date(),
-          },
-        ]);
-        toast.success("Subscribed to group notifications");
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Failed to subscribe";
-        toast.error(message);
-      } finally {
-        setSubscriptionLoading((prev) => ({ ...prev, [groupId]: false }));
+  const handleSubscribe = (groupId: string) => {
+    const fullId = getGroupId(groupId);
+    setSubscriptionLoading((prev) => ({ ...prev, [groupId]: true }));
+    subscribeMutation.mutate(
+      { groupId: fullId },
+      {
+        onSettled: () => {
+          setSubscriptionLoading((prev) => ({ ...prev, [groupId]: false }));
+        },
       }
-    },
-    [notificationApi, toast]
-  );
+    );
+  };
 
-  const handleUnsubscribe = useCallback(
-    async (groupId: string) => {
-      const fullId = getGroupId(groupId);
-      setSubscriptionLoading((prev) => ({ ...prev, [groupId]: true }));
-      try {
-        await notificationApi.unsubscribe({ groupId: fullId });
-        setSubscriptions((prev) => prev.filter((s) => s.groupId !== fullId));
-        toast.success("Unsubscribed from group notifications");
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Failed to unsubscribe";
-        toast.error(message);
-      } finally {
-        setSubscriptionLoading((prev) => ({ ...prev, [groupId]: false }));
+  const handleUnsubscribe = (groupId: string) => {
+    const fullId = getGroupId(groupId);
+    setSubscriptionLoading((prev) => ({ ...prev, [groupId]: true }));
+    unsubscribeMutation.mutate(
+      { groupId: fullId },
+      {
+        onSettled: () => {
+          setSubscriptionLoading((prev) => ({ ...prev, [groupId]: false }));
+        },
       }
-    },
-    [notificationApi, toast]
-  );
+    );
+  };
+
+  // -------------------------------------------------------------------------
+  // RENDER
+  // -------------------------------------------------------------------------
 
   const renderGroupsContent = () => {
     if (loading) {
@@ -231,73 +260,80 @@ export const Dashboard: React.FC = () => {
       );
     }
 
+    // Collect all system IDs for bulk data fetching
+    const allSystemIds = groupsWithSystems.flatMap((g) =>
+      g.systems.map((s) => s.id)
+    );
+
     return (
-      <div className="space-y-4">
-        {groupsWithSystems.map((group) => (
-          <Card
-            key={group.id}
-            className="border-border shadow-sm hover:shadow-md transition-shadow"
-          >
-            <CardHeader className="border-b border-border bg-muted/30">
-              <div className="flex items-center gap-2">
-                <LayoutGrid className="h-5 w-5 text-muted-foreground" />
-                <CardTitle className="text-lg font-semibold text-foreground">
-                  {group.name}
-                </CardTitle>
-                <span className="ml-auto text-sm text-muted-foreground mr-2">
-                  {group.systems.length}{" "}
-                  {group.systems.length === 1 ? "system" : "systems"}
-                </span>
-                {session && (
-                  <SubscribeButton
-                    isSubscribed={isSubscribed(group.id)}
-                    onSubscribe={() => handleSubscribe(group.id)}
-                    onUnsubscribe={() => handleUnsubscribe(group.id)}
-                    loading={subscriptionLoading[group.id] || false}
-                  />
+      <SystemBadgeDataProvider systemIds={allSystemIds}>
+        <div className="space-y-4">
+          {groupsWithSystems.map((group) => (
+            <Card
+              key={group.id}
+              className="border-border shadow-sm hover:shadow-md transition-shadow"
+            >
+              <CardHeader className="border-b border-border bg-muted/30">
+                <div className="flex items-center gap-2">
+                  <LayoutGrid className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg font-semibold text-foreground">
+                    {group.name}
+                  </CardTitle>
+                  <span className="ml-auto text-sm text-muted-foreground mr-2">
+                    {group.systems.length}{" "}
+                    {group.systems.length === 1 ? "system" : "systems"}
+                  </span>
+                  {session && (
+                    <SubscribeButton
+                      isSubscribed={isSubscribed(group.id)}
+                      onSubscribe={() => handleSubscribe(group.id)}
+                      onUnsubscribe={() => handleUnsubscribe(group.id)}
+                      loading={subscriptionLoading[group.id] || false}
+                    />
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="p-4">
+                {group.systems.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      No systems in this group yet
+                    </p>
+                  </div>
+                ) : (
+                  <div
+                    className={`grid gap-3 ${
+                      group.systems.length === 1
+                        ? "grid-cols-1"
+                        : "grid-cols-1 sm:grid-cols-2"
+                    }`}
+                  >
+                    {group.systems.map((system) => (
+                      <button
+                        key={system.id}
+                        onClick={() => handleSystemClick(system.id)}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 transition-all cursor-pointer hover:border-border/80 hover:shadow-sm text-left"
+                      >
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <Activity className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                          <p className="text-sm font-medium text-foreground truncate">
+                            {system.name}
+                          </p>
+                        </div>
+                        <ExtensionSlot
+                          slot={SystemStateBadgesSlot}
+                          context={{ system }}
+                        />
+                        <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                      </button>
+                    ))}
+                  </div>
                 )}
-              </div>
-            </CardHeader>
-            <CardContent className="p-4">
-              {group.systems.length === 0 ? (
-                <div className="py-8 text-center">
-                  <p className="text-sm text-muted-foreground">
-                    No systems in this group yet
-                  </p>
-                </div>
-              ) : (
-                <div
-                  className={`grid gap-3 ${
-                    group.systems.length === 1
-                      ? "grid-cols-1"
-                      : "grid-cols-1 sm:grid-cols-2"
-                  }`}
-                >
-                  {group.systems.map((system) => (
-                    <button
-                      key={system.id}
-                      onClick={() => handleSystemClick(system.id)}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 transition-all cursor-pointer hover:border-border/80 hover:shadow-sm text-left"
-                    >
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <Activity className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        <p className="text-sm font-medium text-foreground truncate">
-                          {system.name}
-                        </p>
-                      </div>
-                      <ExtensionSlot
-                        slot={SystemStateBadgesSlot}
-                        context={{ system }}
-                      />
-                      <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </SystemBadgeDataProvider>
     );
   };
 

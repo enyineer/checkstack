@@ -323,12 +323,38 @@ export const catalogContract = {
 
 ### Access Check Modes
 
-| Mode | Description | Implementation |
-|------|-------------|----------------|
-| `single` | Pre-handler check for individual resource | Validates access before handler runs, throws 403 if denied |
-| `list` | Post-handler filter for collections | Filters response array to only accessible resources |
+| Mode | Property | Description | Implementation |
+|------|----------|-------------|----------------|
+| `single` | `idParam` | Pre-handler check for individual resource | Validates access before handler runs, throws 403 if denied |
+| `list` | `listKey` | Post-handler filter for collections | Filters response array to only accessible resources |
+| `record` | `recordKey` | Post-handler filter for bulk records | Filters Record<resourceId, data> to only accessible keys |
 
 > **Note:** `resourceAccess` is an **array**, so you can specify multiple resource access configs if an endpoint needs to check access to multiple resource types.
+
+#### Bulk Record Endpoints (recordKey)
+
+For endpoints that return data keyed by resource IDs (e.g., `getBulkSystemHealthStatus`), use `recordKey` to filter the output record:
+
+```typescript
+// Access rule with recordKey
+const bulkStatusAccess = access("healthcheck.status", "read", "View status", {
+  recordKey: "statuses",  // Key in response containing Record<systemId, data>
+  isPublic: true,
+});
+
+// Contract definition
+getBulkSystemHealthStatus: _base
+  .meta({
+    userType: "public",
+    access: [bulkStatusAccess],
+  })
+  .input(z.object({ systemIds: z.array(z.string()) }))
+  .output(z.object({
+    statuses: z.record(z.string(), HealthStatusSchema),
+  })),
+```
+
+The middleware automatically filters the `statuses` record, removing keys the user doesn't have access to.
 
 ### Access Levels
 

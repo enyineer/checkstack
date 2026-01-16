@@ -1,8 +1,4 @@
-import { oc } from "@orpc/contract";
-import {
-  createClientDefinition,
-  type ProcedureMetadata,
-} from "@checkstack/common";
+import { createClientDefinition, proc } from "@checkstack/common";
 import { pluginMetadata } from "./plugin-metadata";
 import { z } from "zod";
 import { healthCheckAccess } from "./access";
@@ -22,9 +18,6 @@ import {
   AggregatedBucketSchema,
 } from "./schemas";
 
-// Base builder with full metadata support
-const _base = oc.$meta<ProcedureMetadata>({});
-
 // --- Response Schemas for Evaluated Status ---
 
 const SystemCheckStatusSchema = z.object({
@@ -41,28 +34,27 @@ const SystemHealthStatusResponseSchema = z.object({
   checkStatuses: z.array(SystemCheckStatusSchema),
 });
 
+export type SystemHealthStatusResponse = z.infer<
+  typeof SystemHealthStatusResponseSchema
+>;
+
 // Health Check RPC Contract using oRPC's contract-first pattern
 export const healthCheckContract = {
   // ==========================================================================
   // STRATEGY MANAGEMENT (userType: "authenticated" with read access)
   // ==========================================================================
 
-  getStrategies: _base
-    .meta({
-      userType: "authenticated",
-      access: [healthCheckAccess.configuration.read],
-    })
-    .output(z.array(HealthCheckStrategyDtoSchema)),
+  getStrategies: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.read],
+  }).output(z.array(HealthCheckStrategyDtoSchema)),
 
-  /**
-   * Get available collectors for a specific strategy.
-   * Returns collectors that support the given strategy's transport.
-   */
-  getCollectors: _base
-    .meta({
-      userType: "authenticated",
-      access: [healthCheckAccess.configuration.read],
-    })
+  getCollectors: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.read],
+  })
     .input(z.object({ strategyId: z.string() }))
     .output(z.array(CollectorDtoSchema)),
 
@@ -70,28 +62,27 @@ export const healthCheckContract = {
   // CONFIGURATION MANAGEMENT (userType: "authenticated")
   // ==========================================================================
 
-  getConfigurations: _base
-    .meta({
-      userType: "authenticated",
-      access: [healthCheckAccess.configuration.read],
-    })
-    .output(
-      z.object({ configurations: z.array(HealthCheckConfigurationSchema) })
-    ),
+  getConfigurations: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.read],
+  }).output(
+    z.object({ configurations: z.array(HealthCheckConfigurationSchema) })
+  ),
 
-  createConfiguration: _base
-    .meta({
-      userType: "authenticated",
-      access: [healthCheckAccess.configuration.manage],
-    })
+  createConfiguration: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.manage],
+  })
     .input(CreateHealthCheckConfigurationSchema)
     .output(HealthCheckConfigurationSchema),
 
-  updateConfiguration: _base
-    .meta({
-      userType: "authenticated",
-      access: [healthCheckAccess.configuration.manage],
-    })
+  updateConfiguration: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.manage],
+  })
     .input(
       z.object({
         id: z.string(),
@@ -100,11 +91,11 @@ export const healthCheckContract = {
     )
     .output(HealthCheckConfigurationSchema),
 
-  deleteConfiguration: _base
-    .meta({
-      userType: "authenticated",
-      access: [healthCheckAccess.configuration.manage],
-    })
+  deleteConfiguration: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.manage],
+  })
     .input(z.string())
     .output(z.void()),
 
@@ -112,23 +103,19 @@ export const healthCheckContract = {
   // SYSTEM ASSOCIATION (userType: "authenticated")
   // ==========================================================================
 
-  getSystemConfigurations: _base
-    .meta({
-      userType: "authenticated",
-      access: [healthCheckAccess.configuration.read],
-    })
+  getSystemConfigurations: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.read],
+  })
     .input(z.string())
     .output(z.array(HealthCheckConfigurationSchema)),
 
-  /**
-   * Get system associations with their threshold configurations.
-   * Returns full association data including enabled state and thresholds.
-   */
-  getSystemAssociations: _base
-    .meta({
-      userType: "authenticated",
-      access: [healthCheckAccess.configuration.read],
-    })
+  getSystemAssociations: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.read],
+  })
     .input(z.object({ systemId: z.string() }))
     .output(
       z.array(
@@ -141,11 +128,11 @@ export const healthCheckContract = {
       )
     ),
 
-  associateSystem: _base
-    .meta({
-      userType: "authenticated",
-      access: [healthCheckAccess.configuration.manage],
-    })
+  associateSystem: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.manage],
+  })
     .input(
       z.object({
         systemId: z.string(),
@@ -154,11 +141,11 @@ export const healthCheckContract = {
     )
     .output(z.void()),
 
-  disassociateSystem: _base
-    .meta({
-      userType: "authenticated",
-      access: [healthCheckAccess.configuration.manage],
-    })
+  disassociateSystem: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.manage],
+  })
     .input(
       z.object({
         systemId: z.string(),
@@ -171,11 +158,11 @@ export const healthCheckContract = {
   // RETENTION CONFIGURATION (userType: "authenticated" with manage access)
   // ==========================================================================
 
-  getRetentionConfig: _base
-    .meta({
-      userType: "authenticated",
-      access: [healthCheckAccess.configuration.read],
-    })
+  getRetentionConfig: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.read],
+  })
     .input(
       z.object({
         systemId: z.string(),
@@ -188,11 +175,11 @@ export const healthCheckContract = {
       })
     ),
 
-  updateRetentionConfig: _base
-    .meta({
-      userType: "authenticated",
-      access: [healthCheckAccess.configuration.manage],
-    })
+  updateRetentionConfig: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.manage],
+  })
     .input(
       z.object({
         systemId: z.string(),
@@ -203,14 +190,14 @@ export const healthCheckContract = {
     .output(z.void()),
 
   // ==========================================================================
-  // HISTORY & STATUS (userType: "user" with read access)
+  // HISTORY & STATUS (userType: "public" with read access)
   // ==========================================================================
 
-  getHistory: _base
-    .meta({
-      userType: "public",
-      access: [healthCheckAccess.status],
-    })
+  getHistory: proc({
+    operationType: "query",
+    userType: "public",
+    access: [healthCheckAccess.status],
+  })
     .input(
       z.object({
         systemId: z.string().optional(),
@@ -228,15 +215,11 @@ export const healthCheckContract = {
       })
     ),
 
-  /**
-   * Get detailed health check run history with full result data.
-   * Requires access to view detailed run data including metadata.
-   */
-  getDetailedHistory: _base
-    .meta({
-      userType: "authenticated",
-      access: [healthCheckAccess.details],
-    })
+  getDetailedHistory: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [healthCheckAccess.details],
+  })
     .input(
       z.object({
         systemId: z.string().optional(),
@@ -254,16 +237,11 @@ export const healthCheckContract = {
       })
     ),
 
-  /**
-   * Get aggregated health check history for long-term analysis.
-   * Returns pre-computed buckets with core metrics only (no strategy-specific data).
-   * For strategy-specific aggregated results, use getDetailedAggregatedHistory.
-   */
-  getAggregatedHistory: _base
-    .meta({
-      userType: "public",
-      access: [healthCheckAccess.status],
-    })
+  getAggregatedHistory: proc({
+    operationType: "query",
+    userType: "public",
+    access: [healthCheckAccess.status],
+  })
     .input(
       z.object({
         systemId: z.string(),
@@ -279,16 +257,11 @@ export const healthCheckContract = {
       })
     ),
 
-  /**
-   * Get detailed aggregated health check history including strategy-specific data.
-   * Returns buckets with core metrics AND aggregatedResult from strategy.
-   * Requires healthCheckDetailsRead access rule.
-   */
-  getDetailedAggregatedHistory: _base
-    .meta({
-      userType: "public",
-      access: [healthCheckAccess.details],
-    })
+  getDetailedAggregatedHistory: proc({
+    operationType: "query",
+    userType: "public",
+    access: [healthCheckAccess.details],
+  })
     .input(
       z.object({
         systemId: z.string(),
@@ -304,27 +277,31 @@ export const healthCheckContract = {
       })
     ),
 
-  /**
-   * Get evaluateted health status for a system based on configured thresholds.
-   * Aggregates all health check statuses for the system.
-   */
-  getSystemHealthStatus: _base
-    .meta({
-      userType: "public",
-      access: [healthCheckAccess.status],
-    })
+  getSystemHealthStatus: proc({
+    operationType: "query",
+    userType: "public",
+    access: [healthCheckAccess.status],
+  })
     .input(z.object({ systemId: z.string() }))
     .output(SystemHealthStatusResponseSchema),
 
-  /**
-   * Get comprehensive health overview for a system.
-   * Returns all health checks with their last 25 runs for sparkline visualization.
-   */
-  getSystemHealthOverview: _base
-    .meta({
-      userType: "public",
-      access: [healthCheckAccess.status],
-    })
+  getBulkSystemHealthStatus: proc({
+    operationType: "query",
+    userType: "public",
+    access: [healthCheckAccess.bulkStatus],
+  })
+    .input(z.object({ systemIds: z.array(z.string()) }))
+    .output(
+      z.object({
+        statuses: z.record(z.string(), SystemHealthStatusResponseSchema),
+      })
+    ),
+
+  getSystemHealthOverview: proc({
+    operationType: "query",
+    userType: "public",
+    access: [healthCheckAccess.status],
+  })
     .input(z.object({ systemId: z.string() }))
     .output(
       z.object({

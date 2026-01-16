@@ -1,13 +1,10 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useApi, rpcApiRef, wrapInSuspense } from "@checkstack/frontend-api";
+import { usePluginClient, wrapInSuspense } from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
-import { maintenanceApiRef } from "../api";
+import { MaintenanceApi } from "../api";
 import { maintenanceRoutes } from "@checkstack/maintenance-common";
-import type {
-  MaintenanceWithSystems,
-  MaintenanceStatus,
-} from "@checkstack/maintenance-common";
+import type { MaintenanceStatus } from "@checkstack/maintenance-common";
 import { catalogRoutes, CatalogApi } from "@checkstack/catalog-common";
 import {
   Card,
@@ -32,40 +29,25 @@ import { format } from "date-fns";
 const SystemMaintenanceHistoryPageContent: React.FC = () => {
   const { systemId } = useParams<{ systemId: string }>();
   const navigate = useNavigate();
-  const api = useApi(maintenanceApiRef);
-  const rpcApi = useApi(rpcApiRef);
+  const maintenanceClient = usePluginClient(MaintenanceApi);
+  const catalogClient = usePluginClient(CatalogApi);
 
-  const catalogApi = useMemo(() => rpcApi.forPlugin(CatalogApi), [rpcApi]);
+  // Fetch maintenances with useQuery
+  const { data: maintenancesData, isLoading: maintenancesLoading } =
+    maintenanceClient.listMaintenances.useQuery(
+      { systemId },
+      { enabled: !!systemId }
+    );
 
-  const [maintenances, setMaintenances] = useState<MaintenanceWithSystems[]>(
-    []
-  );
-  const [systemName, setSystemName] = useState<string>("");
-  const [loading, setLoading] = useState(true);
+  // Fetch systems with useQuery
+  const { data: systemsData, isLoading: systemsLoading } =
+    catalogClient.getSystems.useQuery({});
 
-  useEffect(() => {
-    if (!systemId) return;
-
-    const loadData = async () => {
-      setLoading(true);
-      try {
-        const [{ maintenances: maintenanceList }, { systems: systemList }] =
-          await Promise.all([
-            api.listMaintenances({ systemId }),
-            catalogApi.getSystems(),
-          ]);
-        setMaintenances(maintenanceList);
-        const system = systemList.find((s) => s.id === systemId);
-        setSystemName(system?.name ?? "Unknown System");
-      } catch (error) {
-        console.error("Failed to load maintenance history:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadData();
-  }, [systemId, api, catalogApi]);
+  const maintenances = maintenancesData?.maintenances ?? [];
+  const systems = systemsData?.systems ?? [];
+  const system = systems.find((s) => s.id === systemId);
+  const systemName = system?.name ?? "Unknown System";
+  const loading = maintenancesLoading || systemsLoading;
 
   const getStatusBadge = (status: MaintenanceStatus) => {
     switch (status) {

@@ -1,21 +1,20 @@
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import {
-  useApi,
-  rpcApiRef,
+  usePluginClient,
   accessApiRef,
+  useApi,
   wrapInSuspense,
 } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
 import { resolveRoute } from "@checkstack/common";
-import { incidentApiRef } from "../api";
+import { IncidentApi } from "../api";
 import {
   incidentRoutes,
   INCIDENT_UPDATED,
-  type IncidentDetail,
   incidentAccess,
 } from "@checkstack/incident-common";
-import { CatalogApi, type System } from "@checkstack/catalog-common";
+import { CatalogApi } from "@checkstack/catalog-common";
 import {
   Card,
   CardHeader,
@@ -49,67 +48,60 @@ const IncidentDetailPageContent: React.FC = () => {
   const { incidentId } = useParams<{ incidentId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const api = useApi(incidentApiRef);
-  const rpcApi = useApi(rpcApiRef);
+  const incidentClient = usePluginClient(IncidentApi);
+  const catalogClient = usePluginClient(CatalogApi);
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
-
-  const catalogApi = useMemo(() => rpcApi.forPlugin(CatalogApi), [rpcApi]);
 
   const { allowed: canManage } = accessApi.useAccess(
     incidentAccess.incident.manage
   );
 
-  const [incident, setIncident] = useState<IncidentDetail | undefined>();
-  const [systems, setSystems] = useState<System[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showUpdateForm, setShowUpdateForm] = useState(false);
 
-  const loadData = useCallback(async () => {
-    if (!incidentId) return;
+  // Fetch incident with useQuery
+  const {
+    data: incident,
+    isLoading: incidentLoading,
+    refetch: refetchIncident,
+  } = incidentClient.getIncident.useQuery(
+    { id: incidentId ?? "" },
+    { enabled: !!incidentId }
+  );
 
-    try {
-      const [incidentData, { systems: systemList }] = await Promise.all([
-        api.getIncident({ id: incidentId }),
-        catalogApi.getSystems(),
-      ]);
-      setIncident(incidentData ?? undefined);
-      setSystems(systemList);
-    } catch (error) {
-      console.error("Failed to load incident:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [incidentId, api, catalogApi]);
+  // Fetch systems with useQuery
+  const { data: systemsData, isLoading: systemsLoading } =
+    catalogClient.getSystems.useQuery({});
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  const systems = systemsData?.systems ?? [];
+  const loading = incidentLoading || systemsLoading;
 
   // Listen for realtime updates
   useSignal(INCIDENT_UPDATED, ({ incidentId: updatedId }) => {
     if (incidentId === updatedId) {
-      loadData();
+      void refetchIncident();
     }
+  });
+
+  // Resolve mutation
+  const resolveMutation = incidentClient.resolveIncident.useMutation({
+    onSuccess: () => {
+      toast.success("Incident resolved");
+      void refetchIncident();
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to resolve");
+    },
   });
 
   const handleUpdateSuccess = () => {
     setShowUpdateForm(false);
-    loadData();
+    void refetchIncident();
   };
 
-  const handleResolve = async () => {
+  const handleResolve = () => {
     if (!incidentId) return;
-
-    try {
-      await api.resolveIncident({ id: incidentId });
-      toast.success("Incident resolved");
-      await loadData();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to resolve";
-      toast.error(message);
-    }
+    resolveMutation.mutate({ id: incidentId });
   };
 
   const getSystemName = (systemId: string): string => {
@@ -177,7 +169,12 @@ const IncidentDetailPageContent: React.FC = () => {
                 {getIncidentSeverityBadge(incident.severity)}
                 {getIncidentStatusBadge(incident.status)}
                 {canResolve && (
-                  <Button variant="outline" size="sm" onClick={handleResolve}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleResolve}
+                    disabled={resolveMutation.isPending}
+                  >
                     <CheckCircle2 className="h-4 w-4 mr-1" />
                     Resolve
                   </Button>

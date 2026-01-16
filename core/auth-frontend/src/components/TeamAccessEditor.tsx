@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Card,
   CardHeader,
@@ -26,7 +26,11 @@ import {
   Settings,
   Lock,
 } from "lucide-react";
-import { useApi, rpcApiRef, accessApiRef } from "@checkstack/frontend-api";
+import {
+  useApi,
+  usePluginClient,
+  accessApiRef,
+} from "@checkstack/frontend-api";
 import { AuthApi, authAccess } from "@checkstack/auth-common";
 
 interface TeamAccess {
@@ -68,9 +72,8 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
   compact = false,
   onChange,
 }) => {
-  const rpcApi = useApi(rpcApiRef);
   const accessApi = useApi(accessApiRef);
-  const authClient = rpcApi.forPlugin(AuthApi);
+  const authClient = usePluginClient(AuthApi);
   const toast = useToast();
 
   const { allowed: canManageTeams } = accessApi.useAccess(
@@ -78,134 +81,142 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
   );
 
   const [expanded, setExpanded] = useState(initialExpanded);
-  const [loading, setLoading] = useState(false);
-  const [accessList, setAccessList] = useState<TeamAccess[]>([]);
-  const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [teamOnly, setTeamOnly] = useState(false);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [accessData, teamsData, settingsData] = await Promise.all([
-        authClient.getResourceTeamAccess({ resourceType, resourceId }),
-        authClient.getTeams(),
-        authClient.getResourceAccessSettings({ resourceType, resourceId }),
-      ]);
-      setAccessList(accessData);
-      setTeams(teamsData);
-      setTeamOnly(settingsData.teamOnly);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to load team access"
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [authClient, resourceType, resourceId, toast]);
+  // Query: Team access for this resource
+  const {
+    data: accessList = [],
+    isLoading: accessLoading,
+    refetch: refetchAccess,
+  } = authClient.getResourceTeamAccess.useQuery(
+    { resourceType, resourceId },
+    { enabled: expanded && !!resourceId }
+  );
 
-  useEffect(() => {
-    if (expanded && resourceId) {
-      loadData();
-    }
-  }, [expanded, resourceId, loadData]);
+  // Query: All teams
+  const { data: teams = [], isLoading: teamsLoading } =
+    authClient.getTeams.useQuery({}, { enabled: expanded && !!resourceId });
 
-  const handleAddTeam = async () => {
-    if (!selectedTeamId) return;
+  // Query: Resource access settings (teamOnly flag)
+  const {
+    data: settings,
+    isLoading: settingsLoading,
+    refetch: refetchSettings,
+  } = authClient.getResourceAccessSettings.useQuery(
+    { resourceType, resourceId },
+    { enabled: expanded && !!resourceId }
+  );
 
-    setAdding(true);
-    try {
-      await authClient.setResourceTeamAccess({
-        resourceType,
-        resourceId,
-        teamId: selectedTeamId,
-        canRead: true,
-        canManage: false,
-      });
-      toast.success("Team access granted");
+  const loading = accessLoading || teamsLoading || settingsLoading;
+  const teamOnly = settings?.teamOnly ?? false;
+
+  // Mutations
+  const setAccessMutation = authClient.setResourceTeamAccess.useMutation({
+    onSuccess: () => {
+      toast.success("Team access updated");
       setSelectedTeamId("");
-      await loadData();
+      void refetchAccess();
       onChange?.();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to add team access"
-      );
-    } finally {
-      setAdding(false);
-    }
-  };
-
-  const handleUpdateAccess = async (
-    teamId: string,
-    updates: { canRead?: boolean; canManage?: boolean }
-  ) => {
-    try {
-      await authClient.setResourceTeamAccess({
-        resourceType,
-        resourceId,
-        teamId,
-        ...updates,
-      });
-      await loadData();
-      onChange?.();
-    } catch (error) {
+    },
+    onError: (error) => {
       toast.error(
         error instanceof Error ? error.message : "Failed to update access"
       );
-    }
-  };
+    },
+  });
 
-  const handleUpdateSettings = async (newTeamOnly: boolean) => {
-    try {
-      await authClient.setResourceAccessSettings({
-        resourceType,
-        resourceId,
-        teamOnly: newTeamOnly,
-      });
-      setTeamOnly(newTeamOnly);
-      onChange?.();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to update settings"
-      );
-    }
-  };
-
-  const handleRemoveAccess = async (teamId: string) => {
-    try {
-      await authClient.removeResourceTeamAccess({
-        resourceType,
-        resourceId,
-        teamId,
-      });
-
-      // Check if this was the last team - if so, clear settings too
-      const remainingTeams = accessList.filter((a) => a.teamId !== teamId);
-      if (remainingTeams.length === 0 && teamOnly) {
-        // Reset teamOnly when no teams have access
-        await authClient.setResourceAccessSettings({
-          resourceType,
-          resourceId,
-          teamOnly: false,
-        });
-        setTeamOnly(false);
-      }
-
+  const removeAccessMutation = authClient.removeResourceTeamAccess.useMutation({
+    onSuccess: () => {
       toast.success("Team access removed");
-      await loadData();
+      void refetchAccess();
       onChange?.();
-    } catch (error) {
+    },
+    onError: (error) => {
       toast.error(
         error instanceof Error ? error.message : "Failed to remove access"
       );
+    },
+  });
+
+  const setSettingsMutation = authClient.setResourceAccessSettings.useMutation({
+    onSuccess: () => {
+      void refetchSettings();
+      onChange?.();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update settings"
+      );
+    },
+  });
+
+  // Reset teamOnly when all teams removed
+  useEffect(() => {
+    // This is handled reactively when mutations complete
+  }, []);
+
+  const handleAddTeam = () => {
+    if (!selectedTeamId) return;
+    setAccessMutation.mutate({
+      resourceType,
+      resourceId,
+      teamId: selectedTeamId,
+      canRead: true,
+      canManage: false,
+    });
+  };
+
+  const handleUpdateAccess = (
+    teamId: string,
+    updates: { canRead?: boolean; canManage?: boolean }
+  ) => {
+    const currentAccess = (accessList as TeamAccess[]).find(
+      (a) => a.teamId === teamId
+    );
+    setAccessMutation.mutate({
+      resourceType,
+      resourceId,
+      teamId,
+      canRead: updates.canRead ?? currentAccess?.canRead ?? true,
+      canManage: updates.canManage ?? currentAccess?.canManage ?? false,
+    });
+  };
+
+  const handleUpdateSettings = (newTeamOnly: boolean) => {
+    setSettingsMutation.mutate({
+      resourceType,
+      resourceId,
+      teamOnly: newTeamOnly,
+    });
+  };
+
+  const handleRemoveAccess = (teamId: string) => {
+    removeAccessMutation.mutate({
+      resourceType,
+      resourceId,
+      teamId,
+    });
+
+    // Check if this was the last team - if so, reset teamOnly
+    const remainingTeams = (accessList as TeamAccess[]).filter(
+      (a) => a.teamId !== teamId
+    );
+    if (remainingTeams.length === 0 && teamOnly) {
+      setSettingsMutation.mutate({
+        resourceType,
+        resourceId,
+        teamOnly: false,
+      });
     }
   };
 
   // Get teams that don't already have access
-  const availableTeams = teams.filter(
-    (t) => !accessList.some((a) => a.teamId === t.id)
+  const typedAccessList = accessList as TeamAccess[];
+  const availableTeams = (teams as Team[]).filter(
+    (t) => !typedAccessList.some((a) => a.teamId === t.id)
   );
+
+  const adding = setAccessMutation.isPending;
 
   // Compact summary mode
   if (!expanded) {
@@ -220,9 +231,9 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
         >
           <Users2 className="h-4 w-4" />
           <span>Team Access</span>
-          {accessList.length > 0 && (
+          {typedAccessList.length > 0 && (
             <Badge variant="secondary" className="ml-1">
-              {accessList.length}
+              {typedAccessList.length}
             </Badge>
           )}
         </Button>
@@ -256,7 +267,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
         ) : (
           <>
             {/* Resource-level Team Only setting */}
-            {accessList.length > 0 && (
+            {typedAccessList.length > 0 && (
               <div className="flex items-center justify-between p-2 bg-muted/30 rounded-md">
                 <div className="flex items-center gap-2">
                   <Lock className="h-4 w-4 text-muted-foreground" />
@@ -315,12 +326,12 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
 
             {/* Access list */}
             <div className="space-y-2">
-              {accessList.length === 0 ? (
+              {typedAccessList.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-2">
                   No team restrictions. All users with access can access.
                 </p>
               ) : (
-                accessList.map((access) => (
+                typedAccessList.map((access) => (
                   <div
                     key={access.teamId}
                     className="flex items-center justify-between p-2 bg-muted/50 rounded-md"
@@ -459,7 +470,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
             )}
 
             {/* Resource-level Team Only setting */}
-            {accessList.length > 0 && (
+            {typedAccessList.length > 0 && (
               <div className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
                 <div className="flex items-center gap-2">
                   <Lock className="h-4 w-4 text-muted-foreground" />
@@ -468,8 +479,8 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
                       Team Only Mode
                     </Label>
                     <p className="text-xs text-muted-foreground">
-                      When enabled, only team members can access (global
-                      access bypassed)
+                      When enabled, only team members can access (global access
+                      bypassed)
                     </p>
                   </div>
                 </div>
@@ -482,14 +493,14 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
             )}
 
             {/* Access list */}
-            {accessList.length === 0 ? (
+            {typedAccessList.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4 bg-muted/30 rounded-lg">
                 No team restrictions configured. All users with appropriate
                 access can view this resource.
               </p>
             ) : (
               <div className="border rounded-lg divide-y">
-                {accessList.map((access) => (
+                {typedAccessList.map((access) => (
                   <div
                     key={access.teamId}
                     className="p-3 flex items-center justify-between"

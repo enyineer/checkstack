@@ -84,6 +84,26 @@ export function createRouter(
       }
     ),
 
+    getBulkMaintenancesForSystems: os.getBulkMaintenancesForSystems.handler(
+      async ({ input }) => {
+        const maintenances: Record<
+          string,
+          Awaited<ReturnType<typeof service.getMaintenancesForSystem>>
+        > = {};
+
+        // Fetch maintenances for each system in parallel
+        await Promise.all(
+          input.systemIds.map(async (systemId) => {
+            maintenances[systemId] = await service.getMaintenancesForSystem(
+              systemId
+            );
+          })
+        );
+
+        return { maintenances };
+      }
+    ),
+
     createMaintenance: os.createMaintenance.handler(
       async ({ input, context }) => {
         const result = await service.createMaintenance(input);

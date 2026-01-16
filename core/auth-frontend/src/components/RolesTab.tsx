@@ -16,8 +16,7 @@ import {
   useToast,
 } from "@checkstack/ui";
 import { Plus, Edit, Trash2 } from "lucide-react";
-import { useApi } from "@checkstack/frontend-api";
-import { rpcApiRef } from "@checkstack/frontend-api";
+import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
 import type { Role, AccessRuleEntry } from "../api";
 import { RoleDialog } from "./RoleDialog";
@@ -43,13 +42,50 @@ export const RolesTab: React.FC<RolesTabProps> = ({
   canDeleteRoles,
   onDataChange,
 }) => {
-  const rpcApi = useApi(rpcApiRef);
-  const authClient = rpcApi.forPlugin(AuthApi);
+  const authClient = usePluginClient(AuthApi);
   const toast = useToast();
 
   const [roleToDelete, setRoleToDelete] = useState<string>();
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<Role | undefined>();
+
+  // Mutations
+  const createRoleMutation = authClient.createRole.useMutation({
+    onSuccess: () => {
+      toast.success("Role created successfully");
+      void onDataChange();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create role"
+      );
+    },
+  });
+
+  const updateRoleMutation = authClient.updateRole.useMutation({
+    onSuccess: () => {
+      toast.success("Role updated successfully");
+      void onDataChange();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update role"
+      );
+    },
+  });
+
+  const deleteRoleMutation = authClient.deleteRole.useMutation({
+    onSuccess: () => {
+      toast.success("Role deleted successfully");
+      setRoleToDelete(undefined);
+      void onDataChange();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete role"
+      );
+    },
+  });
 
   const handleCreateRole = () => {
     setEditingRole(undefined);
@@ -67,44 +103,21 @@ export const RolesTab: React.FC<RolesTabProps> = ({
     description?: string;
     accessRules: string[];
   }) => {
-    try {
-      if (params.id) {
-        await authClient.updateRole({
-          id: params.id,
-          name: params.name,
-          description: params.description,
-          accessRules: params.accessRules,
-        });
-        toast.success("Role updated successfully");
-      } else {
-        await authClient.createRole({
-          name: params.name,
-          description: params.description,
-          accessRules: params.accessRules,
-        });
-        toast.success("Role created successfully");
-      }
-      await onDataChange();
-    } catch (error: unknown) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to save role"
-      );
-      throw error;
-    }
+    await (params.id ? updateRoleMutation.mutateAsync({
+        id: params.id,
+        name: params.name,
+        description: params.description,
+        accessRules: params.accessRules,
+      }) : createRoleMutation.mutateAsync({
+        name: params.name,
+        description: params.description,
+        accessRules: params.accessRules,
+      }));
   };
 
-  const handleDeleteRole = async () => {
+  const handleDeleteRole = () => {
     if (!roleToDelete) return;
-    try {
-      await authClient.deleteRole(roleToDelete);
-      toast.success("Role deleted successfully");
-      setRoleToDelete(undefined);
-      await onDataChange();
-    } catch (error: unknown) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to delete role"
-      );
-    }
+    deleteRoleMutation.mutate(roleToDelete);
   };
 
   return (

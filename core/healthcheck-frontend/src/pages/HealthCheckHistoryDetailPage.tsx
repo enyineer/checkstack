@@ -1,18 +1,20 @@
 import { useState } from "react";
 import {
-  useApi,
   wrapInSuspense,
   accessApiRef,
+  useApi,
+  usePluginClient,
 } from "@checkstack/frontend-api";
-import { healthCheckApiRef } from "../api";
 import {
   healthcheckRoutes,
   healthCheckAccess,
+  HealthCheckApi,
 } from "@checkstack/healthcheck-common";
 import { resolveRoute } from "@checkstack/common";
 import {
   PageLayout,
   usePagination,
+  usePaginationSync,
   Card,
   CardHeader,
   CardTitle,
@@ -34,32 +36,31 @@ const HealthCheckHistoryDetailPageContent = () => {
     configurationId: string;
   }>();
 
-  const api = useApi(healthCheckApiRef);
+  const healthCheckClient = usePluginClient(HealthCheckApi);
   const accessApi = useApi(accessApiRef);
-  const { allowed: canManage, loading: accessLoading } =
-    accessApi.useAccess(healthCheckAccess.configuration.manage);
+  const { allowed: canManage, loading: accessLoading } = accessApi.useAccess(
+    healthCheckAccess.configuration.manage
+  );
 
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
 
-  const {
-    items: runs,
-    loading,
-    pagination,
-  } = usePagination({
-    fetchFn: (params) =>
-      api.getDetailedHistory({
-        systemId,
-        configurationId,
-        startDate: params.startDate,
-        endDate: params.endDate,
-        limit: params.limit,
-        offset: params.offset,
-      }),
-    getItems: (response) => response.runs as HealthCheckRunDetailed[],
-    getTotal: (response) => response.total,
-    defaultLimit: 20,
-    extraParams: { startDate: dateRange.startDate, endDate: dateRange.endDate },
+  // Pagination state
+  const pagination = usePagination({ defaultLimit: 20 });
+
+  // Fetch data with useQuery
+  const { data, isLoading } = healthCheckClient.getDetailedHistory.useQuery({
+    systemId,
+    configurationId,
+    startDate: dateRange.startDate,
+    endDate: dateRange.endDate,
+    limit: pagination.limit,
+    offset: pagination.offset,
   });
+
+  // Sync total from response
+  usePaginationSync(pagination, data?.total);
+
+  const runs = (data?.runs ?? []) as HealthCheckRunDetailed[];
 
   return (
     <PageLayout
@@ -88,7 +89,7 @@ const HealthCheckHistoryDetailPageContent = () => {
           />
           <HealthCheckRunsTable
             runs={runs}
-            loading={loading}
+            loading={isLoading}
             emptyMessage="No health check runs found for this configuration."
             pagination={pagination}
           />

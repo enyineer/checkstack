@@ -1,11 +1,7 @@
-import { oc } from "@orpc/contract";
 import { z } from "zod";
 import { integrationAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
-import {
-  createClientDefinition,
-  type ProcedureMetadata,
-} from "@checkstack/common";
+import { createClientDefinition, proc } from "@checkstack/common";
 import {
   WebhookSubscriptionSchema,
   CreateSubscriptionInputSchema,
@@ -23,9 +19,6 @@ import {
   EventPayloadSchemaOutputSchema,
 } from "./schemas";
 
-// Base builder with full metadata support (userType + access)
-const _base = oc.$meta<ProcedureMetadata>({});
-
 // Integration RPC Contract
 export const integrationContract = {
   // ==========================================================================
@@ -33,11 +26,11 @@ export const integrationContract = {
   // ==========================================================================
 
   /** List all webhook subscriptions */
-  listSubscriptions: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  listSubscriptions: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(
       z.object({
         page: z.number().min(1).default(1),
@@ -55,47 +48,47 @@ export const integrationContract = {
     ),
 
   /** Get a single subscription by ID */
-  getSubscription: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  getSubscription: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(z.object({ id: z.string() }))
     .output(WebhookSubscriptionSchema),
 
   /** Create a new webhook subscription */
-  createSubscription: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  createSubscription: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(CreateSubscriptionInputSchema)
     .output(WebhookSubscriptionSchema),
 
   /** Update an existing subscription */
-  updateSubscription: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  updateSubscription: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(UpdateSubscriptionInputSchema)
     .output(WebhookSubscriptionSchema),
 
   /** Delete a subscription */
-  deleteSubscription: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  deleteSubscription: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
 
   /** Toggle subscription enabled state */
-  toggleSubscription: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  toggleSubscription: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(z.object({ id: z.string(), enabled: z.boolean() }))
     .output(z.object({ success: z.boolean() })),
 
@@ -104,19 +97,18 @@ export const integrationContract = {
   // ==========================================================================
 
   /** List all registered integration providers */
-  listProviders: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
-    .output(z.array(IntegrationProviderInfoSchema)),
+  listProviders: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  }).output(z.array(IntegrationProviderInfoSchema)),
 
   /** Test a provider connection with given config */
-  testProviderConnection: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  testProviderConnection: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(
       z.object({
         providerId: z.string(),
@@ -131,65 +123,65 @@ export const integrationContract = {
   // ==========================================================================
 
   /** List all connections for a provider */
-  listConnections: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  listConnections: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(z.object({ providerId: z.string() }))
     .output(z.array(ProviderConnectionRedactedSchema)),
 
   /** Get a single connection (redacted) */
-  getConnection: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  getConnection: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(z.object({ connectionId: z.string() }))
     .output(ProviderConnectionRedactedSchema),
 
   /** Create a new provider connection */
-  createConnection: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  createConnection: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(CreateConnectionInputSchema)
     .output(ProviderConnectionRedactedSchema),
 
   /** Update a provider connection */
-  updateConnection: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  updateConnection: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(UpdateConnectionInputSchema)
     .output(ProviderConnectionRedactedSchema),
 
   /** Delete a provider connection */
-  deleteConnection: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  deleteConnection: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(z.object({ connectionId: z.string() }))
     .output(z.object({ success: z.boolean() })),
 
   /** Test a saved connection */
-  testConnection: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  testConnection: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(z.object({ connectionId: z.string() }))
     .output(TestConnectionResultSchema),
 
   /** Get dynamic options for cascading dropdowns */
-  getConnectionOptions: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  getConnectionOptions: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(GetConnectionOptionsInputSchema)
     .output(z.array(ConnectionOptionSchema)),
 
@@ -198,34 +190,32 @@ export const integrationContract = {
   // ==========================================================================
 
   /** List all registered integration events */
-  listEventTypes: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
-    .output(z.array(IntegrationEventInfoSchema)),
+  listEventTypes: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  }).output(z.array(IntegrationEventInfoSchema)),
 
   /** Get events grouped by category */
-  getEventsByCategory: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
-    .output(
-      z.array(
-        z.object({
-          category: z.string(),
-          events: z.array(IntegrationEventInfoSchema),
-        })
-      )
-    ),
+  getEventsByCategory: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  }).output(
+    z.array(
+      z.object({
+        category: z.string(),
+        events: z.array(IntegrationEventInfoSchema),
+      })
+    )
+  ),
 
   /** Get payload schema for a specific event with flattened property list for template hints */
-  getEventPayloadSchema: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  getEventPayloadSchema: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(z.object({ eventId: z.string() }))
     .output(EventPayloadSchemaOutputSchema),
 
@@ -234,11 +224,11 @@ export const integrationContract = {
   // ==========================================================================
 
   /** Get delivery logs with filtering */
-  getDeliveryLogs: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  getDeliveryLogs: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(DeliveryLogQueryInputSchema)
     .output(
       z.object({
@@ -248,29 +238,29 @@ export const integrationContract = {
     ),
 
   /** Get a single delivery log entry */
-  getDeliveryLog: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  getDeliveryLog: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(z.object({ id: z.string() }))
     .output(DeliveryLogSchema),
 
   /** Retry a failed delivery */
-  retryDelivery: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  retryDelivery: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(z.object({ logId: z.string() }))
     .output(z.object({ success: z.boolean(), message: z.string().optional() })),
 
   /** Get delivery statistics for dashboard */
-  getDeliveryStats: _base
-    .meta({
-      userType: "authenticated",
-      access: [integrationAccess.manage],
-    })
+  getDeliveryStats: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [integrationAccess.manage],
+  })
     .input(
       z.object({
         /** Time range in hours (default: 24) */

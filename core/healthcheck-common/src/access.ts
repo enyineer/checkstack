@@ -7,8 +7,20 @@ export const healthCheckAccess = {
   /**
    * Status-only access for viewing health check status.
    * Enabled by default for anonymous and authenticated users.
+   * Uses system-level instance access for team-based filtering.
    */
   status: access("healthcheck.status", "read", "View Health Check Status", {
+    idParam: "systemId",
+    isDefault: true,
+    isPublic: true,
+  }),
+
+  /**
+   * Bulk status access for viewing health check status for multiple systems.
+   * Uses recordKey for filtering the output record by accessible system IDs.
+   */
+  bulkStatus: access("healthcheck.status", "read", "View Health Check Status", {
+    recordKey: "statuses",
     isDefault: true,
     isPublic: true,
   }),

@@ -7,8 +7,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { useApi } from "@checkstack/frontend-api";
-import { healthCheckApiRef } from "../api";
+import { usePluginClient } from "@checkstack/frontend-api";
+import { HealthCheckApi } from "../api";
 
 interface StrategySchemas {
   resultSchema: Record<string, unknown> | undefined;
@@ -28,59 +28,50 @@ export function useStrategySchemas(strategyId: string): {
   schemas: StrategySchemas | undefined;
   loading: boolean;
 } {
-  const api = useApi(healthCheckApiRef);
+  const healthCheckClient = usePluginClient(HealthCheckApi);
   const [schemas, setSchemas] = useState<StrategySchemas | undefined>();
   const [loading, setLoading] = useState(true);
 
+  // Fetch strategies with useQuery
+  const { data: strategies } = healthCheckClient.getStrategies.useQuery({});
+
+  // Fetch collectors with useQuery
+  const { data: collectors } = healthCheckClient.getCollectors.useQuery(
+    { strategyId },
+    { enabled: !!strategyId }
+  );
+
   useEffect(() => {
-    let cancelled = false;
-
-    async function fetchSchemas() {
-      try {
-        // Fetch strategy and collectors in parallel
-        const [strategies, collectors] = await Promise.all([
-          api.getStrategies(),
-          api.getCollectors({ strategyId }),
-        ]);
-
-        const strategy = strategies.find((s) => s.id === strategyId);
-
-        if (!cancelled && strategy) {
-          // Build collector schemas object for nesting under resultSchema.properties.collectors
-          const collectorProperties: Record<string, unknown> = {};
-          for (const collector of collectors) {
-            // Use full ID so it matches stored data keys like "healthcheck-http.request"
-            collectorProperties[collector.id] = collector.resultSchema;
-          }
-
-          // Merge collector schemas into strategy result schema
-          const mergedResultSchema = mergeCollectorSchemas(
-            strategy.resultSchema as Record<string, unknown> | undefined,
-            collectorProperties
-          );
-
-          setSchemas({
-            resultSchema: mergedResultSchema,
-            aggregatedResultSchema:
-              (strategy.aggregatedResultSchema as Record<string, unknown>) ??
-              undefined,
-          });
-        }
-      } catch (error) {
-        console.error("Failed to fetch strategy schemas:", error);
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
+    if (!strategies || !collectors) {
+      return;
     }
 
-    fetchSchemas();
+    const strategy = strategies.find((s) => s.id === strategyId);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [api, strategyId]);
+    if (strategy) {
+      // Build collector schemas object for nesting under resultSchema.properties.collectors
+      const collectorProperties: Record<string, unknown> = {};
+      for (const collector of collectors) {
+        // Use full ID so it matches stored data keys like "healthcheck-http.request"
+        collectorProperties[collector.id] = collector.resultSchema;
+      }
+
+      // Merge collector schemas into strategy result schema
+      const mergedResultSchema = mergeCollectorSchemas(
+        strategy.resultSchema as Record<string, unknown> | undefined,
+        collectorProperties
+      );
+
+      setSchemas({
+        resultSchema: mergedResultSchema,
+        aggregatedResultSchema:
+          (strategy.aggregatedResultSchema as Record<string, unknown>) ??
+          undefined,
+      });
+    }
+
+    setLoading(false);
+  }, [strategies, collectors, strategyId]);
 
   return { schemas, loading };
 }

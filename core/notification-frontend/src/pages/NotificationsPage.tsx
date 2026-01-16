@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Bell, Check, Trash2, ChevronDown } from "lucide-react";
 import {
@@ -13,88 +13,82 @@ import {
   DropdownMenuTrigger,
   Markdown,
 } from "@checkstack/ui";
-import { useApi, rpcApiRef } from "@checkstack/frontend-api";
+import { usePluginClient } from "@checkstack/frontend-api";
 import type { Notification } from "@checkstack/notification-common";
 import { NotificationApi } from "@checkstack/notification-common";
 
 export const NotificationsPage = () => {
-  const rpcApi = useApi(rpcApiRef);
-  const notificationClient = rpcApi.forPlugin(NotificationApi);
+  const notificationClient = usePluginClient(NotificationApi);
   const toast = useToast();
 
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "unread">("all");
   const [page, setPage] = useState(0);
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
   const pageSize = 20;
 
-  const fetchNotifications = useCallback(async () => {
-    try {
-      setLoading(true);
-      const { notifications: data, total: totalCount } =
-        await notificationClient.getNotifications({
-          limit: pageSize,
-          offset: page * pageSize,
-          unreadOnly: filter === "unread",
-        });
-      setNotifications(data);
-      setTotal(totalCount);
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to fetch notifications";
-      toast.error(message);
-    } finally {
-      setLoading(false);
-    }
-  }, [notificationClient, page, filter, toast]);
+  // Query: Fetch notifications
+  const {
+    data: notificationsData,
+    isLoading: loading,
+    refetch,
+  } = notificationClient.getNotifications.useQuery({
+    limit: pageSize,
+    offset: page * pageSize,
+    unreadOnly: filter === "unread",
+  });
 
-  useEffect(() => {
-    void fetchNotifications();
-  }, [fetchNotifications]);
+  const notifications = notificationsData?.notifications ?? [];
+  const total = notificationsData?.total ?? 0;
 
-  const handleMarkAsRead = async (notificationId: string) => {
-    try {
-      await notificationClient.markAsRead({ notificationId });
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === notificationId ? { ...n, isRead: true } : n))
-      );
+  // Mutation: Mark as read
+  const markAsReadMutation = notificationClient.markAsRead.useMutation({
+    onSuccess: () => {
+      void refetch();
       toast.success("Notification marked as read");
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to mark as read";
-      toast.error(message);
-    }
-  };
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to mark as read"
+      );
+    },
+  });
 
-  const handleDelete = async (notificationId: string) => {
-    try {
-      await notificationClient.deleteNotification({ notificationId });
-      setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
-      setTotal((prev) => prev - 1);
+  // Mutation: Delete notification
+  const deleteMutation = notificationClient.deleteNotification.useMutation({
+    onSuccess: () => {
+      void refetch();
       toast.success("Notification deleted");
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to delete notification";
-      toast.error(message);
-    }
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete notification"
+      );
+    },
+  });
+
+  // Mutation: Mark all as read
+  const markAllAsReadMutation = notificationClient.markAsRead.useMutation({
+    onSuccess: () => {
+      void refetch();
+      toast.success("All notifications marked as read");
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to mark all as read"
+      );
+    },
+  });
+
+  const handleMarkAsRead = (notificationId: string) => {
+    markAsReadMutation.mutate({ notificationId });
   };
 
-  const handleMarkAllAsRead = async () => {
-    try {
-      await notificationClient.markAsRead({});
-      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-      toast.success("All notifications marked as read");
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to mark all as read";
-      toast.error(message);
-    }
+  const handleDelete = (notificationId: string) => {
+    deleteMutation.mutate({ notificationId });
+  };
+
+  const handleMarkAllAsRead = () => {
+    markAllAsReadMutation.mutate({});
   };
 
   const getImportanceBadge = (importance: Notification["importance"]) => {
@@ -182,9 +176,8 @@ export const NotificationsPage = () => {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              void handleMarkAllAsRead();
-            }}
+            onClick={handleMarkAllAsRead}
+            disabled={markAllAsReadMutation.isPending}
           >
             <Check className="h-4 w-4 mr-1" /> Mark all read
           </Button>
@@ -241,9 +234,8 @@ export const NotificationsPage = () => {
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => {
-                          void handleMarkAsRead(notification.id);
-                        }}
+                        onClick={() => handleMarkAsRead(notification.id)}
+                        disabled={markAsReadMutation.isPending}
                         title="Mark as read"
                       >
                         <Check className="h-4 w-4" />
@@ -252,9 +244,8 @@ export const NotificationsPage = () => {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => {
-                        void handleDelete(notification.id);
-                      }}
+                      onClick={() => handleDelete(notification.id)}
+                      disabled={deleteMutation.isPending}
                       title="Delete"
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />

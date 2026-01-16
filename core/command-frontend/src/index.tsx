@@ -1,17 +1,14 @@
-import { useEffect, useCallback, useMemo, useState, useRef } from "react";
+import { useEffect, useCallback, useMemo, useState } from "react";
 import {
-  useApi,
-  rpcApiRef,
-  createApiRef,
   createFrontendPlugin,
   NavbarCenterSlot,
+  usePluginClient,
 } from "@checkstack/frontend-api";
 import {
   CommandApi,
   pluginMetadata,
   type SearchResult,
 } from "@checkstack/command-common";
-import type { InferClient } from "@checkstack/common";
 import { NavbarSearch } from "./components/NavbarSearch";
 
 // =============================================================================
@@ -29,15 +26,6 @@ export const commandPlugin = createFrontendPlugin({
     },
   ],
 });
-
-// =============================================================================
-// API REF
-// =============================================================================
-
-export type CommandApiClient = InferClient<typeof CommandApi>;
-
-export const commandApiRef =
-  createApiRef<CommandApiClient>("plugin.command.api");
 
 // =============================================================================
 // SHORTCUT UTILITIES (Frontend-only - requires DOM types)
@@ -105,6 +93,27 @@ export function formatShortcut(shortcut: string, isMac: boolean): string {
   parts.push(parsed.key.toUpperCase());
 
   return isMac ? parts.join("") : parts.join("+");
+}
+
+// =============================================================================
+// DEBOUNCE HOOK
+// =============================================================================
+
+/**
+ * Hook to debounce a value by the specified delay.
+ */
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delayMs);
+
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+
+  return debouncedValue;
 }
 
 // =============================================================================
@@ -186,104 +195,35 @@ export function useFormatShortcut(): (shortcut: string) => string {
 }
 
 /**
- * Hook to search across all providers via backend RPC.
- * Returns search function and loading state.
- */
-export function useCommandPaletteSearch(): {
-  search: (query: string) => Promise<SearchResult[]>;
-  getCommands: () => Promise<SearchResult[]>;
-  loading: boolean;
-} {
-  const rpcApi = useApi(rpcApiRef);
-  const commandApi = useMemo(() => rpcApi.forPlugin(CommandApi), [rpcApi]);
-  const [loading, setLoading] = useState(false);
-
-  const search = useCallback(
-    async (query: string): Promise<SearchResult[]> => {
-      setLoading(true);
-      try {
-        return await commandApi.search({ query });
-      } finally {
-        setLoading(false);
-      }
-    },
-    [commandApi]
-  );
-
-  const getCommands = useCallback(async (): Promise<SearchResult[]> => {
-    setLoading(true);
-    try {
-      return await commandApi.getCommands();
-    } finally {
-      setLoading(false);
-    }
-  }, [commandApi]);
-
-  return { search, getCommands, loading };
-}
-
-/**
  * Hook for debounced search in the command palette.
- * Automatically debounces the search query by the specified delay.
+ * Uses TanStack Query with a debounced query state.
  */
 export function useDebouncedSearch(delayMs: number = 300): {
   results: SearchResult[];
   loading: boolean;
-  search: (query: string) => void;
+  setQuery: (query: string) => void;
   reset: () => void;
 } {
-  const { search: doSearch, getCommands } = useCommandPaletteSearch();
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [loading, setLoading] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const commandClient = usePluginClient(CommandApi);
+  const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query, delayMs);
 
-  const search = useCallback(
-    (query: string) => {
-      // Clear any pending search
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-
-      // If empty query, fetch all results immediately (commands + entities)
-      if (!query.trim()) {
-        setLoading(true);
-        doSearch("")
-          .then(setResults)
-          .catch(() => setResults([]))
-          .finally(() => setLoading(false));
-        return;
-      }
-
-      // Debounce non-empty queries
-      setLoading(true);
-      timeoutRef.current = setTimeout(() => {
-        doSearch(query)
-          .then(setResults)
-          .catch(() => setResults([]))
-          .finally(() => setLoading(false));
-      }, delayMs);
-    },
-    [doSearch, getCommands, delayMs]
+  // useQuery automatically refetches when debouncedQuery changes
+  const { data, isLoading } = commandClient.search.useQuery(
+    { query: debouncedQuery },
+    { staleTime: 30_000 } // Cache results for 30 seconds
   );
 
   const reset = useCallback(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-    setResults([]);
-    setLoading(false);
+    setQuery("");
   }, []);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, []);
-
-  return { results, loading, search, reset };
+  return {
+    results: data ?? [],
+    loading: isLoading,
+    setQuery,
+    reset,
+  };
 }
 
 // =============================================================================
@@ -298,40 +238,20 @@ export function useCommands(): {
   commands: SearchResult[];
   loading: boolean;
 } {
-  const rpcApi = useApi(rpcApiRef);
-  const commandApi = useMemo(() => rpcApi.forPlugin(CommandApi), [rpcApi]);
-  const [commands, setCommands] = useState<SearchResult[]>([]);
-  const [loading, setLoading] = useState(true);
+  const commandClient = usePluginClient(CommandApi);
 
-  useEffect(() => {
-    let cancelled = false;
+  // Fetch all commands (empty query returns all)
+  const { data, isLoading } = commandClient.getCommands.useQuery(undefined, {
+    staleTime: 60_000, // Cache for 1 minute
+  });
 
-    async function fetchCommands() {
-      try {
-        const results = await commandApi.getCommands();
-        if (!cancelled) {
-          // Filter to only commands with shortcuts
-          setCommands(
-            results.filter((r) => r.shortcuts && r.shortcuts.length > 0)
-          );
-        }
-      } catch {
-        // Ignore errors - commands just won't be available
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
+  // Filter to only commands with shortcuts
+  const commandsWithShortcuts = useMemo(
+    () => (data ?? []).filter((r) => r.shortcuts && r.shortcuts.length > 0),
+    [data]
+  );
 
-    fetchCommands();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [commandApi]);
-
-  return { commands, loading };
+  return { commands: commandsWithShortcuts, loading: isLoading };
 }
 
 /**

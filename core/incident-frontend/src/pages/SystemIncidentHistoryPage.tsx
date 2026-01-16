@@ -1,20 +1,15 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React from "react";
 import { useParams, Link } from "react-router-dom";
-import { useApi, rpcApiRef, wrapInSuspense } from "@checkstack/frontend-api";
+import { usePluginClient, wrapInSuspense } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
 import { resolveRoute } from "@checkstack/common";
-import { incidentApiRef } from "../api";
+import { IncidentApi } from "../api";
 import {
   incidentRoutes,
   INCIDENT_UPDATED,
-  type IncidentWithSystems,
   type IncidentStatus,
 } from "@checkstack/incident-common";
-import {
-  CatalogApi,
-  type System,
-  catalogRoutes,
-} from "@checkstack/catalog-common";
+import { CatalogApi, catalogRoutes } from "@checkstack/catalog-common";
 import {
   Card,
   CardHeader,
@@ -30,43 +25,32 @@ import { formatDistanceToNow } from "date-fns";
 
 const SystemIncidentHistoryPageContent: React.FC = () => {
   const { systemId } = useParams<{ systemId: string }>();
-  const api = useApi(incidentApiRef);
-  const rpcApi = useApi(rpcApiRef);
+  const incidentClient = usePluginClient(IncidentApi);
+  const catalogClient = usePluginClient(CatalogApi);
 
-  const catalogApi = useMemo(() => rpcApi.forPlugin(CatalogApi), [rpcApi]);
+  // Fetch incidents with useQuery
+  const {
+    data: incidentsData,
+    isLoading: incidentsLoading,
+    refetch: refetchIncidents,
+  } = incidentClient.listIncidents.useQuery(
+    { systemId, includeResolved: true },
+    { enabled: !!systemId }
+  );
 
-  const [incidents, setIncidents] = useState<IncidentWithSystems[]>([]);
-  const [system, setSystem] = useState<System | undefined>();
-  const [loading, setLoading] = useState(true);
+  // Fetch systems with useQuery
+  const { data: systemsData, isLoading: systemsLoading } =
+    catalogClient.getSystems.useQuery({});
 
-  const loadData = async () => {
-    if (!systemId) return;
-
-    setLoading(true);
-    try {
-      const [{ incidents: incidentList }, { systems: systemList }] =
-        await Promise.all([
-          api.listIncidents({ systemId, includeResolved: true }),
-          catalogApi.getSystems(),
-        ]);
-      const systemData = systemList.find((s) => s.id === systemId);
-      setIncidents(incidentList);
-      setSystem(systemData);
-    } catch (error) {
-      console.error("Failed to load incidents:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadData();
-  }, [systemId]);
+  const incidents = incidentsData?.incidents ?? [];
+  const systems = systemsData?.systems ?? [];
+  const system = systems.find((s) => s.id === systemId);
+  const loading = incidentsLoading || systemsLoading;
 
   // Listen for realtime updates
   useSignal(INCIDENT_UPDATED, ({ systemIds }) => {
     if (systemId && systemIds.includes(systemId)) {
-      loadData();
+      void refetchIncidents();
     }
   });
 

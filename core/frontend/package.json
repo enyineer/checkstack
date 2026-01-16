@@ -21,6 +21,8 @@
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
     "@orpc/client": "^1.13.2",
+    "@tanstack/react-query": "^5.64.0",
+    "@tanstack/react-query-devtools": "^5.64.0",
     "better-auth": "^1.1.8",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",

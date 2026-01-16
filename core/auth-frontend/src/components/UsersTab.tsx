@@ -18,8 +18,7 @@ import {
   useToast,
 } from "@checkstack/ui";
 import { Plus, Trash2 } from "lucide-react";
-import { useApi } from "@checkstack/frontend-api";
-import { rpcApiRef } from "@checkstack/frontend-api";
+import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
 import type { AuthUser, Role, AuthStrategy } from "../api";
 import { CreateUserDialog } from "./CreateUserDialog";
@@ -47,8 +46,7 @@ export const UsersTab: React.FC<UsersTabProps> = ({
   canManageRoles,
   onDataChange,
 }) => {
-  const rpcApi = useApi(rpcApiRef);
-  const authClient = rpcApi.forPlugin(AuthApi);
+  const authClient = usePluginClient(AuthApi);
   const toast = useToast();
 
   const [userToDelete, setUserToDelete] = useState<string>();
@@ -58,21 +56,50 @@ export const UsersTab: React.FC<UsersTabProps> = ({
     (s) => s.id === "credential" && s.enabled
   );
 
-  const handleDeleteUser = async () => {
-    if (!userToDelete) return;
-    try {
-      await authClient.deleteUser(userToDelete);
+  // Mutations
+  const deleteUserMutation = authClient.deleteUser.useMutation({
+    onSuccess: () => {
       toast.success("User deleted successfully");
       setUserToDelete(undefined);
-      await onDataChange();
-    } catch (error: unknown) {
+      void onDataChange();
+    },
+    onError: (error) => {
       toast.error(
         error instanceof Error ? error.message : "Failed to delete user"
       );
-    }
+    },
+  });
+
+  const updateRolesMutation = authClient.updateUserRoles.useMutation({
+    onSuccess: () => {
+      void onDataChange();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update roles"
+      );
+    },
+  });
+
+  const createUserMutation = authClient.createCredentialUser.useMutation({
+    onSuccess: () => {
+      toast.success("User created successfully");
+      void onDataChange();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create user"
+      );
+      throw error;
+    },
+  });
+
+  const handleDeleteUser = () => {
+    if (!userToDelete) return;
+    deleteUserMutation.mutate(userToDelete);
   };
 
-  const handleToggleRole = async (
+  const handleToggleRole = (
     userId: string,
     roleId: string,
     currentRoles: string[]
@@ -86,14 +113,7 @@ export const UsersTab: React.FC<UsersTabProps> = ({
       ? currentRoles.filter((r) => r !== roleId)
       : [...currentRoles, roleId];
 
-    try {
-      await authClient.updateUserRoles({ userId, roles: newRoles });
-      await onDataChange();
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Failed to update roles";
-      toast.error(message);
-    }
+    updateRolesMutation.mutate({ userId, roles: newRoles });
   };
 
   const handleCreateUser = async (data: {
@@ -101,16 +121,7 @@ export const UsersTab: React.FC<UsersTabProps> = ({
     email: string;
     password: string;
   }) => {
-    try {
-      await authClient.createCredentialUser(data);
-      toast.success("User created successfully");
-      await onDataChange();
-    } catch (error: unknown) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to create user"
-      );
-      throw error;
-    }
+    createUserMutation.mutate(data);
   };
 
   return (

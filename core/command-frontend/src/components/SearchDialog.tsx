@@ -24,7 +24,12 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
 }) => {
   const navigate = useNavigate();
   const formatShortcut = useFormatShortcut();
-  const { results, loading, search, reset } = useDebouncedSearch(300);
+  const {
+    results,
+    loading,
+    setQuery: setSearchQuery,
+    reset,
+  } = useDebouncedSearch(300);
 
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -34,7 +39,7 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
   // Trigger search when dialog opens or query changes
   useEffect(() => {
     if (open) {
-      search(query);
+      setSearchQuery(query);
       // Focus input after dialog opens
       setTimeout(() => inputRef.current?.focus(), 50);
     } else {
@@ -43,7 +48,7 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
       setSelectedIndex(0);
       reset();
     }
-  }, [open, query, search, reset]);
+  }, [open, query, setSearchQuery, reset]);
 
   // Group results by category
   const groupedResults: Record<string, SearchResult[]> = {};
