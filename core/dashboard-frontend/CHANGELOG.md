@@ -1,5 +1,96 @@
 # @checkstack/dashboard-frontend
 
+## 0.2.0
+
+### Minor Changes
+
+- 180be38: # Queue Lag Warning
+
+  Added a queue lag warning system that displays alerts when pending jobs exceed configurable thresholds.
+
+  ## Features
+
+  - **Backend Stats API**: New `getStats`, `getLagStatus`, and `updateLagThresholds` RPC endpoints
+  - **Signal-based Updates**: `QUEUE_LAG_CHANGED` signal for real-time frontend updates
+  - **Aggregated Stats**: `QueueManager.getAggregatedStats()` sums stats across all queues
+  - **Configurable Thresholds**: Warning (default 100) and Critical (default 500) thresholds stored in config
+  - **Dashboard Integration**: Queue lag alert displayed on main Dashboard (access-gated)
+  - **Queue Settings Page**: Lag alert and Performance Tuning guidance card with concurrency tips
+
+  ## UI Changes
+
+  - Queue lag alert banner appears on Dashboard and Queue Settings when pending jobs exceed thresholds
+  - New "Performance Tuning" card with concurrency settings guidance and bottleneck indicators
+
+- 7a23261: ## TanStack Query Integration
+
+  Migrated all frontend components to use `usePluginClient` hook with TanStack Query integration, replacing the legacy `forPlugin()` pattern.
+
+  ### New Features
+
+  - **`usePluginClient` hook**: Provides type-safe access to plugin APIs with `.useQuery()` and `.useMutation()` methods
+  - **Automatic request deduplication**: Multiple components requesting the same data share a single network request
+  - **Built-in caching**: Configurable stale time and cache duration per query
+  - **Loading/error states**: TanStack Query provides `isLoading`, `error`, `isRefetching` states automatically
+  - **Background refetching**: Stale data is automatically refreshed when components mount
+
+  ### Contract Changes
+
+  All RPC contracts now require `operationType: "query"` or `operationType: "mutation"` metadata:
+
+  ```typescript
+  const getItems = proc()
+    .meta({ operationType: "query", access: [access.read] })
+    .output(z.array(itemSchema))
+    .query();
+
+  const createItem = proc()
+    .meta({ operationType: "mutation", access: [access.manage] })
+    .input(createItemSchema)
+    .output(itemSchema)
+    .mutation();
+  ```
+
+  ### Migration
+
+  ```typescript
+  // Before (forPlugin pattern)
+  const api = useApi(myPluginApiRef);
+  const [items, setItems] = useState<Item[]>([]);
+  useEffect(() => {
+    api.getItems().then(setItems);
+  }, [api]);
+
+  // After (usePluginClient pattern)
+  const client = usePluginClient(MyPluginApi);
+  const { data: items, isLoading } = client.getItems.useQuery({});
+  ```
+
+  ### Bug Fixes
+
+  - Fixed `rpc.test.ts` test setup for middleware type inference
+  - Fixed `SearchDialog` to use `setQuery` instead of deprecated `search` method
+  - Fixed null→undefined warnings in notification and queue frontends
+
+### Patch Changes
+
+- Updated dependencies [180be38]
+- Updated dependencies [7a23261]
+  - @checkstack/queue-frontend@0.2.0
+  - @checkstack/frontend-api@0.2.0
+  - @checkstack/common@0.3.0
+  - @checkstack/auth-frontend@0.3.0
+  - @checkstack/catalog-frontend@0.3.0
+  - @checkstack/catalog-common@1.2.0
+  - @checkstack/command-frontend@0.2.0
+  - @checkstack/command-common@0.2.0
+  - @checkstack/healthcheck-common@0.4.0
+  - @checkstack/incident-common@0.3.0
+  - @checkstack/maintenance-common@0.3.0
+  - @checkstack/notification-common@0.2.0
+  - @checkstack/ui@0.2.1
+  - @checkstack/signal-frontend@0.0.7
+
 ## 0.1.1
 
 ### Patch Changes
