@@ -1,5 +1,12 @@
 # @checkstack/maintenance-common
 
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [4eed42d]
+  - @checkstack/frontend-api@0.3.0
+
 ## 0.3.0
 
 ### Minor Changes
