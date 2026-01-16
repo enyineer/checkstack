@@ -1,5 +1,12 @@
 # @checkstack/healthcheck-ssh-common
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [7a23261]
+  - @checkstack/common@0.3.0
+
 ## 0.1.2
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/theme-frontend",
-  "version": "0.0.6",
+  "version": "0.1.0",
   "type": "module",
   "main": "src/index.tsx",
   "scripts": {
