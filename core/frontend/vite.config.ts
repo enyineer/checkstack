@@ -53,7 +53,13 @@ export default defineConfig(() => {
       // Force all monorepo packages to use the same React copy at build time.
       // Without this, each workspace package can bundle its own React copy,
       // causing "useContext is null" errors from context mismatch.
-      dedupe: ["react", "react-dom", "react-router-dom", "react/jsx-runtime"],
+      dedupe: [
+        "react",
+        "react-dom",
+        "react-router-dom",
+        "react/jsx-runtime",
+        "@tanstack/react-query",
+      ],
       alias: {
         "@": path.resolve(__dirname, "./src"),
       },

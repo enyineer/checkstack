@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   useApi,
   usePluginClient,
+  useQueryClient,
   ExtensionSlot,
 } from "@checkstack/frontend-api";
 import {
@@ -21,7 +22,6 @@ import { IncidentApi } from "@checkstack/incident-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { HEALTH_CHECK_RUN_COMPLETED } from "@checkstack/healthcheck-common";
 import { useSignal } from "@checkstack/signal-frontend";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   Card,
   CardHeader,

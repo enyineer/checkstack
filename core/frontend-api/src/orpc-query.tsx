@@ -13,6 +13,10 @@ import {
   type UseQueryOptions,
   type UseMutationOptions,
 } from "@tanstack/react-query";
+
+// Re-export useQueryClient for cache invalidation in consuming packages
+// This ensures all packages use the same React Query instance
+export { useQueryClient } from "@tanstack/react-query";
 import { useApi } from "./api-context";
 import { rpcApiRef } from "./core-apis";
 import type { ClientDefinition, InferClient } from "@checkstack/common";

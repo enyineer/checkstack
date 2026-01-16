@@ -233,7 +233,7 @@ export const ItemListPage = () => {
 ### Mutations with Cache Invalidation
 
 ```typescript
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@checkstack/frontend-api";
 
 export const CreateItemForm = () => {
   const client = usePluginClient(MyPluginApi);

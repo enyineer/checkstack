@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useCallback, useMemo } from "react";
-import { usePluginClient } from "@checkstack/frontend-api";
+import { usePluginClient, useQueryClient } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   HealthCheckApi,
   HEALTH_CHECK_RUN_COMPLETED,
