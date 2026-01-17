@@ -15,6 +15,7 @@
     "@checkstack/catalog-common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/integration-backend": "workspace:*",
+    "@checkstack/maintenance-common": "workspace:*",
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
     "@checkstack/command-backend": "workspace:*",

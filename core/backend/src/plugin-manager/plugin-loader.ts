@@ -2,7 +2,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import path from "node:path";
 import fs from "node:fs";
 import type { Hono } from "hono";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import {
   coreServices,
@@ -77,7 +77,7 @@ export function registerPlugin({
     rootLogger.warn(
       `Plugin ${
         backendPlugin?.metadata?.pluginId || "unknown"
-      } is not using new API. Skipping.`
+      } is not using new API. Skipping.`,
     );
     return;
   }
@@ -91,13 +91,13 @@ export function registerPlugin({
   backendPlugin.register({
     registerInit: <
       D extends Deps,
-      S extends Record<string, unknown> | undefined = undefined
+      S extends Record<string, unknown> | undefined = undefined,
     >(args: {
       deps: D;
       schema?: S;
       init: (deps: ResolvedDeps<D> & DatabaseDeps<S>) => Promise<void>;
       afterPluginsReady?: (
-        deps: ResolvedDeps<D> & DatabaseDeps<S> & AfterPluginsReadyContext
+        deps: ResolvedDeps<D> & DatabaseDeps<S> & AfterPluginsReadyContext,
       ) => Promise<void>;
     }) => {
       pendingInits.push({
@@ -129,12 +129,12 @@ export function registerPlugin({
       }));
       deps.registeredAccessRules.push(...prefixed);
       rootLogger.debug(
-        `   -> Registered ${prefixed.length} access rules for ${pluginId}`
+        `   -> Registered ${prefixed.length} access rules for ${pluginId}`,
       );
     },
     registerRouter: (
       router: Router<AnyContractRouter, RpcContext>,
-      contract: AnyContractRouter
+      contract: AnyContractRouter,
     ) => {
       deps.pluginRpcRouters.set(pluginId, router);
       deps.pluginContractRegistry.set(pluginId, contract);
@@ -184,7 +184,7 @@ export async function loadPlugins({
     });
 
     rootLogger.debug(
-      `   -> Found ${localPlugins.length} local backend plugin(s) in workspace`
+      `   -> Found ${localPlugins.length} local backend plugin(s) in workspace`,
     );
     rootLogger.debug("   -> Discovered plugins:");
     for (const p of localPlugins) {
@@ -201,7 +201,7 @@ export async function loadPlugins({
       .where(and(eq(plugins.enabled, true), eq(plugins.type, "backend")));
 
     rootLogger.debug(
-      `   -> ${allPlugins.length} enabled backend plugins in database:`
+      `   -> ${allPlugins.length} enabled backend plugins in database:`,
     );
     for (const p of allPlugins) {
       rootLogger.debug(`      • ${p.name}`);
@@ -226,7 +226,7 @@ export async function loadPlugins({
         pluginModule = await import(plugin.name);
       } catch {
         rootLogger.debug(
-          `   -> Package name import failed, trying path: ${plugin.path}`
+          `   -> Package name import failed, trying path: ${plugin.path}`,
         );
         pluginModule = await import(plugin.path);
       }
@@ -278,10 +278,58 @@ export async function loadPlugins({
     rootLogger.info(`🚀 Initializing ${p.metadata.pluginId}...`);
 
     try {
-      const pluginDb = await deps.registry.get(
-        coreServices.database,
-        p.metadata
-      );
+      /**
+       * =======================================================================
+       * PLUGIN MIGRATIONS WITH SCHEMA ISOLATION
+       * =======================================================================
+       *
+       * Each plugin's database objects live in a dedicated PostgreSQL schema
+       * (e.g., "plugin_maintenance", "plugin_healthcheck"). This isolation is
+       * achieved through PostgreSQL's `search_path` mechanism.
+       *
+       * ## Why SET search_path is Required for Migrations
+       *
+       * Drizzle's `migrate()` function reads SQL files and executes them directly.
+       * These SQL files contain unqualified table names like:
+       *
+       *   ALTER TABLE "maintenances" ADD COLUMN "foo" boolean;
+       *
+       * Without setting search_path, PostgreSQL defaults to the `public` schema,
+       * causing "relation does not exist" errors since the tables are actually in
+       * the plugin's schema (e.g., `plugin_maintenance.maintenances`).
+       *
+       * ## Session-Level vs Transaction-Level search_path
+       *
+       * We use **session-level** `SET search_path` (not `SET LOCAL`) here because:
+       * - `migrate()` runs multiple statements and may manage its own transactions
+       * - `SET LOCAL` only persists within a single transaction
+       * - Session-level SET persists until explicitly changed or session ends
+       *
+       * ## Why This Doesn't Affect Runtime Queries
+       *
+       * After migrations complete, plugins receive their database via
+       * `createScopedDb()` which wraps every query in a transaction with
+       * `SET LOCAL search_path`. This ensures runtime queries always use the
+       * correct schema, regardless of the session-level search_path.
+       *
+       * ## Potential Hazards
+       *
+       * 1. **Error During Migration**: If a migration fails, the search_path may
+       *    remain set to that plugin's schema. The next plugin's migration would
+       *    fail visibly (wrong schema), which is better than silent data corruption.
+       *
+       * 2. **Parallel Migration Execution**: This code assumes sequential plugin
+       *    initialization (which is enforced by the topologically-sorted loop).
+       *    If migrations ever run in parallel, search_path conflicts would occur.
+       *
+       * 3. **Connection Pool Pollution**: `SET` without `LOCAL` affects the entire
+       *    session. However, we reset to `public` after each plugin's migrations,
+       *    and runtime queries use `SET LOCAL` anyway, so this is safe.
+       *
+       * @see createScopedDb in ../utils/scoped-db.ts for runtime query isolation
+       * @see getPluginSchemaName in @checkstack/drizzle-helper for schema naming
+       * =======================================================================
+       */
 
       // Run Migrations
       const migrationsFolder = path.join(p.pluginPath, "drizzle");
@@ -291,13 +339,24 @@ export async function loadPlugins({
           // Strip "public". schema references from migration SQL at runtime
           stripPublicSchemaFromMigrations(migrationsFolder);
           rootLogger.debug(
-            `   -> Running migrations for ${p.metadata.pluginId} from ${migrationsFolder}`
+            `   -> Running migrations for ${p.metadata.pluginId} from ${migrationsFolder}`,
           );
-          await migrate(pluginDb, { migrationsFolder, migrationsSchema });
+
+          // Set search_path to plugin schema before running migrations.
+          // Uses session-level SET (not SET LOCAL) because migrate() may run
+          // multiple statements across transaction boundaries.
+          await deps.db.execute(
+            sql.raw(`SET search_path = "${migrationsSchema}", public`),
+          );
+          await migrate(deps.db, { migrationsFolder, migrationsSchema });
+
+          // Reset search_path to public after migrations complete.
+          // This prevents search_path leaking into subsequent plugin migrations.
+          await deps.db.execute(sql.raw(`SET search_path = public`));
         } catch (error) {
           rootLogger.error(
             `❌ Failed migration of plugin ${p.metadata.pluginId}:`,
-            error
+            error,
           );
           throw new Error(`Failed to migrate plugin ${p.metadata.pluginId}`, {
             cause: error,
@@ -305,7 +364,7 @@ export async function loadPlugins({
         }
       } else {
         rootLogger.debug(
-          `   -> No migrations found for ${p.metadata.pluginId} (skipping)`
+          `   -> No migrations found for ${p.metadata.pluginId} (skipping)`,
         );
       }
 
@@ -314,7 +373,7 @@ export async function loadPlugins({
       for (const [key, ref] of Object.entries(p.deps)) {
         resolvedDeps[key] = await deps.registry.get(
           ref as ServiceRef<unknown>,
-          p.metadata
+          p.metadata,
         );
       }
 
@@ -330,7 +389,7 @@ export async function loadPlugins({
       } catch (error) {
         rootLogger.error(
           `❌ Failed to initialize ${p.metadata.pluginId}:`,
-          error
+          error,
         );
         throw new Error(`Failed to initialize plugin ${p.metadata.pluginId}`, {
           cause: error,
@@ -339,7 +398,7 @@ export async function loadPlugins({
     } catch (error) {
       rootLogger.error(
         `❌ Critical error loading plugin ${p.metadata.pluginId}:`,
-        error
+        error,
       );
       throw new Error(`Critical error loading plugin ${p.metadata.pluginId}`, {
         cause: error,
@@ -360,7 +419,7 @@ export async function loadPlugins({
     } catch (error) {
       rootLogger.error(
         `Failed to emit pluginInitialized hook for ${p.metadata.pluginId}:`,
-        error
+        error,
       );
     }
   }
@@ -386,7 +445,7 @@ export async function loadPlugins({
     } catch (error) {
       rootLogger.error(
         `Failed to emit accessRulesRegistered hook for ${pluginId}:`,
-        error
+        error,
       );
     }
   }
@@ -397,7 +456,7 @@ export async function loadPlugins({
         for (const [key, ref] of Object.entries(p.deps)) {
           resolvedDeps[key] = await deps.registry.get(
             ref as ServiceRef<unknown>,
-            p.metadata
+            p.metadata,
           );
         }
 
@@ -412,36 +471,36 @@ export async function loadPlugins({
         resolvedDeps["onHook"] = <T>(
           hook: { id: string },
           listener: (payload: T) => Promise<void>,
-          options?: HookSubscribeOptions
+          options?: HookSubscribeOptions,
         ) => {
           return eventBus.subscribe(
             p.metadata.pluginId,
             hook,
             listener,
-            options
+            options,
           );
         };
         resolvedDeps["emitHook"] = async <T>(
           hook: { id: string },
-          payload: T
+          payload: T,
         ) => {
           await eventBus.emit(hook, payload);
         };
 
         await p.afterPluginsReady(resolvedDeps);
         rootLogger.debug(
-          `   -> ${p.metadata.pluginId} afterPluginsReady complete`
+          `   -> ${p.metadata.pluginId} afterPluginsReady complete`,
         );
       } catch (error) {
         rootLogger.error(
           `❌ Failed afterPluginsReady for ${p.metadata.pluginId}:`,
-          error
+          error,
         );
         throw new Error(
           `Failed afterPluginsReady for plugin ${p.metadata.pluginId}`,
           {
             cause: error,
-          }
+          },
         );
       }
     }

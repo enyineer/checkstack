@@ -46,15 +46,17 @@ export class MaintenanceService {
         .where(
           and(
             inArray(maintenances.id, ids),
-            filters.status ? eq(maintenances.status, filters.status) : undefined
-          )
+            filters.status
+              ? eq(maintenances.status, filters.status)
+              : undefined,
+          ),
         );
     } else {
       maintenanceRows = await this.db
         .select()
         .from(maintenances)
         .where(
-          filters?.status ? eq(maintenances.status, filters.status) : undefined
+          filters?.status ? eq(maintenances.status, filters.status) : undefined,
         );
     }
 
@@ -113,7 +115,7 @@ export class MaintenanceService {
    * Get active/upcoming maintenances for a system
    */
   async getMaintenancesForSystem(
-    systemId: string
+    systemId: string,
   ): Promise<MaintenanceWithSystems[]> {
     const _now = new Date();
 
@@ -135,9 +137,9 @@ export class MaintenanceService {
           inArray(maintenances.id, ids),
           or(
             eq(maintenances.status, "scheduled"),
-            eq(maintenances.status, "in_progress")
-          )
-        )
+            eq(maintenances.status, "in_progress"),
+          ),
+        ),
       );
 
     // Fetch system IDs for each
@@ -162,7 +164,7 @@ export class MaintenanceService {
    * Create a new maintenance
    */
   async createMaintenance(
-    input: CreateMaintenanceInput
+    input: CreateMaintenanceInput,
   ): Promise<MaintenanceWithSystems> {
     const id = generateId();
 
@@ -170,6 +172,7 @@ export class MaintenanceService {
       id,
       title: input.title,
       description: input.description,
+      suppressNotifications: input.suppressNotifications ?? false,
       status: "scheduled",
       startAt: input.startAt,
       endAt: input.endAt,
@@ -190,7 +193,7 @@ export class MaintenanceService {
    * Update an existing maintenance
    */
   async updateMaintenance(
-    input: UpdateMaintenanceInput
+    input: UpdateMaintenanceInput,
   ): Promise<MaintenanceWithSystems | undefined> {
     const [existing] = await this.db
       .select()
@@ -206,6 +209,8 @@ export class MaintenanceService {
     if (input.title !== undefined) updateData.title = input.title;
     if (input.description !== undefined)
       updateData.description = input.description;
+    if (input.suppressNotifications !== undefined)
+      updateData.suppressNotifications = input.suppressNotifications;
     if (input.startAt !== undefined) updateData.startAt = input.startAt;
     if (input.endAt !== undefined) updateData.endAt = input.endAt;
 
@@ -236,7 +241,7 @@ export class MaintenanceService {
    */
   async addUpdate(
     input: AddMaintenanceUpdateInput,
-    userId?: string
+    userId?: string,
   ): Promise<MaintenanceUpdate> {
     const id = generateId();
 
@@ -274,7 +279,7 @@ export class MaintenanceService {
   async closeMaintenance(
     id: string,
     message?: string,
-    userId?: string
+    userId?: string,
   ): Promise<MaintenanceWithSystems | undefined> {
     const [existing] = await this.db
       .select()
@@ -324,5 +329,37 @@ export class MaintenanceService {
     // This will be implemented with notification integration
     // For now, return empty set
     return new Set();
+  }
+
+  /**
+   * Check if a system has an active maintenance with notification suppression enabled.
+   * A maintenance is considered "active" if its status is "in_progress".
+   */
+  async hasActiveMaintenanceWithSuppression(
+    systemId: string,
+  ): Promise<boolean> {
+    // Get maintenance IDs for this system
+    const systemMaintenances = await this.db
+      .select({ maintenanceId: maintenanceSystems.maintenanceId })
+      .from(maintenanceSystems)
+      .where(eq(maintenanceSystems.systemId, systemId));
+
+    const ids = systemMaintenances.map((r) => r.maintenanceId);
+    if (ids.length === 0) return false;
+
+    // Check if any of these maintenances are in_progress with suppressNotifications enabled
+    const [match] = await this.db
+      .select({ id: maintenances.id })
+      .from(maintenances)
+      .where(
+        and(
+          inArray(maintenances.id, ids),
+          eq(maintenances.status, "in_progress"),
+          eq(maintenances.suppressNotifications, true),
+        ),
+      )
+      .limit(1);
+
+    return !!match;
   }
 }

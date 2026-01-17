@@ -20,12 +20,14 @@ import {
   type HealthCheckStatus,
 } from "@checkstack/healthcheck-common";
 import { CatalogApi, catalogRoutes } from "@checkstack/catalog-common";
+import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { resolveRoute, type InferClient } from "@checkstack/common";
 import { HealthCheckService } from "./service";
 import { healthCheckHooks } from "./hooks";
 
 type Db = NodePgDatabase<typeof schema>;
 type CatalogClient = InferClient<typeof CatalogApi>;
+type MaintenanceClient = InferClient<typeof MaintenanceApi>;
 
 /**
  * Payload for health check queue jobs
@@ -74,7 +76,7 @@ export async function scheduleHealthCheck(props: {
   const jobId = `healthcheck:${payload.configId}:${payload.systemId}`;
 
   logger?.debug(
-    `Scheduling recurring health check ${jobId} with interval ${intervalSeconds}s, startDelay ${startDelay}s`
+    `Scheduling recurring health check ${jobId} with interval ${intervalSeconds}s, startDelay ${startDelay}s`,
   );
 
   return queue.scheduleRecurring(payload, {
@@ -87,19 +89,46 @@ export async function scheduleHealthCheck(props: {
 
 /**
  * Notify system subscribers about a health state change.
+ * Skips notification if the system has active maintenance with suppression enabled.
  */
 async function notifyStateChange(props: {
   systemId: string;
   previousStatus: HealthCheckStatus;
   newStatus: HealthCheckStatus;
   catalogClient: CatalogClient;
+  maintenanceClient: MaintenanceClient;
   logger: Logger;
 }): Promise<void> {
-  const { systemId, previousStatus, newStatus, catalogClient, logger } = props;
+  const {
+    systemId,
+    previousStatus,
+    newStatus,
+    catalogClient,
+    maintenanceClient,
+    logger,
+  } = props;
 
   // Only notify on actual state changes
   if (newStatus === previousStatus) {
     return;
+  }
+
+  // Check if notifications should be suppressed due to active maintenance
+  try {
+    const { suppressed } =
+      await maintenanceClient.hasActiveMaintenanceWithSuppression({ systemId });
+    if (suppressed) {
+      logger.debug(
+        `Skipping notification for ${systemId}: active maintenance with suppression enabled`,
+      );
+      return;
+    }
+  } catch (error) {
+    // Log but continue with notification - suppression check failure shouldn't block notifications
+    logger.warn(
+      `Failed to check maintenance suppression for ${systemId}, proceeding with notification:`,
+      error,
+    );
   }
 
   const isRecovery = newStatus === "healthy" && previousStatus !== "healthy";
@@ -143,13 +172,13 @@ async function notifyStateChange(props: {
       includeGroupSubscribers: true,
     });
     logger.debug(
-      `Notified subscribers: ${previousStatus} → ${newStatus} for system ${systemId}`
+      `Notified subscribers: ${previousStatus} → ${newStatus} for system ${systemId}`,
     );
   } catch (error) {
     // Log but don't fail the operation - notifications are best-effort
     logger.warn(
       `Failed to notify subscribers for health state change on system ${systemId}:`,
-      error
+      error,
     );
   }
 }
@@ -165,6 +194,7 @@ async function executeHealthCheckJob(props: {
   logger: Logger;
   signalService: SignalService;
   catalogClient: CatalogClient;
+  maintenanceClient: MaintenanceClient;
   getEmitHook: () => EmitHookFn | undefined;
 }): Promise<void> {
   const {
@@ -175,6 +205,7 @@ async function executeHealthCheckJob(props: {
     logger,
     signalService,
     catalogClient,
+    maintenanceClient,
     getEmitHook,
   } = props;
   const { configId, systemId } = payload;
@@ -201,20 +232,20 @@ async function executeHealthCheckJob(props: {
       .from(systemHealthChecks)
       .innerJoin(
         healthCheckConfigurations,
-        eq(systemHealthChecks.configurationId, healthCheckConfigurations.id)
+        eq(systemHealthChecks.configurationId, healthCheckConfigurations.id),
       )
       .where(
         and(
           eq(systemHealthChecks.systemId, systemId),
           eq(systemHealthChecks.configurationId, configId),
-          eq(systemHealthChecks.enabled, true)
-        )
+          eq(systemHealthChecks.enabled, true),
+        ),
       );
 
     // If configuration not found or disabled, exit without rescheduling
     if (!configRow) {
       logger.debug(
-        `Health check ${configId} for system ${systemId} not found or disabled, not rescheduling`
+        `Health check ${configId} for system ${systemId} not found or disabled, not rescheduling`,
       );
       return;
     }
@@ -234,7 +265,7 @@ async function executeHealthCheckJob(props: {
     const strategy = registry.getStrategy(configRow.strategyId);
     if (!strategy) {
       logger.warn(
-        `Strategy ${configRow.strategyId} not found for config ${configId}`
+        `Strategy ${configRow.strategyId} not found for config ${configId}`,
       );
       return;
     }
@@ -244,7 +275,7 @@ async function executeHealthCheckJob(props: {
     let connectedClient;
     try {
       connectedClient = await strategy.createClient(
-        configRow.config as Record<string, unknown>
+        configRow.config as Record<string, unknown>,
       );
     } catch (error) {
       // Connection failed
@@ -268,7 +299,7 @@ async function executeHealthCheckJob(props: {
       });
 
       logger.debug(
-        `Health check ${configId} for system ${systemId} failed: ${errorMessage}`
+        `Health check ${configId} for system ${systemId} failed: ${errorMessage}`,
       );
 
       // Broadcast failure signal
@@ -289,6 +320,7 @@ async function executeHealthCheckJob(props: {
           previousStatus,
           newStatus: newState.status,
           catalogClient,
+          maintenanceClient,
           logger,
         });
       }
@@ -307,11 +339,11 @@ async function executeHealthCheckJob(props: {
     try {
       for (const collectorEntry of collectors) {
         const registered = collectorRegistry.getCollector(
-          collectorEntry.collectorId
+          collectorEntry.collectorId,
         );
         if (!registered) {
           logger.warn(
-            `Collector ${collectorEntry.collectorId} not found, skipping`
+            `Collector ${collectorEntry.collectorId} not found, skipping`,
           );
           continue;
         }
@@ -342,7 +374,7 @@ async function executeHealthCheckJob(props: {
             const assertions = collectorEntry.assertions;
             const failedAssertion = evaluateAssertions(
               assertions,
-              collectorResult.result as Record<string, unknown>
+              collectorResult.result as Record<string, unknown>,
             );
             if (failedAssertion) {
               hasCollectorError = true;
@@ -351,7 +383,7 @@ async function executeHealthCheckJob(props: {
               } ${failedAssertion.value ?? ""}`;
               errorMessage = `Assertion failed: ${assertionFailed}`;
               logger.debug(
-                `Collector ${storageKey} assertion failed: ${errorMessage}`
+                `Collector ${storageKey} assertion failed: ${errorMessage}`,
               );
             }
           }
@@ -409,7 +441,7 @@ async function executeHealthCheckJob(props: {
     });
 
     logger.debug(
-      `Ran health check ${configId} for system ${systemId}: ${result.status}`
+      `Ran health check ${configId} for system ${systemId}: ${result.status}`,
     );
 
     // Broadcast enriched signal for realtime frontend updates (e.g., terminal feed)
@@ -430,6 +462,7 @@ async function executeHealthCheckJob(props: {
         previousStatus,
         newStatus: newState.status,
         catalogClient,
+        maintenanceClient,
         logger,
       });
 
@@ -442,13 +475,13 @@ async function executeHealthCheckJob(props: {
             systemId,
             previousStatus,
             healthyChecks: newState.checkStatuses.filter(
-              (c) => c.status === "healthy"
+              (c) => c.status === "healthy",
             ).length,
             totalChecks: newState.checkStatuses.length,
             timestamp: new Date().toISOString(),
           });
           logger.debug(
-            `Emitted systemHealthy hook: ${previousStatus} → ${newState.status}`
+            `Emitted systemHealthy hook: ${previousStatus} → ${newState.status}`,
           );
         } else if (
           previousStatus === "healthy" &&
@@ -460,13 +493,13 @@ async function executeHealthCheckJob(props: {
             previousStatus,
             newStatus: newState.status,
             healthyChecks: newState.checkStatuses.filter(
-              (c) => c.status === "healthy"
+              (c) => c.status === "healthy",
             ).length,
             totalChecks: newState.checkStatuses.length,
             timestamp: new Date().toISOString(),
           });
           logger.debug(
-            `Emitted systemDegraded hook: ${previousStatus} → ${newState.status}`
+            `Emitted systemDegraded hook: ${previousStatus} → ${newState.status}`,
           );
         }
       }
@@ -476,7 +509,7 @@ async function executeHealthCheckJob(props: {
   } catch (error) {
     logger.error(
       `Failed to execute health check ${configId} for system ${systemId}`,
-      error
+      error,
     );
 
     // Store failure (no latencyMs for failures)
@@ -523,6 +556,7 @@ async function executeHealthCheckJob(props: {
         previousStatus,
         newStatus: newState.status,
         catalogClient,
+        maintenanceClient,
         logger,
       });
 
@@ -535,13 +569,13 @@ async function executeHealthCheckJob(props: {
             systemId,
             previousStatus,
             healthyChecks: newState.checkStatuses.filter(
-              (c) => c.status === "healthy"
+              (c) => c.status === "healthy",
             ).length,
             totalChecks: newState.checkStatuses.length,
             timestamp: new Date().toISOString(),
           });
           logger.debug(
-            `Emitted systemHealthy hook: ${previousStatus} → ${newState.status}`
+            `Emitted systemHealthy hook: ${previousStatus} → ${newState.status}`,
           );
         } else if (
           previousStatus === "healthy" &&
@@ -553,13 +587,13 @@ async function executeHealthCheckJob(props: {
             previousStatus,
             newStatus: newState.status,
             healthyChecks: newState.checkStatuses.filter(
-              (c) => c.status === "healthy"
+              (c) => c.status === "healthy",
             ).length,
             totalChecks: newState.checkStatuses.length,
             timestamp: new Date().toISOString(),
           });
           logger.debug(
-            `Emitted systemDegraded hook: ${previousStatus} → ${newState.status}`
+            `Emitted systemDegraded hook: ${previousStatus} → ${newState.status}`,
           );
         }
       }
@@ -577,6 +611,7 @@ export async function setupHealthCheckWorker(props: {
   queueManager: QueueManager;
   signalService: SignalService;
   catalogClient: CatalogClient;
+  maintenanceClient: MaintenanceClient;
   getEmitHook: () => EmitHookFn | undefined;
 }): Promise<void> {
   const {
@@ -587,6 +622,7 @@ export async function setupHealthCheckWorker(props: {
     queueManager,
     signalService,
     catalogClient,
+    maintenanceClient,
     getEmitHook,
   } = props;
 
@@ -604,13 +640,14 @@ export async function setupHealthCheckWorker(props: {
         logger,
         signalService,
         catalogClient,
+        maintenanceClient,
         getEmitHook,
       });
     },
     {
       consumerGroup: WORKER_GROUP,
       maxRetries: 0, // Health checks should not retry on failure
-    }
+    },
   );
 
   logger.debug("🎯 Health Check Worker subscribed to queue");
@@ -636,7 +673,7 @@ export async function bootstrapHealthChecks(props: {
     .from(systemHealthChecks)
     .innerJoin(
       healthCheckConfigurations,
-      eq(systemHealthChecks.configurationId, healthCheckConfigurations.id)
+      eq(systemHealthChecks.configurationId, healthCheckConfigurations.id),
     )
     .where(eq(systemHealthChecks.enabled, true));
 
@@ -671,7 +708,7 @@ export async function bootstrapHealthChecks(props: {
     let startDelay = 0;
     if (lastRun) {
       const elapsedSeconds = Math.floor(
-        (Date.now() - lastRun.getTime()) / 1000
+        (Date.now() - lastRun.getTime()) / 1000,
       );
       if (elapsedSeconds < check.interval) {
         // Not overdue yet - schedule with remaining time
@@ -683,11 +720,11 @@ export async function bootstrapHealthChecks(props: {
           check.systemId
         } - lastRun: ${lastRun.toISOString()}, elapsed: ${elapsedSeconds}s, interval: ${
           check.interval
-        }s, startDelay: ${startDelay}s`
+        }s, startDelay: ${startDelay}s`,
       );
     } else {
       logger.debug(
-        `Health check ${check.configId}:${check.systemId} - no lastRun found, running immediately`
+        `Health check ${check.configId}:${check.systemId} - no lastRun found, running immediately`,
       );
     }
 
@@ -711,12 +748,12 @@ export async function bootstrapHealthChecks(props: {
   const allRecurringJobs = await queue.listRecurringJobs();
   const expectedJobIds = new Set(
     enabledChecks.map(
-      (check) => `healthcheck:${check.configId}:${check.systemId}`
-    )
+      (check) => `healthcheck:${check.configId}:${check.systemId}`,
+    ),
   );
 
   const orphanedJobs = allRecurringJobs.filter(
-    (jobId) => jobId.startsWith("healthcheck:") && !expectedJobIds.has(jobId)
+    (jobId) => jobId.startsWith("healthcheck:") && !expectedJobIds.has(jobId),
   );
 
   for (const jobId of orphanedJobs) {
@@ -726,7 +763,7 @@ export async function bootstrapHealthChecks(props: {
 
   if (orphanedJobs.length > 0) {
     logger.info(
-      `🧹 Cleaned up ${orphanedJobs.length} orphaned health check jobs`
+      `🧹 Cleaned up ${orphanedJobs.length} orphaned health check jobs`,
     );
   }
 }

@@ -75,6 +75,23 @@ const createMockCatalogClient = () => ({
   createView: mock(async () => ({})),
 });
 
+// Helper to create mock maintenance client for notification suppression checks
+const createMockMaintenanceClient = () => ({
+  hasActiveMaintenanceWithSuppression: mock(async () => ({
+    suppressed: false,
+  })),
+  // Other methods not used in queue-executor
+  listMaintenances: mock(async () => ({ maintenances: [] })),
+  getMaintenance: mock(async () => null),
+  getMaintenancesForSystem: mock(async () => []),
+  getBulkMaintenancesForSystems: mock(async () => ({ maintenances: {} })),
+  createMaintenance: mock(async () => ({})),
+  updateMaintenance: mock(async () => ({})),
+  addUpdate: mock(async () => ({})),
+  closeMaintenance: mock(async () => ({})),
+  deleteMaintenance: mock(async () => ({ success: true })),
+});
+
 describe("Queue-Based Health Check Executor", () => {
   describe("scheduleHealthCheck", () => {
     it("should enqueue a health check with delay and deterministic jobId", async () => {
@@ -127,6 +144,7 @@ describe("Queue-Based Health Check Executor", () => {
       const mockLogger = createMockLogger();
       const mockQueueManager = createMockQueueManager();
       const mockCatalogClient = createMockCatalogClient();
+      const mockMaintenanceClient = createMockMaintenanceClient();
 
       await setupHealthCheckWorker({
         db: mockDb as unknown as Parameters<
@@ -143,11 +161,14 @@ describe("Queue-Based Health Check Executor", () => {
         catalogClient: mockCatalogClient as unknown as Parameters<
           typeof setupHealthCheckWorker
         >[0]["catalogClient"],
+        maintenanceClient: mockMaintenanceClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["maintenanceClient"],
         getEmitHook: () => undefined,
       });
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        expect.stringContaining("Health Check Worker subscribed")
+        expect.stringContaining("Health Check Worker subscribed"),
       );
     });
   });
@@ -210,10 +231,10 @@ describe("Queue-Based Health Check Executor", () => {
       });
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        "Bootstrapping 2 health checks"
+        "Bootstrapping 2 health checks",
       );
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        "✅ Bootstrapped 2 health checks"
+        "✅ Bootstrapped 2 health checks",
       );
     });
 
@@ -236,10 +257,10 @@ describe("Queue-Based Health Check Executor", () => {
       });
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        "Bootstrapping 0 health checks"
+        "Bootstrapping 0 health checks",
       );
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        "✅ Bootstrapped 0 health checks"
+        "✅ Bootstrapped 0 health checks",
       );
     });
   });

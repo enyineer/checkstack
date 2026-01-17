@@ -22,6 +22,7 @@ import { createHealthCheckRouter } from "./router";
 import { HealthCheckService } from "./service";
 import { catalogHooks } from "@checkstack/catalog-backend";
 import { CatalogApi } from "@checkstack/catalog-common";
+import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { healthCheckHooks } from "./hooks";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { resolveRoute } from "@checkstack/common";
@@ -59,7 +60,7 @@ export default createBackendPlugin({
 
     // Register hooks as integration events
     const integrationEvents = env.getExtensionPoint(
-      integrationEventExtensionPoint
+      integrationEventExtensionPoint,
     );
 
     integrationEvents.registerEvent(
@@ -71,7 +72,7 @@ export default createBackendPlugin({
         category: "Health",
         payloadSchema: systemDegradedPayloadSchema,
       },
-      pluginMetadata
+      pluginMetadata,
     );
 
     integrationEvents.registerEvent(
@@ -82,7 +83,7 @@ export default createBackendPlugin({
         category: "Health",
         payloadSchema: systemHealthyPayloadSchema,
       },
-      pluginMetadata
+      pluginMetadata,
     );
 
     env.registerInit({
@@ -112,6 +113,9 @@ export default createBackendPlugin({
         // Create catalog client for notification delegation
         const catalogClient = rpcClient.forPlugin(CatalogApi);
 
+        // Create maintenance client for notification suppression checks
+        const maintenanceClient = rpcClient.forPlugin(MaintenanceApi);
+
         // Setup queue-based health check worker
         await setupHealthCheckWorker({
           db: database,
@@ -121,12 +125,13 @@ export default createBackendPlugin({
           queueManager,
           signalService,
           catalogClient,
+          maintenanceClient,
           getEmitHook: () => storedEmitHook,
         });
 
         const healthCheckRouter = createHealthCheckRouter(
           database as NodePgDatabase<typeof schema>,
-          healthCheckRegistry
+          healthCheckRegistry,
         );
         rpc.registerRouter(healthCheckRouter, healthCheckContract);
 
@@ -181,11 +186,11 @@ export default createBackendPlugin({
           catalogHooks.systemDeleted,
           async (payload) => {
             logger.debug(
-              `Cleaning up health check associations for deleted system: ${payload.systemId}`
+              `Cleaning up health check associations for deleted system: ${payload.systemId}`,
             );
             await service.removeAllSystemAssociations(payload.systemId);
           },
-          { mode: "work-queue", workerGroup: "system-cleanup" }
+          { mode: "work-queue", workerGroup: "system-cleanup" },
         );
 
         logger.debug("✅ Health Check Backend afterPluginsReady complete.");

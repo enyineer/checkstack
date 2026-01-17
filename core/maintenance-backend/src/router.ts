@@ -20,7 +20,7 @@ export function createRouter(
   service: MaintenanceService,
   signalService: SignalService,
   catalogClient: InferClient<typeof CatalogApi>,
-  logger: Logger
+  logger: Logger,
 ) {
   const os = implement(maintenanceContract)
     .$context<RpcContext>()
@@ -44,7 +44,7 @@ export function createRouter(
       maintenanceRoutes.routes.detail,
       {
         maintenanceId,
-      }
+      },
     );
 
     for (const systemId of systemIds) {
@@ -61,7 +61,7 @@ export function createRouter(
         // Log but don't fail the operation - notifications are best-effort
         logger.warn(
           `Failed to notify subscribers for system ${systemId}:`,
-          error
+          error,
         );
       }
     }
@@ -81,7 +81,7 @@ export function createRouter(
     getMaintenancesForSystem: os.getMaintenancesForSystem.handler(
       async ({ input }) => {
         return service.getMaintenancesForSystem(input.systemId);
-      }
+      },
     ),
 
     getBulkMaintenancesForSystems: os.getBulkMaintenancesForSystems.handler(
@@ -94,14 +94,13 @@ export function createRouter(
         // Fetch maintenances for each system in parallel
         await Promise.all(
           input.systemIds.map(async (systemId) => {
-            maintenances[systemId] = await service.getMaintenancesForSystem(
-              systemId
-            );
-          })
+            maintenances[systemId] =
+              await service.getMaintenancesForSystem(systemId);
+          }),
         );
 
         return { maintenances };
-      }
+      },
     ),
 
     createMaintenance: os.createMaintenance.handler(
@@ -135,7 +134,7 @@ export function createRouter(
         });
 
         return result;
-      }
+      },
     ),
 
     updateMaintenance: os.updateMaintenance.handler(
@@ -175,7 +174,7 @@ export function createRouter(
         });
 
         return result;
-      }
+      },
     ),
 
     addUpdate: os.addUpdate.handler(async ({ input, context }) => {
@@ -213,7 +212,7 @@ export function createRouter(
         const result = await service.closeMaintenance(
           input.id,
           input.message,
-          userId
+          userId,
         );
         if (!result) {
           throw new ORPCError("NOT_FOUND", {
@@ -240,7 +239,7 @@ export function createRouter(
         });
 
         return result;
-      }
+      },
     ),
 
     deleteMaintenance: os.deleteMaintenance.handler(async ({ input }) => {
@@ -256,5 +255,13 @@ export function createRouter(
       }
       return { success };
     }),
+
+    hasActiveMaintenanceWithSuppression:
+      os.hasActiveMaintenanceWithSuppression.handler(async ({ input }) => {
+        const suppressed = await service.hasActiveMaintenanceWithSuppression(
+          input.systemId,
+        );
+        return { suppressed };
+      }),
   });
 }

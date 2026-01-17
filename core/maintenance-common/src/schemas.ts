@@ -18,6 +18,7 @@ export const MaintenanceSchema = z.object({
   id: z.string(),
   title: z.string(),
   description: z.string().optional(),
+  suppressNotifications: z.boolean(),
   status: MaintenanceStatusEnum,
   startAt: z.date(),
   endAt: z.date(),
@@ -62,6 +63,7 @@ export const CreateMaintenanceInputSchema = z
   .object({
     title: z.string().min(1, "Title is required"),
     description: z.string().optional(),
+    suppressNotifications: z.boolean().optional().default(false),
     startAt: z.date(),
     endAt: z.date(),
     systemIds: z.array(z.string()).min(1, "At least one system is required"),
@@ -78,6 +80,7 @@ export const UpdateMaintenanceInputSchema = z.object({
   id: z.string(),
   title: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
+  suppressNotifications: z.boolean().optional(),
   startAt: z.date().optional(),
   endAt: z.date().optional(),
   systemIds: z.array(z.string()).min(1).optional(),

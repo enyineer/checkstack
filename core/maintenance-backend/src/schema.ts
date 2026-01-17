@@ -4,6 +4,7 @@ import {
   text,
   timestamp,
   primaryKey,
+  boolean,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -23,6 +24,9 @@ export const maintenances = pgTable("maintenances", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   description: text("description"),
+  suppressNotifications: boolean("suppress_notifications")
+    .notNull()
+    .default(false),
   status: maintenanceStatusEnum("status").notNull().default("scheduled"),
   startAt: timestamp("start_at").notNull(),
   endAt: timestamp("end_at").notNull(),
@@ -43,7 +47,7 @@ export const maintenanceSystems = pgTable(
   },
   (t) => ({
     pk: primaryKey(t.maintenanceId, t.systemId),
-  })
+  }),
 );
 
 /**

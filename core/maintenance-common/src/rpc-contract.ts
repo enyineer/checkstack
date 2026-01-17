@@ -25,7 +25,7 @@ export const maintenanceContract = {
           status: MaintenanceStatusEnum.optional(),
           systemId: z.string().optional(),
         })
-        .optional()
+        .optional(),
     )
     .output(z.object({ maintenances: z.array(MaintenanceWithSystemsSchema) })),
 
@@ -60,9 +60,9 @@ export const maintenanceContract = {
       z.object({
         maintenances: z.record(
           z.string(),
-          z.array(MaintenanceWithSystemsSchema)
+          z.array(MaintenanceWithSystemsSchema),
         ),
-      })
+      }),
     ),
 
   /** Create a new maintenance */
@@ -109,6 +109,18 @@ export const maintenanceContract = {
   })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
+
+  /** Check if a system has active maintenance with notification suppression enabled.
+   * Used by healthcheck to skip notifications during expected downtime.
+   * Service-to-service endpoint (not exposed to users).
+   */
+  hasActiveMaintenanceWithSuppression: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .input(z.object({ systemId: z.string() }))
+    .output(z.object({ suppressed: z.boolean() })),
 };
 
 // Export contract type
@@ -118,5 +130,5 @@ export type MaintenanceContract = typeof maintenanceContract;
 // Use: const client = rpcApi.forPlugin(MaintenanceApi);
 export const MaintenanceApi = createClientDefinition(
   maintenanceContract,
-  pluginMetadata
+  pluginMetadata,
 );

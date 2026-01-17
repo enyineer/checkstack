@@ -8,6 +8,13 @@
       "when": 1767319104427,
       "tag": "0000_numerous_shadow_king",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1768688736163,
+      "tag": "0001_tough_star_brand",
+      "breakpoints": true
     }
   ]
 }
