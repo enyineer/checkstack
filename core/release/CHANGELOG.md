@@ -1,5 +1,13 @@
 # @checkstack/release
 
+## 0.12.0
+
+### Minor Changes
+
+- cad3073: Fixed notification group subscription for catalog groups:
+  - Fixed group ID format using colon separator instead of dots and missing entity type prefix
+  - Fixed subscription button state not updating after subscribe/unsubscribe by using refetch instead of invalidateQueries
+
 ## 0.11.0
 
 ### Minor Changes
