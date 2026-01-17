@@ -12,7 +12,7 @@ import { Button, useTheme } from "@checkstack/ui";
  * Theme changes are saved to local storage via ThemeProvider.
  */
 export const NavbarThemeToggle = () => {
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
   const authApi = useApi(authApiRef);
   const { data: session, isPending } = authApi.useSession();
 
@@ -26,7 +26,7 @@ export const NavbarThemeToggle = () => {
     return;
   }
 
-  const isDark = theme === "dark";
+  const isDark = resolvedTheme === "dark";
 
   const handleToggle = () => {
     const newTheme = isDark ? "light" : "dark";

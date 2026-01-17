@@ -13,17 +13,17 @@ import { ThemeApi } from "@checkstack/theme-common";
  * Theme initialization is handled by ThemeSynchronizer component.
  */
 export const ThemeToggleMenuItem = () => {
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
   const themeClient = usePluginClient(ThemeApi);
   const setThemeMutation = themeClient.setTheme.useMutation();
 
-  const [isDark, setIsDark] = useState(theme === "dark");
+  const [isDark, setIsDark] = useState(resolvedTheme === "dark");
   const toast = useToast();
 
   // Update local state when theme changes (e.g., from ThemeSynchronizer)
   useEffect(() => {
-    setIsDark(theme === "dark");
-  }, [theme]);
+    setIsDark(resolvedTheme === "dark");
+  }, [resolvedTheme]);
 
   const handleToggle = async (checked: boolean) => {
     const newTheme = checked ? "dark" : "light";

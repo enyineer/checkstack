@@ -10,8 +10,8 @@ await loadPlugins();
 
 ReactDOM.createRoot(document.querySelector("#root")!).render(
   <React.StrictMode>
-    <ThemeProvider defaultTheme="light" storageKey="checkstack-ui-theme">
+    <ThemeProvider defaultTheme="system" storageKey="checkstack-ui-theme">
       <App />
     </ThemeProvider>
-  </React.StrictMode>
+  </React.StrictMode>,
 );
