@@ -57,10 +57,10 @@ interface GroupWithSystems extends Group {
   systems: System[];
 }
 
-const getGroupId = (groupId: string) => `${CATALOG_PLUGIN_ID}:${groupId}`;
+const getGroupId = (groupId: string) => `${CATALOG_PLUGIN_ID}.group.${groupId}`;
 
 const statusToVariant = (
-  status: string
+  status: string,
 ): "default" | "success" | "warning" | "error" => {
   switch (status) {
     case "healthy": {
@@ -112,7 +112,7 @@ export const Dashboard: React.FC = () => {
   const { data: incidentsData, isLoading: incidentsLoading } =
     incidentClient.listIncidents.useQuery(
       { includeResolved: false },
-      { staleTime: 30_000 }
+      { staleTime: 30_000 },
     );
   const incidents = incidentsData?.incidents ?? [];
 
@@ -120,7 +120,7 @@ export const Dashboard: React.FC = () => {
   const { data: maintenancesData, isLoading: maintenancesLoading } =
     maintenanceClient.listMaintenances.useQuery(
       { status: "in_progress" },
-      { staleTime: 30_000 }
+      { staleTime: 30_000 },
     );
   const maintenances = maintenancesData?.maintenances ?? [];
 
@@ -128,7 +128,7 @@ export const Dashboard: React.FC = () => {
   const { data: subscriptions = [] } =
     notificationClient.getSubscriptions.useQuery(
       {},
-      { enabled: !!session, staleTime: 60_000 }
+      { enabled: !!session, staleTime: 60_000 },
     );
 
   // Combined loading state
@@ -195,9 +195,9 @@ export const Dashboard: React.FC = () => {
       };
 
       setTerminalEntries((prev) =>
-        [newEntry, ...prev].slice(0, MAX_TERMINAL_ENTRIES)
+        [newEntry, ...prev].slice(0, MAX_TERMINAL_ENTRIES),
       );
-    }
+    },
   );
 
   // -------------------------------------------------------------------------
@@ -211,7 +211,7 @@ export const Dashboard: React.FC = () => {
   const isSubscribed = (groupId: string) => {
     const fullId = getGroupId(groupId);
     return subscriptions.some(
-      (s: EnrichedSubscription) => s.groupId === fullId
+      (s: EnrichedSubscription) => s.groupId === fullId,
     );
   };
 
@@ -224,7 +224,7 @@ export const Dashboard: React.FC = () => {
         onSettled: () => {
           setSubscriptionLoading((prev) => ({ ...prev, [groupId]: false }));
         },
-      }
+      },
     );
   };
 
@@ -237,7 +237,7 @@ export const Dashboard: React.FC = () => {
         onSettled: () => {
           setSubscriptionLoading((prev) => ({ ...prev, [groupId]: false }));
         },
-      }
+      },
     );
   };
 
@@ -262,7 +262,7 @@ export const Dashboard: React.FC = () => {
 
     // Collect all system IDs for bulk data fetching
     const allSystemIds = groupsWithSystems.flatMap((g) =>
-      g.systems.map((s) => s.id)
+      g.systems.map((s) => s.id),
     );
 
     return (

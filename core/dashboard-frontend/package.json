@@ -4,6 +4,7 @@
   "type": "module",
   "main": "src/index.tsx",
   "scripts": {
+    "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "bun run lint:code",
     "lint:code": "eslint . --max-warnings 0"
