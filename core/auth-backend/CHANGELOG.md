@@ -1,5 +1,17 @@
 # @checkstack/auth-backend
 
+## 0.3.0
+
+### Minor Changes
+
+- 993d81a: Export role ID constants (USERS_ROLE_ID, ANONYMOUS_ROLE_ID, APPLICATIONS_ROLE_ID) for consistent usage across the codebase. Added protection to prevent deleting users with the admin role.
+- df6ac7b: Added onboarding flow and user profile
+
+### Patch Changes
+
+- Updated dependencies [df6ac7b]
+  - @checkstack/auth-common@0.4.0
+
 ## 0.2.2
 
 ### Patch Changes

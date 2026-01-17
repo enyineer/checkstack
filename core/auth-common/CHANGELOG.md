@@ -1,5 +1,11 @@
 # @checkstack/auth-common
 
+## 0.4.0
+
+### Minor Changes
+
+- df6ac7b: Added onboarding flow and user profile
+
 ## 0.3.0
 
 ### Minor Changes
