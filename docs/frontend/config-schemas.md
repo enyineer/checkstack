@@ -288,11 +288,11 @@ const schema = z.object({
 - Dropdown selector when multiple types are available
 - Auto-detects initial editor type from existing value
 - Automatic format conversion when switching between types
-- Template autocomplete (`{{` syntax) when `templateProperties` are provided to `DynamicForm`
+- Template autocomplete ({% raw %}`{{`{% endraw %} syntax) when `templateProperties` are provided to `DynamicForm`
 - All formats serialize to a single string for storage
 
 **Template Autocomplete:**
-When the parent `DynamicForm` receives `templateProperties`, all applicable editor types (raw, json, yaml, xml, markdown) will show autocomplete suggestions when typing `{{`:
+When the parent `DynamicForm` receives `templateProperties`, all applicable editor types (raw, json, yaml, xml, markdown) will show autocomplete suggestions when typing {% raw %}`{{`{% endraw %}:
 
 ```tsx
 <DynamicForm
