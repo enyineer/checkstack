@@ -1,5 +1,12 @@
 # @checkstack/incident-frontend
 
+## 0.3.4
+
+### Patch Changes
+
+- Updated dependencies [cad3073]
+  - @checkstack/dashboard-frontend@0.3.3
+
 ## 0.3.3
 
 ### Patch Changes
