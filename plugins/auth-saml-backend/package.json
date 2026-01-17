@@ -1,0 +1,32 @@
+{
+  "name": "@checkstack/auth-saml-backend",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@checkstack/backend-api": "workspace:*",
+    "@checkstack/auth-backend": "workspace:*",
+    "@checkstack/auth-common": "workspace:*",
+    "@checkstack/common": "workspace:*",
+    "better-auth": "^1.4.9",
+    "samlify": "^2.8.11",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/test-utils-backend": "workspace:*",
+    "typescript": "^5.7.2"
+  },
+  "plugin": {
+    "id": "auth-saml-backend",
+    "name": "@checkstack/auth-saml-backend",
+    "type": "backend",
+    "displayName": "SAML Authentication (Backend)"
+  }
+}

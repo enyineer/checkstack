@@ -54,7 +54,7 @@ export const LoginPage = () => {
 
   // Query: Registration status
   const { data: registrationData } = authClient.getRegistrationStatus.useQuery(
-    {}
+    {},
   );
   const registrationAllowed = registrationData?.allowRegistration ?? true;
 
@@ -76,6 +76,11 @@ export const LoginPage = () => {
 
   const handleSocialLogin = async (provider: string) => {
     try {
+      // SAML uses a custom endpoint, not the better-auth OAuth flow
+      if (provider === "saml") {
+        globalThis.location.href = "/api/auth-saml/saml/login";
+        return;
+      }
       await authApi.signInWithSocial(provider);
       // Navigation will happen automatically after OAuth redirect
     } catch (error) {
@@ -142,8 +147,8 @@ export const LoginPage = () => {
             {hasCredential && hasSocial
               ? "Choose your preferred sign-in method"
               : hasCredential
-              ? "Enter your credentials to access the dashboard"
-              : "Continue with your account"}
+                ? "Enter your credentials to access the dashboard"
+                : "Continue with your account"}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -280,7 +285,7 @@ export const LoginNavbarAction = () => {
     authClient.listAccounts().then((result) => {
       if (result.data) {
         const hasCredential = result.data.some(
-          (account) => account.providerId === "credential"
+          (account) => account.providerId === "credential",
         );
         setHasCredentialAccount(hasCredential);
       }
@@ -295,7 +300,7 @@ export const LoginNavbarAction = () => {
   if (session?.user) {
     // Check if we have any bottom items to decide if we need a separator
     const bottomExtensions = pluginRegistry.getExtensions(
-      UserMenuItemsBottomSlot.id
+      UserMenuItemsBottomSlot.id,
     );
     const hasBottomItems = bottomExtensions.length > 0;
     const menuContext: UserMenuItemsContext = {
