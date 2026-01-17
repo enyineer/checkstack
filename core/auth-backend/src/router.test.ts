@@ -1,5 +1,11 @@
 import { describe, it, expect, mock } from "bun:test";
-import { createAuthRouter } from "./router";
+import {
+  createAuthRouter,
+  ADMIN_ROLE_ID,
+  USERS_ROLE_ID,
+  ANONYMOUS_ROLE_ID,
+  APPLICATIONS_ROLE_ID,
+} from "./router";
 import { createMockRpcContext } from "@checkstack/backend-api";
 import { call } from "@orpc/server";
 import { z } from "zod";
@@ -82,7 +88,7 @@ describe("Auth Router", () => {
     mockRegistry,
     async () => {},
     mockConfigService,
-    mockAccessRuleRegistry
+    mockAccessRuleRegistry,
   );
 
   it("getAccessRules returns current user access rules", async () => {
@@ -96,7 +102,7 @@ describe("Auth Router", () => {
 
     mockDb.select.mockImplementationOnce(() => ({
       from: mock(() =>
-        createChain([{ id: "1", email: "user1@test.com", name: "User 1" }])
+        createChain([{ id: "1", email: "user1@test.com", name: "User 1" }]),
       ),
     }));
     mockDb.select.mockImplementationOnce(() => ({
@@ -108,21 +114,32 @@ describe("Auth Router", () => {
     expect(result[0].roles).toContain("admin");
   });
 
-  it("deleteUser prevents deleting initial admin", async () => {
+  it("deleteUser prevents deleting users with admin role", async () => {
     const context = createMockRpcContext({ user: mockUser });
-    expect(
-      call(router.deleteUser, "initial-admin-id", { context })
-    ).rejects.toThrow("Cannot delete initial admin");
+
+    // Mock user has admin role
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() => createChain([{ roleId: ADMIN_ROLE_ID }])),
+    }));
+
+    await expect(
+      call(router.deleteUser, "admin-user-id", { context }),
+    ).rejects.toThrow("admin role");
   });
 
   it("deleteUser cascades to delete related records", async () => {
     const context = createMockRpcContext({ user: mockUser });
     const userId = "user-to-delete";
 
+    // Mock user has no admin role
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() => createChain([{ roleId: USERS_ROLE_ID }])),
+    }));
+
     // Track which tables had delete called on them
-    const deletedTables: any[] = [];
-    const mockTx: any = {
-      delete: mock((table: any) => {
+    const deletedTables: unknown[] = [];
+    const mockTx: unknown = {
+      delete: mock((table: unknown) => {
         deletedTables.push(table); // Track table
         return {
           where: mock(() => Promise.resolve()),
@@ -130,7 +147,9 @@ describe("Auth Router", () => {
       }),
     };
 
-    mockDb.transaction.mockImplementationOnce((cb: any) => cb(mockTx));
+    mockDb.transaction.mockImplementationOnce((cb: (tx: unknown) => unknown) =>
+      cb(mockTx),
+    );
 
     await call(router.deleteUser, userId, { context });
 
@@ -152,7 +171,7 @@ describe("Auth Router", () => {
     }));
     mockDb.select.mockImplementationOnce(() => ({
       from: mock(() =>
-        createChain([{ roleId: "admin", accessRuleId: "users.manage" }])
+        createChain([{ roleId: "admin", accessRuleId: "users.manage" }]),
       ),
     }));
 
@@ -168,7 +187,7 @@ describe("Auth Router", () => {
     const result = await call(
       router.updateUserRoles,
       { userId: "other-user", roles: ["admin"] },
-      { context }
+      { context },
     );
     // updateUserRoles returns void, so just check it completed
     expect(result).toBeUndefined();
@@ -182,8 +201,8 @@ describe("Auth Router", () => {
       call(
         router.updateUserRoles,
         { userId: "test-user", roles: ["admin"] },
-        { context }
-      )
+        { context },
+      ),
     ).rejects.toThrow("Cannot update your own roles");
   });
 
@@ -200,7 +219,7 @@ describe("Auth Router", () => {
     const result = await call(
       router.updateStrategy,
       { id: "credential", enabled: false },
-      { context }
+      { context },
     );
     expect(result.success).toBe(true);
     expect(mockConfigService.set).toHaveBeenCalled();
@@ -219,14 +238,14 @@ describe("Auth Router", () => {
     const result = await call(
       router.setRegistrationStatus,
       { allowRegistration: false },
-      { context }
+      { context },
     );
     expect(result.success).toBe(true);
     expect(mockConfigService.set).toHaveBeenCalledWith(
       "platform.registration",
       expect.anything(),
       1,
-      { allowRegistration: false }
+      { allowRegistration: false },
     );
   });
 
@@ -249,7 +268,7 @@ describe("Auth Router", () => {
     const result = await call(
       router.findUserByEmail,
       { email: "test@example.com" },
-      { context }
+      { context },
     );
     expect(result).toEqual({ id: "user-123" });
   });
@@ -264,7 +283,7 @@ describe("Auth Router", () => {
     const result = await call(
       router.findUserByEmail,
       { email: "nonexistent@example.com" },
-      { context }
+      { context },
     );
     expect(result).toBeUndefined();
   });
@@ -289,7 +308,7 @@ describe("Auth Router", () => {
         accountId: "ldapuser",
         password: "hashed-password",
       },
-      { context }
+      { context },
     );
 
     expect(result.created).toBe(true);
@@ -322,7 +341,7 @@ describe("Auth Router", () => {
         password: "hashed-password",
         autoUpdateUser: true,
       },
-      { context }
+      { context },
     );
 
     expect(result.created).toBe(false);
@@ -342,7 +361,7 @@ describe("Auth Router", () => {
         token: "session-token",
         expiresAt,
       },
-      { context }
+      { context },
     );
 
     expect(result.sessionId).toBeDefined();
@@ -371,7 +390,7 @@ describe("Auth Router", () => {
         name: "New User",
         password: "ValidPass123",
       },
-      { context }
+      { context },
     );
 
     expect(result.userId).toBeDefined();
@@ -390,8 +409,8 @@ describe("Auth Router", () => {
           name: "Test User",
           password: "weakpass1",
         },
-        { context }
-      )
+        { context },
+      ),
     ).rejects.toThrow("uppercase");
   });
 
@@ -414,8 +433,8 @@ describe("Auth Router", () => {
           name: "Existing User",
           password: "ValidPass123",
         },
-        { context }
-      )
+        { context },
+      ),
     ).rejects.toThrow("already exists");
   });
 
@@ -433,8 +452,374 @@ describe("Auth Router", () => {
           name: "Test User",
           password: "ValidPass123",
         },
-        { context }
-      )
+        { context },
+      ),
     ).rejects.toThrow("not enabled");
+  });
+
+  // ==========================================================================
+  // ONBOARDING ENDPOINT TESTS
+  // ==========================================================================
+
+  it("getOnboardingStatus returns needsOnboarding true when no users exist", async () => {
+    const context = createMockRpcContext({ user: undefined });
+
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() => createChain([])),
+    }));
+
+    const result = await call(router.getOnboardingStatus, undefined, {
+      context,
+    });
+    expect(result.needsOnboarding).toBe(true);
+  });
+
+  it("getOnboardingStatus returns needsOnboarding false when users exist", async () => {
+    const context = createMockRpcContext({ user: undefined });
+
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() => createChain([{ id: "existing-user" }])),
+    }));
+
+    const result = await call(router.getOnboardingStatus, undefined, {
+      context,
+    });
+    expect(result.needsOnboarding).toBe(false);
+  });
+
+  it("completeOnboarding creates first admin user", async () => {
+    const context = createMockRpcContext({ user: undefined });
+
+    // No existing users
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() => createChain([])),
+    }));
+
+    const result = await call(
+      router.completeOnboarding,
+      {
+        name: "Admin User",
+        email: "admin@example.com",
+        password: "ValidPass123",
+      },
+      { context },
+    );
+
+    expect(result.success).toBe(true);
+    expect(mockDb.transaction).toHaveBeenCalled();
+  });
+
+  it("completeOnboarding rejects when users already exist", async () => {
+    const context = createMockRpcContext({ user: undefined });
+
+    // Existing user
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() => createChain([{ id: "existing-user" }])),
+    }));
+
+    expect(
+      call(
+        router.completeOnboarding,
+        {
+          name: "Admin User",
+          email: "admin@example.com",
+          password: "ValidPass123",
+        },
+        { context },
+      ),
+    ).rejects.toThrow("already been completed");
+  });
+
+  it("completeOnboarding rejects weak password", async () => {
+    const context = createMockRpcContext({ user: undefined });
+
+    // No existing users
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() => createChain([])),
+    }));
+
+    expect(
+      call(
+        router.completeOnboarding,
+        {
+          name: "Admin User",
+          email: "admin@example.com",
+          password: "weak",
+        },
+        { context },
+      ),
+    ).rejects.toThrow();
+  });
+
+  // ==========================================================================
+  // USER PROFILE ENDPOINT TESTS
+  // ==========================================================================
+
+  it("getCurrentUserProfile returns profile with credential account flag", async () => {
+    const context = createMockRpcContext({ user: mockUser });
+
+    // Mock user data
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() =>
+        createChain([
+          { id: "test-user", name: "Test", email: "test@test.com" },
+        ]),
+      ),
+    }));
+    // Mock credential account check
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() => createChain([{ providerId: "credential" }])),
+    }));
+
+    const result = await call(router.getCurrentUserProfile, undefined, {
+      context,
+    });
+    expect(result.id).toBe("test-user");
+    expect(result.hasCredentialAccount).toBe(true);
+  });
+
+  it("getCurrentUserProfile returns false for OAuth-only users", async () => {
+    const context = createMockRpcContext({ user: mockUser });
+
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() =>
+        createChain([
+          { id: "test-user", name: "Test", email: "test@test.com" },
+        ]),
+      ),
+    }));
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() => createChain([])), // No credential account
+    }));
+
+    const result = await call(router.getCurrentUserProfile, undefined, {
+      context,
+    });
+    expect(result.hasCredentialAccount).toBe(false);
+  });
+
+  it("updateCurrentUser updates name for any user", async () => {
+    const context = createMockRpcContext({ user: mockUser });
+
+    mockDb.update = mock(() => ({
+      set: mock(() => ({
+        where: mock(() => Promise.resolve()),
+      })),
+    }));
+
+    await call(router.updateCurrentUser, { name: "New Name" }, { context });
+
+    expect(mockDb.update).toHaveBeenCalled();
+  });
+
+  it("updateCurrentUser allows email update for credential users", async () => {
+    const context = createMockRpcContext({ user: mockUser });
+
+    // Has credential account
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() => createChain([{ providerId: "credential" }])),
+    }));
+    // No duplicate email
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() => createChain([])),
+    }));
+
+    mockDb.update = mock(() => ({
+      set: mock(() => ({
+        where: mock(() => Promise.resolve()),
+      })),
+    }));
+
+    await call(
+      router.updateCurrentUser,
+      { email: "new@example.com" },
+      { context },
+    );
+
+    expect(mockDb.update).toHaveBeenCalled();
+  });
+
+  it("updateCurrentUser rejects email update for OAuth users", async () => {
+    const context = createMockRpcContext({ user: mockUser });
+
+    // No credential account
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() => createChain([])),
+    }));
+
+    expect(
+      call(router.updateCurrentUser, { email: "new@example.com" }, { context }),
+    ).rejects.toThrow("credential-based accounts");
+  });
+
+  // ==========================================================================
+  // ROLE CRUD ENDPOINT TESTS
+  // ==========================================================================
+
+  it("createRole creates role with access rules", async () => {
+    const context = createMockRpcContext({ user: mockUser });
+
+    const result = await call(
+      router.createRole,
+      {
+        name: "Custom Role",
+        description: "A custom role",
+        accessRules: ["auth-backend.users.read"],
+      },
+      { context },
+    );
+
+    expect(mockDb.transaction).toHaveBeenCalled();
+  });
+
+  it("deleteRole prevents deleting system roles", async () => {
+    // Use a user without admin role to properly test system role protection
+    const nonAdminUser = {
+      type: "user" as const,
+      id: "non-admin-user",
+      accessRules: ["*"],
+      roles: ["users"],
+    } as ReturnType<typeof createMockRpcContext>["user"];
+    const context = createMockRpcContext({ user: nonAdminUser });
+
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() => createChain([{ id: ADMIN_ROLE_ID, isSystem: true }])),
+    }));
+
+    expect(call(router.deleteRole, ADMIN_ROLE_ID, { context })).rejects.toThrow(
+      "system role",
+    );
+  });
+
+  it("deleteRole prevents deleting own roles", async () => {
+    const userWithRole = {
+      ...mockUser,
+      roles: ["custom-role"],
+    };
+    const context = createMockRpcContext({ user: userWithRole });
+
+    expect(call(router.deleteRole, "custom-role", { context })).rejects.toThrow(
+      "currently have",
+    );
+  });
+
+  it("getAccessRules returns registry access rules", async () => {
+    const context = createMockRpcContext({ user: mockUser });
+
+    const result = await call(router.getAccessRules, undefined, { context });
+    expect(
+      result.some((r: { id: string }) => r.id === "auth-backend.users.read"),
+    ).toBe(true);
+  });
+
+  it("updateUserRoles prevents assigning anonymous role", async () => {
+    const context = createMockRpcContext({ user: mockUser });
+
+    expect(
+      call(
+        router.updateUserRoles,
+        { userId: "other-user", roles: [ANONYMOUS_ROLE_ID] },
+        { context },
+      ),
+    ).rejects.toThrow("anonymous");
+  });
+
+  // ==========================================================================
+  // APPLICATION MANAGEMENT ENDPOINT TESTS
+  // ==========================================================================
+
+  it("getApplications returns applications with roles", async () => {
+    const context = createMockRpcContext({ user: mockUser });
+
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() =>
+        createChain([
+          {
+            id: "app-1",
+            name: "Test App",
+            description: "Test description",
+            createdById: "user-1",
+            createdAt: new Date(),
+            lastUsedAt: null,
+          },
+        ]),
+      ),
+    }));
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() =>
+        createChain([{ applicationId: "app-1", roleId: APPLICATIONS_ROLE_ID }]),
+      ),
+    }));
+
+    const result = await call(router.getApplications, undefined, { context });
+    expect(result).toHaveLength(1);
+    expect(result[0].roles).toContain(APPLICATIONS_ROLE_ID);
+  });
+
+  it("createApplication creates application with secret", async () => {
+    const context = createMockRpcContext({ user: mockUser });
+
+    const result = await call(
+      router.createApplication,
+      { name: "New App", description: "Test application" },
+      { context },
+    );
+
+    expect(result.application.name).toBe("New App");
+    expect(result.secret).toMatch(/^ck_/); // Secret has proper prefix
+    expect(mockDb.transaction).toHaveBeenCalled();
+  });
+
+  it("deleteApplication handles not found", async () => {
+    const context = createMockRpcContext({ user: mockUser });
+
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() => createChain([])), // No application found
+    }));
+
+    await expect(
+      call(router.deleteApplication, "non-existent-id", { context }),
+    ).rejects.toThrow("not found");
+  });
+
+  it("regenerateApplicationSecret returns new secret", async () => {
+    const context = createMockRpcContext({ user: mockUser });
+
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() => createChain([{ id: "app-1" }])),
+    }));
+
+    mockDb.update = mock(() => ({
+      set: mock(() => ({
+        where: mock(() => Promise.resolve()),
+      })),
+    }));
+
+    const result = await call(router.regenerateApplicationSecret, "app-1", {
+      context,
+    });
+
+    expect(result.secret).toMatch(/^ck_app-1_/);
+    expect(mockDb.update).toHaveBeenCalled();
+  });
+
+  // ==========================================================================
+  // PUBLIC ENDPOINT TESTS
+  // ==========================================================================
+
+  it("getEnabledStrategies returns only enabled strategies", async () => {
+    const context = createMockRpcContext({ user: undefined });
+
+    // Mock credential enabled (default)
+    mockConfigService.get.mockResolvedValueOnce(undefined); // Uses default
+
+    const result = await call(router.getEnabledStrategies, undefined, {
+      context,
+    });
+
+    // Should contain the credential strategy
+    expect(result.some((s: { id: string }) => s.id === "credential")).toBe(
+      true,
+    );
   });
 });

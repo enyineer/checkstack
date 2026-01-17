@@ -32,6 +32,9 @@ import {
 } from "./platform-registration-config";
 
 export const ADMIN_ROLE_ID = "admin";
+export const USERS_ROLE_ID = "users";
+export const ANONYMOUS_ROLE_ID = "anonymous";
+export const APPLICATIONS_ROLE_ID = "applications";
 
 /**
  * Creates the auth router using contract-based implementation.
@@ -188,9 +191,15 @@ export const createAuthRouter = (
   });
 
   const deleteUser = os.deleteUser.handler(async ({ input: id, context }) => {
-    if (id === "initial-admin-id") {
+    // Check if user has admin role - prevent deletion to avoid lockout
+    const userRoles = await internalDb
+      .select({ roleId: schema.userRole.roleId })
+      .from(schema.userRole)
+      .where(eq(schema.userRole.userId, id));
+
+    if (userRoles.some((ur) => ur.roleId === ADMIN_ROLE_ID)) {
       throw new ORPCError("FORBIDDEN", {
-        message: "Cannot delete initial admin",
+        message: "Cannot delete users with the admin role",
       });
     }
 
@@ -229,7 +238,7 @@ export const createAuthRouter = (
         .map((rp) => rp.accessRuleId),
       isSystem: role.isSystem || false,
       // Anonymous role cannot be assigned to users - it's for unauthenticated access
-      isAssignable: role.id !== "anonymous",
+      isAssignable: role.id !== ANONYMOUS_ROLE_ID,
     }));
   });
 
@@ -294,8 +303,8 @@ export const createAuthRouter = (
       });
     }
 
-    const isUsersRole = id === "users";
-    const isAdminRole = id === "admin";
+    const isUsersRole = id === USERS_ROLE_ID;
+    const isAdminRole = id === ADMIN_ROLE_ID;
 
     // System roles can have name/description edited, but not deleted
     // Admin role: access rules cannot be changed (wildcard access)
@@ -347,7 +356,7 @@ export const createAuthRouter = (
     }
 
     // Track disabled public default access rules for "anonymous" role
-    const isAnonymousRole = id === "anonymous";
+    const isAnonymousRole = id === ANONYMOUS_ROLE_ID;
     if (isAnonymousRole) {
       const allPerms = accessRuleRegistry.getAccessRules();
       const publicDefaultPermIds = allPerms
@@ -470,7 +479,7 @@ export const createAuthRouter = (
       }
 
       // Prevent assignment of the "anonymous" role - it's reserved for unauthenticated users
-      if (roles.includes("anonymous")) {
+      if (roles.includes(ANONYMOUS_ROLE_ID)) {
         throw new ORPCError("BAD_REQUEST", {
           message: "The 'anonymous' role cannot be assigned to users",
         });
@@ -785,7 +794,7 @@ export const createAuthRouter = (
       const rolePerms = await internalDb
         .select()
         .from(schema.roleAccessRule)
-        .where(eq(schema.roleAccessRule.roleId, "anonymous"));
+        .where(eq(schema.roleAccessRule.roleId, ANONYMOUS_ROLE_ID));
       return rolePerms.map((rp) => rp.accessRuleId);
     },
   );
@@ -1004,7 +1013,7 @@ export const createAuthRouter = (
         // Assign "users" role to new user
         await tx.insert(schema.userRole).values({
           userId,
-          roleId: "users",
+          roleId: USERS_ROLE_ID,
         });
       });
 
@@ -1066,7 +1075,7 @@ export const createAuthRouter = (
       const now = new Date();
 
       // Default role for all applications
-      const defaultRole = "applications";
+      const defaultRole = APPLICATIONS_ROLE_ID;
 
       await internalDb.transaction(async (tx) => {
         // Create application
