@@ -1,11 +1,8 @@
 import React from "react";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
-import Editor from "react-simple-code-editor";
-// @ts-expect-error - prismjs doesn't have types for deep imports in some environments
-import { highlight, languages } from "prismjs/components/prism-core";
-import "prismjs/components/prism-json";
 
+import { CodeEditor } from "../CodeEditor";
 import type { JsonFieldProps } from "./types";
 
 const ajv = new Ajv({ allErrors: true, strict: false });
@@ -21,7 +18,7 @@ export const JsonField: React.FC<JsonFieldProps> = ({
   onChange,
 }) => {
   const [internalValue, setInternalValue] = React.useState(
-    JSON.stringify(value || {}, undefined, 2)
+    JSON.stringify(value || {}, undefined, 2),
   );
   const [error, setError] = React.useState<string | undefined>();
   const lastPropValue = React.useRef(value);
@@ -59,7 +56,7 @@ export const JsonField: React.FC<JsonFieldProps> = ({
         setError(
           validateFn.errors
             ?.map((e) => `${e.instancePath} ${e.message}`)
-            .join(", ")
+            .join(", "),
         );
         return false;
       }
@@ -71,27 +68,24 @@ export const JsonField: React.FC<JsonFieldProps> = ({
     }
   };
 
+  const handleChange = (code: string) => {
+    setInternalValue(code);
+    const parsed = validate(code);
+    if (parsed !== false) {
+      lastPropValue.current = parsed;
+      onChange(parsed);
+    }
+  };
+
   return (
     <div className="space-y-2">
-      <div className="min-h-[100px] w-full rounded-md border border-input bg-background font-mono text-sm focus-within:ring-2 focus-within:ring-ring focus-within:border-transparent transition-all overflow-hidden box-border">
-        <Editor
-          id={id}
-          value={internalValue}
-          onValueChange={(code) => {
-            setInternalValue(code);
-            const parsed = validate(code);
-            if (parsed !== false) {
-              lastPropValue.current = parsed;
-              onChange(parsed);
-            }
-          }}
-          highlight={(code) => highlight(code, languages.json)}
-          padding={10}
-          style={{
-            minHeight: "100px",
-          }}
-        />
-      </div>
+      <CodeEditor
+        id={id}
+        value={internalValue}
+        onChange={handleChange}
+        language="json"
+        minHeight="100px"
+      />
       {error && <p className="text-xs text-destructive font-medium">{error}</p>}
     </div>
   );
