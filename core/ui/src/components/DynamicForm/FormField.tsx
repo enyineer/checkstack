@@ -17,7 +17,7 @@ import {
 } from "../../index";
 
 import type { FormFieldProps, JsonSchemaProperty } from "./types";
-import { getCleanDescription } from "./utils";
+import { getCleanDescription, NONE_SENTINEL } from "./utils";
 import { DynamicOptionsField } from "./DynamicOptionsField";
 import { JsonField } from "./JsonField";
 
@@ -84,12 +84,22 @@ export const FormField: React.FC<FormFieldProps> = ({
         <div className="relative">
           <Select
             value={(value as string) || (propSchema.default as string) || ""}
-            onValueChange={(val) => onChange(val)}
+            onValueChange={(val) =>
+              onChange(val === NONE_SENTINEL ? undefined : val)
+            }
           >
             <SelectTrigger id={id}>
               <SelectValue placeholder={`Select ${label}`} />
             </SelectTrigger>
             <SelectContent>
+              {!isRequired && (
+                <SelectItem
+                  value={NONE_SENTINEL}
+                  className="text-muted-foreground"
+                >
+                  None
+                </SelectItem>
+              )}
               {propSchema.enum.map((opt: string) => (
                 <SelectItem key={opt} value={opt}>
                   {opt}
@@ -291,7 +301,7 @@ export const FormField: React.FC<FormFieldProps> = ({
             onChange(
               propSchema.type === "integer"
                 ? Number.parseInt(e.target.value, 10)
-                : Number.parseFloat(e.target.value)
+                : Number.parseFloat(e.target.value),
             )
           }
         />
@@ -390,7 +400,7 @@ export const FormField: React.FC<FormFieldProps> = ({
           const newItem: Record<string, unknown> = {};
           // Find discriminator and set all properties with defaults
           for (const [propKey, propDef] of Object.entries(
-            firstVariant.properties
+            firstVariant.properties,
           )) {
             if (propDef.const !== undefined) {
               // This is the discriminator field
@@ -489,7 +499,7 @@ export const FormField: React.FC<FormFieldProps> = ({
     // Find discriminator: the field that has "const" in each variant
     let discriminatorField: string | undefined;
     for (const [fieldName, fieldSchema] of Object.entries(
-      firstVariant.properties
+      firstVariant.properties,
     )) {
       if (fieldSchema.const !== undefined) {
         discriminatorField = fieldName;
@@ -547,7 +557,7 @@ export const FormField: React.FC<FormFieldProps> = ({
                 };
                 // Set defaults for other properties
                 for (const [propKey, propDef] of Object.entries(
-                  newVariant.properties || {}
+                  newVariant.properties || {},
                 )) {
                   if (
                     propKey !== discriminatorField &&

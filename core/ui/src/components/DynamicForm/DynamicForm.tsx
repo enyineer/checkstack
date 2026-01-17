@@ -2,31 +2,9 @@ import React from "react";
 
 import { EmptyState } from "../../index";
 
-import type { DynamicFormProps, JsonSchemaProperty } from "./types";
-import { extractDefaults } from "./utils";
+import type { DynamicFormProps } from "./types";
+import { extractDefaults, isValueEmpty } from "./utils";
 import { FormField } from "./FormField";
-
-/**
- * Check if a value is considered "empty" for validation purposes.
- */
-function isValueEmpty(val: unknown, propSchema: JsonSchemaProperty): boolean {
-  if (val === undefined || val === null) return true;
-  if (typeof val === "string" && val.trim() === "") return true;
-  // For arrays, check if empty
-  if (Array.isArray(val) && val.length === 0) return true;
-  // For objects (nested schemas), recursively check required fields
-  if (propSchema.type === "object" && propSchema.properties) {
-    const objVal = val as Record<string, unknown>;
-    const requiredKeys = propSchema.required ?? [];
-    for (const key of requiredKeys) {
-      const nestedPropSchema = propSchema.properties[key];
-      if (nestedPropSchema && isValueEmpty(objVal[key], nestedPropSchema)) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
 
 /**
  * DynamicForm generates a form from a JSON Schema.

@@ -12,7 +12,7 @@ import {
 } from "../../index";
 
 import type { DynamicOptionsFieldProps, ResolverOption } from "./types";
-import { getCleanDescription } from "./utils";
+import { getCleanDescription, NONE_SENTINEL } from "./utils";
 
 /**
  * Field component for dynamically resolved options.
@@ -72,7 +72,7 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
       .catch((error_) => {
         if (!cancelled) {
           setError(
-            error_ instanceof Error ? error_.message : "Failed to load options"
+            error_ instanceof Error ? error_.message : "Failed to load options",
           );
           setLoading(false);
         }
@@ -140,24 +140,41 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
                     No matching options
                   </div>
                 ) : (
-                  filteredOptions.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => {
-                        onChange(opt.value);
-                        setOpen(false);
-                        setSearchQuery("");
-                      }}
-                      className={`w-full text-left px-3 py-1.5 text-sm rounded-sm hover:bg-accent hover:text-accent-foreground ${
-                        opt.value === value
-                          ? "bg-accent text-accent-foreground"
-                          : ""
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))
+                  <>
+                    {!isRequired && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onChange();
+                          setOpen(false);
+                          setSearchQuery("");
+                        }}
+                        className={`w-full text-left px-3 py-1.5 text-sm rounded-sm hover:bg-accent hover:text-accent-foreground text-muted-foreground ${
+                          value ? "" : "bg-accent text-accent-foreground"
+                        }`}
+                      >
+                        None
+                      </button>
+                    )}
+                    {filteredOptions.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => {
+                          onChange(opt.value);
+                          setOpen(false);
+                          setSearchQuery("");
+                        }}
+                        className={`w-full text-left px-3 py-1.5 text-sm rounded-sm hover:bg-accent hover:text-accent-foreground ${
+                          opt.value === value
+                            ? "bg-accent text-accent-foreground"
+                            : ""
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </>
                 )}
               </div>
             </div>
@@ -193,7 +210,9 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
         ) : (
           <Select
             value={(value as string) || ""}
-            onValueChange={(val) => onChange(val)}
+            onValueChange={(val) =>
+              onChange(val === NONE_SENTINEL ? undefined : val)
+            }
             disabled={options.length === 0}
           >
             <SelectTrigger id={id}>
@@ -206,6 +225,14 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
               />
             </SelectTrigger>
             <SelectContent>
+              {!isRequired && (
+                <SelectItem
+                  value={NONE_SENTINEL}
+                  className="text-muted-foreground"
+                >
+                  None
+                </SelectItem>
+              )}
               {options.map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}

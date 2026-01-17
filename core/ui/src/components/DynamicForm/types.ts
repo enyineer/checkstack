@@ -8,8 +8,7 @@ import type {
  * JSON Schema property with DynamicForm-specific x-* extensions for config rendering.
  * Uses the generic core type for proper recursive typing.
  */
-export interface JsonSchemaProperty
-  extends JsonSchemaPropertyCore<JsonSchemaProperty> {
+export interface JsonSchemaProperty extends JsonSchemaPropertyCore<JsonSchemaProperty> {
   // Config-specific x-* extensions
   "x-secret"?: boolean; // Field contains sensitive data
   "x-color"?: boolean; // Field is a color picker
@@ -27,7 +26,7 @@ export interface ResolverOption {
 
 /** Function that resolves dynamic options, receives form values as context */
 export type OptionsResolver = (
-  formValues: Record<string, unknown>
+  formValues: Record<string, unknown>,
 ) => Promise<ResolverOption[]>;
 
 /**
@@ -66,7 +65,8 @@ export interface FormFieldProps {
   formValues: Record<string, unknown>;
   optionsResolvers?: Record<string, OptionsResolver>;
   templateProperties?: TemplateProperty[];
-  onChange: (val: unknown) => void;
+  /** Callback when value changes. Omit val to clear the field. */
+  onChange: (val?: unknown) => void;
 }
 
 /** Props for the DynamicOptionsField component */
@@ -81,7 +81,8 @@ export interface DynamicOptionsFieldProps {
   searchable?: boolean;
   formValues: Record<string, unknown>;
   optionsResolvers: Record<string, OptionsResolver>;
-  onChange: (val: unknown) => void;
+  /** Callback when value changes. Omit val to clear the field. */
+  onChange: (val?: unknown) => void;
 }
 
 /** Props for the JsonField component */
