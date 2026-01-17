@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/auth-github-backend",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "type": "module",
   "main": "src/index.ts",
   "exports": {

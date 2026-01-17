@@ -1,5 +1,16 @@
 # @checkstack/auth-frontend
 
+## 0.4.0
+
+### Minor Changes
+
+- df6ac7b: Added onboarding flow and user profile
+
+### Patch Changes
+
+- Updated dependencies [df6ac7b]
+  - @checkstack/auth-common@0.4.0
+
 ## 0.3.1
 
 ### Patch Changes

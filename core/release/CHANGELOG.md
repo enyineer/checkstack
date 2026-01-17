@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.9.0
+
+### Minor Changes
+
+- df6ac7b: Added onboarding flow and user profile
+
 ## 0.8.0
 
 ### Minor Changes
