@@ -109,6 +109,26 @@ export const authContract = {
     access: [],
   }).output(RegistrationStatusSchema),
 
+  getOnboardingStatus: proc({
+    operationType: "query",
+    userType: "anonymous",
+    access: [],
+  }).output(z.object({ needsOnboarding: z.boolean() })),
+
+  completeOnboarding: proc({
+    operationType: "mutation",
+    userType: "anonymous",
+    access: [],
+  })
+    .input(
+      z.object({
+        name: z.string().min(1),
+        email: z.string().email(),
+        password: z.string(),
+      }),
+    )
+    .output(z.object({ success: z.boolean() })),
+
   // ==========================================================================
   // AUTHENTICATED ENDPOINTS (userType: "authenticated")
   // ==========================================================================
@@ -118,6 +138,32 @@ export const authContract = {
     userType: "authenticated",
     access: [],
   }).output(z.object({ accessRules: z.array(z.string()) })),
+
+  getCurrentUserProfile: proc({
+    operationType: "query",
+    userType: "user",
+    access: [],
+  }).output(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      email: z.string(),
+      hasCredentialAccount: z.boolean(),
+    }),
+  ),
+
+  updateCurrentUser: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [],
+  })
+    .input(
+      z.object({
+        name: z.string().min(1).optional(),
+        email: z.string().email().optional(),
+      }),
+    )
+    .output(z.void()),
 
   // ==========================================================================
   // USER MANAGEMENT (userType: "user" with access)
@@ -179,7 +225,7 @@ export const authContract = {
         name: z.string(),
         description: z.string().optional(),
         accessRules: z.array(z.string()),
-      })
+      }),
     )
     .output(z.void()),
 
@@ -194,7 +240,7 @@ export const authContract = {
         name: z.string().optional(),
         description: z.string().optional(),
         accessRules: z.array(z.string()),
-      })
+      }),
     )
     .output(z.void()),
 
@@ -226,7 +272,7 @@ export const authContract = {
         id: z.string(),
         enabled: z.boolean(),
         config: z.record(z.string(), z.unknown()).optional(),
-      })
+      }),
     )
     .output(z.object({ success: z.boolean() })),
 
@@ -301,7 +347,7 @@ export const authContract = {
           email: z.string(),
           name: z.string().nullable(),
         })
-        .optional()
+        .optional(),
     ),
 
   filterUsersByAccessRule: proc({
@@ -313,7 +359,7 @@ export const authContract = {
       z.object({
         userIds: z.array(z.string()),
         accessRule: z.string(),
-      })
+      }),
     )
     .output(z.array(z.string())),
 
@@ -335,8 +381,8 @@ export const authContract = {
         createdById: z.string(),
         createdAt: z.coerce.date(),
         lastUsedAt: z.coerce.date().optional().nullable(),
-      })
-    )
+      }),
+    ),
   ),
 
   createApplication: proc({
@@ -348,7 +394,7 @@ export const authContract = {
       z.object({
         name: z.string().min(1).max(100),
         description: z.string().max(500).optional(),
-      })
+      }),
     )
     .output(
       z.object({
@@ -361,7 +407,7 @@ export const authContract = {
           createdAt: z.coerce.date(),
         }),
         secret: z.string(),
-      })
+      }),
     ),
 
   updateApplication: proc({
@@ -375,7 +421,7 @@ export const authContract = {
         name: z.string().optional(),
         description: z.string().optional().nullable(),
         roles: z.array(z.string()).optional(),
-      })
+      }),
     )
     .output(z.void()),
 
@@ -411,8 +457,8 @@ export const authContract = {
         description: z.string().optional().nullable(),
         memberCount: z.number(),
         isManager: z.boolean(),
-      })
-    )
+      }),
+    ),
   ),
 
   getTeam: proc({
@@ -428,13 +474,13 @@ export const authContract = {
           name: z.string(),
           description: z.string().optional().nullable(),
           members: z.array(
-            z.object({ id: z.string(), name: z.string(), email: z.string() })
+            z.object({ id: z.string(), name: z.string(), email: z.string() }),
           ),
           managers: z.array(
-            z.object({ id: z.string(), name: z.string(), email: z.string() })
+            z.object({ id: z.string(), name: z.string(), email: z.string() }),
           ),
         })
-        .optional()
+        .optional(),
     ),
 
   createTeam: proc({
@@ -446,7 +492,7 @@ export const authContract = {
       z.object({
         name: z.string().min(1).max(100),
         description: z.string().max(500).optional(),
-      })
+      }),
     )
     .output(z.object({ id: z.string() })),
 
@@ -460,7 +506,7 @@ export const authContract = {
         id: z.string(),
         name: z.string().optional(),
         description: z.string().optional().nullable(),
-      })
+      }),
     )
     .output(z.void()),
 
@@ -517,8 +563,8 @@ export const authContract = {
           teamName: z.string(),
           canRead: z.boolean(),
           canManage: z.boolean(),
-        })
-      )
+        }),
+      ),
     ),
 
   setResourceTeamAccess: proc({
@@ -533,7 +579,7 @@ export const authContract = {
         teamId: z.string(),
         canRead: z.boolean().optional(),
         canManage: z.boolean().optional(),
-      })
+      }),
     )
     .output(z.void()),
 
@@ -547,7 +593,7 @@ export const authContract = {
         resourceType: z.string(),
         resourceId: z.string(),
         teamId: z.string(),
-      })
+      }),
     )
     .output(z.void()),
 
@@ -569,7 +615,7 @@ export const authContract = {
         resourceType: z.string(),
         resourceId: z.string(),
         teamOnly: z.boolean(),
-      })
+      }),
     )
     .output(z.void()),
 
@@ -590,7 +636,7 @@ export const authContract = {
         resourceId: z.string(),
         action: z.enum(["read", "manage"]),
         hasGlobalAccess: z.boolean(),
-      })
+      }),
     )
     .output(z.object({ hasAccess: z.boolean() })),
 
@@ -607,7 +653,7 @@ export const authContract = {
         resourceIds: z.array(z.string()),
         action: z.enum(["read", "manage"]),
         hasGlobalAccess: z.boolean(),
-      })
+      }),
     )
     .output(z.array(z.string())),
 

@@ -8,6 +8,7 @@ import {
   NavbarRightSlot,
   UserMenuItemsSlot,
   UserMenuItemsBottomSlot,
+  NavbarLeftSlot,
 } from "@checkstack/frontend-api";
 import {
   LoginPage,
@@ -19,6 +20,8 @@ import { AuthErrorPage } from "./components/AuthErrorPage";
 import { ForgotPasswordPage } from "./components/ForgotPasswordPage";
 import { ResetPasswordPage } from "./components/ResetPasswordPage";
 import { ChangePasswordPage } from "./components/ChangePasswordPage";
+import { OnboardingPage } from "./components/OnboardingPage";
+import { ProfilePage } from "./components/ProfilePage";
 import { authApiRef, AuthApi, AuthSession } from "./api";
 import { getAuthClientLazy } from "./lib/auth-client";
 
@@ -26,7 +29,7 @@ import { useAccessRules } from "./hooks/useAccessRules";
 
 import type { AccessRule } from "@checkstack/common";
 import { useNavigate } from "react-router-dom";
-import { Settings2, Key } from "lucide-react";
+import { Settings2, User } from "lucide-react";
 import { DropdownMenuItem } from "@checkstack/ui";
 import { UserMenuItemsContext } from "@checkstack/frontend-api";
 import { AuthSettingsPage } from "./components/AuthSettingsPage";
@@ -36,6 +39,7 @@ import {
   pluginMetadata,
 } from "@checkstack/auth-common";
 import { resolveRoute } from "@checkstack/common";
+import { OnboardingCheck } from "./components/OnboardingCheck";
 
 /**
  * Unified access API implementation.
@@ -108,7 +112,7 @@ class BetterAuthApi implements AuthApi {
       provider,
       callbackURL: frontendUrl,
       errorCallbackURL: `${frontendUrl}${resolveRoute(
-        authRoutes.routes.error
+        authRoutes.routes.error,
       )}`,
     });
   }
@@ -194,6 +198,14 @@ export const authPlugin = createFrontendPlugin({
       route: authRoutes.routes.changePassword,
       element: <ChangePasswordPage />,
     },
+    {
+      route: authRoutes.routes.profile,
+      element: <ProfilePage />,
+    },
+    {
+      route: authRoutes.routes.onboarding,
+      element: <OnboardingPage />,
+    },
   ],
   extensions: [
     {
@@ -222,22 +234,16 @@ export const authPlugin = createFrontendPlugin({
       },
     }),
     createSlotExtension(UserMenuItemsSlot, {
-      id: "auth.user-menu.change-password",
-      component: ({ hasCredentialAccount }: UserMenuItemsContext) => {
+      id: "auth.user-menu.profile",
+      component: () => {
         const navigate = useNavigate();
-
-        // Only show for credential-authenticated users
-        // The changePassword API requires current password, so only credential users can use it
-        if (!hasCredentialAccount) return <React.Fragment />;
 
         return (
           <DropdownMenuItem
-            onClick={() =>
-              navigate(resolveRoute(authRoutes.routes.changePassword))
-            }
-            icon={<Key className="h-4 w-4" />}
+            onClick={() => navigate(resolveRoute(authRoutes.routes.profile))}
+            icon={<User className="h-4 w-4" />}
           >
-            Change Password
+            Profile
           </DropdownMenuItem>
         );
       },
@@ -245,6 +251,10 @@ export const authPlugin = createFrontendPlugin({
     createSlotExtension(UserMenuItemsBottomSlot, {
       id: "auth.user-menu.logout",
       component: LogoutMenuItem,
+    }),
+    createSlotExtension(NavbarLeftSlot, {
+      id: "auth.onboarding-guard",
+      component: OnboardingCheck,
     }),
   ],
 });

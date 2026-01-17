@@ -11,4 +11,6 @@ export const authRoutes = createRoutes("auth", {
   forgotPassword: "/forgot-password",
   resetPassword: "/reset-password",
   changePassword: "/change-password",
+  profile: "/profile",
+  onboarding: "/onboarding",
 });

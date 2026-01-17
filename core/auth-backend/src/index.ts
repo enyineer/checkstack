@@ -17,13 +17,13 @@ import {
 } from "@checkstack/auth-common";
 import { NotificationApi } from "@checkstack/notification-common";
 import * as schema from "./schema";
-import { eq, inArray, or } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { User } from "better-auth/types";
-import { hashPassword, verifyPassword } from "better-auth/crypto";
+import { verifyPassword } from "better-auth/crypto";
 import { createExtensionPoint } from "@checkstack/backend-api";
 import { enrichUser } from "./utils/user";
-import { createAuthRouter } from "./router";
+import { ADMIN_ROLE_ID, createAuthRouter } from "./router";
 import { validateStrategySchema } from "./utils/validate-schema";
 import {
   strategyMetaConfigV1,
@@ -43,7 +43,7 @@ export interface BetterAuthExtensionPoint {
 
 export const betterAuthExtensionPoint =
   createExtensionPoint<BetterAuthExtensionPoint>(
-    "auth.betterAuthExtensionPoint"
+    "auth.betterAuthExtensionPoint",
   );
 
 /**
@@ -101,7 +101,7 @@ async function syncAccessRulesToDb({
 
   for (const rule of accessRules) {
     const hasAccess = adminRoleAccessRules.some(
-      (rp) => rp.accessRuleId === rule.id
+      (rp) => rp.accessRuleId === rule.id,
     );
 
     if (!hasAccess) {
@@ -126,12 +126,12 @@ async function syncAccessRulesToDb({
   const registeredIds = new Set(accessRules.map((r) => r.id));
   const allDbAccessRules = await database.select().from(schema.accessRule);
   const orphanAccessRules = allDbAccessRules.filter(
-    (p) => !registeredIds.has(p.id)
+    (p) => !registeredIds.has(p.id),
   );
 
   if (orphanAccessRules.length > 0) {
     logger.debug(
-      `🧹 Removing ${orphanAccessRules.length} orphan access rule(s)...`
+      `🧹 Removing ${orphanAccessRules.length} orphan access rule(s)...`,
     );
     for (const orphan of orphanAccessRules) {
       // Delete role_access_rule entries first (FK doesn't cascade)
@@ -176,7 +176,7 @@ async function syncAuthenticatedDefaultAccessRulesToUsersRole({
 }) {
   // Debug: log all access rules with their isDefault status
   logger.debug(
-    `[DEBUG] All access rules received (${accessRules.length} total):`
+    `[DEBUG] All access rules received (${accessRules.length} total):`,
   );
   for (const r of accessRules) {
     logger.debug(`   -> ${r.id}: isDefault=${r.isDefault}`);
@@ -184,11 +184,11 @@ async function syncAuthenticatedDefaultAccessRulesToUsersRole({
 
   const defaultRules = accessRules.filter((r) => r.isDefault);
   logger.debug(
-    `👥 Found ${defaultRules.length} authenticated default access rules to sync to users role`
+    `👥 Found ${defaultRules.length} authenticated default access rules to sync to users role`,
   );
   if (defaultRules.length === 0) {
     logger.debug(
-      `   -> No authenticated default access rules found, skipping sync`
+      `   -> No authenticated default access rules found, skipping sync`,
     );
     return;
   }
@@ -213,7 +213,7 @@ async function syncAuthenticatedDefaultAccessRulesToUsersRole({
     }
 
     const hasAccess = usersRoleAccessRules.some(
-      (rp) => rp.accessRuleId === rule.id
+      (rp) => rp.accessRuleId === rule.id,
     );
 
     if (!hasAccess) {
@@ -222,7 +222,7 @@ async function syncAuthenticatedDefaultAccessRulesToUsersRole({
         accessRuleId: rule.id,
       });
       logger.debug(
-        `   -> Assigned authenticated default access rule ${rule.id} to users role`
+        `   -> Assigned authenticated default access rule ${rule.id} to users role`,
       );
     }
   }
@@ -243,7 +243,7 @@ async function syncPublicDefaultAccessRulesToAnonymousRole({
 }) {
   const publicDefaults = accessRules.filter((r) => r.isPublic);
   logger.debug(
-    `🌐 Found ${publicDefaults.length} public default access rules to sync to anonymous role`
+    `🌐 Found ${publicDefaults.length} public default access rules to sync to anonymous role`,
   );
   if (publicDefaults.length === 0) {
     logger.debug(`   -> No public default access rules found, skipping sync`);
@@ -270,7 +270,7 @@ async function syncPublicDefaultAccessRulesToAnonymousRole({
     }
 
     const hasAccess = anonymousRoleAccessRules.some(
-      (rp) => rp.accessRuleId === rule.id
+      (rp) => rp.accessRuleId === rule.id,
     );
 
     if (!hasAccess) {
@@ -279,7 +279,7 @@ async function syncPublicDefaultAccessRulesToAnonymousRole({
         accessRuleId: rule.id,
       });
       logger.debug(
-        `   -> Assigned public default access rule ${rule.id} to anonymous role`
+        `   -> Assigned public default access rule ${rule.id} to anonymous role`,
       );
     }
   }
@@ -317,7 +317,7 @@ export default createBackendPlugin({
           const message =
             error instanceof Error ? error.message : String(error);
           throw new Error(
-            `Failed to register authentication strategy "${s.id}": ${message}`
+            `Failed to register authentication strategy "${s.id}": ${message}`,
           );
         }
         strategies.push(s);
@@ -385,7 +385,7 @@ export default createBackendPlugin({
                     .select({ roleId: schema.applicationRole.roleId })
                     .from(schema.applicationRole)
                     .where(
-                      eq(schema.applicationRole.applicationId, applicationId)
+                      eq(schema.applicationRole.applicationId, applicationId),
                     );
 
                   const roleIds = appRoles.map((r) => r.roleId);
@@ -410,7 +410,7 @@ export default createBackendPlugin({
                     .select({ teamId: schema.applicationTeam.teamId })
                     .from(schema.applicationTeam)
                     .where(
-                      eq(schema.applicationTeam.applicationId, applicationId)
+                      eq(schema.applicationTeam.applicationId, applicationId),
                     );
                   const teamIds = appTeams.map((t) => t.teamId);
 
@@ -470,12 +470,12 @@ export default createBackendPlugin({
         const initializeBetterAuth = async () => {
           const socialProviders: Record<string, unknown> = {};
           logger.debug(
-            `[auth-backend] Processing ${strategies.length} strategies...`
+            `[auth-backend] Processing ${strategies.length} strategies...`,
           );
 
           for (const strategy of strategies) {
             logger.debug(
-              `[auth-backend]    -> Processing auth strategy: ${strategy.id}`
+              `[auth-backend]    -> Processing auth strategy: ${strategy.id}`,
             );
 
             // Skip credential strategy - it's built into better-auth
@@ -486,20 +486,20 @@ export default createBackendPlugin({
               strategy.id,
               strategy.configSchema,
               strategy.configVersion,
-              strategy.migrations
+              strategy.migrations,
             );
 
             // Check if strategy is enabled from meta config
             const metaConfig = await config.get(
               `${strategy.id}.meta`,
               strategyMetaConfigV1,
-              STRATEGY_META_CONFIG_VERSION
+              STRATEGY_META_CONFIG_VERSION,
             );
             const enabled = metaConfig?.enabled ?? false;
 
             if (!enabled) {
               logger.debug(
-                `[auth-backend]    -> Strategy ${strategy.id} is disabled, skipping`
+                `[auth-backend]    -> Strategy ${strategy.id} is disabled, skipping`,
               );
               continue;
             }
@@ -508,23 +508,23 @@ export default createBackendPlugin({
             logger.debug(
               `[auth-backend]    -> Config keys for ${
                 strategy.id
-              }: ${Object.keys(strategyConfig || {}).join(", ")}`
+              }: ${Object.keys(strategyConfig || {}).join(", ")}`,
             );
             socialProviders[strategy.id] = strategyConfig;
             logger.debug(
-              `[auth-backend]    -> ✅ Added ${strategy.id} to socialProviders`
+              `[auth-backend]    -> ✅ Added ${strategy.id} to socialProviders`,
             );
           }
 
           // Check if credential strategy is enabled from meta config
           const credentialStrategy = strategies.find(
-            (s) => s.id === "credential"
+            (s) => s.id === "credential",
           );
           const credentialMetaConfig = credentialStrategy
             ? await config.get(
                 "credential.meta",
                 strategyMetaConfigV1,
-                STRATEGY_META_CONFIG_VERSION
+                STRATEGY_META_CONFIG_VERSION,
               )
             : undefined;
           // Default to true on fresh installs (no meta config)
@@ -534,7 +534,7 @@ export default createBackendPlugin({
           const platformRegistrationConfig = await config.get(
             PLATFORM_REGISTRATION_CONFIG_ID,
             platformRegistrationConfigV1,
-            PLATFORM_REGISTRATION_CONFIG_VERSION
+            PLATFORM_REGISTRATION_CONFIG_VERSION,
           );
           const registrationAllowed =
             platformRegistrationConfig?.allowRegistration ?? true;
@@ -542,7 +542,7 @@ export default createBackendPlugin({
           logger.debug(
             `[auth-backend] Initializing Better Auth with ${
               Object.keys(socialProviders).length
-            } social providers: ${Object.keys(socialProviders).join(", ")}`
+            } social providers: ${Object.keys(socialProviders).join(", ")}`,
           );
 
           return betterAuth({
@@ -579,7 +579,7 @@ export default createBackendPlugin({
                 });
 
                 logger.debug(
-                  `[auth-backend] Password reset email sent to user: ${user.id}`
+                  `[auth-backend] Password reset email sent to user: ${user.id}`,
                 );
               },
               resetPasswordTokenExpiresIn: 60 * 60, // 1 hour
@@ -611,12 +611,12 @@ export default createBackendPlugin({
                         roleId: "users",
                       });
                       logger.debug(
-                        `[auth-backend] Assigned 'users' role to new user: ${user.id}`
+                        `[auth-backend] Assigned 'users' role to new user: ${user.id}`,
                       );
                     } catch (error) {
                       // Role might not exist yet on first boot, that's okay
                       logger.debug(
-                        `[auth-backend] Could not assign 'users' role to ${user.id}: ${error}`
+                        `[auth-backend] Could not assign 'users' role to ${user.id}: ${error}`,
                       );
                     }
                   },
@@ -632,7 +632,7 @@ export default createBackendPlugin({
         // Reload function for dynamic auth config changes
         const reloadAuth = async () => {
           logger.info(
-            "[auth-backend] Reloading authentication configuration..."
+            "[auth-backend] Reloading authentication configuration...",
           );
           auth = await initializeBetterAuth();
           logger.info("[auth-backend] ✅ Authentication reloaded successfully");
@@ -643,10 +643,10 @@ export default createBackendPlugin({
         const adminRole = await database
           .select()
           .from(schema.role)
-          .where(eq(schema.role.id, "admin"));
+          .where(eq(schema.role.id, ADMIN_ROLE_ID));
         if (adminRole.length === 0) {
           await database.insert(schema.role).values({
-            id: "admin",
+            id: ADMIN_ROLE_ID,
             name: "Administrators",
             isSystem: true,
           });
@@ -706,7 +706,7 @@ export default createBackendPlugin({
           strategyRegistry,
           reloadAuth,
           config,
-          accessRuleRegistry
+          accessRuleRegistry,
         );
         rpc.registerRouter(authRouter, authContract);
 
@@ -714,50 +714,7 @@ export default createBackendPlugin({
         rpc.registerHttpHandler((req: Request) => auth!.handler(req));
 
         // All auth management endpoints are now via oRPC (see ./router.ts)
-
-        // 5. Idempotent Admin User Seeding (roles already seeded above)
-        const adminId = "initial-admin-id";
-        const existingAdmin = await database
-          .select()
-          .from(schema.user)
-          .where(
-            or(
-              eq(schema.user.email, "admin@checkstack.dev"),
-              eq(schema.user.id, adminId)
-            )
-          );
-
-        // Skip seeding if user exists by either email or ID
-        if (existingAdmin.length === 0) {
-          await database.insert(schema.user).values({
-            id: adminId,
-            name: "Admin",
-            email: "admin@checkstack.dev",
-            emailVerified: true,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          });
-
-          const hashedAdminPassword = await hashPassword("admin");
-          await database.insert(schema.account).values({
-            id: "initial-admin-account-id",
-            accountId: "admin@checkstack.dev",
-            providerId: "credential",
-            userId: adminId,
-            password: hashedAdminPassword,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          });
-
-          await database.insert(schema.userRole).values({
-            userId: adminId,
-            roleId: "admin",
-          });
-
-          logger.info(
-            "   -> Created initial admin user (admin@checkstack.dev : admin)"
-          );
-        }
+        // Note: Admin user seeding removed - handled via onboarding flow
 
         // Register command palette commands
         registerSearchProvider({
@@ -810,7 +767,7 @@ export default createBackendPlugin({
         // This is critical because during init, other plugins haven't registered yet
         const allAccessRules = accessRuleRegistry.getAccessRules();
         logger.debug(
-          `[auth-backend] afterPluginsReady: syncing ${allAccessRules.length} access rules from all plugins`
+          `[auth-backend] afterPluginsReady: syncing ${allAccessRules.length} access rules from all plugins`,
         );
         await syncAccessRulesToDb({
           database: database as NodePgDatabase<typeof schema>,
@@ -834,7 +791,7 @@ export default createBackendPlugin({
             mode: "work-queue",
             workerGroup: "access-rule-db-sync",
             maxRetries: 5,
-          }
+          },
         );
 
         // Subscribe to plugin deregistered hook for access rule cleanup
@@ -843,7 +800,7 @@ export default createBackendPlugin({
           coreHooks.pluginDeregistered,
           async ({ pluginId }) => {
             logger.debug(
-              `[auth-backend] Cleaning up access rules for deregistered plugin: ${pluginId}`
+              `[auth-backend] Cleaning up access rules for deregistered plugin: ${pluginId}`,
             );
 
             // Delete all access rules with this plugin's prefix
@@ -851,7 +808,7 @@ export default createBackendPlugin({
               .select()
               .from(schema.accessRule);
             const pluginAccessRules = allDbAccessRules.filter((p) =>
-              p.id.startsWith(`${pluginId}.`)
+              p.id.startsWith(`${pluginId}.`),
             );
 
             for (const perm of pluginAccessRules) {
@@ -867,14 +824,14 @@ export default createBackendPlugin({
             }
 
             logger.debug(
-              `[auth-backend] Cleaned up ${pluginAccessRules.length} access rules for ${pluginId}`
+              `[auth-backend] Cleaned up ${pluginAccessRules.length} access rules for ${pluginId}`,
             );
           },
           {
             mode: "work-queue",
             workerGroup: "access-rule-cleanup",
             maxRetries: 3,
-          }
+          },
         );
 
         logger.debug("✅ Auth Backend afterPluginsReady complete.");

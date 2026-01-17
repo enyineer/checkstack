@@ -31,6 +31,8 @@ import {
   PLATFORM_REGISTRATION_CONFIG_ID,
 } from "./platform-registration-config";
 
+export const ADMIN_ROLE_ID = "admin";
+
 /**
  * Creates the auth router using contract-based implementation.
  *
@@ -52,12 +54,12 @@ const os = implement(authContract)
  */
 async function getStrategyEnabled(
   strategyId: string,
-  configService: ConfigService
+  configService: ConfigService,
 ): Promise<boolean> {
   const metaConfig = await configService.get(
     `${strategyId}.meta`,
     strategyMetaConfigV1,
-    STRATEGY_META_CONFIG_VERSION
+    STRATEGY_META_CONFIG_VERSION,
   );
 
   // Default: credential=true (fresh installs), others=false (require explicit config)
@@ -70,13 +72,13 @@ async function getStrategyEnabled(
 async function setStrategyEnabled(
   strategyId: string,
   enabled: boolean,
-  configService: ConfigService
+  configService: ConfigService,
 ): Promise<void> {
   await configService.set(
     `${strategyId}.meta`,
     strategyMetaConfigV1,
     STRATEGY_META_CONFIG_VERSION,
-    { enabled }
+    { enabled },
   );
 }
 
@@ -87,12 +89,12 @@ async function setStrategyEnabled(
  * @returns true if registration is allowed, false otherwise
  */
 async function isRegistrationAllowed(
-  configService: ConfigService
+  configService: ConfigService,
 ): Promise<boolean> {
   const config = await configService.get(
     PLATFORM_REGISTRATION_CONFIG_ID,
     platformRegistrationConfigV1,
-    PLATFORM_REGISTRATION_CONFIG_VERSION
+    PLATFORM_REGISTRATION_CONFIG_VERSION,
   );
   return config?.allowRegistration ?? true;
 }
@@ -124,7 +126,7 @@ export const createAuthRouter = (
       isDefault?: boolean;
       isPublic?: boolean;
     }[];
-  }
+  },
 ) => {
   // Public endpoint for enabled strategies (no authentication required)
   const getEnabledStrategies = os.getEnabledStrategies.handler(async () => {
@@ -148,7 +150,7 @@ export const createAuthRouter = (
           icon: strategy.icon,
           requiresManualRegistration: strategy.requiresManualRegistration,
         };
-      })
+      }),
     );
 
     // Filter to only return enabled strategies
@@ -173,8 +175,8 @@ export const createAuthRouter = (
       .where(
         inArray(
           schema.userRole.userId,
-          users.map((u) => u.id)
-        )
+          users.map((u) => u.id),
+        ),
       );
 
     return users.map((u) => ({
@@ -244,12 +246,12 @@ export const createAuthRouter = (
 
     // Get active access rules to filter input
     const activeAccessRules = new Set(
-      accessRuleRegistry.getAccessRules().map((p) => p.id)
+      accessRuleRegistry.getAccessRules().map((p) => p.id),
     );
 
     // Filter to only include active access rules
     const validAccessRules = inputAccessRules.filter((p) =>
-      activeAccessRules.has(p)
+      activeAccessRules.has(p),
     );
 
     await internalDb.transaction(async (tx) => {
@@ -267,7 +269,7 @@ export const createAuthRouter = (
           validAccessRules.map((accessRuleId) => ({
             roleId: id,
             accessRuleId,
-          }))
+          })),
         );
       }
     });
@@ -302,12 +304,12 @@ export const createAuthRouter = (
 
     // Get active access rules to filter input
     const activeAccessRules = new Set(
-      accessRuleRegistry.getAccessRules().map((p) => p.id)
+      accessRuleRegistry.getAccessRules().map((p) => p.id),
     );
 
     // Filter to only include active access rules
     const validAccessRules = inputAccessRules.filter((p) =>
-      activeAccessRules.has(p)
+      activeAccessRules.has(p),
     );
 
     // Track disabled authenticated default access rules for "users" role
@@ -319,7 +321,7 @@ export const createAuthRouter = (
 
       // Find authenticated default access rules that are being removed
       const removedDefaults = defaultPermIds.filter(
-        (defId) => !validAccessRules.includes(defId)
+        (defId) => !validAccessRules.includes(defId),
       );
 
       // Insert into disabled_default_access_rule table
@@ -335,7 +337,7 @@ export const createAuthRouter = (
 
       // Remove from disabled table if being re-added
       const readdedDefaults = validAccessRules.filter((p) =>
-        defaultPermIds.includes(p)
+        defaultPermIds.includes(p),
       );
       for (const permId of readdedDefaults) {
         await internalDb
@@ -354,7 +356,7 @@ export const createAuthRouter = (
 
       // Find public default access rules that are being removed
       const removedPublicDefaults = publicDefaultPermIds.filter(
-        (defId) => !validAccessRules.includes(defId)
+        (defId) => !validAccessRules.includes(defId),
       );
 
       // Insert into disabled_public_default_access_rule table
@@ -370,13 +372,13 @@ export const createAuthRouter = (
 
       // Remove from disabled table if being re-added
       const readdedPublicDefaults = validAccessRules.filter((p) =>
-        publicDefaultPermIds.includes(p)
+        publicDefaultPermIds.includes(p),
       );
       for (const permId of readdedPublicDefaults) {
         await internalDb
           .delete(schema.disabledPublicDefaultAccessRule)
           .where(
-            eq(schema.disabledPublicDefaultAccessRule.accessRuleId, permId)
+            eq(schema.disabledPublicDefaultAccessRule.accessRuleId, permId),
           );
       }
     }
@@ -406,7 +408,7 @@ export const createAuthRouter = (
           validAccessRules.map((accessRuleId) => ({
             roleId: id,
             accessRuleId,
-          }))
+          })),
         );
       }
     });
@@ -483,11 +485,11 @@ export const createAuthRouter = (
             roles.map((roleId) => ({
               userId,
               roleId,
-            }))
+            })),
           );
         }
       });
-    }
+    },
   );
 
   const getStrategies = os.getStrategies.handler(async () => {
@@ -500,7 +502,7 @@ export const createAuthRouter = (
           strategy.id,
           strategy.configSchema,
           strategy.configVersion,
-          strategy.migrations
+          strategy.migrations,
         );
 
         // Convert Zod schema to JSON Schema with automatic secret metadata
@@ -520,7 +522,7 @@ export const createAuthRouter = (
           config,
           adminInstructions: strategy.adminInstructions,
         };
-      })
+      }),
     );
   });
 
@@ -541,7 +543,7 @@ export const createAuthRouter = (
         strategy.configSchema,
         strategy.configVersion,
         config, // Just the config, no enabled mixed in
-        strategy.migrations
+        strategy.migrations,
       );
     }
 
@@ -574,12 +576,208 @@ export const createAuthRouter = (
         PLATFORM_REGISTRATION_CONFIG_ID,
         platformRegistrationConfigV1,
         PLATFORM_REGISTRATION_CONFIG_VERSION,
-        { allowRegistration: input.allowRegistration }
+        { allowRegistration: input.allowRegistration },
       );
       // Trigger auth reload to apply new settings
       await reloadAuthFn();
       return { success: true };
-    }
+    },
+  );
+
+  // ==========================================================================
+  // ONBOARDING ENDPOINTS
+  // ==========================================================================
+
+  const getOnboardingStatus = os.getOnboardingStatus.handler(async () => {
+    // Check if any users exist in the database
+    const users = await internalDb
+      .select({ id: schema.user.id })
+      .from(schema.user)
+      .limit(1);
+    return { needsOnboarding: users.length === 0 };
+  });
+
+  const completeOnboarding = os.completeOnboarding.handler(
+    async ({ input }) => {
+      const { name, email, password } = input;
+
+      // Security check: only allow if no users exist
+      const existingUsers = await internalDb
+        .select({ id: schema.user.id })
+        .from(schema.user)
+        .limit(1);
+
+      if (existingUsers.length > 0) {
+        throw new ORPCError("FORBIDDEN", {
+          message: "Onboarding has already been completed.",
+        });
+      }
+
+      // Validate password against platform's password schema
+      const passwordValidation = passwordSchema.safeParse(password);
+      if (!passwordValidation.success) {
+        throw new ORPCError("BAD_REQUEST", {
+          message: passwordValidation.error.issues
+            .map((issue) => issue.message)
+            .join(", "),
+        });
+      }
+
+      // Create the first admin user
+      const userId = crypto.randomUUID();
+      const accountId = crypto.randomUUID();
+      const hashedPassword = await hashPassword(password);
+      const now = new Date();
+
+      await internalDb.transaction(async (tx) => {
+        // Create user
+        await tx.insert(schema.user).values({
+          id: userId,
+          email,
+          name,
+          emailVerified: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        // Create credential account
+        await tx.insert(schema.account).values({
+          id: accountId,
+          accountId: email,
+          providerId: "credential",
+          userId,
+          password: hashedPassword,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        // Assign admin role
+        await tx.insert(schema.userRole).values({
+          userId,
+          roleId: ADMIN_ROLE_ID,
+        });
+      });
+
+      return { success: true };
+    },
+  );
+
+  // ==========================================================================
+  // USER PROFILE ENDPOINTS
+  // ==========================================================================
+
+  const getCurrentUserProfile = os.getCurrentUserProfile.handler(
+    async ({ context }) => {
+      const user = context.user;
+      if (!isRealUser(user)) {
+        throw new ORPCError("UNAUTHORIZED", {
+          message: "Not authenticated",
+        });
+      }
+
+      // Get user data
+      const users = await internalDb
+        .select()
+        .from(schema.user)
+        .where(eq(schema.user.id, user.id))
+        .limit(1);
+
+      if (users.length === 0) {
+        throw new ORPCError("NOT_FOUND", {
+          message: "User not found",
+        });
+      }
+
+      // Check if user has a credential account
+      const accounts = await internalDb
+        .select()
+        .from(schema.account)
+        .where(
+          and(
+            eq(schema.account.userId, user.id),
+            eq(schema.account.providerId, "credential"),
+          ),
+        )
+        .limit(1);
+
+      return {
+        id: users[0].id,
+        name: users[0].name,
+        email: users[0].email,
+        hasCredentialAccount: accounts.length > 0,
+      };
+    },
+  );
+
+  const updateCurrentUser = os.updateCurrentUser.handler(
+    async ({ input, context }) => {
+      const user = context.user;
+      if (!isRealUser(user)) {
+        throw new ORPCError("UNAUTHORIZED", {
+          message: "Not authenticated",
+        });
+      }
+
+      const { name, email } = input;
+
+      // If email is being updated, check if user has a credential account
+      if (email !== undefined) {
+        const accounts = await internalDb
+          .select()
+          .from(schema.account)
+          .where(
+            and(
+              eq(schema.account.userId, user.id),
+              eq(schema.account.providerId, "credential"),
+            ),
+          )
+          .limit(1);
+
+        if (accounts.length === 0) {
+          throw new ORPCError("FORBIDDEN", {
+            message: "Email can only be updated for credential-based accounts.",
+          });
+        }
+
+        // Check email uniqueness
+        const existingUsers = await internalDb
+          .select({ id: schema.user.id })
+          .from(schema.user)
+          .where(eq(schema.user.email, email))
+          .limit(1);
+
+        if (existingUsers.length > 0 && existingUsers[0].id !== user.id) {
+          throw new ORPCError("CONFLICT", {
+            message: "A user with this email already exists.",
+          });
+        }
+      }
+
+      // Build update object
+      const updates: { name?: string; email?: string; updatedAt: Date } = {
+        updatedAt: new Date(),
+      };
+      if (name !== undefined) updates.name = name;
+      if (email !== undefined) updates.email = email;
+
+      await internalDb
+        .update(schema.user)
+        .set(updates)
+        .where(eq(schema.user.id, user.id));
+
+      // If email was updated, also update the credential account's accountId
+      if (email !== undefined) {
+        await internalDb
+          .update(schema.account)
+          .set({ accountId: email, updatedAt: new Date() })
+          .where(
+            and(
+              eq(schema.account.userId, user.id),
+              eq(schema.account.providerId, "credential"),
+            ),
+          );
+      }
+    },
   );
 
   const getAnonymousAccessRules = os.getAnonymousAccessRules.handler(
@@ -589,7 +787,7 @@ export const createAuthRouter = (
         .from(schema.roleAccessRule)
         .where(eq(schema.roleAccessRule.roleId, "anonymous"));
       return rolePerms.map((rp) => rp.accessRuleId);
-    }
+    },
   );
 
   const filterUsersByAccessRule = os.filterUsersByAccessRule.handler(
@@ -605,18 +803,18 @@ export const createAuthRouter = (
         .from(schema.userRole)
         .innerJoin(
           schema.roleAccessRule,
-          eq(schema.userRole.roleId, schema.roleAccessRule.roleId)
+          eq(schema.userRole.roleId, schema.roleAccessRule.roleId),
         )
         .where(
           and(
             inArray(schema.userRole.userId, userIds),
-            eq(schema.roleAccessRule.accessRuleId, accessRule)
-          )
+            eq(schema.roleAccessRule.accessRuleId, accessRule),
+          ),
         )
         .groupBy(schema.userRole.userId);
 
       return usersWithAccess.map((row) => row.userId);
-    }
+    },
   );
 
   // ==========================================================================
@@ -712,7 +910,7 @@ export const createAuthRouter = (
       context.logger.info(`Created new user from ${providerId}: ${email}`);
 
       return { userId, created: true };
-    }
+    },
   );
 
   const createSession = os.createSession.handler(async ({ input }) => {
@@ -753,7 +951,7 @@ export const createAuthRouter = (
       // Check if credential strategy is enabled
       const credentialEnabled = await getStrategyEnabled(
         "credential",
-        configService
+        configService,
       );
       if (!credentialEnabled) {
         throw new ORPCError("BAD_REQUEST", {
@@ -811,11 +1009,11 @@ export const createAuthRouter = (
       });
 
       context.logger.info(
-        `[auth-backend] Admin created credential user: ${email}`
+        `[auth-backend] Admin created credential user: ${email}`,
       );
 
       return { userId };
-    }
+    },
   );
 
   // ==========================================================================
@@ -833,8 +1031,8 @@ export const createAuthRouter = (
       .where(
         inArray(
           schema.applicationRole.applicationId,
-          apps.map((a) => a.id)
-        )
+          apps.map((a) => a.id),
+        ),
       );
 
     return apps.map((app) => ({
@@ -890,7 +1088,7 @@ export const createAuthRouter = (
       });
 
       context.logger.info(
-        `[auth-backend] Created application: ${name} (${id})`
+        `[auth-backend] Created application: ${name} (${id})`,
       );
 
       return {
@@ -904,7 +1102,7 @@ export const createAuthRouter = (
         },
         secret: `ck_${id}_${secret}`, // Full secret - only shown once!
       };
-    }
+    },
   );
 
   const updateApplication = os.updateApplication.handler(async ({ input }) => {
@@ -953,7 +1151,7 @@ export const createAuthRouter = (
             roles.map((roleId) => ({
               applicationId: id,
               roleId,
-            }))
+            })),
           );
         }
       }
@@ -982,7 +1180,7 @@ export const createAuthRouter = (
         .where(eq(schema.application.id, id));
 
       context.logger.info(`[auth-backend] Deleted application: ${id}`);
-    }
+    },
   );
 
   const regenerateApplicationSecret = os.regenerateApplicationSecret.handler(
@@ -1009,11 +1207,11 @@ export const createAuthRouter = (
         .where(eq(schema.application.id, id));
 
       context.logger.info(
-        `[auth-backend] Regenerated secret for application: ${id}`
+        `[auth-backend] Regenerated secret for application: ${id}`,
       );
 
       return { secret: `ck_${id}_${secret}` };
-    }
+    },
   );
 
   // ==========================================================================
@@ -1158,10 +1356,10 @@ export const createAuthRouter = (
         .where(
           and(
             eq(schema.userTeam.userId, input.userId),
-            eq(schema.userTeam.teamId, input.teamId)
-          )
+            eq(schema.userTeam.teamId, input.teamId),
+          ),
         );
-    }
+    },
   );
 
   const addTeamManager = os.addTeamManager.handler(async ({ input }) => {
@@ -1177,8 +1375,8 @@ export const createAuthRouter = (
       .where(
         and(
           eq(schema.teamManager.userId, input.userId),
-          eq(schema.teamManager.teamId, input.teamId)
-        )
+          eq(schema.teamManager.teamId, input.teamId),
+        ),
       );
   });
 
@@ -1189,13 +1387,13 @@ export const createAuthRouter = (
         .from(schema.resourceTeamAccess)
         .innerJoin(
           schema.team,
-          eq(schema.resourceTeamAccess.teamId, schema.team.id)
+          eq(schema.resourceTeamAccess.teamId, schema.team.id),
         )
         .where(
           and(
             eq(schema.resourceTeamAccess.resourceType, input.resourceType),
-            eq(schema.resourceTeamAccess.resourceId, input.resourceId)
-          )
+            eq(schema.resourceTeamAccess.resourceId, input.resourceId),
+          ),
         );
       return rows.map((r) => ({
         teamId: r.resource_team_access.teamId,
@@ -1203,7 +1401,7 @@ export const createAuthRouter = (
         canRead: r.resource_team_access.canRead,
         canManage: r.resource_team_access.canManage,
       }));
-    }
+    },
   );
 
   const setResourceTeamAccess = os.setResourceTeamAccess.handler(
@@ -1229,7 +1427,7 @@ export const createAuthRouter = (
             canManage: canManage ?? false,
           },
         });
-    }
+    },
   );
 
   const removeResourceTeamAccess = os.removeResourceTeamAccess.handler(
@@ -1240,10 +1438,10 @@ export const createAuthRouter = (
           and(
             eq(schema.resourceTeamAccess.resourceType, input.resourceType),
             eq(schema.resourceTeamAccess.resourceId, input.resourceId),
-            eq(schema.resourceTeamAccess.teamId, input.teamId)
-          )
+            eq(schema.resourceTeamAccess.teamId, input.teamId),
+          ),
         );
-    }
+    },
   );
 
   // Resource-level access settings
@@ -1255,12 +1453,12 @@ export const createAuthRouter = (
         .where(
           and(
             eq(schema.resourceAccessSettings.resourceType, input.resourceType),
-            eq(schema.resourceAccessSettings.resourceId, input.resourceId)
-          )
+            eq(schema.resourceAccessSettings.resourceId, input.resourceId),
+          ),
         )
         .limit(1);
       return { teamOnly: rows[0]?.teamOnly ?? false };
-    }
+    },
   );
 
   const setResourceAccessSettings = os.setResourceAccessSettings.handler(
@@ -1276,7 +1474,7 @@ export const createAuthRouter = (
           ],
           set: { teamOnly },
         });
-    }
+    },
   );
 
   // S2S Endpoints for middleware
@@ -1297,8 +1495,8 @@ export const createAuthRouter = (
         .where(
           and(
             eq(schema.resourceTeamAccess.resourceType, resourceType),
-            eq(schema.resourceTeamAccess.resourceId, resourceId)
-          )
+            eq(schema.resourceTeamAccess.resourceId, resourceId),
+          ),
         );
 
       // No grants = global access applies
@@ -1311,8 +1509,8 @@ export const createAuthRouter = (
         .where(
           and(
             eq(schema.resourceAccessSettings.resourceType, resourceType),
-            eq(schema.resourceAccessSettings.resourceId, resourceId)
-          )
+            eq(schema.resourceAccessSettings.resourceId, resourceId),
+          ),
         )
         .limit(1);
       const isTeamOnly = settingsRows[0]?.teamOnly ?? false;
@@ -1339,10 +1537,10 @@ export const createAuthRouter = (
 
       const field = action === "manage" ? "canManage" : "canRead";
       const hasAccess = grants.some(
-        (g) => userTeamIds.has(g.teamId) && g[field]
+        (g) => userTeamIds.has(g.teamId) && g[field],
       );
       return { hasAccess };
-    }
+    },
   );
 
   const getAccessibleResourceIds = os.getAccessibleResourceIds.handler(
@@ -1364,8 +1562,8 @@ export const createAuthRouter = (
         .where(
           and(
             eq(schema.resourceTeamAccess.resourceType, resourceType),
-            inArray(schema.resourceTeamAccess.resourceId, resourceIds)
-          )
+            inArray(schema.resourceTeamAccess.resourceId, resourceIds),
+          ),
         );
 
       // Get resource-level settings for teamOnly
@@ -1375,11 +1573,11 @@ export const createAuthRouter = (
         .where(
           and(
             eq(schema.resourceAccessSettings.resourceType, resourceType),
-            inArray(schema.resourceAccessSettings.resourceId, resourceIds)
-          )
+            inArray(schema.resourceAccessSettings.resourceId, resourceIds),
+          ),
         );
       const teamOnlyByResource = new Map(
-        settingsRows.map((s) => [s.resourceId, s.teamOnly])
+        settingsRows.map((s) => [s.resourceId, s.teamOnly]),
       );
 
       // Get user's teams
@@ -1414,10 +1612,10 @@ export const createAuthRouter = (
         const isTeamOnly = teamOnlyByResource.get(id) ?? false;
         if (!isTeamOnly && hasGlobalAccess) return true;
         return resourceGrants.some(
-          (g) => userTeamIds.has(g.teamId) && g[field]
+          (g) => userTeamIds.has(g.teamId) && g[field],
         );
       });
-    }
+    },
   );
 
   const deleteResourceGrants = os.deleteResourceGrants.handler(
@@ -1427,10 +1625,10 @@ export const createAuthRouter = (
         .where(
           and(
             eq(schema.resourceTeamAccess.resourceType, input.resourceType),
-            eq(schema.resourceTeamAccess.resourceId, input.resourceId)
-          )
+            eq(schema.resourceTeamAccess.resourceId, input.resourceId),
+          ),
         );
-    }
+    },
   );
 
   return os.router({
@@ -1450,6 +1648,10 @@ export const createAuthRouter = (
     getRegistrationSchema,
     getRegistrationStatus,
     setRegistrationStatus,
+    getOnboardingStatus,
+    completeOnboarding,
+    getCurrentUserProfile,
+    updateCurrentUser,
     getAnonymousAccessRules,
     getUserById,
     filterUsersByAccessRule,

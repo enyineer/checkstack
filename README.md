@@ -339,13 +339,10 @@ docker run -d \
 ```
 
 > [!TIP]
-> After first start, your database is seeded with a default user.
+> After first start, you'll have to create your first admin user.
 >
-> Username: admin@checkstack.dev
-> 
-> Password: admin
->
-> You should change this password as soon as possible using the "change password" function in the user-menu.
+> Upon opening the page eg. at `http://localhost:3000` you'll be greeted with a signup form.
+
 
 ### NPM Packages
 
@@ -387,13 +384,9 @@ This command will automatically:
 3. 🎨 Start the Frontend server (Vite default port)
 
 > [!TIP]
-> After first start, your database is seeded with a default user.
+> After first start, you'll have to create your first admin user.
 >
-> Username: admin@checkstack.dev
-> 
-> Password: admin
->
-> You should change this password as soon as possible using the "change password" function in the user-menu.
+> Upon opening the page eg. at `http://localhost:3000` you'll be greeted with a signup form.
 
 ### Infrastructure Details
 

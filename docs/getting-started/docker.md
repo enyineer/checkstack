@@ -128,15 +128,12 @@ docker run -d \
 | `LOG_LEVEL` | `info` | Logging level (debug, info, warn, error) |
 | `INTERNAL_URL` | (falls back to `BASE_URL`) | Internal RPC URL for backend-to-backend calls. Set to K8s service name (e.g., `http://checkstack-service:3000`) for multi-pod load balancing. |
 
-## Default Admin Credentials
+## Onboarding flow
 
-On first startup, Checkstack creates a default admin user:
-
-- **Email**: `admin@checkstack.dev`
-- **Password**: `admin`
-
-> [!CAUTION]
-> Change the default admin password immediately after first login!
+> [!TIP]
+> After first start, you'll have to create your first admin user.
+>
+> Upon opening the page eg. at `http://localhost:3000` you'll be greeted with a signup form.
 
 ## Health Check
 
