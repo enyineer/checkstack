@@ -1,5 +1,13 @@
 # @checkstack/dashboard-frontend
 
+## 0.3.3
+
+### Patch Changes
+
+- cad3073: Fixed notification group subscription for catalog groups:
+  - Fixed group ID format using colon separator instead of dots and missing entity type prefix
+  - Fixed subscription button state not updating after subscribe/unsubscribe by using refetch instead of invalidateQueries
+
 ## 0.3.2
 
 ### Patch Changes
