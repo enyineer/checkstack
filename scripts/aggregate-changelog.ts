@@ -205,9 +205,62 @@ async function getReleaseVersion(): Promise<string> {
 }
 
 /**
+ * Get the previous release version from the @checkstack/release changelog.
+ * Returns undefined if this is the first release.
+ */
+export async function getPreviousReleaseVersion(
+  currentVersion: string,
+): Promise<string | undefined> {
+  const changelogPath = path.join(RELEASE_PACKAGE_PATH, "CHANGELOG.md");
+  const content = await readFile(changelogPath, "utf8");
+  const lines = content.split("\n");
+
+  let foundCurrent = false;
+  for (const line of lines) {
+    if (line.startsWith("## ")) {
+      const version = line.replace("## ", "").trim();
+      if (version === currentVersion) {
+        foundCurrent = true;
+        continue;
+      }
+      if (foundCurrent) {
+        return version;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Get a package's version at a specific git tag.
+ * Returns undefined if the package didn't exist at that tag or git fails.
+ */
+async function getPackageVersionAtTag(
+  packageDir: string,
+  tag: string,
+): Promise<string | undefined> {
+  const relativePath = path.relative(
+    ROOT_DIR,
+    path.join(packageDir, "package.json"),
+  );
+  try {
+    const result = await Bun.$`git show ${tag}:${relativePath}`.text();
+    const packageJson = JSON.parse(result) as { version: string };
+    return packageJson.version;
+  } catch {
+    // Package didn't exist at that tag or git command failed
+    return undefined;
+  }
+}
+
+/**
  * Aggregate changelogs from all packages for the given version
  */
 async function aggregateChangelogs(): Promise<PackageChangelog[]> {
+  const currentVersion = await getReleaseVersion();
+  const previousVersion = await getPreviousReleaseVersion(currentVersion);
+  const previousTag = previousVersion ? `v${previousVersion}` : undefined;
+
   const changelogs: PackageChangelog[] = [];
 
   for (const baseDir of PACKAGE_DIRS) {
@@ -229,6 +282,19 @@ async function aggregateChangelogs(): Promise<PackageChangelog[]> {
           version: string;
         };
         const packageVersion = packageJson.version;
+
+        // Skip packages that weren't changed in this release
+        // by comparing their current version to the version at the previous release tag
+        if (previousTag) {
+          const previousVersionAtTag = await getPackageVersionAtTag(
+            pkg.dir,
+            previousTag,
+          );
+          if (previousVersionAtTag === packageVersion) {
+            // Package version hasn't changed since the previous release
+            continue;
+          }
+        }
 
         const changes = extractVersionChangelog(content, packageVersion);
 
