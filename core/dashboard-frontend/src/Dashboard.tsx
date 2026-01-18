@@ -309,18 +309,20 @@ export const Dashboard: React.FC = () => {
                       <button
                         key={system.id}
                         onClick={() => handleSystemClick(system.id)}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 transition-all cursor-pointer hover:border-border/80 hover:shadow-sm text-left"
+                        className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 transition-all cursor-pointer hover:border-border/80 hover:shadow-sm text-left"
                       >
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="flex items-center gap-3 min-w-24 flex-shrink-0">
                           <Activity className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                           <p className="text-sm font-medium text-foreground truncate">
                             {system.name}
                           </p>
                         </div>
-                        <ExtensionSlot
-                          slot={SystemStateBadgesSlot}
-                          context={{ system }}
-                        />
+                        <div className="flex items-center gap-2 flex-wrap flex-1 justify-end">
+                          <ExtensionSlot
+                            slot={SystemStateBadgesSlot}
+                            context={{ system }}
+                          />
+                        </div>
                         <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                       </button>
                     ))}
