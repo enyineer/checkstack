@@ -67,7 +67,7 @@ export const healthCheckContract = {
     userType: "authenticated",
     access: [healthCheckAccess.configuration.read],
   }).output(
-    z.object({ configurations: z.array(HealthCheckConfigurationSchema) })
+    z.object({ configurations: z.array(HealthCheckConfigurationSchema) }),
   ),
 
   createConfiguration: proc({
@@ -87,7 +87,7 @@ export const healthCheckContract = {
       z.object({
         id: z.string(),
         body: UpdateHealthCheckConfigurationSchema,
-      })
+      }),
     )
     .output(HealthCheckConfigurationSchema),
 
@@ -124,8 +124,8 @@ export const healthCheckContract = {
           configurationName: z.string(),
           enabled: z.boolean(),
           stateThresholds: StateThresholdsSchema.optional(),
-        })
-      )
+        }),
+      ),
     ),
 
   associateSystem: proc({
@@ -137,7 +137,7 @@ export const healthCheckContract = {
       z.object({
         systemId: z.string(),
         body: AssociateHealthCheckSchema,
-      })
+      }),
     )
     .output(z.void()),
 
@@ -150,7 +150,7 @@ export const healthCheckContract = {
       z.object({
         systemId: z.string(),
         configId: z.string(),
-      })
+      }),
     )
     .output(z.void()),
 
@@ -167,12 +167,12 @@ export const healthCheckContract = {
       z.object({
         systemId: z.string(),
         configurationId: z.string(),
-      })
+      }),
     )
     .output(
       z.object({
         retentionConfig: RetentionConfigSchema.nullable(),
-      })
+      }),
     ),
 
   updateRetentionConfig: proc({
@@ -185,7 +185,7 @@ export const healthCheckContract = {
         systemId: z.string(),
         configurationId: z.string(),
         retentionConfig: RetentionConfigSchema.nullable(),
-      })
+      }),
     )
     .output(z.void()),
 
@@ -206,13 +206,13 @@ export const healthCheckContract = {
         endDate: z.date().optional(),
         limit: z.number().optional().default(10),
         offset: z.number().optional().default(0),
-      })
+      }),
     )
     .output(
       z.object({
         runs: z.array(HealthCheckRunPublicSchema),
         total: z.number(),
-      })
+      }),
     ),
 
   getDetailedHistory: proc({
@@ -228,13 +228,13 @@ export const healthCheckContract = {
         endDate: z.date().optional(),
         limit: z.number().optional().default(10),
         offset: z.number().optional().default(0),
-      })
+      }),
     )
     .output(
       z.object({
         runs: z.array(HealthCheckRunSchema),
         total: z.number(),
-      })
+      }),
     ),
 
   getAggregatedHistory: proc({
@@ -249,12 +249,12 @@ export const healthCheckContract = {
         startDate: z.date(),
         endDate: z.date(),
         bucketSize: z.enum(["hourly", "daily", "auto"]),
-      })
+      }),
     )
     .output(
       z.object({
         buckets: z.array(AggregatedBucketBaseSchema),
-      })
+      }),
     ),
 
   getDetailedAggregatedHistory: proc({
@@ -269,12 +269,12 @@ export const healthCheckContract = {
         startDate: z.date(),
         endDate: z.date(),
         bucketSize: z.enum(["hourly", "daily", "auto"]),
-      })
+      }),
     )
     .output(
       z.object({
         buckets: z.array(AggregatedBucketSchema),
-      })
+      }),
     ),
 
   getSystemHealthStatus: proc({
@@ -288,13 +288,14 @@ export const healthCheckContract = {
   getBulkSystemHealthStatus: proc({
     operationType: "query",
     userType: "public",
-    access: [healthCheckAccess.bulkStatus],
+    access: [healthCheckAccess.status],
+    instanceAccess: { recordKey: "statuses" },
   })
     .input(z.object({ systemIds: z.array(z.string()) }))
     .output(
       z.object({
         statuses: z.record(z.string(), SystemHealthStatusResponseSchema),
-      })
+      }),
     ),
 
   getSystemHealthOverview: proc({
@@ -320,11 +321,11 @@ export const healthCheckContract = {
                 id: z.string(),
                 status: HealthCheckStatusSchema,
                 timestamp: z.date(),
-              })
+              }),
             ),
-          })
+          }),
         ),
-      })
+      }),
     ),
 };
 
@@ -335,5 +336,5 @@ export type HealthCheckContract = typeof healthCheckContract;
 // Use: const client = rpcApi.forPlugin(HealthCheckApi);
 export const HealthCheckApi = createClientDefinition(
   healthCheckContract,
-  pluginMetadata
+  pluginMetadata,
 );

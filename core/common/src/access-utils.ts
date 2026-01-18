@@ -120,7 +120,7 @@ export interface AccessRule {
  */
 export function qualifyAccessRuleId(
   pluginMetadata: Pick<PluginMetadata, "pluginId">,
-  rule: Pick<AccessRule, "id">
+  rule: Pick<AccessRule, "id">,
 ): string {
   return `${pluginMetadata.pluginId}.${rule.id}`;
 }
@@ -164,7 +164,7 @@ export function access(
     recordKey?: string;
     isDefault?: boolean;
     isPublic?: boolean;
-  }
+  },
 ): AccessRule {
   const hasInstanceAccess =
     options?.idParam || options?.listKey || options?.recordKey;
@@ -187,54 +187,80 @@ export function access(
 }
 
 /**
+ * Configuration for a single access level in an accessPair.
+ */
+export interface AccessLevelConfig {
+  /**
+   * Human-readable description of what this access level allows.
+   */
+  description: string;
+
+  /**
+   * Whether this access rule is granted by default to authenticated users ("users" role).
+   */
+  isDefault?: boolean;
+
+  /**
+   * Whether this access rule is granted to anonymous/public users ("anonymous" role).
+   */
+  isPublic?: boolean;
+}
+
+/**
  * Creates a read/manage pair for a resource.
  * Most resources need both access levels, so this reduces boilerplate.
  *
  * @param resource - The resource name (e.g., "system", "incident")
- * @param descriptions - Descriptions for read and manage levels
- * @param options - Optional configuration for defaults and instance-level access
+ * @param levels - Configuration for read and manage levels
+ * @param instanceAccess - Optional configuration for instance-level (team-based) access
  * @returns An object with `read` and `manage` AccessRule properties
  *
  * @example
  * ```typescript
- * const systemAccess = accessPair("system", {
- *   read: "View systems",
- *   manage: "Create, update, and delete systems",
- * }, {
- *   idParam: "systemId",
- *   listKey: "systems",
- *   readIsDefault: true,
- *   readIsPublic: true,
- * });
+ * const incidentAccess = accessPair(
+ *   "incident",
+ *   {
+ *     read: {
+ *       description: "View incidents",
+ *       isDefault: true,
+ *       isPublic: true,
+ *     },
+ *     manage: {
+ *       description: "Manage incidents - create, edit, resolve, and delete",
+ *     },
+ *   },
+ *   {
+ *     idParam: "systemId",
+ *   }
+ * );
  *
  * // Usage in contract:
- * getSystem: _base.meta({ access: [systemAccess.read] }),
- * updateSystem: _base.meta({ access: [systemAccess.manage] }),
+ * getIncidents: proc({ access: [incidentAccess.read] }),
+ * updateIncident: proc({ access: [incidentAccess.manage] }),
  * ```
  */
 export function accessPair(
   resource: string,
-  descriptions: { read: string; manage: string },
-  options?: {
-    idParam?: string;
-    listKey?: string;
-    recordKey?: string;
-    readIsDefault?: boolean;
-    readIsPublic?: boolean;
-  }
+  levels: {
+    read: AccessLevelConfig;
+    manage: AccessLevelConfig;
+  },
+  instanceAccess?: InstanceAccessConfig,
 ): { read: AccessRule; manage: AccessRule } {
   return {
-    read: access(resource, "read", descriptions.read, {
-      idParam: options?.idParam,
-      listKey: options?.listKey,
-      recordKey: options?.recordKey,
-      isDefault: options?.readIsDefault,
-      isPublic: options?.readIsPublic,
+    read: access(resource, "read", levels.read.description, {
+      idParam: instanceAccess?.idParam,
+      listKey: instanceAccess?.listKey,
+      recordKey: instanceAccess?.recordKey,
+      isDefault: levels.read.isDefault,
+      isPublic: levels.read.isPublic,
     }),
-    manage: access(resource, "manage", descriptions.manage, {
-      idParam: options?.idParam,
+    manage: access(resource, "manage", levels.manage.description, {
+      idParam: instanceAccess?.idParam,
       // Note: manage doesn't typically use listKey (you don't "manage" a list in bulk)
       // but we include idParam for single-resource manage checks
+      isDefault: levels.manage.isDefault,
+      isPublic: levels.manage.isPublic,
     }),
   };
 }

@@ -53,7 +53,8 @@ export const maintenanceContract = {
   getBulkMaintenancesForSystems: proc({
     operationType: "query",
     userType: "public",
-    access: [maintenanceAccess.bulkMaintenance],
+    access: [maintenanceAccess.maintenance.read],
+    instanceAccess: { recordKey: "maintenances" },
   })
     .input(z.object({ systemIds: z.array(z.string()) }))
     .output(

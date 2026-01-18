@@ -8,6 +8,9 @@ export const healthCheckAccess = {
    * Status-only access for viewing health check status.
    * Enabled by default for anonymous and authenticated users.
    * Uses system-level instance access for team-based filtering.
+   *
+   * Bulk endpoints should use the same access rule with instanceAccess
+   * override at the contract level.
    */
   status: access("healthcheck.status", "read", "View Health Check Status", {
     idParam: "systemId",
@@ -16,21 +19,11 @@ export const healthCheckAccess = {
   }),
 
   /**
-   * Bulk status access for viewing health check status for multiple systems.
-   * Uses recordKey for filtering the output record by accessible system IDs.
-   */
-  bulkStatus: access("healthcheck.status", "read", "View Health Check Status", {
-    recordKey: "statuses",
-    isDefault: true,
-    isPublic: true,
-  }),
-
-  /**
    * Configuration access for viewing and managing health check configurations.
    */
   configuration: accessPair("healthcheck", {
-    read: "Read Health Check Configurations",
-    manage: "Full management of Health Check Configurations",
+    read: { description: "Read Health Check Configurations" },
+    manage: { description: "Full management of Health Check Configurations" },
   }),
 
   /**
@@ -49,7 +42,6 @@ export const healthCheckAccess = {
  */
 export const healthCheckAccessRules = [
   healthCheckAccess.status,
-  healthCheckAccess.bulkStatus,
   healthCheckAccess.configuration.read,
   healthCheckAccess.configuration.manage,
   healthCheckAccess.details,

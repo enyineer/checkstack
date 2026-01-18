@@ -35,8 +35,11 @@ const testContracts = {
     access: [
       accessPair(
         "system",
-        { read: "View systems", manage: "Manage systems" },
-        { listKey: "systems", readIsPublic: true },
+        {
+          read: { description: "View systems", isPublic: true },
+          manage: { description: "Manage systems" },
+        },
+        { listKey: "systems" },
       ).read,
     ],
   }).output(
@@ -73,8 +76,11 @@ const testContracts = {
     access: [
       accessPair(
         "system",
-        { read: "View systems", manage: "Manage systems" },
-        { idParam: "systemId", readIsPublic: true },
+        {
+          read: { description: "View systems", isPublic: true },
+          manage: { description: "Manage systems" },
+        },
+        { idParam: "systemId" },
       ).read,
     ],
   })
@@ -107,6 +113,33 @@ const testContracts = {
   })
     .input(z.object({ name: z.string() }))
     .output(z.object({ id: z.string() })),
+
+  // Bulk record endpoint using instanceAccess OVERRIDE at contract level
+  // This tests the pattern where bulk endpoints share the same access rule
+  // as single endpoints but use recordKey instead of idParam
+  bulkRecordWithOverride: proc({
+    userType: "public",
+    operationType: "query",
+    // Uses same access rule as singleResourceEndpoint (has idParam)
+    // but overrides instanceAccess to use recordKey
+    access: [
+      accessPair(
+        "system",
+        {
+          read: { description: "View systems", isPublic: true },
+          manage: { description: "Manage systems" },
+        },
+        { idParam: "systemId" },
+      ).read,
+    ],
+    instanceAccess: { recordKey: "statuses" },
+  })
+    .input(z.object({ systemIds: z.array(z.string()) }))
+    .output(
+      z.object({
+        statuses: z.record(z.string(), z.object({ status: z.string() })),
+      }),
+    ),
 };
 
 // =============================================================================
@@ -166,6 +199,14 @@ const testImplementations = {
 
   mutationEndpoint: implement(testContracts.mutationEndpoint).handler(() => ({
     id: "new-id",
+  })),
+
+  bulkRecordWithOverride: implement(
+    testContracts.bulkRecordWithOverride,
+  ).handler(({ input }) => ({
+    statuses: Object.fromEntries(
+      input.systemIds.map((id) => [id, { status: "ok" }]),
+    ),
   })),
 };
 
@@ -496,6 +537,74 @@ describe("autoAuthMiddleware", () => {
       );
 
       expect(Object.keys(result.statuses)).toHaveLength(2);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Contract-level instanceAccess Override
+  // ---------------------------------------------------------------------------
+
+  describe("instanceAccess override at contract level", () => {
+    it("should use contract-level instanceAccess instead of access rule instanceAccess", async () => {
+      // This test verifies that bulk endpoints can share the same access rule
+      // as single endpoints, using instanceAccess override at contract level
+      const contextWithAnonymousAccess = {
+        ...mockContext,
+        user: undefined,
+        auth: {
+          ...mockContext.auth,
+          getAnonymousAccessRules: () =>
+            Promise.resolve(["test-plugin.system.read"]),
+        },
+      };
+
+      const procedure = implement(testContracts.bulkRecordWithOverride)
+        .$context<RpcContext>()
+        .use(autoAuthMiddleware)
+        .handler(({ input }) => ({
+          statuses: Object.fromEntries(
+            input.systemIds.map((id) => [id, { status: "ok" }]),
+          ),
+        }));
+
+      // Should use recordKey filtering (from contract override),
+      // not idParam check (from access rule)
+      const result = await call(
+        procedure,
+        { systemIds: ["sys-1", "sys-2"] },
+        { context: contextWithAnonymousAccess },
+      );
+
+      expect(Object.keys(result.statuses)).toHaveLength(2);
+    });
+
+    it("should deny anonymous users without access on override endpoints", async () => {
+      const contextWithoutAccess = {
+        ...mockContext,
+        user: undefined,
+        auth: {
+          ...mockContext.auth,
+          getAnonymousAccessRules: () => Promise.resolve([]),
+        },
+      };
+
+      const procedure = implement(testContracts.bulkRecordWithOverride)
+        .$context<RpcContext>()
+        .use(autoAuthMiddleware)
+        .handler(({ input }) => ({
+          statuses: Object.fromEntries(
+            input.systemIds.map((id) => [id, { status: "ok" }]),
+          ),
+        }));
+
+      // Without access, should return empty record (filtered out)
+      const result = await call(
+        procedure,
+        { systemIds: ["sys-1", "sys-2"] },
+        { context: contextWithoutAccess },
+      );
+
+      expect(Object.keys(result.statuses)).toHaveLength(0);
     });
   });
 });

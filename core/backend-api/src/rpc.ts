@@ -97,10 +97,15 @@ export const autoAuthMiddleware = os.middleware(
     const meta = procedure["~orpc"]?.meta as ProcedureMetadata | undefined;
     const requiredUserType = meta?.userType || "authenticated";
     const accessRules = meta?.access || [];
+    // Contract-level instanceAccess override (used for bulk endpoints)
+    const instanceAccessOverride = meta?.instanceAccess;
 
     // Build qualified access rule IDs for each access rule
+    // If contract has instanceAccess override, apply it to ALL rules
     const qualifiedRules = accessRules.map((rule) => ({
       ...rule,
+      // Use contract-level override if provided, otherwise use rule's config
+      instanceAccess: instanceAccessOverride ?? rule.instanceAccess,
       qualifiedId: qualifyAccessRuleId(context.pluginMetadata, rule),
       qualifiedResourceType: qualifyResourceType(
         context.pluginMetadata.pluginId,

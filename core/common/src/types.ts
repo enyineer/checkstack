@@ -2,7 +2,7 @@
 // RPC PROCEDURE METADATA
 // =============================================================================
 
-import type { AccessRule } from "./access-utils";
+import type { AccessRule, InstanceAccessConfig } from "./access-utils";
 
 // =============================================================================
 // EDITOR TYPES - Used for multi-type editor fields
@@ -92,4 +92,32 @@ export interface ProcedureMetadata {
    * ```
    */
   access: AccessRule[];
+
+  /**
+   * Override the instance access configuration from the access rules.
+   * Use this when a procedure needs different instance access handling than
+   * what's defined on its access rules.
+   *
+   * This is useful for bulk endpoints that share the same permission as single endpoints
+   * but use recordKey instead of idParam for filtering.
+   *
+   * @example
+   * ```typescript
+   * // Single endpoint using idParam from access rule
+   * getIncidentsForSystem: proc({
+   *   userType: "public",
+   *   operationType: "query",
+   *   access: [incidentAccess.incident.read], // has idParam: "systemId"
+   * })
+   *
+   * // Bulk endpoint overriding to use recordKey
+   * getBulkIncidentsForSystems: proc({
+   *   userType: "public",
+   *   operationType: "query",
+   *   access: [incidentAccess.incident.read], // same access rule
+   *   instanceAccess: { recordKey: "incidents" }, // override for bulk
+   * })
+   * ```
+   */
+  instanceAccess?: InstanceAccessConfig;
 }

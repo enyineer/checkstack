@@ -8,8 +8,8 @@ export const queueAccess = {
    * Queue settings access.
    */
   settings: accessPair("queue", {
-    read: "Read Queue Settings",
-    manage: "Update Queue Settings",
+    read: { description: "Read Queue Settings" },
+    manage: { description: "Update Queue Settings" },
   }),
 };
 

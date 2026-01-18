@@ -15,7 +15,7 @@ export const authAccess = {
     create: access(
       "users.create",
       "manage",
-      "Create new users (credential strategy)"
+      "Create new users (credential strategy)",
     ),
     manage: access("users", "manage", "Delete users"),
   },
@@ -29,7 +29,7 @@ export const authAccess = {
     update: access(
       "roles.update",
       "manage",
-      "Update role names and access rules"
+      "Update role names and access rules",
     ),
     delete: access("roles.delete", "manage", "Delete roles"),
     manage: access("roles", "manage", "Assign roles to users"),
@@ -41,7 +41,7 @@ export const authAccess = {
   strategies: access(
     "strategies",
     "manage",
-    "Manage authentication strategies and settings"
+    "Manage authentication strategies and settings",
   ),
 
   /**
@@ -50,7 +50,7 @@ export const authAccess = {
   registration: access(
     "registration",
     "manage",
-    "Manage user registration settings"
+    "Manage user registration settings",
   ),
 
   /**
@@ -59,15 +59,17 @@ export const authAccess = {
   applications: access(
     "applications",
     "manage",
-    "Create, update, delete, and view external applications"
+    "Create, update, delete, and view external applications",
   ),
 
   /**
    * Team management access rules.
    */
   teams: accessPair("teams", {
-    read: "View teams and team memberships",
-    manage: "Create, delete, and manage all teams and resource access",
+    read: { description: "View teams and team memberships" },
+    manage: {
+      description: "Create, delete, and manage all teams and resource access",
+    },
   }),
 };
 

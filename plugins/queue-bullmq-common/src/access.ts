@@ -5,8 +5,8 @@ import { accessPair, type AccessRule } from "@checkstack/common";
  * Uses the same permission IDs as before for backward compatibility.
  */
 export const queueBullmqAccess = accessPair("queue-bullmq", {
-  read: "View BullMQ queue configuration and statistics",
-  manage: "Modify BullMQ queue configuration",
+  read: { description: "View BullMQ queue configuration and statistics" },
+  manage: { description: "Modify BullMQ queue configuration" },
 });
 
 /**

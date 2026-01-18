@@ -5,8 +5,8 @@ import { accessPair, type AccessRule } from "@checkstack/common";
  * Uses the same permission IDs as before for backward compatibility.
  */
 export const queueMemoryAccess = accessPair("queue-memory", {
-  read: "View in-memory queue configuration and statistics",
-  manage: "Modify in-memory queue configuration",
+  read: { description: "View in-memory queue configuration and statistics" },
+  manage: { description: "Modify in-memory queue configuration" },
 });
 
 /**

@@ -589,6 +589,74 @@ oRPC automatically infers types from the procedure chain. **Do not** add explici
 })
 ```
 
+### 6. Contract-Level instanceAccess Override
+
+When you have both single-resource and bulk endpoints that share the same permission but need different access control configurations, use the `instanceAccess` override at the contract level.
+
+**Why?** Access rules can have an `instanceAccess` config (like `idParam` for single resources or `recordKey` for bulk). Instead of creating duplicate access rules, you can override this at the contract level.
+
+**Example:**
+
+```typescript
+import { proc, accessPair } from "@checkstack/common";
+
+// Define access rule with idParam (for single resource endpoints)
+export const incidentAccess = {
+  incident: accessPair(
+    "incident",
+    {
+      read: {
+        description: "View incidents",
+        isDefault: true,
+        isPublic: true,
+      },
+      manage: {
+        description: "Manage incidents",
+      },
+    },
+    {
+      idParam: "systemId",  // Single resource check
+    }
+  ),
+};
+
+export const incidentContract = {
+  // Single endpoint - uses access rule's idParam
+  getIncidentsForSystem: proc({
+    operationType: "query",
+    userType: "public",
+    access: [incidentAccess.incident.read],
+  })
+    .input(z.object({ systemId: z.string() }))
+    .output(z.array(IncidentSchema)),
+
+  // Bulk endpoint - overrides to use recordKey
+  getBulkIncidentsForSystems: proc({
+    operationType: "query",
+    userType: "public",
+    access: [incidentAccess.incident.read],  // Same access rule
+    instanceAccess: { recordKey: "incidents" },  // Override for bulk
+  })
+    .input(z.object({ systemIds: z.array(z.string()) }))
+    .output(z.object({ incidents: z.record(z.string(), z.array(IncidentSchema)) })),
+};
+```
+
+
+**Benefits:**
+- ✅ Single access rule for both single and bulk endpoints
+- ✅ No duplicate access rules in the UI
+- ✅ Same permission governs both endpoint types
+- ✅ Clear separation between authorization (access rule) and filtering strategy (instanceAccess)
+
+**instanceAccess Options:**
+
+| Field | Type | Use Case |
+|-------|------|----------|
+| `idParam` | `string` | Single resource: Check access to specific resource ID from input |
+| `listKey` | `string` | List filtering: Filter output array by accessible resources |
+| `recordKey` | `string` | Record filtering: Filter output record by accessible resource keys |
+
 ## Database Schema
 
 ### Configuration vs User Data

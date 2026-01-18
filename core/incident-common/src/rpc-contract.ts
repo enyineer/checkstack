@@ -26,7 +26,7 @@ export const incidentContract = {
           systemId: z.string().optional(),
           includeResolved: z.boolean().optional().default(false),
         })
-        .optional()
+        .optional(),
     )
     .output(z.object({ incidents: z.array(IncidentWithSystemsSchema) })),
 
@@ -54,13 +54,14 @@ export const incidentContract = {
   getBulkIncidentsForSystems: proc({
     operationType: "query",
     userType: "public",
-    access: [incidentAccess.bulkIncident],
+    access: [incidentAccess.incident.read],
+    instanceAccess: { recordKey: "incidents" },
   })
     .input(z.object({ systemIds: z.array(z.string()) }))
     .output(
       z.object({
         incidents: z.record(z.string(), z.array(IncidentWithSystemsSchema)),
-      })
+      }),
     ),
 
   /** Create a new incident */
@@ -116,5 +117,5 @@ export type IncidentContract = typeof incidentContract;
 // Use: const client = rpcApi.forPlugin(IncidentApi);
 export const IncidentApi = createClientDefinition(
   incidentContract,
-  pluginMetadata
+  pluginMetadata,
 );

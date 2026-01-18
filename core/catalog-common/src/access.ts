@@ -15,45 +15,47 @@ export const catalogAccess = {
   system: accessPair(
     "system",
     {
-      read: "View systems in catalog",
-      manage: "Create, update, and delete systems",
+      read: {
+        description: "View systems in catalog",
+        isDefault: true,
+        isPublic: true,
+      },
+      manage: {
+        description: "Create, update, and delete systems",
+      },
     },
     {
       idParam: "systemId",
       listKey: "systems",
-      readIsDefault: true,
-      readIsPublic: true,
-    }
+    },
   ),
 
   /**
    * Group access (global, no team-based filtering).
    */
-  group: accessPair(
-    "group",
-    {
-      read: "View groups",
-      manage: "Create, update, and delete groups",
+  group: accessPair("group", {
+    read: {
+      description: "View groups",
+      isDefault: true,
+      isPublic: true,
     },
-    {
-      readIsDefault: true,
-      readIsPublic: true,
-    }
-  ),
+    manage: {
+      description: "Create, update, and delete groups",
+    },
+  }),
 
   /**
    * View access (global, user-only).
    */
-  view: accessPair(
-    "view",
-    {
-      read: "View saved views",
-      manage: "Manage saved views",
+  view: accessPair("view", {
+    read: {
+      description: "View saved views",
+      isDefault: true,
     },
-    {
-      readIsDefault: true,
-    }
-  ),
+    manage: {
+      description: "Manage saved views",
+    },
+  }),
 };
 
 /**
