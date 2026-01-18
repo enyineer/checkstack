@@ -1,5 +1,17 @@
 # @checkstack/catalog-common
 
+## 1.2.3
+
+### Patch Changes
+
+- 8a87cd4: Updated access rules to use new `accessPair` interface
+
+  Migrated to the new `accessPair` interface with per-level options objects for cleaner access rule definitions.
+
+- Updated dependencies [8a87cd4]
+  - @checkstack/common@0.5.0
+  - @checkstack/frontend-api@0.3.2
+
 ## 1.2.2
 
 ### Patch Changes

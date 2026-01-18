@@ -1,5 +1,18 @@
 # @checkstack/backend-api
 
+## 0.4.1
+
+### Patch Changes
+
+- 8a87cd4: Fixed anonymous user access to public endpoints with instance-level access rules
+
+  The RPC middleware now correctly checks if anonymous users have global access via the anonymous role before denying access to single-resource public endpoints. Also added support for contract-level `instanceAccess` override allowing bulk endpoints to share the same access rule as single endpoints.
+
+- Updated dependencies [8a87cd4]
+  - @checkstack/common@0.5.0
+  - @checkstack/queue-api@0.1.3
+  - @checkstack/signal-common@0.1.3
+
 ## 0.4.0
 
 ### Minor Changes

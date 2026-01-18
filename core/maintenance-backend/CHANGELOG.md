@@ -1,5 +1,29 @@
 # @checkstack/maintenance-backend
 
+## 0.4.0
+
+### Minor Changes
+
+- 65aa47e: Add automatic maintenance status transitions
+
+  Maintenances now automatically transition from `scheduled` to `in_progress` when their `startAt` time is reached, and from `in_progress` to `completed` when their `endAt` time is reached. A recurring queue job runs every minute to check and transition statuses. Integration hooks and real-time signals are emitted upon each transition.
+
+### Patch Changes
+
+- Updated dependencies [8a87cd4]
+- Updated dependencies [8a87cd4]
+- Updated dependencies [8a87cd4]
+- Updated dependencies [8a87cd4]
+  - @checkstack/backend-api@0.4.1
+  - @checkstack/catalog-common@1.2.3
+  - @checkstack/common@0.5.0
+  - @checkstack/maintenance-common@0.4.1
+  - @checkstack/command-backend@0.1.5
+  - @checkstack/integration-backend@0.1.5
+  - @checkstack/integration-common@0.2.2
+  - @checkstack/notification-common@0.2.2
+  - @checkstack/signal-common@0.1.3
+
 ## 0.3.0
 
 ### Minor Changes

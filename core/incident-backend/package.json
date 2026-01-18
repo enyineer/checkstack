@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/incident-backend",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {

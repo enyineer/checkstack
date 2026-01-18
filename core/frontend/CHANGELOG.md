@@ -1,5 +1,23 @@
 # @checkstack/frontend
 
+## 0.2.6
+
+### Patch Changes
+
+- 8a87cd4: Fixed query retry behavior for 401/403 errors
+
+  API calls that return 401 (Unauthorized) or 403 (Forbidden) errors are no longer retried, as these are definitive auth responses that won't succeed on retry. This prevents unnecessary loading states and network requests.
+
+- Updated dependencies [8a87cd4]
+  - @checkstack/common@0.5.0
+  - @checkstack/auth-frontend@0.5.2
+  - @checkstack/catalog-frontend@0.3.6
+  - @checkstack/command-frontend@0.2.5
+  - @checkstack/frontend-api@0.3.2
+  - @checkstack/signal-common@0.1.3
+  - @checkstack/ui@0.3.1
+  - @checkstack/signal-frontend@0.0.9
+
 ## 0.2.5
 
 ### Patch Changes

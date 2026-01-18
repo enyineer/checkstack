@@ -1,5 +1,15 @@
 # @checkstack/auth-credential-backend
 
+## 0.0.11
+
+### Patch Changes
+
+- Updated dependencies [8a87cd4]
+- Updated dependencies [8a87cd4]
+  - @checkstack/backend-api@0.4.1
+  - @checkstack/common@0.5.0
+  - @checkstack/auth-backend@0.4.2
+
 ## 0.0.10
 
 ### Patch Changes

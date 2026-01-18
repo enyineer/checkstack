@@ -1,5 +1,24 @@
 # @checkstack/backend
 
+## 0.4.5
+
+### Patch Changes
+
+- 8a87cd4: Added startup validation for unregistered access rules
+
+  The backend now throws an error at startup if a procedure contract references an access rule that isn't registered with the plugin system. This prevents silent runtime failures.
+
+- Updated dependencies [8a87cd4]
+- Updated dependencies [8a87cd4]
+- Updated dependencies [8a87cd4]
+  - @checkstack/auth-common@0.5.2
+  - @checkstack/backend-api@0.4.1
+  - @checkstack/common@0.5.0
+  - @checkstack/queue-api@0.1.3
+  - @checkstack/signal-backend@0.1.5
+  - @checkstack/api-docs-common@0.1.3
+  - @checkstack/signal-common@0.1.3
+
 ## 0.4.4
 
 ### Patch Changes
