@@ -125,16 +125,6 @@ export function createRouter(
           action: "updated",
         });
 
-        // Send notifications to system subscribers
-        await notifyAffectedSystems({
-          catalogClient,
-          logger,
-          maintenanceId: result.id,
-          maintenanceTitle: result.title,
-          systemIds: result.systemIds,
-          action: "updated",
-        });
-
         return result;
       },
     ),
