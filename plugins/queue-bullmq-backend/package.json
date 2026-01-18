@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/queue-bullmq-backend",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {

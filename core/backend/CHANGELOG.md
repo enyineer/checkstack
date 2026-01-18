@@ -1,5 +1,20 @@
 # @checkstack/backend
 
+## 0.4.6
+
+### Patch Changes
+
+- 66a3963: Update plugin loader to use SafeDatabase type
+
+  - Updated `PluginLoaderDeps.db` type from `NodePgDatabase` to `SafeDatabase`
+  - Added type cast for drizzle `migrate()` function which still requires `NodePgDatabase`
+
+- Updated dependencies [2c0822d]
+- Updated dependencies [66a3963]
+  - @checkstack/queue-api@0.2.0
+  - @checkstack/backend-api@0.5.0
+  - @checkstack/signal-backend@0.1.6
+
 ## 0.4.5
 
 ### Patch Changes

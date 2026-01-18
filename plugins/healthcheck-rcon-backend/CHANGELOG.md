@@ -1,5 +1,12 @@
 # @checkstack/healthcheck-rcon-backend
 
+## 0.2.6
+
+### Patch Changes
+
+- Updated dependencies [66a3963]
+  - @checkstack/backend-api@0.5.0
+
 ## 0.2.5
 
 ### Patch Changes

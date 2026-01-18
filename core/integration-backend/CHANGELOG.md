@@ -1,5 +1,19 @@
 # @checkstack/integration-backend
 
+## 0.1.6
+
+### Patch Changes
+
+- 66a3963: Update database types to use SafeDatabase
+
+  - Updated all database type declarations from `NodePgDatabase` to `SafeDatabase` for compile-time safety
+
+- Updated dependencies [2c0822d]
+- Updated dependencies [66a3963]
+  - @checkstack/queue-api@0.2.0
+  - @checkstack/backend-api@0.5.0
+  - @checkstack/command-backend@0.1.6
+
 ## 0.1.5
 
 ### Patch Changes

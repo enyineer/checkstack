@@ -1,5 +1,25 @@
 # @checkstack/healthcheck-backend
 
+## 0.4.2
+
+### Patch Changes
+
+- 66a3963: Fix 500 error on `getDetailedAggregatedHistory` and update to SafeDatabase type
+
+  - Fixed runtime error caused by usage of Drizzle relational query API (`db.query`) in `getAggregatedHistory`
+  - Replaced `db.query.healthCheckConfigurations.findFirst()` with standard `db.select()` query
+  - Updated all database type declarations from `NodePgDatabase` to `SafeDatabase`
+
+- Updated dependencies [2c0822d]
+- Updated dependencies [66a3963]
+- Updated dependencies [66a3963]
+- Updated dependencies [66a3963]
+  - @checkstack/queue-api@0.2.0
+  - @checkstack/catalog-backend@0.2.7
+  - @checkstack/integration-backend@0.1.6
+  - @checkstack/backend-api@0.5.0
+  - @checkstack/command-backend@0.1.6
+
 ## 0.4.1
 
 ### Patch Changes

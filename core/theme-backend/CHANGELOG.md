@@ -1,5 +1,18 @@
 # @checkstack/theme-backend
 
+## 0.1.7
+
+### Patch Changes
+
+- 66a3963: Update database types to use SafeDatabase
+
+  - Updated all database type declarations from `NodePgDatabase` to `SafeDatabase` for compile-time safety
+
+- Updated dependencies [66a3963]
+- Updated dependencies [66a3963]
+  - @checkstack/auth-backend@0.4.3
+  - @checkstack/backend-api@0.5.0
+
 ## 0.1.6
 
 ### Patch Changes

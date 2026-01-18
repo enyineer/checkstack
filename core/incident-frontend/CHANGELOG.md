@@ -1,5 +1,17 @@
 # @checkstack/incident-frontend
 
+## 0.3.9
+
+### Patch Changes
+
+- d1324e6: Removed redundant inner scroll wrapper from IncidentEditor - Dialog now handles scrolling
+- Updated dependencies [d1324e6]
+- Updated dependencies [1f1f6c2]
+- Updated dependencies [2c0822d]
+  - @checkstack/ui@0.4.0
+  - @checkstack/dashboard-frontend@0.3.8
+  - @checkstack/auth-frontend@0.5.3
+
 ## 0.3.8
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @checkstack/release
 
+## 0.18.0
+
+### Minor Changes
+
+- 66a3963: Update database types to use SafeDatabase
+
+  - Updated all database type declarations from `NodePgDatabase` to `SafeDatabase` for compile-time safety
+
 ## 0.17.0
 
 ### Minor Changes

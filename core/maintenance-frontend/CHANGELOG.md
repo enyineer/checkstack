@@ -1,5 +1,17 @@
 # @checkstack/maintenance-frontend
 
+## 0.4.2
+
+### Patch Changes
+
+- d1324e6: Updated MaintenanceEditor to handle DateTimePicker's `Date | undefined` type and removed redundant inner scroll wrapper
+- Updated dependencies [d1324e6]
+- Updated dependencies [1f1f6c2]
+- Updated dependencies [2c0822d]
+  - @checkstack/ui@0.4.0
+  - @checkstack/dashboard-frontend@0.3.8
+  - @checkstack/auth-frontend@0.5.3
+
 ## 0.4.1
 
 ### Patch Changes

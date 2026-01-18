@@ -1,5 +1,18 @@
 # @checkstack/dashboard-frontend
 
+## 0.3.8
+
+### Patch Changes
+
+- 1f1f6c2: Fixed layout issue where multiple system status badges would push the system name out of view on dashboard cards
+- Updated dependencies [d1324e6]
+- Updated dependencies [2c0822d]
+  - @checkstack/ui@0.4.0
+  - @checkstack/auth-frontend@0.5.3
+  - @checkstack/catalog-frontend@0.3.7
+  - @checkstack/command-frontend@0.2.6
+  - @checkstack/queue-frontend@0.2.6
+
 ## 0.3.7
 
 ### Patch Changes
