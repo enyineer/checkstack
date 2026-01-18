@@ -1,5 +1,5 @@
 import * as schema from "./schema";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { SafeDatabase } from "@checkstack/backend-api";
 import { z } from "zod";
 import {
   incidentAccessRules,
@@ -112,7 +112,7 @@ export default createBackendPlugin({
         const catalogClient = rpcClient.forPlugin(CatalogApi);
 
         const service = new IncidentService(
-          database as NodePgDatabase<typeof schema>
+          database as SafeDatabase<typeof schema>
         );
         const router = createRouter(
           service,
@@ -151,7 +151,7 @@ export default createBackendPlugin({
       },
       // Phase 3: Subscribe to catalog events for cleanup
       afterPluginsReady: async ({ database, logger, onHook }) => {
-        const typedDb = database as NodePgDatabase<typeof schema>;
+        const typedDb = database as SafeDatabase<typeof schema>;
         const service = new IncidentService(typedDb);
 
         // Subscribe to catalog system deletion to clean up associations

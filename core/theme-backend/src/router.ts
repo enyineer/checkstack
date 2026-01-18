@@ -7,7 +7,7 @@ import {
 import { themeContract } from "@checkstack/theme-common";
 import * as schema from "./schema";
 import { eq } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { SafeDatabase } from "@checkstack/backend-api";
 
 /**
  * Creates the theme router using contract-based implementation.
@@ -15,7 +15,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
  * Auth is automatically enforced via autoAuthMiddleware based on
  * the contract's meta.userType (both endpoints are userType: "user").
  */
-export const createThemeRouter = (db: NodePgDatabase<typeof schema>) => {
+export const createThemeRouter = (db: SafeDatabase<typeof schema>) => {
   // Create contract implementer with context type AND auto auth middleware
   const os = implement(themeContract)
     .$context<RpcContext>()

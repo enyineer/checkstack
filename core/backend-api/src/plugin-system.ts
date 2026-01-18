@@ -15,11 +15,23 @@ export type ResolvedDeps<T extends Deps> = {
 };
 
 /**
+ * Safe database type that omits Drizzle's relational query API.
+ * The relational query API bypasses schema isolation and is blocked
+ * at runtime by the scoped database proxy. This type prevents
+ * accidental usage at compile-time.
+ */
+export type SafeDatabase<S extends Record<string, unknown>> = Omit<
+  NodePgDatabase<S>,
+  "query"
+>;
+
+/**
  * Helper type for database dependency injection.
  * If schema S is provided, adds typed database; otherwise adds nothing.
+ * Uses SafeDatabase to prevent relational query API usage.
  */
 export type DatabaseDeps<S extends Record<string, unknown> | undefined> =
-  S extends undefined ? unknown : { database: NodePgDatabase<NonNullable<S>> };
+  S extends undefined ? unknown : { database: SafeDatabase<NonNullable<S>> };
 
 export type PluginContext = {
   pluginId: string;
@@ -37,7 +49,7 @@ export type AfterPluginsReadyContext = {
   onHook: <T>(
     hook: Hook<T>,
     listener: (payload: T) => Promise<void>,
-    options?: HookSubscribeOptions
+    options?: HookSubscribeOptions,
   ) => HookUnsubscribe;
   /**
    * Emit a hook event. Only available in afterPluginsReady phase.
@@ -48,7 +60,7 @@ export type AfterPluginsReadyContext = {
 export type BackendPluginRegistry = {
   registerInit: <
     D extends Deps,
-    S extends Record<string, unknown> | undefined = undefined
+    S extends Record<string, unknown> | undefined = undefined,
   >(args: {
     deps: D;
     schema?: S;
@@ -64,7 +76,7 @@ export type BackendPluginRegistry = {
      * Receives the same deps as init, plus onHook and emitHook.
      */
     afterPluginsReady?: (
-      deps: ResolvedDeps<D> & DatabaseDeps<S> & AfterPluginsReadyContext
+      deps: ResolvedDeps<D> & DatabaseDeps<S> & AfterPluginsReadyContext,
     ) => Promise<void>;
   }) => void;
   registerService: <S>(ref: ServiceRef<S>, impl: S) => void;
@@ -80,7 +92,7 @@ export type BackendPluginRegistry = {
    */
   registerRouter: <C extends AnyContractRouter>(
     router: Router<C, RpcContext>,
-    contract: C
+    contract: C,
   ) => void;
   /**
    * Register cleanup logic to be called when the plugin is deregistered.

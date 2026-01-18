@@ -89,6 +89,48 @@ Schema names follow the pattern `plugin_{pluginId}`:
 
 > **Note**: Hyphens in plugin IDs are converted to underscores for valid PostgreSQL schema names.
 
+## SafeDatabase Type
+
+Plugin database interactions should use `SafeDatabase<S>` instead of `NodePgDatabase<S>`:
+
+```typescript
+import type { SafeDatabase } from "@checkstack/backend-api";
+import type * as schema from "./schema";
+
+type Db = SafeDatabase<typeof schema>;
+```
+
+**Why SafeDatabase?**
+
+Drizzle's `NodePgDatabase` includes a `query` property for the [Relational Query API](https://orm.drizzle.team/docs/rqb). However, this API bypasses PostgreSQL's `search_path` mechanism and can access tables in other schemas, which breaks plugin isolation.
+
+The platform's scoped database proxy **blocks relational queries at runtime** and throws an error. `SafeDatabase` prevents this at **compile-time** by omitting the `query` property:
+
+```typescript
+// SafeDatabase is just NodePgDatabase without 'query'
+type SafeDatabase<S> = Omit<NodePgDatabase<S>, "query">;
+```
+
+**Blocked API:**
+
+```typescript
+// ❌ This will fail at runtime (blocked by scoped database proxy)
+const config = await db.query.items.findFirst({
+  where: eq(items.id, id),
+});
+```
+
+**Recommended Pattern:**
+
+```typescript
+// ✅ Use standard select queries
+const [config] = await db
+  .select()
+  .from(items)
+  .where(eq(items.id, id))
+  .limit(1);
+```
+
 ## See Also
 
 - [Backend Plugins](./plugins.md)

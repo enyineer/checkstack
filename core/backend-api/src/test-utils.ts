@@ -1,6 +1,6 @@
 import { mock } from "bun:test";
 import { RpcContext, EmitHookFn } from "./rpc";
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { SafeDatabase } from "./plugin-system";
 import { HealthCheckRegistry } from "./health-check";
 import { CollectorRegistry } from "./collector-registry";
 import { QueuePluginRegistry, QueueManager } from "@checkstack/queue-api";
@@ -10,11 +10,11 @@ import { QueuePluginRegistry, QueueManager } from "@checkstack/queue-api";
  * By default provides an authenticated user with wildcard access.
  */
 export function createMockRpcContext(
-  overrides: Partial<RpcContext> = {}
+  overrides: Partial<RpcContext> = {},
 ): RpcContext {
   return {
     pluginMetadata: { pluginId: "test-plugin" },
-    db: mock() as unknown as NodePgDatabase<Record<string, unknown>>,
+    db: mock() as unknown as SafeDatabase<Record<string, unknown>>,
     logger: {
       info: mock(),
       error: mock(),
@@ -39,7 +39,7 @@ export function createMockRpcContext(
       checkResourceTeamAccess: mock().mockResolvedValue({ hasAccess: true }),
       getAccessibleResourceIds: mock().mockImplementation(
         (params: { resourceIds: string[] }) =>
-          Promise.resolve(params.resourceIds)
+          Promise.resolve(params.resourceIds),
       ),
     },
     healthCheckRegistry: {

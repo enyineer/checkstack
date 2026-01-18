@@ -1,5 +1,5 @@
 import { implement, ORPCError } from "@orpc/server";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { SafeDatabase } from "@checkstack/backend-api";
 import {
   autoAuthMiddleware,
   type RpcContext,
@@ -96,7 +96,7 @@ function extractJsonSchemaProperties(
 }
 
 interface RouterDeps {
-  db: NodePgDatabase<typeof schema>;
+  db: SafeDatabase<typeof schema>;
   eventRegistry: IntegrationEventRegistry;
   providerRegistry: IntegrationProviderRegistry;
   deliveryCoordinator: DeliveryCoordinator;

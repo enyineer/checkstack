@@ -5,7 +5,7 @@ import type { CollectorRegistry } from "./collector-registry";
 import type { QueuePluginRegistry, QueueManager } from "@checkstack/queue-api";
 import type { ConfigService } from "./config-service";
 import type { SignalService } from "@checkstack/signal-common";
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { SafeDatabase } from "./plugin-system";
 import {
   Logger,
   Fetch,
@@ -18,26 +18,26 @@ import type { EventBus } from "./event-bus-types";
 export * from "./types";
 
 export const authenticationStrategyServiceRef = createServiceRef<unknown>(
-  "internal.authenticationStrategy"
+  "internal.authenticationStrategy",
 );
 
 export const coreServices = {
   database:
-    createServiceRef<NodePgDatabase<Record<string, unknown>>>("core.database"),
+    createServiceRef<SafeDatabase<Record<string, unknown>>>("core.database"),
   logger: createServiceRef<Logger>("core.logger"),
   fetch: createServiceRef<Fetch>("core.fetch"),
   auth: createServiceRef<AuthService>("core.auth"),
   healthCheckRegistry: createServiceRef<HealthCheckRegistry>(
-    "core.healthCheckRegistry"
+    "core.healthCheckRegistry",
   ),
   collectorRegistry: createServiceRef<CollectorRegistry>(
-    "core.collectorRegistry"
+    "core.collectorRegistry",
   ),
   pluginInstaller: createServiceRef<PluginInstaller>("core.pluginInstaller"),
   rpc: createServiceRef<RpcService>("core.rpc"),
   rpcClient: createServiceRef<RpcClient>("core.rpcClient"),
   queuePluginRegistry: createServiceRef<QueuePluginRegistry>(
-    "core.queuePluginRegistry"
+    "core.queuePluginRegistry",
   ),
   queueManager: createServiceRef<QueueManager>("core.queueManager"),
   config: createServiceRef<ConfigService>("core.config"),

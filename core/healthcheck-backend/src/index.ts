@@ -3,7 +3,6 @@ import {
   bootstrapHealthChecks,
 } from "./queue-executor";
 import * as schema from "./schema";
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import {
   healthCheckAccessRules,
   healthCheckAccess,
@@ -15,6 +14,7 @@ import {
   createBackendPlugin,
   coreServices,
   type EmitHookFn,
+  type SafeDatabase,
 } from "@checkstack/backend-api";
 import { integrationEventExtensionPoint } from "@checkstack/integration-backend";
 import { z } from "zod";
@@ -130,7 +130,7 @@ export default createBackendPlugin({
         });
 
         const healthCheckRouter = createHealthCheckRouter(
-          database as NodePgDatabase<typeof schema>,
+          database as SafeDatabase<typeof schema>,
           healthCheckRegistry,
         );
         rpc.registerRouter(healthCheckRouter, healthCheckContract);

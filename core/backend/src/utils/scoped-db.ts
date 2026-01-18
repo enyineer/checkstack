@@ -1,4 +1,4 @@
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { SafeDatabase } from "@checkstack/backend-api";
 import { sql, entityKind } from "drizzle-orm";
 
 /**
@@ -147,7 +147,7 @@ function isWrappableBuilder(value: unknown): boolean {
 /**
  * A schema-scoped database type that excludes the relational query API.
  *
- * This type explicitly removes `query` from NodePgDatabase so that plugin
+ * This type explicitly removes `query` from SafeDatabase so that plugin
  * authors get compile-time errors when trying to use `db.query.*` instead
  * of runtime errors. This provides better DX and catches isolation bypasses
  * at development time.
@@ -156,7 +156,7 @@ function isWrappableBuilder(value: unknown): boolean {
  * execution path that bypasses our schema isolation mechanism.
  */
 export type ScopedDatabase<TSchema extends Record<string, unknown>> = Omit<
-  NodePgDatabase<TSchema>,
+  SafeDatabase<TSchema>,
   "query"
 >;
 
@@ -182,10 +182,10 @@ export type ScopedDatabase<TSchema extends Record<string, unknown>> = Omit<
  * ```
  */
 export function createScopedDb<TSchema extends Record<string, unknown>>(
-  baseDb: NodePgDatabase<Record<string, unknown>>,
+  baseDb: SafeDatabase<Record<string, unknown>>,
   schemaName: string,
 ): ScopedDatabase<TSchema> {
-  const wrappedDb = baseDb as NodePgDatabase<TSchema>;
+  const wrappedDb = baseDb as SafeDatabase<TSchema>;
 
   /**
    * WeakMap to track query chains for each builder instance.

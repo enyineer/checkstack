@@ -14,14 +14,16 @@ import {
 } from "./schema";
 import * as schema from "./schema";
 import { eq, and, InferSelectModel, desc, gte, lte } from "drizzle-orm";
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { ORPCError } from "@orpc/server";
 import { evaluateHealthStatus } from "./state-evaluator";
 import { stateThresholds } from "./state-thresholds-migrations";
-import type { HealthCheckRegistry } from "@checkstack/backend-api";
+import type {
+  HealthCheckRegistry,
+  SafeDatabase,
+} from "@checkstack/backend-api";
 
-// Drizzle type helper
-type Db = NodePgDatabase<typeof schema>;
+// Drizzle type helper - uses SafeDatabase to prevent relational query API usage
+type Db = SafeDatabase<typeof schema>;
 
 interface SystemCheckStatus {
   configurationId: string;
@@ -38,10 +40,13 @@ interface SystemHealthStatusResponse {
 }
 
 export class HealthCheckService {
-  constructor(private db: Db, private registry?: HealthCheckRegistry) {}
+  constructor(
+    private db: Db,
+    private registry?: HealthCheckRegistry,
+  ) {}
 
   async createConfiguration(
-    data: CreateHealthCheckConfiguration
+    data: CreateHealthCheckConfiguration,
   ): Promise<HealthCheckConfiguration> {
     const [config] = await this.db
       .insert(healthCheckConfigurations)
@@ -58,7 +63,7 @@ export class HealthCheckService {
   }
 
   async getConfiguration(
-    id: string
+    id: string,
   ): Promise<HealthCheckConfiguration | undefined> {
     const [config] = await this.db
       .select()
@@ -69,7 +74,7 @@ export class HealthCheckService {
 
   async updateConfiguration(
     id: string,
-    data: UpdateHealthCheckConfiguration
+    data: UpdateHealthCheckConfiguration,
   ): Promise<HealthCheckConfiguration | undefined> {
     const [config] = await this.db
       .update(healthCheckConfigurations)
@@ -137,8 +142,8 @@ export class HealthCheckService {
       .where(
         and(
           eq(systemHealthChecks.systemId, systemId),
-          eq(systemHealthChecks.configurationId, configurationId)
-        )
+          eq(systemHealthChecks.configurationId, configurationId),
+        ),
       );
   }
 
@@ -147,7 +152,7 @@ export class HealthCheckService {
    */
   async getRetentionConfig(
     systemId: string,
-    configurationId: string
+    configurationId: string,
   ): Promise<{ retentionConfig: RetentionConfig | null }> {
     const row = await this.db
       .select({ retentionConfig: systemHealthChecks.retentionConfig })
@@ -155,8 +160,8 @@ export class HealthCheckService {
       .where(
         and(
           eq(systemHealthChecks.systemId, systemId),
-          eq(systemHealthChecks.configurationId, configurationId)
-        )
+          eq(systemHealthChecks.configurationId, configurationId),
+        ),
       )
       .then((rows) => rows[0]);
 
@@ -170,7 +175,7 @@ export class HealthCheckService {
   async updateRetentionConfig(
     systemId: string,
     configurationId: string,
-    retentionConfig: RetentionConfig | null
+    retentionConfig: RetentionConfig | null,
   ): Promise<void> {
     // Validate retention hierarchy: raw < hourly < daily
     if (retentionConfig) {
@@ -197,8 +202,8 @@ export class HealthCheckService {
       .where(
         and(
           eq(systemHealthChecks.systemId, systemId),
-          eq(systemHealthChecks.configurationId, configurationId)
-        )
+          eq(systemHealthChecks.configurationId, configurationId),
+        ),
       );
   }
 
@@ -213,7 +218,7 @@ export class HealthCheckService {
   }
 
   async getSystemConfigurations(
-    systemId: string
+    systemId: string,
   ): Promise<HealthCheckConfiguration[]> {
     const rows = await this.db
       .select({
@@ -222,7 +227,7 @@ export class HealthCheckService {
       .from(systemHealthChecks)
       .innerJoin(
         healthCheckConfigurations,
-        eq(systemHealthChecks.configurationId, healthCheckConfigurations.id)
+        eq(systemHealthChecks.configurationId, healthCheckConfigurations.id),
       )
       .where(eq(systemHealthChecks.systemId, systemId));
 
@@ -243,7 +248,7 @@ export class HealthCheckService {
       .from(systemHealthChecks)
       .innerJoin(
         healthCheckConfigurations,
-        eq(systemHealthChecks.configurationId, healthCheckConfigurations.id)
+        eq(systemHealthChecks.configurationId, healthCheckConfigurations.id),
       )
       .where(eq(systemHealthChecks.systemId, systemId));
 
@@ -269,7 +274,7 @@ export class HealthCheckService {
    * Aggregates status from all health check configurations for this system.
    */
   async getSystemHealthStatus(
-    systemId: string
+    systemId: string,
   ): Promise<SystemHealthStatusResponse> {
     // Get all associations for this system with their thresholds and config names
     const associations = await this.db
@@ -282,13 +287,13 @@ export class HealthCheckService {
       .from(systemHealthChecks)
       .innerJoin(
         healthCheckConfigurations,
-        eq(systemHealthChecks.configurationId, healthCheckConfigurations.id)
+        eq(systemHealthChecks.configurationId, healthCheckConfigurations.id),
       )
       .where(
         and(
           eq(systemHealthChecks.systemId, systemId),
-          eq(systemHealthChecks.enabled, true)
-        )
+          eq(systemHealthChecks.enabled, true),
+        ),
       );
 
     if (associations.length === 0) {
@@ -314,8 +319,8 @@ export class HealthCheckService {
         .where(
           and(
             eq(healthCheckRuns.systemId, systemId),
-            eq(healthCheckRuns.configurationId, assoc.configurationId)
-          )
+            eq(healthCheckRuns.configurationId, assoc.configurationId),
+          ),
         )
         .orderBy(desc(healthCheckRuns.timestamp))
         .limit(maxWindowSize);
@@ -375,7 +380,7 @@ export class HealthCheckService {
       .from(systemHealthChecks)
       .innerJoin(
         healthCheckConfigurations,
-        eq(systemHealthChecks.configurationId, healthCheckConfigurations.id)
+        eq(systemHealthChecks.configurationId, healthCheckConfigurations.id),
       )
       .where(eq(systemHealthChecks.systemId, systemId));
 
@@ -394,8 +399,8 @@ export class HealthCheckService {
         .where(
           and(
             eq(healthCheckRuns.systemId, systemId),
-            eq(healthCheckRuns.configurationId, assoc.configurationId)
-          )
+            eq(healthCheckRuns.configurationId, assoc.configurationId),
+          ),
         )
         .orderBy(desc(healthCheckRuns.timestamp))
         .limit(sparklineLimit);
@@ -558,7 +563,7 @@ export class HealthCheckService {
       endDate: Date;
       bucketSize: "hourly" | "daily" | "auto";
     },
-    options: { includeAggregatedResult: boolean }
+    options: { includeAggregatedResult: boolean },
   ) {
     const { systemId, configurationId, startDate, endDate } = props;
     let bucketSize = props.bucketSize;
@@ -571,9 +576,13 @@ export class HealthCheckService {
     }
 
     // Get the configuration to find the strategy
-    const config = await this.db.query.healthCheckConfigurations.findFirst({
-      where: eq(healthCheckConfigurations.id, configurationId),
-    });
+    // Note: Using standard select instead of relational query API
+    // as the relational API is blocked by the scoped database proxy
+    const [config] = await this.db
+      .select()
+      .from(healthCheckConfigurations)
+      .where(eq(healthCheckConfigurations.id, configurationId))
+      .limit(1);
 
     // Look up strategy for aggregateResult function (only if needed)
     const strategy =
@@ -590,8 +599,8 @@ export class HealthCheckService {
           eq(healthCheckRuns.systemId, systemId),
           eq(healthCheckRuns.configurationId, configurationId),
           gte(healthCheckRuns.timestamp, startDate),
-          lte(healthCheckRuns.timestamp, endDate)
-        )
+          lte(healthCheckRuns.timestamp, endDate),
+        ),
       )
       .orderBy(healthCheckRuns.timestamp);
 
@@ -631,13 +640,13 @@ export class HealthCheckService {
     const buckets = [...bucketMap.values()].map((bucket) => {
       const runCount = bucket.runs.length;
       const healthyCount = bucket.runs.filter(
-        (r) => r.status === "healthy"
+        (r) => r.status === "healthy",
       ).length;
       const degradedCount = bucket.runs.filter(
-        (r) => r.status === "degraded"
+        (r) => r.status === "degraded",
       ).length;
       const unhealthyCount = bucket.runs.filter(
-        (r) => r.status === "unhealthy"
+        (r) => r.status === "unhealthy",
       ).length;
       const successRate = runCount > 0 ? healthyCount / runCount : 0;
 
@@ -691,7 +700,7 @@ export class HealthCheckService {
 
   private getBucketStart(
     timestamp: Date,
-    bucketSize: "hourly" | "daily"
+    bucketSize: "hourly" | "daily",
   ): Date {
     const date = new Date(timestamp);
     if (bucketSize === "daily") {
@@ -709,7 +718,7 @@ export class HealthCheckService {
   }
 
   private mapConfig(
-    row: InferSelectModel<typeof healthCheckConfigurations>
+    row: InferSelectModel<typeof healthCheckConfigurations>,
   ): HealthCheckConfiguration {
     return {
       id: row.id,

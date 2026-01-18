@@ -738,8 +738,10 @@ See [drizzle-schema-isolation.md](./drizzle-schema.md) for details.
 Routers should be created as factory functions that accept the plugin-scoped database instance:
 
 ```typescript
+import type { SafeDatabase } from "@checkstack/backend-api";
+
 export const createMyPluginRouter = (
-  database: NodePgDatabase<typeof schema>
+  database: SafeDatabase<typeof schema>
 ) => {
   return os.router({
     // Procedures use the captured database, NOT context.db

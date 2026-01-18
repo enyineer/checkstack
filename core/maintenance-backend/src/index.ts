@@ -1,5 +1,5 @@
 import * as schema from "./schema";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { SafeDatabase } from "@checkstack/backend-api";
 import { z } from "zod";
 import {
   maintenanceAccessRules,
@@ -107,7 +107,7 @@ export default createBackendPlugin({
         maintenanceClient = rpcClient.forPlugin(MaintenanceApi);
 
         maintenanceService = new MaintenanceService(
-          database as NodePgDatabase<typeof schema>,
+          database as SafeDatabase<typeof schema>,
         );
         const router = createRouter(
           maintenanceService,

@@ -1,19 +1,20 @@
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type {
+  HealthCheckRegistry,
+  Logger,
+  SafeDatabase,
+} from "@checkstack/backend-api";
 import * as schema from "./schema";
 import {
   healthCheckRuns,
   systemHealthChecks,
   healthCheckAggregates,
+  healthCheckConfigurations,
   DEFAULT_RETENTION_CONFIG,
 } from "./schema";
 import { eq, and, lt, sql } from "drizzle-orm";
-import type {
-  HealthCheckRegistry,
-  Logger,
-} from "@checkstack/backend-api";
 import type { QueueManager } from "@checkstack/queue-api";
 
-type Db = NodePgDatabase<typeof schema>;
+type Db = SafeDatabase<typeof schema>;
 
 interface RetentionJobDeps {
   db: Db;
@@ -46,7 +47,7 @@ export async function setupRetentionJob(deps: RetentionJobDeps) {
       await runRetentionJob({ db, registry, logger, queueManager });
       logger.info("Completed health check retention job");
     },
-    { consumerGroup: "retention-worker" }
+    { consumerGroup: "retention-worker" },
   );
 
   // Schedule daily retention run (86400 seconds = 24 hours)
@@ -55,7 +56,7 @@ export async function setupRetentionJob(deps: RetentionJobDeps) {
     {
       jobId: "health-check-retention-daily",
       intervalSeconds: 24 * 60 * 60, // Daily (24 hours)
-    }
+    },
   );
 
   logger.info("Health check retention job scheduled (runs daily)");
@@ -102,7 +103,7 @@ export async function runRetentionJob(deps: RetentionJobDeps) {
     } catch (error) {
       logger.error(
         `Retention job failed for ${assignment.systemId}/${assignment.configurationId}`,
-        { error }
+        { error },
       );
     }
   }
@@ -127,9 +128,11 @@ async function aggregateRawRuns(params: AggregateRawRunsParams) {
   cutoffDate.setHours(cutoffDate.getHours(), 0, 0, 0); // Round to hour
 
   // Get strategy for metadata aggregation
-  const config = await db.query.healthCheckConfigurations.findFirst({
-    where: eq(schema.healthCheckConfigurations.id, configurationId),
-  });
+  const [config] = await db
+    .select()
+    .from(healthCheckConfigurations)
+    .where(eq(healthCheckConfigurations.id, configurationId))
+    .limit(1);
   const strategy = config ? registry.getStrategy(config.strategyId) : undefined;
 
   // Query raw runs older than cutoff, grouped by hour
@@ -140,8 +143,8 @@ async function aggregateRawRuns(params: AggregateRawRunsParams) {
       and(
         eq(healthCheckRuns.systemId, systemId),
         eq(healthCheckRuns.configurationId, configurationId),
-        lt(healthCheckRuns.timestamp, cutoffDate)
-      )
+        lt(healthCheckRuns.timestamp, cutoffDate),
+      ),
     )
     .orderBy(healthCheckRuns.timestamp);
 
@@ -284,8 +287,8 @@ async function rollupHourlyAggregates(params: RollupParams) {
         eq(healthCheckAggregates.systemId, systemId),
         eq(healthCheckAggregates.configurationId, configurationId),
         eq(healthCheckAggregates.bucketSize, "hourly"),
-        lt(healthCheckAggregates.bucketStart, cutoffDate)
-      )
+        lt(healthCheckAggregates.bucketStart, cutoffDate),
+      ),
     );
 
   if (oldHourly.length === 0) return;
@@ -392,8 +395,8 @@ async function deleteExpiredAggregates(params: DeleteExpiredParams) {
         eq(healthCheckAggregates.systemId, systemId),
         eq(healthCheckAggregates.configurationId, configurationId),
         eq(healthCheckAggregates.bucketSize, "daily"),
-        lt(healthCheckAggregates.bucketStart, cutoffDate)
-      )
+        lt(healthCheckAggregates.bucketStart, cutoffDate),
+      ),
     );
 }
 

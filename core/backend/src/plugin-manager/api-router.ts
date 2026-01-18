@@ -1,5 +1,5 @@
 import type { Hono, Context } from "hono";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { SafeDatabase } from "@checkstack/backend-api";
 import { RPCHandler } from "@orpc/server/fetch";
 import {
   coreServices,
@@ -108,7 +108,7 @@ export function createApiRouteHandler({
       pluginMetadata,
       auth: auth as AuthService,
       logger: logger as Logger,
-      db: db as NodePgDatabase<Record<string, unknown>>,
+      db: db as SafeDatabase<Record<string, unknown>>,
       fetch: fetch as Fetch,
       healthCheckRegistry: healthCheckRegistry as HealthCheckRegistry,
       collectorRegistry: collectorRegistry as CollectorRegistry,

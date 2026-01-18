@@ -1,5 +1,5 @@
 import { User } from "better-auth/types";
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { SafeDatabase } from "@checkstack/backend-api";
 import { eq } from "drizzle-orm";
 import type { RealUser } from "@checkstack/backend-api";
 import * as schema from "../schema";
@@ -10,7 +10,7 @@ import * as schema from "../schema";
  */
 export const enrichUser = async (
   user: User,
-  db: NodePgDatabase<typeof schema>
+  db: SafeDatabase<typeof schema>
 ): Promise<RealUser> => {
   // 1. Get Roles
   const userRoles = await db

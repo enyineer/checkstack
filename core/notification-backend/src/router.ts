@@ -18,7 +18,7 @@ import {
 } from "@checkstack/notification-common";
 import { AuthApi } from "@checkstack/auth-common";
 import type { SignalService } from "@checkstack/signal-common";
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import {
   getUserNotifications,
@@ -89,7 +89,7 @@ function resolveContact({
  * based on the contract's meta.userType and meta.access.
  */
 export const createNotificationRouter = (
-  database: NodePgDatabase<typeof schema>,
+  database: SafeDatabase<typeof schema>,
   configService: ConfigService,
   signalService: SignalService,
   strategyRegistry: NotificationStrategyRegistry,

@@ -4,10 +4,10 @@ import { createMockRpcContext } from "@checkstack/backend-api";
 import { call } from "@orpc/server";
 import { z } from "zod";
 import * as schema from "./schema";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { SafeDatabase } from "@checkstack/backend-api";
 
 /** Type alias for the database type used in auth router */
-type AuthDatabase = NodePgDatabase<typeof schema>;
+type AuthDatabase = SafeDatabase<typeof schema>;
 
 /**
  * Tests for Team and Resource-Level Access Control endpoints.
@@ -65,7 +65,7 @@ describe("Teams and Resource Access Control", () => {
 
   /**
    * Creates a fresh mock database for each test.
-   * Uses type assertion to satisfy NodePgDatabase interface for testing.
+   * Uses type assertion to satisfy SafeDatabase interface for testing.
    */
   function createMockDb(): AuthDatabase {
     const mockDb = {

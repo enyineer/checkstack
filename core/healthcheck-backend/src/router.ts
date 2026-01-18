@@ -4,10 +4,10 @@ import {
   toJsonSchema,
   type RpcContext,
   type HealthCheckRegistry,
+  type SafeDatabase,
 } from "@checkstack/backend-api";
 import { healthCheckContract } from "@checkstack/healthcheck-common";
 import { HealthCheckService } from "./service";
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import * as schema from "./schema";
 import { toJsonSchemaWithChartMeta } from "./schema-utils";
 
@@ -18,8 +18,8 @@ import { toJsonSchemaWithChartMeta } from "./schema-utils";
  * based on the contract's meta.userType and meta.access.
  */
 export const createHealthCheckRouter = (
-  database: NodePgDatabase<typeof schema>,
-  registry: HealthCheckRegistry
+  database: SafeDatabase<typeof schema>,
+  registry: HealthCheckRegistry,
 ) => {
   // Create service instance once - shared across all handlers
   const service = new HealthCheckService(database, registry);
@@ -40,7 +40,7 @@ export const createHealthCheckRouter = (
           ? toJsonSchemaWithChartMeta(r.strategy.result.schema)
           : undefined,
         aggregatedResultSchema: toJsonSchemaWithChartMeta(
-          r.strategy.aggregatedResult.schema
+          r.strategy.aggregatedResult.schema,
         ),
       }));
     }),
@@ -48,7 +48,7 @@ export const createHealthCheckRouter = (
     getCollectors: os.getCollectors.handler(async ({ input, context }) => {
       // Get strategy to verify it exists
       const strategy = context.healthCheckRegistry.getStrategy(
-        input.strategyId
+        input.strategyId,
       );
       if (!strategy) {
         return [];
@@ -103,13 +103,13 @@ export const createHealthCheckRouter = (
     getSystemConfigurations: os.getSystemConfigurations.handler(
       async ({ input }) => {
         return service.getSystemConfigurations(input);
-      }
+      },
     ),
 
     getSystemAssociations: os.getSystemAssociations.handler(
       async ({ input }) => {
         return service.getSystemAssociations(input.systemId);
-      }
+      },
     ),
 
     associateSystem: os.associateSystem.handler(async ({ input, context }) => {
@@ -123,7 +123,7 @@ export const createHealthCheckRouter = (
       // If enabling the health check, schedule it immediately
       if (input.body.enabled) {
         const config = await service.getConfiguration(
-          input.body.configurationId
+          input.body.configurationId,
         );
         if (config) {
           const { scheduleHealthCheck } = await import("./queue-executor");
@@ -152,9 +152,9 @@ export const createHealthCheckRouter = (
         await service.updateRetentionConfig(
           input.systemId,
           input.configurationId,
-          input.retentionConfig
+          input.retentionConfig,
         );
-      }
+      },
     ),
 
     getHistory: os.getHistory.handler(async ({ input }) => {
@@ -176,12 +176,12 @@ export const createHealthCheckRouter = (
         return service.getAggregatedHistory(input, {
           includeAggregatedResult: true,
         });
-      }
+      },
     ),
     getSystemHealthStatus: os.getSystemHealthStatus.handler(
       async ({ input }) => {
         return service.getSystemHealthStatus(input.systemId);
-      }
+      },
     ),
 
     getBulkSystemHealthStatus: os.getBulkSystemHealthStatus.handler(
@@ -195,17 +195,17 @@ export const createHealthCheckRouter = (
         await Promise.all(
           input.systemIds.map(async (systemId) => {
             statuses[systemId] = await service.getSystemHealthStatus(systemId);
-          })
+          }),
         );
 
         return { statuses };
-      }
+      },
     ),
 
     getSystemHealthOverview: os.getSystemHealthOverview.handler(
       async ({ input }) => {
         return service.getSystemHealthOverview(input.systemId);
-      }
+      },
     ),
   });
 };

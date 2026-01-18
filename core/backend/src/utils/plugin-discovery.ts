@@ -1,7 +1,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { eq, and } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { SafeDatabase } from "@checkstack/backend-api";
 import { plugins } from "../schema";
 
 export interface PluginMetadata {
@@ -116,7 +116,7 @@ export async function syncPluginsToDatabase({
   db,
 }: {
   localPlugins: PluginMetadata[];
-  db: NodePgDatabase<Record<string, unknown>>;
+  db: SafeDatabase<Record<string, unknown>>;
 }): Promise<void> {
   for (const plugin of localPlugins) {
     // Check if plugin already exists

@@ -1,6 +1,6 @@
 import { eq, and } from "drizzle-orm";
 import * as schema from "../schema";
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { SafeDatabase } from "@checkstack/backend-api";
 import { v4 as uuidv4 } from "uuid";
 
 // Type aliases for entity creation
@@ -23,9 +23,9 @@ type NewView = {
 };
 
 export class EntityService {
-  private database: NodePgDatabase<typeof schema>;
+  private database: SafeDatabase<typeof schema>;
 
-  constructor(database: NodePgDatabase<typeof schema>) {
+  constructor(database: SafeDatabase<typeof schema>) {
     this.database = database;
   }
 

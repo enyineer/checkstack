@@ -11,7 +11,7 @@ import {
   configString,
   type ConfigService,
 } from "@checkstack/backend-api";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { SafeDatabase } from "@checkstack/backend-api";
 import type { NotificationStrategyRegistry } from "@checkstack/backend-api";
 import type * as schema from "./schema";
 
@@ -78,7 +78,7 @@ const STRATEGY_META_VERSION = 1;
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export interface StrategyServiceDeps {
-  db: NodePgDatabase<typeof schema>;
+  db: SafeDatabase<typeof schema>;
   configService: ConfigService;
   strategyRegistry: NotificationStrategyRegistry;
 }

@@ -4,6 +4,7 @@ import {
   type EmitHookFn,
   type CollectorRegistry,
   evaluateAssertions,
+  type SafeDatabase,
 } from "@checkstack/backend-api";
 import { QueueManager } from "@checkstack/queue-api";
 import {
@@ -13,7 +14,6 @@ import {
 } from "./schema";
 import * as schema from "./schema";
 import { eq, and, max } from "drizzle-orm";
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { type SignalService } from "@checkstack/signal-common";
 import {
   HEALTH_CHECK_RUN_COMPLETED,
@@ -25,7 +25,7 @@ import { resolveRoute, type InferClient } from "@checkstack/common";
 import { HealthCheckService } from "./service";
 import { healthCheckHooks } from "./hooks";
 
-type Db = NodePgDatabase<typeof schema>;
+type Db = SafeDatabase<typeof schema>;
 type CatalogClient = InferClient<typeof CatalogApi>;
 type MaintenanceClient = InferClient<typeof MaintenanceApi>;
 

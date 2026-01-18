@@ -1,7 +1,6 @@
 import { implement } from "@orpc/server";
-import { autoAuthMiddleware, type RpcContext } from "@checkstack/backend-api";
+import { autoAuthMiddleware, type RpcContext, type SafeDatabase } from "@checkstack/backend-api";
 import { {{pluginNameCamel}}Contract } from "@checkstack/{{pluginBaseName}}-common";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type * as schema from "./schema";
 import { {{pluginNamePascal}}Service } from "./service";
 
@@ -18,7 +17,7 @@ const os = implement({{pluginNameCamel}}Contract)
 export function create{{pluginNamePascal}}Router({
   database,
 }: {
-  database: NodePgDatabase<typeof schema>;
+  database: SafeDatabase<typeof schema>;
 }) {
   const service = new {{pluginNamePascal}}Service(database);
 

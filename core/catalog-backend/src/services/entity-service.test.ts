@@ -1,7 +1,7 @@
 import { describe, it, expect, mock } from "bun:test";
 import { EntityService } from "./entity-service";
 import * as schema from "../schema";
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { SafeDatabase } from "@checkstack/backend-api";
 
 describe("EntityService", () => {
   const mockDb = {
@@ -23,7 +23,7 @@ describe("EntityService", () => {
     delete: mock(() => ({
       where: mock(() => Promise.resolve()),
     })),
-  } as unknown as NodePgDatabase<typeof schema>;
+  } as unknown as SafeDatabase<typeof schema>;
 
   const service = new EntityService(mockDb);
 

@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { SafeDatabase } from "@checkstack/backend-api";
 import { ORPCError } from "@orpc/server";
 import { plugins } from "../schema";
 
@@ -12,7 +12,7 @@ export async function assertCanDeregister({
   db,
 }: {
   pluginId: string;
-  db: NodePgDatabase<Record<string, unknown>>;
+  db: SafeDatabase<Record<string, unknown>>;
 }): Promise<void> {
   // 1. Check if plugin exists
   const pluginRows = await db

@@ -1,5 +1,7 @@
-import { createBackendPlugin } from "@checkstack/backend-api";
-import { type NodePgDatabase } from "drizzle-orm/node-postgres";
+import {
+  createBackendPlugin,
+  type SafeDatabase,
+} from "@checkstack/backend-api";
 import { coreServices } from "@checkstack/backend-api";
 import {
   catalogAccessRules,
@@ -16,7 +18,7 @@ import { registerSearchProvider } from "@checkstack/command-backend";
 // Database schema is still needed for types in creating the router
 import * as schema from "./schema";
 
-export let db: NodePgDatabase<typeof schema> | undefined;
+export let db: SafeDatabase<typeof schema> | undefined;
 
 // Export hooks for other plugins to subscribe to
 export { catalogHooks } from "./hooks";
@@ -37,7 +39,7 @@ export default createBackendPlugin({
       init: async ({ database, rpc, rpcClient, logger }) => {
         logger.debug("Initializing Catalog Backend...");
 
-        const typedDb = database as NodePgDatabase<typeof schema>;
+        const typedDb = database as SafeDatabase<typeof schema>;
 
         // Get notification client for group management and sending notifications
         const notificationClient = rpcClient.forPlugin(NotificationApi);
@@ -66,7 +68,7 @@ export default createBackendPlugin({
                   (s) =>
                     !q ||
                     s.name.toLowerCase().includes(q) ||
-                    s.description?.toLowerCase().includes(q)
+                    s.description?.toLowerCase().includes(q),
                 )
                 .map((s) => ({
                   id: s.id,
@@ -107,7 +109,7 @@ export default createBackendPlugin({
       },
       // Phase 3: Safe to make RPC calls after all plugins are ready
       afterPluginsReady: async ({ database, rpcClient, logger }) => {
-        const typedDb = database as NodePgDatabase<typeof schema>;
+        const typedDb = database as SafeDatabase<typeof schema>;
         const notificationClient = rpcClient.forPlugin(NotificationApi);
 
         // Bootstrap: Create notification groups for existing systems and groups
@@ -121,9 +123,9 @@ export default createBackendPlugin({
  * Bootstrap notification groups for existing catalog entities
  */
 async function bootstrapNotificationGroups(
-  database: NodePgDatabase<typeof schema>,
+  database: SafeDatabase<typeof schema>,
   notificationClient: InferClient<typeof NotificationApi>,
-  logger: { debug: (msg: string) => void }
+  logger: { debug: (msg: string) => void },
 ) {
   try {
     // Get all existing systems and groups
@@ -151,14 +153,14 @@ async function bootstrapNotificationGroups(
     }
 
     logger.debug(
-      `Bootstrapped notification groups for ${systems.length} systems and ${groups.length} groups`
+      `Bootstrapped notification groups for ${systems.length} systems and ${groups.length} groups`,
     );
   } catch (error) {
     // Don't fail startup if notification service is unavailable
     logger.debug(
       `Failed to bootstrap notification groups: ${
         error instanceof Error ? error.message : "Unknown error"
-      }`
+      }`,
     );
   }
 }

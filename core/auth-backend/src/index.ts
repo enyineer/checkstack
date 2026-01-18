@@ -18,7 +18,7 @@ import {
 import { NotificationApi } from "@checkstack/notification-common";
 import * as schema from "./schema";
 import { eq, inArray } from "drizzle-orm";
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { SafeDatabase } from "@checkstack/backend-api";
 import { User } from "better-auth/types";
 import { verifyPassword } from "better-auth/crypto";
 import { createExtensionPoint } from "@checkstack/backend-api";
@@ -57,7 +57,7 @@ async function syncAccessRulesToDb({
   accessRules,
   fullSync = false,
 }: {
-  database: NodePgDatabase<typeof schema>;
+  database: SafeDatabase<typeof schema>;
   logger: { debug: (msg: string) => void };
   accessRules: {
     id: string;
@@ -170,7 +170,7 @@ async function syncAuthenticatedDefaultAccessRulesToUsersRole({
   logger,
   accessRules,
 }: {
-  database: NodePgDatabase<typeof schema>;
+  database: SafeDatabase<typeof schema>;
   logger: { debug: (msg: string) => void };
   accessRules: { id: string; isDefault?: boolean }[];
 }) {
@@ -237,7 +237,7 @@ async function syncPublicDefaultAccessRulesToAnonymousRole({
   logger,
   accessRules,
 }: {
-  database: NodePgDatabase<typeof schema>;
+  database: SafeDatabase<typeof schema>;
   logger: { debug: (msg: string) => void };
   accessRules: { id: string; isPublic?: boolean }[];
 }) {
@@ -289,7 +289,7 @@ export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
     let auth: ReturnType<typeof betterAuth> | undefined;
-    let db: NodePgDatabase<typeof schema> | undefined;
+    let db: SafeDatabase<typeof schema> | undefined;
 
     const strategies: AuthStrategy<unknown>[] = [];
 
@@ -702,7 +702,7 @@ export default createBackendPlugin({
 
         // 4. Register oRPC router
         const authRouter = createAuthRouter(
-          database as NodePgDatabase<typeof schema>,
+          database as SafeDatabase<typeof schema>,
           strategyRegistry,
           reloadAuth,
           config,
@@ -770,7 +770,7 @@ export default createBackendPlugin({
           `[auth-backend] afterPluginsReady: syncing ${allAccessRules.length} access rules from all plugins`,
         );
         await syncAccessRulesToDb({
-          database: database as NodePgDatabase<typeof schema>,
+          database: database as SafeDatabase<typeof schema>,
           logger,
           accessRules: allAccessRules,
           fullSync: true,
@@ -782,7 +782,7 @@ export default createBackendPlugin({
           coreHooks.accessRulesRegistered,
           async ({ accessRules }) => {
             await syncAccessRulesToDb({
-              database: database as NodePgDatabase<typeof schema>,
+              database: database as SafeDatabase<typeof schema>,
               logger,
               accessRules,
             });

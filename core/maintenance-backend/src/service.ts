@@ -1,5 +1,5 @@
 import { eq, and, or, inArray } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import { maintenances, maintenanceSystems, maintenanceUpdates } from "./schema";
 import type {
@@ -12,7 +12,7 @@ import type {
   MaintenanceStatus,
 } from "@checkstack/maintenance-common";
 
-type Db = NodePgDatabase<typeof schema>;
+type Db = SafeDatabase<typeof schema>;
 
 function generateId(): string {
   return crypto.randomUUID();

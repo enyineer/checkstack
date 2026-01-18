@@ -1,4 +1,4 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { SafeDatabase } from "@checkstack/backend-api";
 import type { Logger } from "@checkstack/backend-api";
 import type { QueueManager } from "@checkstack/queue-api";
 import type { SignalService } from "@checkstack/signal-common";
@@ -55,7 +55,7 @@ export interface DeliveryCoordinator {
 }
 
 interface DeliveryCoordinatorDeps {
-  db: NodePgDatabase<typeof schema>;
+  db: SafeDatabase<typeof schema>;
   providerRegistry: IntegrationProviderRegistry;
   connectionStore: ConnectionStore;
   queueManager: QueueManager;

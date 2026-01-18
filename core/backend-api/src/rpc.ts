@@ -8,7 +8,7 @@ import {
   qualifyAccessRuleId,
   qualifyResourceType,
 } from "@checkstack/common";
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { SafeDatabase } from "./plugin-system";
 import {
   Logger,
   Fetch,
@@ -36,7 +36,7 @@ export interface RpcContext {
    */
   pluginMetadata: PluginMetadata;
 
-  db: NodePgDatabase<Record<string, unknown>>;
+  db: SafeDatabase<Record<string, unknown>>;
   logger: Logger;
   fetch: Fetch;
   auth: AuthService;

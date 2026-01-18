@@ -1,5 +1,5 @@
 import { eq, and, inArray, ne } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import { incidents, incidentSystems, incidentUpdates } from "./schema";
 import type {
@@ -12,7 +12,7 @@ import type {
   IncidentStatus,
 } from "@checkstack/incident-common";
 
-type Db = NodePgDatabase<typeof schema>;
+type Db = SafeDatabase<typeof schema>;
 
 function generateId(): string {
   return crypto.randomUUID();
@@ -44,8 +44,8 @@ export class IncidentService {
       const statusFilter = filters.status
         ? eq(incidents.status, filters.status)
         : filters.includeResolved
-        ? undefined
-        : ne(incidents.status, "resolved");
+          ? undefined
+          : ne(incidents.status, "resolved");
 
       incidentRows = await this.db
         .select()
@@ -55,8 +55,8 @@ export class IncidentService {
       const statusFilter = filters?.status
         ? eq(incidents.status, filters.status)
         : filters?.includeResolved
-        ? undefined
-        : ne(incidents.status, "resolved");
+          ? undefined
+          : ne(incidents.status, "resolved");
 
       incidentRows = await this.db.select().from(incidents).where(statusFilter);
     }
@@ -116,7 +116,7 @@ export class IncidentService {
    * Get active incidents for a system
    */
   async getIncidentsForSystem(
-    systemId: string
+    systemId: string,
   ): Promise<IncidentWithSystems[]> {
     // Get incident IDs for this system
     const systemIncidents = await this.db
@@ -156,7 +156,7 @@ export class IncidentService {
    */
   async createIncident(
     input: CreateIncidentInput,
-    userId?: string
+    userId?: string,
   ): Promise<IncidentWithSystems> {
     const id = generateId();
 
@@ -194,7 +194,7 @@ export class IncidentService {
    * Update an existing incident
    */
   async updateIncident(
-    input: UpdateIncidentInput
+    input: UpdateIncidentInput,
   ): Promise<IncidentWithSystems | undefined> {
     const [existing] = await this.db
       .select()
@@ -239,7 +239,7 @@ export class IncidentService {
    */
   async addUpdate(
     input: AddIncidentUpdateInput,
-    userId?: string
+    userId?: string,
   ): Promise<IncidentUpdate> {
     const id = generateId();
 
@@ -277,7 +277,7 @@ export class IncidentService {
   async resolveIncident(
     id: string,
     message?: string,
-    userId?: string
+    userId?: string,
   ): Promise<IncidentWithSystems | undefined> {
     const [existing] = await this.db
       .select()

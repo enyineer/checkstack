@@ -12,7 +12,7 @@ import { authContract, passwordSchema } from "@checkstack/auth-common";
 import { hashPassword } from "better-auth/crypto";
 import * as schema from "./schema";
 import { eq, inArray, and } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { SafeDatabase } from "@checkstack/backend-api";
 import { authHooks } from "./hooks";
 
 /**
@@ -118,7 +118,7 @@ function generateSecret(): string {
 }
 
 export const createAuthRouter = (
-  internalDb: NodePgDatabase<typeof schema>,
+  internalDb: SafeDatabase<typeof schema>,
   strategyRegistry: { getStrategies: () => AuthStrategy<unknown>[] },
   reloadAuthFn: () => Promise<void>,
   configService: ConfigService,

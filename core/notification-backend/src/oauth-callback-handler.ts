@@ -9,12 +9,12 @@ import type {
   NotificationStrategyRegistry,
   ConfigService,
 } from "@checkstack/backend-api";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { SafeDatabase } from "@checkstack/backend-api";
 import { createStrategyService } from "./strategy-service";
 import type * as schema from "./schema";
 
 export interface OAuthCallbackDeps {
-  db: NodePgDatabase<typeof schema>;
+  db: SafeDatabase<typeof schema>;
   configService: ConfigService;
   strategyRegistry: NotificationStrategyRegistry;
   baseUrl: string;

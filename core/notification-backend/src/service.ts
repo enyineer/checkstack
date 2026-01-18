@@ -1,4 +1,4 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { SafeDatabase } from "@checkstack/backend-api";
 import { eq, and, count, desc, lt } from "drizzle-orm";
 import * as schema from "./schema";
 
@@ -8,7 +8,7 @@ import * as schema from "./schema";
  * Get notifications for a user (for router use)
  */
 export async function getUserNotifications(
-  db: NodePgDatabase<typeof schema>,
+  db: SafeDatabase<typeof schema>,
   userId: string,
   options: { limit: number; offset: number; unreadOnly: boolean }
 ): Promise<{
@@ -44,7 +44,7 @@ export async function getUserNotifications(
  * Get unread count for a user
  */
 export async function getUnreadCount(
-  db: NodePgDatabase<typeof schema>,
+  db: SafeDatabase<typeof schema>,
   userId: string
 ): Promise<number> {
   const result = await db
@@ -64,7 +64,7 @@ export async function getUnreadCount(
  * Mark notification(s) as read
  */
 export async function markAsRead(
-  db: NodePgDatabase<typeof schema>,
+  db: SafeDatabase<typeof schema>,
   userId: string,
   notificationId?: string
 ): Promise<void> {
@@ -85,7 +85,7 @@ export async function markAsRead(
  * Delete a notification
  */
 export async function deleteNotification(
-  db: NodePgDatabase<typeof schema>,
+  db: SafeDatabase<typeof schema>,
   userId: string,
   notificationId: string
 ): Promise<void> {
@@ -103,7 +103,7 @@ export async function deleteNotification(
  * Get all notification groups
  */
 export async function getAllGroups(
-  db: NodePgDatabase<typeof schema>
+  db: SafeDatabase<typeof schema>
 ): Promise<(typeof schema.notificationGroups.$inferSelect)[]> {
   return db.select().from(schema.notificationGroups);
 }
@@ -112,7 +112,7 @@ export async function getAllGroups(
  * Get user's subscriptions with enriched group details
  */
 export async function getEnrichedUserSubscriptions(
-  db: NodePgDatabase<typeof schema>,
+  db: SafeDatabase<typeof schema>,
   userId: string
 ): Promise<
   {
@@ -145,7 +145,7 @@ export async function getEnrichedUserSubscriptions(
  * Subscribe user to a group
  */
 export async function subscribeToGroup(
-  db: NodePgDatabase<typeof schema>,
+  db: SafeDatabase<typeof schema>,
   userId: string,
   groupId: string
 ): Promise<void> {
@@ -173,7 +173,7 @@ export async function subscribeToGroup(
  * Unsubscribe user from a group
  */
 export async function unsubscribeFromGroup(
-  db: NodePgDatabase<typeof schema>,
+  db: SafeDatabase<typeof schema>,
   userId: string,
   groupId: string
 ): Promise<void> {
@@ -196,7 +196,7 @@ export async function purgeOldNotifications({
   enabled,
   retentionDays,
 }: {
-  db: NodePgDatabase<typeof schema>;
+  db: SafeDatabase<typeof schema>;
   enabled: boolean;
   retentionDays: number;
 }): Promise<number> {

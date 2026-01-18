@@ -1,4 +1,4 @@
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { SafeDatabase } from "@checkstack/backend-api";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -20,7 +20,7 @@ import { pluginConfigs } from "../schema";
 export class ConfigServiceImpl implements ConfigService {
   constructor(
     private readonly pluginId: string,
-    private readonly db: NodePgDatabase<Record<string, unknown>>
+    private readonly db: SafeDatabase<Record<string, unknown>>
   ) {}
 
   /**

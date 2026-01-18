@@ -1,9 +1,10 @@
 import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import path from "node:path";
 import fs from "node:fs";
 import type { Hono } from "hono";
 import { eq, and, sql } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { SafeDatabase } from "@checkstack/backend-api";
 import {
   coreServices,
   BackendPlugin,
@@ -42,7 +43,7 @@ export interface PluginLoaderDeps {
   extensionPointManager: ExtensionPointManager;
   registeredAccessRules: (AccessRule & { pluginId: string })[];
   getAllAccessRules: () => AccessRule[];
-  db: NodePgDatabase<Record<string, unknown>>;
+  db: SafeDatabase<Record<string, unknown>>;
   /**
    * Map of pluginId -> PluginMetadata for request-time context injection.
    */
@@ -348,7 +349,11 @@ export async function loadPlugins({
           await deps.db.execute(
             sql.raw(`SET search_path = "${migrationsSchema}", public`),
           );
-          await migrate(deps.db, { migrationsFolder, migrationsSchema });
+          // Drizzle migrate() requires NodePgDatabase, cast from SafeDatabase
+          await migrate(deps.db as NodePgDatabase<Record<string, unknown>>, {
+            migrationsFolder,
+            migrationsSchema,
+          });
 
           // Reset search_path to public after migrations complete.
           // This prevents search_path leaking into subsequent plugin migrations.

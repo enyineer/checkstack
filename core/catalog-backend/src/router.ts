@@ -2,7 +2,7 @@ import { implement, ORPCError } from "@orpc/server";
 import { autoAuthMiddleware, type RpcContext } from "@checkstack/backend-api";
 import { catalogContract } from "@checkstack/catalog-common";
 import { EntityService } from "./services/entity-service";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import { NotificationApi } from "@checkstack/notification-common";
 import type { InferClient } from "@checkstack/common";
@@ -20,7 +20,7 @@ const os = implement(catalogContract)
   .use(autoAuthMiddleware);
 
 export interface CatalogRouterDeps {
-  database: NodePgDatabase<typeof schema>;
+  database: SafeDatabase<typeof schema>;
   notificationClient: InferClient<typeof NotificationApi>;
   pluginId: string;
 }
