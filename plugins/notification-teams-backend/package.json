@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/notification-teams-backend",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "type": "module",
   "main": "src/index.ts",
   "exports": {

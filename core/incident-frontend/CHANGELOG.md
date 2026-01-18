@@ -1,5 +1,21 @@
 # @checkstack/incident-frontend
 
+## 0.3.8
+
+### Patch Changes
+
+- Updated dependencies [8a87cd4]
+- Updated dependencies [8a87cd4]
+- Updated dependencies [8a87cd4]
+  - @checkstack/catalog-common@1.2.3
+  - @checkstack/common@0.5.0
+  - @checkstack/incident-common@0.3.3
+  - @checkstack/auth-frontend@0.5.2
+  - @checkstack/dashboard-frontend@0.3.7
+  - @checkstack/frontend-api@0.3.2
+  - @checkstack/ui@0.3.1
+  - @checkstack/signal-frontend@0.0.9
+
 ## 0.3.7
 
 ### Patch Changes

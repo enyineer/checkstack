@@ -1,5 +1,15 @@
 # @checkstack/notification-telegram-backend
 
+## 0.0.11
+
+### Patch Changes
+
+- Updated dependencies [8a87cd4]
+- Updated dependencies [8a87cd4]
+  - @checkstack/backend-api@0.4.1
+  - @checkstack/common@0.5.0
+  - @checkstack/notification-backend@0.1.6
+
 ## 0.0.10
 
 ### Patch Changes
