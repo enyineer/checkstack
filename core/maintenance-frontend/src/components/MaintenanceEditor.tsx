@@ -48,8 +48,8 @@ export const MaintenanceEditor: React.FC<Props> = ({
   // Maintenance fields
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [startAt, setStartAt] = useState<Date>(new Date());
-  const [endAt, setEndAt] = useState<Date>(new Date());
+  const [startAt, setStartAt] = useState<Date | undefined>(new Date());
+  const [endAt, setEndAt] = useState<Date | undefined>(new Date());
   const [selectedSystemIds, setSelectedSystemIds] = useState<Set<string>>(
     new Set(),
   );
@@ -140,6 +140,10 @@ export const MaintenanceEditor: React.FC<Props> = ({
       toast.error("At least one system must be selected");
       return;
     }
+    if (!startAt || !endAt) {
+      toast.error("Start and end dates are required");
+      return;
+    }
     if (endAt <= startAt) {
       toast.error("End date must be after start date");
       return;
@@ -193,7 +197,7 @@ export const MaintenanceEditor: React.FC<Props> = ({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-6 py-4 max-h-[70vh] overflow-y-auto">
+        <div className="grid gap-6 py-4">
           {/* Basic Info Section */}
           <div className="grid gap-4">
             <div className="grid gap-2">

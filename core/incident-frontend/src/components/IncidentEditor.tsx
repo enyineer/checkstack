@@ -55,7 +55,7 @@ export const IncidentEditor: React.FC<Props> = ({
   const [description, setDescription] = useState("");
   const [severity, setSeverity] = useState<IncidentSeverity>("major");
   const [selectedSystemIds, setSelectedSystemIds] = useState<Set<string>>(
-    new Set()
+    new Set(),
   );
 
   // Status update fields
@@ -88,7 +88,7 @@ export const IncidentEditor: React.FC<Props> = ({
   const { data: incidentDetail, refetch: refetchDetail } =
     incidentClient.getIncident.useQuery(
       { id: incident?.id ?? "" },
-      { enabled: !!incident?.id && open }
+      { enabled: !!incident?.id && open },
     );
 
   // Sync updates from query
@@ -180,7 +180,7 @@ export const IncidentEditor: React.FC<Props> = ({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-6 py-4 max-h-[70vh] overflow-y-auto">
+        <div className="grid gap-6 py-4">
           {/* Basic Info Section */}
           <div className="grid gap-4">
             <div className="grid gap-2">

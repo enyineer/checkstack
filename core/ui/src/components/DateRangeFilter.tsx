@@ -89,8 +89,8 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
                 activePreset === preset.id && !showCustom
                   ? "primary"
                   : preset.id === "custom" && showCustom
-                  ? "primary"
-                  : "outline"
+                    ? "primary"
+                    : "outline"
               }
               size="sm"
               onClick={() => handlePresetClick(preset.id)}
@@ -106,13 +106,21 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
           <span className="text-sm text-muted-foreground">From:</span>
           <DateTimePicker
             value={value.startDate}
-            onChange={(startDate) => onChange({ ...value, startDate })}
+            onChange={(startDate) => {
+              if (startDate) {
+                onChange({ ...value, startDate });
+              }
+            }}
             maxDate={value.endDate}
           />
           <span className="text-sm text-muted-foreground">To:</span>
           <DateTimePicker
             value={value.endDate}
-            onChange={(endDate) => onChange({ ...value, endDate })}
+            onChange={(endDate) => {
+              if (endDate) {
+                onChange({ ...value, endDate });
+              }
+            }}
             minDate={value.startDate}
             maxDate={new Date()}
           />

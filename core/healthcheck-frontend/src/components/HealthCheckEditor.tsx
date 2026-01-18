@@ -40,13 +40,13 @@ export const HealthCheckEditor: React.FC<HealthCheckEditorProps> = ({
   const [name, setName] = useState(initialData?.name || "");
   const [strategyId, setStrategyId] = useState(initialData?.strategyId || "");
   const [interval, setInterval] = useState(
-    initialData?.intervalSeconds?.toString() || "60"
+    initialData?.intervalSeconds?.toString() || "60",
   );
   const [config, setConfig] = useState<Record<string, unknown>>(
-    (initialData?.config as Record<string, unknown>) || {}
+    (initialData?.config as Record<string, unknown>) || {},
   );
   const [collectors, setCollectors] = useState<CollectorConfigEntry[]>(
-    initialData?.collectors || []
+    initialData?.collectors || [],
   );
 
   const toast = useToast();
@@ -111,7 +111,7 @@ export const HealthCheckEditor: React.FC<HealthCheckEditorProps> = ({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-6 py-4 max-h-[70vh] overflow-y-auto">
+          <div className="space-y-6 py-4">
             <div className="space-y-2">
               <Label htmlFor="name">Name</Label>
               <Input
