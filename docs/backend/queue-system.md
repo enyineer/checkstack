@@ -922,6 +922,70 @@ await queue.enqueue(
 
 ---
 
+## Best Practices
+
+### Define Consumers in `afterPluginsReady`
+
+Queue consumers should be defined in the `afterPluginsReady` lifecycle hook rather than `init`. This ensures:
+
+1. **Access to `emitHook`**: The `emitHook` function for emitting integration events is only available in `afterPluginsReady`
+2. **All plugins initialized**: Other plugins' routers and services are available for RPC calls
+3. **Consistent pattern**: All queue setup happens in one place, making the code easier to understand
+
+**Recommended pattern:**
+
+```typescript
+env.registerInit({
+  schema,
+  deps: {
+    queueManager: coreServices.queueManager,
+    signalService: coreServices.signalService,
+    // ... other deps
+  },
+  init: async ({ database, rpc }) => {
+    // Phase 2: Register routers and services
+    // Do NOT set up queue consumers here
+    rpc.registerRouter(router, contract);
+  },
+  afterPluginsReady: async ({ queueManager, signalService, emitHook }) => {
+    // Phase 3: Set up queue consumers and schedule recurring jobs
+    const queue = queueManager.getQueue<MyJobPayload>('my-queue');
+
+    // Consumer has access to emitHook for integration events
+    await queue.consume(
+      async (job) => {
+        // Process job...
+        const result = await processJob(job.data);
+
+        // Emit integration event (only available in afterPluginsReady!)
+        await emitHook(myHooks.jobCompleted, {
+          jobId: job.id,
+          result,
+        });
+
+        // Send real-time signal
+        await signalService.broadcast(MY_JOB_COMPLETED, { jobId: job.id });
+      },
+      {
+        consumerGroup: 'my-worker',
+        maxRetries: 3,
+      }
+    );
+
+    // Schedule recurring job
+    await queue.scheduleRecurring({}, {
+      jobId: 'my-recurring-job',
+      intervalSeconds: 60,
+    });
+  },
+});
+```
+
+> **Why not `init`?** The `emitHook` function is not available during `init` because the integration event system hasn't finished initializing. Defining consumers in `init` means you cannot emit integration events from job handlers.
+
+---
+
+
 ## Summary
 
 The Checkstack Queue system provides a powerful, flexible foundation for asynchronous task processing:
