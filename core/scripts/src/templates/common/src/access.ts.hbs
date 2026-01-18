@@ -10,16 +10,15 @@ export const {{pluginNameCamel}}Access = {
    * - read: View {{pluginBaseName}} data (auto-assigned to authenticated users)
    * - manage: Create, update, and delete {{pluginBaseName}} data
    */
-  ...accessPair(
-    "{{pluginBaseName}}",
-    {
-      read: "Read {{pluginBaseName}} data",
-      manage: "Manage {{pluginBaseName}} data",
+  ...accessPair("{{pluginBaseName}}", {
+    read: {
+      description: "Read {{pluginBaseName}} data",
+      isDefault: true, // read is auto-assigned to "users" role
     },
-    {
-      readIsDefault: true, // read is auto-assigned to "users" role
-    }
-  ),
+    manage: {
+      description: "Manage {{pluginBaseName}} data",
+    },
+  }),
 };
 
 /**
