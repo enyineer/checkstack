@@ -18,6 +18,7 @@ import { type SignalService } from "@checkstack/signal-common";
 import {
   HEALTH_CHECK_RUN_COMPLETED,
   type HealthCheckStatus,
+  stripEphemeralFields,
 } from "@checkstack/healthcheck-common";
 import { CatalogApi, catalogRoutes } from "@checkstack/catalog-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
@@ -388,11 +389,17 @@ async function executeHealthCheckJob(props: {
             }
           }
 
+          // Strip ephemeral fields (like HTTP body) before storage to save space
+          const strippedResult = stripEphemeralFields(
+            collectorResult.result as Record<string, unknown>,
+            registered.collector.result.schema,
+          );
+
           // Store result under the collector's UUID, with collector type and assertion metadata
           collectorResults[storageKey] = {
             _collectorId: collectorEntry.collectorId, // Store the type for frontend schema linking
             _assertionFailed: assertionFailed, // null if no assertion failed
-            ...collectorResult.result,
+            ...strippedResult,
           };
         } catch (error) {
           hasCollectorError = true;

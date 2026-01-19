@@ -35,4 +35,9 @@ export interface HealthResultMeta {
   "x-chart-unit"?: string;
   /** Whether this field supports JSONPath assertions */
   "x-jsonpath"?: boolean;
+  /**
+   * Whether this field is ephemeral (used for assertions but not persisted).
+   * Ephemeral fields are stripped before storing results in the database.
+   */
+  "x-ephemeral"?: boolean;
 }

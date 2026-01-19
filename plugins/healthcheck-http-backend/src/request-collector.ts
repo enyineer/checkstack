@@ -62,7 +62,7 @@ const requestResultSchema = healthResultSchema({
     "x-chart-label": "Response Time",
     "x-chart-unit": "ms",
   }),
-  body: healthResultJSONPath({}),
+  body: healthResultJSONPath({ "x-ephemeral": true }),
   bodyLength: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Body Length",

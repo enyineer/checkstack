@@ -86,7 +86,7 @@ export type HealthResultShape = Record<string, HealthResultFieldType>;
  * ```
  */
 export function healthResultSchema<T extends HealthResultShape>(
-  shape: T
+  shape: T,
 ): z.ZodObject<T> {
   return z.object(shape);
 }
@@ -111,7 +111,7 @@ type ChartMeta = Omit<HealthResultMeta, "x-jsonpath">;
  * ```
  */
 export function healthResultString(
-  meta: ChartMeta
+  meta: ChartMeta,
 ): HealthResultField<z.ZodString> {
   const schema = z.string();
   schema.register(healthResultRegistry, meta);
@@ -122,7 +122,7 @@ export function healthResultString(
  * Create a health result number field with typed chart metadata.
  */
 export function healthResultNumber(
-  meta: ChartMeta
+  meta: ChartMeta,
 ): HealthResultField<z.ZodNumber> {
   const schema = z.number();
   schema.register(healthResultRegistry, meta);
@@ -133,7 +133,7 @@ export function healthResultNumber(
  * Create a health result boolean field with typed chart metadata.
  */
 export function healthResultBoolean(
-  meta: ChartMeta
+  meta: ChartMeta,
 ): HealthResultField<z.ZodBoolean> {
   const schema = z.boolean();
   schema.register(healthResultRegistry, meta);
@@ -152,7 +152,7 @@ export function healthResultBoolean(
  * ```
  */
 export function healthResultArray(
-  meta: ChartMeta
+  meta: ChartMeta,
 ): HealthResultField<z.ZodArray<z.ZodString>> {
   const schema = z.array(z.string());
   schema.register(healthResultRegistry, meta);
@@ -173,7 +173,7 @@ export function healthResultArray(
  * ```
  */
 export function healthResultJSONPath(
-  meta: ChartMeta
+  meta: ChartMeta,
 ): HealthResultField<z.ZodString> {
   const schema = z.string();
   schema.register(healthResultRegistry, { ...meta, "x-jsonpath": true });
@@ -213,7 +213,60 @@ function unwrapSchema(schema: z.ZodTypeAny): z.ZodTypeAny {
  * Automatically unwraps Optional/Default/Nullable wrappers.
  */
 export function getHealthResultMeta(
-  schema: z.ZodTypeAny
+  schema: z.ZodTypeAny,
 ): HealthResultMeta | undefined {
   return healthResultRegistry.get(unwrapSchema(schema));
+}
+
+// ============================================================================
+// EPHEMERAL FIELD STRIPPING - For storage optimization
+// ============================================================================
+
+/**
+ * Strip ephemeral fields from a result object before database storage.
+ *
+ * Ephemeral fields (marked with x-ephemeral: true) are used during health check
+ * execution for assertions but should not be persisted to save storage space.
+ * Common example: HTTP response bodies used for JSONPath assertions.
+ *
+ * @param result - The full result object from collector execution
+ * @param schema - The Zod schema with health result metadata
+ * @returns A new object with ephemeral fields removed
+ *
+ * @example
+ * ```typescript
+ * const stripped = stripEphemeralFields(collectorResult.result, collector.result.schema);
+ * // The 'body' field (marked with x-ephemeral) is removed before storage
+ * ```
+ */
+export function stripEphemeralFields<T extends Record<string, unknown>>(
+  result: T,
+  schema: z.ZodTypeAny,
+): Partial<T> {
+  // Handle ZodObject schemas
+  if (!(schema instanceof z.ZodObject)) {
+    return result;
+  }
+
+  const shape = schema.shape as Record<string, z.ZodTypeAny>;
+  const stripped: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(result)) {
+    const fieldSchema = shape[key];
+    if (!fieldSchema) {
+      // Keep unknown fields (e.g., _collectorId, _assertionFailed)
+      stripped[key] = value;
+      continue;
+    }
+
+    const meta = getHealthResultMeta(fieldSchema);
+    if (meta?.["x-ephemeral"]) {
+      // Skip ephemeral fields
+      continue;
+    }
+
+    stripped[key] = value;
+  }
+
+  return stripped as Partial<T>;
 }
