@@ -7,6 +7,7 @@ Improved chart ordering consistency and status timeline readability
 - **Chart ordering**: All charts now display data from left (oldest) to right (newest) for consistency
   - Fixed `HealthCheckSparkline` to reverse status dots order
   - Fixed `AutoChartGrid` `getAllValues()` to return values in chronological order
+  - Fixed `getLatestValue()` to return the newest run's value instead of the oldest
 - **Status timeline redesign**: Replaced thin bar charts with readable equal-width segment strips
   - Raw data: Each run gets equal visual space with 1px gaps between segments
   - Aggregated data: Each bucket shows stacked proportional segments for healthy/degraded/unhealthy

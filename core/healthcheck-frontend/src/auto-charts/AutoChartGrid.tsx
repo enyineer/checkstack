@@ -787,8 +787,8 @@ function getLatestValue(
     if (firstVal && typeof firstVal === "object" && !Array.isArray(firstVal)) {
       return combineRecordValues(allValues as Record<string, number>[]);
     }
-    // For simple values, return the latest
-    return allValues.at(-1);
+    // For simple values, return the latest (first in array since runs are newest-first)
+    return allValues.at(0);
   } else {
     const buckets = context.buckets;
     if (buckets.length === 0) return undefined;
@@ -812,8 +812,8 @@ function getLatestValue(
         .filter((v): v is number => typeof v === "number")
         .reduce((sum, v) => sum + v, 0);
     }
-    // For other types, return the latest
-    return allValues.at(-1);
+    // For other types, return the latest (first in array since buckets are newest-first)
+    return allValues.at(0);
   }
 }
 
