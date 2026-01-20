@@ -1,11 +1,3 @@
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-} from "recharts";
 import { format } from "date-fns";
 import type { HealthCheckDiagramSlotContext } from "../slots";
 
@@ -42,75 +34,81 @@ export const HealthCheckStatusTimeline: React.FC<
       );
     }
 
-    const chartData = buckets.map((d) => ({
-      timestamp: new Date(d.bucketStart).getTime(),
-      healthy: d.healthyCount,
-      degraded: d.degradedCount,
-      unhealthy: d.unhealthyCount,
-      total: d.runCount,
-    }));
-
     // Use daily format for intervals >= 6 hours, otherwise include time
     const timeFormat =
       (buckets[0]?.bucketIntervalSeconds ?? 3600) >= 21_600
         ? "MMM d"
         : "MMM d HH:mm";
 
+    // Calculate time range for labels
+    const firstTime = new Date(buckets[0].bucketStart).getTime();
+    const lastTime = new Date(buckets.at(-1)!.bucketStart).getTime();
+
     return (
-      <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={chartData} barGap={1}>
-          <XAxis
-            dataKey="timestamp"
-            type="number"
-            domain={["dataMin", "dataMax"]}
-            tickFormatter={(ts: number) => format(new Date(ts), timeFormat)}
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={10}
-          />
-          <Tooltip
-            content={({ active, payload }) => {
-              if (!active || !payload?.length) return;
-              // Note: payload[0].payload is typed as `any` in recharts - this is a recharts limitation.
-              const data = payload[0].payload as (typeof chartData)[number];
-              return (
-                <div
-                  className="rounded-md border bg-popover p-2 text-sm shadow-md"
-                  style={{
-                    backgroundColor: "hsl(var(--popover))",
-                    border: "1px solid hsl(var(--border))",
-                  }}
-                >
-                  <p className="text-muted-foreground mb-1">
-                    {format(new Date(data.timestamp), "MMM d, HH:mm")}
-                  </p>
-                  <div className="space-y-0.5">
-                    <p className="text-success">Healthy: {data.healthy}</p>
-                    <p className="text-warning">Degraded: {data.degraded}</p>
-                    <p className="text-destructive">
-                      Unhealthy: {data.unhealthy}
-                    </p>
-                  </div>
-                </div>
-              );
-            }}
-          />
-          <Bar dataKey="healthy" stackId="status" fill={statusColors.healthy} />
-          <Bar
-            dataKey="degraded"
-            stackId="status"
-            fill={statusColors.degraded}
-          />
-          <Bar
-            dataKey="unhealthy"
-            stackId="status"
-            fill={statusColors.unhealthy}
-          />
-        </BarChart>
-      </ResponsiveContainer>
+      <div style={{ height }} className="flex flex-col justify-between">
+        {/* Status strip - equal width stacked segments for each bucket */}
+        <div className="flex h-4 gap-px rounded-md overflow-hidden bg-muted/30">
+          {buckets.map((bucket, index) => {
+            const total = bucket.runCount || 1;
+            const healthyPct = (bucket.healthyCount / total) * 100;
+            const degradedPct = (bucket.degradedCount / total) * 100;
+            const unhealthyPct = (bucket.unhealthyCount / total) * 100;
+
+            // Calculate bucket end time for tooltip
+            const bucketStart = new Date(bucket.bucketStart);
+            const bucketEnd = new Date(
+              bucketStart.getTime() + bucket.bucketIntervalSeconds * 1000,
+            );
+            const timeSpan = `${format(bucketStart, "MMM d, HH:mm")} - ${format(bucketEnd, "HH:mm")}`;
+
+            return (
+              <div
+                key={index}
+                className="flex-1 h-full flex flex-col overflow-hidden cursor-pointer group"
+                title={`${timeSpan}\nHealthy: ${bucket.healthyCount}\nDegraded: ${bucket.degradedCount}\nUnhealthy: ${bucket.unhealthyCount}`}
+              >
+                {bucket.healthyCount > 0 && (
+                  <div
+                    className="w-full transition-opacity group-hover:opacity-80"
+                    style={{
+                      height: `${healthyPct}%`,
+                      backgroundColor: statusColors.healthy,
+                    }}
+                  />
+                )}
+                {bucket.degradedCount > 0 && (
+                  <div
+                    className="w-full transition-opacity group-hover:opacity-80"
+                    style={{
+                      height: `${degradedPct}%`,
+                      backgroundColor: statusColors.degraded,
+                    }}
+                  />
+                )}
+                {bucket.unhealthyCount > 0 && (
+                  <div
+                    className="w-full transition-opacity group-hover:opacity-80"
+                    style={{
+                      height: `${unhealthyPct}%`,
+                      backgroundColor: statusColors.unhealthy,
+                    }}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Time axis labels */}
+        <div className="flex justify-between text-xs text-muted-foreground mt-1">
+          <span>{format(new Date(firstTime), timeFormat)}</span>
+          <span>{format(new Date(lastTime), timeFormat)}</span>
+        </div>
+      </div>
     );
   }
 
-  // Raw data path
+  // Raw data path - use a continuous strip visualization
   const runs = context.runs;
 
   if (runs.length === 0) {
@@ -124,53 +122,39 @@ export const HealthCheckStatusTimeline: React.FC<
     );
   }
 
-  const chartData = runs.toReversed().map((d) => ({
-    timestamp: new Date(d.timestamp).getTime(),
-    value: 1, // Fixed height for visibility
-    status: d.status,
-  }));
+  // Sort runs chronologically (oldest first) for left-to-right display
+  const sortedRuns = runs.toReversed();
+
+  // Calculate time range for labels
+  const firstTime = new Date(sortedRuns[0].timestamp).getTime();
+  const lastTime = new Date(sortedRuns.at(-1)!.timestamp).getTime();
+  const totalRange = lastTime - firstTime;
 
   return (
-    <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={chartData} barGap={1}>
-        <XAxis
-          dataKey="timestamp"
-          type="number"
-          domain={["dataMin", "dataMax"]}
-          tickFormatter={(ts: number) => format(new Date(ts), "HH:mm")}
-          stroke="hsl(var(--muted-foreground))"
-          fontSize={10}
-        />
-        <Tooltip
-          content={({ active, payload }) => {
-            if (!active || !payload?.length) return;
-            // Note: payload[0].payload is typed as `any` in recharts - this is a recharts limitation.
-            const data = payload[0].payload as (typeof chartData)[number];
-            return (
-              <div
-                className="rounded-md border bg-popover p-2 text-sm shadow-md"
-                style={{
-                  backgroundColor: "hsl(var(--popover))",
-                  border: "1px solid hsl(var(--border))",
-                }}
-              >
-                <p className="text-muted-foreground">
-                  {format(new Date(data.timestamp), "MMM d, HH:mm:ss")}
-                </p>
-                <p className="font-medium capitalize">{data.status}</p>
-              </div>
-            );
-          }}
-        />
-        <Bar dataKey="value" radius={[2, 2, 0, 0]}>
-          {chartData.map((entry, index) => (
-            <Cell
-              key={index}
-              fill={statusColors[entry.status as keyof typeof statusColors]}
-            />
-          ))}
-        </Bar>
-      </BarChart>
-    </ResponsiveContainer>
+    <div style={{ height }} className="flex flex-col justify-between">
+      {/* Status strip - equal width segments for clarity */}
+      <div className="flex h-4 gap-px rounded-md overflow-hidden bg-muted/30">
+        {sortedRuns.map((run, index) => (
+          <div
+            key={run.id ?? index}
+            className="flex-1 h-full transition-opacity hover:opacity-80 cursor-pointer"
+            style={{
+              backgroundColor:
+                statusColors[run.status as keyof typeof statusColors],
+            }}
+            title={`${format(new Date(run.timestamp), "MMM d, HH:mm:ss")} - ${run.status}`}
+          />
+        ))}
+      </div>
+
+      {/* Time axis labels */}
+      <div className="flex justify-between text-xs text-muted-foreground mt-1">
+        <span>{format(new Date(firstTime), "HH:mm")}</span>
+        {totalRange > 3_600_000 && (
+          <span>{format(new Date(firstTime + totalRange / 2), "HH:mm")}</span>
+        )}
+        <span>{format(new Date(lastTime), "HH:mm")}</span>
+      </div>
+    </div>
   );
 };

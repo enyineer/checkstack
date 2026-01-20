@@ -110,7 +110,7 @@ interface CollectorGroupData {
  */
 function buildCollectorGroups(
   schemaFields: ChartField[],
-  instanceMap: Record<string, string[]>
+  instanceMap: Record<string, string[]>,
 ): CollectorGroupData[] {
   const groups: CollectorGroupData[] = [];
 
@@ -118,7 +118,7 @@ function buildCollectorGroups(
   for (const [collectorId, instanceKeys] of Object.entries(instanceMap)) {
     // Get fields for this collector type
     const collectorFields = schemaFields.filter(
-      (f) => f.collectorId === collectorId
+      (f) => f.collectorId === collectorId,
     );
     if (collectorFields.length === 0) continue;
 
@@ -184,7 +184,7 @@ function CollectorGroup({
  */
 function getAssertionFailed(
   context: HealthCheckDiagramSlotContext,
-  instanceKey: string
+  instanceKey: string,
 ): string | undefined {
   if (context.type === "raw" && context.runs.length > 0) {
     const latestRun = context.runs[0];
@@ -243,7 +243,7 @@ function AssertionStatusCard({
  * Returns a map from base collector ID (type) to array of instance UUIDs.
  */
 function discoverCollectorInstances(
-  context: HealthCheckDiagramSlotContext
+  context: HealthCheckDiagramSlotContext,
 ): Record<string, string[]> {
   const instanceMap: Record<string, Set<string>> = {};
 
@@ -422,8 +422,8 @@ function GaugeRenderer({ field, context }: ChartRendererProps) {
     numValue >= 90
       ? "hsl(var(--success))"
       : numValue >= 70
-      ? "hsl(var(--warning))"
-      : "hsl(var(--destructive))";
+        ? "hsl(var(--warning))"
+        : "hsl(var(--destructive))";
 
   const data = [{ name: field.label, value: numValue, fill: fillColor }];
 
@@ -771,7 +771,7 @@ function PieChartRenderer({ field, context }: ChartRendererProps) {
 function getLatestValue(
   fieldName: string,
   context: HealthCheckDiagramSlotContext,
-  collectorId?: string
+  collectorId?: string,
 ): unknown {
   if (context.type === "raw") {
     const runs = context.runs;
@@ -797,8 +797,8 @@ function getLatestValue(
     const allValues = buckets.map((bucket) =>
       getFieldValue(
         bucket.aggregatedResult as Record<string, unknown>,
-        fieldName
-      )
+        fieldName,
+      ),
     );
 
     // If the values are record types (like statusCodeCounts), combine them
@@ -822,7 +822,7 @@ function getLatestValue(
  * Adds up the counts for each key.
  */
 function combineRecordValues(
-  values: (Record<string, number> | undefined)[]
+  values: (Record<string, number> | undefined)[],
 ): Record<string, number> {
   const combined: Record<string, number> = {};
   for (const val of values) {
@@ -843,7 +843,7 @@ function combineRecordValues(
 function getValueCounts(
   fieldName: string,
   context: HealthCheckDiagramSlotContext,
-  collectorId?: string
+  collectorId?: string,
 ): Record<string, number> {
   const counts: Record<string, number> = {};
 
@@ -862,7 +862,7 @@ function getValueCounts(
       const value = getFieldValue(
         bucket.aggregatedResult as Record<string, unknown>,
         fieldName,
-        collectorId
+        collectorId,
       );
       if (value !== undefined && value !== null) {
         const key = String(value);
@@ -879,11 +879,15 @@ function getValueCounts(
  *
  * For raw runs, the strategy-specific data is inside result.metadata.
  * For aggregated buckets, the data is directly in aggregatedResult.
+ *
+ * NOTE: Returns values in chronological order (oldest first) for proper
+ * left-to-right time display in charts. Data comes from API in newest-first
+ * order, so we reverse it here.
  */
 function getAllValues(
   fieldName: string,
   context: HealthCheckDiagramSlotContext,
-  collectorId?: string
+  collectorId?: string,
 ): number[] {
   if (context.type === "raw") {
     return context.runs
@@ -892,17 +896,19 @@ function getAllValues(
         const result = run.result as StoredHealthCheckResult;
         return getFieldValue(result?.metadata, fieldName, collectorId);
       })
-      .filter((v): v is number => typeof v === "number");
+      .filter((v): v is number => typeof v === "number")
+      .toReversed();
   }
   return context.buckets
     .map((bucket) =>
       getFieldValue(
         bucket.aggregatedResult as Record<string, unknown>,
         fieldName,
-        collectorId
-      )
+        collectorId,
+      ),
     )
-    .filter((v): v is number => typeof v === "number");
+    .filter((v): v is number => typeof v === "number")
+    .toReversed();
 }
 
 /**

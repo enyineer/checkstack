@@ -12,14 +12,14 @@ interface AggregatedDataBannerProps {
  */
 function formatDuration(seconds: number): string {
   if (seconds < 60) {
-    return `${seconds}s`;
+    return `~${seconds}s`;
   }
   if (seconds < 3600) {
     const mins = Math.round(seconds / 60);
-    return `${mins}min`;
+    return `~${mins}min`;
   }
   const hours = Math.round(seconds / 3600);
-  return `${hours}h`;
+  return `~${hours}h`;
 }
 
 /**

@@ -1,5 +1,9 @@
 import React, { useState, useCallback } from "react";
-import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
+import {
+  ExtensionSlot,
+  usePluginClient,
+  type SlotContext,
+} from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
 import { SystemDetailsSlot } from "@checkstack/catalog-common";
 import {
@@ -28,13 +32,14 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { HealthCheckSparkline } from "./HealthCheckSparkline";
 import { HealthCheckLatencyChart } from "./HealthCheckLatencyChart";
 import { HealthCheckStatusTimeline } from "./HealthCheckStatusTimeline";
-import { HealthCheckDiagram } from "./HealthCheckDiagram";
 import { useHealthCheckData } from "../hooks/useHealthCheckData";
 
 import type {
   StateThresholds,
   HealthCheckStatus,
 } from "@checkstack/healthcheck-common";
+import { AggregatedDataBanner } from "./AggregatedDataBanner";
+import { HealthCheckDiagramSlot } from "../slots";
 
 type SlotProps = SlotContext<typeof SystemDetailsSlot>;
 
@@ -135,29 +140,28 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
 
     return (
       <div className="space-y-4">
+        {isAggregated && bucketIntervalSeconds && (
+          <AggregatedDataBanner
+            bucketIntervalSeconds={bucketIntervalSeconds}
+            checkIntervalSeconds={item.intervalSeconds}
+          />
+        )}
         {/* Status Timeline */}
         <div>
           <h4 className="text-sm font-medium mb-2">Status Timeline</h4>
           <HealthCheckStatusTimeline context={chartContext} height={50} />
         </div>
-
-        {/* Latency Chart */}
+        {/* Execution Duration Chart */}
         <div>
-          <h4 className="text-sm font-medium mb-2">Response Latency</h4>
+          <h4 className="text-sm font-medium mb-2">Execution Duration</h4>
           <HealthCheckLatencyChart
             context={chartContext}
             height={150}
             showAverage
           />
         </div>
-
         {/* Extension Slot for custom strategy-specific diagrams */}
-        <HealthCheckDiagram
-          context={chartContext}
-          isAggregated={isAggregated}
-          bucketIntervalSeconds={bucketIntervalSeconds}
-          checkIntervalSeconds={item.intervalSeconds}
-        />
+        <ExtensionSlot slot={HealthCheckDiagramSlot} context={chartContext} />
       </div>
     );
   };
