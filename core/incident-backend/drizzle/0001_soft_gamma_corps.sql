@@ -1,0 +1,1 @@
+ALTER TABLE "incidents" ADD COLUMN "suppress_notifications" boolean DEFAULT false NOT NULL;

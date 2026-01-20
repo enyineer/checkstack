@@ -4,6 +4,7 @@ import {
   text,
   timestamp,
   primaryKey,
+  boolean,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -35,6 +36,9 @@ export const incidents = pgTable("incidents", {
   description: text("description"),
   status: incidentStatusEnum("status").notNull().default("investigating"),
   severity: incidentSeverityEnum("severity").notNull().default("major"),
+  suppressNotifications: boolean("suppress_notifications")
+    .default(false)
+    .notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -52,7 +56,7 @@ export const incidentSystems = pgTable(
   },
   (t) => ({
     pk: primaryKey(t.incidentId, t.systemId),
-  })
+  }),
 );
 
 /**

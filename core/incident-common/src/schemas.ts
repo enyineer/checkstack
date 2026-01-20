@@ -29,6 +29,7 @@ export const IncidentSchema = z.object({
   description: z.string().optional(),
   status: IncidentStatusEnum,
   severity: IncidentSeverityEnum,
+  suppressNotifications: z.boolean(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -68,6 +69,7 @@ export const CreateIncidentInputSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
   severity: IncidentSeverityEnum,
+  suppressNotifications: z.boolean().optional().default(false),
   systemIds: z.array(z.string()).min(1, "At least one system is required"),
   initialMessage: z
     .string()
@@ -81,6 +83,7 @@ export const UpdateIncidentInputSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
   severity: IncidentSeverityEnum.optional(),
+  suppressNotifications: z.boolean().optional(),
   systemIds: z.array(z.string()).min(1).optional(),
 });
 export type UpdateIncidentInput = z.infer<typeof UpdateIncidentInputSchema>;

@@ -57,6 +57,7 @@ export const IncidentEditor: React.FC<Props> = ({
   const [selectedSystemIds, setSelectedSystemIds] = useState<Set<string>>(
     new Set(),
   );
+  const [suppressNotifications, setSuppressNotifications] = useState(false);
 
   // Status update fields
   const [updates, setUpdates] = useState<IncidentUpdate[]>([]);
@@ -105,11 +106,13 @@ export const IncidentEditor: React.FC<Props> = ({
       setDescription(incident.description ?? "");
       setSeverity(incident.severity);
       setSelectedSystemIds(new Set(incident.systemIds));
+      setSuppressNotifications(incident.suppressNotifications);
     } else {
       setTitle("");
       setDescription("");
       setSeverity("major");
       setSelectedSystemIds(new Set());
+      setSuppressNotifications(false);
       setUpdates([]);
       setShowUpdateForm(false);
     }
@@ -143,6 +146,7 @@ export const IncidentEditor: React.FC<Props> = ({
         title,
         description: description || undefined,
         severity,
+        suppressNotifications,
         systemIds: [...selectedSystemIds],
       });
     } else {
@@ -150,6 +154,7 @@ export const IncidentEditor: React.FC<Props> = ({
         title,
         description,
         severity,
+        suppressNotifications,
         systemIds: [...selectedSystemIds],
       });
     }
@@ -252,6 +257,31 @@ export const IncidentEditor: React.FC<Props> = ({
               <p className="text-xs text-muted-foreground">
                 {selectedSystemIds.size} system(s) selected
               </p>
+            </div>
+
+            {/* Notification Suppression Toggle */}
+            <div className="border rounded-md p-4 bg-muted/30">
+              <div
+                className="flex items-center gap-3 cursor-pointer"
+                onClick={() => setSuppressNotifications(!suppressNotifications)}
+              >
+                <Checkbox
+                  id="suppress-notifications"
+                  checked={suppressNotifications}
+                />
+                <div className="flex-1">
+                  <Label
+                    htmlFor="suppress-notifications"
+                    className="cursor-pointer font-medium"
+                  >
+                    Suppress health notifications
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    When enabled, health status change notifications will not be
+                    sent for affected systems while this incident is active.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 

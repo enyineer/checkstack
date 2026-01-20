@@ -92,6 +92,23 @@ const createMockMaintenanceClient = () => ({
   deleteMaintenance: mock(async () => ({ success: true })),
 });
 
+// Helper to create mock incident client for notification suppression checks
+const createMockIncidentClient = () => ({
+  hasActiveIncidentWithSuppression: mock(async () => ({
+    suppressed: false,
+  })),
+  // Other methods not used in queue-executor
+  listIncidents: mock(async () => ({ incidents: [] })),
+  getIncident: mock(async () => null),
+  getIncidentsForSystem: mock(async () => []),
+  getBulkIncidentsForSystems: mock(async () => ({ incidents: {} })),
+  createIncident: mock(async () => ({})),
+  updateIncident: mock(async () => ({})),
+  addUpdate: mock(async () => ({})),
+  resolveIncident: mock(async () => ({})),
+  deleteIncident: mock(async () => ({ success: true })),
+});
+
 describe("Queue-Based Health Check Executor", () => {
   describe("scheduleHealthCheck", () => {
     it("should enqueue a health check with delay and deterministic jobId", async () => {
@@ -145,6 +162,7 @@ describe("Queue-Based Health Check Executor", () => {
       const mockQueueManager = createMockQueueManager();
       const mockCatalogClient = createMockCatalogClient();
       const mockMaintenanceClient = createMockMaintenanceClient();
+      const mockIncidentClient = createMockIncidentClient();
 
       await setupHealthCheckWorker({
         db: mockDb as unknown as Parameters<
@@ -164,6 +182,9 @@ describe("Queue-Based Health Check Executor", () => {
         maintenanceClient: mockMaintenanceClient as unknown as Parameters<
           typeof setupHealthCheckWorker
         >[0]["maintenanceClient"],
+        incidentClient: mockIncidentClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["incidentClient"],
         getEmitHook: () => undefined,
       });
 

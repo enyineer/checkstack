@@ -22,6 +22,7 @@ import {
 } from "@checkstack/healthcheck-common";
 import { CatalogApi, catalogRoutes } from "@checkstack/catalog-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
+import { IncidentApi } from "@checkstack/incident-common";
 import { resolveRoute, type InferClient } from "@checkstack/common";
 import { HealthCheckService } from "./service";
 import { healthCheckHooks } from "./hooks";
@@ -29,6 +30,7 @@ import { healthCheckHooks } from "./hooks";
 type Db = SafeDatabase<typeof schema>;
 type CatalogClient = InferClient<typeof CatalogApi>;
 type MaintenanceClient = InferClient<typeof MaintenanceApi>;
+type IncidentClient = InferClient<typeof IncidentApi>;
 
 /**
  * Payload for health check queue jobs
@@ -90,7 +92,7 @@ export async function scheduleHealthCheck(props: {
 
 /**
  * Notify system subscribers about a health state change.
- * Skips notification if the system has active maintenance with suppression enabled.
+ * Skips notification if the system has active maintenance or incident with suppression enabled.
  */
 async function notifyStateChange(props: {
   systemId: string;
@@ -98,6 +100,7 @@ async function notifyStateChange(props: {
   newStatus: HealthCheckStatus;
   catalogClient: CatalogClient;
   maintenanceClient: MaintenanceClient;
+  incidentClient: IncidentClient;
   logger: Logger;
 }): Promise<void> {
   const {
@@ -106,6 +109,7 @@ async function notifyStateChange(props: {
     newStatus,
     catalogClient,
     maintenanceClient,
+    incidentClient,
     logger,
   } = props;
 
@@ -128,6 +132,24 @@ async function notifyStateChange(props: {
     // Log but continue with notification - suppression check failure shouldn't block notifications
     logger.warn(
       `Failed to check maintenance suppression for ${systemId}, proceeding with notification:`,
+      error,
+    );
+  }
+
+  // Check if notifications should be suppressed due to active incident
+  try {
+    const { suppressed } =
+      await incidentClient.hasActiveIncidentWithSuppression({ systemId });
+    if (suppressed) {
+      logger.debug(
+        `Skipping notification for ${systemId}: active incident with suppression enabled`,
+      );
+      return;
+    }
+  } catch (error) {
+    // Log but continue with notification - suppression check failure shouldn't block notifications
+    logger.warn(
+      `Failed to check incident suppression for ${systemId}, proceeding with notification:`,
       error,
     );
   }
@@ -196,6 +218,7 @@ async function executeHealthCheckJob(props: {
   signalService: SignalService;
   catalogClient: CatalogClient;
   maintenanceClient: MaintenanceClient;
+  incidentClient: IncidentClient;
   getEmitHook: () => EmitHookFn | undefined;
 }): Promise<void> {
   const {
@@ -207,6 +230,7 @@ async function executeHealthCheckJob(props: {
     signalService,
     catalogClient,
     maintenanceClient,
+    incidentClient,
     getEmitHook,
   } = props;
   const { configId, systemId } = payload;
@@ -322,6 +346,7 @@ async function executeHealthCheckJob(props: {
           newStatus: newState.status,
           catalogClient,
           maintenanceClient,
+          incidentClient,
           logger,
         });
       }
@@ -470,6 +495,7 @@ async function executeHealthCheckJob(props: {
         newStatus: newState.status,
         catalogClient,
         maintenanceClient,
+        incidentClient,
         logger,
       });
 
@@ -564,6 +590,7 @@ async function executeHealthCheckJob(props: {
         newStatus: newState.status,
         catalogClient,
         maintenanceClient,
+        incidentClient,
         logger,
       });
 
@@ -619,6 +646,7 @@ export async function setupHealthCheckWorker(props: {
   signalService: SignalService;
   catalogClient: CatalogClient;
   maintenanceClient: MaintenanceClient;
+  incidentClient: IncidentClient;
   getEmitHook: () => EmitHookFn | undefined;
 }): Promise<void> {
   const {
@@ -630,6 +658,7 @@ export async function setupHealthCheckWorker(props: {
     signalService,
     catalogClient,
     maintenanceClient,
+    incidentClient,
     getEmitHook,
   } = props;
 
@@ -648,6 +677,7 @@ export async function setupHealthCheckWorker(props: {
         signalService,
         catalogClient,
         maintenanceClient,
+        incidentClient,
         getEmitHook,
       });
     },

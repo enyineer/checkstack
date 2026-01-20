@@ -24,6 +24,7 @@ import { HealthCheckService } from "./service";
 import { catalogHooks } from "@checkstack/catalog-backend";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
+import { IncidentApi } from "@checkstack/incident-common";
 import { healthCheckHooks } from "./hooks";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { resolveRoute } from "@checkstack/common";
@@ -117,6 +118,9 @@ export default createBackendPlugin({
         // Create maintenance client for notification suppression checks
         const maintenanceClient = rpcClient.forPlugin(MaintenanceApi);
 
+        // Create incident client for notification suppression checks
+        const incidentClient = rpcClient.forPlugin(IncidentApi);
+
         // Setup queue-based health check worker
         await setupHealthCheckWorker({
           db: database,
@@ -127,6 +131,7 @@ export default createBackendPlugin({
           signalService,
           catalogClient,
           maintenanceClient,
+          incidentClient,
           getEmitHook: () => storedEmitHook,
         });
 

@@ -108,6 +108,18 @@ export const incidentContract = {
   })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
+
+  /**
+   * Check if a system has an active incident with notification suppression enabled.
+   * Used by the health check system to suppress notifications during acknowledged incidents.
+   */
+  hasActiveIncidentWithSuppression: proc({
+    operationType: "query",
+    userType: "service",
+    access: [incidentAccess.incident.read],
+  })
+    .input(z.object({ systemId: z.string() }))
+    .output(z.object({ suppressed: z.boolean() })),
 };
 
 // Export contract type

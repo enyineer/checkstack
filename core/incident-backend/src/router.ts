@@ -20,7 +20,7 @@ export function createRouter(
   service: IncidentService,
   signalService: SignalService,
   catalogClient: InferClient<typeof CatalogApi>,
-  logger: Logger
+  logger: Logger,
 ) {
   const os = implement(incidentContract)
     .$context<RpcContext>()
@@ -44,15 +44,15 @@ export function createRouter(
       action === "created"
         ? "reported"
         : action === "resolved"
-        ? "resolved"
-        : "updated";
+          ? "resolved"
+          : "updated";
 
     const importance =
       severity === "critical"
         ? "critical"
         : severity === "major"
-        ? "warning"
-        : "info";
+          ? "warning"
+          : "info";
 
     const incidentDetailPath = resolveRoute(incidentRoutes.routes.detail, {
       incidentId,
@@ -75,7 +75,7 @@ export function createRouter(
         // Log but don't fail the operation - notifications are best-effort
         logger.warn(
           `Failed to notify subscribers for system ${systemId}:`,
-          error
+          error,
         );
       }
     }
@@ -95,7 +95,7 @@ export function createRouter(
     getIncidentsForSystem: os.getIncidentsForSystem.handler(
       async ({ input }) => {
         return service.getIncidentsForSystem(input.systemId);
-      }
+      },
     ),
 
     getBulkIncidentsForSystems: os.getBulkIncidentsForSystems.handler(
@@ -109,11 +109,11 @@ export function createRouter(
         await Promise.all(
           input.systemIds.map(async (systemId) => {
             incidents[systemId] = await service.getIncidentsForSystem(systemId);
-          })
+          }),
         );
 
         return { incidents };
-      }
+      },
     ),
 
     createIncident: os.createIncident.handler(async ({ input, context }) => {
@@ -232,7 +232,7 @@ export function createRouter(
       const result = await service.resolveIncident(
         input.id,
         input.message,
-        userId
+        userId,
       );
       if (!result) {
         throw new ORPCError("NOT_FOUND", { message: "Incident not found" });
@@ -279,5 +279,13 @@ export function createRouter(
       }
       return { success };
     }),
+
+    hasActiveIncidentWithSuppression:
+      os.hasActiveIncidentWithSuppression.handler(async ({ input }) => {
+        const suppressed = await service.hasActiveIncidentWithSuppression(
+          input.systemId,
+        );
+        return { suppressed };
+      }),
   });
 }

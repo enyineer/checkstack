@@ -166,6 +166,7 @@ export class IncidentService {
       description: input.description,
       status: "investigating",
       severity: input.severity,
+      suppressNotifications: input.suppressNotifications ?? false,
     });
 
     // Insert system associations
@@ -211,6 +212,8 @@ export class IncidentService {
     if (input.description !== undefined)
       updateData.description = input.description;
     if (input.severity !== undefined) updateData.severity = input.severity;
+    if (input.suppressNotifications !== undefined)
+      updateData.suppressNotifications = input.suppressNotifications;
 
     await this.db
       .update(incidents)
@@ -327,5 +330,35 @@ export class IncidentService {
     await this.db
       .delete(incidentSystems)
       .where(eq(incidentSystems.systemId, systemId));
+  }
+
+  /**
+   * Check if a system has an active incident with notification suppression enabled.
+   * An incident is considered "active" if its status is NOT "resolved".
+   */
+  async hasActiveIncidentWithSuppression(systemId: string): Promise<boolean> {
+    // Get incident IDs for this system
+    const systemIncidents = await this.db
+      .select({ incidentId: incidentSystems.incidentId })
+      .from(incidentSystems)
+      .where(eq(incidentSystems.systemId, systemId));
+
+    const ids = systemIncidents.map((r) => r.incidentId);
+    if (ids.length === 0) return false;
+
+    // Check if any of these incidents are active (not resolved) with suppressNotifications enabled
+    const [match] = await this.db
+      .select({ id: incidents.id })
+      .from(incidents)
+      .where(
+        and(
+          inArray(incidents.id, ids),
+          ne(incidents.status, "resolved"),
+          eq(incidents.suppressNotifications, true),
+        ),
+      )
+      .limit(1);
+
+    return !!match;
   }
 }
