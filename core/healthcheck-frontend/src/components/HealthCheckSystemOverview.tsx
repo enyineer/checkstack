@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import {
   ExtensionSlot,
@@ -167,7 +167,15 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
   // Sync total from response
   usePaginationSync(pagination, historyData?.total);
 
-  const runs = historyData?.runs ?? [];
+  // Preserve previous runs during loading to prevent layout shift
+  const prevRunsRef = useRef(historyData?.runs ?? []);
+  const rawRuns = historyData?.runs ?? [];
+  const displayRuns =
+    loading && prevRunsRef.current.length > 0 ? prevRunsRef.current : rawRuns;
+  if (!loading && rawRuns.length > 0) {
+    prevRunsRef.current = rawRuns;
+  }
+  const runs = displayRuns;
 
   // Listen for realtime health check updates to refresh history table
   // Charts are refreshed automatically by useHealthCheckData
@@ -290,14 +298,17 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
       {/* Charts Section */}
       {renderCharts()}
 
-      {loading ? (
+      {loading && prevRunsRef.current.length === 0 ? (
         <LoadingSpinner />
       ) : runs.length > 0 ? (
         <>
           {/* Divider between charts and table */}
           <div className="flex items-center gap-4 pt-4">
             <div className="flex-1 h-px bg-border" />
-            <span className="text-sm text-muted-foreground">Recent Runs</span>
+            <span className="text-sm text-muted-foreground flex items-center gap-2">
+              Recent Runs
+              {loading && <Loader2 className="h-3 w-3 animate-spin" />}
+            </span>
             <div className="flex-1 h-px bg-border" />
           </div>
           <div className="rounded-md border">
@@ -312,9 +323,9 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
                 {runs.map((run) => (
                   <TableRow
                     key={run.id}
-                    className={
+                    className={`${
                       canViewDetails ? "cursor-pointer hover:bg-muted/50" : ""
-                    }
+                    } ${loading ? "opacity-50" : ""}`}
                     onClick={
                       canViewDetails
                         ? () =>

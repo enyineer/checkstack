@@ -10,7 +10,7 @@ import {
   Pagination,
 } from "@checkstack/ui";
 import { formatDistanceToNow, format } from "date-fns";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { healthcheckRoutes } from "@checkstack/healthcheck-common";
 import { resolveRoute } from "@checkstack/common";
@@ -80,7 +80,12 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-24">Status</TableHead>
+              <TableHead className="w-24">
+                <span className="flex items-center gap-2">
+                  Status
+                  {loading && <Loader2 className="h-3 w-3 animate-spin" />}
+                </span>
+              </TableHead>
               {showFilterColumns && (
                 <>
                   <TableHead>System ID</TableHead>
