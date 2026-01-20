@@ -1,5 +1,16 @@
 # @checkstack/catalog-backend
 
+## 0.2.8
+
+### Patch Changes
+
+- Updated dependencies [db1f56f]
+  - @checkstack/common@0.6.0
+  - @checkstack/backend-api@0.5.1
+  - @checkstack/catalog-common@1.2.4
+  - @checkstack/command-backend@0.1.7
+  - @checkstack/notification-common@0.2.3
+
 ## 0.2.7
 
 ### Patch Changes

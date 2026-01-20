@@ -1,5 +1,14 @@
 # @checkstack/backend-api
 
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [db1f56f]
+  - @checkstack/common@0.6.0
+  - @checkstack/signal-common@0.1.4
+  - @checkstack/queue-api@0.2.1
+
 ## 0.5.0
 
 ### Minor Changes

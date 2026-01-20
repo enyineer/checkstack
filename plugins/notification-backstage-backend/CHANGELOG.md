@@ -1,5 +1,14 @@
 # @checkstack/notification-backstage-backend
 
+## 0.1.9
+
+### Patch Changes
+
+- Updated dependencies [db1f56f]
+  - @checkstack/common@0.6.0
+  - @checkstack/backend-api@0.5.1
+  - @checkstack/notification-backend@0.1.8
+
 ## 0.1.8
 
 ### Patch Changes

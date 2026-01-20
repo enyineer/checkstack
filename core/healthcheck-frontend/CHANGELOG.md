@@ -1,5 +1,98 @@
 # @checkstack/healthcheck-frontend
 
+## 0.5.0
+
+### Minor Changes
+
+- ac3a4cf: ### Dynamic Bucket Sizing for Health Check Visualization
+
+  Implements industry-standard dynamic bucket sizing for health check data aggregation, following patterns from Grafana/VictoriaMetrics.
+
+  **What changed:**
+
+  - Replaced fixed `bucketSize: "hourly" | "daily" | "auto"` with dynamic `targetPoints` parameter (default: 500)
+  - Bucket interval is now calculated as `(endDate - startDate) / targetPoints` with a minimum of 1 second
+  - Added `bucketIntervalSeconds` to aggregated response and individual buckets
+  - Updated chart components to use dynamic time formatting based on bucket interval
+
+  **Why:**
+
+  - A 24-hour view with 1-second health checks previously returned 86,400+ data points, causing lag
+  - Now returns ~500 data points regardless of timeframe, ensuring consistent chart performance
+  - Charts still preserve visual fidelity through proper aggregation
+
+  **Breaking Change:**
+
+  - `bucketSize` parameter removed from `getAggregatedHistory` and `getDetailedAggregatedHistory` endpoints
+  - Use `targetPoints` instead (defaults to 500 if not specified)
+
+  ***
+
+  ### Collector Aggregated Charts Fix
+
+  Fixed issue where collector auto-charts (like HTTP request response time charts) were not showing in aggregated data mode.
+
+  **What changed:**
+
+  - Added `aggregatedResultSchema` to `CollectorDtoSchema`
+  - Backend now returns collector aggregated schemas via `getCollectors` endpoint
+  - Frontend `useStrategySchemas` hook now merges collector aggregated schemas
+  - Service now calls each collector's `aggregateResult()` when building buckets
+  - Aggregated collector data stored in `aggregatedResult.collectors[uuid]`
+
+  **Why:**
+
+  - Previously only strategy-level aggregated results were computed
+  - Collectors like HTTP Request Collector have their own `aggregateResult` method
+  - Without calling these, fields like `avgResponseTimeMs` and `successRate` were missing from aggregated buckets
+
+### Patch Changes
+
+- 095cf4e: ### Cross-Tier Data Aggregation
+
+  Implements intelligent cross-tier querying for health check history, enabling seamless data retrieval across raw, hourly, and daily storage tiers.
+
+  **What changed:**
+
+  - `getAggregatedHistory` now queries all three tiers (raw, hourly, daily) in parallel
+  - Added `NormalizedBucket` type for unified bucket format across tiers
+  - Added `mergeTieredBuckets()` to merge data with priority (raw > hourly > daily)
+  - Added `combineBuckets()` and `reaggregateBuckets()` for re-aggregation to target bucket size
+  - Raw data preserves full granularity when available (uses target bucket interval)
+
+  **Why:**
+
+  - Previously, the API only queried raw runs, which are retained for a limited period (default 7 days)
+  - For longer time ranges, data was missing because hourly/daily aggregates weren't queried
+  - The retention job only runs periodically, so we can't assume tier boundaries based on config
+  - Querying all tiers ensures no gaps in data coverage
+
+  **Technical details:**
+
+  - Additive metrics (counts, latencySum) are summed correctly for accurate averages
+  - p95 latency uses max of source p95s as conservative upper-bound approximation
+  - `aggregatedResult` (strategy-specific) is preserved for raw-only buckets
+
+- 538e45d: Fixed 24-hour date range not returning correct data and improved chart display
+
+  - Fixed missing `endDate` parameter in raw data queries causing data to extend beyond selected time range
+  - Fixed incorrect 24-hour date calculation using `setHours()` - now uses `date-fns` `subHours()` for correct date math
+  - Refactored `DateRangePreset` from string union to enum for improved type safety and IDE support
+  - Exported `getPresetRange` function for reuse across components
+  - Changed chart x-axis domain from `["auto", "auto"]` to `["dataMin", "dataMax"]` to remove padding gaps
+
+- Updated dependencies [ac3a4cf]
+- Updated dependencies [db1f56f]
+- Updated dependencies [538e45d]
+  - @checkstack/healthcheck-common@0.5.0
+  - @checkstack/common@0.6.0
+  - @checkstack/ui@0.4.1
+  - @checkstack/dashboard-frontend@0.3.9
+  - @checkstack/auth-frontend@0.5.4
+  - @checkstack/catalog-common@1.2.4
+  - @checkstack/frontend-api@0.3.3
+  - @checkstack/signal-frontend@0.0.10
+
 ## 0.4.10
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/auth-frontend",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "type": "module",
   "main": "src/index.tsx",
   "exports": {

@@ -1,5 +1,14 @@
 # @checkstack/command-backend
 
+## 0.1.7
+
+### Patch Changes
+
+- Updated dependencies [db1f56f]
+  - @checkstack/common@0.6.0
+  - @checkstack/backend-api@0.5.1
+  - @checkstack/command-common@0.2.3
+
 ## 0.1.6
 
 ### Patch Changes
