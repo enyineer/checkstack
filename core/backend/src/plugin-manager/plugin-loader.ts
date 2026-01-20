@@ -333,9 +333,12 @@ export async function loadPlugins({
        */
 
       // Run Migrations
-      const migrationsFolder = path.join(p.pluginPath, "drizzle");
+      // Skip migrations for manual test plugins (no plugin path) - see comment above
+      const migrationsFolder = p.pluginPath
+        ? path.join(p.pluginPath, "drizzle")
+        : undefined;
       const migrationsSchema = getPluginSchemaName(p.metadata.pluginId);
-      if (fs.existsSync(migrationsFolder)) {
+      if (migrationsFolder && fs.existsSync(migrationsFolder)) {
         try {
           // Strip "public". schema references from migration SQL at runtime
           stripPublicSchemaFromMigrations(migrationsFolder);

@@ -9,6 +9,7 @@ import {
 import {
   createMockLogger,
   createMockQueueManager,
+  createMockDb,
 } from "@checkstack/test-utils-backend";
 import { sortPlugins } from "./plugin-manager/dependency-sorter";
 
@@ -120,13 +121,13 @@ describe("PluginManager", () => {
       // provider-1 must come before consumer and provider-2
       // provider-2 must come before consumer
       expect(sorted.indexOf("provider-1")).toBeLessThan(
-        sorted.indexOf("consumer")
+        sorted.indexOf("consumer"),
       );
       expect(sorted.indexOf("provider-1")).toBeLessThan(
-        sorted.indexOf("provider-2")
+        sorted.indexOf("provider-2"),
       );
       expect(sorted.indexOf("provider-2")).toBeLessThan(
-        sorted.indexOf("consumer")
+        sorted.indexOf("consumer"),
       );
     });
 
@@ -145,17 +146,17 @@ describe("PluginManager", () => {
       ]);
 
       expect(() =>
-        sortPlugins({ pendingInits, providedBy, logger: createMockLogger() })
+        sortPlugins({ pendingInits, providedBy, logger: createMockLogger() }),
       ).toThrow("Circular dependency detected");
     });
 
     describe("Queue Plugin Ordering", () => {
       it("should initialize queue plugin providers before queue consumers", () => {
         const queueManagerRef = createServiceRef<unknown>(
-          coreServices.queueManager.id
+          coreServices.queueManager.id,
         );
         const queueRegistryRef = createServiceRef<unknown>(
-          coreServices.queuePluginRegistry.id
+          coreServices.queuePluginRegistry.id,
         );
 
         const pendingInits = [
@@ -184,16 +185,16 @@ describe("PluginManager", () => {
 
         // Queue provider should come before queue consumer
         expect(sorted.indexOf("queue-provider")).toBeLessThan(
-          sorted.indexOf("queue-consumer")
+          sorted.indexOf("queue-consumer"),
         );
       });
 
       it("should handle multiple queue providers and consumers", () => {
         const queueManagerRef = createServiceRef<unknown>(
-          coreServices.queueManager.id
+          coreServices.queueManager.id,
         );
         const queueRegistryRef = createServiceRef<unknown>(
-          coreServices.queuePluginRegistry.id
+          coreServices.queuePluginRegistry.id,
         );
         const loggerRef = createServiceRef<unknown>("core.logger");
 
@@ -253,10 +254,10 @@ describe("PluginManager", () => {
 
       it("should respect existing service dependencies while prioritizing queue plugins", () => {
         const queueManagerRef = createServiceRef<unknown>(
-          coreServices.queueManager.id
+          coreServices.queueManager.id,
         );
         const queueRegistryRef = createServiceRef<unknown>(
-          coreServices.queuePluginRegistry.id
+          coreServices.queuePluginRegistry.id,
         );
         const customServiceRef = createServiceRef<unknown>("custom.service");
         const loggerRef = createServiceRef<unknown>("core.logger");
@@ -304,10 +305,10 @@ describe("PluginManager", () => {
 
       it("should handle plugins that both provide and consume queues", () => {
         const queueManagerRef = createServiceRef<unknown>(
-          coreServices.queueManager.id
+          coreServices.queueManager.id,
         );
         const queueRegistryRef = createServiceRef<unknown>(
-          coreServices.queuePluginRegistry.id
+          coreServices.queuePluginRegistry.id,
         );
 
         const pendingInits = [
@@ -342,10 +343,10 @@ describe("PluginManager", () => {
 
       it("should not create circular dependencies with queue ordering", () => {
         const queueManagerRef = createServiceRef<unknown>(
-          coreServices.queueManager.id
+          coreServices.queueManager.id,
         );
         const queueRegistryRef = createServiceRef<unknown>(
-          coreServices.queuePluginRegistry.id
+          coreServices.queuePluginRegistry.id,
         );
 
         const pendingInits = [
@@ -441,7 +442,7 @@ describe("PluginManager", () => {
           resource: "perm",
           level: "read",
           description: "Access Rule 3",
-        }
+        },
       );
 
       const all = pluginManager.getAllAccessRules();
@@ -470,10 +471,13 @@ describe("PluginManager", () => {
       // Register mock services since core-services is mocked as no-op
       pluginManager.registerService(
         coreServices.queueManager,
-        createMockQueueManager()
+        createMockQueueManager(),
       );
       pluginManager.registerService(coreServices.logger, createMockLogger());
-      pluginManager.registerService(coreServices.database, {} as never); // Mock database
+      pluginManager.registerService(
+        coreServices.database,
+        createMockDb() as never,
+      );
 
       // Use manual plugin injection with skipDiscovery to avoid loading real plugins
       await pluginManager.loadPlugins(mockRouter, [testPlugin], {

@@ -8,6 +8,7 @@ import {
 import {
   createMockQueueManager,
   createMockLogger,
+  createMockDb,
 } from "@checkstack/test-utils-backend";
 import { z } from "zod";
 
@@ -75,10 +76,13 @@ describe("HealthCheck Plugin Integration", () => {
     // Register mock services since core-services is mocked as no-op
     pluginManager.registerService(
       coreServices.queueManager,
-      createMockQueueManager()
+      createMockQueueManager(),
     );
     pluginManager.registerService(coreServices.logger, createMockLogger());
-    pluginManager.registerService(coreServices.database, {} as never); // Mock database
+    pluginManager.registerService(
+      coreServices.database,
+      createMockDb() as never,
+    );
 
     // 4. Load plugins using the PluginManager with manual injection
     await pluginManager.loadPlugins(mockRouter, [testPlugin], {
@@ -87,7 +91,7 @@ describe("HealthCheck Plugin Integration", () => {
 
     // 5. Verify the strategy is registered in the registry managed by PluginManager
     const registry = await pluginManager.getService(
-      coreServices.healthCheckRegistry
+      coreServices.healthCheckRegistry,
     );
     expect(registry).toBeDefined();
 

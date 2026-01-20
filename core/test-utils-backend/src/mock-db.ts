@@ -68,6 +68,7 @@ export function createMockDb() {
     delete: mock(() => ({
       where: mock(() => Promise.resolve()),
     })),
+    execute: mock(() => Promise.resolve()),
   };
 }
 
