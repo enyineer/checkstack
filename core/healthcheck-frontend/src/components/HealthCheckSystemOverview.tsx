@@ -3,6 +3,8 @@ import { Loader2 } from "lucide-react";
 import {
   ExtensionSlot,
   usePluginClient,
+  useApi,
+  accessApiRef,
   type SlotContext,
 } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
@@ -10,7 +12,10 @@ import { SystemDetailsSlot } from "@checkstack/catalog-common";
 import {
   HEALTH_CHECK_RUN_COMPLETED,
   HealthCheckApi,
+  healthCheckAccess,
+  healthcheckRoutes,
 } from "@checkstack/healthcheck-common";
+import { resolveRoute } from "@checkstack/common";
 import {
   HealthBadge,
   LoadingSpinner,
@@ -34,6 +39,7 @@ import {
 } from "@checkstack/ui";
 import { formatDistanceToNow } from "date-fns";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { HealthCheckSparkline } from "./HealthCheckSparkline";
 import { HealthCheckLatencyChart } from "./HealthCheckLatencyChart";
 import { HealthCheckStatusTimeline } from "./HealthCheckStatusTimeline";
@@ -66,6 +72,11 @@ interface ExpandedRowProps {
 
 const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
   const healthCheckClient = usePluginClient(HealthCheckApi);
+  const navigate = useNavigate();
+  const accessApi = useApi(accessApiRef);
+  const { allowed: canViewDetails } = accessApi.useAccess(
+    healthCheckAccess.details,
+  );
 
   // Date range state for filtering - default to last 24 hours
   const [dateRange, setDateRange] = useState(() =>
@@ -299,7 +310,26 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
               </TableHeader>
               <TableBody>
                 {runs.map((run) => (
-                  <TableRow key={run.id}>
+                  <TableRow
+                    key={run.id}
+                    className={
+                      canViewDetails ? "cursor-pointer hover:bg-muted/50" : ""
+                    }
+                    onClick={
+                      canViewDetails
+                        ? () =>
+                            navigate(
+                              resolveRoute(
+                                healthcheckRoutes.routes.historyDetail,
+                                {
+                                  systemId,
+                                  configurationId: item.configurationId,
+                                },
+                              ),
+                            )
+                        : undefined
+                    }
+                  >
                     <TableCell>
                       <HealthBadge status={run.status} />
                     </TableCell>
