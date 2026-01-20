@@ -1,5 +1,28 @@
 # @checkstack/notification-frontend
 
+## 0.2.10
+
+### Patch Changes
+
+- 223081d: Add icon support to PageLayout and improve mobile responsiveness
+
+  **PageLayout Icons:**
+
+  - Added required `icon` prop to `PageLayout` and `PageHeader` components that accepts a Lucide icon component reference
+  - Icons are rendered with consistent `h-6 w-6 text-primary` styling
+  - Updated all page components to include appropriate icons in their headers
+
+  **Mobile Layout Improvements:**
+
+  - Standardized responsive padding in main app shell (`p-3` on mobile, `p-6` on desktop)
+  - Added `CardHeaderRow` component for mobile-safe card headers with proper wrapping
+  - Improved `DateRangeFilter` responsive behavior with vertical stacking on mobile
+  - Migrated pages to use `PageLayout` for consistent responsive behavior
+
+- Updated dependencies [223081d]
+  - @checkstack/ui@0.5.0
+  - @checkstack/auth-frontend@0.5.5
+
 ## 0.2.9
 
 ### Patch Changes

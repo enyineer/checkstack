@@ -1,5 +1,25 @@
 # @checkstack/healthcheck-backend
 
+## 0.6.0
+
+### Minor Changes
+
+- 11d2679: Add ability to pause health check configurations globally. When paused, health checks continue to be scheduled but execution is skipped for all systems using that configuration. Users with manage access can pause/resume from the Health Checks config page.
+- cce5453: Add notification suppression for incidents
+
+  - Added `suppressNotifications` field to incidents, allowing active incidents to optionally suppress health check notifications
+  - When enabled, health status change notifications will not be sent for affected systems while the incident is active (not resolved)
+  - Mirrors the existing maintenance notification suppression pattern
+  - Added toggle UI in the IncidentEditor dialog
+  - Added `hasActiveIncidentWithSuppression` RPC endpoint for service-to-service queries
+
+### Patch Changes
+
+- Updated dependencies [11d2679]
+- Updated dependencies [cce5453]
+  - @checkstack/healthcheck-common@0.6.0
+  - @checkstack/incident-common@0.4.0
+
 ## 0.5.0
 
 ### Minor Changes

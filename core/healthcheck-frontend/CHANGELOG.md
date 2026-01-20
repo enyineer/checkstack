@@ -1,5 +1,35 @@
 # @checkstack/healthcheck-frontend
 
+## 0.6.0
+
+### Minor Changes
+
+- 11d2679: Add ability to pause health check configurations globally. When paused, health checks continue to be scheduled but execution is skipped for all systems using that configuration. Users with manage access can pause/resume from the Health Checks config page.
+
+### Patch Changes
+
+- 223081d: Add icon support to PageLayout and improve mobile responsiveness
+
+  **PageLayout Icons:**
+
+  - Added required `icon` prop to `PageLayout` and `PageHeader` components that accepts a Lucide icon component reference
+  - Icons are rendered with consistent `h-6 w-6 text-primary` styling
+  - Updated all page components to include appropriate icons in their headers
+
+  **Mobile Layout Improvements:**
+
+  - Standardized responsive padding in main app shell (`p-3` on mobile, `p-6` on desktop)
+  - Added `CardHeaderRow` component for mobile-safe card headers with proper wrapping
+  - Improved `DateRangeFilter` responsive behavior with vertical stacking on mobile
+  - Migrated pages to use `PageLayout` for consistent responsive behavior
+
+- Updated dependencies [11d2679]
+- Updated dependencies [223081d]
+  - @checkstack/healthcheck-common@0.6.0
+  - @checkstack/ui@0.5.0
+  - @checkstack/auth-frontend@0.5.5
+  - @checkstack/dashboard-frontend@0.3.10
+
 ## 0.5.0
 
 ### Minor Changes

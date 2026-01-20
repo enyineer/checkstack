@@ -1,5 +1,11 @@
 # @checkstack/healthcheck-common
 
+## 0.6.0
+
+### Minor Changes
+
+- 11d2679: Add ability to pause health check configurations globally. When paused, health checks continue to be scheduled but execution is skipped for all systems using that configuration. Users with manage access can pause/resume from the Health Checks config page.
+
 ## 0.5.0
 
 ### Minor Changes

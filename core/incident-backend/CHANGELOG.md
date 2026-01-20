@@ -1,5 +1,22 @@
 # @checkstack/incident-backend
 
+## 0.3.0
+
+### Minor Changes
+
+- cce5453: Add notification suppression for incidents
+
+  - Added `suppressNotifications` field to incidents, allowing active incidents to optionally suppress health check notifications
+  - When enabled, health status change notifications will not be sent for affected systems while the incident is active (not resolved)
+  - Mirrors the existing maintenance notification suppression pattern
+  - Added toggle UI in the IncidentEditor dialog
+  - Added `hasActiveIncidentWithSuppression` RPC endpoint for service-to-service queries
+
+### Patch Changes
+
+- Updated dependencies [cce5453]
+  - @checkstack/incident-common@0.4.0
+
 ## 0.2.8
 
 ### Patch Changes
