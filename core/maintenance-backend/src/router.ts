@@ -226,6 +226,16 @@ export function createRouter(
           action: "closed",
         });
 
+        // Send notifications to system subscribers
+        await notifyAffectedSystems({
+          catalogClient,
+          logger,
+          maintenanceId: result.id,
+          maintenanceTitle: result.title,
+          systemIds: result.systemIds,
+          action: "completed",
+        });
+
         return result;
       },
     ),

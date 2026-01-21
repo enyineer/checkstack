@@ -2,7 +2,6 @@ import { implement, ORPCError } from "@orpc/server";
 import {
   incidentContract,
   INCIDENT_UPDATED,
-  incidentRoutes,
 } from "@checkstack/incident-common";
 import {
   autoAuthMiddleware,
@@ -13,8 +12,8 @@ import type { SignalService } from "@checkstack/signal-common";
 import type { IncidentService } from "./service";
 import { CatalogApi } from "@checkstack/catalog-common";
 import type { InferClient } from "@checkstack/common";
-import { resolveRoute } from "@checkstack/common";
 import { incidentHooks } from "./hooks";
+import { notifyAffectedSystems } from "./notifications";
 
 export function createRouter(
   service: IncidentService,
@@ -25,61 +24,6 @@ export function createRouter(
   const os = implement(incidentContract)
     .$context<RpcContext>()
     .use(autoAuthMiddleware);
-
-  /**
-   * Helper to notify subscribers of affected systems about an incident event.
-   * Each system triggers a separate notification call, but within each call
-   * the subscribers are deduplicated (system + its groups).
-   */
-  const notifyAffectedSystems = async (props: {
-    incidentId: string;
-    incidentTitle: string;
-    systemIds: string[];
-    action: "created" | "updated" | "resolved";
-    severity: string;
-  }) => {
-    const { incidentId, incidentTitle, systemIds, action, severity } = props;
-
-    const actionText =
-      action === "created"
-        ? "reported"
-        : action === "resolved"
-          ? "resolved"
-          : "updated";
-
-    const importance =
-      severity === "critical"
-        ? "critical"
-        : severity === "major"
-          ? "warning"
-          : "info";
-
-    const incidentDetailPath = resolveRoute(incidentRoutes.routes.detail, {
-      incidentId,
-    });
-
-    // Deduplicate: collect unique system IDs
-    const uniqueSystemIds = [...new Set(systemIds)];
-
-    for (const systemId of uniqueSystemIds) {
-      try {
-        await catalogClient.notifySystemSubscribers({
-          systemId,
-          title: `Incident ${actionText}`,
-          body: `Incident **"${incidentTitle}"** has been ${actionText} for a system you're subscribed to.`,
-          importance: importance as "info" | "warning" | "critical",
-          action: { label: "View Incident", url: incidentDetailPath },
-          includeGroupSubscribers: true,
-        });
-      } catch (error) {
-        // Log but don't fail the operation - notifications are best-effort
-        logger.warn(
-          `Failed to notify subscribers for system ${systemId}:`,
-          error,
-        );
-      }
-    }
-  };
 
   return os.router({
     listIncidents: os.listIncidents.handler(async ({ input }) => {
@@ -141,6 +85,8 @@ export function createRouter(
 
       // Send notifications to system subscribers
       await notifyAffectedSystems({
+        catalogClient,
+        logger,
         incidentId: result.id,
         incidentTitle: result.title,
         systemIds: result.systemIds,
@@ -176,6 +122,8 @@ export function createRouter(
 
       // Send notifications to system subscribers
       await notifyAffectedSystems({
+        catalogClient,
+        logger,
         incidentId: result.id,
         incidentTitle: result.title,
         systemIds: result.systemIds,
@@ -189,6 +137,13 @@ export function createRouter(
     addUpdate: os.addUpdate.handler(async ({ input, context }) => {
       const userId =
         context.user && "id" in context.user ? context.user.id : undefined;
+
+      // Get previous status before update for reopening detection
+      const previousIncident = input.statusChange
+        ? await service.getIncident(input.incidentId)
+        : undefined;
+      const previousStatus = previousIncident?.status;
+
       const result = await service.addUpdate(input, userId);
 
       // Get incident to broadcast with correct systemIds
@@ -219,6 +174,30 @@ export function createRouter(
             title: incident.title,
             severity: incident.severity,
             resolvedAt: new Date().toISOString(),
+          });
+        }
+
+        // Send notifications when status changes
+        if (input.statusChange && previousStatus !== input.statusChange) {
+          // Determine notification action based on status transition
+          let notificationAction: "resolved" | "reopened" | "updated";
+          if (input.statusChange === "resolved") {
+            notificationAction = "resolved";
+          } else if (previousStatus === "resolved") {
+            // Reopening: was resolved, now not resolved
+            notificationAction = "reopened";
+          } else {
+            notificationAction = "updated";
+          }
+
+          await notifyAffectedSystems({
+            catalogClient,
+            logger,
+            incidentId: input.incidentId,
+            incidentTitle: incident.title,
+            systemIds: incident.systemIds,
+            action: notificationAction,
+            severity: incident.severity,
           });
         }
       }
@@ -256,6 +235,8 @@ export function createRouter(
 
       // Send notifications to system subscribers
       await notifyAffectedSystems({
+        catalogClient,
+        logger,
         incidentId: result.id,
         incidentTitle: result.title,
         systemIds: result.systemIds,
