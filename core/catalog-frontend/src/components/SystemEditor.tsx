@@ -12,6 +12,7 @@ import {
   useToast,
 } from "@checkstack/ui";
 import { TeamAccessEditor } from "@checkstack/auth-frontend";
+import { ContactsEditor } from "./ContactsEditor";
 
 interface SystemEditorProps {
   open: boolean;
@@ -28,7 +29,7 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
 }) => {
   const [name, setName] = useState(initialData?.name || "");
   const [description, setDescription] = useState(
-    initialData?.description || ""
+    initialData?.description || "",
   );
   const [loading, setLoading] = useState(false);
   const toast = useToast();
@@ -100,6 +101,9 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
               />
             </div>
 
+            {/* Contacts Editor - only shown for existing systems */}
+            {initialData?.id && <ContactsEditor systemId={initialData.id} />}
+
             {/* Team Access Editor - only shown for existing systems */}
             {initialData?.id && (
               <TeamAccessEditor
@@ -119,8 +123,8 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
               {loading
                 ? "Saving..."
                 : initialData
-                ? "Save Changes"
-                : "Create System"}
+                  ? "Save Changes"
+                  : "Create System"}
             </Button>
           </DialogFooter>
         </form>

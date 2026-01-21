@@ -69,6 +69,7 @@ export const Tabs: React.FC<TabsProps> = ({
           return (
             <button
               key={item.id}
+              type="button"
               ref={(el) => {
                 if (el) {
                   tabRefs.current.set(item.id, el);

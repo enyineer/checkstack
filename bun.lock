@@ -177,6 +177,8 @@
       "name": "@checkstack/catalog-backend",
       "version": "0.2.9",
       "dependencies": {
+        "@checkstack/auth-backend": "workspace:*",
+        "@checkstack/auth-common": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/command-backend": "workspace:*",
@@ -203,6 +205,7 @@
       "name": "@checkstack/catalog-common",
       "version": "1.2.5",
       "dependencies": {
+        "@checkstack/auth-common": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
         "@orpc/contract": "^1.13.2",
@@ -218,6 +221,7 @@
       "name": "@checkstack/catalog-frontend",
       "version": "0.3.11",
       "dependencies": {
+        "@checkstack/auth-common": "workspace:*",
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",

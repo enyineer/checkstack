@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@checkstack/common": "workspace:*",
+    "@checkstack/auth-common": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",
     "@orpc/contract": "^1.13.2",
     "zod": "^4.2.1"

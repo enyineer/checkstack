@@ -7,8 +7,15 @@ import { v4 as uuidv4 } from "uuid";
 type NewSystem = {
   name: string;
   description?: string;
-  owner?: string;
   metadata?: Record<string, unknown>;
+};
+
+type NewContact = {
+  systemId: string;
+  type: "user" | "mailbox";
+  userId?: string;
+  email?: string;
+  label?: string;
 };
 
 type NewGroup = {
@@ -61,6 +68,34 @@ export class EntityService {
 
   async deleteSystem(id: string) {
     await this.database.delete(schema.systems).where(eq(schema.systems.id, id));
+  }
+
+  // System Contacts
+  async getContactsForSystem(systemId: string) {
+    return this.database
+      .select()
+      .from(schema.systemContacts)
+      .where(eq(schema.systemContacts.systemId, systemId));
+  }
+
+  async addContact(data: NewContact) {
+    const result = await this.database
+      .insert(schema.systemContacts)
+      .values({ id: uuidv4(), ...data })
+      .returning();
+    return result[0];
+  }
+
+  async removeContact(contactId: string) {
+    await this.database
+      .delete(schema.systemContacts)
+      .where(eq(schema.systemContacts.id, contactId));
+  }
+
+  async deleteContactsByUserId(userId: string) {
+    await this.database
+      .delete(schema.systemContacts)
+      .where(eq(schema.systemContacts.userId, userId));
   }
 
   // Groups
@@ -124,8 +159,8 @@ export class EntityService {
       .where(
         and(
           eq(schema.systemsGroups.groupId, groupId),
-          eq(schema.systemsGroups.systemId, systemId)
-        )
+          eq(schema.systemsGroups.systemId, systemId),
+        ),
       );
   }
 

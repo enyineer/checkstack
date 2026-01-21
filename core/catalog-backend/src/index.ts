@@ -12,8 +12,11 @@ import {
 } from "@checkstack/catalog-common";
 import { createCatalogRouter } from "./router";
 import { NotificationApi } from "@checkstack/notification-common";
+import { AuthApi } from "@checkstack/auth-common";
+import { authHooks } from "@checkstack/auth-backend";
 import { resolveRoute, type InferClient } from "@checkstack/common";
 import { registerSearchProvider } from "@checkstack/command-backend";
+import { EntityService } from "./services/entity-service";
 
 // Database schema is still needed for types in creating the router
 import * as schema from "./schema";
@@ -43,11 +46,13 @@ export default createBackendPlugin({
 
         // Get notification client for group management and sending notifications
         const notificationClient = rpcClient.forPlugin(NotificationApi);
+        const authClient = rpcClient.forPlugin(AuthApi);
 
-        // Register oRPC router with notification client
+        // Register oRPC router with notification client and auth client
         const catalogRouter = createCatalogRouter({
           database: typedDb,
           notificationClient,
+          authClient,
           pluginId: pluginMetadata.pluginId,
         });
         rpc.registerRouter(catalogRouter, catalogContract);
@@ -108,12 +113,24 @@ export default createBackendPlugin({
         logger.debug("✅ Catalog Backend initialized.");
       },
       // Phase 3: Safe to make RPC calls after all plugins are ready
-      afterPluginsReady: async ({ database, rpcClient, logger }) => {
+      afterPluginsReady: async ({ database, rpcClient, logger, onHook }) => {
         const typedDb = database as SafeDatabase<typeof schema>;
         const notificationClient = rpcClient.forPlugin(NotificationApi);
 
         // Bootstrap: Create notification groups for existing systems and groups
         await bootstrapNotificationGroups(typedDb, notificationClient, logger);
+
+        // Subscribe to user deletion to clean up user contacts
+        onHook(
+          authHooks.userDeleted,
+          async ({ userId }) => {
+            logger.debug(`Cleaning up contacts for deleted user: ${userId}`);
+            const entityService = new EntityService(typedDb);
+            await entityService.deleteContactsByUserId(userId);
+            logger.debug(`Cleaned up contacts for user: ${userId}`);
+          },
+          { mode: "work-queue", workerGroup: "user-cleanup" },
+        );
       },
     });
   },

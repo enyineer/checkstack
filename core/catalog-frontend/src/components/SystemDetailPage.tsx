@@ -24,7 +24,15 @@ import {
 } from "@checkstack/ui";
 import { authApiRef } from "@checkstack/auth-frontend/api";
 
-import { Activity, Info, Users, FileJson, Calendar } from "lucide-react";
+import {
+  Activity,
+  Info,
+  Users,
+  FileJson,
+  Calendar,
+  Mail,
+  User,
+} from "lucide-react";
 
 const CATALOG_PLUGIN_ID = "catalog";
 
@@ -56,6 +64,12 @@ export const SystemDetailPage: React.FC = () => {
   // Fetch groups data with useQuery
   const { data: groupsData, isLoading: groupsLoading } =
     catalogClient.getGroups.useQuery({});
+
+  // Fetch contacts for this system
+  const { data: contactsData } = catalogClient.getSystemContacts.useQuery(
+    { systemId: systemId ?? "" },
+    { enabled: !!systemId },
+  );
 
   // Find the system from the fetched data
   const system = systemsData?.systems.find((s) => s.id === systemId);
@@ -218,14 +232,6 @@ export const SystemDetailPage: React.FC = () => {
               {system.description || "No description provided"}
             </p>
           </div>
-          <div>
-            <label className="text-sm font-medium text-muted-foreground">
-              Owner
-            </label>
-            <p className="mt-1 text-foreground">
-              {system.owner || "Not assigned"}
-            </p>
-          </div>
           <div className="flex gap-6 text-sm">
             <div className="flex items-center gap-2 text-muted-foreground">
               <Calendar className="h-4 w-4" />
@@ -250,6 +256,51 @@ export const SystemDetailPage: React.FC = () => {
               </span>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Contacts Card */}
+      <Card className="border-border shadow-sm">
+        <CardHeader className="border-b border-border bg-muted/30">
+          <div className="flex items-center gap-2">
+            <Mail className="h-5 w-5 text-muted-foreground" />
+            <CardTitle className="text-lg font-semibold">Contacts</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="p-6">
+          {!contactsData || contactsData.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              No contacts assigned to this system
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {contactsData.map((contact) => (
+                <div
+                  key={contact.id}
+                  className="flex items-center gap-2 text-sm"
+                >
+                  {contact.type === "user" ? (
+                    <User className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <Mail className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  <a
+                    href={`mailto:${contact.type === "user" ? contact.userEmail : contact.email}`}
+                    className="text-primary hover:underline"
+                  >
+                    {contact.type === "user"
+                      ? (contact.userName ?? contact.userId)
+                      : contact.email}
+                  </a>
+                  {contact.label && (
+                    <span className="text-muted-foreground">
+                      ({contact.label})
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 

@@ -11,8 +11,10 @@
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
+    "@checkstack/auth-common": "workspace:*",
     "@checkstack/catalog-common": "workspace:*",
     "@checkstack/command-backend": "workspace:*",
+    "@checkstack/auth-backend": "workspace:*",
     "@checkstack/notification-common": "workspace:*",
     "@orpc/server": "^1.13.2",
     "drizzle-orm": "^0.45.1",

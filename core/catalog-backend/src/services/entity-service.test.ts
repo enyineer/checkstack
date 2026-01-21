@@ -37,7 +37,6 @@ describe("EntityService", () => {
     const fullSystem = {
       ...data,
       description: null,
-      owner: null,
       status: "healthy" as "healthy" | "degraded" | "unhealthy",
       metadata: {},
       createdAt: new Date(),
@@ -60,7 +59,6 @@ describe("EntityService", () => {
       id: "test",
       name: "Updated",
       description: null,
-      owner: null,
       status: "healthy" as "healthy" | "degraded" | "unhealthy",
       metadata: {},
       createdAt: new Date(),

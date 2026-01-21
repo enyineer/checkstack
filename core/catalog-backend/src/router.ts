@@ -1,10 +1,14 @@
 import { implement, ORPCError } from "@orpc/server";
 import { autoAuthMiddleware, type RpcContext } from "@checkstack/backend-api";
-import { catalogContract } from "@checkstack/catalog-common";
+import {
+  catalogContract,
+  type SystemContact,
+} from "@checkstack/catalog-common";
 import { EntityService } from "./services/entity-service";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import { NotificationApi } from "@checkstack/notification-common";
+import { AuthApi } from "@checkstack/auth-common";
 import type { InferClient } from "@checkstack/common";
 import { catalogHooks } from "./hooks";
 import { eq } from "drizzle-orm";
@@ -22,12 +26,14 @@ const os = implement(catalogContract)
 export interface CatalogRouterDeps {
   database: SafeDatabase<typeof schema>;
   notificationClient: InferClient<typeof NotificationApi>;
+  authClient: InferClient<typeof AuthApi>;
   pluginId: string;
 }
 
 export const createCatalogRouter = ({
   database,
   notificationClient,
+  authClient,
   pluginId,
 }: CatalogRouterDeps) => {
   const entityService = new EntityService(database);
@@ -36,7 +42,7 @@ export const createCatalogRouter = ({
   const createNotificationGroup = async (
     type: "system" | "group",
     id: string,
-    name: string
+    name: string,
   ) => {
     try {
       await notificationClient.createGroup({
@@ -49,7 +55,7 @@ export const createCatalogRouter = ({
       // Log but don't fail the operation
       console.warn(
         `Failed to create notification group for ${type} ${id}:`,
-        error
+        error,
       );
     }
   };
@@ -57,7 +63,7 @@ export const createCatalogRouter = ({
   // Helper to delete notification group for an entity
   const deleteNotificationGroup = async (
     type: "system" | "group",
-    id: string
+    id: string,
   ) => {
     try {
       await notificationClient.deleteGroup({
@@ -68,7 +74,7 @@ export const createCatalogRouter = ({
       // Log but don't fail the operation
       console.warn(
         `Failed to delete notification group for ${type} ${id}:`,
-        error
+        error,
       );
     }
   };
@@ -134,14 +140,11 @@ export const createCatalogRouter = ({
     const cleanData: Partial<{
       name: string;
       description?: string;
-      owner?: string;
       metadata?: Record<string, unknown>;
     }> = {};
     if (input.data.name !== undefined) cleanData.name = input.data.name;
     if (input.data.description !== undefined)
       cleanData.description = input.data.description ?? undefined;
-    if (input.data.owner !== undefined)
-      cleanData.owner = input.data.owner ?? undefined;
     if (input.data.metadata !== undefined)
       cleanData.metadata = input.data.metadata ?? undefined;
 
@@ -231,7 +234,7 @@ export const createCatalogRouter = ({
     async ({ input }) => {
       await entityService.removeSystemFromGroup(input);
       return { success: true };
-    }
+    },
   );
 
   const getViews = os.getViews.handler(async () => entityService.getViews());
@@ -243,6 +246,97 @@ export const createCatalogRouter = ({
       config: input.configuration as Record<string, unknown>,
     });
   });
+
+  // System Contacts handlers
+  const getSystemContacts = os.getSystemContacts.handler(async ({ input }) => {
+    const rawContacts = await entityService.getContactsForSystem(
+      input.systemId,
+    );
+
+    // Resolve user profiles for user-type contacts
+    const enrichedContacts: SystemContact[] = await Promise.all(
+      rawContacts.map(async (contact) => {
+        if (contact.type === "user" && contact.userId) {
+          // Resolve user profile via auth service
+          const user = await authClient.getUserById({ userId: contact.userId });
+          return {
+            id: contact.id,
+            systemId: contact.systemId,
+            type: "user" as const,
+            userId: contact.userId,
+            label: contact.label,
+            userName: user?.name ?? undefined,
+            userEmail: user?.email ?? undefined,
+            createdAt: contact.createdAt,
+          };
+        }
+        // Mailbox contact
+        return {
+          id: contact.id,
+          systemId: contact.systemId,
+          type: "mailbox" as const,
+          email: contact.email ?? "",
+          label: contact.label,
+          createdAt: contact.createdAt,
+        };
+      }),
+    );
+
+    return enrichedContacts;
+  });
+
+  const addSystemContact = os.addSystemContact.handler(async ({ input }) => {
+    // Validate input based on type
+    if (input.type === "user" && !input.userId) {
+      throw new ORPCError("BAD_REQUEST", {
+        message: "userId is required for user-type contacts",
+      });
+    }
+    if (input.type === "mailbox" && !input.email) {
+      throw new ORPCError("BAD_REQUEST", {
+        message: "email is required for mailbox-type contacts",
+      });
+    }
+
+    const result = await entityService.addContact({
+      systemId: input.systemId,
+      type: input.type,
+      userId: input.type === "user" ? input.userId : undefined,
+      email: input.type === "mailbox" ? input.email : undefined,
+      label: input.label,
+    });
+
+    // Return the enriched contact
+    if (result.type === "user" && result.userId) {
+      const user = await authClient.getUserById({ userId: result.userId });
+      return {
+        id: result.id,
+        systemId: result.systemId,
+        type: "user" as const,
+        userId: result.userId,
+        label: result.label,
+        userName: user?.name ?? undefined,
+        userEmail: user?.email ?? undefined,
+        createdAt: result.createdAt,
+      };
+    }
+
+    return {
+      id: result.id,
+      systemId: result.systemId,
+      type: "mailbox" as const,
+      email: result.email ?? "",
+      label: result.label,
+      createdAt: result.createdAt,
+    };
+  });
+
+  const removeSystemContact = os.removeSystemContact.handler(
+    async ({ input }) => {
+      await entityService.removeContact(input);
+      return { success: true };
+    },
+  );
 
   /**
    * Notify all users subscribed to a system (and optionally its groups).
@@ -272,7 +366,7 @@ export const createCatalogRouter = ({
 
         // Spread to avoid mutation
         groupIds.push(
-          ...systemGroups.map(({ groupId }) => `${pluginId}.group.${groupId}`)
+          ...systemGroups.map(({ groupId }) => `${pluginId}.group.${groupId}`),
         );
       }
 
@@ -286,7 +380,7 @@ export const createCatalogRouter = ({
       });
 
       return { notifiedCount: result.notifiedCount };
-    }
+    },
   );
 
   // Build and return the router
@@ -298,6 +392,9 @@ export const createCatalogRouter = ({
     createSystem,
     updateSystem,
     deleteSystem,
+    getSystemContacts,
+    addSystemContact,
+    removeSystemContact,
     createGroup,
     updateGroup,
     deleteGroup,

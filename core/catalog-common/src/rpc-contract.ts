@@ -1,14 +1,19 @@
 import { createClientDefinition, proc } from "@checkstack/common";
 import { pluginMetadata } from "./plugin-metadata";
 import { z } from "zod";
-import { SystemSchema, GroupSchema, ViewSchema } from "./types";
+import {
+  SystemSchema,
+  GroupSchema,
+  ViewSchema,
+  SystemContactSchema,
+  ContactTypeSchema,
+} from "./types";
 import { catalogAccess } from "./access";
 
 // Input schemas that match the service layer expectations
 const CreateSystemInputSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
-  owner: z.string().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -17,7 +22,6 @@ const UpdateSystemInputSchema = z.object({
   data: z.object({
     name: z.string().optional(),
     description: z.string().nullable().optional(),
-    owner: z.string().nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   }),
 });
@@ -55,7 +59,7 @@ export const catalogContract = {
     z.object({
       systems: z.array(SystemSchema),
       groups: z.array(GroupSchema),
-    })
+    }),
   ),
 
   getSystems: proc({
@@ -107,6 +111,44 @@ export const catalogContract = {
     .output(z.object({ success: z.boolean() })),
 
   // ==========================================================================
+  // SYSTEM CONTACTS MANAGEMENT
+  // ==========================================================================
+
+  getSystemContacts: proc({
+    operationType: "query",
+    userType: "public",
+    access: [catalogAccess.system.read],
+    instanceAccess: { idParam: "systemId" },
+  })
+    .input(z.object({ systemId: z.string() }))
+    .output(z.array(SystemContactSchema)),
+
+  addSystemContact: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.system.manage],
+    instanceAccess: { idParam: "systemId" },
+  })
+    .input(
+      z.object({
+        systemId: z.string(),
+        type: ContactTypeSchema,
+        userId: z.string().optional(),
+        email: z.string().email().optional(),
+        label: z.string().optional(),
+      }),
+    )
+    .output(SystemContactSchema),
+
+  removeSystemContact: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.system.manage],
+  })
+    .input(z.string())
+    .output(z.object({ success: z.boolean() })),
+
+  // ==========================================================================
   // GROUP MANAGEMENT (userType: "authenticated" with manage access)
   // ==========================================================================
 
@@ -147,7 +189,7 @@ export const catalogContract = {
       z.object({
         groupId: z.string(),
         systemId: z.string(),
-      })
+      }),
     )
     .output(z.object({ success: z.boolean() })),
 
@@ -160,7 +202,7 @@ export const catalogContract = {
       z.object({
         groupId: z.string(),
         systemId: z.string(),
-      })
+      }),
     )
     .output(z.object({ success: z.boolean() })),
 
@@ -218,9 +260,9 @@ export const catalogContract = {
           .boolean()
           .optional()
           .describe(
-            "If true, also notify subscribers of groups that contain this system"
+            "If true, also notify subscribers of groups that contain this system",
           ),
-      })
+      }),
     )
     .output(z.object({ notifiedCount: z.number() })),
 };
@@ -232,5 +274,5 @@ export type CatalogContract = typeof catalogContract;
 // Use: const client = rpcApi.forPlugin(CatalogApi);
 export const CatalogApi = createClientDefinition(
   catalogContract,
-  pluginMetadata
+  pluginMetadata,
 );

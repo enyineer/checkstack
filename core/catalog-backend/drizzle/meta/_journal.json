@@ -8,6 +8,13 @@
       "when": 1767319091249,
       "tag": "0000_purple_doomsday",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1769034170052,
+      "tag": "0001_early_madrox",
+      "breakpoints": true
     }
   ]
 }
