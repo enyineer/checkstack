@@ -15,16 +15,19 @@
     "docker:stop": "docker compose -f docker-compose-dev.yml down",
     "changeset": "changeset",
     "version-packages": "bun run scripts/inject-release.ts && changeset version",
+    "publish-packages": "bun run scripts/publish-packages.ts",
     "create": "bun run core/scripts/src/commands/create.ts"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.8",
     "@eslint/js": "^9.39.2",
     "@types/bun": "^1.3.5",
+    "@types/semver": "^7.7.1",
     "@typescript-eslint/eslint-plugin": "^8.50.0",
     "@typescript-eslint/parser": "^8.50.0",
     "eslint": "^9.39.2",
     "eslint-plugin-unicorn": "^62.0.0",
+    "semver": "^7.7.3",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.50.0"
   },

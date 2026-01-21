@@ -104,7 +104,7 @@ jobs:
         uses: changesets/action@v1
         with:
           version: bun run version-packages
-          publish: npx changeset publish
+          publish: bun run publish-packages
           createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -114,11 +114,8 @@ jobs:
       - name: Check if packages were published
         id: check-release
         run: |
-          # Since @checkstack/release is a private stub package, it won't appear in publishedPackages.
-          # However, inject-release.ts ensures @checkstack/release is always bumped alongside other changes.
-          # So if ANY packages were published, we should trigger Docker/GitHub release.
-          PACKAGES='${{ steps.changesets.outputs.publishedPackages }}'
-          if echo "$PACKAGES" | jq -e 'length > 0' > /dev/null 2>&1; then
+          # The changesets action sets 'published' to 'true' when the publish command runs successfully
+          if [ "${{ steps.changesets.outputs.published }}" == "true" ]; then
             echo "releasePublished=true" >> $GITHUB_OUTPUT
           else
             echo "releasePublished=false" >> $GITHUB_OUTPUT
