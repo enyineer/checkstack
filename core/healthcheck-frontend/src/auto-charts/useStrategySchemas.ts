@@ -1,7 +1,7 @@
 /**
- * Hook to fetch and cache strategy schemas.
+ * Hook to fetch and cache strategy schemas for auto-chart rendering.
  *
- * Fetches both strategy result schemas AND collector result schemas,
+ * Fetches strategy aggregated result schemas AND collector aggregated result schemas,
  * merging them into a unified schema where collector schemas are nested
  * under `properties.collectors.<collectorId>`.
  */
@@ -11,15 +11,14 @@ import { usePluginClient } from "@checkstack/frontend-api";
 import { HealthCheckApi } from "../api";
 
 interface StrategySchemas {
-  resultSchema: Record<string, unknown> | undefined;
   aggregatedResultSchema: Record<string, unknown> | undefined;
 }
 
 /**
  * Fetch and cache strategy schemas for auto-chart rendering.
  *
- * Also fetches collector schemas and merges them into the result schema
- * so that chart fields from collectors are properly extracted.
+ * Fetches collector aggregated schemas and merges them into the strategy's
+ * aggregated result schema so that chart fields from collectors are properly extracted.
  *
  * @param strategyId - The strategy ID to fetch schemas for
  * @returns Schemas for the strategy, or undefined if not found
@@ -49,26 +48,16 @@ export function useStrategySchemas(strategyId: string): {
     const strategy = strategies.find((s) => s.id === strategyId);
 
     if (strategy) {
-      // Build collector schemas object for nesting under resultSchema.properties.collectors
-      const collectorProperties: Record<string, unknown> = {};
+      // Build collector aggregated schemas for nesting under aggregatedResultSchema.properties.collectors
       const collectorAggregatedProperties: Record<string, unknown> = {};
 
       for (const collector of collectors) {
         // Use full ID so it matches stored data keys like "healthcheck-http.request"
-        collectorProperties[collector.id] = collector.resultSchema;
-
-        // Also collect aggregated schemas if available
         if (collector.aggregatedResultSchema) {
           collectorAggregatedProperties[collector.id] =
             collector.aggregatedResultSchema;
         }
       }
-
-      // Merge collector schemas into strategy result schema
-      const mergedResultSchema = mergeCollectorSchemas(
-        strategy.resultSchema as Record<string, unknown> | undefined,
-        collectorProperties,
-      );
 
       // Merge collector aggregated schemas into strategy aggregated schema
       const mergedAggregatedSchema = mergeCollectorSchemas(
@@ -77,7 +66,6 @@ export function useStrategySchemas(strategyId: string): {
       );
 
       setSchemas({
-        resultSchema: mergedResultSchema,
         aggregatedResultSchema: mergedAggregatedSchema,
       });
     }

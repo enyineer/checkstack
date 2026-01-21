@@ -142,12 +142,13 @@ const RetentionConfigSchema = z.object({
 
 ## On-the-Fly Aggregation
 
-For unified chart rendering when viewing mixed time ranges, the system aggregates raw data in memory:
+For unified chart rendering, the system uses cross-tier aggregation to query from raw, hourly, and daily storage, merging with priority:
 
-1. **Auto-Select Bucket Size**: Uses "daily" for ranges > 7 days, "hourly" for shorter ranges
-2. **Bucket Alignment**: Timestamps normalized to hour/day boundaries
-3. **Statistical Calculation**: Same metrics as retention job
-4. **Strategy Hook**: Calls `aggregateResult()` for custom metadata
+1. **Target Points**: Frontend requests a fixed number of data points (e.g., 500)
+2. **Dynamic Bucket Calculation**: `(endDate - startDate) / targetPoints` determines bucket interval
+3. **Tier Selection**: Automatically queries the appropriate tier(s) based on interval
+4. **Priority Merge**: Raw data takes priority over hourly, which takes priority over daily
+5. **Re-aggregation**: Merged data is re-aggregated to match target bucket interval
 
 ```typescript
 // Service method signature
@@ -157,7 +158,7 @@ async getAggregatedHistory(
     configurationId: string;
     startDate: Date;
     endDate: Date;
-    bucketSize: "hourly" | "daily" | "auto";
+    targetPoints?: number; // Default: 500
   },
   options: { includeAggregatedResult: boolean }
 )

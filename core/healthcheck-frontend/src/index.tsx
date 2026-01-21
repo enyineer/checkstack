@@ -26,12 +26,8 @@ import {
 // Export slot definitions for other plugins to use
 export {
   HealthCheckDiagramSlot,
-  createStrategyDiagramExtension,
   createDiagramExtensionFactory,
   type HealthCheckDiagramSlotContext,
-  type RawDiagramContext,
-  type AggregatedDiagramContext,
-  type TypedHealthCheckRun,
   type TypedAggregatedBucket,
 } from "./slots";
 

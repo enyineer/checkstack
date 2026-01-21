@@ -155,7 +155,6 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
     context: chartContext,
     loading: chartLoading,
     isFetching: chartFetching,
-    isAggregated,
     bucketIntervalSeconds,
   } = useHealthCheckData({
     systemId,
@@ -232,10 +231,7 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
     }
 
     // Check if we have data to show
-    const hasData =
-      chartContext.type === "raw"
-        ? chartContext.runs.length > 0
-        : chartContext.buckets.length > 0;
+    const hasData = chartContext.buckets.length > 0;
 
     if (!hasData) {
       return;
@@ -243,7 +239,7 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
 
     return (
       <div className="space-y-4">
-        {isAggregated && bucketIntervalSeconds && (
+        {bucketIntervalSeconds && (
           <AggregatedDataBanner
             bucketIntervalSeconds={bucketIntervalSeconds}
             checkIntervalSeconds={item.intervalSeconds}
@@ -264,9 +260,7 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">
-              {isAggregated
-                ? "Average Execution Duration"
-                : "Execution Duration"}
+              Average Execution Duration
             </CardTitle>
           </CardHeader>
           <CardContent>

@@ -7,14 +7,11 @@ import {
 import { HealthCheckApi } from "../api";
 import {
   healthCheckAccess,
-  DEFAULT_RETENTION_CONFIG,
-  type RetentionConfig,
   HEALTH_CHECK_RUN_COMPLETED,
 } from "@checkstack/healthcheck-common";
 import { useSignal } from "@checkstack/signal-frontend";
 import type {
   HealthCheckDiagramSlotContext,
-  TypedHealthCheckRun,
   TypedAggregatedBucket,
 } from "../slots";
 
@@ -39,23 +36,22 @@ interface UseHealthCheckDataResult {
   loading: boolean;
   /** Whether data is being fetched (even if previous data is shown) */
   isFetching: boolean;
-  /** Whether aggregated data mode is active */
-  isAggregated: boolean;
-  /** The resolved retention config */
-  retentionConfig: RetentionConfig;
   /** Whether user has access to view detailed data */
   hasAccess: boolean;
   /** Whether access is still loading */
   accessLoading: boolean;
-  /** Bucket interval in seconds (only for aggregated mode) */
+  /** Bucket interval in seconds */
   bucketIntervalSeconds: number | undefined;
 }
 
 /**
- * Hook that handles fetching health check data for visualization.
- * Automatically determines whether to use raw or aggregated data based on:
- * - The selected date range
- * - The configured rawRetentionDays for the assignment
+ * Hook that handles fetching health check data for chart visualization.
+ * Always uses aggregated data with a fixed number of target points (500)
+ * for consistent chart rendering regardless of the selected time range.
+ *
+ * The backend's cross-tier aggregation engine automatically selects
+ * the appropriate data source (raw, hourly, or daily) based on the
+ * time range and aggregates it to the target number of points.
  *
  * Returns a ready-to-use context for HealthCheckDiagramSlot.
  */
@@ -75,61 +71,11 @@ export function useHealthCheckData({
     healthCheckAccess.details,
   );
 
-  // Calculate date range in days
-  const dateRangeDays = useMemo(() => {
-    return Math.ceil(
-      (dateRange.endDate.getTime() - dateRange.startDate.getTime()) /
-        (1000 * 60 * 60 * 24),
-    );
-  }, [dateRange.startDate, dateRange.endDate]);
-
-  // Query: Fetch retention config
-  const { data: retentionData, isLoading: retentionLoading } =
-    healthCheckClient.getRetentionConfig.useQuery(
-      { systemId, configurationId },
-      { enabled: !!systemId && !!configurationId && hasAccess },
-    );
-
-  const retentionConfig =
-    retentionData?.retentionConfig ?? DEFAULT_RETENTION_CONFIG;
-
-  // Determine if we should use aggregated data
-  // Use >= so that a range equal to retention days uses aggregation (e.g., 7-day range with 7-day retention)
-  const isAggregated = dateRangeDays >= retentionConfig.rawRetentionDays;
-
-  // Query: Fetch raw data (when in raw mode)
-  // Use 'asc' order for chronological chart display (oldest first, newest last)
-  // NOTE: For chart visualization, we fetch ALL runs in the date range (no pagination)
-  const {
-    data: rawData,
-    isLoading: rawLoading,
-    refetch: refetchRawData,
-  } = healthCheckClient.getDetailedHistory.useQuery(
-    {
-      systemId,
-      configurationId,
-      startDate: dateRange.startDate,
-      endDate: dateRange.endDate,
-      sortOrder: "asc",
-    },
-    {
-      enabled:
-        !!systemId &&
-        !!configurationId &&
-        hasAccess &&
-        !accessLoading &&
-        !retentionLoading &&
-        !isAggregated,
-      // Keep previous data visible during refetch to prevent layout shift
-      placeholderData: (prev) => prev,
-    },
-  );
-
-  // Query: Fetch aggregated data (when in aggregated mode)
+  // Always use aggregated data with fixed target points
   const {
     data: aggregatedData,
-    isLoading: aggregatedLoading,
-    refetch: refetchAggregatedData,
+    isLoading,
+    refetch,
   } = healthCheckClient.getDetailedAggregatedHistory.useQuery(
     {
       systemId,
@@ -139,13 +85,7 @@ export function useHealthCheckData({
       targetPoints: 500,
     },
     {
-      enabled:
-        !!systemId &&
-        !!configurationId &&
-        hasAccess &&
-        !accessLoading &&
-        !retentionLoading &&
-        isAggregated,
+      enabled: !!systemId && !!configurationId && hasAccess && !accessLoading,
       // Keep previous data visible during refetch to prevent layout shift
       placeholderData: (prev) => prev,
     },
@@ -153,40 +93,14 @@ export function useHealthCheckData({
 
   // Listen for realtime health check updates to refresh data silently
   useSignal(HEALTH_CHECK_RUN_COMPLETED, ({ systemId: changedId }) => {
-    if (
-      changedId === systemId &&
-      hasAccess &&
-      !accessLoading &&
-      !retentionLoading
-    ) {
+    if (changedId === systemId && hasAccess && !accessLoading) {
       // Update endDate to current time only for rolling presets (not custom ranges)
       if (isRollingPreset && onDateRangeRefresh) {
         onDateRangeRefresh(new Date());
       }
-      // Refetch the appropriate data
-      if (isAggregated) {
-        void refetchAggregatedData();
-      } else {
-        void refetchRawData();
-      }
+      void refetch();
     }
   });
-
-  // Transform raw runs to typed format
-  const rawRuns = useMemo((): TypedHealthCheckRun<
-    Record<string, unknown>
-  >[] => {
-    if (!rawData?.runs) return [];
-    return rawData.runs.map((r) => ({
-      id: r.id,
-      configurationId,
-      systemId,
-      status: r.status,
-      timestamp: r.timestamp,
-      latencyMs: r.latencyMs,
-      result: r.result as Record<string, unknown>,
-    }));
-  }, [rawData, configurationId, systemId]);
 
   // Transform aggregated buckets
   const aggregatedBuckets = useMemo((): TypedAggregatedBucket<
@@ -199,44 +113,27 @@ export function useHealthCheckData({
   }, [aggregatedData]);
 
   const context = useMemo((): HealthCheckDiagramSlotContext | undefined => {
-    if (!hasAccess || accessLoading || retentionLoading) {
+    if (!hasAccess || accessLoading) {
       return undefined;
     }
 
-    if (isAggregated) {
-      // Don't create context with empty buckets during loading
-      if (aggregatedBuckets.length === 0) {
-        return undefined;
-      }
-      return {
-        type: "aggregated",
-        systemId,
-        configurationId,
-        strategyId,
-        buckets: aggregatedBuckets,
-      };
-    }
-
-    // Don't create context with empty runs during loading
-    if (rawRuns.length === 0) {
+    // Don't create context with empty buckets during loading
+    if (aggregatedBuckets.length === 0) {
       return undefined;
     }
+
     return {
-      type: "raw",
       systemId,
       configurationId,
       strategyId,
-      runs: rawRuns,
+      buckets: aggregatedBuckets,
     };
   }, [
     hasAccess,
     accessLoading,
-    retentionLoading,
-    isAggregated,
     systemId,
     configurationId,
     strategyId,
-    rawRuns,
     aggregatedBuckets,
   ]);
 
@@ -248,25 +145,18 @@ export function useHealthCheckData({
     previousContextRef.current = context;
   }
 
-  const isQueryLoading =
-    accessLoading ||
-    retentionLoading ||
-    (isAggregated ? aggregatedLoading : rawLoading);
-
   // Return previous context while loading to prevent layout shift
   const stableContext =
-    context ?? (isQueryLoading ? previousContextRef.current : undefined);
+    context ?? (isLoading ? previousContextRef.current : undefined);
 
   // Only report loading when we don't have any context to show
   // This prevents showing loading spinner during refetch when we have previous data
-  const loading = isQueryLoading && !stableContext;
+  const loading = isLoading && !stableContext;
 
   return {
     context: stableContext,
     loading,
-    isFetching: isQueryLoading,
-    isAggregated,
-    retentionConfig,
+    isFetching: isLoading,
     hasAccess,
     accessLoading,
     bucketIntervalSeconds: aggregatedData?.bucketIntervalSeconds,

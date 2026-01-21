@@ -9,7 +9,6 @@ import type { ChartField } from "./schema-parser";
 import { extractChartFields, getFieldValue } from "./schema-parser";
 import { useStrategySchemas } from "./useStrategySchemas";
 import type { HealthCheckDiagramSlotContext } from "../slots";
-import type { StoredHealthCheckResult } from "@checkstack/healthcheck-common";
 import { SparklineTooltip } from "../components/SparklineTooltip";
 import { Card, CardContent, CardHeader, CardTitle } from "@checkstack/ui";
 import {
@@ -54,11 +53,8 @@ export function AutoChartGrid({ context }: AutoChartGridProps) {
     return;
   }
 
-  // Choose schema based on context type
-  const schema =
-    context.type === "raw"
-      ? schemas.resultSchema
-      : schemas.aggregatedResultSchema;
+  // Always use aggregated result schema
+  const schema = schemas.aggregatedResultSchema;
 
   if (!schema) {
     return;
@@ -211,27 +207,12 @@ function CollectorGroup({
 /**
  * Get all assertion results for a specific collector instance.
  * Returns array of results with timestamps/time spans in chronological order.
- *
- * For raw data: extracts run status with timestamp.
- * For aggregated data: uses bucket counts with time span.
+ * Uses bucket counts with time span from aggregated data.
  */
 function getAllAssertionResults(
   context: HealthCheckDiagramSlotContext,
   _instanceKey: string,
 ): { passed: boolean; errorMessage?: string; timeLabel?: string }[] {
-  if (context.type === "raw") {
-    return context.runs.map((run) => {
-      const result = run.result as StoredHealthCheckResult | undefined;
-      const isUnhealthy = result?.status === "unhealthy";
-      return {
-        passed: !isUnhealthy,
-        errorMessage: isUnhealthy ? result?.message : undefined,
-        timeLabel: format(new Date(run.timestamp), "MMM d, HH:mm:ss"),
-      };
-    });
-  }
-
-  // For aggregated data, return one result per bucket with time span
   return context.buckets.map((bucket) => {
     const failedCount = bucket.degradedCount + bucket.unhealthyCount;
     const passed = failedCount === 0;
@@ -351,7 +332,7 @@ function AssertionStatusCard({
 }
 
 /**
- * Discover collector instances from actual run data.
+ * Discover collector instances from aggregated bucket data.
  * Returns a map from base collector ID (type) to array of instance UUIDs.
  */
 function discoverCollectorInstances(
@@ -376,21 +357,11 @@ function discoverCollectorInstances(
     }
   };
 
-  if (context.type === "raw") {
-    for (const run of context.runs) {
-      const result = run.result as StoredHealthCheckResult | undefined;
-      const collectors = result?.metadata?.collectors as
-        | Record<string, unknown>
-        | undefined;
-      addInstances(collectors);
-    }
-  } else {
-    for (const bucket of context.buckets) {
-      const collectors = (
-        bucket.aggregatedResult as Record<string, unknown> | undefined
-      )?.collectors as Record<string, unknown> | undefined;
-      addInstances(collectors);
-    }
+  for (const bucket of context.buckets) {
+    const collectors = (
+      bucket.aggregatedResult as Record<string, unknown> | undefined
+    )?.collectors as Record<string, unknown> | undefined;
+    addInstances(collectors);
   }
 
   // Convert sets to arrays
@@ -1029,9 +1000,7 @@ function PieChartRenderer({ field, context }: ChartRendererProps) {
 
 /**
  * Get the aggregated value for a field from the context.
- *
- * For raw runs: returns the latest value from result.metadata
- * For aggregated buckets: combines record values (counters) across ALL buckets,
+ * Combines record values (counters) across ALL buckets,
  * or returns the latest for non-aggregatable types.
  */
 function getLatestValue(
@@ -1039,48 +1008,31 @@ function getLatestValue(
   context: HealthCheckDiagramSlotContext,
   collectorId?: string,
 ): unknown {
-  if (context.type === "raw") {
-    const runs = context.runs;
-    if (runs.length === 0) return undefined;
-    // For raw runs, aggregate across all runs for record types
-    const allValues = runs.map((run) => {
-      const result = run.result as StoredHealthCheckResult | undefined;
-      return getFieldValue(result?.metadata, fieldName, collectorId);
-    });
+  const buckets = context.buckets;
+  if (buckets.length === 0) return undefined;
 
-    // If the values are record types (like statusCodeCounts), combine them
-    const firstVal = allValues.find((v) => v !== undefined);
-    if (firstVal && typeof firstVal === "object" && !Array.isArray(firstVal)) {
-      return combineRecordValues(allValues as Record<string, number>[]);
-    }
-    // For simple values, return the latest (first in array since runs are newest-first)
-    return allValues.at(0);
-  } else {
-    const buckets = context.buckets;
-    if (buckets.length === 0) return undefined;
+  // Get all values for this field from all buckets
+  const allValues = buckets.map((bucket) =>
+    getFieldValue(
+      bucket.aggregatedResult as Record<string, unknown>,
+      fieldName,
+      collectorId,
+    ),
+  );
 
-    // Get all values for this field from all buckets
-    const allValues = buckets.map((bucket) =>
-      getFieldValue(
-        bucket.aggregatedResult as Record<string, unknown>,
-        fieldName,
-      ),
-    );
-
-    // If the values are record types (like statusCodeCounts), combine them
-    const firstVal = allValues.find((v) => v !== undefined);
-    if (firstVal && typeof firstVal === "object" && !Array.isArray(firstVal)) {
-      return combineRecordValues(allValues as Record<string, number>[]);
-    }
-    // For simple values (like errorCount), sum them
-    if (typeof firstVal === "number") {
-      return allValues
-        .filter((v): v is number => typeof v === "number")
-        .reduce((sum, v) => sum + v, 0);
-    }
-    // For other types, return the latest (first in array since buckets are newest-first)
-    return allValues.at(0);
+  // If the values are record types (like statusCodeCounts), combine them
+  const firstVal = allValues.find((v) => v !== undefined);
+  if (firstVal && typeof firstVal === "object" && !Array.isArray(firstVal)) {
+    return combineRecordValues(allValues as Record<string, number>[]);
   }
+  // For simple values (like errorCount), sum them
+  if (typeof firstVal === "number") {
+    return allValues
+      .filter((v): v is number => typeof v === "number")
+      .reduce((sum, v) => sum + v, 0);
+  }
+  // For other types, return the latest
+  return allValues.at(-1);
 }
 
 /**
@@ -1103,7 +1055,7 @@ function combineRecordValues(
 }
 
 /**
- * Count occurrences of each unique value for a field across all runs/buckets.
+ * Count occurrences of each unique value for a field across all buckets.
  * Returns a record mapping each unique value to its count.
  */
 function getValueCounts(
@@ -1113,27 +1065,15 @@ function getValueCounts(
 ): Record<string, number> {
   const counts: Record<string, number> = {};
 
-  if (context.type === "raw") {
-    for (const run of context.runs) {
-      const result = run.result as StoredHealthCheckResult | undefined;
-      const value = getFieldValue(result?.metadata, fieldName, collectorId);
-      if (value !== undefined && value !== null) {
-        const key = String(value);
-        counts[key] = (counts[key] || 0) + 1;
-      }
-    }
-  } else {
-    // For aggregated buckets, we need to look at each bucket's data
-    for (const bucket of context.buckets) {
-      const value = getFieldValue(
-        bucket.aggregatedResult as Record<string, unknown>,
-        fieldName,
-        collectorId,
-      );
-      if (value !== undefined && value !== null) {
-        const key = String(value);
-        counts[key] = (counts[key] || 0) + 1;
-      }
+  for (const bucket of context.buckets) {
+    const value = getFieldValue(
+      bucket.aggregatedResult as Record<string, unknown>,
+      fieldName,
+      collectorId,
+    );
+    if (value !== undefined && value !== null) {
+      const key = String(value);
+      counts[key] = (counts[key] || 0) + 1;
     }
   }
 
@@ -1142,28 +1082,13 @@ function getValueCounts(
 
 /**
  * Get all numeric values for a field with time labels.
- * Returns values in chronological order with timestamps/time spans for tooltips.
+ * Returns values in chronological order with time spans for tooltips.
  */
 function getAllValuesWithTime(
   fieldName: string,
   context: HealthCheckDiagramSlotContext,
   collectorId?: string,
 ): { value: number; timeLabel: string }[] {
-  if (context.type === "raw") {
-    return context.runs
-      .map((run) => {
-        const result = run.result as StoredHealthCheckResult;
-        const value = getFieldValue(result?.metadata, fieldName, collectorId);
-        if (typeof value !== "number") return;
-        return {
-          value,
-          timeLabel: format(new Date(run.timestamp), "MMM d, HH:mm:ss"),
-        };
-      })
-      .filter(
-        (v): v is { value: number; timeLabel: string } => v !== undefined,
-      );
-  }
   return context.buckets
     .map((bucket) => {
       const value = getFieldValue(
@@ -1191,21 +1116,6 @@ function getAllBooleanValuesWithTime(
   context: HealthCheckDiagramSlotContext,
   collectorId?: string,
 ): { value: boolean; timeLabel: string }[] {
-  if (context.type === "raw") {
-    return context.runs
-      .map((run) => {
-        const result = run.result as StoredHealthCheckResult;
-        const value = getFieldValue(result?.metadata, fieldName, collectorId);
-        if (typeof value !== "boolean") return;
-        return {
-          value,
-          timeLabel: format(new Date(run.timestamp), "MMM d, HH:mm:ss"),
-        };
-      })
-      .filter(
-        (v): v is { value: boolean; timeLabel: string } => v !== undefined,
-      );
-  }
   return context.buckets
     .map((bucket) => {
       const value = getFieldValue(
@@ -1233,21 +1143,6 @@ function getAllStringValuesWithTime(
   context: HealthCheckDiagramSlotContext,
   collectorId?: string,
 ): { value: string; timeLabel: string }[] {
-  if (context.type === "raw") {
-    return context.runs
-      .map((run) => {
-        const result = run.result as StoredHealthCheckResult;
-        const value = getFieldValue(result?.metadata, fieldName, collectorId);
-        if (typeof value !== "string") return;
-        return {
-          value,
-          timeLabel: format(new Date(run.timestamp), "MMM d, HH:mm:ss"),
-        };
-      })
-      .filter(
-        (v): v is { value: string; timeLabel: string } => v !== undefined,
-      );
-  }
   return context.buckets
     .map((bucket) => {
       const value = getFieldValue(
