@@ -48,6 +48,8 @@ export default defineConfig(() => {
     build: {
       // Use esnext to support top-level await and modern ES features
       target: "esnext",
+      // Generate sourcemaps for production debugging
+      sourcemap: true,
     },
     resolve: {
       // Force all monorepo packages to use the same React copy at build time.
