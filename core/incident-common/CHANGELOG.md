@@ -1,5 +1,16 @@
 # @checkstack/incident-common
 
+## 0.4.2
+
+### Patch Changes
+
+- 9551fd7: Fix creator display in incident and maintenance status updates
+
+  - Show the creator's profile name instead of UUID in status updates
+  - For maintenances, now properly displays the creator name (was missing)
+  - For incidents, replaces UUID with human-readable profile name
+  - System-generated updates (automatic maintenance transitions) show no creator
+
 ## 0.4.1
 
 ### Patch Changes

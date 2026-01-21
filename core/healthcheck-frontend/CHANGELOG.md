@@ -1,5 +1,16 @@
 # @checkstack/healthcheck-frontend
 
+## 0.8.2
+
+### Patch Changes
+
+- Updated dependencies [e5079e1]
+- Updated dependencies [9551fd7]
+  - @checkstack/catalog-common@1.2.6
+  - @checkstack/ui@0.5.3
+  - @checkstack/dashboard-frontend@0.3.14
+  - @checkstack/auth-frontend@0.5.8
+
 ## 0.8.1
 
 ### Patch Changes

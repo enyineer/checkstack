@@ -1,5 +1,36 @@
 # @checkstack/maintenance-backend
 
+## 0.5.3
+
+### Patch Changes
+
+- 9551fd7: Fix creator display in incident and maintenance status updates
+
+  - Show the creator's profile name instead of UUID in status updates
+  - For maintenances, now properly displays the creator name (was missing)
+  - For incidents, replaces UUID with human-readable profile name
+  - System-generated updates (automatic maintenance transitions) show no creator
+
+- c208a5b: ### @checkstack/incident-backend
+
+  Added notifications for incident status changes via the "Add Update" functionality:
+
+  - Notifications are now sent when an incident is reopened (status changed from resolved)
+  - Notifications are now sent when an incident status changes to any new value
+  - Notifications are now sent when an incident is resolved via addUpdate
+  - Extracted `notifyAffectedSystems` into a reusable module with proper importance logic:
+    - Resolved incidents always use "info" importance (good news)
+    - Reopened/created/updated incidents derive importance from severity
+
+  ### @checkstack/maintenance-backend
+
+  Fixed missing notification in `closeMaintenance` handler - the "Close" button now sends a "completed" notification to subscribers.
+
+- Updated dependencies [e5079e1]
+- Updated dependencies [9551fd7]
+  - @checkstack/catalog-common@1.2.6
+  - @checkstack/maintenance-common@0.4.4
+
 ## 0.5.2
 
 ### Patch Changes

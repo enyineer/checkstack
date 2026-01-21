@@ -1,5 +1,20 @@
 # @checkstack/dashboard-frontend
 
+## 0.3.14
+
+### Patch Changes
+
+- Updated dependencies [e5079e1]
+- Updated dependencies [9551fd7]
+  - @checkstack/catalog-frontend@0.4.0
+  - @checkstack/catalog-common@1.2.6
+  - @checkstack/ui@0.5.3
+  - @checkstack/incident-common@0.4.2
+  - @checkstack/maintenance-common@0.4.4
+  - @checkstack/auth-frontend@0.5.8
+  - @checkstack/command-frontend@0.2.11
+  - @checkstack/queue-frontend@0.2.11
+
 ## 0.3.13
 
 ### Patch Changes

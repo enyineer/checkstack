@@ -1,5 +1,16 @@
 # @checkstack/frontend
 
+## 0.2.13
+
+### Patch Changes
+
+- Updated dependencies [e5079e1]
+- Updated dependencies [9551fd7]
+  - @checkstack/catalog-frontend@0.4.0
+  - @checkstack/ui@0.5.3
+  - @checkstack/auth-frontend@0.5.8
+  - @checkstack/command-frontend@0.2.11
+
 ## 0.2.12
 
 ### Patch Changes

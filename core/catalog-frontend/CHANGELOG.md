@@ -1,5 +1,23 @@
 # @checkstack/catalog-frontend
 
+## 0.4.0
+
+### Minor Changes
+
+- e5079e1: Add contacts management to system editor
+
+  - **catalog-frontend**: New `ContactsEditor` component allows adding/removing platform users and external mailboxes as system contacts directly from the system editor dialog
+  - **catalog-common**: Added `instanceAccess` override to contacts RPC endpoints for correct single-resource RLAC checking
+  - **ui**: Fixed Tabs component to use `type="button"` to prevent form submission when used inside forms
+
+### Patch Changes
+
+- Updated dependencies [e5079e1]
+- Updated dependencies [9551fd7]
+  - @checkstack/catalog-common@1.2.6
+  - @checkstack/ui@0.5.3
+  - @checkstack/auth-frontend@0.5.8
+
 ## 0.3.11
 
 ### Patch Changes

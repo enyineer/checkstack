@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.27.0
+
+### Minor Changes
+
+- f8ce585: Improved RPC error logging to include full stack traces for procedure errors. Previously, errors inside RPC handlers (such as database table not found errors) resulted in silent 500 responses. Now these errors are logged with detailed information to the backend console for easier debugging.
+
 ## 0.26.0
 
 ### Minor Changes

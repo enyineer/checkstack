@@ -1,5 +1,16 @@
 # @checkstack/healthcheck-backend
 
+## 0.8.2
+
+### Patch Changes
+
+- Updated dependencies [e5079e1]
+- Updated dependencies [9551fd7]
+  - @checkstack/catalog-common@1.2.6
+  - @checkstack/incident-common@0.4.2
+  - @checkstack/maintenance-common@0.4.4
+  - @checkstack/catalog-backend@0.2.10
+
 ## 0.8.1
 
 ### Patch Changes

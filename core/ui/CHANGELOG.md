@@ -1,5 +1,22 @@
 # @checkstack/ui
 
+## 0.5.3
+
+### Patch Changes
+
+- e5079e1: Add contacts management to system editor
+
+  - **catalog-frontend**: New `ContactsEditor` component allows adding/removing platform users and external mailboxes as system contacts directly from the system editor dialog
+  - **catalog-common**: Added `instanceAccess` override to contacts RPC endpoints for correct single-resource RLAC checking
+  - **ui**: Fixed Tabs component to use `type="button"` to prevent form submission when used inside forms
+
+- 9551fd7: Fix creator display in incident and maintenance status updates
+
+  - Show the creator's profile name instead of UUID in status updates
+  - For maintenances, now properly displays the creator name (was missing)
+  - For incidents, replaces UUID with human-readable profile name
+  - System-generated updates (automatic maintenance transitions) show no creator
+
 ## 0.5.2
 
 ### Patch Changes
