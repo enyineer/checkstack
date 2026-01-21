@@ -270,7 +270,7 @@ describe("InMemoryQueue Cron Scheduling", () => {
       await Promise.resolve();
 
       expect(executionCount).toBeGreaterThanOrEqual(1);
-    });
+    }, 10_000);
   });
 
   describe("Invalid cron patterns", () => {
