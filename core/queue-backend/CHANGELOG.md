@@ -1,5 +1,19 @@
 # @checkstack/queue-backend
 
+## 0.2.6
+
+### Patch Changes
+
+- 0b9fc58: Fix workspace:\* protocol resolution in published packages
+
+  Published packages now correctly have resolved dependency versions instead of `workspace:*` references. This is achieved by using `bun publish` which properly resolves workspace protocol references.
+
+- Updated dependencies [0b9fc58]
+  - @checkstack/backend-api@0.5.2
+  - @checkstack/common@0.6.1
+  - @checkstack/queue-api@0.2.2
+  - @checkstack/queue-common@0.2.4
+
 ## 0.2.5
 
 ### Patch Changes

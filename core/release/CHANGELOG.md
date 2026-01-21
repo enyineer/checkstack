@@ -1,5 +1,13 @@
 # @checkstack/release
 
+## 0.26.0
+
+### Minor Changes
+
+- 0b9fc58: Fix workspace:\* protocol resolution in published packages
+
+  Published packages now correctly have resolved dependency versions instead of `workspace:*` references. This is achieved by using `bun publish` which properly resolves workspace protocol references.
+
 ## 0.25.0
 
 ### Minor Changes

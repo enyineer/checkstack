@@ -1,5 +1,26 @@
 # @checkstack/healthcheck-backend
 
+## 0.8.1
+
+### Patch Changes
+
+- 0b9fc58: Fix workspace:\* protocol resolution in published packages
+
+  Published packages now correctly have resolved dependency versions instead of `workspace:*` references. This is achieved by using `bun publish` which properly resolves workspace protocol references.
+
+- Updated dependencies [0b9fc58]
+  - @checkstack/backend-api@0.5.2
+  - @checkstack/catalog-backend@0.2.9
+  - @checkstack/catalog-common@1.2.5
+  - @checkstack/command-backend@0.1.8
+  - @checkstack/common@0.6.1
+  - @checkstack/healthcheck-common@0.8.1
+  - @checkstack/incident-common@0.4.1
+  - @checkstack/integration-backend@0.1.8
+  - @checkstack/maintenance-common@0.4.3
+  - @checkstack/queue-api@0.2.2
+  - @checkstack/signal-common@0.1.5
+
 ## 0.8.0
 
 ### Minor Changes

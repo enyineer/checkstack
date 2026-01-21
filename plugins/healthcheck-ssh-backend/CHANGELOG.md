@@ -1,5 +1,19 @@
 # @checkstack/healthcheck-ssh-backend
 
+## 0.1.13
+
+### Patch Changes
+
+- 0b9fc58: Fix workspace:\* protocol resolution in published packages
+
+  Published packages now correctly have resolved dependency versions instead of `workspace:*` references. This is achieved by using `bun publish` which properly resolves workspace protocol references.
+
+- Updated dependencies [0b9fc58]
+  - @checkstack/backend-api@0.5.2
+  - @checkstack/common@0.6.1
+  - @checkstack/healthcheck-common@0.8.1
+  - @checkstack/healthcheck-ssh-common@0.1.7
+
 ## 0.1.12
 
 ### Patch Changes

@@ -1,5 +1,24 @@
 # @checkstack/incident-backend
 
+## 0.3.1
+
+### Patch Changes
+
+- 0b9fc58: Fix workspace:\* protocol resolution in published packages
+
+  Published packages now correctly have resolved dependency versions instead of `workspace:*` references. This is achieved by using `bun publish` which properly resolves workspace protocol references.
+
+- Updated dependencies [0b9fc58]
+  - @checkstack/backend-api@0.5.2
+  - @checkstack/catalog-backend@0.2.9
+  - @checkstack/catalog-common@1.2.5
+  - @checkstack/command-backend@0.1.8
+  - @checkstack/common@0.6.1
+  - @checkstack/incident-common@0.4.1
+  - @checkstack/integration-backend@0.1.8
+  - @checkstack/integration-common@0.2.4
+  - @checkstack/signal-common@0.1.5
+
 ## 0.3.0
 
 ### Minor Changes

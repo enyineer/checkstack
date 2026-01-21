@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/integration-frontend",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "type": "module",
   "main": "src/index.tsx",
   "checkstack": {

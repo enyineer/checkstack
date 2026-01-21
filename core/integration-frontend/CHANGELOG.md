@@ -1,5 +1,20 @@
 # @checkstack/integration-frontend
 
+## 0.2.10
+
+### Patch Changes
+
+- 0b9fc58: Fix workspace:\* protocol resolution in published packages
+
+  Published packages now correctly have resolved dependency versions instead of `workspace:*` references. This is achieved by using `bun publish` which properly resolves workspace protocol references.
+
+- Updated dependencies [0b9fc58]
+  - @checkstack/common@0.6.1
+  - @checkstack/frontend-api@0.3.4
+  - @checkstack/integration-common@0.2.4
+  - @checkstack/signal-frontend@0.0.11
+  - @checkstack/ui@0.5.2
+
 ## 0.2.9
 
 ### Patch Changes

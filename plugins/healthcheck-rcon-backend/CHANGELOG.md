@@ -1,5 +1,19 @@
 # @checkstack/healthcheck-rcon-backend
 
+## 0.2.11
+
+### Patch Changes
+
+- 0b9fc58: Fix workspace:\* protocol resolution in published packages
+
+  Published packages now correctly have resolved dependency versions instead of `workspace:*` references. This is achieved by using `bun publish` which properly resolves workspace protocol references.
+
+- Updated dependencies [0b9fc58]
+  - @checkstack/backend-api@0.5.2
+  - @checkstack/common@0.6.1
+  - @checkstack/healthcheck-common@0.8.1
+  - @checkstack/healthcheck-rcon-common@0.2.5
+
 ## 0.2.10
 
 ### Patch Changes
