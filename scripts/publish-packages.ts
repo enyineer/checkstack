@@ -135,6 +135,15 @@ export async function publishPackage({
   try {
     // Use bun publish which resolves workspace:* to actual versions
     await $`bun publish --access public`.cwd(dir);
+
+    // Create git tag for the package (same as changeset publish does)
+    const tagName = `${pkg.name}@${pkg.version}`;
+    await $`git tag ${tagName}`.quiet();
+
+    // Output in the format changesets action expects to detect published packages
+    // The action parses stdout for: /New tag:\s+(@[^/]+\/[^@]+|[^/]+)@([^\s]+)/
+    console.log(`New tag: ${pkg.name}@${pkg.version}`);
+
     return { name: pkg.name, version: pkg.version, success: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -273,16 +282,11 @@ async function main() {
     throw new Error(`Failed to publish ${failed.length} package(s)`);
   }
 
-  // Output in changesets format for GitHub Action compatibility
+  // Push all tags to remote (same as changeset publish does)
   if (successful.length > 0 && !dryRun) {
-    const publishedPackages = successful.map((p) => ({
-      name: p.name,
-      version: p.version,
-    }));
-    console.log("\n::set-output name=published::true");
-    console.log(
-      `::set-output name=publishedPackages::${JSON.stringify(publishedPackages)}`,
-    );
+    console.log("\n📤 Pushing git tags...");
+    await $`git push --tags`;
+    console.log("✅ Tags pushed successfully");
   }
 }
 

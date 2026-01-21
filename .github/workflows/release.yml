@@ -78,7 +78,7 @@ jobs:
     outputs:
       published: ${{ steps.changesets.outputs.published }}
       publishedPackages: ${{ steps.changesets.outputs.publishedPackages }}
-      releasePublished: ${{ steps.check-release.outputs.releasePublished }}
+      releasePublished: ${{ steps.changesets.outputs.published }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -98,22 +98,11 @@ jobs:
         uses: changesets/action@v1
         with:
           version: bun run version-packages
-          publish: bun run publish-packages
+          publish: bun run scripts/publish-packages.ts
           createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Bun uses NPM_CONFIG_TOKEN for npm registry authentication
           NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Check if packages were published
-        id: check-release
-        run: |
-          # The changesets action sets 'published' to 'true' when the publish command runs successfully
-          if [ "${{ steps.changesets.outputs.published }}" == "true" ]; then
-            echo "releasePublished=true" >> $GITHUB_OUTPUT
-          else
-            echo "releasePublished=false" >> $GITHUB_OUTPUT
-          fi
 
   docker:
     name: Build and Push Docker Image
