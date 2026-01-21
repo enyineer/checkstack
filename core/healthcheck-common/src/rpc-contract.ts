@@ -363,8 +363,27 @@ export const healthCheckContract = {
         ),
       }),
     ),
-};
 
+  getAvailabilityStats: proc({
+    operationType: "query",
+    userType: "public",
+    access: [healthCheckAccess.status],
+  })
+    .input(
+      z.object({
+        systemId: z.string(),
+        configurationId: z.string(),
+      }),
+    )
+    .output(
+      z.object({
+        availability31Days: z.number().nullable(),
+        availability365Days: z.number().nullable(),
+        totalRuns31Days: z.number(),
+        totalRuns365Days: z.number(),
+      }),
+    ),
+};
 // Export contract type
 export type HealthCheckContract = typeof healthCheckContract;
 

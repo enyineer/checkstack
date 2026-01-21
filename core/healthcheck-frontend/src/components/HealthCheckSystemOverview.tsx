@@ -70,6 +70,30 @@ interface ExpandedRowProps {
   systemId: string;
 }
 
+// Helper to format availability percentage with color
+const formatAvailability = (
+  value: number | null,
+  totalRuns: number,
+): { text: string; className: string } => {
+  if (value === null || totalRuns === 0) {
+    return { text: "N/A", className: "text-muted-foreground" };
+  }
+  const formatted = value.toFixed(2) + "%";
+  if (value >= 99.9) {
+    return {
+      text: formatted,
+      className: "text-green-600 dark:text-green-400",
+    };
+  }
+  if (value >= 99) {
+    return {
+      text: formatted,
+      className: "text-yellow-600 dark:text-yellow-400",
+    };
+  }
+  return { text: formatted, className: "text-red-600 dark:text-red-400" };
+};
+
 const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const navigate = useNavigate();
@@ -191,6 +215,13 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
       : `Window mode (${item.stateThresholds.windowSize} runs): Degraded at ${item.stateThresholds.degraded.minFailureCount}+ failures, Unhealthy at ${item.stateThresholds.unhealthy.minFailureCount}+ failures`
     : "Using default thresholds";
 
+  // Fetch availability stats
+  const { data: availabilityData } =
+    healthCheckClient.getAvailabilityStats.useQuery({
+      systemId,
+      configurationId: item.configurationId,
+    });
+
   // Render charts - charts handle data transformation internally
   const renderCharts = () => {
     if (chartLoading) {
@@ -269,6 +300,59 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
           <Tooltip content={thresholdDescription} />
         </div>
       </div>
+
+      {/* Availability Stats - Prominent Display */}
+      {availabilityData && (
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col gap-1 p-4 rounded-lg border bg-card">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              31-Day Availability
+            </span>
+            <div className="flex items-baseline gap-2">
+              <span
+                className={`text-2xl font-bold ${formatAvailability(availabilityData.availability31Days, availabilityData.totalRuns31Days).className}`}
+              >
+                {
+                  formatAvailability(
+                    availabilityData.availability31Days,
+                    availabilityData.totalRuns31Days,
+                  ).text
+                }
+              </span>
+              {availabilityData.totalRuns31Days > 0 && (
+                <span className="text-sm text-muted-foreground">
+                  ({availabilityData.totalRuns31Days.toLocaleString()} runs)
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1 p-4 rounded-lg border bg-card">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              365-Day Availability
+            </span>
+            <div className="flex items-baseline gap-2">
+              <span
+                className={`text-2xl font-bold ${formatAvailability(availabilityData.availability365Days, availabilityData.totalRuns365Days).className}`}
+              >
+                {
+                  formatAvailability(
+                    availabilityData.availability365Days,
+                    availabilityData.totalRuns365Days,
+                  ).text
+                }
+              </span>
+              {availabilityData.totalRuns365Days > 0 && (
+                <span className="text-sm text-muted-foreground">
+                  ({availabilityData.totalRuns365Days.toLocaleString()} runs)
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Divider */}
+      <div className="h-px bg-border" />
 
       {/* Date Range Filter with Loading Spinner */}
       <div className="flex items-center gap-3 flex-wrap">

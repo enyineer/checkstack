@@ -917,6 +917,120 @@ export class HealthCheckService {
    * Calculate bucket start time for dynamic interval sizing.
    * Aligns buckets to the query start time.
    */
+  /**
+   * Get availability statistics for a health check over 31-day and 365-day periods.
+   * Availability is calculated as (healthyCount / totalRunCount) * 100.
+   */
+  async getAvailabilityStats(props: {
+    systemId: string;
+    configurationId: string;
+  }): Promise<{
+    availability31Days: number | null;
+    availability365Days: number | null;
+    totalRuns31Days: number;
+    totalRuns365Days: number;
+  }> {
+    const { systemId, configurationId } = props;
+    const now = new Date();
+
+    // Calculate cutoff dates
+    const cutoff31Days = new Date(now.getTime() - 31 * 24 * 60 * 60 * 1000);
+    const cutoff365Days = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+
+    // Query daily aggregates for the full 365-day period
+    const dailyAggregates = await this.db
+      .select({
+        bucketStart: healthCheckAggregates.bucketStart,
+        runCount: healthCheckAggregates.runCount,
+        healthyCount: healthCheckAggregates.healthyCount,
+      })
+      .from(healthCheckAggregates)
+      .where(
+        and(
+          eq(healthCheckAggregates.systemId, systemId),
+          eq(healthCheckAggregates.configurationId, configurationId),
+          eq(healthCheckAggregates.bucketSize, "daily"),
+          gte(healthCheckAggregates.bucketStart, cutoff365Days),
+        ),
+      );
+
+    // Also query raw runs for the recent period not yet aggregated (typically last 7 days)
+    const recentRuns = await this.db
+      .select({
+        status: healthCheckRuns.status,
+        timestamp: healthCheckRuns.timestamp,
+      })
+      .from(healthCheckRuns)
+      .where(
+        and(
+          eq(healthCheckRuns.systemId, systemId),
+          eq(healthCheckRuns.configurationId, configurationId),
+          gte(healthCheckRuns.timestamp, cutoff365Days),
+        ),
+      );
+
+    // Separate data by period
+    let totalRuns31Days = 0;
+    let healthyRuns31Days = 0;
+    let totalRuns365Days = 0;
+    let healthyRuns365Days = 0;
+
+    // Process daily aggregates
+    for (const agg of dailyAggregates) {
+      totalRuns365Days += agg.runCount;
+      healthyRuns365Days += agg.healthyCount;
+
+      if (agg.bucketStart >= cutoff31Days) {
+        totalRuns31Days += agg.runCount;
+        healthyRuns31Days += agg.healthyCount;
+      }
+    }
+
+    // Process recent raw runs (to include data not yet aggregated)
+    // Deduplicate by checking if a run's timestamp falls within an already-counted aggregate bucket
+    const aggregateBucketStarts = new Set(
+      dailyAggregates.map((a) => a.bucketStart.getTime()),
+    );
+
+    for (const run of recentRuns) {
+      // Calculate which daily bucket this run would belong to
+      const runBucketStart = new Date(run.timestamp);
+      runBucketStart.setUTCHours(0, 0, 0, 0);
+
+      // Only count if this bucket isn't already in aggregates
+      if (!aggregateBucketStarts.has(runBucketStart.getTime())) {
+        totalRuns365Days += 1;
+        if (run.status === "healthy") {
+          healthyRuns365Days += 1;
+        }
+
+        if (run.timestamp >= cutoff31Days) {
+          totalRuns31Days += 1;
+          if (run.status === "healthy") {
+            healthyRuns31Days += 1;
+          }
+        }
+      }
+    }
+
+    // Calculate availability percentages
+    const availability31Days =
+      // eslint-disable-next-line unicorn/no-null -- RPC contract uses nullable()
+      totalRuns31Days > 0 ? (healthyRuns31Days / totalRuns31Days) * 100 : null;
+    const availability365Days =
+      totalRuns365Days > 0
+        ? (healthyRuns365Days / totalRuns365Days) * 100
+        : // eslint-disable-next-line unicorn/no-null -- RPC contract uses nullable()
+          null;
+
+    return {
+      availability31Days,
+      availability365Days,
+      totalRuns31Days,
+      totalRuns365Days,
+    };
+  }
+
   private getBucketStartDynamic(
     timestamp: Date,
     rangeStart: Date,

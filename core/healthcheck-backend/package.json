@@ -33,6 +33,7 @@
     "@checkstack/tsconfig": "workspace:*",
     "@orpc/server": "^1.13.2",
     "@types/bun": "^1.0.0",
+    "date-fns": "^4.1.0",
     "drizzle-kit": "^0.31.8",
     "typescript": "^5.0.0"
   }
