@@ -33,7 +33,7 @@ import { createScopedDb } from "../utils/scoped-db.js";
 async function schemaExists(pool: Pool, schemaName: string): Promise<boolean> {
   const result = await pool.query(
     "SELECT 1 FROM information_schema.schemata WHERE schema_name = $1",
-    [schemaName]
+    [schemaName],
   );
   return result.rows.length > 0;
 }
@@ -70,19 +70,17 @@ export function registerCoreServices({
 
         if (oldExists && !newExists) {
           rootLogger.info(
-            `🔄 Renaming schema ${oldSchema} → ${assignedSchema} for plugin ${pluginId}`
+            `🔄 Renaming schema ${oldSchema} → ${assignedSchema} for plugin ${pluginId}`,
           );
           await adminPool.query(
-            `ALTER SCHEMA "${oldSchema}" RENAME TO "${assignedSchema}"`
+            `ALTER SCHEMA "${oldSchema}" RENAME TO "${assignedSchema}"`,
           );
           break; // Only one rename needed
         }
       }
     }
 
-    // Ensure Schema Exists (creates if not already renamed/created)
-    await adminPool.query(`CREATE SCHEMA IF NOT EXISTS "${assignedSchema}"`);
-
+    // Schema is created in plugin-loader.ts before migrations run.
     // Create scoped proxy on shared pool (no new connections)
     return createScopedDb(db, assignedSchema);
   });
@@ -121,12 +119,12 @@ export function registerCoreServices({
         try {
           const authStrategy = await registry.get(
             authenticationStrategyServiceRef,
-            metadata
+            metadata,
           );
           if (authStrategy) {
             // AuthenticationStrategy.validate() returns RealUser | undefined
             return await (authStrategy as AuthenticationStrategy).validate(
-              request
+              request,
             );
           }
         } catch {
@@ -165,7 +163,7 @@ export function registerCoreServices({
         } catch (error) {
           // RPC client not available yet (during startup), return empty
           rootLogger.warn(
-            `[auth] getAnonymousAccessRules: RPC failed, returning empty array. Error: ${error}`
+            `[auth] getAnonymousAccessRules: RPC failed, returning empty array. Error: ${error}`,
           );
           return [];
         }
@@ -207,7 +205,7 @@ export function registerCoreServices({
 
     const fetchWithAuth = async (
       input: RequestInfo | URL,
-      init?: RequestInit
+      init?: RequestInit,
     ) => {
       const { headers: authHeaders } = await auth.getCredentials();
       const mergedHeaders = new Headers(init?.headers);
@@ -288,13 +286,13 @@ export function registerCoreServices({
   // 6. Health Check Registry (Scoped Factory - auto-prefixes strategy IDs with pluginId)
   const globalHealthCheckRegistry = new CoreHealthCheckRegistry();
   registry.registerFactory(coreServices.healthCheckRegistry, (metadata) =>
-    createScopedHealthCheckRegistry(globalHealthCheckRegistry, metadata)
+    createScopedHealthCheckRegistry(globalHealthCheckRegistry, metadata),
   );
 
   // 6b. Collector Registry (Scoped Factory - injects ownerPlugin automatically)
   const globalCollectorRegistry = new CoreCollectorRegistry();
   registry.registerFactory(coreServices.collectorRegistry, (metadata) =>
-    createScopedCollectorRegistry(globalCollectorRegistry, metadata)
+    createScopedCollectorRegistry(globalCollectorRegistry, metadata),
   );
 
   // 7. RPC Service (Scoped Factory - uses pluginId for path derivation)
@@ -305,17 +303,17 @@ export function registerCoreServices({
         pluginRpcRouters.set(pluginId, router);
         pluginContractRegistry.set(pluginId, contract);
         rootLogger.debug(
-          `   -> Registered oRPC router and contract for '${pluginId}' at '/api/${pluginId}'`
+          `   -> Registered oRPC router and contract for '${pluginId}' at '/api/${pluginId}'`,
         );
       },
       registerHttpHandler: (
         handler: (req: Request) => Promise<Response>,
-        path = "/"
+        path = "/",
       ): void => {
         const fullPath = `/api/${pluginId}${path === "/" ? "" : path}`;
         pluginHttpHandlers.set(fullPath, handler);
         rootLogger.debug(
-          `   -> Registered HTTP handler for '${pluginId}' at '${fullPath}'`
+          `   -> Registered HTTP handler for '${pluginId}' at '${fullPath}'`,
         );
       },
     } satisfies RpcService;

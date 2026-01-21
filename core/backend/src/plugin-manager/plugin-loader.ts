@@ -346,11 +346,19 @@ export async function loadPlugins({
             `   -> Running migrations for ${p.metadata.pluginId} from ${migrationsFolder}`,
           );
 
+          // Create schema if it doesn't exist BEFORE running migrations.
+          // Without this, SET search_path to a non-existent schema causes
+          // PostgreSQL to fall back to 'public', creating tables in the wrong schema.
+          await deps.db.execute(
+            sql.raw(`CREATE SCHEMA IF NOT EXISTS "${migrationsSchema}"`),
+          );
+
           // Set search_path to plugin schema before running migrations.
           // Uses session-level SET (not SET LOCAL) because migrate() may run
           // multiple statements across transaction boundaries.
+          // No 'public' fallback: schema is guaranteed to exist from CREATE above.
           await deps.db.execute(
-            sql.raw(`SET search_path = "${migrationsSchema}", public`),
+            sql.raw(`SET search_path = "${migrationsSchema}"`),
           );
           // Drizzle migrate() requires NodePgDatabase, cast from SafeDatabase
           await migrate(deps.db as NodePgDatabase<Record<string, unknown>>, {
