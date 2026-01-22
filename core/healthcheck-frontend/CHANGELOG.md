@@ -1,5 +1,39 @@
 # @checkstack/healthcheck-frontend
 
+## 0.9.0
+
+### Minor Changes
+
+- 1b9cb25: Unified chart data to always use aggregated history with fixed target points.
+
+  **Breaking Changes:**
+
+  - Removed `RawDiagramContext` type - chart context no longer has a `type` discriminator
+  - Removed `TypedHealthCheckRun` type export - charts only use aggregated buckets now
+  - Removed `createStrategyDiagramExtension` deprecated function
+  - Removed `isAggregated` and `retentionConfig` from `useHealthCheckData` return value
+
+  **Migration:**
+
+  - Strategy diagram extensions should use `createDiagramExtensionFactory` instead of `createStrategyDiagramExtension`
+  - Extensions no longer need separate `rawComponent` and `aggregatedComponent` - use a single `component` prop
+  - `HealthCheckDiagramSlotContext` now always contains `buckets` array (no `type` field)
+
+  **Benefits:**
+
+  - Simplified frontend logic - no more mode switching based on retention config
+  - Consistent chart visualization regardless of selected time range
+  - Backend's cross-tier aggregation engine automatically selects optimal data source
+
+  **Other Changes:**
+
+  - Added warning message when configuring sub-minute check intervals, alerting users about potential performance implications
+
+### Patch Changes
+
+- f1ebac2: - Fixed raw data visualization being cut off when viewing "Last 24 hours" timeframe. The `useHealthCheckData` hook was incorrectly applying pagination limits to chart data queries, causing only the oldest runs to be displayed when there were more runs than the limit. Charts now fetch all runs within the selected date range.
+  - Updated Status Timeline visualization for raw data to show stacked status distribution (green/yellow/red proportions) instead of the previous "worst status wins" approach. This makes the raw data view consistent with the aggregated data view.
+
 ## 0.8.2
 
 ### Patch Changes
