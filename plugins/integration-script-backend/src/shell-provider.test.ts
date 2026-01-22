@@ -7,7 +7,7 @@ import {
 import type { IntegrationDeliveryContext } from "@checkstack/integration-backend";
 
 /**
- * Unit tests for the Bash Integration Provider.
+ * Unit tests for the Shell Integration Provider.
  *
  * Tests cover:
  * - Config schema validation
@@ -73,7 +73,7 @@ describe("ShellProvider", () => {
   describe("metadata", () => {
     it("has correct basic metadata", () => {
       expect(shellProvider.id).toBe("shell");
-      expect(shellProvider.displayName).toBe("Bash Script");
+      expect(shellProvider.displayName).toBe("Shell Script");
       expect(shellProvider.description).toContain("shell");
       expect(shellProvider.icon).toBe("Terminal");
     });
