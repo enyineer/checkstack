@@ -19,3 +19,6 @@ Unified chart data to always use aggregated history with fixed target points.
 - Simplified frontend logic - no more mode switching based on retention config
 - Consistent chart visualization regardless of selected time range
 - Backend's cross-tier aggregation engine automatically selects optimal data source
+
+**Other Changes:**
+- Added warning message when configuring sub-minute check intervals, alerting users about potential performance implications

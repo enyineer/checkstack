@@ -27,10 +27,7 @@ import {
   RadialBar,
 } from "recharts";
 import { format } from "date-fns";
-import {
-  downsampleSparkline,
-  MAX_SPARKLINE_BARS,
-} from "../utils/sparkline-downsampling";
+import { MAX_SPARKLINE_BARS } from "../utils/sparkline-downsampling";
 
 interface AutoChartGridProps {
   context: HealthCheckDiagramSlotContext;
@@ -219,11 +216,23 @@ function getAllAssertionResults(
     const bucketStart = new Date(bucket.bucketStart);
     const bucketEnd = new Date(bucket.bucketEnd);
     const timeSpan = `${format(bucketStart, "MMM d, HH:mm")} - ${format(bucketEnd, "HH:mm")}`;
+
+    // Build detailed error message showing breakdown by type
+    let errorMessage: string | undefined;
+    if (!passed) {
+      const parts: string[] = [];
+      if (bucket.unhealthyCount > 0) {
+        parts.push(`${bucket.unhealthyCount} unhealthy`);
+      }
+      if (bucket.degradedCount > 0) {
+        parts.push(`${bucket.degradedCount} degraded`);
+      }
+      errorMessage = `${parts.join(", ")} of ${bucket.runCount} runs`;
+    }
+
     return {
       passed,
-      errorMessage: passed
-        ? undefined
-        : `${failedCount} failed of ${bucket.runCount}`,
+      errorMessage,
       timeLabel: timeSpan,
     };
   });
@@ -300,32 +309,23 @@ function AssertionStatusCard({
           </div>
         )}
 
-        {/* Sparkline timeline - always show for historical context */}
-        {(() => {
-          const buckets = downsampleSparkline(results);
-          return (
-            <div className="flex h-2 gap-px rounded">
-              {buckets.map((bucket, index) => {
-                const passedCount = bucket.items.filter((r) => r.passed).length;
-                const failedCount = bucket.items.length - passedCount;
-                const tooltip = bucket.timeLabel
-                  ? bucket.items.length > 1
-                    ? `${bucket.timeLabel}\n${passedCount} passed, ${failedCount} failed`
-                    : `${bucket.timeLabel}\n${bucket.passed ? "Passed" : "Failed"}`
-                  : bucket.passed
-                    ? "Passed"
-                    : "Failed";
-                return (
-                  <SparklineTooltip key={index} content={tooltip}>
-                    <div
-                      className={`flex-1 h-full ${bucket.passed ? "bg-green-500" : "bg-red-500"} hover:opacity-80`}
-                    />
-                  </SparklineTooltip>
-                );
-              })}
-            </div>
-          );
-        })()}
+        {/* Sparkline timeline - render each bucket as a bar */}
+        <div className="flex h-2 gap-px rounded">
+          {results.map((result, index) => {
+            const tooltip = result.timeLabel
+              ? `${result.timeLabel}\n${result.passed ? "Passed" : result.errorMessage || "Failed"}`
+              : result.passed
+                ? "Passed"
+                : "Failed";
+            return (
+              <SparklineTooltip key={index} content={tooltip}>
+                <div
+                  className={`flex-1 h-full ${result.passed ? "bg-green-500" : "bg-red-500"} hover:opacity-80`}
+                />
+              </SparklineTooltip>
+            );
+          })}
+        </div>
       </CardContent>
     </Card>
   );
@@ -584,32 +584,23 @@ function BooleanRenderer({ field, context }: ChartRendererProps) {
         )}
       </div>
 
-      {/* Sparkline timeline - always show for historical context */}
-      {(() => {
-        const buckets = downsampleSparkline(valuesWithTime);
-        return (
-          <div className="flex h-2 gap-px rounded">
-            {buckets.map((bucket, index) => {
-              const yesCount = bucket.items.filter((r) => r.value).length;
-              const noCount = bucket.items.length - yesCount;
-              const tooltip = bucket.timeLabel
-                ? bucket.items.length > 1
-                  ? `${bucket.timeLabel}\n${yesCount} yes, ${noCount} no`
-                  : `${bucket.timeLabel}\n${bucket.passed ? "Yes" : "No"}`
-                : bucket.passed
-                  ? "Yes"
-                  : "No";
-              return (
-                <SparklineTooltip key={index} content={tooltip}>
-                  <div
-                    className={`flex-1 h-full ${bucket.passed ? "bg-green-500" : "bg-red-500"} hover:opacity-80`}
-                  />
-                </SparklineTooltip>
-              );
-            })}
-          </div>
-        );
-      })()}
+      {/* Sparkline timeline - render each value as a bar */}
+      <div className="flex h-2 gap-px rounded">
+        {valuesWithTime.map((item, index) => {
+          const tooltip = item.timeLabel
+            ? `${item.timeLabel}\n${item.value ? "Yes" : "No"}`
+            : item.value
+              ? "Yes"
+              : "No";
+          return (
+            <SparklineTooltip key={index} content={tooltip}>
+              <div
+                className={`flex-1 h-full ${item.value ? "bg-green-500" : "bg-red-500"} hover:opacity-80`}
+              />
+            </SparklineTooltip>
+          );
+        })}
+      </div>
     </div>
   );
 }

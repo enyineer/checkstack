@@ -132,6 +132,14 @@ export const HealthCheckEditor: React.FC<HealthCheckEditorProps> = ({
                 onChange={(e) => setInterval(e.target.value)}
                 required
               />
+              {Number.parseInt(interval, 10) < 60 && (
+                <p className="text-sm text-amber-600 dark:text-amber-400">
+                  ⚠️ Sub-minute intervals generate large amounts of data and may
+                  impact chart loading performance. Consider using intervals of
+                  60 seconds or more or drastically reduce the retention period
+                  for raw data.
+                </p>
+              )}
             </div>
 
             <PluginConfigForm
