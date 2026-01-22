@@ -1,5 +1,15 @@
 # @checkstack/signal-backend
 
+## 0.1.9
+
+### Patch Changes
+
+- Updated dependencies [f676e11]
+- Updated dependencies [48c2080]
+  - @checkstack/common@0.6.2
+  - @checkstack/backend-api@0.6.0
+  - @checkstack/signal-common@0.1.6
+
 ## 0.1.8
 
 ### Patch Changes

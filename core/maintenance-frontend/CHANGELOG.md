@@ -1,5 +1,19 @@
 # @checkstack/maintenance-frontend
 
+## 0.4.9
+
+### Patch Changes
+
+- Updated dependencies [f676e11]
+  - @checkstack/ui@1.0.0
+  - @checkstack/common@0.6.2
+  - @checkstack/auth-frontend@0.5.9
+  - @checkstack/dashboard-frontend@0.3.15
+  - @checkstack/catalog-common@1.2.7
+  - @checkstack/frontend-api@0.3.5
+  - @checkstack/maintenance-common@0.4.5
+  - @checkstack/signal-frontend@0.0.12
+
 ## 0.4.8
 
 ### Patch Changes

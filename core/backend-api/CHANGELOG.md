@@ -1,5 +1,36 @@
 # @checkstack/backend-api
 
+## 0.6.0
+
+### Minor Changes
+
+- 48c2080: Migrate aggregation from batch to incremental (`mergeResult`)
+
+  ### Breaking Changes (Internal)
+
+  - Replaced `aggregateResult(runs[])` with `mergeResult(existing, run)` interface across all HealthCheckStrategy and CollectorStrategy implementations
+
+  ### New Features
+
+  - Added incremental aggregation utilities in `@checkstack/backend-api`:
+    - `mergeCounter()` - track occurrences
+    - `mergeAverage()` - track sum/count, compute avg
+    - `mergeRate()` - track success/total, compute %
+    - `mergeMinMax()` - track min/max values
+  - Exported Zod schemas for internal state: `averageStateSchema`, `rateStateSchema`, `minMaxStateSchema`, `counterStateSchema`
+
+  ### Improvements
+
+  - Enables O(1) storage overhead by maintaining incremental aggregation state
+  - Prepares for real-time hourly aggregation without batch accumulation
+
+### Patch Changes
+
+- Updated dependencies [f676e11]
+  - @checkstack/common@0.6.2
+  - @checkstack/signal-common@0.1.6
+  - @checkstack/queue-api@0.2.3
+
 ## 0.5.2
 
 ### Patch Changes

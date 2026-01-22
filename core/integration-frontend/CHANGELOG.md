@@ -1,5 +1,20 @@
 # @checkstack/integration-frontend
 
+## 0.2.12
+
+### Patch Changes
+
+- f676e11: Improve subscription creation UX by requiring event selection before showing provider configuration
+
+  The provider configuration section now waits for an event to be selected before rendering, preventing template validation errors when no payload properties are available yet.
+
+- Updated dependencies [f676e11]
+  - @checkstack/ui@1.0.0
+  - @checkstack/common@0.6.2
+  - @checkstack/frontend-api@0.3.5
+  - @checkstack/integration-common@0.2.5
+  - @checkstack/signal-frontend@0.0.12
+
 ## 0.2.11
 
 ### Patch Changes

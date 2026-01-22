@@ -1,5 +1,35 @@
 # @checkstack/healthcheck-jenkins-backend
 
+## 0.2.13
+
+### Patch Changes
+
+- 48c2080: Migrate aggregation from batch to incremental (`mergeResult`)
+
+  ### Breaking Changes (Internal)
+
+  - Replaced `aggregateResult(runs[])` with `mergeResult(existing, run)` interface across all HealthCheckStrategy and CollectorStrategy implementations
+
+  ### New Features
+
+  - Added incremental aggregation utilities in `@checkstack/backend-api`:
+    - `mergeCounter()` - track occurrences
+    - `mergeAverage()` - track sum/count, compute avg
+    - `mergeRate()` - track success/total, compute %
+    - `mergeMinMax()` - track min/max values
+  - Exported Zod schemas for internal state: `averageStateSchema`, `rateStateSchema`, `minMaxStateSchema`, `counterStateSchema`
+
+  ### Improvements
+
+  - Enables O(1) storage overhead by maintaining incremental aggregation state
+  - Prepares for real-time hourly aggregation without batch accumulation
+
+- Updated dependencies [f676e11]
+- Updated dependencies [48c2080]
+  - @checkstack/common@0.6.2
+  - @checkstack/backend-api@0.6.0
+  - @checkstack/healthcheck-common@0.8.2
+
 ## 0.2.12
 
 ### Patch Changes

@@ -1,5 +1,60 @@
 # @checkstack/healthcheck-script-backend
 
+## 0.2.0
+
+### Minor Changes
+
+- f676e11: Add script execution support and migrate CodeEditor to Monaco
+
+  **Integration providers** (`@checkstack/integration-script-backend`):
+
+  - **Script** - Execute TypeScript/JavaScript with context object
+  - **Bash** - Execute shell scripts with environment variables ($EVENT*ID, $PAYLOAD*\*)
+
+  **Health check collectors** (`@checkstack/healthcheck-script-backend`):
+
+  - **InlineScriptCollector** - Run TypeScript directly for health checks
+  - **ExecuteCollector** - Bash syntax highlighting for command field
+
+  **CodeEditor migration to Monaco** (`@checkstack/ui`):
+
+  - Replaced CodeMirror with Monaco Editor (VS Code's editor)
+  - Full TypeScript/JavaScript IntelliSense with custom type definitions
+  - Added `generateTypeDefinitions()` for JSON Schema → TypeScript conversion
+  - Removed all CodeMirror dependencies
+
+  **Type updates** (`@checkstack/common`):
+
+  - Added `javascript`, `typescript`, and `bash` to `EditorType` union
+
+### Patch Changes
+
+- 48c2080: Migrate aggregation from batch to incremental (`mergeResult`)
+
+  ### Breaking Changes (Internal)
+
+  - Replaced `aggregateResult(runs[])` with `mergeResult(existing, run)` interface across all HealthCheckStrategy and CollectorStrategy implementations
+
+  ### New Features
+
+  - Added incremental aggregation utilities in `@checkstack/backend-api`:
+    - `mergeCounter()` - track occurrences
+    - `mergeAverage()` - track sum/count, compute avg
+    - `mergeRate()` - track success/total, compute %
+    - `mergeMinMax()` - track min/max values
+  - Exported Zod schemas for internal state: `averageStateSchema`, `rateStateSchema`, `minMaxStateSchema`, `counterStateSchema`
+
+  ### Improvements
+
+  - Enables O(1) storage overhead by maintaining incremental aggregation state
+  - Prepares for real-time hourly aggregation without batch accumulation
+
+- Updated dependencies [f676e11]
+- Updated dependencies [48c2080]
+  - @checkstack/common@0.6.2
+  - @checkstack/backend-api@0.6.0
+  - @checkstack/healthcheck-common@0.8.2
+
 ## 0.1.13
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/catalog-backend",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {

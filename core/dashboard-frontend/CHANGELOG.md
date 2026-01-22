@@ -1,5 +1,25 @@
 # @checkstack/dashboard-frontend
 
+## 0.3.15
+
+### Patch Changes
+
+- Updated dependencies [f676e11]
+  - @checkstack/ui@1.0.0
+  - @checkstack/common@0.6.2
+  - @checkstack/auth-frontend@0.5.9
+  - @checkstack/catalog-frontend@0.4.1
+  - @checkstack/command-frontend@0.2.12
+  - @checkstack/queue-frontend@0.2.12
+  - @checkstack/catalog-common@1.2.7
+  - @checkstack/command-common@0.2.5
+  - @checkstack/frontend-api@0.3.5
+  - @checkstack/healthcheck-common@0.8.2
+  - @checkstack/incident-common@0.4.3
+  - @checkstack/maintenance-common@0.4.5
+  - @checkstack/notification-common@0.2.5
+  - @checkstack/signal-frontend@0.0.12
+
 ## 0.3.14
 
 ### Patch Changes

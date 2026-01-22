@@ -1,5 +1,13 @@
 # @checkstack/release
 
+## 0.29.0
+
+### Minor Changes
+
+- f676e11: Improve subscription creation UX by requiring event selection before showing provider configuration
+
+  The provider configuration section now waits for an event to be selected before rendering, preventing template validation errors when no payload properties are available yet.
+
 ## 0.28.0
 
 ### Minor Changes
