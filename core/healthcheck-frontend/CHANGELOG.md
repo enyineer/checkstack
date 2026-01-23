@@ -1,5 +1,58 @@
 # @checkstack/healthcheck-frontend
 
+## 0.11.0
+
+### Minor Changes
+
+- 84dd430: ## Single Run Auto-Charts
+
+  Added `SingleRunChartGrid` component to display auto-generated charts for individual health check runs when viewing run history details.
+
+  ### Features
+
+  - Renders charts based on the strategy's `resultSchema` metadata (same as aggregated charts)
+  - Supports all chart types: gauge, counter, boolean, text, status
+  - Groups fields by collector instance with assertion status display
+  - Updated `useStrategySchemas` hook to also return `resultSchema` for single-run visualization
+
+  ### Changes
+
+  - Simplified `ExpandedResultView` to show only basic run metadata (status, latency, connection)
+  - Collector results and detailed data now displayed via `SingleRunChartGrid`
+
+### Patch Changes
+
+- c842373: ## Animated Numbers & Availability Stats Live Updates
+
+  ### Features
+
+  - **AnimatedNumber component** (`@checkstack/ui`): New reusable component that displays numbers with a smooth "rolling" animation when values change. Uses `requestAnimationFrame` with eased interpolation for a polished effect.
+  - **useAnimatedNumber hook** (`@checkstack/ui`): Underlying hook for the animation logic, can be used directly for custom implementations.
+  - **Live availability updates**: Availability stats (31-day and 365-day) now automatically refresh when new health check runs are received via signals.
+
+  ### Usage
+
+  ```tsx
+  import { AnimatedNumber } from "@checkstack/ui";
+
+  <AnimatedNumber
+    value={99.95}
+    suffix="%"
+    decimals={2}
+    duration={500}
+    className="text-2xl font-bold text-green-500"
+  />;
+  ```
+
+- c842373: ## Fix Counter Chart Multiplier Display
+
+  Hide redundant "(1×)" multiplier suffix for single-value counters in auto-charts. For aggregated counter values like "Errors", the displayed value itself represents the count, so showing "(1×)" adds no information and is confusing.
+
+- Updated dependencies [c842373]
+  - @checkstack/ui@1.1.0
+  - @checkstack/auth-frontend@0.5.10
+  - @checkstack/dashboard-frontend@0.3.16
+
 ## 0.10.0
 
 ### Minor Changes

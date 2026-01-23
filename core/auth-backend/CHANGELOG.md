@@ -1,5 +1,13 @@
 # @checkstack/auth-backend
 
+## 0.4.8
+
+### Patch Changes
+
+- Updated dependencies [869b4ab]
+  - @checkstack/backend-api@0.8.0
+  - @checkstack/command-backend@0.1.11
+
 ## 0.4.7
 
 ### Patch Changes

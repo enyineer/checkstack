@@ -1,5 +1,13 @@
 # @checkstack/notification-backstage-backend
 
+## 0.1.13
+
+### Patch Changes
+
+- Updated dependencies [869b4ab]
+  - @checkstack/backend-api@0.8.0
+  - @checkstack/notification-backend@0.1.12
+
 ## 0.1.12
 
 ### Patch Changes

@@ -1,5 +1,31 @@
 # @checkstack/backend
 
+## 0.4.13
+
+### Patch Changes
+
+- 869b4ab: ## Health Check Execution Improvements
+
+  ### Breaking Changes (backend-api)
+
+  - `HealthCheckStrategy.createClient()` now accepts `unknown` instead of `TConfig` due to TypeScript contravariance constraints. Implementations should use `this.config.validate(config)` to narrow the type.
+
+  ### Features
+
+  - **Platform-level hard timeout**: The executor now wraps the entire health check execution (connection + all collectors) in a single timeout, ensuring checks never hang indefinitely.
+  - **Parallel collector execution**: Collectors now run in parallel using `Promise.allSettled()`, improving performance while ensuring all collectors complete regardless of individual failures.
+  - **Base strategy config schema**: All strategy configs now extend `baseStrategyConfigSchema` which provides a standardized `timeout` field with sensible defaults (30s, min 100ms).
+
+  ### Fixes
+
+  - Fixed HTTP and Jenkins strategies clearing timeouts before reading the full response body.
+  - Simplified registry type signatures by using default type parameters.
+
+- Updated dependencies [869b4ab]
+  - @checkstack/backend-api@0.8.0
+  - @checkstack/queue-api@0.2.5
+  - @checkstack/signal-backend@0.1.11
+
 ## 0.4.12
 
 ### Patch Changes
