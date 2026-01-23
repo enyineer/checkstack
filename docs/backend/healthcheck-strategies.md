@@ -18,14 +18,51 @@ Strategies focus on **how to connect**; collectors define **what to collect**.
 ## The CreateClient Pattern
 
 Strategies implement the `createClient()` method which:
-1. Validates configuration
+1. Validates and narrows the configuration using `this.config.validate()`
 2. Establishes a connection to the target service
 3. Returns a `ConnectedClient<TClient>` with a close method
 
 The platform executor handles:
 - Calling `createClient()` and measuring connection latency
-- Passing the transport client to registered collectors
+- Passing the transport client to registered collectors (in parallel)
 - Ensuring `close()` is called in a `finally` block
+- Enforcing a hard timeout around the entire execution
+
+### Why `createClient` Receives `unknown`
+
+The `createClient` method signature uses `unknown` instead of `TConfig` due to **TypeScript's contravariance rules** for function parameters. When strategies are stored in a heterogeneous registry, TypeScript cannot guarantee the caller will pass the correct specialized config type.
+
+> [!NOTE]
+> This is a compile-time constraint only. At runtime, the config was already validated when stored in the database, so it will always match the strategy's expected schema.
+
+**How to implement it:**
+
+```typescript
+// In your strategy class:
+async createClient(config: unknown): Promise<ConnectedClient<MyTransportClient>> {
+  // Use this.config.validate() to narrow the type
+  const validatedConfig = this.config.validate(config);
+  // validatedConfig is now fully typed as your TConfig type
+  
+  const connection = await this.connect(validatedConfig);
+  return {
+    client: { exec: (cmd) => connection.execute(cmd) },
+    close: () => connection.end(),
+  };
+}
+```
+
+You can also use your config input type directly in the method signature since TypeScript uses bivariant checking for methods:
+
+```typescript
+// This also works - TypeScript allows it due to method bivariance
+async createClient(config: MyConfigInput): Promise<ConnectedClient<MyTransportClient>> {
+  const validatedConfig = this.config.validate(config);
+  // ...
+}
+```
+
+### Interface Definition
 
 ```typescript
 export interface HealthCheckStrategy<
@@ -47,14 +84,17 @@ export interface HealthCheckStrategy<
   /** Aggregated result schema for bucket storage */
   aggregatedResult: Versioned<TAggregatedResult>;
 
-  /** Create a connected transport client */
-  createClient(config: TConfig): Promise<ConnectedClient<TClient>>;
+  /** 
+   * Create a connected transport client.
+   * Use this.config.validate(config) to narrow the type.
+   */
+  createClient(config: unknown): Promise<ConnectedClient<TClient>>;
 
   /** Incrementally merge a new run into the aggregated result */
   mergeResult(
-    existing: TAggregatedResult | undefined,
+    existing: Record<string, unknown> | undefined,
     run: HealthCheckRunForAggregation<TResult>
-  ): TAggregatedResult;
+  ): Record<string, unknown>;
 }
 ```
 
@@ -80,12 +120,12 @@ interface TransportClient<TCommand, TResult> {
 
 ## Configuration Schema
 
-Define connection parameters in the config schema. Use `configString` and `configNumber` from `@checkstack/backend-api` for special field types:
+Define connection parameters by extending `baseStrategyConfigSchema`. This provides the required `timeout` field with a sensible default (30 seconds). Use `configString` and `configNumber` from `@checkstack/backend-api` for special field types:
 
 ```typescript
-import { z, configString, configNumber } from "@checkstack/backend-api";
+import { baseStrategyConfigSchema, configString, configNumber } from "@checkstack/backend-api";
 
-export const sshConfigSchema = z.object({
+export const sshConfigSchema = baseStrategyConfigSchema.extend({
   host: z.string().describe("SSH server hostname"),
   port: z.number().int().min(1).max(65535).default(22).describe("SSH port"),
   username: z.string().describe("SSH username"),
@@ -95,12 +135,12 @@ export const sshConfigSchema = z.object({
   privateKey: configString({ "x-secret": true })
     .describe("Private key for authentication")
     .optional(),
-  timeout: configNumber({})
-    .min(100)
-    .default(10_000)
-    .describe("Connection timeout in milliseconds"),
+  // timeout is inherited from baseStrategyConfigSchema (default: 30s)
 });
 ```
+
+> [!NOTE]
+> The `timeout` field is inherited from `baseStrategyConfigSchema` with a default of 30 seconds and a minimum of 100ms. You don't need to define it in your schema.
 
 ### Secret Fields
 
@@ -203,14 +243,14 @@ import {
   healthResultSchema,
 } from "@checkstack/healthcheck-common";
 
-// Configuration schema
-export const sshConfigSchema = z.object({
+// Configuration schema - extend baseStrategyConfigSchema for timeout
+export const sshConfigSchema = baseStrategyConfigSchema.extend({
   host: z.string().describe("SSH server hostname"),
   port: z.number().int().min(1).max(65535).default(22),
   username: z.string().describe("SSH username"),
   password: configString({ "x-secret": true }).optional(),
   privateKey: configString({ "x-secret": true }).optional(),
-  timeout: configNumber({}).min(100).default(10_000),
+  // timeout inherited from baseStrategyConfigSchema (30s default)
 });
 
 type SshConfig = z.infer<typeof sshConfigSchema>;
@@ -281,8 +321,11 @@ export class SshHealthCheckStrategy
 
   /**
    * Create a connected SSH transport client.
+   * The config parameter is 'unknown' at the interface level due to type erasure.
+   * Use this.config.validate() to narrow it to your specific config type.
    */
-  async createClient(config: SshConfig): Promise<ConnectedClient<SshTransportClient>> {
+  async createClient(config: unknown): Promise<ConnectedClient<SshTransportClient>> {
+    // Validate and narrow the config type
     const validatedConfig = this.config.validate(config);
 
     // Connect to SSH server

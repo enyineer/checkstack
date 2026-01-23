@@ -18,6 +18,7 @@ import {
   configBoolean,
   type ConnectedClient,
   type InferAggregatedResult,
+  baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -38,7 +39,7 @@ import type {
 /**
  * Configuration schema for PostgreSQL health checks.
  */
-export const postgresConfigSchema = z.object({
+export const postgresConfigSchema = baseStrategyConfigSchema.extend({
   host: configString({}).describe("PostgreSQL server hostname"),
   port: configNumber({})
     .int()
@@ -50,10 +51,6 @@ export const postgresConfigSchema = z.object({
   user: configString({}).describe("Database user"),
   password: configString({ "x-secret": true }).describe("Database password"),
   ssl: configBoolean({}).default(false).describe("Use SSL connection"),
-  timeout: configNumber({})
-    .min(100)
-    .default(10_000)
-    .describe("Connection timeout in milliseconds"),
 });
 
 export type PostgresConfig = z.infer<typeof postgresConfigSchema>;

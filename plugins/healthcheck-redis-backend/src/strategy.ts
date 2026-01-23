@@ -18,6 +18,7 @@ import {
   configBoolean,
   type ConnectedClient,
   type InferAggregatedResult,
+  baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -38,7 +39,7 @@ import type {
 /**
  * Configuration schema for Redis health checks.
  */
-export const redisConfigSchema = z.object({
+export const redisConfigSchema = baseStrategyConfigSchema.extend({
   host: configString({}).describe("Redis server hostname"),
   port: configNumber({})
     .int()
@@ -55,10 +56,6 @@ export const redisConfigSchema = z.object({
     .default(0)
     .describe("Redis database number"),
   tls: configBoolean({}).default(false).describe("Use TLS connection"),
-  timeout: configNumber({})
-    .min(100)
-    .default(5000)
-    .describe("Connection timeout in milliseconds"),
 });
 
 export type RedisConfig = z.infer<typeof redisConfigSchema>;

@@ -27,15 +27,6 @@ describe("RconHealthCheckStrategy", () => {
       expect(validated.port).toBe(25_575);
     });
 
-    it("should use default timeout 10000ms", () => {
-      const strategy = new RconHealthCheckStrategy();
-      const validated = strategy.config.validate({
-        host: "localhost",
-        password: "test",
-      });
-      expect(validated.timeout).toBe(10_000);
-    });
-
     it("should accept custom port", () => {
       const strategy = new RconHealthCheckStrategy();
       const validated = strategy.config.validate({

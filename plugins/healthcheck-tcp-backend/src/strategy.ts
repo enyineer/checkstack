@@ -12,6 +12,7 @@ import {
   z,
   type ConnectedClient,
   type InferAggregatedResult,
+  baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -33,14 +34,9 @@ import type {
  * Configuration schema for TCP health checks.
  * Connection-only parameters - action params moved to BannerCollector.
  */
-export const tcpConfigSchema = z.object({
+export const tcpConfigSchema = baseStrategyConfigSchema.extend({
   host: z.string().describe("Hostname or IP address"),
   port: z.number().int().min(1).max(65_535).describe("TCP port number"),
-  timeout: z
-    .number()
-    .min(100)
-    .default(5000)
-    .describe("Connection timeout in milliseconds"),
 });
 
 export type TcpConfig = z.infer<typeof tcpConfigSchema>;

@@ -28,7 +28,7 @@ const createMockRegistry = (): HealthCheckRegistry => ({
     description: "Mock",
     config: new Versioned({
       version: 1,
-      schema: z.object({}),
+      schema: z.object({ timeout: z.number().default(30_000) }),
     }),
     result: new Versioned({
       version: 1,

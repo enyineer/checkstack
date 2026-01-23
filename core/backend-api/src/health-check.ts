@@ -4,6 +4,7 @@ import type {
   VersionedAggregated,
   AggregatedResultShape,
 } from "./aggregated-result";
+import type { BaseStrategyConfig } from "./base-strategy-config";
 
 /**
  * Health check result with typed metadata.
@@ -31,7 +32,7 @@ export interface HealthCheckRunForAggregation<
  * Connected transport client with cleanup capability.
  */
 export interface ConnectedClient<
-  TClient extends TransportClient<unknown, unknown>,
+  TClient extends TransportClient<never, unknown>,
 > {
   /** The connected transport client */
   client: TClient;
@@ -46,18 +47,18 @@ export interface ConnectedClient<
  * and returns a transport client. The platform executor handles running
  * collectors and basic health check logic (connectivity test, latency measurement).
  *
- * @template TConfig - Configuration type for this strategy
+ * @template TConfig - Configuration type for this strategy (must include timeout)
  * @template TClient - Transport client type (e.g., SshTransportClient)
  * @template TResult - Per-run result type (for aggregation)
  * @template TAggregatedFields - Aggregated field definitions for VersionedAggregated
  */
 export interface HealthCheckStrategy<
-  TConfig = unknown,
-  TClient extends TransportClient<unknown, unknown> = TransportClient<
-    unknown,
+  TConfig extends BaseStrategyConfig = BaseStrategyConfig,
+  TClient extends TransportClient<never, unknown> = TransportClient<
+    never,
     unknown
   >,
-  TResult = Record<string, unknown>,
+  TResult = unknown,
   TAggregatedFields extends AggregatedResultShape = AggregatedResultShape,
 > {
   id: string;
@@ -77,11 +78,11 @@ export interface HealthCheckStrategy<
    * Create a connected transport client from the configuration.
    * The platform will use this client to execute collectors.
    *
-   * @param config - Validated strategy configuration
+   * @param config - Strategy configuration (use config.validate() to narrow type)
    * @returns Connected client wrapper with close() method
    * @throws Error if connection fails (will be caught by executor)
    */
-  createClient(config: TConfig): Promise<ConnectedClient<TClient>>;
+  createClient(config: unknown): Promise<ConnectedClient<TClient>>;
 
   /**
    * Incrementally merge new run data into an existing aggregate.
@@ -103,41 +104,15 @@ export interface HealthCheckStrategy<
  * A registered strategy with its owning plugin metadata and qualified ID.
  */
 export interface RegisteredStrategy {
-  strategy: HealthCheckStrategy<
-    unknown,
-    TransportClient<unknown, unknown>,
-    unknown,
-    AggregatedResultShape
-  >;
+  strategy: HealthCheckStrategy;
   ownerPluginId: string;
   qualifiedId: string;
 }
 
 export interface HealthCheckRegistry {
-  register(
-    strategy: HealthCheckStrategy<
-      unknown,
-      TransportClient<unknown, unknown>,
-      unknown,
-      AggregatedResultShape
-    >,
-  ): void;
-  getStrategy(
-    id: string,
-  ):
-    | HealthCheckStrategy<
-        unknown,
-        TransportClient<unknown, unknown>,
-        unknown,
-        AggregatedResultShape
-      >
-    | undefined;
-  getStrategies(): HealthCheckStrategy<
-    unknown,
-    TransportClient<unknown, unknown>,
-    unknown,
-    AggregatedResultShape
-  >[];
+  register<S extends HealthCheckStrategy>(strategy: S): void;
+  getStrategy(id: string): HealthCheckStrategy | undefined;
+  getStrategies(): HealthCheckStrategy[];
   /**
    * Get all registered strategies with their metadata (qualified ID, owner plugin).
    */

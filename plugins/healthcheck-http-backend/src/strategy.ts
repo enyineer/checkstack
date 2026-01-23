@@ -8,6 +8,7 @@ import {
   z,
   type InferAggregatedResult,
   type ConnectedClient,
+  baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
 import {
   healthResultString,
@@ -27,14 +28,7 @@ import type {
  * HTTP health check configuration schema.
  * Global defaults only - action params moved to RequestCollector.
  */
-export const httpHealthCheckConfigSchema = z.object({
-  timeout: z
-    .number()
-    .int()
-    .min(100)
-    .default(30_000)
-    .describe("Default request timeout in milliseconds"),
-});
+export const httpHealthCheckConfigSchema = baseStrategyConfigSchema.extend({});
 
 export type HttpHealthCheckConfig = z.infer<typeof httpHealthCheckConfigSchema>;
 
@@ -154,9 +148,10 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
             signal: controller.signal,
           });
 
-          clearTimeout(timeoutId);
-
+          // Read body BEFORE clearing timeout - body streaming can also hang
           const body = await response.text();
+
+          clearTimeout(timeoutId);
           const headers: Record<string, string> = {};
 
           // eslint-disable-next-line unicorn/no-array-for-each

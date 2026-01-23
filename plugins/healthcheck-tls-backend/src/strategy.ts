@@ -13,6 +13,7 @@ import {
   z,
   type ConnectedClient,
   type InferAggregatedResult,
+  baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -33,18 +34,13 @@ import type {
 /**
  * Configuration schema for TLS health checks.
  */
-export const tlsConfigSchema = z.object({
+export const tlsConfigSchema = baseStrategyConfigSchema.extend({
   host: z.string().describe("Hostname to connect to"),
   port: z.number().int().min(1).max(65_535).default(443).describe("TLS port"),
   servername: z
     .string()
     .optional()
     .describe("Server name for SNI (defaults to host)"),
-  timeout: z
-    .number()
-    .min(100)
-    .default(10_000)
-    .describe("Connection timeout in milliseconds"),
   minDaysUntilExpiry: z
     .number()
     .int()

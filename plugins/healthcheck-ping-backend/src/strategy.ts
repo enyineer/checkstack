@@ -12,6 +12,7 @@ import {
   z,
   type ConnectedClient,
   type InferAggregatedResult,
+  baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -32,13 +33,7 @@ import type {
  * Configuration schema for Ping health checks.
  * Global defaults only - action params moved to PingCollector.
  */
-export const pingConfigSchema = z.object({
-  timeout: z
-    .number()
-    .min(100)
-    .default(5000)
-    .describe("Default timeout in milliseconds"),
-});
+export const pingConfigSchema = baseStrategyConfigSchema.extend({});
 
 export type PingConfig = z.infer<typeof pingConfigSchema>;
 

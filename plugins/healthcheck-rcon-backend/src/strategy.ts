@@ -14,9 +14,9 @@ import {
   mergeMinMax,
   z,
   configString,
-  configNumber,
   type ConnectedClient,
   type InferAggregatedResult,
+  baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -33,7 +33,7 @@ import type { RconTransportClient } from "@checkstack/healthcheck-rcon-common";
 /**
  * Configuration schema for RCON health checks.
  */
-export const rconConfigSchema = z.object({
+export const rconConfigSchema = baseStrategyConfigSchema.extend({
   host: z.string().describe("RCON server hostname"),
   port: z
     .number()
@@ -43,10 +43,6 @@ export const rconConfigSchema = z.object({
     .default(25_575)
     .describe("RCON port (25575 for Minecraft, 27015 for Source)"),
   password: configString({ "x-secret": true }).describe("RCON password"),
-  timeout: configNumber({})
-    .min(100)
-    .default(10_000)
-    .describe("Connection timeout in milliseconds"),
 });
 
 export type RconConfig = z.infer<typeof rconConfigSchema>;

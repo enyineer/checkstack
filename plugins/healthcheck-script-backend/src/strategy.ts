@@ -13,6 +13,7 @@ import {
   z,
   type ConnectedClient,
   type InferAggregatedResult,
+  baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -34,13 +35,7 @@ import type {
  * Configuration schema for Script health checks.
  * Global defaults only - action params moved to ExecuteCollector.
  */
-export const scriptConfigSchema = z.object({
-  timeout: z
-    .number()
-    .min(100)
-    .default(30_000)
-    .describe("Default execution timeout in milliseconds"),
-});
+export const scriptConfigSchema = baseStrategyConfigSchema.extend({});
 
 export type ScriptConfig = z.infer<typeof scriptConfigSchema>;
 export type ScriptConfigInput = z.input<typeof scriptConfigSchema>;

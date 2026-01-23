@@ -5,6 +5,9 @@ import {
   type CollectorRegistry,
   evaluateAssertions,
   type SafeDatabase,
+  type BaseStrategyConfig,
+  type ConnectedClient,
+  type TransportClient,
 } from "@checkstack/backend-api";
 import { QueueManager } from "@checkstack/queue-api";
 import {
@@ -305,24 +308,175 @@ async function executeHealthCheckJob(props: {
       return;
     }
 
-    // Execute health check using createClient pattern
+    // Extract timeout from strategy config for platform-level enforcement
+    const strategyConfig = configRow.config as unknown as BaseStrategyConfig;
+    const executionTimeout = strategyConfig.timeout ?? 60_000;
+
+    // Execute health check using createClient pattern with unified hard timeout
     const start = performance.now();
-    let connectedClient;
+    let connectionTimeMs: number | undefined;
+    let connectedClient:
+      | ConnectedClient<TransportClient<never, unknown>>
+      | undefined;
+    const collectors = configRow.collectors ?? [];
+    const collectorResults: Record<string, unknown> = {};
+    let hasCollectorError = false;
+    let errorMessage: string | undefined;
+
     try {
-      connectedClient = await strategy.createClient(
-        configRow.config as Record<string, unknown>,
-      );
+      // Platform-level hard timeout wrapping the entire execution sequence
+      await Promise.race([
+        (async () => {
+          // 1. Establish connection
+          connectedClient = await strategy.createClient(strategyConfig);
+          connectionTimeMs = Math.round(performance.now() - start);
+
+          // 2. Execute collectors in parallel
+          const collectorPromises = collectors.map(async (collectorEntry) => {
+            const registered = collectorRegistry.getCollector(
+              collectorEntry.collectorId,
+            );
+            if (!registered) {
+              logger.warn(
+                `Collector ${collectorEntry.collectorId} not found, skipping`,
+              );
+              return { storageKey: collectorEntry.id, skipped: true };
+            }
+
+            const storageKey = collectorEntry.id;
+
+            try {
+              const collectorResult = await registered.collector.execute({
+                config: collectorEntry.config,
+                client: connectedClient!.client,
+                pluginId: configRow.strategyId,
+              });
+
+              // Check for collector-level error
+              let collectorError: string | undefined;
+              if (collectorResult.error) {
+                collectorError = collectorResult.error;
+              }
+
+              // Evaluate per-collector assertions
+              let assertionFailed: string | undefined;
+              if (
+                collectorEntry.assertions &&
+                collectorEntry.assertions.length > 0 &&
+                collectorResult.result
+              ) {
+                const failedAssertion = evaluateAssertions(
+                  collectorEntry.assertions,
+                  collectorResult.result as Record<string, unknown>,
+                );
+                if (failedAssertion) {
+                  assertionFailed = `${failedAssertion.field} ${
+                    failedAssertion.operator
+                  } ${failedAssertion.value ?? ""}`;
+                  logger.debug(
+                    `Collector ${storageKey} assertion failed: ${assertionFailed}`,
+                  );
+                }
+              }
+
+              // Strip ephemeral fields before storage
+              const strippedResult = stripEphemeralFields(
+                collectorResult.result as Record<string, unknown>,
+                registered.collector.result.schema,
+              );
+
+              return {
+                storageKey,
+                skipped: false,
+                success: true,
+                collectorError,
+                assertionFailed,
+                result: {
+                  _collectorId: collectorEntry.collectorId,
+                  _assertionFailed: assertionFailed,
+                  ...strippedResult,
+                },
+              };
+            } catch (error) {
+              const errorStr =
+                error instanceof Error ? error.message : String(error);
+              logger.debug(`Collector ${storageKey} failed: ${errorStr}`);
+              return {
+                storageKey,
+                skipped: false,
+                success: false,
+                error: errorStr,
+                result: {
+                  _collectorId: collectorEntry.collectorId,
+                  _assertionFailed: undefined,
+                  error: errorStr,
+                },
+              };
+            }
+          });
+
+          // Wait for all collectors to complete
+          const settledResults = await Promise.allSettled(collectorPromises);
+
+          // Process results from all collectors
+          for (const settled of settledResults) {
+            if (settled.status === "rejected") {
+              // This shouldn't happen since we catch errors above, but handle it
+              hasCollectorError = true;
+              if (!errorMessage) errorMessage = String(settled.reason);
+              continue;
+            }
+
+            const result = settled.value;
+            if (result.skipped) continue;
+
+            // Store the result
+            collectorResults[result.storageKey] = result.result;
+
+            // Track errors
+            if (
+              !result.success ||
+              result.collectorError ||
+              result.assertionFailed
+            ) {
+              hasCollectorError = true;
+              if (!errorMessage) {
+                errorMessage =
+                  result.error ||
+                  result.collectorError ||
+                  (result.assertionFailed
+                    ? `Assertion failed: ${result.assertionFailed}`
+                    : undefined);
+              }
+            }
+          }
+        })(),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(`Execution timeout after ${executionTimeout}ms`),
+              ),
+            executionTimeout,
+          ),
+        ),
+      ]);
     } catch (error) {
-      // Connection failed
       const latencyMs = Math.round(performance.now() - start);
-      const errorMessage =
-        error instanceof Error ? error.message : "Connection failed";
+      const caughtError =
+        error instanceof Error ? error.message : String(error);
+
+      // Use a specific error message if available, otherwise use the caught error
+      const finalError = errorMessage || caughtError;
 
       const result = {
         status: "unhealthy" as const,
         latencyMs,
-        message: errorMessage,
-        metadata: { connected: false, error: errorMessage },
+        message: finalError,
+        metadata: {
+          connected: !!connectedClient,
+          error: finalError,
+        },
       };
 
       await db.insert(healthCheckRuns).values({
@@ -333,7 +487,6 @@ async function executeHealthCheckJob(props: {
         result: { ...result } as Record<string, unknown>,
       });
 
-      // Trigger incremental hourly aggregation
       await incrementHourlyAggregate({
         db,
         systemId,
@@ -346,10 +499,9 @@ async function executeHealthCheckJob(props: {
       });
 
       logger.debug(
-        `Health check ${configId} for system ${systemId} failed: ${errorMessage}`,
+        `Health check ${configId} for system ${systemId} failed: ${finalError}`,
       );
 
-      // Broadcast failure signal
       await signalService.broadcast(HEALTH_CHECK_RUN_COMPLETED, {
         systemId,
         systemName,
@@ -359,7 +511,6 @@ async function executeHealthCheckJob(props: {
         latencyMs: result.latencyMs,
       });
 
-      // Check and notify state change
       const newState = await service.getSystemHealthStatus(systemId);
       if (newState.status !== previousStatus) {
         await notifyStateChange({
@@ -374,97 +525,13 @@ async function executeHealthCheckJob(props: {
       }
 
       return;
-    }
-
-    const connectionTimeMs = Math.round(performance.now() - start);
-
-    // Execute collectors
-    const collectors = configRow.collectors ?? [];
-    const collectorResults: Record<string, unknown> = {};
-    let hasCollectorError = false;
-    let errorMessage: string | undefined;
-
-    try {
-      for (const collectorEntry of collectors) {
-        const registered = collectorRegistry.getCollector(
-          collectorEntry.collectorId,
-        );
-        if (!registered) {
-          logger.warn(
-            `Collector ${collectorEntry.collectorId} not found, skipping`,
-          );
-          continue;
-        }
-
-        // Use the collector's UUID as the storage key
-        const storageKey = collectorEntry.id;
-
-        try {
-          const collectorResult = await registered.collector.execute({
-            config: collectorEntry.config,
-            client: connectedClient.client,
-            pluginId: configRow.strategyId,
-          });
-
-          // Check for collector-level error
-          if (collectorResult.error) {
-            hasCollectorError = true;
-            errorMessage = collectorResult.error;
-          }
-
-          // Evaluate per-collector assertions
-          let assertionFailed: string | undefined;
-          if (
-            collectorEntry.assertions &&
-            collectorEntry.assertions.length > 0 &&
-            collectorResult.result
-          ) {
-            const assertions = collectorEntry.assertions;
-            const failedAssertion = evaluateAssertions(
-              assertions,
-              collectorResult.result as Record<string, unknown>,
-            );
-            if (failedAssertion) {
-              hasCollectorError = true;
-              assertionFailed = `${failedAssertion.field} ${
-                failedAssertion.operator
-              } ${failedAssertion.value ?? ""}`;
-              errorMessage = `Assertion failed: ${assertionFailed}`;
-              logger.debug(
-                `Collector ${storageKey} assertion failed: ${errorMessage}`,
-              );
-            }
-          }
-
-          // Strip ephemeral fields (like HTTP body) before storage to save space
-          const strippedResult = stripEphemeralFields(
-            collectorResult.result as Record<string, unknown>,
-            registered.collector.result.schema,
-          );
-
-          // Store result under the collector's UUID, with collector type and assertion metadata
-          collectorResults[storageKey] = {
-            _collectorId: collectorEntry.collectorId, // Store the type for frontend schema linking
-            _assertionFailed: assertionFailed, // null if no assertion failed
-            ...strippedResult,
-          };
-        } catch (error) {
-          hasCollectorError = true;
-          errorMessage = error instanceof Error ? error.message : String(error);
-          collectorResults[storageKey] = {
-            _collectorId: collectorEntry.collectorId,
-            _assertionFailed: undefined,
-            error: errorMessage,
-          };
-          logger.debug(`Collector ${storageKey} failed: ${errorMessage}`);
-        }
-      }
     } finally {
-      // Clean up connection
-      try {
-        connectedClient.close();
-      } catch {
-        // Ignore close errors
+      if (connectedClient) {
+        try {
+          connectedClient.close();
+        } catch (error) {
+          logger.warn(`Failed to close connection: ${error}`);
+        }
       }
     }
 

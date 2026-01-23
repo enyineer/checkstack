@@ -11,9 +11,9 @@ import {
   mergeCounter,
   z,
   configString,
-  configNumber,
   type ConnectedClient,
   type InferAggregatedResult,
+  baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -35,7 +35,7 @@ import type {
  * Jenkins health check configuration schema.
  * Provides connectivity settings for the Jenkins API.
  */
-export const jenkinsConfigSchema = z.object({
+export const jenkinsConfigSchema = baseStrategyConfigSchema.extend({
   baseUrl: z
     .string()
     .url()
@@ -46,11 +46,6 @@ export const jenkinsConfigSchema = z.object({
   apiToken: configString({ "x-secret": true }).describe(
     "Jenkins API token (generate from User > Configure > API Token)",
   ),
-  timeout: configNumber({})
-    .int()
-    .min(1000)
-    .default(30_000)
-    .describe("Request timeout in milliseconds"),
 });
 
 export type JenkinsConfig = z.infer<typeof jenkinsConfigSchema>;
@@ -164,12 +159,11 @@ export class JenkinsHealthCheckStrategy implements HealthCheckStrategy<
             signal: controller.signal,
           });
 
-          clearTimeout(timeoutId);
-
           // Get Jenkins version from header
           const jenkinsVersion = response.headers.get("X-Jenkins") || undefined;
 
           if (!response.ok) {
+            clearTimeout(timeoutId);
             return {
               statusCode: response.status,
               data: undefined,
@@ -178,7 +172,10 @@ export class JenkinsHealthCheckStrategy implements HealthCheckStrategy<
             };
           }
 
+          // Read body BEFORE clearing timeout - body streaming can also hang
           const data = await response.json();
+
+          clearTimeout(timeoutId);
 
           return {
             statusCode: response.status,

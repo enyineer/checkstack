@@ -14,9 +14,9 @@ import {
   mergeMinMax,
   z,
   configString,
-  configNumber,
   type ConnectedClient,
   type InferAggregatedResult,
+  baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -33,7 +33,7 @@ import type { SshTransportClient, SshCommandResult } from "./transport-client";
 /**
  * Configuration schema for SSH health checks.
  */
-export const sshConfigSchema = z.object({
+export const sshConfigSchema = baseStrategyConfigSchema.extend({
   host: z.string().describe("SSH server hostname"),
   port: z.number().int().min(1).max(65_535).default(22).describe("SSH port"),
   username: z.string().describe("SSH username"),
@@ -46,10 +46,6 @@ export const sshConfigSchema = z.object({
   passphrase: configString({ "x-secret": true })
     .describe("Passphrase for private key")
     .optional(),
-  timeout: configNumber({})
-    .min(100)
-    .default(10_000)
-    .describe("Connection timeout in milliseconds"),
 });
 
 export type SshConfig = z.infer<typeof sshConfigSchema>;

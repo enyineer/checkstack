@@ -46,7 +46,7 @@ describe("HealthCheck Plugin Integration", () => {
       description: "A test strategy for integration testing",
       config: new Versioned({
         version: 1,
-        schema: z.object({}),
+        schema: z.object({ timeout: z.number().default(30_000) }),
       }),
       result: new Versioned({
         version: 1,

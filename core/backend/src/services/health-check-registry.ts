@@ -25,17 +25,21 @@ export class CoreHealthCheckRegistry {
    * Register a strategy with its owning plugin.
    * The strategy ID is stored as: ownerPluginId.strategyId
    */
-  registerWithOwner(
-    strategy: HealthCheckStrategy,
-    ownerPlugin: PluginMetadata
+  registerWithOwner<S extends HealthCheckStrategy>(
+    strategy: S,
+    ownerPlugin: PluginMetadata,
   ): void {
     const qualifiedId = `${ownerPlugin.pluginId}.${strategy.id}`;
     if (this.strategies.has(qualifiedId)) {
       rootLogger.warn(
-        `HealthCheckStrategy '${qualifiedId}' is already registered. Overwriting.`
+        `HealthCheckStrategy '${qualifiedId}' is already registered. Overwriting.`,
       );
     }
-    this.strategies.set(qualifiedId, { strategy, ownerPlugin, qualifiedId });
+    this.strategies.set(qualifiedId, {
+      strategy: strategy as HealthCheckStrategy,
+      ownerPlugin,
+      qualifiedId,
+    });
     rootLogger.debug(`✅ Registered HealthCheckStrategy: ${qualifiedId}`);
   }
 
@@ -75,10 +79,10 @@ export class CoreHealthCheckRegistry {
  */
 export function createScopedHealthCheckRegistry(
   globalRegistry: CoreHealthCheckRegistry,
-  ownerPlugin: PluginMetadata
+  ownerPlugin: PluginMetadata,
 ): HealthCheckRegistry {
   return {
-    register(strategy: HealthCheckStrategy) {
+    register<S extends HealthCheckStrategy>(strategy: S) {
       globalRegistry.registerWithOwner(strategy, ownerPlugin);
     },
     getStrategy(id: string) {

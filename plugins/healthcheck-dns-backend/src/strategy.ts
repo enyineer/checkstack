@@ -11,6 +11,7 @@ import {
   z,
   type ConnectedClient,
   type InferAggregatedResult,
+  baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -32,13 +33,8 @@ import type {
  * Configuration schema for DNS health checks.
  * Resolver configuration only - action params moved to LookupCollector.
  */
-export const dnsConfigSchema = z.object({
+export const dnsConfigSchema = baseStrategyConfigSchema.extend({
   nameserver: z.string().optional().describe("Custom nameserver (optional)"),
-  timeout: z
-    .number()
-    .min(100)
-    .default(5000)
-    .describe("Timeout in milliseconds"),
 });
 
 export type DnsConfig = z.infer<typeof dnsConfigSchema>;

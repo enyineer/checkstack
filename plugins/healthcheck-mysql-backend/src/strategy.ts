@@ -17,6 +17,7 @@ import {
   configNumber,
   type ConnectedClient,
   type InferAggregatedResult,
+  baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -37,7 +38,7 @@ import type {
 /**
  * Configuration schema for MySQL health checks.
  */
-export const mysqlConfigSchema = z.object({
+export const mysqlConfigSchema = baseStrategyConfigSchema.extend({
   host: configString({}).describe("MySQL server hostname"),
   port: configNumber({})
     .int()
@@ -48,10 +49,6 @@ export const mysqlConfigSchema = z.object({
   database: configString({}).describe("Database name"),
   user: configString({}).describe("Database user"),
   password: configString({ "x-secret": true }).describe("Database password"),
-  timeout: configNumber({})
-    .min(100)
-    .default(10_000)
-    .describe("Connection timeout in milliseconds"),
 });
 
 export type MysqlConfig = z.infer<typeof mysqlConfigSchema>;

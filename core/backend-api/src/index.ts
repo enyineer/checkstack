@@ -3,6 +3,7 @@ export * from "./extension-point";
 export * from "./core-services";
 export * from "./plugin-system";
 export * from "./health-check";
+export * from "./base-strategy-config";
 export * from "./auth-strategy";
 export * from "./zod-config";
 export * from "./encryption";

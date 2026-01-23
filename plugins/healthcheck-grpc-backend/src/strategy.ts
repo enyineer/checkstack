@@ -13,6 +13,7 @@ import {
   z,
   type ConnectedClient,
   type InferAggregatedResult,
+  baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -45,7 +46,7 @@ export type GrpcHealthStatusType = z.infer<typeof GrpcHealthStatus>;
 /**
  * Configuration schema for gRPC health checks.
  */
-export const grpcConfigSchema = z.object({
+export const grpcConfigSchema = baseStrategyConfigSchema.extend({
   host: z.string().describe("gRPC server hostname"),
   port: z.number().int().min(1).max(65_535).describe("gRPC port"),
   service: z
@@ -53,11 +54,6 @@ export const grpcConfigSchema = z.object({
     .default("")
     .describe("Service name to check (empty for server health)"),
   useTls: z.boolean().default(false).describe("Use TLS connection"),
-  timeout: z
-    .number()
-    .min(100)
-    .default(5000)
-    .describe("Request timeout in milliseconds"),
 });
 
 export type GrpcConfig = z.infer<typeof grpcConfigSchema>;
