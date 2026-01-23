@@ -105,8 +105,8 @@ describe("DiskCollector", () => {
       let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.avgUsedPercent).toBe(40);
-      expect(aggregated.maxUsedPercent).toBe(50);
+      expect(aggregated.avgUsedPercent.avg).toBe(40);
+      expect(aggregated.maxUsedPercent.max).toBe(50);
     });
   });
 

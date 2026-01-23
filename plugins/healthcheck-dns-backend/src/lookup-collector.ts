@@ -6,10 +6,10 @@ import {
   type CollectorStrategy,
   mergeAverage,
   mergeRate,
-  averageStateSchema,
-  rateStateSchema,
-  type AverageState,
-  type RateState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedRate,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -56,32 +56,24 @@ const lookupResultSchema = healthResultSchema({
 
 export type LookupResult = z.infer<typeof lookupResultSchema>;
 
-// UI-visible aggregated fields (for charts)
-const lookupAggregatedDisplaySchema = healthResultSchema({
-  avgResolutionTimeMs: healthResultNumber({
+// Aggregated result fields definition
+const lookupAggregatedFields = {
+  avgResolutionTimeMs: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Resolution Time",
     "x-chart-unit": "ms",
   }),
-  successRate: healthResultNumber({
+  successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-});
+};
 
-// Internal state for incremental aggregation (not shown in charts)
-const lookupAggregatedInternalSchema = z.object({
-  _resolutionTime: averageStateSchema.optional(),
-  _success: rateStateSchema.optional(),
-});
-
-// Combined schema for storage
-const lookupAggregatedSchema = lookupAggregatedDisplaySchema.merge(
-  lookupAggregatedInternalSchema,
-);
-
-export type LookupAggregatedResult = z.infer<typeof lookupAggregatedSchema>;
+// Type inferred from field definitions
+export type LookupAggregatedResult = InferAggregatedResult<
+  typeof lookupAggregatedFields
+>;
 
 // ============================================================================
 // LOOKUP COLLECTOR
@@ -107,9 +99,9 @@ export class LookupCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: lookupConfigSchema });
   result = new Versioned({ version: 1, schema: lookupResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: lookupAggregatedSchema,
+    fields: lookupAggregatedFields,
   });
 
   async execute({
@@ -145,24 +137,15 @@ export class LookupCollector implements CollectorStrategy<
   ): LookupAggregatedResult {
     const metadata = run.metadata;
 
-    // Merge resolution time average
-    const resolutionTimeState = mergeAverage(
-      existing?._resolutionTime as AverageState | undefined,
-      metadata?.resolutionTimeMs,
-    );
-
     // Merge success rate (recordCount > 0 means success)
     const isSuccess = (metadata?.recordCount ?? 0) > 0;
-    const successState = mergeRate(
-      existing?._success as RateState | undefined,
-      isSuccess,
-    );
 
     return {
-      avgResolutionTimeMs: resolutionTimeState.avg,
-      successRate: successState.rate,
-      _resolutionTime: resolutionTimeState,
-      _success: successState,
+      avgResolutionTimeMs: mergeAverage(
+        existing?.avgResolutionTimeMs,
+        metadata?.resolutionTimeMs,
+      ),
+      successRate: mergeRate(existing?.successRate, isSuccess),
     };
   }
 }

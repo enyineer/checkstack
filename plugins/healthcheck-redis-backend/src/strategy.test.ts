@@ -163,9 +163,9 @@ describe("RedisHealthCheckStrategy", () => {
       let aggregated = strategy.mergeResult(undefined, runs[0]);
       aggregated = strategy.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.avgConnectionTime).toBe(10);
-      expect(aggregated.successRate).toBe(100);
-      expect(aggregated.errorCount).toBe(0);
+      expect(aggregated.avgConnectionTime.avg).toBe(10);
+      expect(aggregated.successRate.rate).toBe(100);
+      expect(aggregated.errorCount.count).toBe(0);
     });
 
     it("should count errors", () => {
@@ -186,8 +186,8 @@ describe("RedisHealthCheckStrategy", () => {
 
       const aggregated = strategy.mergeResult(undefined, run);
 
-      expect(aggregated.errorCount).toBe(1);
-      expect(aggregated.successRate).toBe(0);
+      expect(aggregated.errorCount.count).toBe(1);
+      expect(aggregated.successRate.rate).toBe(0);
     });
   });
 });

@@ -3,23 +3,21 @@ import {
   HealthCheckStrategy,
   HealthCheckRunForAggregation,
   Versioned,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedMinMax,
+  aggregatedRate,
+  aggregatedCounter,
+  mergeAverage,
+  mergeRate,
+  mergeCounter,
+  mergeMinMax,
   z,
   configString,
   configNumber,
   configBoolean,
   type ConnectedClient,
-  mergeAverage,
-  averageStateSchema,
-  mergeRate,
-  rateStateSchema,
-  mergeCounter,
-  counterStateSchema,
-  mergeMinMax,
-  minMaxStateSchema,
-  type AverageState,
-  type RateState,
-  type CounterState,
-  type MinMaxState,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -87,47 +85,32 @@ const redisResultSchema = healthResultSchema({
 
 type RedisResult = z.infer<typeof redisResultSchema>;
 
-/**
- * Aggregated metadata for buckets.
- */
-// UI-visible aggregated fields
-const redisAggregatedDisplaySchema = healthResultSchema({
-  avgConnectionTime: healthResultNumber({
+/** Aggregated field definitions for bucket merging */
+const redisAggregatedFields = {
+  avgConnectionTime: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Connection Time",
     "x-chart-unit": "ms",
   }),
-  maxConnectionTime: healthResultNumber({
+  maxConnectionTime: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Connection Time",
     "x-chart-unit": "ms",
   }),
-  successRate: healthResultNumber({
+  successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-  errorCount: healthResultNumber({
+  errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),
-});
+};
 
-// Internal state for incremental aggregation
-const redisAggregatedInternalSchema = z.object({
-  _connectionTime: averageStateSchema
-    .optional(),
-  _maxConnectionTime: minMaxStateSchema.optional(),
-  _success: rateStateSchema
-    .optional(),
-  _errors: counterStateSchema.optional(),
-});
-
-const redisAggregatedSchema = redisAggregatedDisplaySchema.merge(
-  redisAggregatedInternalSchema,
-);
-
-type RedisAggregatedResult = z.infer<typeof redisAggregatedSchema>;
+type RedisAggregatedResult = InferAggregatedResult<
+  typeof redisAggregatedFields
+>;
 
 // ============================================================================
 // REDIS CLIENT INTERFACE (for testability)
@@ -191,7 +174,7 @@ export class RedisHealthCheckStrategy implements HealthCheckStrategy<
   RedisConfig,
   RedisTransportClient,
   RedisResult,
-  RedisAggregatedResult
+  typeof redisAggregatedFields
 > {
   id = "redis";
   displayName = "Redis Health Check";
@@ -229,9 +212,9 @@ export class RedisHealthCheckStrategy implements HealthCheckStrategy<
     ],
   });
 
-  aggregatedResult: Versioned<RedisAggregatedResult> = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: redisAggregatedSchema,
+    fields: redisAggregatedFields,
   });
 
   mergeResult(
@@ -240,36 +223,23 @@ export class RedisHealthCheckStrategy implements HealthCheckStrategy<
   ): RedisAggregatedResult {
     const metadata = run.metadata;
 
-    const connectionTimeState = mergeAverage(
-      existing?._connectionTime as AverageState | undefined,
+    const avgConnectionTime = mergeAverage(
+      existing?.avgConnectionTime,
       metadata?.connectionTimeMs,
     );
 
-    const maxConnectionTimeState = mergeMinMax(
-      existing?._maxConnectionTime as MinMaxState | undefined,
+    const maxConnectionTime = mergeMinMax(
+      existing?.maxConnectionTime,
       metadata?.connectionTimeMs,
     );
 
-    const successState = mergeRate(
-      existing?._success as RateState | undefined,
-      metadata?.connected,
-    );
+    const isSuccess = metadata?.connected ?? false;
+    const successRate = mergeRate(existing?.successRate, isSuccess);
 
-    const errorState = mergeCounter(
-      existing?._errors as CounterState | undefined,
-      metadata?.error !== undefined,
-    );
+    const hasError = metadata?.error !== undefined;
+    const errorCount = mergeCounter(existing?.errorCount, hasError);
 
-    return {
-      avgConnectionTime: connectionTimeState.avg,
-      maxConnectionTime: maxConnectionTimeState.max,
-      successRate: successState.rate,
-      errorCount: errorState.count,
-      _connectionTime: connectionTimeState,
-      _maxConnectionTime: maxConnectionTimeState,
-      _success: successState,
-      _errors: errorState,
-    };
+    return { avgConnectionTime, maxConnectionTime, successRate, errorCount };
   }
 
   async createClient(

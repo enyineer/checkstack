@@ -6,10 +6,10 @@ import {
   type CollectorStrategy,
   mergeAverage,
   mergeRate,
-  averageStateSchema,
-  rateStateSchema,
-  type AverageState,
-  type RateState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedRate,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -83,36 +83,28 @@ const jobStatusResultSchema = z.object({
 
 export type JobStatusResult = z.infer<typeof jobStatusResultSchema>;
 
-const jobStatusAggregatedDisplaySchema = z.object({
-  avgBuildDurationMs: healthResultNumber({
+// Aggregated result fields definition
+const jobStatusAggregatedFields = {
+  avgBuildDurationMs: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Build Duration",
     "x-chart-unit": "ms",
   }),
-  successRate: healthResultNumber({
+  successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-  buildableRate: healthResultNumber({
+  buildableRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Enabled Rate",
     "x-chart-unit": "%",
   }),
-});
+};
 
-const jobStatusAggregatedInternalSchema = z.object({
-  _duration: averageStateSchema.optional(),
-  _success: rateStateSchema.optional(),
-  _buildable: rateStateSchema.optional(),
-});
-
-const jobStatusAggregatedSchema = jobStatusAggregatedDisplaySchema.merge(
-  jobStatusAggregatedInternalSchema,
-);
-
-export type JobStatusAggregatedResult = z.infer<
-  typeof jobStatusAggregatedSchema
+// Type inferred from field definitions
+export type JobStatusAggregatedResult = InferAggregatedResult<
+  typeof jobStatusAggregatedFields
 >;
 
 // ============================================================================
@@ -138,9 +130,9 @@ export class JobStatusCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: jobStatusConfigSchema });
   result = new Versioned({ version: 1, schema: jobStatusResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: jobStatusAggregatedSchema,
+    fields: jobStatusAggregatedFields,
   });
 
   async execute({
@@ -224,29 +216,16 @@ export class JobStatusCollector implements CollectorStrategy<
   ): JobStatusAggregatedResult {
     const metadata = run.metadata;
 
-    const durationState = mergeAverage(
-      existing?._duration as AverageState | undefined,
-      metadata?.lastBuildDurationMs,
-    );
-
-    // Success is when lastBuildResult === "SUCCESS"
-    const successState = mergeRate(
-      existing?._success as RateState | undefined,
-      metadata?.lastBuildResult === "SUCCESS",
-    );
-
-    const buildableState = mergeRate(
-      existing?._buildable as RateState | undefined,
-      metadata?.buildable,
-    );
-
     return {
-      avgBuildDurationMs: durationState.avg,
-      successRate: successState.rate,
-      buildableRate: buildableState.rate,
-      _duration: durationState,
-      _success: successState,
-      _buildable: buildableState,
+      avgBuildDurationMs: mergeAverage(
+        existing?.avgBuildDurationMs,
+        metadata?.lastBuildDurationMs,
+      ),
+      successRate: mergeRate(
+        existing?.successRate,
+        metadata?.lastBuildResult === "SUCCESS",
+      ),
+      buildableRate: mergeRate(existing?.buildableRate, metadata?.buildable),
     };
   }
 }

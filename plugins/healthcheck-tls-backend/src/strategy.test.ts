@@ -207,10 +207,10 @@ describe("TlsHealthCheckStrategy", () => {
       let aggregated = strategy.mergeResult(undefined, runs[0]);
       aggregated = strategy.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.avgDaysUntilExpiry).toBe(25);
-      expect(aggregated.minDaysUntilExpiry).toBe(20);
-      expect(aggregated.invalidCount).toBe(0);
-      expect(aggregated.errorCount).toBe(0);
+      expect(aggregated.avgDaysUntilExpiry.avg).toBe(25);
+      expect(aggregated.minDaysUntilExpiry.min).toBe(20);
+      expect(aggregated.invalidCount.count).toBe(0);
+      expect(aggregated.errorCount.count).toBe(0);
     });
 
     it("should count invalid and errors", () => {
@@ -256,8 +256,8 @@ describe("TlsHealthCheckStrategy", () => {
       let aggregated = strategy.mergeResult(undefined, runs[0]);
       aggregated = strategy.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.invalidCount).toBe(2);
-      expect(aggregated.errorCount).toBe(1);
+      expect(aggregated.invalidCount.count).toBe(2);
+      expect(aggregated.errorCount.count).toBe(1);
     });
   });
 });

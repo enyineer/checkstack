@@ -5,11 +5,11 @@ import {
   type CollectorResult,
   type CollectorStrategy,
   mergeAverage,
-  averageStateSchema,
   mergeMinMax,
-  minMaxStateSchema,
-  type AverageState,
-  type MinMaxState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedMinMax,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -53,30 +53,21 @@ export type MinecraftPlayersResult = z.infer<
   typeof minecraftPlayersResultSchema
 >;
 
-const minecraftPlayersAggregatedDisplaySchema = z.object({
-  avgOnlinePlayers: healthResultNumber({
+// Aggregated result fields definition
+const minecraftPlayersAggregatedFields = {
+  avgOnlinePlayers: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Online Players",
   }),
-  maxOnlinePlayers: healthResultNumber({
+  maxOnlinePlayers: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Online Players",
   }),
-});
+};
 
-const minecraftPlayersAggregatedInternalSchema = z.object({
-  _onlinePlayers: averageStateSchema
-    .optional(),
-  _maxOnlinePlayers: minMaxStateSchema.optional(),
-});
-
-const minecraftPlayersAggregatedSchema =
-  minecraftPlayersAggregatedDisplaySchema.merge(
-    minecraftPlayersAggregatedInternalSchema,
-  );
-
-export type MinecraftPlayersAggregatedResult = z.infer<
-  typeof minecraftPlayersAggregatedSchema
+// Type inferred from field definitions
+export type MinecraftPlayersAggregatedResult = InferAggregatedResult<
+  typeof minecraftPlayersAggregatedFields
 >;
 
 // ============================================================================
@@ -106,9 +97,9 @@ export class MinecraftPlayersCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: minecraftPlayersConfigSchema });
   result = new Versioned({ version: 1, schema: minecraftPlayersResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: minecraftPlayersAggregatedSchema,
+    fields: minecraftPlayersAggregatedFields,
   });
 
   async execute({
@@ -171,21 +162,15 @@ export class MinecraftPlayersCollector implements CollectorStrategy<
   ): MinecraftPlayersAggregatedResult {
     const metadata = run.metadata;
 
-    const avgState = mergeAverage(
-      existing?._onlinePlayers as AverageState | undefined,
-      metadata?.onlinePlayers,
-    );
-
-    const maxState = mergeMinMax(
-      existing?._maxOnlinePlayers as MinMaxState | undefined,
-      metadata?.onlinePlayers,
-    );
-
     return {
-      avgOnlinePlayers: avgState.avg,
-      maxOnlinePlayers: maxState.max,
-      _onlinePlayers: avgState,
-      _maxOnlinePlayers: maxState,
+      avgOnlinePlayers: mergeAverage(
+        existing?.avgOnlinePlayers,
+        metadata?.onlinePlayers,
+      ),
+      maxOnlinePlayers: mergeMinMax(
+        existing?.maxOnlinePlayers,
+        metadata?.onlinePlayers,
+      ),
     };
   }
 }

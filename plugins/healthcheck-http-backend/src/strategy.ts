@@ -2,12 +2,14 @@ import {
   HealthCheckStrategy,
   HealthCheckRunForAggregation,
   Versioned,
-  z,
-  type ConnectedClient,
+  VersionedAggregated,
+  aggregatedCounter,
   mergeCounter,
+  z,
+  type InferAggregatedResult,
+  type ConnectedClient,
 } from "@checkstack/backend-api";
 import {
-  healthResultNumber,
   healthResultString,
   healthResultSchema,
 } from "@checkstack/healthcheck-common";
@@ -58,15 +60,15 @@ const httpResultMetadataSchema = healthResultSchema({
 
 type HttpResultMetadata = z.infer<typeof httpResultMetadataSchema>;
 
-/** Aggregated metadata for buckets */
-const httpAggregatedMetadataSchema = healthResultSchema({
-  errorCount: healthResultNumber({
+/** Aggregated field definitions for bucket merging */
+const httpAggregatedFields = {
+  errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),
-});
+};
 
-type HttpAggregatedMetadata = z.infer<typeof httpAggregatedMetadataSchema>;
+type HttpAggregatedResult = InferAggregatedResult<typeof httpAggregatedFields>;
 
 // ============================================================================
 // STRATEGY
@@ -76,7 +78,7 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
   HttpHealthCheckConfig,
   HttpTransportClient,
   HttpResultMetadata,
-  HttpAggregatedMetadata
+  typeof httpAggregatedFields
 > {
   id = "http";
   displayName = "HTTP/HTTPS Health Check";
@@ -112,21 +114,18 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
     schema: httpResultMetadataSchema,
   });
 
-  aggregatedResult: Versioned<HttpAggregatedMetadata> = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: httpAggregatedMetadataSchema,
+    fields: httpAggregatedFields,
   });
 
   mergeResult(
-    existing: HttpAggregatedMetadata | undefined,
+    existing: HttpAggregatedResult | undefined,
     newRun: HealthCheckRunForAggregation<HttpResultMetadata>,
-  ): HttpAggregatedMetadata {
+  ): HttpAggregatedResult {
     const hasError = !!newRun.metadata?.error;
     return {
-      errorCount: mergeCounter(
-        existing ? { count: existing.errorCount } : undefined,
-        hasError,
-      ).count,
+      errorCount: mergeCounter(existing?.errorCount, hasError),
     };
   }
 

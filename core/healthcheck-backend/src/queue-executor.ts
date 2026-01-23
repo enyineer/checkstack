@@ -237,7 +237,7 @@ async function executeHealthCheckJob(props: {
   const { configId, systemId } = payload;
 
   // Create service for aggregated state evaluation
-  const service = new HealthCheckService(db);
+  const service = new HealthCheckService(db, registry, collectorRegistry);
 
   // Capture aggregated state BEFORE this run for comparison
   const previousState = await service.getSystemHealthStatus(systemId);

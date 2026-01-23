@@ -144,10 +144,10 @@ describe("GrpcHealthCheckStrategy", () => {
       let aggregated = strategy.mergeResult(undefined, runs[0]);
       aggregated = strategy.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.avgResponseTime).toBe(10);
-      expect(aggregated.successRate).toBe(100);
-      expect(aggregated.servingCount).toBe(2);
-      expect(aggregated.errorCount).toBe(0);
+      expect(aggregated.avgResponseTime.avg).toBe(10);
+      expect(aggregated.successRate.rate).toBe(100);
+      expect(aggregated.servingCount.count).toBe(2);
+      expect(aggregated.errorCount.count).toBe(0);
     });
 
     it("should count errors and non-serving", () => {
@@ -183,9 +183,9 @@ describe("GrpcHealthCheckStrategy", () => {
       let aggregated = strategy.mergeResult(undefined, runs[0]);
       aggregated = strategy.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.errorCount).toBe(1);
-      expect(aggregated.servingCount).toBe(0);
-      expect(aggregated.successRate).toBe(0);
+      expect(aggregated.errorCount.count).toBe(1);
+      expect(aggregated.servingCount.count).toBe(0);
+      expect(aggregated.successRate.rate).toBe(0);
     });
   });
 });

@@ -6,10 +6,10 @@ import {
   type CollectorStrategy,
   mergeAverage,
   mergeMinMax,
-  averageStateSchema,
-  minMaxStateSchema,
-  type AverageState,
-  type MinMaxState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedMinMax,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import { healthResultNumber } from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "../plugin-metadata";
@@ -58,34 +58,26 @@ const queueInfoResultSchema = z.object({
 
 export type QueueInfoResult = z.infer<typeof queueInfoResultSchema>;
 
-const queueInfoAggregatedDisplaySchema = z.object({
-  avgQueueLength: healthResultNumber({
+// Aggregated result fields definition
+const queueInfoAggregatedFields = {
+  avgQueueLength: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Queue Length",
   }),
-  maxQueueLength: healthResultNumber({
+  maxQueueLength: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Queue Length",
   }),
-  avgWaitTime: healthResultNumber({
+  avgWaitTime: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Wait Time",
     "x-chart-unit": "ms",
   }),
-});
+};
 
-const queueInfoAggregatedInternalSchema = z.object({
-  _queueLength: averageStateSchema.optional(),
-  _maxQueueLength: minMaxStateSchema.optional(),
-  _waitTime: averageStateSchema.optional(),
-});
-
-const queueInfoAggregatedSchema = queueInfoAggregatedDisplaySchema.merge(
-  queueInfoAggregatedInternalSchema,
-);
-
-export type QueueInfoAggregatedResult = z.infer<
-  typeof queueInfoAggregatedSchema
+// Type inferred from field definitions
+export type QueueInfoAggregatedResult = InferAggregatedResult<
+  typeof queueInfoAggregatedFields
 >;
 
 // ============================================================================
@@ -110,9 +102,9 @@ export class QueueInfoCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: queueInfoConfigSchema });
   result = new Versioned({ version: 1, schema: queueInfoResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: queueInfoAggregatedSchema,
+    fields: queueInfoAggregatedFields,
   });
 
   async execute({
@@ -206,28 +198,16 @@ export class QueueInfoCollector implements CollectorStrategy<
   ): QueueInfoAggregatedResult {
     const metadata = run.metadata;
 
-    const queueLengthState = mergeAverage(
-      existing?._queueLength as AverageState | undefined,
-      metadata?.queueLength,
-    );
-
-    const maxQueueLengthState = mergeMinMax(
-      existing?._maxQueueLength as MinMaxState | undefined,
-      metadata?.queueLength,
-    );
-
-    const waitTimeState = mergeAverage(
-      existing?._waitTime as AverageState | undefined,
-      metadata?.avgWaitingMs,
-    );
-
     return {
-      avgQueueLength: queueLengthState.avg,
-      maxQueueLength: maxQueueLengthState.max,
-      avgWaitTime: waitTimeState.avg,
-      _queueLength: queueLengthState,
-      _maxQueueLength: maxQueueLengthState,
-      _waitTime: waitTimeState,
+      avgQueueLength: mergeAverage(
+        existing?.avgQueueLength,
+        metadata?.queueLength,
+      ),
+      maxQueueLength: mergeMinMax(
+        existing?.maxQueueLength,
+        metadata?.queueLength,
+      ),
+      avgWaitTime: mergeAverage(existing?.avgWaitTime, metadata?.avgWaitingMs),
     };
   }
 }

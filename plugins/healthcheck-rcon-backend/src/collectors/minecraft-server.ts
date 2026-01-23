@@ -6,10 +6,10 @@ import {
   type CollectorStrategy,
   mergeAverage,
   mergeMinMax,
-  averageStateSchema,
-  minMaxStateSchema,
-  type AverageState,
-  type MinMaxState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedMinMax,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -48,29 +48,21 @@ const minecraftServerResultSchema = z.object({
 
 export type MinecraftServerResult = z.infer<typeof minecraftServerResultSchema>;
 
-const minecraftServerAggregatedDisplaySchema = z.object({
-  avgTps: healthResultNumber({
+// Aggregated result fields definition
+const minecraftServerAggregatedFields = {
+  avgTps: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg TPS",
   }),
-  minTps: healthResultNumber({
+  minTps: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Min TPS",
   }),
-});
+};
 
-const minecraftServerAggregatedInternalSchema = z.object({
-  _tps: averageStateSchema.optional(),
-  _minTps: minMaxStateSchema.optional(),
-});
-
-const minecraftServerAggregatedSchema =
-  minecraftServerAggregatedDisplaySchema.merge(
-    minecraftServerAggregatedInternalSchema,
-  );
-
-export type MinecraftServerAggregatedResult = z.infer<
-  typeof minecraftServerAggregatedSchema
+// Type inferred from field definitions
+export type MinecraftServerAggregatedResult = InferAggregatedResult<
+  typeof minecraftServerAggregatedFields
 >;
 
 // ============================================================================
@@ -97,9 +89,9 @@ export class MinecraftServerCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: minecraftServerConfigSchema });
   result = new Versioned({ version: 1, schema: minecraftServerResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: minecraftServerAggregatedSchema,
+    fields: minecraftServerAggregatedFields,
   });
 
   async execute({
@@ -159,21 +151,12 @@ export class MinecraftServerCollector implements CollectorStrategy<
   ): MinecraftServerAggregatedResult {
     const metadata = run.metadata;
 
-    const avgState = mergeAverage(
-      existing?._tps as AverageState | undefined,
-      metadata?.tps,
-    );
-
-    const minState = mergeMinMax(
-      existing?._minTps as MinMaxState | undefined,
-      metadata?.tps,
-    );
+    const avgState = mergeAverage(existing?.avgTps, metadata?.tps);
+    const minState = mergeMinMax(existing?.minTps, metadata?.tps);
 
     return {
-      avgTps: Math.round(avgState.avg * 10) / 10,
-      minTps: minState.min,
-      _tps: avgState,
-      _minTps: minState,
+      avgTps: { ...avgState, avg: Math.round(avgState.avg * 10) / 10 },
+      minTps: minState,
     };
   }
 }

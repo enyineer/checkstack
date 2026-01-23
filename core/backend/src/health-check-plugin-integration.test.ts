@@ -4,6 +4,8 @@ import {
   createBackendPlugin,
   HealthCheckStrategy,
   Versioned,
+  VersionedAggregated,
+  aggregatedCounter,
 } from "@checkstack/backend-api";
 import {
   createMockQueueManager,
@@ -50,9 +52,9 @@ describe("HealthCheck Plugin Integration", () => {
         version: 1,
         schema: z.record(z.string(), z.unknown()),
       }),
-      aggregatedResult: new Versioned({
+      aggregatedResult: new VersionedAggregated({
         version: 1,
-        schema: z.record(z.string(), z.unknown()),
+        fields: { count: aggregatedCounter({}) },
       }),
       createClient: mockCreateClient,
       mergeResult: mock(() => ({})),

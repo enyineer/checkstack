@@ -3,7 +3,12 @@ import {
   CoreHealthCheckRegistry,
   createScopedHealthCheckRegistry,
 } from "./health-check-registry";
-import { HealthCheckStrategy, Versioned } from "@checkstack/backend-api";
+import {
+  HealthCheckStrategy,
+  Versioned,
+  VersionedAggregated,
+  aggregatedCounter,
+} from "@checkstack/backend-api";
 import { createMockLogger } from "@checkstack/test-utils-backend";
 import { z } from "zod";
 import type { PluginMetadata } from "@checkstack/common";
@@ -31,9 +36,9 @@ describe("CoreHealthCheckRegistry", () => {
       version: 1,
       schema: z.record(z.string(), z.unknown()),
     }),
-    aggregatedResult: new Versioned({
+    aggregatedResult: new VersionedAggregated({
       version: 1,
-      schema: z.record(z.string(), z.unknown()),
+      fields: { count: aggregatedCounter({}) },
     }),
     createClient: mock(() =>
       Promise.resolve({ client: { exec: async () => ({}) }, close: () => {} }),
@@ -53,9 +58,9 @@ describe("CoreHealthCheckRegistry", () => {
       version: 1,
       schema: z.record(z.string(), z.unknown()),
     }),
-    aggregatedResult: new Versioned({
+    aggregatedResult: new VersionedAggregated({
       version: 1,
-      schema: z.record(z.string(), z.unknown()),
+      fields: { count: aggregatedCounter({}) },
     }),
     createClient: mock(() =>
       Promise.resolve({ client: { exec: async () => ({}) }, close: () => {} }),

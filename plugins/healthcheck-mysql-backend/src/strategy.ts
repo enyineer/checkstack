@@ -3,22 +3,20 @@ import {
   HealthCheckStrategy,
   HealthCheckRunForAggregation,
   Versioned,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedMinMax,
+  aggregatedRate,
+  aggregatedCounter,
+  mergeAverage,
+  mergeRate,
+  mergeCounter,
+  mergeMinMax,
   z,
   configString,
   configNumber,
   type ConnectedClient,
-  mergeAverage,
-  averageStateSchema,
-  mergeRate,
-  rateStateSchema,
-  mergeCounter,
-  counterStateSchema,
-  mergeMinMax,
-  minMaxStateSchema,
-  type AverageState,
-  type RateState,
-  type CounterState,
-  type MinMaxState,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -80,45 +78,32 @@ const mysqlResultSchema = healthResultSchema({
 
 type MysqlResult = z.infer<typeof mysqlResultSchema>;
 
-/**
- * Aggregated metadata for buckets.
- */
-// UI-visible aggregated fields (for charts)
-const mysqlAggregatedDisplaySchema = healthResultSchema({
-  avgConnectionTime: healthResultNumber({
+/** Aggregated field definitions for bucket merging */
+const mysqlAggregatedFields = {
+  avgConnectionTime: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Connection Time",
     "x-chart-unit": "ms",
   }),
-  maxConnectionTime: healthResultNumber({
+  maxConnectionTime: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Connection Time",
     "x-chart-unit": "ms",
   }),
-  successRate: healthResultNumber({
+  successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-  errorCount: healthResultNumber({
+  errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),
-});
+};
 
-// Internal state for incremental aggregation
-const mysqlAggregatedInternalSchema = z.object({
-  _connectionTime: averageStateSchema.optional(),
-  _maxConnectionTime: minMaxStateSchema.optional(),
-  _success: rateStateSchema.optional(),
-  _errors: counterStateSchema.optional(),
-});
-
-const mysqlAggregatedSchema = mysqlAggregatedDisplaySchema.merge(
-  mysqlAggregatedInternalSchema,
-);
-
-type MysqlAggregatedResult = z.infer<typeof mysqlAggregatedSchema>;
+type MysqlAggregatedResult = InferAggregatedResult<
+  typeof mysqlAggregatedFields
+>;
 
 // ============================================================================
 // DATABASE CLIENT INTERFACE (for testability)
@@ -176,7 +161,7 @@ export class MysqlHealthCheckStrategy implements HealthCheckStrategy<
   MysqlConfig,
   MysqlTransportClient,
   MysqlResult,
-  MysqlAggregatedResult
+  typeof mysqlAggregatedFields
 > {
   id = "mysql";
   displayName = "MySQL Health Check";
@@ -214,9 +199,9 @@ export class MysqlHealthCheckStrategy implements HealthCheckStrategy<
     ],
   });
 
-  aggregatedResult: Versioned<MysqlAggregatedResult> = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: mysqlAggregatedSchema,
+    fields: mysqlAggregatedFields,
   });
 
   mergeResult(
@@ -225,40 +210,23 @@ export class MysqlHealthCheckStrategy implements HealthCheckStrategy<
   ): MysqlAggregatedResult {
     const metadata = run.metadata;
 
-    // Merge connection time average
-    const connectionTimeState = mergeAverage(
-      existing?._connectionTime as AverageState | undefined,
+    const avgConnectionTime = mergeAverage(
+      existing?.avgConnectionTime,
       metadata?.connectionTimeMs,
     );
 
-    // Merge max connection time
-    const maxConnectionTimeState = mergeMinMax(
-      existing?._maxConnectionTime as MinMaxState | undefined,
+    const maxConnectionTime = mergeMinMax(
+      existing?.maxConnectionTime,
       metadata?.connectionTimeMs,
     );
 
-    // Merge success rate
-    const successState = mergeRate(
-      existing?._success as RateState | undefined,
-      metadata?.connected,
-    );
+    const isSuccess = metadata?.connected ?? false;
+    const successRate = mergeRate(existing?.successRate, isSuccess);
 
-    // Merge error count
-    const errorState = mergeCounter(
-      existing?._errors as CounterState | undefined,
-      metadata?.error !== undefined,
-    );
+    const hasError = metadata?.error !== undefined;
+    const errorCount = mergeCounter(existing?.errorCount, hasError);
 
-    return {
-      avgConnectionTime: connectionTimeState.avg,
-      maxConnectionTime: maxConnectionTimeState.max,
-      successRate: successState.rate,
-      errorCount: errorState.count,
-      _connectionTime: connectionTimeState,
-      _maxConnectionTime: maxConnectionTimeState,
-      _success: successState,
-      _errors: errorState,
-    };
+    return { avgConnectionTime, maxConnectionTime, successRate, errorCount };
   }
 
   async createClient(

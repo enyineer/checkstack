@@ -1,4 +1,7 @@
-import type { CollectorRegistry } from "@checkstack/backend-api";
+import type {
+  CollectorRegistry,
+  HealthCheckRegistry,
+} from "@checkstack/backend-api";
 
 // ===== Percentile Calculation =====
 
@@ -163,6 +166,156 @@ export function aggregateCollectorData(
   return result;
 }
 
+// ===== Bucket Result Merging =====
+
+/**
+ * Merge pre-computed aggregated results from multiple buckets.
+ * Uses each collector's VersionedAggregated.mergeAggregatedStates for precise re-aggregation.
+ * Also merges strategy-level fields using the strategy's mergeAggregatedStates.
+ *
+ * @param aggregatedResults - Array of aggregatedResult objects from buckets
+ * @param collectorRegistry - Registry to look up collector merge functions
+ * @param registry - HealthCheckRegistry for strategy-level merging
+ * @param strategyId - Strategy ID for strategy-level merging
+ * @returns Merged aggregated result, or undefined if no data
+ */
+export function mergeAggregatedBucketResults(params: {
+  aggregatedResults: Array<Record<string, unknown> | undefined>;
+  collectorRegistry: CollectorRegistry;
+  registry: HealthCheckRegistry;
+  strategyId: string;
+}): Record<string, unknown> | undefined {
+  const { aggregatedResults, collectorRegistry, registry, strategyId } = params;
+
+  // Filter out undefined results
+  const validResults = aggregatedResults.filter(
+    (r): r is Record<string, unknown> => r !== undefined,
+  );
+
+  if (validResults.length === 0) {
+    return undefined;
+  }
+
+  // If only one result, return it directly
+  if (validResults.length === 1) {
+    return validResults[0];
+  }
+
+  // === Strategy-level field merging ===
+  let mergedStrategyFields: Record<string, unknown> = {};
+
+  const registeredStrategy = registry.getStrategy(strategyId);
+  if (registeredStrategy?.aggregatedResult) {
+    // Extract strategy-level fields (everything except 'collectors')
+    const strategyDataSets: Array<Record<string, unknown>> = [];
+    for (const result of validResults) {
+      const { collectors: _collectors, ...strategyFields } = result;
+      if (Object.keys(strategyFields).length > 0) {
+        strategyDataSets.push(strategyFields);
+      }
+    }
+
+    // Merge strategy-level fields using the strategy's mergeAggregatedStates
+    if (strategyDataSets.length > 0) {
+      let merged: Record<string, unknown> | undefined;
+      for (const data of strategyDataSets) {
+        merged =
+          merged === undefined
+            ? data
+            : registeredStrategy.aggregatedResult.mergeAggregatedStates(
+                merged,
+                data,
+              );
+      }
+      if (merged) {
+        mergedStrategyFields = merged;
+      }
+    }
+  } else {
+    // Strategy not found - preserve strategy fields from first result
+    const { collectors: _collectors, ...firstStrategyFields } = validResults[0];
+    mergedStrategyFields = firstStrategyFields;
+  }
+
+  // === Collector-level field merging ===
+
+  // Extract collectors from each result
+  const allCollectors = validResults.map(
+    (r) => (r.collectors ?? {}) as Record<string, Record<string, unknown>>,
+  );
+
+  // Find all unique collector UUIDs across all results
+  const allUuids = new Set<string>();
+  for (const collectors of allCollectors) {
+    for (const uuid of Object.keys(collectors)) {
+      allUuids.add(uuid);
+    }
+  }
+
+  // Merge each collector's data
+  const mergedCollectors: Record<string, Record<string, unknown>> = {};
+
+  for (const uuid of allUuids) {
+    // Collect all data for this UUID
+    const dataForUuid: Array<Record<string, unknown>> = [];
+    let collectorId: string | undefined;
+
+    for (const collectors of allCollectors) {
+      const data = collectors[uuid];
+      if (data) {
+        collectorId = collectorId ?? (data._collectorId as string);
+        dataForUuid.push(data);
+      }
+    }
+
+    if (!collectorId || dataForUuid.length === 0) {
+      continue;
+    }
+
+    // Get the collector's merge function
+    const registered = collectorRegistry.getCollector(collectorId);
+    if (!registered?.collector.aggregatedResult) {
+      // Can't merge, preserve first data
+      mergedCollectors[uuid] = dataForUuid[0];
+      continue;
+    }
+
+    // Merge all data using mergeAggregatedStates
+    // Strip _collectorId before merging
+    let merged: Record<string, unknown> | undefined;
+    for (const data of dataForUuid) {
+      const { _collectorId, ...stateData } = data;
+      merged =
+        merged === undefined
+          ? stateData
+          : registered.collector.aggregatedResult.mergeAggregatedStates(
+              merged,
+              stateData,
+            );
+    }
+
+    if (merged) {
+      mergedCollectors[uuid] = {
+        _collectorId: collectorId,
+        ...merged,
+      };
+    }
+  }
+
+  // Combine strategy fields and collector fields
+  const hasCollectors = Object.keys(mergedCollectors).length > 0;
+  const hasStrategyFields = Object.keys(mergedStrategyFields).length > 0;
+
+  if (!hasCollectors && !hasStrategyFields) {
+    return undefined;
+  }
+
+  return {
+    ...mergedStrategyFields,
+    ...(hasCollectors ? { collectors: mergedCollectors } : {}),
+  };
+}
+
 // ===== Cross-Tier Aggregation =====
 
 /**
@@ -316,13 +469,26 @@ export function mergeTieredBuckets(params: {
 /**
  * Combine multiple buckets into a single bucket.
  * Used when re-aggregating smaller buckets into larger target buckets.
+ *
+ * Uses automatic merging via each strategy's and collector's
+ * VersionedAggregated.mergeAggregatedStates method.
  */
 export function combineBuckets(params: {
   buckets: NormalizedBucket[];
   targetBucketStart: Date;
   targetBucketEndMs: number;
+  collectorRegistry: CollectorRegistry;
+  registry: HealthCheckRegistry;
+  strategyId: string;
 }): NormalizedBucket {
-  const { buckets, targetBucketStart, targetBucketEndMs } = params;
+  const {
+    buckets,
+    targetBucketStart,
+    targetBucketEndMs,
+    collectorRegistry,
+    registry,
+    strategyId,
+  } = params;
 
   if (buckets.length === 0) {
     return {
@@ -356,7 +522,7 @@ export function combineBuckets(params: {
   // Track which tier the data primarily comes from
   let lowestPriorityTier: NormalizedBucket["sourceTier"] = "raw";
 
-  // Track aggregatedResults - only preserve if single bucket or all from raw
+  // Collect aggregatedResults for merging
   const aggregatedResults: Array<Record<string, unknown> | undefined> = [];
 
   for (const bucket of buckets) {
@@ -388,18 +554,13 @@ export function combineBuckets(params: {
     aggregatedResults.push(bucket.aggregatedResult);
   }
 
-  // Preserve aggregatedResult if there's exactly one bucket (no re-aggregation needed)
-  // or if there's exactly one non-undefined result and all buckets are raw
-  let preservedAggregatedResult: Record<string, unknown> | undefined;
-  if (buckets.length === 1) {
-    preservedAggregatedResult = buckets[0].aggregatedResult;
-  } else if (
-    lowestPriorityTier === "raw" &&
-    aggregatedResults.filter((r) => r !== undefined).length === 1
-  ) {
-    // All raw buckets, and exactly one has aggregatedResult
-    preservedAggregatedResult = aggregatedResults.find((r) => r !== undefined);
-  }
+  // Merge aggregatedResults using registries for precise re-aggregation
+  const mergedAggregatedResult = mergeAggregatedBucketResults({
+    aggregatedResults,
+    collectorRegistry,
+    registry,
+    strategyId,
+  });
 
   return {
     bucketStart: targetBucketStart,
@@ -413,8 +574,8 @@ export function combineBuckets(params: {
     maxLatencyMs: maxValues.length > 0 ? Math.max(...maxValues) : undefined,
     // Use max of p95s as conservative upper-bound approximation
     p95LatencyMs: p95Values.length > 0 ? Math.max(...p95Values) : undefined,
-    // Preserve aggregatedResult only when no actual re-aggregation is needed
-    aggregatedResult: preservedAggregatedResult,
+    // Automatically merged aggregatedResult
+    aggregatedResult: mergedAggregatedResult,
     sourceTier: lowestPriorityTier,
   };
 }
@@ -422,6 +583,9 @@ export function combineBuckets(params: {
 /**
  * Re-aggregate a list of normalized buckets into target-sized buckets.
  * Groups source buckets by target bucket boundaries and combines them.
+ *
+ * Uses automatic merging of aggregatedResult via each strategy's and
+ * collector's VersionedAggregated.mergeAggregatedStates method.
  *
  * @param rangeEnd - The end of the query range. The last bucket will extend
  *   to this time to ensure data is visually represented up to the query end.
@@ -431,8 +595,19 @@ export function reaggregateBuckets(params: {
   targetIntervalMs: number;
   rangeStart: Date;
   rangeEnd: Date;
+  collectorRegistry: CollectorRegistry;
+  registry: HealthCheckRegistry;
+  strategyId: string;
 }): NormalizedBucket[] {
-  const { sourceBuckets, targetIntervalMs, rangeStart, rangeEnd } = params;
+  const {
+    sourceBuckets,
+    targetIntervalMs,
+    rangeStart,
+    rangeEnd,
+    collectorRegistry,
+    registry,
+    strategyId,
+  } = params;
 
   if (sourceBuckets.length === 0) {
     return [];
@@ -473,6 +648,9 @@ export function reaggregateBuckets(params: {
         buckets,
         targetBucketStart,
         targetBucketEndMs,
+        collectorRegistry,
+        registry,
+        strategyId,
       }),
     );
   }

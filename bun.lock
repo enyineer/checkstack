@@ -152,6 +152,7 @@
       "version": "0.5.2",
       "dependencies": {
         "@checkstack/common": "workspace:*",
+        "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/queue-api": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@orpc/client": "^1.13.2",

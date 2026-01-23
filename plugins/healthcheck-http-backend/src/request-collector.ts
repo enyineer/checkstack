@@ -7,8 +7,10 @@ import {
   type CollectorStrategy,
   mergeAverage,
   mergeRate,
-  averageStateSchema,
-  rateStateSchema,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedRate,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -80,32 +82,24 @@ const requestResultSchema = healthResultSchema({
 
 export type RequestResult = z.infer<typeof requestResultSchema>;
 
-// UI-visible aggregated fields (for charts)
-const requestAggregatedDisplaySchema = healthResultSchema({
-  avgResponseTimeMs: healthResultNumber({
+// Aggregated result fields definition
+const requestAggregatedFields = {
+  avgResponseTimeMs: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Response Time",
     "x-chart-unit": "ms",
   }),
-  successRate: healthResultNumber({
+  successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-});
+};
 
-// Internal state for incremental aggregation (not shown in charts)
-const requestAggregatedInternalSchema = z.object({
-  _responseTime: averageStateSchema.optional(),
-  _success: rateStateSchema.optional(),
-});
-
-// Combined schema for storage
-const requestAggregatedSchema = requestAggregatedDisplaySchema.and(
-  requestAggregatedInternalSchema,
-);
-
-export type RequestAggregatedResult = z.infer<typeof requestAggregatedSchema>;
+// Type inferred automatically from field definitions
+export type RequestAggregatedResult = InferAggregatedResult<
+  typeof requestAggregatedFields
+>;
 
 // ============================================================================
 // REQUEST COLLECTOR
@@ -131,9 +125,9 @@ export class RequestCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: requestConfigSchema });
   result = new Versioned({ version: 1, schema: requestResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: requestAggregatedSchema,
+    fields: requestAggregatedFields,
   });
 
   async execute({
@@ -182,17 +176,12 @@ export class RequestCollector implements CollectorStrategy<
     existing: RequestAggregatedResult | undefined,
     newRun: HealthCheckRunForAggregation<RequestResult>,
   ): RequestAggregatedResult {
-    const responseTime = mergeAverage(
-      existing?._responseTime,
-      newRun.metadata?.responseTimeMs,
-    );
-    const success = mergeRate(existing?._success, newRun.metadata?.success);
-
     return {
-      avgResponseTimeMs: responseTime.avg,
-      successRate: success.rate,
-      _responseTime: responseTime,
-      _success: success,
+      avgResponseTimeMs: mergeAverage(
+        existing?.avgResponseTimeMs,
+        newRun.metadata?.responseTimeMs,
+      ),
+      successRate: mergeRate(existing?.successRate, newRun.metadata?.success),
     };
   }
 }

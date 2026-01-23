@@ -6,10 +6,10 @@ import {
   type CollectorStrategy,
   mergeAverage,
   mergeMinMax,
-  averageStateSchema,
-  minMaxStateSchema,
-  type AverageState,
-  type MinMaxState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedMinMax,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -83,34 +83,26 @@ const nodeHealthResultSchema = z.object({
 
 export type NodeHealthResult = z.infer<typeof nodeHealthResultSchema>;
 
-const nodeHealthAggregatedDisplaySchema = z.object({
-  avgOnlineNodes: healthResultNumber({
+// Aggregated result fields definition
+const nodeHealthAggregatedFields = {
+  avgOnlineNodes: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Online Nodes",
   }),
-  avgUtilization: healthResultNumber({
+  avgUtilization: aggregatedAverage({
     "x-chart-type": "gauge",
     "x-chart-label": "Avg Utilization",
     "x-chart-unit": "%",
   }),
-  minOnlineNodes: healthResultNumber({
+  minOnlineNodes: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Min Online Nodes",
   }),
-});
+};
 
-const nodeHealthAggregatedInternalSchema = z.object({
-  _onlineNodes: averageStateSchema.optional(),
-  _utilization: averageStateSchema.optional(),
-  _minOnlineNodes: minMaxStateSchema.optional(),
-});
-
-const nodeHealthAggregatedSchema = nodeHealthAggregatedDisplaySchema.merge(
-  nodeHealthAggregatedInternalSchema,
-);
-
-export type NodeHealthAggregatedResult = z.infer<
-  typeof nodeHealthAggregatedSchema
+// Type inferred from field definitions
+export type NodeHealthAggregatedResult = InferAggregatedResult<
+  typeof nodeHealthAggregatedFields
 >;
 
 // ============================================================================
@@ -136,9 +128,9 @@ export class NodeHealthCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: nodeHealthConfigSchema });
   result = new Versioned({ version: 1, schema: nodeHealthResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: nodeHealthAggregatedSchema,
+    fields: nodeHealthAggregatedFields,
   });
 
   async execute({
@@ -294,28 +286,19 @@ export class NodeHealthCollector implements CollectorStrategy<
   ): NodeHealthAggregatedResult {
     const metadata = run.metadata;
 
-    const onlineNodesState = mergeAverage(
-      existing?._onlineNodes as AverageState | undefined,
-      metadata?.onlineNodes,
-    );
-
-    const utilizationState = mergeAverage(
-      existing?._utilization as AverageState | undefined,
-      metadata?.executorUtilization,
-    );
-
-    const minOnlineNodesState = mergeMinMax(
-      existing?._minOnlineNodes as MinMaxState | undefined,
-      metadata?.onlineNodes,
-    );
-
     return {
-      avgOnlineNodes: onlineNodesState.avg,
-      avgUtilization: utilizationState.avg,
-      minOnlineNodes: minOnlineNodesState.min,
-      _onlineNodes: onlineNodesState,
-      _utilization: utilizationState,
-      _minOnlineNodes: minOnlineNodesState,
+      avgOnlineNodes: mergeAverage(
+        existing?.avgOnlineNodes,
+        metadata?.onlineNodes,
+      ),
+      avgUtilization: mergeAverage(
+        existing?.avgUtilization,
+        metadata?.executorUtilization,
+      ),
+      minOnlineNodes: mergeMinMax(
+        existing?.minOnlineNodes,
+        metadata?.onlineNodes,
+      ),
     };
   }
 }

@@ -7,11 +7,11 @@ import {
   type CollectorResult,
   type CollectorStrategy,
   mergeAverage,
-  averageStateSchema,
   mergeRate,
-  rateStateSchema,
-  type AverageState,
-  type RateState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedRate,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -179,30 +179,23 @@ const inlineScriptResultSchema = healthResultSchema({
 
 export type InlineScriptResult = z.infer<typeof inlineScriptResultSchema>;
 
-const inlineScriptAggregatedDisplaySchema = healthResultSchema({
-  avgExecutionTimeMs: healthResultNumber({
+// Aggregated result fields definition
+const inlineScriptAggregatedFields = {
+  avgExecutionTimeMs: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Execution Time",
     "x-chart-unit": "ms",
   }),
-  successRate: healthResultNumber({
+  successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-});
+};
 
-const inlineScriptAggregatedInternalSchema = z.object({
-  _executionTime: averageStateSchema.optional(),
-  _success: rateStateSchema.optional(),
-});
-
-const inlineScriptAggregatedSchema = inlineScriptAggregatedDisplaySchema.merge(
-  inlineScriptAggregatedInternalSchema,
-);
-
-export type InlineScriptAggregatedResult = z.infer<
-  typeof inlineScriptAggregatedSchema
+// Type inferred from field definitions
+export type InlineScriptAggregatedResult = InferAggregatedResult<
+  typeof inlineScriptAggregatedFields
 >;
 
 // ============================================================================
@@ -253,9 +246,9 @@ export class InlineScriptCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: inlineScriptConfigSchema });
   result = new Versioned({ version: 1, schema: inlineScriptResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: inlineScriptAggregatedSchema,
+    fields: inlineScriptAggregatedFields,
   });
 
   async execute({
@@ -344,21 +337,12 @@ export class InlineScriptCollector implements CollectorStrategy<
   ): InlineScriptAggregatedResult {
     const metadata = run.metadata;
 
-    const executionTimeState = mergeAverage(
-      existing?._executionTime as AverageState | undefined,
-      metadata?.executionTimeMs,
-    );
-
-    const successState = mergeRate(
-      existing?._success as RateState | undefined,
-      metadata?.success,
-    );
-
     return {
-      avgExecutionTimeMs: executionTimeState.avg,
-      successRate: successState.rate,
-      _executionTime: executionTimeState,
-      _success: successState,
+      avgExecutionTimeMs: mergeAverage(
+        existing?.avgExecutionTimeMs,
+        metadata?.executionTimeMs,
+      ),
+      successRate: mergeRate(existing?.successRate, metadata?.success),
     };
   }
 }

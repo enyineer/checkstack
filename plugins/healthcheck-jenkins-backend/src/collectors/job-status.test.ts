@@ -141,8 +141,8 @@ describe("JobStatusCollector", () => {
     aggregated = collector.mergeResult(aggregated, runs[1]);
     aggregated = collector.mergeResult(aggregated, runs[2]);
 
-    expect(aggregated.successRate).toBe(67); // 2/3
-    expect(aggregated.avgBuildDurationMs).toBe(60000); // (60000+80000+40000)/3
-    expect(aggregated.buildableRate).toBe(100);
+    expect(aggregated.successRate.rate).toBe(67); // 2/3
+    expect(aggregated.avgBuildDurationMs.avg).toBe(60000); // (60000+80000+40000)/3
+    expect(aggregated.buildableRate.rate).toBe(100);
   });
 });

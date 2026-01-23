@@ -120,7 +120,7 @@ describe("HealthCheckService data ordering", () => {
       mockRuns = [newRun, midRun, oldRun];
 
       const mockDb = createMockDb();
-      service = new HealthCheckService(mockDb as never, mockRegistry as never);
+      service = new HealthCheckService(mockDb as never, mockRegistry as never, {} as never);
 
       const result = await service.getSystemHealthOverview("system-1");
 
@@ -155,7 +155,7 @@ describe("HealthCheckService data ordering", () => {
       }));
 
       const mockDb = createMockDb();
-      service = new HealthCheckService(mockDb as never, mockRegistry as never);
+      service = new HealthCheckService(mockDb as never, mockRegistry as never, {} as never);
 
       const result = await service.getSystemHealthOverview("system-1");
 
@@ -188,7 +188,7 @@ describe("HealthCheckService data ordering", () => {
       ];
 
       const mockDb = createMockDb();
-      service = new HealthCheckService(mockDb as never, mockRegistry as never);
+      service = new HealthCheckService(mockDb as never, mockRegistry as never, {} as never);
 
       const result = await service.getHistory({
         systemId: "sys-1",
@@ -223,7 +223,7 @@ describe("HealthCheckService data ordering", () => {
       ];
 
       const mockDb = createMockDb();
-      service = new HealthCheckService(mockDb as never, mockRegistry as never);
+      service = new HealthCheckService(mockDb as never, mockRegistry as never, {} as never);
 
       const result = await service.getHistory({
         systemId: "sys-1",
@@ -259,7 +259,7 @@ describe("HealthCheckService data ordering", () => {
       ];
 
       const mockDb = createMockDb();
-      service = new HealthCheckService(mockDb as never, mockRegistry as never);
+      service = new HealthCheckService(mockDb as never, mockRegistry as never, {} as never);
 
       const result = await service.getDetailedHistory({
         systemId: "sys-1",
@@ -296,7 +296,7 @@ describe("HealthCheckService data ordering", () => {
       ];
 
       const mockDb = createMockDb();
-      service = new HealthCheckService(mockDb as never, mockRegistry as never);
+      service = new HealthCheckService(mockDb as never, mockRegistry as never, {} as never);
 
       const result = await service.getDetailedHistory({
         systemId: "sys-1",

@@ -101,7 +101,7 @@ describe("BuildHistoryCollector", () => {
     let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-    expect(aggregated.avgSuccessRate).toBe(70);
-    expect(aggregated.avgBuildDuration).toBe(70000);
+    expect(aggregated.avgSuccessRate.avg).toBe(70);
+    expect(aggregated.avgBuildDuration.avg).toBe(70000);
   });
 });

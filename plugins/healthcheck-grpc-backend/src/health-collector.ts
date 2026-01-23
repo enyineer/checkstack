@@ -5,11 +5,11 @@ import {
   type CollectorResult,
   type CollectorStrategy,
   mergeAverage,
-  averageStateSchema,
   mergeRate,
-  rateStateSchema,
-  type AverageState,
-  type RateState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedRate,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -55,31 +55,24 @@ const grpcHealthResultSchema = healthResultSchema({
 
 export type HealthResult = z.infer<typeof grpcHealthResultSchema>;
 
-const healthAggregatedDisplaySchema = healthResultSchema({
-  avgResponseTimeMs: healthResultNumber({
+// Aggregated result fields definition
+const healthAggregatedFields = {
+  avgResponseTimeMs: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Response Time",
     "x-chart-unit": "ms",
   }),
-  servingRate: healthResultNumber({
+  servingRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Serving Rate",
     "x-chart-unit": "%",
   }),
-});
+};
 
-const healthAggregatedInternalSchema = z.object({
-  _responseTime: averageStateSchema
-    .optional(),
-  _serving: rateStateSchema
-    .optional(),
-});
-
-const healthAggregatedSchema = healthAggregatedDisplaySchema.merge(
-  healthAggregatedInternalSchema,
-);
-
-export type HealthAggregatedResult = z.infer<typeof healthAggregatedSchema>;
+// Type inferred from field definitions
+export type HealthAggregatedResult = InferAggregatedResult<
+  typeof healthAggregatedFields
+>;
 
 // ============================================================================
 // HEALTH COLLECTOR
@@ -105,9 +98,9 @@ export class HealthCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: healthConfigSchema });
   result = new Versioned({ version: 1, schema: grpcHealthResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: healthAggregatedSchema,
+    fields: healthAggregatedFields,
   });
 
   async execute({
@@ -144,21 +137,12 @@ export class HealthCollector implements CollectorStrategy<
   ): HealthAggregatedResult {
     const metadata = run.metadata;
 
-    const responseTimeState = mergeAverage(
-      existing?._responseTime as AverageState | undefined,
-      metadata?.responseTimeMs,
-    );
-
-    const servingState = mergeRate(
-      existing?._serving as RateState | undefined,
-      metadata?.serving,
-    );
-
     return {
-      avgResponseTimeMs: responseTimeState.avg,
-      servingRate: servingState.rate,
-      _responseTime: responseTimeState,
-      _serving: servingState,
+      avgResponseTimeMs: mergeAverage(
+        existing?.avgResponseTimeMs,
+        metadata?.responseTimeMs,
+      ),
+      servingRate: mergeRate(existing?.servingRate, metadata?.serving),
     };
   }
 }

@@ -111,8 +111,8 @@ players : 1 human, 0 bots (16 max)`);
       let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.avgHumanPlayers).toBe(10);
-      expect(aggregated.maxHumanPlayers).toBe(15);
+      expect(aggregated.avgHumanPlayers.avg).toBe(10);
+      expect(aggregated.maxHumanPlayers.max).toBe(15);
     });
   });
 

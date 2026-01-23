@@ -6,10 +6,10 @@ import {
   type CollectorStrategy,
   mergeAverage,
   mergeRate,
-  averageStateSchema,
-  rateStateSchema,
-  type AverageState,
-  type RateState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedRate,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -51,29 +51,24 @@ const queryResultSchema = healthResultSchema({
 
 export type QueryResult = z.infer<typeof queryResultSchema>;
 
-const queryAggregatedDisplaySchema = healthResultSchema({
-  avgExecutionTimeMs: healthResultNumber({
+// Aggregated result fields definition
+const queryAggregatedFields = {
+  avgExecutionTimeMs: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Execution Time",
     "x-chart-unit": "ms",
   }),
-  successRate: healthResultNumber({
+  successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-});
+};
 
-const queryAggregatedInternalSchema = z.object({
-  _executionTime: averageStateSchema.optional(),
-  _success: rateStateSchema.optional(),
-});
-
-const queryAggregatedSchema = queryAggregatedDisplaySchema.merge(
-  queryAggregatedInternalSchema,
-);
-
-export type QueryAggregatedResult = z.infer<typeof queryAggregatedSchema>;
+// Type inferred from field definitions
+export type QueryAggregatedResult = InferAggregatedResult<
+  typeof queryAggregatedFields
+>;
 
 // ============================================================================
 // QUERY COLLECTOR
@@ -99,9 +94,9 @@ export class QueryCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: queryConfigSchema });
   result = new Versioned({ version: 1, schema: queryResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: queryAggregatedSchema,
+    fields: queryAggregatedFields,
   });
 
   async execute({
@@ -133,21 +128,12 @@ export class QueryCollector implements CollectorStrategy<
   ): QueryAggregatedResult {
     const metadata = run.metadata;
 
-    const executionTimeState = mergeAverage(
-      existing?._executionTime as AverageState | undefined,
-      metadata?.executionTimeMs,
-    );
-
-    const successState = mergeRate(
-      existing?._success as RateState | undefined,
-      metadata?.success,
-    );
-
     return {
-      avgExecutionTimeMs: executionTimeState.avg,
-      successRate: successState.rate,
-      _executionTime: executionTimeState,
-      _success: successState,
+      avgExecutionTimeMs: mergeAverage(
+        existing?.avgExecutionTimeMs,
+        metadata?.executionTimeMs,
+      ),
+      successRate: mergeRate(existing?.successRate, metadata?.success),
     };
   }
 }

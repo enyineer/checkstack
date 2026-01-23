@@ -218,7 +218,7 @@ describe("HttpHealthCheckStrategy", () => {
       aggregated = strategy.mergeResult(aggregated, runs[1]);
       aggregated = strategy.mergeResult(aggregated, runs[2]);
 
-      expect(aggregated.errorCount).toBe(2);
+      expect(aggregated.errorCount.count).toBe(2);
     });
 
     it("should return zero errors when all runs succeed", () => {
@@ -245,7 +245,7 @@ describe("HttpHealthCheckStrategy", () => {
       let aggregated = strategy.mergeResult(undefined, runs[0]);
       aggregated = strategy.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.errorCount).toBe(0);
+      expect(aggregated.errorCount.count).toBe(0);
     });
   });
 });

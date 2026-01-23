@@ -2,17 +2,16 @@ import {
   HealthCheckStrategy,
   HealthCheckRunForAggregation,
   Versioned,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedRate,
+  aggregatedCounter,
+  mergeAverage,
+  mergeRate,
+  mergeCounter,
   z,
   type ConnectedClient,
-  mergeAverage,
-  averageStateSchema,
-  mergeRate,
-  rateStateSchema,
-  mergeCounter,
-  counterStateSchema,
-  type AverageState,
-  type RateState,
-  type CounterState,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -79,41 +78,25 @@ const tcpResultSchema = healthResultSchema({
 
 type TcpResult = z.infer<typeof tcpResultSchema>;
 
-/**
- * Aggregated metadata for buckets.
- */
-// UI-visible aggregated fields
-const tcpAggregatedDisplaySchema = healthResultSchema({
-  avgConnectionTime: healthResultNumber({
+/** Aggregated field definitions for bucket merging */
+const tcpAggregatedFields = {
+  avgConnectionTime: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Connection Time",
     "x-chart-unit": "ms",
   }),
-  successRate: healthResultNumber({
+  successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-  errorCount: healthResultNumber({
+  errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),
-});
+};
 
-// Internal state for incremental aggregation
-const tcpAggregatedInternalSchema = z.object({
-  _connectionTime: averageStateSchema
-    .optional(),
-  _success: rateStateSchema
-    .optional(),
-  _errors: counterStateSchema.optional(),
-});
-
-const tcpAggregatedSchema = tcpAggregatedDisplaySchema.merge(
-  tcpAggregatedInternalSchema,
-);
-
-type TcpAggregatedResult = z.infer<typeof tcpAggregatedSchema>;
+type TcpAggregatedResult = InferAggregatedResult<typeof tcpAggregatedFields>;
 
 // ============================================================================
 // SOCKET INTERFACE (for testability)
@@ -186,7 +169,7 @@ export class TcpHealthCheckStrategy implements HealthCheckStrategy<
   TcpConfig,
   TcpTransportClient,
   TcpResult,
-  TcpAggregatedResult
+  typeof tcpAggregatedFields
 > {
   id = "tcp";
   displayName = "TCP Health Check";
@@ -228,9 +211,9 @@ export class TcpHealthCheckStrategy implements HealthCheckStrategy<
     ],
   });
 
-  aggregatedResult: Versioned<TcpAggregatedResult> = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: tcpAggregatedSchema,
+    fields: tcpAggregatedFields,
   });
 
   mergeResult(
@@ -239,29 +222,18 @@ export class TcpHealthCheckStrategy implements HealthCheckStrategy<
   ): TcpAggregatedResult {
     const metadata = run.metadata;
 
-    const connectionTimeState = mergeAverage(
-      existing?._connectionTime as AverageState | undefined,
+    const avgConnectionTime = mergeAverage(
+      existing?.avgConnectionTime,
       metadata?.connectionTimeMs,
     );
 
-    const successState = mergeRate(
-      existing?._success as RateState | undefined,
-      metadata?.connected,
-    );
+    const isSuccess = metadata?.connected ?? false;
+    const successRate = mergeRate(existing?.successRate, isSuccess);
 
-    const errorState = mergeCounter(
-      existing?._errors as CounterState | undefined,
-      metadata?.error !== undefined,
-    );
+    const hasError = metadata?.error !== undefined;
+    const errorCount = mergeCounter(existing?.errorCount, hasError);
 
-    return {
-      avgConnectionTime: connectionTimeState.avg,
-      successRate: successState.rate,
-      errorCount: errorState.count,
-      _connectionTime: connectionTimeState,
-      _success: successState,
-      _errors: errorState,
-    };
+    return { avgConnectionTime, successRate, errorCount };
   }
 
   async createClient(

@@ -175,10 +175,10 @@ describe("ScriptHealthCheckStrategy", () => {
       let aggregated = strategy.mergeResult(undefined, runs[0]);
       aggregated = strategy.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.avgExecutionTime).toBe(75);
-      expect(aggregated.successRate).toBe(100);
-      expect(aggregated.errorCount).toBe(0);
-      expect(aggregated.timeoutCount).toBe(0);
+      expect(aggregated.avgExecutionTime.avg).toBe(75);
+      expect(aggregated.successRate.rate).toBe(100);
+      expect(aggregated.errorCount.count).toBe(0);
+      expect(aggregated.timeoutCount.count).toBe(0);
     });
 
     it("should count errors and timeouts", () => {
@@ -217,9 +217,9 @@ describe("ScriptHealthCheckStrategy", () => {
       let aggregated = strategy.mergeResult(undefined, runs[0]);
       aggregated = strategy.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.errorCount).toBe(1);
-      expect(aggregated.timeoutCount).toBe(1);
-      expect(aggregated.successRate).toBe(0);
+      expect(aggregated.errorCount.count).toBe(1);
+      expect(aggregated.timeoutCount.count).toBe(1);
+      expect(aggregated.successRate.rate).toBe(0);
     });
   });
 });

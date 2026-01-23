@@ -117,8 +117,8 @@ describe("PingCollector", () => {
       let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.avgPacketLoss).toBe(5);
-      expect(aggregated.avgLatency).toBe(15);
+      expect(aggregated.avgPacketLoss.avg).toBe(5);
+      expect(aggregated.avgLatency.avg).toBe(15);
     });
   });
 

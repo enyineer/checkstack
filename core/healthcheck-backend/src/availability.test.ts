@@ -59,7 +59,7 @@ describe("HealthCheckService.getAvailabilityStats", () => {
     mockDailyAggregates = [];
     mockRetentionConfig = undefined;
     mockDb = createMockDb();
-    service = new HealthCheckService(mockDb as never);
+    service = new HealthCheckService(mockDb as never, {} as never, {} as never);
   });
 
   describe("with no data", () => {

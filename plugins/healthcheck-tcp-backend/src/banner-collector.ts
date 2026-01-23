@@ -5,11 +5,11 @@ import {
   type CollectorResult,
   type CollectorStrategy,
   mergeAverage,
-  averageStateSchema,
   mergeRate,
-  rateStateSchema,
-  type AverageState,
-  type RateState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedRate,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -56,31 +56,24 @@ const bannerResultSchema = healthResultSchema({
 
 export type BannerResult = z.infer<typeof bannerResultSchema>;
 
-const bannerAggregatedDisplaySchema = healthResultSchema({
-  avgReadTimeMs: healthResultNumber({
+// Aggregated result fields definition
+const bannerAggregatedFields = {
+  avgReadTimeMs: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Read Time",
     "x-chart-unit": "ms",
   }),
-  bannerRate: healthResultNumber({
+  bannerRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Banner Rate",
     "x-chart-unit": "%",
   }),
-});
+};
 
-const bannerAggregatedInternalSchema = z.object({
-  _readTime: averageStateSchema
-    .optional(),
-  _banner: rateStateSchema
-    .optional(),
-});
-
-const bannerAggregatedSchema = bannerAggregatedDisplaySchema.merge(
-  bannerAggregatedInternalSchema,
-);
-
-export type BannerAggregatedResult = z.infer<typeof bannerAggregatedSchema>;
+// Type inferred from field definitions
+export type BannerAggregatedResult = InferAggregatedResult<
+  typeof bannerAggregatedFields
+>;
 
 // ============================================================================
 // BANNER COLLECTOR
@@ -106,9 +99,9 @@ export class BannerCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: bannerConfigSchema });
   result = new Versioned({ version: 1, schema: bannerResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: bannerAggregatedSchema,
+    fields: bannerAggregatedFields,
   });
 
   async execute({
@@ -143,21 +136,12 @@ export class BannerCollector implements CollectorStrategy<
   ): BannerAggregatedResult {
     const metadata = run.metadata;
 
-    const readTimeState = mergeAverage(
-      existing?._readTime as AverageState | undefined,
-      metadata?.readTimeMs,
-    );
-
-    const bannerState = mergeRate(
-      existing?._banner as RateState | undefined,
-      metadata?.hasBanner,
-    );
-
     return {
-      avgReadTimeMs: readTimeState.avg,
-      bannerRate: bannerState.rate,
-      _readTime: readTimeState,
-      _banner: bannerState,
+      avgReadTimeMs: mergeAverage(
+        existing?.avgReadTimeMs,
+        metadata?.readTimeMs,
+      ),
+      bannerRate: mergeRate(existing?.bannerRate, metadata?.hasBanner),
     };
   }
 }

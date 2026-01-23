@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, mock } from "bun:test";
 import {
   calculatePercentile,
   calculateLatencyStats,
@@ -7,8 +7,35 @@ import {
   mergeTieredBuckets,
   combineBuckets,
   reaggregateBuckets,
+  mergeAggregatedBucketResults,
   type NormalizedBucket,
 } from "./aggregation-utils";
+import {
+  VersionedAggregated,
+  aggregatedCounter,
+  aggregatedAverage,
+  type CollectorRegistry,
+  type HealthCheckRegistry,
+} from "@checkstack/backend-api";
+
+// Helper to create mock registries for testing
+const createMockRegistries = () => {
+  const collectorRegistry: CollectorRegistry = {
+    register: mock(() => {}),
+    getCollector: mock(() => undefined),
+    getCollectors: mock(() => []),
+    getCollectorsForPlugin: mock(() => []),
+  };
+
+  const registry: HealthCheckRegistry = {
+    getStrategy: mock(() => undefined),
+    register: mock(() => {}),
+    getStrategies: mock(() => []),
+    getStrategiesWithMeta: mock(() => []),
+  };
+
+  return { collectorRegistry, registry, strategyId: "test-strategy" };
+};
 
 // Helper to create a NormalizedBucket for testing
 function createBucket(params: {
@@ -409,7 +436,9 @@ describe("aggregation-utils", () => {
 
     it("returns empty bucket for empty input", () => {
       const targetStart = new Date(0);
+      const mocks = createMockRegistries();
       const result = combineBuckets({
+        ...mocks,
         buckets: [],
         targetBucketStart: targetStart,
         targetBucketEndMs: HOUR,
@@ -442,7 +471,9 @@ describe("aggregation-utils", () => {
         }),
       ];
 
+      const mocks = createMockRegistries();
       const result = combineBuckets({
+        ...mocks,
         buckets,
         targetBucketStart: new Date(0),
         targetBucketEndMs: 2 * HOUR,
@@ -470,7 +501,9 @@ describe("aggregation-utils", () => {
         }),
       ];
 
+      const mocks = createMockRegistries();
       const result = combineBuckets({
+        ...mocks,
         buckets,
         targetBucketStart: new Date(0),
         targetBucketEndMs: 2 * HOUR,
@@ -495,7 +528,9 @@ describe("aggregation-utils", () => {
         }),
       ];
 
+      const mocks = createMockRegistries();
       const result = combineBuckets({
+        ...mocks,
         buckets,
         targetBucketStart: new Date(0),
         targetBucketEndMs: 2 * HOUR,
@@ -520,7 +555,9 @@ describe("aggregation-utils", () => {
         }),
       ];
 
+      const mocks = createMockRegistries();
       const result = combineBuckets({
+        ...mocks,
         buckets,
         targetBucketStart: new Date(0),
         targetBucketEndMs: 2 * HOUR,
@@ -545,7 +582,9 @@ describe("aggregation-utils", () => {
         }),
       ];
 
+      const mocks = createMockRegistries();
       const result = combineBuckets({
+        ...mocks,
         buckets,
         targetBucketStart: new Date(0),
         targetBucketEndMs: 2 * HOUR,
@@ -560,7 +599,9 @@ describe("aggregation-utils", () => {
         createBucket({ startMs: HOUR, durationMs: HOUR, sourceTier: "hourly" }),
       ];
 
+      const mocks = createMockRegistries();
       const result = combineBuckets({
+        ...mocks,
         buckets,
         targetBucketStart: new Date(0),
         targetBucketEndMs: 2 * HOUR,
@@ -576,7 +617,9 @@ describe("aggregation-utils", () => {
     const HOUR = 60 * MINUTE;
 
     it("returns empty array for empty input", () => {
+      const mocks = createMockRegistries();
       const result = reaggregateBuckets({
+        ...mocks,
         sourceBuckets: [],
         targetIntervalMs: HOUR,
         rangeStart: new Date(0),
@@ -609,7 +652,9 @@ describe("aggregation-utils", () => {
         }),
       ];
 
+      const mocks = createMockRegistries();
       const result = reaggregateBuckets({
+        ...mocks,
         sourceBuckets,
         targetIntervalMs: HOUR,
         rangeStart: new Date(0),
@@ -643,7 +688,9 @@ describe("aggregation-utils", () => {
         }),
       ];
 
+      const mocks = createMockRegistries();
       const result = reaggregateBuckets({
+        ...mocks,
         sourceBuckets,
         targetIntervalMs: HOUR,
         rangeStart: new Date(0),
@@ -670,7 +717,9 @@ describe("aggregation-utils", () => {
         }),
       ];
 
+      const mocks = createMockRegistries();
       const result = reaggregateBuckets({
+        ...mocks,
         sourceBuckets,
         targetIntervalMs: HOUR,
         rangeStart,
@@ -693,7 +742,9 @@ describe("aggregation-utils", () => {
         createBucket({ startMs: HOUR, durationMs: MINUTE, sourceTier: "raw" }),
       ];
 
+      const mocks = createMockRegistries();
       const result = reaggregateBuckets({
+        ...mocks,
         sourceBuckets,
         targetIntervalMs: HOUR,
         rangeStart: new Date(0),
@@ -704,6 +755,230 @@ describe("aggregation-utils", () => {
       expect(result[0].bucketStart.getTime()).toBe(0);
       expect(result[1].bucketStart.getTime()).toBe(HOUR);
       expect(result[2].bucketStart.getTime()).toBe(2 * HOUR);
+    });
+  });
+
+  describe("mergeAggregatedBucketResults - strategy metadata merging", () => {
+    it("merges strategy-level fields using strategy's mergeAggregatedStates", () => {
+      // Create a strategy with VersionedAggregated that tracks error counts
+      const strategyAggregatedResult = new VersionedAggregated({
+        version: 1,
+        fields: {
+          errorCount: aggregatedCounter({}),
+          avgResponseTime: aggregatedAverage({}),
+        },
+      });
+
+      const mockRegistry: HealthCheckRegistry = {
+        getStrategy: mock(() => ({
+          id: "test-strategy",
+          displayName: "Test",
+          description: "Test",
+          config: { version: 1 } as never,
+          result: { version: 1 } as never,
+          aggregatedResult: strategyAggregatedResult,
+          createClient: mock() as never,
+          mergeResult: mock() as never,
+        })),
+        register: mock(() => {}),
+        getStrategies: mock(() => []),
+        getStrategiesWithMeta: mock(() => []),
+      };
+
+      const mockCollectorRegistry: CollectorRegistry = {
+        register: mock(() => {}),
+        getCollector: mock(() => undefined),
+        getCollectors: mock(() => []),
+        getCollectorsForPlugin: mock(() => []),
+      };
+
+      // Two buckets with strategy-level aggregated data
+      const bucket1 = {
+        errorCount: { count: 5 },
+        avgResponseTime: { _sum: 500, _count: 10, avg: 50 },
+      };
+
+      const bucket2 = {
+        errorCount: { count: 3 },
+        avgResponseTime: { _sum: 300, _count: 5, avg: 60 },
+      };
+
+      const result = mergeAggregatedBucketResults({
+        aggregatedResults: [bucket1, bucket2],
+        collectorRegistry: mockCollectorRegistry,
+        registry: mockRegistry,
+        strategyId: "test-strategy",
+      });
+
+      expect(result).toBeDefined();
+      // Error count should be summed: 5 + 3 = 8
+      expect((result as Record<string, unknown>).errorCount).toEqual({
+        _type: "counter",
+        count: 8,
+      });
+      // Average should be recomputed: (500 + 300) / (10 + 5) = 53.33
+      const avgResult = (result as Record<string, unknown>)
+        .avgResponseTime as Record<string, number>;
+      expect(avgResult._sum).toBe(800);
+      expect(avgResult._count).toBe(15);
+      expect(avgResult.avg).toBeCloseTo(53.33, 1);
+    });
+
+    it("preserves strategy fields when only one bucket exists", () => {
+      const mocks = createMockRegistries();
+
+      const singleBucket = {
+        errorCount: { count: 5 },
+        avgResponseTime: { _sum: 500, _count: 10, avg: 50 },
+      };
+
+      const result = mergeAggregatedBucketResults({
+        aggregatedResults: [singleBucket],
+        ...mocks,
+      });
+
+      expect(result).toEqual(singleBucket);
+    });
+
+    it("returns undefined for empty aggregated results", () => {
+      const mocks = createMockRegistries();
+
+      const result = mergeAggregatedBucketResults({
+        aggregatedResults: [],
+        ...mocks,
+      });
+
+      expect(result).toBeUndefined();
+    });
+
+    it("merges both strategy and collector fields together", () => {
+      // Create a strategy with VersionedAggregated
+      const strategyAggregatedResult = new VersionedAggregated({
+        version: 1,
+        fields: { errorCount: aggregatedCounter({}) },
+      });
+
+      // Create a collector with VersionedAggregated
+      const collectorAggregatedResult = new VersionedAggregated({
+        version: 1,
+        fields: { cpuUsage: aggregatedAverage({}) },
+      });
+
+      const mockRegistry: HealthCheckRegistry = {
+        getStrategy: mock(() => ({
+          id: "test-strategy",
+          displayName: "Test",
+          description: "Test",
+          config: { version: 1 } as never,
+          result: { version: 1 } as never,
+          aggregatedResult: strategyAggregatedResult,
+          createClient: mock() as never,
+          mergeResult: mock() as never,
+        })),
+        register: mock(() => {}),
+        getStrategies: mock(() => []),
+        getStrategiesWithMeta: mock(() => []),
+      };
+
+      const mockCollectorRegistry = {
+        register: mock(() => {}),
+        getCollector: mock((id: string) => {
+          if (id === "test-collector") {
+            return {
+              collector: {
+                id: "test-collector",
+                displayName: "Test Collector",
+                description: "Test",
+                result: { version: 1 },
+                aggregatedResult: collectorAggregatedResult,
+                mergeResult: mock(),
+              },
+              qualifiedId: "test-plugin.test-collector",
+              ownerPlugin: "test-plugin",
+              pluginId: "test-plugin",
+            };
+          }
+          return undefined;
+        }),
+        getCollectors: mock(() => []),
+        getCollectorsForPlugin: mock(() => []),
+      } as unknown as CollectorRegistry;
+
+      // Two buckets with both strategy and collector data
+      const bucket1 = {
+        errorCount: { count: 2 },
+        collectors: {
+          "uuid-1": {
+            _collectorId: "test-collector",
+            cpuUsage: { _sum: 50, _count: 5, avg: 10 },
+          },
+        },
+      };
+
+      const bucket2 = {
+        errorCount: { count: 3 },
+        collectors: {
+          "uuid-1": {
+            _collectorId: "test-collector",
+            cpuUsage: { _sum: 100, _count: 10, avg: 10 },
+          },
+        },
+      };
+
+      const result = mergeAggregatedBucketResults({
+        aggregatedResults: [bucket1, bucket2],
+        collectorRegistry: mockCollectorRegistry,
+        registry: mockRegistry,
+        strategyId: "test-strategy",
+      });
+
+      expect(result).toBeDefined();
+      const typedResult = result as Record<string, unknown>;
+
+      // Strategy-level field merged
+      expect(typedResult.errorCount).toEqual({ _type: "counter", count: 5 });
+
+      // Collector-level field merged
+      const collectors = typedResult.collectors as Record<
+        string,
+        Record<string, unknown>
+      >;
+      expect(collectors["uuid-1"]._collectorId).toBe("test-collector");
+      const cpuUsage = collectors["uuid-1"].cpuUsage as Record<string, number>;
+      expect(cpuUsage._sum).toBe(150);
+      expect(cpuUsage._count).toBe(15);
+    });
+
+    it("falls back to preserving first result when strategy not found", () => {
+      const mockRegistry: HealthCheckRegistry = {
+        getStrategy: mock(() => undefined), // Strategy not found
+        register: mock(() => {}),
+        getStrategies: mock(() => []),
+        getStrategiesWithMeta: mock(() => []),
+      };
+
+      const mockCollectorRegistry: CollectorRegistry = {
+        register: mock(() => {}),
+        getCollector: mock(() => undefined),
+        getCollectors: mock(() => []),
+        getCollectorsForPlugin: mock(() => []),
+      };
+
+      const bucket1 = { errorCount: { count: 5 } };
+      const bucket2 = { errorCount: { count: 3 } };
+
+      const result = mergeAggregatedBucketResults({
+        aggregatedResults: [bucket1, bucket2],
+        collectorRegistry: mockCollectorRegistry,
+        registry: mockRegistry,
+        strategyId: "unknown-strategy",
+      });
+
+      // Should preserve the first bucket's strategy fields (fallback behavior)
+      expect(result).toBeDefined();
+      expect((result as Record<string, unknown>).errorCount).toEqual({
+        count: 5,
+      });
     });
   });
 });

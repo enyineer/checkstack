@@ -3,14 +3,14 @@ import {
   HealthCheckStrategy,
   HealthCheckRunForAggregation,
   Versioned,
+  VersionedAggregated,
+  aggregatedCounter,
+  aggregatedAverage,
+  mergeAverage,
+  mergeCounter,
   z,
   type ConnectedClient,
-  mergeCounter,
-  mergeAverage,
-  averageStateSchema,
-  counterStateSchema,
-  type CounterState,
-  type AverageState,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -76,39 +76,24 @@ const dnsResultSchema = healthResultSchema({
 
 type DnsResult = z.infer<typeof dnsResultSchema>;
 
-/**
- * Aggregated metadata for buckets.
- */
-// UI-visible aggregated fields (for charts)
-const dnsAggregatedDisplaySchema = healthResultSchema({
-  avgResolutionTime: healthResultNumber({
+/** Aggregated field definitions for bucket merging */
+const dnsAggregatedFields = {
+  avgResolutionTime: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Resolution Time",
     "x-chart-unit": "ms",
   }),
-  failureCount: healthResultNumber({
+  failureCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Failures",
   }),
-  errorCount: healthResultNumber({
+  errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),
-});
+};
 
-// Internal state for incremental aggregation (not shown in charts)
-const dnsAggregatedInternalSchema = z.object({
-  _resolutionTime: averageStateSchema.optional(),
-  _failures: counterStateSchema.optional(),
-  _errors: counterStateSchema.optional(),
-});
-
-// Combined schema for storage
-const dnsAggregatedSchema = dnsAggregatedDisplaySchema.merge(
-  dnsAggregatedInternalSchema,
-);
-
-type DnsAggregatedResult = z.infer<typeof dnsAggregatedSchema>;
+type DnsAggregatedResult = InferAggregatedResult<typeof dnsAggregatedFields>;
 
 // ============================================================================
 // RESOLVER INTERFACE (for testability)
@@ -139,7 +124,7 @@ export class DnsHealthCheckStrategy implements HealthCheckStrategy<
   DnsConfig,
   DnsTransportClient,
   DnsResult,
-  DnsAggregatedResult
+  typeof dnsAggregatedFields
 > {
   id = "dns";
   displayName = "DNS Health Check";
@@ -180,9 +165,9 @@ export class DnsHealthCheckStrategy implements HealthCheckStrategy<
     ],
   });
 
-  aggregatedResult: Versioned<DnsAggregatedResult> = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: dnsAggregatedSchema,
+    fields: dnsAggregatedFields,
   });
 
   mergeResult(
@@ -192,33 +177,20 @@ export class DnsHealthCheckStrategy implements HealthCheckStrategy<
     const metadata = run.metadata;
 
     // Merge resolution time average
-    const resolutionTimeState = mergeAverage(
-      existing?._resolutionTime as AverageState | undefined,
+    const avgResolutionTime = mergeAverage(
+      existing?.avgResolutionTime,
       metadata?.resolutionTimeMs,
     );
 
-    // Merge failure count (recordCount === 0 means failure)
+    // Merge failure count
     const isFailure = metadata?.recordCount === 0;
-    const failureState = mergeCounter(
-      existing?._failures as CounterState | undefined,
-      isFailure,
-    );
+    const failureCount = mergeCounter(existing?.failureCount, isFailure);
 
     // Merge error count
     const hasError = metadata?.error !== undefined;
-    const errorState = mergeCounter(
-      existing?._errors as CounterState | undefined,
-      hasError,
-    );
+    const errorCount = mergeCounter(existing?.errorCount, hasError);
 
-    return {
-      avgResolutionTime: resolutionTimeState.avg,
-      failureCount: failureState.count,
-      errorCount: errorState.count,
-      _resolutionTime: resolutionTimeState,
-      _failures: failureState,
-      _errors: errorState,
-    };
+    return { avgResolutionTime, failureCount, errorCount };
   }
 
   async createClient(

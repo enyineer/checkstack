@@ -5,8 +5,9 @@ import {
   type CollectorResult,
   type CollectorStrategy,
   mergeAverage,
-  averageStateSchema,
-  type AverageState,
+  VersionedAggregated,
+  aggregatedAverage,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -74,29 +75,24 @@ const pingResultSchema = healthResultSchema({
 
 export type PingResult = z.infer<typeof pingResultSchema>;
 
-const pingAggregatedDisplaySchema = healthResultSchema({
-  avgPacketLoss: healthResultNumber({
+// Aggregated result fields definition
+const pingAggregatedFields = {
+  avgPacketLoss: aggregatedAverage({
     "x-chart-type": "gauge",
     "x-chart-label": "Avg Packet Loss",
     "x-chart-unit": "%",
   }),
-  avgLatency: healthResultNumber({
+  avgLatency: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Latency",
     "x-chart-unit": "ms",
   }),
-});
+};
 
-const pingAggregatedInternalSchema = z.object({
-  _packetLoss: averageStateSchema.optional(),
-  _latency: averageStateSchema.optional(),
-});
-
-const pingAggregatedSchema = pingAggregatedDisplaySchema.merge(
-  pingAggregatedInternalSchema,
-);
-
-export type PingAggregatedResult = z.infer<typeof pingAggregatedSchema>;
+// Type inferred from field definitions
+export type PingAggregatedResult = InferAggregatedResult<
+  typeof pingAggregatedFields
+>;
 
 // ============================================================================
 // PING COLLECTOR
@@ -122,9 +118,9 @@ export class PingCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: pingConfigSchema });
   result = new Versioned({ version: 1, schema: pingResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: pingAggregatedSchema,
+    fields: pingAggregatedFields,
   });
 
   async execute({
@@ -160,21 +156,12 @@ export class PingCollector implements CollectorStrategy<
   ): PingAggregatedResult {
     const metadata = run.metadata;
 
-    const lossState = mergeAverage(
-      existing?._packetLoss as AverageState | undefined,
-      metadata?.packetLoss,
-    );
-
-    const latencyState = mergeAverage(
-      existing?._latency as AverageState | undefined,
-      metadata?.avgLatency,
-    );
-
     return {
-      avgPacketLoss: Math.round(lossState.avg * 10) / 10,
-      avgLatency: Math.round(latencyState.avg * 10) / 10,
-      _packetLoss: lossState,
-      _latency: latencyState,
+      avgPacketLoss: mergeAverage(
+        existing?.avgPacketLoss,
+        metadata?.packetLoss,
+      ),
+      avgLatency: mergeAverage(existing?.avgLatency, metadata?.avgLatency),
     };
   }
 }

@@ -67,7 +67,7 @@ describe("CommandCollector", () => {
       let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.avgExecutionTimeMs).toBe(75);
+      expect(aggregated.avgExecutionTimeMs.avg).toBe(75);
     });
 
     it("should return zero for empty metadata", () => {
@@ -82,7 +82,7 @@ describe("CommandCollector", () => {
       };
       const aggregated = collector.mergeResult(undefined, run);
 
-      expect(aggregated.avgExecutionTimeMs).toBe(0);
+      expect(aggregated.avgExecutionTimeMs.avg).toBe(0);
     });
   });
 

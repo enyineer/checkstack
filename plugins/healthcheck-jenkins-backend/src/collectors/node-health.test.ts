@@ -143,8 +143,8 @@ describe("NodeHealthCollector", () => {
     let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-    expect(aggregated.avgOnlineNodes).toBe(4);
-    expect(aggregated.avgUtilization).toBe(60);
-    expect(aggregated.minOnlineNodes).toBe(3);
+    expect(aggregated.avgOnlineNodes.avg).toBe(4);
+    expect(aggregated.avgUtilization.avg).toBe(60);
+    expect(aggregated.minOnlineNodes.min).toBe(3);
   });
 });

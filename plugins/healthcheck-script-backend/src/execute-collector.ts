@@ -6,11 +6,11 @@ import {
   type CollectorResult,
   type CollectorStrategy,
   mergeAverage,
-  averageStateSchema,
   mergeRate,
-  rateStateSchema,
-  type AverageState,
-  type RateState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedRate,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -78,29 +78,24 @@ const executeResultSchema = healthResultSchema({
 
 export type ExecuteResult = z.infer<typeof executeResultSchema>;
 
-const executeAggregatedDisplaySchema = healthResultSchema({
-  avgExecutionTimeMs: healthResultNumber({
+// Aggregated result fields definition
+const executeAggregatedFields = {
+  avgExecutionTimeMs: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Execution Time",
     "x-chart-unit": "ms",
   }),
-  successRate: healthResultNumber({
+  successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-});
+};
 
-const executeAggregatedInternalSchema = z.object({
-  _executionTime: averageStateSchema.optional(),
-  _success: rateStateSchema.optional(),
-});
-
-const executeAggregatedSchema = executeAggregatedDisplaySchema.merge(
-  executeAggregatedInternalSchema,
-);
-
-export type ExecuteAggregatedResult = z.infer<typeof executeAggregatedSchema>;
+// Type inferred from field definitions
+export type ExecuteAggregatedResult = InferAggregatedResult<
+  typeof executeAggregatedFields
+>;
 
 // ============================================================================
 // EXECUTE COLLECTOR
@@ -126,9 +121,9 @@ export class ExecuteCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: executeConfigSchema });
   result = new Versioned({ version: 1, schema: executeResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: executeAggregatedSchema,
+    fields: executeAggregatedFields,
   });
 
   async execute({
@@ -173,21 +168,12 @@ export class ExecuteCollector implements CollectorStrategy<
   ): ExecuteAggregatedResult {
     const metadata = run.metadata;
 
-    const executionTimeState = mergeAverage(
-      existing?._executionTime as AverageState | undefined,
-      metadata?.executionTimeMs,
-    );
-
-    const successState = mergeRate(
-      existing?._success as RateState | undefined,
-      metadata?.success,
-    );
-
     return {
-      avgExecutionTimeMs: executionTimeState.avg,
-      successRate: successState.rate,
-      _executionTime: executionTimeState,
-      _success: successState,
+      avgExecutionTimeMs: mergeAverage(
+        existing?.avgExecutionTimeMs,
+        metadata?.executionTimeMs,
+      ),
+      successRate: mergeRate(existing?.successRate, metadata?.success),
     };
   }
 }

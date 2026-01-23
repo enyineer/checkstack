@@ -102,8 +102,8 @@ describe("MinecraftServerCollector", () => {
       let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.avgTps).toBe(19.0);
-      expect(aggregated.minTps).toBe(18.0);
+      expect(aggregated.avgTps.avg).toBe(19.0);
+      expect(aggregated.minTps.min).toBe(18.0);
     });
 
     it("should return zeros for undefined tps", () => {
@@ -118,8 +118,8 @@ describe("MinecraftServerCollector", () => {
       };
       const aggregated = collector.mergeResult(undefined, run);
 
-      expect(aggregated.avgTps).toBe(0);
-      expect(aggregated.minTps).toBe(0);
+      expect(aggregated.avgTps.avg).toBe(0);
+      expect(aggregated.minTps.min).toBe(0);
     });
   });
 

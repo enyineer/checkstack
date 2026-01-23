@@ -6,10 +6,10 @@ import {
   type CollectorStrategy,
   mergeAverage,
   mergeMinMax,
-  averageStateSchema,
-  minMaxStateSchema,
-  type AverageState,
-  type MinMaxState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedMinMax,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import { healthResultNumber } from "@checkstack/healthcheck-common";
 import {
@@ -64,34 +64,28 @@ const cpuResultSchema = z.object({
 
 export type CpuResult = z.infer<typeof cpuResultSchema>;
 
-const cpuAggregatedDisplaySchema = z.object({
-  avgUsagePercent: healthResultNumber({
+// Aggregated result fields definition
+const cpuAggregatedFields = {
+  avgUsagePercent: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg CPU Usage",
     "x-chart-unit": "%",
   }),
-  maxUsagePercent: healthResultNumber({
+  maxUsagePercent: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max CPU Usage",
     "x-chart-unit": "%",
   }),
-  avgLoadAvg1m: healthResultNumber({
+  avgLoadAvg1m: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Load (1m)",
   }),
-});
+};
 
-const cpuAggregatedInternalSchema = z.object({
-  _usage: averageStateSchema.optional(),
-  _maxUsage: minMaxStateSchema.optional(),
-  _load: averageStateSchema.optional(),
-});
-
-const cpuAggregatedSchema = cpuAggregatedDisplaySchema.merge(
-  cpuAggregatedInternalSchema,
-);
-
-export type CpuAggregatedResult = z.infer<typeof cpuAggregatedSchema>;
+// Type inferred from field definitions
+export type CpuAggregatedResult = InferAggregatedResult<
+  typeof cpuAggregatedFields
+>;
 
 // ============================================================================
 // CPU COLLECTOR
@@ -111,7 +105,10 @@ export class CpuCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: cpuConfigSchema });
   result = new Versioned({ version: 1, schema: cpuResultSchema });
-  aggregatedResult = new Versioned({ version: 1, schema: cpuAggregatedSchema });
+  aggregatedResult = new VersionedAggregated({
+    version: 1,
+    fields: cpuAggregatedFields,
+  });
 
   async execute({
     config,
@@ -154,28 +151,16 @@ export class CpuCollector implements CollectorStrategy<
   ): CpuAggregatedResult {
     const metadata = run.metadata;
 
-    const usageState = mergeAverage(
-      existing?._usage as AverageState | undefined,
-      metadata?.usagePercent,
-    );
-
-    const maxUsageState = mergeMinMax(
-      existing?._maxUsage as MinMaxState | undefined,
-      metadata?.usagePercent,
-    );
-
-    const loadState = mergeAverage(
-      existing?._load as AverageState | undefined,
-      metadata?.loadAvg1m,
-    );
-
     return {
-      avgUsagePercent: usageState.avg,
-      maxUsagePercent: maxUsageState.max,
-      avgLoadAvg1m: loadState.avg,
-      _usage: usageState,
-      _maxUsage: maxUsageState,
-      _load: loadState,
+      avgUsagePercent: mergeAverage(
+        existing?.avgUsagePercent,
+        metadata?.usagePercent,
+      ),
+      maxUsagePercent: mergeMinMax(
+        existing?.maxUsagePercent,
+        metadata?.usagePercent,
+      ),
+      avgLoadAvg1m: mergeAverage(existing?.avgLoadAvg1m, metadata?.loadAvg1m),
     };
   }
 

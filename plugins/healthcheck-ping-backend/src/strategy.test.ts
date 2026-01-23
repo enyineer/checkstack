@@ -176,10 +176,10 @@ describe("PingHealthCheckStrategy", () => {
       aggregated = strategy.mergeResult(aggregated, runs[1]);
 
       // (0 + 33) / 2 = 16.5
-      expect(aggregated.avgPacketLoss).toBeCloseTo(16.5, 1);
-      expect(aggregated.avgLatency).toBeCloseTo(15, 1);
-      expect(aggregated.maxLatency).toBe(25);
-      expect(aggregated.errorCount).toBe(0);
+      expect(aggregated.avgPacketLoss.avg).toBeCloseTo(16.5, 1);
+      expect(aggregated.avgLatency.avg).toBeCloseTo(15, 1);
+      expect(aggregated.maxLatency.max).toBe(25);
+      expect(aggregated.errorCount.count).toBe(0);
     });
 
     it("should count errors", () => {
@@ -199,7 +199,7 @@ describe("PingHealthCheckStrategy", () => {
 
       const aggregated = strategy.mergeResult(undefined, run);
 
-      expect(aggregated.errorCount).toBe(1);
+      expect(aggregated.errorCount.count).toBe(1);
     });
   });
 });

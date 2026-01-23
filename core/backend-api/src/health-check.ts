@@ -1,5 +1,9 @@
 import { Versioned } from "./config-versioning";
 import type { TransportClient } from "./transport-client";
+import type {
+  VersionedAggregated,
+  AggregatedResultShape,
+} from "./aggregated-result";
 
 /**
  * Health check result with typed metadata.
@@ -45,7 +49,7 @@ export interface ConnectedClient<
  * @template TConfig - Configuration type for this strategy
  * @template TClient - Transport client type (e.g., SshTransportClient)
  * @template TResult - Per-run result type (for aggregation)
- * @template TAggregatedResult - Aggregated result type for buckets
+ * @template TAggregatedFields - Aggregated field definitions for VersionedAggregated
  */
 export interface HealthCheckStrategy<
   TConfig = unknown,
@@ -54,7 +58,7 @@ export interface HealthCheckStrategy<
     unknown
   >,
   TResult = Record<string, unknown>,
-  TAggregatedResult = Record<string, unknown>,
+  TAggregatedFields extends AggregatedResultShape = AggregatedResultShape,
 > {
   id: string;
   displayName: string;
@@ -66,8 +70,8 @@ export interface HealthCheckStrategy<
   /** Optional result schema with versioning and migrations */
   result?: Versioned<TResult>;
 
-  /** Aggregated result schema for long-term bucket storage */
-  aggregatedResult: Versioned<TAggregatedResult>;
+  /** Aggregated result schema for long-term bucket storage with automatic merging */
+  aggregatedResult: VersionedAggregated<TAggregatedFields>;
 
   /**
    * Create a connected transport client from the configuration.
@@ -90,9 +94,9 @@ export interface HealthCheckStrategy<
    * @returns Updated aggregated result
    */
   mergeResult(
-    existing: TAggregatedResult | undefined,
+    existing: Record<string, unknown> | undefined,
     newRun: HealthCheckRunForAggregation<TResult>,
-  ): TAggregatedResult;
+  ): Record<string, unknown>;
 }
 
 /**
@@ -103,7 +107,7 @@ export interface RegisteredStrategy {
     unknown,
     TransportClient<unknown, unknown>,
     unknown,
-    unknown
+    AggregatedResultShape
   >;
   ownerPluginId: string;
   qualifiedId: string;
@@ -115,7 +119,7 @@ export interface HealthCheckRegistry {
       unknown,
       TransportClient<unknown, unknown>,
       unknown,
-      unknown
+      AggregatedResultShape
     >,
   ): void;
   getStrategy(
@@ -125,14 +129,14 @@ export interface HealthCheckRegistry {
         unknown,
         TransportClient<unknown, unknown>,
         unknown,
-        unknown
+        AggregatedResultShape
       >
     | undefined;
   getStrategies(): HealthCheckStrategy<
     unknown,
     TransportClient<unknown, unknown>,
     unknown,
-    unknown
+    AggregatedResultShape
   >[];
   /**
    * Get all registered strategies with their metadata (qualified ID, owner plugin).

@@ -3,16 +3,16 @@ import {
   HealthCheckStrategy,
   HealthCheckRunForAggregation,
   Versioned,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedMinMax,
+  aggregatedCounter,
+  mergeAverage,
+  mergeCounter,
+  mergeMinMax,
   z,
   type ConnectedClient,
-  mergeAverage,
-  averageStateSchema,
-  mergeCounter,
-  counterStateSchema,
-  mergeMinMax,
-  type AverageState,
-  type CounterState,
-  type MinMaxState,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -88,44 +88,29 @@ const tlsResultSchema = healthResultSchema({
 
 type TlsResult = z.infer<typeof tlsResultSchema>;
 
-/**
- * Aggregated metadata for buckets.
- */
-const tlsAggregatedDisplaySchema = healthResultSchema({
-  avgDaysUntilExpiry: healthResultNumber({
+/** Aggregated field definitions for bucket merging */
+const tlsAggregatedFields = {
+  avgDaysUntilExpiry: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Days Until Expiry",
     "x-chart-unit": "days",
   }),
-  minDaysUntilExpiry: healthResultNumber({
+  minDaysUntilExpiry: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Min Days Until Expiry",
     "x-chart-unit": "days",
   }),
-  invalidCount: healthResultNumber({
+  invalidCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Invalid Certificates",
   }),
-  errorCount: healthResultNumber({
+  errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),
-});
+};
 
-const tlsAggregatedInternalSchema = z.object({
-  _daysUntilExpiry: averageStateSchema.optional(),
-  _minDaysUntilExpiry: z
-    .object({ min: z.number(), max: z.number() })
-    .optional(),
-  _invalid: counterStateSchema.optional(),
-  _errors: counterStateSchema.optional(),
-});
-
-const tlsAggregatedSchema = tlsAggregatedDisplaySchema.merge(
-  tlsAggregatedInternalSchema,
-);
-
-type TlsAggregatedResult = z.infer<typeof tlsAggregatedSchema>;
+type TlsAggregatedResult = InferAggregatedResult<typeof tlsAggregatedFields>;
 
 // ============================================================================
 // TLS CLIENT INTERFACE (for testability)
@@ -197,7 +182,7 @@ export class TlsHealthCheckStrategy implements HealthCheckStrategy<
   TlsConfig,
   TlsTransportClient,
   TlsResult,
-  TlsAggregatedResult
+  typeof tlsAggregatedFields
 > {
   id = "tls";
   displayName = "TLS/SSL Health Check";
@@ -235,9 +220,9 @@ export class TlsHealthCheckStrategy implements HealthCheckStrategy<
     ],
   });
 
-  aggregatedResult: Versioned<TlsAggregatedResult> = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: tlsAggregatedSchema,
+    fields: tlsAggregatedFields,
   });
 
   mergeResult(
@@ -246,36 +231,23 @@ export class TlsHealthCheckStrategy implements HealthCheckStrategy<
   ): TlsAggregatedResult {
     const metadata = run.metadata;
 
-    const daysState = mergeAverage(
-      existing?._daysUntilExpiry as AverageState | undefined,
+    const avgDaysUntilExpiry = mergeAverage(
+      existing?.avgDaysUntilExpiry,
       metadata?.daysUntilExpiry,
     );
 
-    const minDaysState = mergeMinMax(
-      existing?._minDaysUntilExpiry as MinMaxState | undefined,
+    const minDaysUntilExpiry = mergeMinMax(
+      existing?.minDaysUntilExpiry,
       metadata?.daysUntilExpiry,
     );
 
-    const invalidState = mergeCounter(
-      existing?._invalid as CounterState | undefined,
-      metadata?.isValid === false,
-    );
+    const isInvalid = metadata?.isValid === false;
+    const invalidCount = mergeCounter(existing?.invalidCount, isInvalid);
 
-    const errorState = mergeCounter(
-      existing?._errors as CounterState | undefined,
-      metadata?.error !== undefined,
-    );
+    const hasError = metadata?.error !== undefined;
+    const errorCount = mergeCounter(existing?.errorCount, hasError);
 
-    return {
-      avgDaysUntilExpiry: daysState.avg,
-      minDaysUntilExpiry: minDaysState.min,
-      invalidCount: invalidState.count,
-      errorCount: errorState.count,
-      _daysUntilExpiry: daysState,
-      _minDaysUntilExpiry: minDaysState,
-      _invalid: invalidState,
-      _errors: errorState,
-    };
+    return { avgDaysUntilExpiry, minDaysUntilExpiry, invalidCount, errorCount };
   }
 
   async createClient(

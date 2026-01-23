@@ -54,8 +54,8 @@ interface SystemHealthStatusResponse {
 export class HealthCheckService {
   constructor(
     private db: Db,
-    private registry?: HealthCheckRegistry,
-    private collectorRegistry?: CollectorRegistry,
+    private registry: HealthCheckRegistry,
+    private collectorRegistry: CollectorRegistry,
   ) {}
 
   async createConfiguration(
@@ -751,13 +751,18 @@ export class HealthCheckService {
       dailyBuckets,
     });
 
-    // Re-aggregate to target bucket interval
-    const targetBuckets = reaggregateBuckets({
-      sourceBuckets: mergedBuckets,
-      targetIntervalMs: bucketIntervalMs,
-      rangeStart: startDate,
-      rangeEnd: endDate,
-    });
+    // Re-aggregate to target bucket interval with automatic strategy and collector merging
+    const targetBuckets = config
+      ? reaggregateBuckets({
+          sourceBuckets: mergedBuckets,
+          targetIntervalMs: bucketIntervalMs,
+          rangeStart: startDate,
+          rangeEnd: endDate,
+          collectorRegistry: this.collectorRegistry,
+          registry: this.registry,
+          strategyId: config.strategyId,
+        })
+      : mergedBuckets;
 
     // Convert to output format
     const buckets = targetBuckets.map((bucket) => {

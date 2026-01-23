@@ -5,11 +5,11 @@ import {
   type CollectorResult,
   type CollectorStrategy,
   mergeAverage,
-  averageStateSchema,
   mergeRate,
-  rateStateSchema,
-  type AverageState,
-  type RateState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedRate,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -64,32 +64,23 @@ const certificateResultSchema = healthResultSchema({
 
 export type CertificateResult = z.infer<typeof certificateResultSchema>;
 
-const certificateAggregatedDisplaySchema = healthResultSchema({
-  avgDaysRemaining: healthResultNumber({
+// Aggregated result fields definition
+const certificateAggregatedFields = {
+  avgDaysRemaining: aggregatedAverage({
     "x-chart-type": "gauge",
     "x-chart-label": "Avg Days Remaining",
     "x-chart-unit": "days",
   }),
-  validRate: healthResultNumber({
+  validRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Valid Rate",
     "x-chart-unit": "%",
   }),
-});
+};
 
-const certificateAggregatedInternalSchema = z.object({
-  _daysRemaining: averageStateSchema
-    .optional(),
-  _valid: rateStateSchema
-    .optional(),
-});
-
-const certificateAggregatedSchema = certificateAggregatedDisplaySchema.merge(
-  certificateAggregatedInternalSchema,
-);
-
-export type CertificateAggregatedResult = z.infer<
-  typeof certificateAggregatedSchema
+// Type inferred from field definitions
+export type CertificateAggregatedResult = InferAggregatedResult<
+  typeof certificateAggregatedFields
 >;
 
 // ============================================================================
@@ -116,9 +107,9 @@ export class CertificateCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: certificateConfigSchema });
   result = new Versioned({ version: 1, schema: certificateResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: certificateAggregatedSchema,
+    fields: certificateAggregatedFields,
   });
 
   async execute({
@@ -162,21 +153,12 @@ export class CertificateCollector implements CollectorStrategy<
   ): CertificateAggregatedResult {
     const metadata = run.metadata;
 
-    const daysState = mergeAverage(
-      existing?._daysRemaining as AverageState | undefined,
-      metadata?.daysRemaining,
-    );
-
-    const validState = mergeRate(
-      existing?._valid as RateState | undefined,
-      metadata?.valid,
-    );
-
     return {
-      avgDaysRemaining: daysState.avg,
-      validRate: validState.rate,
-      _daysRemaining: daysState,
-      _valid: validState,
+      avgDaysRemaining: mergeAverage(
+        existing?.avgDaysRemaining,
+        metadata?.daysRemaining,
+      ),
+      validRate: mergeRate(existing?.validRate, metadata?.valid),
     };
   }
 }

@@ -184,9 +184,9 @@ describe("JenkinsHealthCheckStrategy", () => {
       aggregated = strategy.mergeResult(aggregated, runs[1]);
       aggregated = strategy.mergeResult(aggregated, runs[2]);
 
-      expect(aggregated.successRate).toBe(67); // 2/3
-      expect(aggregated.avgResponseTimeMs).toBe(175); // (150+200)/2
-      expect(aggregated.errorCount).toBe(1);
+      expect(aggregated.successRate.rate).toBe(67); // 2/3
+      expect(aggregated.avgResponseTimeMs.avg).toBe(175); // (150+200)/2
+      expect(aggregated.errorCount.count).toBe(1);
     });
 
     it("should handle single run", () => {
@@ -197,9 +197,9 @@ describe("JenkinsHealthCheckStrategy", () => {
       };
       const aggregated = strategy.mergeResult(undefined, run);
 
-      expect(aggregated.successRate).toBe(100);
-      expect(aggregated.avgResponseTimeMs).toBe(150);
-      expect(aggregated.errorCount).toBe(0);
+      expect(aggregated.successRate.rate).toBe(100);
+      expect(aggregated.avgResponseTimeMs.avg).toBe(150);
+      expect(aggregated.errorCount.count).toBe(0);
     });
   });
 });

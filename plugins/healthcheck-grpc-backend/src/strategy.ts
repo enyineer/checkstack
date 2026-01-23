@@ -3,17 +3,16 @@ import {
   HealthCheckStrategy,
   HealthCheckRunForAggregation,
   Versioned,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedRate,
+  aggregatedCounter,
+  mergeAverage,
+  mergeRate,
+  mergeCounter,
   z,
   type ConnectedClient,
-  mergeAverage,
-  averageStateSchema,
-  mergeRate,
-  rateStateSchema,
-  mergeCounter,
-  counterStateSchema,
-  type AverageState,
-  type RateState,
-  type CounterState,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -89,44 +88,29 @@ const grpcResultSchema = healthResultSchema({
 
 type GrpcResult = z.infer<typeof grpcResultSchema>;
 
-/**
- * Aggregated metadata for buckets.
- */
-const grpcAggregatedDisplaySchema = healthResultSchema({
-  avgResponseTime: healthResultNumber({
+/** Aggregated field definitions for bucket merging */
+const grpcAggregatedFields = {
+  avgResponseTime: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Response Time",
     "x-chart-unit": "ms",
   }),
-  successRate: healthResultNumber({
+  successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-  errorCount: healthResultNumber({
+  errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),
-  servingCount: healthResultNumber({
+  servingCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Serving",
   }),
-});
+};
 
-const grpcAggregatedInternalSchema = z.object({
-  _responseTime: averageStateSchema
-    .optional(),
-  _success: rateStateSchema
-    .optional(),
-  _errors: counterStateSchema.optional(),
-  _serving: counterStateSchema.optional(),
-});
-
-const grpcAggregatedSchema = grpcAggregatedDisplaySchema.merge(
-  grpcAggregatedInternalSchema,
-);
-
-type GrpcAggregatedResult = z.infer<typeof grpcAggregatedSchema>;
+type GrpcAggregatedResult = InferAggregatedResult<typeof grpcAggregatedFields>;
 
 // ============================================================================
 // GRPC CLIENT INTERFACE (for testability)
@@ -212,7 +196,7 @@ export class GrpcHealthCheckStrategy implements HealthCheckStrategy<
   GrpcConfig,
   GrpcTransportClient,
   GrpcResult,
-  GrpcAggregatedResult
+  typeof grpcAggregatedFields
 > {
   id = "grpc";
   displayName = "gRPC Health Check";
@@ -251,9 +235,9 @@ export class GrpcHealthCheckStrategy implements HealthCheckStrategy<
     ],
   });
 
-  aggregatedResult: Versioned<GrpcAggregatedResult> = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: grpcAggregatedSchema,
+    fields: grpcAggregatedFields,
   });
 
   mergeResult(
@@ -262,36 +246,20 @@ export class GrpcHealthCheckStrategy implements HealthCheckStrategy<
   ): GrpcAggregatedResult {
     const metadata = run.metadata;
 
-    const responseTimeState = mergeAverage(
-      existing?._responseTime as AverageState | undefined,
+    const avgResponseTime = mergeAverage(
+      existing?.avgResponseTime,
       metadata?.responseTimeMs,
     );
 
-    const successState = mergeRate(
-      existing?._success as RateState | undefined,
-      metadata?.status === "SERVING",
-    );
+    const isSuccess = metadata?.status === "SERVING";
+    const successRate = mergeRate(existing?.successRate, isSuccess);
 
-    const errorState = mergeCounter(
-      existing?._errors as CounterState | undefined,
-      metadata?.error !== undefined,
-    );
+    const hasError = metadata?.error !== undefined;
+    const errorCount = mergeCounter(existing?.errorCount, hasError);
 
-    const servingState = mergeCounter(
-      existing?._serving as CounterState | undefined,
-      metadata?.status === "SERVING",
-    );
+    const servingCount = mergeCounter(existing?.servingCount, isSuccess);
 
-    return {
-      avgResponseTime: responseTimeState.avg,
-      successRate: successState.rate,
-      errorCount: errorState.count,
-      servingCount: servingState.count,
-      _responseTime: responseTimeState,
-      _success: successState,
-      _errors: errorState,
-      _serving: servingState,
-    };
+    return { avgResponseTime, successRate, errorCount, servingCount };
   }
 
   async createClient(

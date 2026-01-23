@@ -107,8 +107,8 @@ describe("QueueInfoCollector", () => {
     let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-    expect(aggregated.avgQueueLength).toBe(4);
-    expect(aggregated.maxQueueLength).toBe(5);
-    expect(aggregated.avgWaitTime).toBe(15000);
+    expect(aggregated.avgQueueLength.avg).toBe(4);
+    expect(aggregated.maxQueueLength.max).toBe(5);
+    expect(aggregated.avgWaitTime.avg).toBe(15000);
   });
 });

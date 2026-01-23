@@ -5,8 +5,9 @@ import {
   type CollectorResult,
   type CollectorStrategy,
   mergeAverage,
-  averageStateSchema,
-  type AverageState,
+  VersionedAggregated,
+  aggregatedAverage,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -57,28 +58,21 @@ const serverInfoResultSchema = z.object({
 
 export type ServerInfoResult = z.infer<typeof serverInfoResultSchema>;
 
-const serverInfoAggregatedDisplaySchema = z.object({
-  avgExecutors: healthResultNumber({
+// Aggregated result fields definition
+const serverInfoAggregatedFields = {
+  avgExecutors: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Executors",
   }),
-  avgTotalJobs: healthResultNumber({
+  avgTotalJobs: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Jobs",
   }),
-});
+};
 
-const serverInfoAggregatedInternalSchema = z.object({
-  _executors: averageStateSchema.optional(),
-  _jobs: averageStateSchema.optional(),
-});
-
-const serverInfoAggregatedSchema = serverInfoAggregatedDisplaySchema.merge(
-  serverInfoAggregatedInternalSchema,
-);
-
-export type ServerInfoAggregatedResult = z.infer<
-  typeof serverInfoAggregatedSchema
+// Type inferred from field definitions
+export type ServerInfoAggregatedResult = InferAggregatedResult<
+  typeof serverInfoAggregatedFields
 >;
 
 // ============================================================================
@@ -103,9 +97,9 @@ export class ServerInfoCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: serverInfoConfigSchema });
   result = new Versioned({ version: 1, schema: serverInfoResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: serverInfoAggregatedSchema,
+    fields: serverInfoAggregatedFields,
   });
 
   async execute({
@@ -159,21 +153,12 @@ export class ServerInfoCollector implements CollectorStrategy<
   ): ServerInfoAggregatedResult {
     const metadata = run.metadata;
 
-    const executorsState = mergeAverage(
-      existing?._executors as AverageState | undefined,
-      metadata?.numExecutors,
-    );
-
-    const jobsState = mergeAverage(
-      existing?._jobs as AverageState | undefined,
-      metadata?.totalJobs,
-    );
-
     return {
-      avgExecutors: executorsState.avg,
-      avgTotalJobs: jobsState.avg,
-      _executors: executorsState,
-      _jobs: jobsState,
+      avgExecutors: mergeAverage(
+        existing?.avgExecutors,
+        metadata?.numExecutors,
+      ),
+      avgTotalJobs: mergeAverage(existing?.avgTotalJobs, metadata?.totalJobs),
     };
   }
 }

@@ -15,7 +15,7 @@ describe("HealthCheckService - pause/resume", () => {
     mockSet = mock(() => ({ where: mockWhere }));
     mockUpdate = mock(() => ({ set: mockSet }));
     (mockDb.update as any) = mockUpdate;
-    service = new HealthCheckService(mockDb as any);
+    service = new HealthCheckService(mockDb as never, {} as never, {} as never);
   });
 
   describe("pauseConfiguration", () => {

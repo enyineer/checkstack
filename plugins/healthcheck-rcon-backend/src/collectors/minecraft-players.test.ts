@@ -112,8 +112,8 @@ describe("MinecraftPlayersCollector", () => {
       let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.avgOnlinePlayers).toBe(10);
-      expect(aggregated.maxOnlinePlayers).toBe(15);
+      expect(aggregated.avgOnlinePlayers.avg).toBe(10);
+      expect(aggregated.maxOnlinePlayers.max).toBe(15);
     });
   });
 

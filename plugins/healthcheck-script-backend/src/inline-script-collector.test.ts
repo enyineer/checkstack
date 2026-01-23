@@ -249,8 +249,8 @@ describe("InlineScriptCollector", () => {
       aggregated = collector.mergeResult(aggregated, run2 as never);
       aggregated = collector.mergeResult(aggregated, run3 as never);
 
-      expect(aggregated.avgExecutionTimeMs).toBe(150); // (100+200+150)/3
-      expect(aggregated.successRate).toBeCloseTo(67, 0); // 2/3 * 100 = ~67
+      expect(aggregated.avgExecutionTimeMs.avg).toBe(150); // (100+200+150)/3
+      expect(aggregated.successRate.rate).toBeCloseTo(67, 0); // 2/3 * 100 = ~67
     });
   });
 });

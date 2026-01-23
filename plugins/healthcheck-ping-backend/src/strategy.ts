@@ -2,17 +2,16 @@ import {
   HealthCheckStrategy,
   HealthCheckRunForAggregation,
   Versioned,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedMinMax,
+  aggregatedCounter,
+  mergeAverage,
+  mergeCounter,
+  mergeMinMax,
   z,
   type ConnectedClient,
-  mergeAverage,
-  averageStateSchema,
-  mergeCounter,
-  counterStateSchema,
-  mergeMinMax,
-  minMaxStateSchema,
-  type AverageState,
-  type CounterState,
-  type MinMaxState,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -90,43 +89,30 @@ const pingResultSchema = healthResultSchema({
 
 type PingResult = z.infer<typeof pingResultSchema>;
 
-/**
- * Aggregated metadata for buckets.
- */
-const pingAggregatedDisplaySchema = healthResultSchema({
-  avgPacketLoss: healthResultNumber({
+/** Aggregated field definitions for bucket merging */
+const pingAggregatedFields = {
+  avgPacketLoss: aggregatedAverage({
     "x-chart-type": "gauge",
     "x-chart-label": "Avg Packet Loss",
     "x-chart-unit": "%",
   }),
-  avgLatency: healthResultNumber({
+  avgLatency: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Latency",
     "x-chart-unit": "ms",
   }),
-  maxLatency: healthResultNumber({
+  maxLatency: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Latency",
     "x-chart-unit": "ms",
   }),
-  errorCount: healthResultNumber({
+  errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),
-});
+};
 
-const pingAggregatedInternalSchema = z.object({
-  _packetLoss: averageStateSchema.optional(),
-  _latency: averageStateSchema.optional(),
-  _maxLatency: minMaxStateSchema.optional(),
-  _errors: counterStateSchema.optional(),
-});
-
-const pingAggregatedSchema = pingAggregatedDisplaySchema.merge(
-  pingAggregatedInternalSchema,
-);
-
-type PingAggregatedResult = z.infer<typeof pingAggregatedSchema>;
+type PingAggregatedResult = InferAggregatedResult<typeof pingAggregatedFields>;
 
 // ============================================================================
 // STRATEGY
@@ -136,7 +122,7 @@ export class PingHealthCheckStrategy implements HealthCheckStrategy<
   PingConfig,
   PingTransportClient,
   PingResult,
-  PingAggregatedResult
+  typeof pingAggregatedFields
 > {
   id = "ping";
   displayName = "Ping Health Check";
@@ -170,9 +156,9 @@ export class PingHealthCheckStrategy implements HealthCheckStrategy<
     ],
   });
 
-  aggregatedResult: Versioned<PingAggregatedResult> = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: pingAggregatedSchema,
+    fields: pingAggregatedFields,
   });
 
   mergeResult(
@@ -181,36 +167,19 @@ export class PingHealthCheckStrategy implements HealthCheckStrategy<
   ): PingAggregatedResult {
     const metadata = run.metadata;
 
-    const packetLossState = mergeAverage(
-      existing?._packetLoss as AverageState | undefined,
+    const avgPacketLoss = mergeAverage(
+      existing?.avgPacketLoss,
       metadata?.packetLoss,
     );
 
-    const latencyState = mergeAverage(
-      existing?._latency as AverageState | undefined,
-      metadata?.avgLatency,
-    );
+    const avgLatency = mergeAverage(existing?.avgLatency, metadata?.avgLatency);
 
-    const maxLatencyState = mergeMinMax(
-      existing?._maxLatency as MinMaxState | undefined,
-      metadata?.maxLatency,
-    );
+    const maxLatency = mergeMinMax(existing?.maxLatency, metadata?.maxLatency);
 
-    const errorState = mergeCounter(
-      existing?._errors as CounterState | undefined,
-      metadata?.error !== undefined,
-    );
+    const hasError = metadata?.error !== undefined;
+    const errorCount = mergeCounter(existing?.errorCount, hasError);
 
-    return {
-      avgPacketLoss: Math.round(packetLossState.avg * 10) / 10,
-      avgLatency: Math.round(latencyState.avg * 10) / 10,
-      maxLatency: maxLatencyState.max,
-      errorCount: errorState.count,
-      _packetLoss: packetLossState,
-      _latency: latencyState,
-      _maxLatency: maxLatencyState,
-      _errors: errorState,
-    };
+    return { avgPacketLoss, avgLatency, maxLatency, errorCount };
   }
 
   async createClient(

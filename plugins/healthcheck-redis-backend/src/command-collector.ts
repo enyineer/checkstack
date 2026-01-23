@@ -5,11 +5,11 @@ import {
   type CollectorResult,
   type CollectorStrategy,
   mergeAverage,
-  averageStateSchema,
   mergeRate,
-  rateStateSchema,
-  type AverageState,
-  type RateState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedRate,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -59,31 +59,24 @@ const commandResultSchema = healthResultSchema({
 
 export type CommandResult = z.infer<typeof commandResultSchema>;
 
-const commandAggregatedDisplaySchema = healthResultSchema({
-  avgResponseTimeMs: healthResultNumber({
+// Aggregated result fields definition
+const commandAggregatedFields = {
+  avgResponseTimeMs: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Response Time",
     "x-chart-unit": "ms",
   }),
-  successRate: healthResultNumber({
+  successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-});
+};
 
-const commandAggregatedInternalSchema = z.object({
-  _responseTime: averageStateSchema
-    .optional(),
-  _success: rateStateSchema
-    .optional(),
-});
-
-const commandAggregatedSchema = commandAggregatedDisplaySchema.merge(
-  commandAggregatedInternalSchema,
-);
-
-export type CommandAggregatedResult = z.infer<typeof commandAggregatedSchema>;
+// Type inferred from field definitions
+export type CommandAggregatedResult = InferAggregatedResult<
+  typeof commandAggregatedFields
+>;
 
 // ============================================================================
 // COMMAND COLLECTOR
@@ -109,9 +102,9 @@ export class CommandCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: commandConfigSchema });
   result = new Versioned({ version: 1, schema: commandResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: commandAggregatedSchema,
+    fields: commandAggregatedFields,
   });
 
   async execute({
@@ -147,21 +140,12 @@ export class CommandCollector implements CollectorStrategy<
   ): CommandAggregatedResult {
     const metadata = run.metadata;
 
-    const responseTimeState = mergeAverage(
-      existing?._responseTime as AverageState | undefined,
-      metadata?.responseTimeMs,
-    );
-
-    const successState = mergeRate(
-      existing?._success as RateState | undefined,
-      metadata?.success,
-    );
-
     return {
-      avgResponseTimeMs: responseTimeState.avg,
-      successRate: successState.rate,
-      _responseTime: responseTimeState,
-      _success: successState,
+      avgResponseTimeMs: mergeAverage(
+        existing?.avgResponseTimeMs,
+        metadata?.responseTimeMs,
+      ),
+      successRate: mergeRate(existing?.successRate, metadata?.success),
     };
   }
 }

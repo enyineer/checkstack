@@ -14,6 +14,8 @@ import {
 import {
   type HealthCheckRegistry,
   Versioned,
+  VersionedAggregated,
+  aggregatedCounter,
   z,
 } from "@checkstack/backend-api";
 import { mock } from "bun:test";
@@ -32,9 +34,9 @@ const createMockRegistry = (): HealthCheckRegistry => ({
       version: 1,
       schema: z.object({}),
     }),
-    aggregatedResult: new Versioned({
+    aggregatedResult: new VersionedAggregated({
       version: 1,
-      schema: z.object({}),
+      fields: { count: aggregatedCounter({}) },
     }),
     createClient: mock(async () => ({
       client: {

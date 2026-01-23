@@ -184,6 +184,7 @@ export default createBackendPlugin({
         onHook,
         emitHook,
         healthCheckRegistry,
+        collectorRegistry,
       }) => {
         // Store emitHook for the queue worker (Closure-based Hook Getter pattern)
         storedEmitHook = emitHook;
@@ -195,7 +196,11 @@ export default createBackendPlugin({
         });
 
         // Subscribe to catalog system deletion to clean up associations
-        const service = new HealthCheckService(database, healthCheckRegistry);
+        const service = new HealthCheckService(
+          database,
+          healthCheckRegistry,
+          collectorRegistry,
+        );
         onHook(
           catalogHooks.systemDeleted,
           async (payload) => {

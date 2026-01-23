@@ -121,10 +121,10 @@ describe("CpuCollector", () => {
       let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.avgUsagePercent).toBe(50);
-      expect(aggregated.maxUsagePercent).toBe(75);
+      expect(aggregated.avgUsagePercent.avg).toBe(50);
+      expect(aggregated.maxUsagePercent.max).toBe(75);
       // (1.0 + 2.0) / 2 = 1.5
-      expect(aggregated.avgLoadAvg1m).toBe(1.5);
+      expect(aggregated.avgLoadAvg1m.avg).toBe(1.5);
     });
   });
 

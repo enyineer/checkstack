@@ -9,7 +9,7 @@ describe("ServerInfoCollector", () => {
   const collector = new ServerInfoCollector();
 
   const createMockClient = (
-    response: JenkinsResponse
+    response: JenkinsResponse,
   ): JenkinsTransportClient => ({
     exec: async () => response,
   });
@@ -83,9 +83,9 @@ describe("ServerInfoCollector", () => {
     ];
 
     let aggregated = collector.mergeResult(undefined, runs[0]);
-      aggregated = collector.mergeResult(aggregated, runs[1]);
+    aggregated = collector.mergeResult(aggregated, runs[1]);
 
-    expect(aggregated.avgExecutors).toBe(5);
-    expect(aggregated.avgTotalJobs).toBe(11);
+    expect(aggregated.avgExecutors.avg).toBe(5);
+    expect(aggregated.avgTotalJobs.avg).toBe(11);
   });
 });

@@ -111,9 +111,9 @@ Swap:          4096         512        3584`
       let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.avgUsedPercent).toBe(50);
-      expect(aggregated.maxUsedPercent).toBe(75);
-      expect(aggregated.avgUsedMb).toBe(8000);
+      expect(aggregated.avgUsedPercent.avg).toBe(50);
+      expect(aggregated.maxUsedPercent.max).toBe(75);
+      expect(aggregated.avgUsedMb.avg).toBe(8000);
     });
   });
 

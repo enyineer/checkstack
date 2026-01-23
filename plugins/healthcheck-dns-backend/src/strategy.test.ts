@@ -188,9 +188,9 @@ describe("DnsHealthCheckStrategy", () => {
       let aggregated = strategy.mergeResult(undefined, runs[0]);
       aggregated = strategy.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.avgResolutionTime).toBe(15);
-      expect(aggregated.failureCount).toBe(0);
-      expect(aggregated.errorCount).toBe(0);
+      expect(aggregated.avgResolutionTime.avg).toBe(15);
+      expect(aggregated.failureCount.count).toBe(0);
+      expect(aggregated.errorCount.count).toBe(0);
     });
 
     it("should count failures and errors", () => {
@@ -227,8 +227,8 @@ describe("DnsHealthCheckStrategy", () => {
       let aggregated = strategy.mergeResult(undefined, runs[0]);
       aggregated = strategy.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.errorCount).toBe(1);
-      expect(aggregated.failureCount).toBe(2);
+      expect(aggregated.errorCount.count).toBe(1);
+      expect(aggregated.failureCount.count).toBe(2);
     });
   });
 });

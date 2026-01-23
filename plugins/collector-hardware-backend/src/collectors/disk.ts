@@ -6,10 +6,10 @@ import {
   type CollectorStrategy,
   mergeAverage,
   mergeMinMax,
-  averageStateSchema,
-  minMaxStateSchema,
-  type AverageState,
-  type MinMaxState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedMinMax,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -70,29 +70,24 @@ const diskResultSchema = z.object({
 
 export type DiskResult = z.infer<typeof diskResultSchema>;
 
-const diskAggregatedDisplaySchema = z.object({
-  avgUsedPercent: healthResultNumber({
+// Aggregated result fields definition
+const diskAggregatedFields = {
+  avgUsedPercent: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Disk Usage",
     "x-chart-unit": "%",
   }),
-  maxUsedPercent: healthResultNumber({
+  maxUsedPercent: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Disk Usage",
     "x-chart-unit": "%",
   }),
-});
+};
 
-const diskAggregatedInternalSchema = z.object({
-  _usage: averageStateSchema.optional(),
-  _maxUsage: minMaxStateSchema.optional(),
-});
-
-const diskAggregatedSchema = diskAggregatedDisplaySchema.merge(
-  diskAggregatedInternalSchema,
-);
-
-export type DiskAggregatedResult = z.infer<typeof diskAggregatedSchema>;
+// Type inferred from field definitions
+export type DiskAggregatedResult = InferAggregatedResult<
+  typeof diskAggregatedFields
+>;
 
 // ============================================================================
 // DISK COLLECTOR
@@ -112,9 +107,9 @@ export class DiskCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: diskConfigSchema });
   result = new Versioned({ version: 1, schema: diskResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: diskAggregatedSchema,
+    fields: diskAggregatedFields,
   });
 
   async execute({
@@ -138,21 +133,15 @@ export class DiskCollector implements CollectorStrategy<
   ): DiskAggregatedResult {
     const metadata = run.metadata;
 
-    const usageState = mergeAverage(
-      existing?._usage as AverageState | undefined,
-      metadata?.usedPercent,
-    );
-
-    const maxUsageState = mergeMinMax(
-      existing?._maxUsage as MinMaxState | undefined,
-      metadata?.usedPercent,
-    );
-
     return {
-      avgUsedPercent: usageState.avg,
-      maxUsedPercent: maxUsageState.max,
-      _usage: usageState,
-      _maxUsage: maxUsageState,
+      avgUsedPercent: mergeAverage(
+        existing?.avgUsedPercent,
+        metadata?.usedPercent,
+      ),
+      maxUsedPercent: mergeMinMax(
+        existing?.maxUsedPercent,
+        metadata?.usedPercent,
+      ),
     };
   }
 

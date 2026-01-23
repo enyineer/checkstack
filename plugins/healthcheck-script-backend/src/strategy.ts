@@ -3,17 +3,16 @@ import {
   HealthCheckStrategy,
   HealthCheckRunForAggregation,
   Versioned,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedRate,
+  aggregatedCounter,
+  mergeAverage,
+  mergeRate,
+  mergeCounter,
   z,
   type ConnectedClient,
-  mergeAverage,
-  averageStateSchema,
-  mergeRate,
-  rateStateSchema,
-  mergeCounter,
-  counterStateSchema,
-  type AverageState,
-  type RateState,
-  type CounterState,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -88,44 +87,31 @@ const scriptResultSchema = healthResultSchema({
 
 type ScriptResult = z.infer<typeof scriptResultSchema>;
 
-/**
- * Aggregated metadata for buckets.
- */
-const scriptAggregatedDisplaySchema = healthResultSchema({
-  avgExecutionTime: healthResultNumber({
+/** Aggregated field definitions for bucket merging */
+const scriptAggregatedFields = {
+  avgExecutionTime: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Execution Time",
     "x-chart-unit": "ms",
   }),
-  successRate: healthResultNumber({
+  successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-  errorCount: healthResultNumber({
+  errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),
-  timeoutCount: healthResultNumber({
+  timeoutCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Timeouts",
   }),
-});
+};
 
-const scriptAggregatedInternalSchema = z.object({
-  _executionTime: averageStateSchema
-    .optional(),
-  _success: rateStateSchema
-    .optional(),
-  _errors: counterStateSchema.optional(),
-  _timeouts: counterStateSchema.optional(),
-});
-
-const scriptAggregatedSchema = scriptAggregatedDisplaySchema.merge(
-  scriptAggregatedInternalSchema,
-);
-
-type ScriptAggregatedResult = z.infer<typeof scriptAggregatedSchema>;
+type ScriptAggregatedResult = InferAggregatedResult<
+  typeof scriptAggregatedFields
+>;
 
 // ============================================================================
 // SCRIPT EXECUTOR INTERFACE (for testability)
@@ -208,7 +194,7 @@ export class ScriptHealthCheckStrategy implements HealthCheckStrategy<
   ScriptConfig,
   ScriptTransportClient,
   ScriptResult,
-  ScriptAggregatedResult
+  typeof scriptAggregatedFields
 > {
   id = "script";
   displayName = "Script Health Check";
@@ -248,9 +234,9 @@ export class ScriptHealthCheckStrategy implements HealthCheckStrategy<
     ],
   });
 
-  aggregatedResult: Versioned<ScriptAggregatedResult> = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: scriptAggregatedSchema,
+    fields: scriptAggregatedFields,
   });
 
   mergeResult(
@@ -259,36 +245,21 @@ export class ScriptHealthCheckStrategy implements HealthCheckStrategy<
   ): ScriptAggregatedResult {
     const metadata = run.metadata;
 
-    const executionTimeState = mergeAverage(
-      existing?._executionTime as AverageState | undefined,
+    const avgExecutionTime = mergeAverage(
+      existing?.avgExecutionTime,
       metadata?.executionTimeMs,
     );
 
-    const successState = mergeRate(
-      existing?._success as RateState | undefined,
-      metadata?.success,
-    );
+    const isSuccess = metadata?.success ?? false;
+    const successRate = mergeRate(existing?.successRate, isSuccess);
 
-    const errorState = mergeCounter(
-      existing?._errors as CounterState | undefined,
-      metadata?.error !== undefined,
-    );
+    const hasError = metadata?.error !== undefined;
+    const errorCount = mergeCounter(existing?.errorCount, hasError);
 
-    const timeoutState = mergeCounter(
-      existing?._timeouts as CounterState | undefined,
-      metadata?.timedOut === true,
-    );
+    const hasTimeout = metadata?.timedOut === true;
+    const timeoutCount = mergeCounter(existing?.timeoutCount, hasTimeout);
 
-    return {
-      avgExecutionTime: executionTimeState.avg,
-      successRate: successState.rate,
-      errorCount: errorState.count,
-      timeoutCount: timeoutState.count,
-      _executionTime: executionTimeState,
-      _success: successState,
-      _errors: errorState,
-      _timeouts: timeoutState,
-    };
+    return { avgExecutionTime, successRate, errorCount, timeoutCount };
   }
 
   async createClient(

@@ -3,22 +3,20 @@ import {
   HealthCheckStrategy,
   HealthCheckRunForAggregation,
   Versioned,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedMinMax,
+  aggregatedRate,
+  aggregatedCounter,
+  mergeAverage,
+  mergeRate,
+  mergeCounter,
+  mergeMinMax,
   z,
   configString,
   configNumber,
   type ConnectedClient,
-  mergeAverage,
-  averageStateSchema,
-  mergeRate,
-  rateStateSchema,
-  mergeCounter,
-  counterStateSchema,
-  mergeMinMax,
-  minMaxStateSchema,
-  type AverageState,
-  type RateState,
-  type CounterState,
-  type MinMaxState,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -78,45 +76,30 @@ const sshResultSchema = healthResultSchema({
 
 type SshResult = z.infer<typeof sshResultSchema>;
 
-/**
- * Aggregated metadata for buckets.
- */
-const sshAggregatedDisplaySchema = healthResultSchema({
-  avgConnectionTime: healthResultNumber({
+/** Aggregated field definitions for bucket merging */
+const sshAggregatedFields = {
+  avgConnectionTime: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Connection Time",
     "x-chart-unit": "ms",
   }),
-  maxConnectionTime: healthResultNumber({
+  maxConnectionTime: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Connection Time",
     "x-chart-unit": "ms",
   }),
-  successRate: healthResultNumber({
+  successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-  errorCount: healthResultNumber({
+  errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),
-});
+};
 
-const sshAggregatedInternalSchema = z.object({
-  _connectionTime: averageStateSchema
-    .optional(),
-  _maxConnectionTime: minMaxStateSchema.optional(),
-  _success: rateStateSchema
-    .optional(),
-  _errors: counterStateSchema.optional(),
-});
-
-const sshAggregatedSchema = sshAggregatedDisplaySchema.merge(
-  sshAggregatedInternalSchema,
-);
-
-type SshAggregatedResult = z.infer<typeof sshAggregatedSchema>;
+type SshAggregatedResult = InferAggregatedResult<typeof sshAggregatedFields>;
 
 // ============================================================================
 // SSH CLIENT INTERFACE (for testability)
@@ -207,7 +190,7 @@ export class SshHealthCheckStrategy implements HealthCheckStrategy<
   SshConfig,
   SshTransportClient,
   SshResult,
-  SshAggregatedResult
+  typeof sshAggregatedFields
 > {
   id = "ssh";
   displayName = "SSH Health Check";
@@ -229,9 +212,9 @@ export class SshHealthCheckStrategy implements HealthCheckStrategy<
     schema: sshResultSchema,
   });
 
-  aggregatedResult: Versioned<SshAggregatedResult> = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: sshAggregatedSchema,
+    fields: sshAggregatedFields,
   });
 
   mergeResult(
@@ -240,36 +223,23 @@ export class SshHealthCheckStrategy implements HealthCheckStrategy<
   ): SshAggregatedResult {
     const metadata = run.metadata;
 
-    const connectionTimeState = mergeAverage(
-      existing?._connectionTime as AverageState | undefined,
+    const avgConnectionTime = mergeAverage(
+      existing?.avgConnectionTime,
       metadata?.connectionTimeMs,
     );
 
-    const maxConnectionTimeState = mergeMinMax(
-      existing?._maxConnectionTime as MinMaxState | undefined,
+    const maxConnectionTime = mergeMinMax(
+      existing?.maxConnectionTime,
       metadata?.connectionTimeMs,
     );
 
-    const successState = mergeRate(
-      existing?._success as RateState | undefined,
-      metadata?.connected,
-    );
+    const isSuccess = metadata?.connected ?? false;
+    const successRate = mergeRate(existing?.successRate, isSuccess);
 
-    const errorState = mergeCounter(
-      existing?._errors as CounterState | undefined,
-      metadata?.error !== undefined,
-    );
+    const hasError = metadata?.error !== undefined;
+    const errorCount = mergeCounter(existing?.errorCount, hasError);
 
-    return {
-      avgConnectionTime: connectionTimeState.avg,
-      maxConnectionTime: maxConnectionTimeState.max,
-      successRate: successState.rate,
-      errorCount: errorState.count,
-      _connectionTime: connectionTimeState,
-      _maxConnectionTime: maxConnectionTimeState,
-      _success: successState,
-      _errors: errorState,
-    };
+    return { avgConnectionTime, maxConnectionTime, successRate, errorCount };
   }
 
   /**

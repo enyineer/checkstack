@@ -5,11 +5,11 @@ import {
   type CollectorResult,
   type CollectorStrategy,
   mergeAverage,
-  averageStateSchema,
   mergeMinMax,
-  minMaxStateSchema,
-  type AverageState,
-  type MinMaxState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedMinMax,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -45,30 +45,21 @@ const sourcePlayersResultSchema = z.object({
 
 export type SourcePlayersResult = z.infer<typeof sourcePlayersResultSchema>;
 
-const sourcePlayersAggregatedDisplaySchema = z.object({
-  avgPlayerCount: healthResultNumber({
+// Aggregated result fields definition
+const sourcePlayersAggregatedFields = {
+  avgPlayerCount: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Player Count",
   }),
-  maxPlayerCount: healthResultNumber({
+  maxPlayerCount: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Player Count",
   }),
-});
+};
 
-const sourcePlayersAggregatedInternalSchema = z.object({
-  _playerCount: averageStateSchema
-    .optional(),
-  _maxPlayerCount: minMaxStateSchema.optional(),
-});
-
-const sourcePlayersAggregatedSchema =
-  sourcePlayersAggregatedDisplaySchema.merge(
-    sourcePlayersAggregatedInternalSchema,
-  );
-
-export type SourcePlayersAggregatedResult = z.infer<
-  typeof sourcePlayersAggregatedSchema
+// Type inferred from field definitions
+export type SourcePlayersAggregatedResult = InferAggregatedResult<
+  typeof sourcePlayersAggregatedFields
 >;
 
 // ============================================================================
@@ -99,9 +90,9 @@ export class SourcePlayersCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: sourcePlayersConfigSchema });
   result = new Versioned({ version: 1, schema: sourcePlayersResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: sourcePlayersAggregatedSchema,
+    fields: sourcePlayersAggregatedFields,
   });
 
   async execute({
@@ -161,21 +152,15 @@ export class SourcePlayersCollector implements CollectorStrategy<
   ): SourcePlayersAggregatedResult {
     const metadata = run.metadata;
 
-    const avgState = mergeAverage(
-      existing?._playerCount as AverageState | undefined,
-      metadata?.playerCount,
-    );
-
-    const maxState = mergeMinMax(
-      existing?._maxPlayerCount as MinMaxState | undefined,
-      metadata?.playerCount,
-    );
-
     return {
-      avgPlayerCount: avgState.avg,
-      maxPlayerCount: maxState.max,
-      _playerCount: avgState,
-      _maxPlayerCount: maxState,
+      avgPlayerCount: mergeAverage(
+        existing?.avgPlayerCount,
+        metadata?.playerCount,
+      ),
+      maxPlayerCount: mergeMinMax(
+        existing?.maxPlayerCount,
+        metadata?.playerCount,
+      ),
     };
   }
 }

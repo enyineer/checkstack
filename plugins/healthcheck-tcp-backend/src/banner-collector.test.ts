@@ -90,8 +90,8 @@ describe("BannerCollector", () => {
       let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.avgReadTimeMs).toBe(75);
-      expect(aggregated.bannerRate).toBe(50);
+      expect(aggregated.avgReadTimeMs.avg).toBe(75);
+      expect(aggregated.bannerRate.rate).toBe(50);
     });
   });
 

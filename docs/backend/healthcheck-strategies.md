@@ -302,10 +302,13 @@ export class SshHealthCheckStrategy
   ): SshAggregatedResult {
     const metadata = run.metadata;
 
+    // Merge functions accept input without _type and return output with _type
     const connectionTime = mergeAverage(existing?._connectionTime, metadata?.connectionTimeMs);
     const successRate = mergeRate(existing?._successRate, metadata?.connected);
     const errorCount = mergeCounter(existing?._errorCount, !!metadata?.error);
 
+    // State objects now include _type discriminator for reliable type detection
+    // e.g., connectionTime = { _type: "average", _sum: 100, _count: 2, avg: 50 }
     return {
       _connectionTime: connectionTime,
       _successRate: successRate,

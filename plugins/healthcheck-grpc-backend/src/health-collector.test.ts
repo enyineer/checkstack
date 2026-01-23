@@ -90,8 +90,8 @@ describe("HealthCollector", () => {
       let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.avgResponseTimeMs).toBe(75);
-      expect(aggregated.servingRate).toBe(100);
+      expect(aggregated.avgResponseTimeMs.avg).toBe(75);
+      expect(aggregated.servingRate.rate).toBe(100);
     });
 
     it("should calculate serving rate correctly", () => {
@@ -122,7 +122,7 @@ describe("HealthCollector", () => {
       let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.servingRate).toBe(50);
+      expect(aggregated.servingRate.rate).toBe(50);
     });
   });
 

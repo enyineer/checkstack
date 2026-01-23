@@ -104,8 +104,8 @@ describe("CommandCollector", () => {
       let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.avgResponseTimeMs).toBe(10);
-      expect(aggregated.successRate).toBe(100);
+      expect(aggregated.avgResponseTimeMs.avg).toBe(10);
+      expect(aggregated.successRate.rate).toBe(100);
     });
 
     it("should calculate success rate correctly", () => {
@@ -132,7 +132,7 @@ describe("CommandCollector", () => {
       let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.successRate).toBe(50);
+      expect(aggregated.successRate.rate).toBe(50);
     });
   });
 

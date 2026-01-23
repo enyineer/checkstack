@@ -6,10 +6,10 @@ import {
   type CollectorStrategy,
   mergeAverage,
   mergeMinMax,
-  averageStateSchema,
-  minMaxStateSchema,
-  type AverageState,
-  type MinMaxState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedMinMax,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import { healthResultNumber } from "@checkstack/healthcheck-common";
 import {
@@ -73,35 +73,29 @@ const memoryResultSchema = z.object({
 
 export type MemoryResult = z.infer<typeof memoryResultSchema>;
 
-const memoryAggregatedDisplaySchema = z.object({
-  avgUsedPercent: healthResultNumber({
+// Aggregated result fields definition
+const memoryAggregatedFields = {
+  avgUsedPercent: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Memory Usage",
     "x-chart-unit": "%",
   }),
-  maxUsedPercent: healthResultNumber({
+  maxUsedPercent: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Memory Usage",
     "x-chart-unit": "%",
   }),
-  avgUsedMb: healthResultNumber({
+  avgUsedMb: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Memory Used",
     "x-chart-unit": "MB",
   }),
-});
+};
 
-const memoryAggregatedInternalSchema = z.object({
-  _usedPercent: averageStateSchema.optional(),
-  _maxUsedPercent: minMaxStateSchema.optional(),
-  _usedMb: averageStateSchema.optional(),
-});
-
-const memoryAggregatedSchema = memoryAggregatedDisplaySchema.merge(
-  memoryAggregatedInternalSchema,
-);
-
-export type MemoryAggregatedResult = z.infer<typeof memoryAggregatedSchema>;
+// Type inferred from field definitions
+export type MemoryAggregatedResult = InferAggregatedResult<
+  typeof memoryAggregatedFields
+>;
 
 // ============================================================================
 // MEMORY COLLECTOR
@@ -121,9 +115,9 @@ export class MemoryCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: memoryConfigSchema });
   result = new Versioned({ version: 1, schema: memoryResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: memoryAggregatedSchema,
+    fields: memoryAggregatedFields,
   });
 
   async execute({
@@ -159,28 +153,16 @@ export class MemoryCollector implements CollectorStrategy<
   ): MemoryAggregatedResult {
     const metadata = run.metadata;
 
-    const usedPercentState = mergeAverage(
-      existing?._usedPercent as AverageState | undefined,
-      metadata?.usedPercent,
-    );
-
-    const maxUsedPercentState = mergeMinMax(
-      existing?._maxUsedPercent as MinMaxState | undefined,
-      metadata?.usedPercent,
-    );
-
-    const usedMbState = mergeAverage(
-      existing?._usedMb as AverageState | undefined,
-      metadata?.usedMb,
-    );
-
     return {
-      avgUsedPercent: usedPercentState.avg,
-      maxUsedPercent: maxUsedPercentState.max,
-      avgUsedMb: usedMbState.avg,
-      _usedPercent: usedPercentState,
-      _maxUsedPercent: maxUsedPercentState,
-      _usedMb: usedMbState,
+      avgUsedPercent: mergeAverage(
+        existing?.avgUsedPercent,
+        metadata?.usedPercent,
+      ),
+      maxUsedPercent: mergeMinMax(
+        existing?.maxUsedPercent,
+        metadata?.usedPercent,
+      ),
+      avgUsedMb: mergeAverage(existing?.avgUsedMb, metadata?.usedMb),
     };
   }
 

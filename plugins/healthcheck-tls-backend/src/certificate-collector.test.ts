@@ -115,8 +115,8 @@ describe("CertificateCollector", () => {
       let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.avgDaysRemaining).toBe(45);
-      expect(aggregated.validRate).toBe(100);
+      expect(aggregated.avgDaysRemaining.avg).toBe(45);
+      expect(aggregated.validRate.rate).toBe(100);
     });
 
     it("should calculate valid rate correctly", () => {
@@ -157,7 +157,7 @@ describe("CertificateCollector", () => {
       let aggregated = collector.mergeResult(undefined, runs[0]);
       aggregated = collector.mergeResult(aggregated, runs[1]);
 
-      expect(aggregated.validRate).toBe(50);
+      expect(aggregated.validRate.rate).toBe(50);
     });
   });
 

@@ -5,6 +5,7 @@ describe("HealthCheckService.getAggregatedHistory", () => {
   // Mock database and registry
   let mockDb: ReturnType<typeof createMockDb>;
   let mockRegistry: ReturnType<typeof createMockRegistry>;
+  let mockCollectorRegistry: { getCollector: ReturnType<typeof mock> };
   let service: HealthCheckService;
   // Store mock data for different queries
   let mockConfigResult: { id: string; strategyId: string } | null = null;
@@ -78,7 +79,12 @@ describe("HealthCheckService.getAggregatedHistory", () => {
     mockDailyAggregates = [];
     mockDb = createMockDb();
     mockRegistry = createMockRegistry();
-    service = new HealthCheckService(mockDb as never, mockRegistry as never);
+    mockCollectorRegistry = { getCollector: mock(() => undefined) };
+    service = new HealthCheckService(
+      mockDb as never,
+      mockRegistry as never,
+      mockCollectorRegistry as never,
+    );
   });
 
   describe("dynamic bucket interval calculation", () => {

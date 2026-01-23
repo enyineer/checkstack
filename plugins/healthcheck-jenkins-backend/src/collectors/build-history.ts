@@ -5,8 +5,9 @@ import {
   type CollectorResult,
   type CollectorStrategy,
   mergeAverage,
-  averageStateSchema,
-  type AverageState,
+  VersionedAggregated,
+  aggregatedAverage,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import { healthResultNumber } from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "../plugin-metadata";
@@ -89,32 +90,23 @@ const buildHistoryResultSchema = z.object({
 
 export type BuildHistoryResult = z.infer<typeof buildHistoryResultSchema>;
 
-const buildHistoryAggregatedDisplaySchema = z.object({
-  avgSuccessRate: healthResultNumber({
+// Aggregated result fields definition
+const buildHistoryAggregatedFields = {
+  avgSuccessRate: aggregatedAverage({
     "x-chart-type": "gauge",
     "x-chart-label": "Avg Success Rate",
     "x-chart-unit": "%",
   }),
-  avgBuildDuration: healthResultNumber({
+  avgBuildDuration: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Build Duration",
     "x-chart-unit": "ms",
   }),
-});
+};
 
-const buildHistoryAggregatedInternalSchema = z.object({
-  _successRate: averageStateSchema
-    .optional(),
-  _duration: averageStateSchema
-    .optional(),
-});
-
-const buildHistoryAggregatedSchema = buildHistoryAggregatedDisplaySchema.merge(
-  buildHistoryAggregatedInternalSchema,
-);
-
-export type BuildHistoryAggregatedResult = z.infer<
-  typeof buildHistoryAggregatedSchema
+// Type inferred from field definitions
+export type BuildHistoryAggregatedResult = InferAggregatedResult<
+  typeof buildHistoryAggregatedFields
 >;
 
 // ============================================================================
@@ -140,9 +132,9 @@ export class BuildHistoryCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: buildHistoryConfigSchema });
   result = new Versioned({ version: 1, schema: buildHistoryResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: buildHistoryAggregatedSchema,
+    fields: buildHistoryAggregatedFields,
   });
 
   async execute({
@@ -270,21 +262,15 @@ export class BuildHistoryCollector implements CollectorStrategy<
   ): BuildHistoryAggregatedResult {
     const metadata = run.metadata;
 
-    const successRateState = mergeAverage(
-      existing?._successRate as AverageState | undefined,
-      metadata?.successRate,
-    );
-
-    const durationState = mergeAverage(
-      existing?._duration as AverageState | undefined,
-      metadata?.avgDurationMs,
-    );
-
     return {
-      avgSuccessRate: successRateState.avg,
-      avgBuildDuration: durationState.avg,
-      _successRate: successRateState,
-      _duration: durationState,
+      avgSuccessRate: mergeAverage(
+        existing?.avgSuccessRate,
+        metadata?.successRate,
+      ),
+      avgBuildDuration: mergeAverage(
+        existing?.avgBuildDuration,
+        metadata?.avgDurationMs,
+      ),
     };
   }
 }

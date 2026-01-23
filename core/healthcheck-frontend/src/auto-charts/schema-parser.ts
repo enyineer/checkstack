@@ -17,8 +17,7 @@ import type {
  * JSON Schema property with healthcheck result-specific x-* extensions.
  * Uses the generic core type for proper recursive typing.
  */
-export interface ResultSchemaProperty
-  extends JsonSchemaPropertyCore<ResultSchemaProperty> {
+export interface ResultSchemaProperty extends JsonSchemaPropertyCore<ResultSchemaProperty> {
   // Result-specific x-* extensions for chart rendering
   "x-chart-type"?: ChartType;
   "x-chart-label"?: string;
@@ -58,7 +57,7 @@ export interface ChartField {
  * @returns Array of chart fields with metadata
  */
 export function extractChartFields(
-  schema: Record<string, unknown> | null | undefined
+  schema: Record<string, unknown> | null | undefined,
 ): ChartField[] {
   if (!schema) return [];
 
@@ -72,13 +71,13 @@ export function extractChartFields(
     if (name === "collectors" && prop.type === "object" && prop.properties) {
       // Traverse each collector's schema
       for (const [collectorId, collectorProp] of Object.entries(
-        prop.properties
+        prop.properties,
       )) {
         if (collectorProp.type === "object" && collectorProp.properties) {
           // Extract fields from the collector's result schema
           const collectorFields = extractFieldsFromProperties(
             collectorProp.properties,
-            collectorId
+            collectorId,
           );
           fields.push(...collectorFields);
         }
@@ -100,7 +99,7 @@ export function extractChartFields(
  */
 function extractFieldsFromProperties(
   properties: Record<string, ResultSchemaProperty>,
-  collectorId: string
+  collectorId: string,
 ): ChartField[] {
   const fields: ChartField[] = [];
 
@@ -126,7 +125,7 @@ function extractFieldsFromProperties(
  */
 function extractSingleField(
   name: string,
-  prop: ResultSchemaProperty
+  prop: ResultSchemaProperty,
 ): ChartField {
   let schemaType = prop.type ?? "unknown";
   if (prop.type === "array" && prop.items?.type) {
@@ -164,6 +163,7 @@ function formatFieldName(name: string): string {
 /**
  * Get the value for a field from a data object.
  * For strategy-level fields, also searches inside collectors as fallback.
+ * Automatically extracts computed values from aggregated state objects.
  *
  * @param data - The metadata object
  * @param fieldName - Simple field name (no dot notation for collector fields)
@@ -172,7 +172,7 @@ function formatFieldName(name: string): string {
 export function getFieldValue(
   data: Record<string, unknown> | undefined,
   fieldName: string,
-  collectorInstanceId?: string
+  collectorInstanceId?: string,
 ): unknown {
   if (!data) return undefined;
 
@@ -184,7 +184,7 @@ export function getFieldValue(
     if (collectors && typeof collectors === "object") {
       const collectorData = collectors[collectorInstanceId];
       if (collectorData && typeof collectorData === "object") {
-        return collectorData[fieldName];
+        return extractComputedValue(collectorData[fieldName]);
       }
     }
     return undefined;
@@ -193,7 +193,7 @@ export function getFieldValue(
   // For non-collector fields, try direct lookup first
   const directValue = data[fieldName];
   if (directValue !== undefined) {
-    return directValue;
+    return extractComputedValue(directValue);
   }
 
   // Fallback: search all collectors for the field (for strategy schema fields)
@@ -205,11 +205,57 @@ export function getFieldValue(
       if (collectorData && typeof collectorData === "object") {
         const value = collectorData[fieldName];
         if (value !== undefined) {
-          return value;
+          return extractComputedValue(value);
         }
       }
     }
   }
 
   return undefined;
+}
+
+/**
+ * Extract the computed value from an aggregated state object.
+ * Uses the required `_type` discriminator field for type detection.
+ * Logs errors instead of throwing to avoid breaking the app.
+ *
+ * @param value - Value from API data (unknown type from JSON parsing)
+ */
+function extractComputedValue(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  // _type is required for all aggregated state objects
+  if (!("_type" in obj)) {
+    console.error(
+      "[AutoChart] Missing _type discriminator in aggregated state:",
+      obj,
+    );
+    return value;
+  }
+
+  switch (obj._type) {
+    case "average": {
+      return obj.avg;
+    }
+    case "rate": {
+      return obj.rate;
+    }
+    case "counter": {
+      return obj.count;
+    }
+    case "minmax": {
+      // Default to max for minmax; caller can access min directly if needed
+      return obj.max;
+    }
+    default: {
+      console.error(
+        `[AutoChart] Unrecognized aggregated state type: ${String(obj._type)}`,
+      );
+      return value;
+    }
+  }
 }

@@ -2,6 +2,10 @@ import type { PluginMetadata } from "@checkstack/common";
 import type { TransportClient } from "./transport-client";
 import type { Versioned } from "./config-versioning";
 import type { HealthCheckRunForAggregation } from "./health-check";
+import type {
+  VersionedAggregated,
+  AggregatedResultShape,
+} from "./aggregated-result";
 
 /**
  * Result from a collector execution.
@@ -58,8 +62,8 @@ export interface CollectorStrategy<
   /** Per-execution result schema (with x-chart-* metadata) */
   result: Versioned<TResult>;
 
-  /** Aggregated result schema for bucket storage */
-  aggregatedResult: Versioned<TAggregated>;
+  /** Aggregated result schema for bucket storage with merge function */
+  aggregatedResult: VersionedAggregated<AggregatedResultShape>;
 
   /**
    * Execute the collector using the provided transport client.

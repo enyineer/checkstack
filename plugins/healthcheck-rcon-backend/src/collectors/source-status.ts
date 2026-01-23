@@ -5,11 +5,11 @@ import {
   type CollectorResult,
   type CollectorStrategy,
   mergeAverage,
-  averageStateSchema,
   mergeMinMax,
-  minMaxStateSchema,
-  type AverageState,
-  type MinMaxState,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedMinMax,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -59,29 +59,21 @@ const sourceStatusResultSchema = z.object({
 
 export type SourceStatusResult = z.infer<typeof sourceStatusResultSchema>;
 
-const sourceStatusAggregatedDisplaySchema = z.object({
-  avgHumanPlayers: healthResultNumber({
+// Aggregated result fields definition
+const sourceStatusAggregatedFields = {
+  avgHumanPlayers: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Human Players",
   }),
-  maxHumanPlayers: healthResultNumber({
+  maxHumanPlayers: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Human Players",
   }),
-});
+};
 
-const sourceStatusAggregatedInternalSchema = z.object({
-  _humanPlayers: averageStateSchema
-    .optional(),
-  _maxHumanPlayers: minMaxStateSchema.optional(),
-});
-
-const sourceStatusAggregatedSchema = sourceStatusAggregatedDisplaySchema.merge(
-  sourceStatusAggregatedInternalSchema,
-);
-
-export type SourceStatusAggregatedResult = z.infer<
-  typeof sourceStatusAggregatedSchema
+// Type inferred from field definitions
+export type SourceStatusAggregatedResult = InferAggregatedResult<
+  typeof sourceStatusAggregatedFields
 >;
 
 // ============================================================================
@@ -114,9 +106,9 @@ export class SourceStatusCollector implements CollectorStrategy<
 
   config = new Versioned({ version: 1, schema: sourceStatusConfigSchema });
   result = new Versioned({ version: 1, schema: sourceStatusResultSchema });
-  aggregatedResult = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: sourceStatusAggregatedSchema,
+    fields: sourceStatusAggregatedFields,
   });
 
   async execute({
@@ -206,21 +198,15 @@ export class SourceStatusCollector implements CollectorStrategy<
   ): SourceStatusAggregatedResult {
     const metadata = run.metadata;
 
-    const avgState = mergeAverage(
-      existing?._humanPlayers as AverageState | undefined,
-      metadata?.humanPlayers,
-    );
-
-    const maxState = mergeMinMax(
-      existing?._maxHumanPlayers as MinMaxState | undefined,
-      metadata?.humanPlayers,
-    );
-
     return {
-      avgHumanPlayers: avgState.avg,
-      maxHumanPlayers: maxState.max,
-      _humanPlayers: avgState,
-      _maxHumanPlayers: maxState,
+      avgHumanPlayers: mergeAverage(
+        existing?.avgHumanPlayers,
+        metadata?.humanPlayers,
+      ),
+      maxHumanPlayers: mergeMinMax(
+        existing?.maxHumanPlayers,
+        metadata?.humanPlayers,
+      ),
     };
   }
 }

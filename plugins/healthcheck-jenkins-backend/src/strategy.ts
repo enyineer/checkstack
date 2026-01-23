@@ -2,19 +2,18 @@ import {
   HealthCheckStrategy,
   HealthCheckRunForAggregation,
   Versioned,
+  VersionedAggregated,
+  aggregatedAverage,
+  aggregatedRate,
+  aggregatedCounter,
+  mergeAverage,
+  mergeRate,
+  mergeCounter,
   z,
   configString,
   configNumber,
   type ConnectedClient,
-  mergeAverage,
-  averageStateSchema,
-  mergeRate,
-  rateStateSchema,
-  mergeCounter,
-  counterStateSchema,
-  type AverageState,
-  type RateState,
-  type CounterState,
+  type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -75,37 +74,27 @@ const jenkinsResultSchema = healthResultSchema({
 
 type JenkinsResult = z.infer<typeof jenkinsResultSchema>;
 
-/** Aggregated metadata for buckets */
-const jenkinsAggregatedDisplaySchema = healthResultSchema({
-  successRate: healthResultNumber({
+/** Aggregated field definitions for bucket merging */
+const jenkinsAggregatedFields = {
+  successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
   }),
-  avgResponseTimeMs: healthResultNumber({
+  avgResponseTimeMs: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Response Time",
     "x-chart-unit": "ms",
   }),
-  errorCount: healthResultNumber({
+  errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
   }),
-});
+};
 
-const jenkinsAggregatedInternalSchema = z.object({
-  _responseTime: averageStateSchema
-    .optional(),
-  _success: rateStateSchema
-    .optional(),
-  _errors: counterStateSchema.optional(),
-});
-
-const jenkinsAggregatedSchema = jenkinsAggregatedDisplaySchema.merge(
-  jenkinsAggregatedInternalSchema,
-);
-
-type JenkinsAggregatedResult = z.infer<typeof jenkinsAggregatedSchema>;
+type JenkinsAggregatedResult = InferAggregatedResult<
+  typeof jenkinsAggregatedFields
+>;
 
 // ============================================================================
 // STRATEGY
@@ -115,7 +104,7 @@ export class JenkinsHealthCheckStrategy implements HealthCheckStrategy<
   JenkinsConfig,
   JenkinsTransportClient,
   JenkinsResult,
-  JenkinsAggregatedResult
+  typeof jenkinsAggregatedFields
 > {
   id = "jenkins";
   displayName = "Jenkins Health Check";
@@ -131,9 +120,9 @@ export class JenkinsHealthCheckStrategy implements HealthCheckStrategy<
     schema: jenkinsResultSchema,
   });
 
-  aggregatedResult: Versioned<JenkinsAggregatedResult> = new Versioned({
+  aggregatedResult = new VersionedAggregated({
     version: 1,
-    schema: jenkinsAggregatedSchema,
+    fields: jenkinsAggregatedFields,
   });
 
   /**
@@ -224,28 +213,17 @@ export class JenkinsHealthCheckStrategy implements HealthCheckStrategy<
   ): JenkinsAggregatedResult {
     const metadata = run.metadata;
 
-    const responseTimeState = mergeAverage(
-      existing?._responseTime as AverageState | undefined,
+    const avgResponseTimeMs = mergeAverage(
+      existing?.avgResponseTimeMs,
       metadata?.responseTimeMs,
     );
 
-    const successState = mergeRate(
-      existing?._success as RateState | undefined,
-      metadata?.connected,
-    );
+    const isSuccess = metadata?.connected ?? false;
+    const successRate = mergeRate(existing?.successRate, isSuccess);
 
-    const errorState = mergeCounter(
-      existing?._errors as CounterState | undefined,
-      metadata?.error !== undefined,
-    );
+    const hasError = metadata?.error !== undefined;
+    const errorCount = mergeCounter(existing?.errorCount, hasError);
 
-    return {
-      successRate: successState.rate,
-      avgResponseTimeMs: responseTimeState.avg,
-      errorCount: errorState.count,
-      _responseTime: responseTimeState,
-      _success: successState,
-      _errors: errorState,
-    };
+    return { successRate, avgResponseTimeMs, errorCount };
   }
 }
