@@ -33,6 +33,7 @@ import {
   type HealthCheckRunDetailed,
 } from "../components/HealthCheckRunsTable";
 import { ExpandedResultView } from "../components/ExpandedResultView";
+import { SingleRunChartGrid } from "../auto-charts";
 
 const HealthCheckHistoryDetailPageContent = () => {
   const { systemId, configurationId, runId } = useParams<{
@@ -61,6 +62,17 @@ const HealthCheckHistoryDetailPageContent = () => {
     {
       enabled: !!runId,
     },
+  );
+
+  // Fetch configurations to get strategyId
+  const { data: configurations } = healthCheckClient.getConfigurations.useQuery(
+    {},
+    {
+      enabled: !!configurationId,
+    },
+  );
+  const configuration = configurations?.configurations.find(
+    (c) => c.id === configurationId,
   );
 
   // Fetch data with useQuery - newest first for table display
@@ -127,8 +139,14 @@ const HealthCheckHistoryDetailPageContent = () => {
               {format(new Date(specificRun.timestamp), "PPpp")}
             </p>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <ExpandedResultView result={specificRun.result} />
+            {configuration?.strategyId && (
+              <SingleRunChartGrid
+                strategyId={configuration.strategyId}
+                result={specificRun.result}
+              />
+            )}
           </CardContent>
         </Card>
       )}

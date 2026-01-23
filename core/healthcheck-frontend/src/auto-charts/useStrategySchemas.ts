@@ -11,6 +11,7 @@ import { usePluginClient } from "@checkstack/frontend-api";
 import { HealthCheckApi } from "../api";
 
 interface StrategySchemas {
+  resultSchema: Record<string, unknown> | undefined;
   aggregatedResultSchema: Record<string, unknown> | undefined;
 }
 
@@ -65,7 +66,23 @@ export function useStrategySchemas(strategyId: string): {
         collectorAggregatedProperties,
       );
 
+      // Build collector result schemas for nesting under resultSchema.properties.collectors
+      const collectorResultProperties: Record<string, unknown> = {};
+
+      for (const collector of collectors) {
+        if (collector.resultSchema) {
+          collectorResultProperties[collector.id] = collector.resultSchema;
+        }
+      }
+
+      // Merge collector result schemas into strategy result schema
+      const mergedResultSchema = mergeCollectorSchemas(
+        strategy.resultSchema as Record<string, unknown> | undefined,
+        collectorResultProperties,
+      );
+
       setSchemas({
+        resultSchema: mergedResultSchema,
         aggregatedResultSchema: mergedAggregatedSchema,
       });
     }

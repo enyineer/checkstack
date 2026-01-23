@@ -8,5 +8,6 @@
 export { extractChartFields, getFieldValue } from "./schema-parser";
 export type { ChartField } from "./schema-parser";
 export { AutoChartGrid } from "./AutoChartGrid";
+export { SingleRunChartGrid } from "./SingleRunChartGrid";
 export { useStrategySchemas } from "./useStrategySchemas";
 export { autoChartExtension } from "./extension";
