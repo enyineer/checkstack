@@ -8,12 +8,18 @@ import {
   type ConfigService,
   toJsonSchema,
 } from "@checkstack/backend-api";
-import { authContract, passwordSchema } from "@checkstack/auth-common";
+import {
+  authContract,
+  passwordSchema,
+  authAccess,
+  pluginMetadata,
+} from "@checkstack/auth-common";
 import { hashPassword } from "better-auth/crypto";
 import * as schema from "./schema";
 import { eq, inArray, and } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import { authHooks } from "./hooks";
+import { qualifyAccessRuleId } from "@checkstack/common";
 
 /**
  * Type guard to check if user is a RealUser (not a service).
@@ -35,6 +41,69 @@ export const ADMIN_ROLE_ID = "admin";
 export const USERS_ROLE_ID = "users";
 export const ANONYMOUS_ROLE_ID = "anonymous";
 export const APPLICATIONS_ROLE_ID = "applications";
+
+/**
+ * Helper to check if user has permission to manage a team.
+ * Allows access if:
+ * 1. User has global team manage permission (admin)
+ * 2. User is explicitly a manager of this team
+ */
+async function checkTeamManageAccess(
+  context: RpcContext,
+  teamId: string,
+  internalDb: SafeDatabase<typeof schema>,
+) {
+  const user = context.user;
+
+  // Service user check: if it has global manage permission or wildcard
+  if (!isRealUser(user)) {
+    const managePermissionId = qualifyAccessRuleId(
+      pluginMetadata,
+      authAccess.teams.manage,
+    );
+    if (
+      user?.accessRules?.includes(managePermissionId) ||
+      user?.accessRules?.includes("*")
+    ) {
+      return;
+    }
+    throw new ORPCError("FORBIDDEN", {
+      message: "You do not have permission to manage teams",
+    });
+  }
+
+  // Check for global team manage permission (e.g. admin)
+  const managePermissionId = qualifyAccessRuleId(
+    pluginMetadata,
+    authAccess.teams.manage,
+  );
+  if (
+    user.accessRules?.includes(managePermissionId) ||
+    user.accessRules?.includes("*")
+  ) {
+    return;
+  }
+
+  // Check if user is a manager of this specific team
+  const managers = await internalDb
+    .select()
+    .from(schema.teamManager)
+    .where(
+      and(
+        eq(schema.teamManager.teamId, teamId),
+        eq(schema.teamManager.userId, user.id),
+      ),
+    )
+    .limit(1);
+
+  if (managers.length > 0) {
+    return;
+  }
+
+  throw new ORPCError("FORBIDDEN", {
+    message: "You do not have permission to manage this team",
+  });
+}
 
 /**
  * Creates the auth router using contract-based implementation.
@@ -1385,7 +1454,9 @@ export const createAuthRouter = (
 
   const updateTeam = os.updateTeam.handler(async ({ input, context }) => {
     const { id, name, description } = input;
-    // TODO: Check if user is manager or has teamsManage access
+
+    await checkTeamManageAccess(context, id, internalDb);
+
     const updates: {
       name?: string;
       description?: string | null;
@@ -1419,7 +1490,9 @@ export const createAuthRouter = (
     context.logger.info(`[auth-backend] Deleted team: ${id}`);
   });
 
-  const addUserToTeam = os.addUserToTeam.handler(async ({ input }) => {
+  const addUserToTeam = os.addUserToTeam.handler(async ({ input, context }) => {
+    await checkTeamManageAccess(context, input.teamId, internalDb);
+
     await internalDb
       .insert(schema.userTeam)
       .values({ userId: input.userId, teamId: input.teamId })
@@ -1427,7 +1500,9 @@ export const createAuthRouter = (
   });
 
   const removeUserFromTeam = os.removeUserFromTeam.handler(
-    async ({ input }) => {
+    async ({ input, context }) => {
+      await checkTeamManageAccess(context, input.teamId, internalDb);
+
       await internalDb
         .delete(schema.userTeam)
         .where(
