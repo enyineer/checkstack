@@ -1,7 +1,6 @@
 import { render } from "@checkstack/test-utils-frontend";
 import { SubscribeButton } from "./SubscribeButton";
 import { describe, it, expect, vi } from "bun:test";
-import React from "react";
 
 describe("SubscribeButton", () => {
   it("renders with correct accessibility attributes (improved)", () => {
@@ -13,14 +12,16 @@ describe("SubscribeButton", () => {
         isSubscribed={false}
         onSubscribe={onSubscribe}
         onUnsubscribe={onUnsubscribe}
-      />
+      />,
     );
 
     let button = getByRole("button");
     // Should have aria-label matching title
-    expect(button).toHaveAttribute("aria-label", "Subscribe to notifications");
+    expect(button.getAttribute("aria-label")).toBe(
+      "Subscribe to notifications",
+    );
     // Should have aria-pressed
-    expect(button).toHaveAttribute("aria-pressed", "false");
+    expect(button.getAttribute("aria-pressed")).toBe("false");
 
     // Test subscribed state
     rerender(
@@ -28,11 +29,13 @@ describe("SubscribeButton", () => {
         isSubscribed={true}
         onSubscribe={onSubscribe}
         onUnsubscribe={onUnsubscribe}
-      />
+      />,
     );
     button = getByRole("button");
-    expect(button).toHaveAttribute("aria-label", "Unsubscribe from notifications");
-    expect(button).toHaveAttribute("aria-pressed", "true");
+    expect(button.getAttribute("aria-label")).toBe(
+      "Unsubscribe from notifications",
+    );
+    expect(button.getAttribute("aria-pressed")).toBe("true");
 
     // Test loading state when subscribing
     rerender(
@@ -41,13 +44,13 @@ describe("SubscribeButton", () => {
         loading={true}
         onSubscribe={onSubscribe}
         onUnsubscribe={onUnsubscribe}
-      />
+      />,
     );
     button = getByRole("button");
-    expect(button).toHaveAttribute("aria-label", "Subscribing...");
+    expect(button.getAttribute("aria-label")).toBe("Subscribing...");
     // Check for spinner
     const spinner = getByRole("status");
-    expect(spinner).toHaveAttribute("aria-label", "Loading");
+    expect(spinner.getAttribute("aria-label")).toBe("Loading");
 
     // Test loading state when unsubscribing
     rerender(
@@ -56,9 +59,9 @@ describe("SubscribeButton", () => {
         loading={true}
         onSubscribe={onSubscribe}
         onUnsubscribe={onUnsubscribe}
-      />
+      />,
     );
     button = getByRole("button");
-    expect(button).toHaveAttribute("aria-label", "Unsubscribing...");
+    expect(button.getAttribute("aria-label")).toBe("Unsubscribing...");
   });
 });

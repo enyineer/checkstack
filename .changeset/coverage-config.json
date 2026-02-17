@@ -1,0 +1,13 @@
+{
+  "$schema": "./coverage-config.schema.json",
+  "ignoredFiles": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    "**/*.md",
+    "**/__tests__/**",
+    "**/__mocks__/**"
+  ],
+  "ignoredPackages": ["@checkstack/release"]
+}

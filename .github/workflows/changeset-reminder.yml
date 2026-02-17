@@ -1,0 +1,364 @@
+name: Changeset Reminder
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [opened, synchronize]
+    branches:
+      - main
+
+concurrency:
+  group: changeset-reminder-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # ─── Job 1: Trigger Jules when changeset-bot says "No Changeset found" ───
+  request-changeset:
+    name: Request Changeset from Jules
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      github.event.comment.user.login == 'changeset-bot[bot]' &&
+      contains(github.event.comment.body, '###  ⚠️  No Changeset found')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for existing Jules invocation
+        id: check-existing
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+              }
+            );
+
+            const alreadyTriggered = comments.some(
+              (c) => c.body?.includes('<!-- changeset-reminder -->')
+            );
+
+            // Get PR head branch for jules-invoke
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+
+            core.setOutput('already_triggered', alreadyTriggered.toString());
+            core.setOutput('head_ref', pr.data.head.ref);
+            core.info(`PR head branch: ${pr.data.head.ref}`);
+            core.info(`Jules already triggered: ${alreadyTriggered}`);
+
+      - name: Invoke Jules to create changeset
+        if: steps.check-existing.outputs.already_triggered == 'false'
+        uses: google-labs-code/jules-invoke@v1
+        with:
+          starting_branch: ${{ steps.check-existing.outputs.head_ref }}
+          include_commit_log: true
+          jules_api_key: ${{ secrets.JULES_API_KEY }}
+          prompt: |
+            This PR is missing a changeset. Please create one.
+
+            The `changeset` CLI is interactive and cannot be used non-interactively.
+            Instead, create the changeset file directly in `.changeset/`.
+
+            A changeset file is a markdown file with YAML frontmatter listing
+            the affected packages and their bump types, followed by a summary.
+
+            Steps:
+            1. Review the changes in this PR to determine which packages are affected
+            2. Create a new markdown file in `.changeset/` with a random kebab-case name (e.g. `.changeset/cool-dogs-fly.md`)
+            3. Use "patch" for bug fixes or "minor" for new features — do NOT use "major" (we are pre-1.0)
+            4. Write a concise summary of the changes for the changelog
+            5. Commit the changeset file
+
+            Example (`.changeset/cool-dogs-fly.md`):
+            ```
+            ---
+            "@checkstack/some-package": minor
+            ---
+
+            Added a new feature to the some-package plugin.
+            ```
+
+      - name: Post informational comment
+        if: steps.check-existing.outputs.already_triggered == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = [
+              '<!-- changeset-reminder -->',
+              '## 📦 Changeset Required',
+              '',
+              'The changeset bot has detected that this PR is missing a changeset.',
+              '',
+              '🤖 **Jules has been triggered** to create a changeset for this PR.',
+              'Jules will review the changes, determine the affected packages, and create a changeset file in `.changeset/`.',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+  # ─── Job 2: Validate changeset coverage on every push ───
+  validate-changeset-coverage:
+    name: Validate Changeset Coverage
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Validate changeset coverage
+        id: validate
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            // ── 1. Load coverage config ──
+            const configPath = path.join(process.env.GITHUB_WORKSPACE, '.changeset', 'coverage-config.json');
+            let config = { ignoredFiles: [], ignoredPackages: [] };
+            try {
+              config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+              core.info(`Loaded coverage config: ${config.ignoredFiles.length} ignored file patterns, ${config.ignoredPackages.length} ignored packages`);
+            } catch (err) {
+              core.warning(`Could not load coverage config: ${err.message}. Using defaults.`);
+            }
+
+            // ── 2. Convert glob patterns to RegExp matchers ──
+            function globToRegex(glob) {
+              let re = glob
+                .replace(/\./g, '\\.')
+                .replace(/\*\*/g, '{{GLOBSTAR}}')
+                .replace(/\*/g, '[^/]*')
+                .replace(/\{\{GLOBSTAR\}\}/g, '.*');
+              return new RegExp(`^${re}$`);
+            }
+
+            const ignoredFilePatterns = config.ignoredFiles.map(globToRegex);
+            const ignoredPackageSet = new Set(config.ignoredPackages);
+
+            function isFileIgnored(relativePath) {
+              return ignoredFilePatterns.some((re) => re.test(relativePath));
+            }
+
+            // ── 3. Discover workspace packages ──
+            const workspaceDirs = ['core', 'plugins'];
+            const packageMap = new Map(); // dir (relative to repo root) → package name
+
+            for (const wsDir of workspaceDirs) {
+              const wsPath = path.join(process.env.GITHUB_WORKSPACE, wsDir);
+              if (!fs.existsSync(wsPath)) continue;
+
+              for (const entry of fs.readdirSync(wsPath, { withFileTypes: true })) {
+                if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+                const pkgJsonPath = path.join(wsPath, entry.name, 'package.json');
+                try {
+                  const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+                  if (pkgJson.name && !pkgJson.private) {
+                    const relDir = `${wsDir}/${entry.name}`;
+                    packageMap.set(relDir, pkgJson.name);
+                  }
+                } catch {
+                  // Skip directories without valid package.json
+                }
+              }
+            }
+
+            core.info(`Discovered ${packageMap.size} public workspace packages`);
+
+            // ── 4. Get changed files in this PR ──
+            const changedFiles = await github.paginate(
+              github.rest.pulls.listFiles,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+              }
+            );
+
+            core.info(`PR has ${changedFiles.length} changed files`);
+
+            // ── 5. Map changed files to packages, filtering ignored files ──
+            const packagesWithCodeChanges = new Set();
+
+            for (const file of changedFiles) {
+              const filePath = file.filename;
+              for (const [pkgDir, pkgName] of packageMap) {
+                if (filePath.startsWith(`${pkgDir}/`)) {
+                  const relativeToPackage = filePath.slice(pkgDir.length + 1);
+
+                  if (!isFileIgnored(relativeToPackage) && !ignoredPackageSet.has(pkgName)) {
+                    packagesWithCodeChanges.add(pkgName);
+                  }
+                  break;
+                }
+              }
+            }
+
+            core.info(`Packages with code changes: ${[...packagesWithCodeChanges].join(', ') || '(none)'}`);
+
+            if (packagesWithCodeChanges.size === 0) {
+              core.info('No packages with code changes found. Skipping changeset validation.');
+              core.setOutput('has_missing', 'false');
+              return;
+            }
+
+            // ── 6. Read existing changeset entries ──
+            const changesetDir = path.join(process.env.GITHUB_WORKSPACE, '.changeset');
+            const coveredPackages = new Set();
+
+            for (const entry of fs.readdirSync(changesetDir)) {
+              if (!entry.endsWith('.md') || entry === 'README.md') continue;
+              const content = fs.readFileSync(path.join(changesetDir, entry), 'utf8');
+              const match = content.match(/^---\n([\s\S]*?)\n---/);
+              if (!match) continue;
+              const frontmatter = match[1];
+              for (const line of frontmatter.split('\n')) {
+                const pkgMatch = line.match(/^"([^"]+)":\s*(patch|minor|major)/);
+                if (pkgMatch) {
+                  coveredPackages.add(pkgMatch[1]);
+                }
+              }
+            }
+
+            core.info(`Packages covered by changesets: ${[...coveredPackages].join(', ') || '(none)'}`);
+
+            // ── 7. Find missing packages ──
+            const missingPackages = [...packagesWithCodeChanges].filter(
+              (pkg) => !coveredPackages.has(pkg)
+            );
+
+            if (missingPackages.length === 0) {
+              core.info('All packages with code changes are covered by changesets. ✅');
+              core.setOutput('has_missing', 'false');
+
+              // Clean up any previous coverage comment
+              const existingComments = await github.paginate(
+                github.rest.issues.listComments,
+                {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.payload.pull_request.number,
+                }
+              );
+
+              const previousComment = existingComments.find(
+                (c) => c.body?.includes('<!-- changeset-coverage -->')
+              );
+
+              if (previousComment) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: previousComment.id,
+                });
+                core.info('Deleted previous changeset coverage comment (no longer needed).');
+              }
+
+              return;
+            }
+
+            // ── 8. Build Jules prompt and post comment ──
+            core.info(`Missing changeset coverage for: ${missingPackages.join(', ')}`);
+            core.setOutput('has_missing', 'true');
+
+            const packageList = missingPackages.map((pkg) => `- \`${pkg}\``).join('\n');
+            const exampleFrontmatter = missingPackages.map((pkg) => `"${pkg}": patch`).join('\n');
+
+            // Build prompt for Jules
+            const julesPrompt = [
+              'The following packages have code changes but are not included in any changeset:',
+              '',
+              missingPackages.map((pkg) => `- ${pkg}`).join('\n'),
+              '',
+              'Please update the existing changeset or create a new one to cover these packages.',
+              '',
+              'The `changeset` CLI is interactive and cannot be used non-interactively.',
+              'Instead, create the changeset file directly in `.changeset/`.',
+              '',
+              'Steps:',
+              '1. Check if a changeset file already exists in `.changeset/` for this PR',
+              '2. If yes, add the missing packages to its YAML frontmatter',
+              '3. If no, create a new changeset file with a random kebab-case name (e.g. `.changeset/cool-dogs-fly.md`)',
+              '4. Use "patch" for bug fixes or "minor" for new features — do NOT use "major" (we are pre-1.0)',
+              '5. Write a concise summary of the changes for the changelog',
+              '',
+              'Example (`.changeset/cool-dogs-fly.md`):',
+              '```',
+              '---',
+              exampleFrontmatter,
+              '---',
+              '',
+              'Description of the changes.',
+              '```',
+            ].join('\n');
+
+            core.setOutput('jules_prompt', julesPrompt);
+
+            // Post or update informational comment
+            const body = [
+              '<!-- changeset-coverage -->',
+              '## 📦 Changeset Coverage Incomplete',
+              '',
+              'The following packages have **code changes** but are not included in any changeset:',
+              '',
+              packageList,
+              '',
+              '🤖 **Jules has been triggered** to update or create a changeset covering these packages.',
+            ].join('\n');
+
+            const allComments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+              }
+            );
+
+            const existingComment = allComments.find(
+              (c) => c.body?.includes('<!-- changeset-coverage -->')
+            );
+
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body,
+              });
+              core.info('Updated existing changeset coverage comment.');
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body,
+              });
+              core.info('Created new changeset coverage comment.');
+            }
+
+      - name: Invoke Jules to update changeset
+        if: >
+          steps.validate.outputs.has_missing == 'true' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: google-labs-code/jules-invoke@v1
+        with:
+          starting_branch: ${{ github.head_ref }}
+          include_commit_log: true
+          jules_api_key: ${{ secrets.JULES_API_KEY }}
+          prompt: ${{ steps.validate.outputs.jules_prompt }}
