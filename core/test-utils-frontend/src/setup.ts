@@ -9,8 +9,6 @@
  * preload = ["@checkstack/test-utils-frontend/setup"]
  */
 
-console.log("🛠️ Frontend Test Setup Running...");
-
 // Register Happy DOM globals first (document, window, etc.)
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 GlobalRegistrator.register();
