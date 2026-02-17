@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Changeset Coverage Config",
+  "description": "Configuration for changeset coverage validation in CI",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "ignoredFiles": {
+      "type": "array",
+      "description": "Glob patterns for files that do not require a changeset. Matched against the file path relative to the package root. If all changed files in a package match these patterns, no changeset is required.",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "ignoredPackages": {
+      "type": "array",
+      "description": "Package names (from package.json) that never require a changeset entry.",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    }
+  },
+  "additionalProperties": false
+}
