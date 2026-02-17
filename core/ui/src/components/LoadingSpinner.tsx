@@ -3,10 +3,12 @@ import { cn } from "../utils";
 
 interface LoadingSpinnerProps extends React.HTMLAttributes<HTMLDivElement> {
   size?: "sm" | "md" | "lg";
+  label?: string;
 }
 
 export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
   size = "md",
+  label = "Loading...",
   className,
   ...props
 }) => {
@@ -17,13 +19,14 @@ export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
   };
 
   return (
-    <div className={cn("flex justify-center py-12", className)} {...props}>
+    <div role="status" className={cn("flex justify-center py-12", className)} {...props}>
       <div
         className={cn(
           "border-indigo-200 border-t-indigo-500 rounded-full animate-spin",
           sizeClasses[size]
         )}
       />
+      <span className="sr-only">{label}</span>
     </div>
   );
 };
