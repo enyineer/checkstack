@@ -55,28 +55,21 @@ async function checkTeamManageAccess(
 ) {
   const user = context.user;
 
-  // Service user check: if it has global manage permission or wildcard
-  if (!isRealUser(user)) {
-    const managePermissionId = qualifyAccessRuleId(
-      pluginMetadata,
-      authAccess.teams.manage,
-    );
-    if (
-      user?.accessRules?.includes(managePermissionId) ||
-      user?.accessRules?.includes("*")
-    ) {
-      return;
-    }
-    throw new ORPCError("FORBIDDEN", {
-      message: "You do not have permission to manage teams",
-    });
+  if (!user) {
+    throw new ORPCError("UNAUTHORIZED", { message: "Not authenticated" });
   }
 
-  // Check for global team manage permission (e.g. admin)
+  // Service users are internal and trusted
+  if (user.type === "service") {
+    return;
+  }
+
+  // Check global permission for both Users and Applications
   const managePermissionId = qualifyAccessRuleId(
     pluginMetadata,
     authAccess.teams.manage,
   );
+
   if (
     user.accessRules?.includes(managePermissionId) ||
     user.accessRules?.includes("*")
@@ -84,20 +77,22 @@ async function checkTeamManageAccess(
     return;
   }
 
-  // Check if user is a manager of this specific team
-  const managers = await internalDb
-    .select()
-    .from(schema.teamManager)
-    .where(
-      and(
-        eq(schema.teamManager.teamId, teamId),
-        eq(schema.teamManager.userId, user.id),
-      ),
-    )
-    .limit(1);
+  // If user is a RealUser, check if they are a specific manager of the team
+  if (user.type === "user") {
+    const managers = await internalDb
+      .select()
+      .from(schema.teamManager)
+      .where(
+        and(
+          eq(schema.teamManager.teamId, teamId),
+          eq(schema.teamManager.userId, user.id),
+        ),
+      )
+      .limit(1);
 
-  if (managers.length > 0) {
-    return;
+    if (managers.length > 0) {
+      return;
+    }
   }
 
   throw new ORPCError("FORBIDDEN", {
