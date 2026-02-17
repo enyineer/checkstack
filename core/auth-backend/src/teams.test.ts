@@ -1,7 +1,7 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { createAuthRouter } from "./router";
 import { createMockRpcContext } from "@checkstack/backend-api";
-import { call } from "@orpc/server";
+import { call, ORPCError } from "@orpc/server";
 import { z } from "zod";
 import * as schema from "./schema";
 import type { SafeDatabase } from "@checkstack/backend-api";
@@ -43,6 +43,15 @@ describe("Teams and Resource Access Control", () => {
   const mockServiceUser = {
     type: "service" as const,
     pluginId: "backend-api",
+  };
+
+  // Mock team manager who manages team-1
+  const mockTeamManager = {
+    type: "user" as const,
+    id: "manager-user",
+    accessRules: ["auth.teams.read"],
+    roles: ["users"],
+    teamIds: ["team-1"],
   };
 
   /**
@@ -532,6 +541,123 @@ describe("Teams and Resource Access Control", () => {
 
       expect(updatedData?.description).toBe("New description");
     });
+
+    it("prevents regular user with read access from updating a team", async () => {
+      const mockDb = createMockDb();
+
+      // Mock team manager check (returns empty list, so user is NOT a manager)
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({
+        user: { ...mockRegularUser, accessRules: ["auth.teams.read"] },
+        user: { ...mockRegularUser, accessRules: ["auth.teams.read"] },
+        pluginMetadata: { pluginId: "auth" },
+      });
+
+      // Expect the call to fail with FORBIDDEN
+      try {
+        await call(
+          router.updateTeam,
+          { id: "team-1", name: "Hacked Team Name" },
+          { context }
+        );
+        throw new Error("Should have failed with FORBIDDEN");
+      } catch (e) {
+        expect(e).toBeInstanceOf(ORPCError);
+        expect((e as ORPCError).code).toBe("FORBIDDEN");
+        expect((e as ORPCError).message).toContain(
+          "permission to manage this team"
+        );
+      }
+    });
+
+    it("allows team manager to update their own team", async () => {
+      const mockDb = createMockDb();
+
+      // Mock team manager check (returns match)
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([{ teamId: "team-1", userId: "manager-user" }])
+        ),
+      }));
+
+      // Mock update operation
+      let updateCalled = false;
+      (mockDb.update as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        set: mock(() => {
+          updateCalled = true;
+          return {
+            where: mock(() => Promise.resolve()),
+          };
+        }),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({
+        user: mockTeamManager,
+        pluginMetadata: { pluginId: "auth" },
+      });
+
+      await call(
+        router.updateTeam,
+        { id: "team-1", name: "Updated by Manager" },
+        { context }
+      );
+
+      expect(updateCalled).toBe(true);
+    });
+
+    it("prevents team manager from updating ANOTHER team", async () => {
+      const mockDb = createMockDb();
+
+      // Mock team manager check (returns empty because they don't manage team-2)
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({
+        user: mockTeamManager,
+        pluginMetadata: { pluginId: "auth" },
+      });
+
+      // Expect failure
+      try {
+        await call(
+          router.updateTeam,
+          { id: "team-2", name: "Hacked Other Team" },
+          { context }
+        );
+        throw new Error("Should have failed with FORBIDDEN");
+      } catch (e) {
+        expect(e).toBeInstanceOf(ORPCError);
+        expect((e as ORPCError).code).toBe("FORBIDDEN");
+      }
+    });
   });
 
   describe("deleteTeam", () => {
@@ -609,6 +735,83 @@ describe("Teams and Resource Access Control", () => {
       expect(mockDb.insert).toHaveBeenCalled();
       expect(insertedData?.teamId).toBe("team-1");
       expect(insertedData?.userId).toBe("user-1");
+    });
+
+    it("prevents regular user from adding users to a team", async () => {
+      const mockDb = createMockDb();
+
+      // Mock team manager check (returns empty list)
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({
+        user: mockRegularUser,
+        pluginMetadata: { pluginId: "auth" },
+      });
+
+      try {
+        await call(
+          router.addUserToTeam,
+          { teamId: "team-1", userId: "new-user" },
+          { context }
+        );
+        throw new Error("Should have failed with FORBIDDEN");
+      } catch (e) {
+        expect(e).toBeInstanceOf(ORPCError);
+        expect((e as ORPCError).code).toBe("FORBIDDEN");
+      }
+    });
+
+    it("allows team manager to add users to their team", async () => {
+      const mockDb = createMockDb();
+
+      // Mock team manager check (returns match)
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([{ teamId: "team-1", userId: "manager-user" }])
+        ),
+      }));
+
+      // Mock insert
+      let insertCalled = false;
+      (mockDb.insert as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        values: mock(() => {
+          insertCalled = true;
+          return {
+            onConflictDoNothing: mock(() => Promise.resolve()),
+          };
+        }),
+      }));
+
+      const router = createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry
+      );
+
+      const context = createMockRpcContext({
+        user: mockTeamManager,
+        pluginMetadata: { pluginId: "auth" },
+      });
+
+      await call(
+        router.addUserToTeam,
+        { teamId: "team-1", userId: "new-user" },
+        { context }
+      );
+
+      expect(insertCalled).toBe(true);
     });
   });
 
