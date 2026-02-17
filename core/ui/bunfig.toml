@@ -1,2 +1,2 @@
 [test]
-preload = ["@checkstack/test-utils-frontend/setup"]
+preload = ["../test-utils-frontend/src/setup.ts"]
