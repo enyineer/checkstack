@@ -27,11 +27,12 @@
     "tailwind-merge": "^2.2.0"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
-    "@types/react": "^18.2.0",
+    "@checkstack/scripts": "workspace:*",
     "@checkstack/test-utils-frontend": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
-    "@checkstack/scripts": "workspace:*"
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^18.2.0",
+    "typescript": "^5.0.0"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

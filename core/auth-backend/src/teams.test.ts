@@ -39,6 +39,15 @@ describe("Teams and Resource Access Control", () => {
     teamIds: ["team-beta"],
   };
 
+  // Mock regular user for tests where pluginId is "auth"
+  const mockAuthRegularUser = {
+    type: "user" as const,
+    id: "regular-user",
+    accessRules: ["auth.teams.read"],
+    roles: ["users"],
+    teamIds: ["team-beta"],
+  };
+
   // Mock service user for S2S calls
   const mockServiceUser = {
     type: "service" as const,
@@ -559,7 +568,7 @@ describe("Teams and Resource Access Control", () => {
       );
 
       const context = createMockRpcContext({
-        user: { ...mockRegularUser, accessRules: ["auth.teams.read"] },
+        user: mockAuthRegularUser,
         pluginMetadata: { pluginId: "auth" },
       });
 
@@ -753,7 +762,7 @@ describe("Teams and Resource Access Control", () => {
       );
 
       const context = createMockRpcContext({
-        user: mockRegularUser,
+        user: mockAuthRegularUser,
         pluginMetadata: { pluginId: "auth" },
       });
 
