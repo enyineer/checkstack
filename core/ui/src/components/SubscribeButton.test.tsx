@@ -1,3 +1,4 @@
+import "@checkstack/test-utils-frontend/setup";
 import { render } from "@testing-library/react";
 import { SubscribeButton } from "./SubscribeButton";
 import { describe, it, expect, vi } from "bun:test";
