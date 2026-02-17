@@ -1,3 +1,3 @@
-## 2026-02-17 - React Query Version Mismatch & Test Environment
-**Learning:** Merging main introduced duplicate versions of `@tanstack/react-query` (5.90.17 vs 5.90.18), causing type mismatches (`QueryClient` private property error) in `orpc-query.tsx`. Additionally, `core/ui` tests failed because `happy-dom` wasn't explicitly installed in the package, leading to a missing `document` object.
-**Action:** Use `resolutions` in root `package.json` to force a single version of `@tanstack/react-query` (5.64.0) and explicitly add `@happy-dom/global-registrator` to `core/ui` devDependencies. Clean nested `node_modules` if resolutions change.
+## 2026-02-17 - Resolving CI Lockfile Corruption
+**Learning:** Manually running `bun install` after modifying `resolutions` can produce a `bun.lock` file with duplicate keys or structure that `bun install --frozen-lockfile` (used in CI) rejects.
+**Action:** When modifying global `resolutions` or `dependencies`, it's safer to fully clear `bun.lock` and `node_modules` before running `bun install` to ensure a clean, consistent lockfile generation.
