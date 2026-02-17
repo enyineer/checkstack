@@ -174,6 +174,7 @@ jobs:
             core.info(`Found ${failureCount} previous failure comment(s)`);
 
       - name: Build and post report
+        id: report
         uses: actions/github-script@v7
         with:
           script: |
@@ -209,6 +210,9 @@ jobs:
             const previousFailures = parseInt('${{ steps.count-failures.outputs.failure_count }}', 10) || 0;
             const escalate = previousFailures >= 3;
 
+            core.setOutput('should_invoke_jules', (!allPassed && !escalate).toString());
+            core.setOutput('all_passed', allPassed.toString());
+
             let body = '';
 
             if (allPassed) {
@@ -223,11 +227,12 @@ jobs:
                 '| Lint | ✅ Passed |',
                 '| Test | ✅ Passed |',
                 '',
-                '@enyineer All quality checks have passed. This PR is ready for your final review.',
+                '🤖 **Jules has been triggered** to perform a code review.',
+                '',
+                '@enyineer All quality checks have passed. This PR is ready for your final review after Jules completes its code review.',
               ].join('\n');
             } else {
               // --- FAILURE ---
-              const tag = escalate ? '@enyineer' : '@jules';
               const escalationNote = escalate
                 ? '> ⚠️ **Escalation**: Automated fixes by Jules have not resolved the issues after 3 attempts. Manual intervention is required.\n'
                 : '';
@@ -246,7 +251,7 @@ jobs:
                   output,
                   '```',
                   '',
-                  '**How to fix:** Run `bun run typecheck` locally to reproduce these errors. Inspect the reported files and line numbers, then fix all type errors. Do not use `any` as an explicit type or `@ts-ignore` to suppress errors. Ensure all function signatures, return types, and variable types are correct. Apply the fix immediately.',
+                  '**How to fix:** Run `bun run typecheck` locally to reproduce these errors. Inspect the reported files and line numbers, then fix all type errors. Do not use `any` as an explicit type or `@ts-ignore` to suppress errors. Ensure all function signatures, return types, and variable types are correct.',
                   '',
                   '</details>',
                 ].join('\n'));
@@ -262,7 +267,7 @@ jobs:
                   output,
                   '```',
                   '',
-                  '**How to fix:** Run `bun run lint` locally to reproduce these errors. Fix all ESLint violations shown above. Never add `eslint-disable` comments to suppress errors — fix the root cause instead. Follow the project\'s coding standards. Apply the fix immediately.',
+                  '**How to fix:** Run `bun run lint` locally to reproduce these errors. Fix all ESLint violations shown above. Never add `eslint-disable` comments to suppress errors — fix the root cause instead. Follow the project\'s coding standards.',
                   '',
                   '</details>',
                 ].join('\n'));
@@ -278,11 +283,16 @@ jobs:
                   output,
                   '```',
                   '',
-                  '**How to fix:** Run `bun test` locally to reproduce these failures. Read the failing test assertions carefully and fix the implementation code so the tests pass. Do not modify test expectations unless the test itself is clearly wrong. If a test is testing new functionality you introduced, make sure your implementation satisfies the test\'s contract. Apply the fix immediately.',
+                  '**How to fix:** Run `bun test` locally to reproduce these failures. Read the failing test assertions carefully and fix the implementation code so the tests pass. Do not modify test expectations unless the test itself is clearly wrong. If a test is testing new functionality you introduced, make sure your implementation satisfies the test\'s contract.',
                   '',
                   '</details>',
                 ].join('\n'));
               }
+
+              // Build the trailing line based on escalation
+              const trailingLine = escalate
+                ? '@enyineer The above code quality issues were found in this PR. Automated fixes have not resolved them after 3 attempts. Manual intervention is required.'
+                : '🤖 **Jules has been triggered** to fix the above code quality issues.';
 
               body = [
                 '<!-- pr-checks-report: fail -->',
@@ -297,8 +307,33 @@ jobs:
                 '',
                 ...sections,
                 '',
-                `${tag} The above code quality issues were found in this PR. Please review and fix them.`,
+                trailingLine,
               ].join('\n');
+
+              // Build Jules prompt listing which checks failed and how to fix
+              if (!escalate) {
+                const failedChecks = [];
+                if (!typecheckPassed) failedChecks.push('- Typecheck (`bun run typecheck`)');
+                if (!lintPassed) failedChecks.push('- Lint (`bun run lint`)');
+                if (!testPassed) failedChecks.push('- Tests (`bun test`)');
+
+                const julesPrompt = [
+                  'The following PR checks have failed:',
+                  '',
+                  ...failedChecks,
+                  '',
+                  'Please fix all errors. Instructions:',
+                  '',
+                  '1. Run the failing commands locally to reproduce the errors',
+                  '2. Fix all reported issues in the source code',
+                  '3. Do NOT use `any` as an explicit type or `@ts-ignore` to suppress type errors',
+                  '4. Do NOT add `eslint-disable` comments to suppress lint errors — fix the root cause',
+                  '5. Do NOT modify test expectations unless the test itself is clearly wrong',
+                  '6. Commit and push the fixes',
+                ].join('\n');
+
+                core.setOutput('jules_prompt', julesPrompt);
+              }
             }
 
             await github.rest.issues.createComment({
@@ -312,3 +347,41 @@ jobs:
             if (!allPassed) {
               core.setFailed('One or more PR checks failed. See the comment above for details.');
             }
+
+      - name: Invoke Jules to fix failures
+        if: >
+          steps.report.outputs.should_invoke_jules == 'true' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: google-labs-code/jules-invoke@v1
+        with:
+          starting_branch: ${{ github.head_ref }}
+          jules_api_key: ${{ secrets.JULES_API_KEY }}
+          prompt: ${{ steps.report.outputs.jules_prompt }}
+
+      - name: Invoke Jules for code review
+        if: >
+          steps.report.outputs.all_passed == 'true' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: google-labs-code/jules-invoke@v1
+        with:
+          starting_branch: ${{ github.head_ref }}
+          include_commit_log: true
+          jules_api_key: ${{ secrets.JULES_API_KEY }}
+          prompt: |
+            All automated checks (typecheck, lint, tests) have passed for this PR.
+            Please perform a thorough code review.
+
+            Review the changes and look for:
+            - Potential bugs, race conditions, or edge cases
+            - Security concerns (e.g. injection, auth bypasses, secret leaks)
+            - Performance issues (e.g. N+1 queries, unnecessary re-renders, missing indexes)
+            - Code clarity and maintainability concerns
+            - Missing error handling or validation
+            - Architectural issues or violations of project patterns
+
+            For each issue found:
+            - Add a review comment on the specific line(s) in question
+            - Explain why it is a concern and suggest a fix
+
+            If the code looks good and you have no concerns, post a single
+            review comment confirming the code has been reviewed and is clean.
