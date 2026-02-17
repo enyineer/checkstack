@@ -1,3 +1,3 @@
-## 2026-02-17 - Missing Dev Dependencies in UI Package
-**Learning:** The `core/ui` package was missing `@testing-library/react` and related packages as devDependencies, causing typecheck failures in CI even though local tests might have passed due to hoisting or other factors.
-**Action:** Always verify `package.json` dependencies when encountering "Cannot find module" errors during typechecking, especially after merging main.
+## 2026-02-17 - React Query Version Mismatch & Test Environment
+**Learning:** Merging main introduced duplicate versions of `@tanstack/react-query` (5.90.17 vs 5.90.18), causing type mismatches (`QueryClient` private property error) in `orpc-query.tsx`. Additionally, `core/ui` tests failed because `happy-dom` wasn't explicitly installed in the package, leading to a missing `document` object.
+**Action:** Use `resolutions` in root `package.json` to force a single version of `@tanstack/react-query` (5.64.0) and explicitly add `@happy-dom/global-registrator` to `core/ui` devDependencies. Clean nested `node_modules` if resolutions change.
