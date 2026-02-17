@@ -352,7 +352,7 @@ jobs:
         if: >
           steps.report.outputs.should_invoke_jules == 'true' &&
           github.event.pull_request.head.repo.full_name == github.repository
-        uses: google-labs-code/jules-invoke@v1
+        uses: google-labs-code/jules-invoke@main
         with:
           starting_branch: ${{ github.head_ref }}
           jules_api_key: ${{ secrets.JULES_API_KEY }}
@@ -362,7 +362,7 @@ jobs:
         if: >
           steps.report.outputs.all_passed == 'true' &&
           github.event.pull_request.head.repo.full_name == github.repository
-        uses: google-labs-code/jules-invoke@v1
+        uses: google-labs-code/jules-invoke@main
         with:
           starting_branch: ${{ github.head_ref }}
           include_commit_log: true

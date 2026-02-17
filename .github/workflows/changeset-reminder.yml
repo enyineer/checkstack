@@ -59,7 +59,7 @@ jobs:
 
       - name: Invoke Jules to create changeset
         if: steps.check-existing.outputs.already_triggered == 'false'
-        uses: google-labs-code/jules-invoke@v1
+        uses: google-labs-code/jules-invoke@main
         with:
           starting_branch: ${{ steps.check-existing.outputs.head_ref }}
           include_commit_log: true
@@ -356,7 +356,7 @@ jobs:
         if: >
           steps.validate.outputs.has_missing == 'true' &&
           github.event.pull_request.head.repo.full_name == github.repository
-        uses: google-labs-code/jules-invoke@v1
+        uses: google-labs-code/jules-invoke@main
         with:
           starting_branch: ${{ github.head_ref }}
           include_commit_log: true
