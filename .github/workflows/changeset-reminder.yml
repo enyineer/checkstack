@@ -5,13 +5,19 @@ on:
     types: [created]
   pull_request:
     types: [opened, synchronize]
+    branches:
+      - main
+
+concurrency:
+  group: changeset-reminder-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
-  # ─── Job 1: Tag Jules when changeset-bot says "No Changeset found" ───
+  # ─── Job 1: Trigger Jules when changeset-bot says "No Changeset found" ───
   request-changeset:
     name: Request Changeset from Jules
     if: >-
@@ -21,7 +27,7 @@ jobs:
       contains(github.event.comment.body, '###  ⚠️  No Changeset found')
     runs-on: ubuntu-latest
     steps:
-      - name: Check for existing Jules request
+      - name: Check for existing Jules invocation
         id: check-existing
         uses: actions/github-script@v7
         with:
@@ -35,17 +41,56 @@ jobs:
               }
             );
 
-            const alreadyTagged = comments.some(
-              (c) =>
-                c.body?.includes('<!-- changeset-reminder -->') &&
-                c.body?.includes('@jules')
+            const alreadyTriggered = comments.some(
+              (c) => c.body?.includes('<!-- changeset-reminder -->')
             );
 
-            core.setOutput('already_tagged', alreadyTagged.toString());
-            core.info(`Jules already tagged: ${alreadyTagged}`);
+            // Get PR head branch for jules-invoke
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
 
-      - name: Request changeset from Jules
-        if: steps.check-existing.outputs.already_tagged == 'false'
+            core.setOutput('already_triggered', alreadyTriggered.toString());
+            core.setOutput('head_ref', pr.data.head.ref);
+            core.info(`PR head branch: ${pr.data.head.ref}`);
+            core.info(`Jules already triggered: ${alreadyTriggered}`);
+
+      - name: Invoke Jules to create changeset
+        if: steps.check-existing.outputs.already_triggered == 'false'
+        uses: google-labs-code/jules-invoke@v1
+        with:
+          starting_branch: ${{ steps.check-existing.outputs.head_ref }}
+          include_commit_log: true
+          jules_api_key: ${{ secrets.JULES_API_KEY }}
+          prompt: |
+            This PR is missing a changeset. Please create one.
+
+            The `changeset` CLI is interactive and cannot be used non-interactively.
+            Instead, create the changeset file directly in `.changeset/`.
+
+            A changeset file is a markdown file with YAML frontmatter listing
+            the affected packages and their bump types, followed by a summary.
+
+            Steps:
+            1. Review the changes in this PR to determine which packages are affected
+            2. Create a new markdown file in `.changeset/` with a random kebab-case name (e.g. `.changeset/cool-dogs-fly.md`)
+            3. Use "patch" for bug fixes or "minor" for new features — do NOT use "major" (we are pre-1.0)
+            4. Write a concise summary of the changes for the changelog
+            5. Commit the changeset file
+
+            Example (`.changeset/cool-dogs-fly.md`):
+            ```
+            ---
+            "@checkstack/some-package": minor
+            ---
+
+            Added a new feature to the some-package plugin.
+            ```
+
+      - name: Post informational comment
+        if: steps.check-existing.outputs.already_triggered == 'false'
         uses: actions/github-script@v7
         with:
           script: |
@@ -55,28 +100,8 @@ jobs:
               '',
               'The changeset bot has detected that this PR is missing a changeset.',
               '',
-              '@jules Please create a changeset for this PR.',
-              '',
-              'The `changeset` CLI is interactive and cannot be used non-interactively.',
-              'Instead, **create the changeset file directly** in `.changeset/`.',
-              '',
-              'A changeset file is a markdown file with YAML frontmatter listing the affected packages and their bump types, followed by a summary.',
-              '',
-              '**Steps:**',
-              '1. Review the changes in this PR to determine which packages are affected',
-              '2. Create a new markdown file in `.changeset/` with a random kebab-case name (e.g. `.changeset/cool-dogs-fly.md`)',
-              '3. Use **patch** for bug fixes or **minor** for new features — do **not** use **major** (we are pre-1.0)',
-              '4. Write a concise summary of the changes for the changelog',
-              '5. Commit the changeset file',
-              '',
-              '**Example** (`.changeset/cool-dogs-fly.md`):',
-              '```markdown',
-              '---',
-              '"@checkstack/some-package": minor',
-              '---',
-              '',
-              'Added a new feature to the some-package plugin.',
-              '```',
+              '🤖 **Jules has been triggered** to create a changeset for this PR.',
+              'Jules will review the changes, determine the affected packages, and create a changeset file in `.changeset/`.',
             ].join('\n');
 
             await github.rest.issues.createComment({
@@ -96,6 +121,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate changeset coverage
+        id: validate
         uses: actions/github-script@v7
         with:
           script: |
@@ -171,10 +197,8 @@ jobs:
 
             for (const file of changedFiles) {
               const filePath = file.filename;
-              // Find which package this file belongs to
               for (const [pkgDir, pkgName] of packageMap) {
                 if (filePath.startsWith(`${pkgDir}/`)) {
-                  // Get the path relative to the package directory
                   const relativeToPackage = filePath.slice(pkgDir.length + 1);
 
                   if (!isFileIgnored(relativeToPackage) && !ignoredPackageSet.has(pkgName)) {
@@ -189,6 +213,7 @@ jobs:
 
             if (packagesWithCodeChanges.size === 0) {
               core.info('No packages with code changes found. Skipping changeset validation.');
+              core.setOutput('has_missing', 'false');
               return;
             }
 
@@ -199,11 +224,9 @@ jobs:
             for (const entry of fs.readdirSync(changesetDir)) {
               if (!entry.endsWith('.md') || entry === 'README.md') continue;
               const content = fs.readFileSync(path.join(changesetDir, entry), 'utf8');
-              // Parse YAML frontmatter: lines between first --- and second ---
               const match = content.match(/^---\n([\s\S]*?)\n---/);
               if (!match) continue;
               const frontmatter = match[1];
-              // Each line is "package-name": bump-type
               for (const line of frontmatter.split('\n')) {
                 const pkgMatch = line.match(/^"([^"]+)":\s*(patch|minor|major)/);
                 if (pkgMatch) {
@@ -221,6 +244,7 @@ jobs:
 
             if (missingPackages.length === 0) {
               core.info('All packages with code changes are covered by changesets. ✅');
+              core.setOutput('has_missing', 'false');
 
               // Clean up any previous coverage comment
               const existingComments = await github.paginate(
@@ -248,11 +272,44 @@ jobs:
               return;
             }
 
-            // ── 8. Post or update comment ──
+            // ── 8. Build Jules prompt and post comment ──
             core.info(`Missing changeset coverage for: ${missingPackages.join(', ')}`);
+            core.setOutput('has_missing', 'true');
 
             const packageList = missingPackages.map((pkg) => `- \`${pkg}\``).join('\n');
+            const exampleFrontmatter = missingPackages.map((pkg) => `"${pkg}": patch`).join('\n');
 
+            // Build prompt for Jules
+            const julesPrompt = [
+              'The following packages have code changes but are not included in any changeset:',
+              '',
+              missingPackages.map((pkg) => `- ${pkg}`).join('\n'),
+              '',
+              'Please update the existing changeset or create a new one to cover these packages.',
+              '',
+              'The `changeset` CLI is interactive and cannot be used non-interactively.',
+              'Instead, create the changeset file directly in `.changeset/`.',
+              '',
+              'Steps:',
+              '1. Check if a changeset file already exists in `.changeset/` for this PR',
+              '2. If yes, add the missing packages to its YAML frontmatter',
+              '3. If no, create a new changeset file with a random kebab-case name (e.g. `.changeset/cool-dogs-fly.md`)',
+              '4. Use "patch" for bug fixes or "minor" for new features — do NOT use "major" (we are pre-1.0)',
+              '5. Write a concise summary of the changes for the changelog',
+              '',
+              'Example (`.changeset/cool-dogs-fly.md`):',
+              '```',
+              '---',
+              exampleFrontmatter,
+              '---',
+              '',
+              'Description of the changes.',
+              '```',
+            ].join('\n');
+
+            core.setOutput('jules_prompt', julesPrompt);
+
+            // Post or update informational comment
             const body = [
               '<!-- changeset-coverage -->',
               '## 📦 Changeset Coverage Incomplete',
@@ -261,25 +318,9 @@ jobs:
               '',
               packageList,
               '',
-              '@jules Please update the existing changeset or create a new one to cover these packages.',
-              '',
-              '**Steps:**',
-              '1. Check if a changeset file already exists in `.changeset/` for this PR',
-              '2. If yes, add the missing packages to its YAML frontmatter',
-              '3. If no, create a new changeset file (see format below)',
-              '4. Use **patch** for bug fixes or **minor** for new features — do **not** use **major** (we are pre-1.0)',
-              '',
-              '**Example** (`.changeset/cool-dogs-fly.md`):',
-              '```markdown',
-              '---',
-              `${missingPackages.map((pkg) => `"${pkg}": patch`).join('\n')}`,
-              '---',
-              '',
-              'Description of the changes.',
-              '```',
+              '🤖 **Jules has been triggered** to update or create a changeset covering these packages.',
             ].join('\n');
 
-            // Check for existing comment to update
             const allComments = await github.paginate(
               github.rest.issues.listComments,
               {
@@ -310,3 +351,14 @@ jobs:
               });
               core.info('Created new changeset coverage comment.');
             }
+
+      - name: Invoke Jules to update changeset
+        if: >
+          steps.validate.outputs.has_missing == 'true' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: google-labs-code/jules-invoke@v1
+        with:
+          starting_branch: ${{ github.head_ref }}
+          include_commit_log: true
+          jules_api_key: ${{ secrets.JULES_API_KEY }}
+          prompt: ${{ steps.validate.outputs.jules_prompt }}
