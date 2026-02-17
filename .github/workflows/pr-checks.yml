@@ -1,0 +1,314 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        id: typecheck
+        run: |
+          set +e
+          bun run typecheck 2>&1 | tee /tmp/typecheck-output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Upload Output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: typecheck-output
+          path: /tmp/typecheck-output.txt
+
+      - name: Set outcome
+        if: always()
+        run: |
+          if [ "${{ steps.typecheck.outputs.exit_code }}" != "0" ]; then
+            exit 1
+          fi
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Lint
+        id: lint
+        run: |
+          set +e
+          bun run lint 2>&1 | tee /tmp/lint-output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Upload Output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-output
+          path: /tmp/lint-output.txt
+
+      - name: Set outcome
+        if: always()
+        run: |
+          if [ "${{ steps.lint.outputs.exit_code }}" != "0" ]; then
+            exit 1
+          fi
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run Tests
+        id: test
+        run: |
+          set +e
+          bun test 2>&1 | tee /tmp/test-output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Upload Output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output
+          path: /tmp/test-output.txt
+
+      - name: Set outcome
+        if: always()
+        run: |
+          if [ "${{ steps.test.outputs.exit_code }}" != "0" ]; then
+            exit 1
+          fi
+
+  report:
+    name: Report
+    needs: [typecheck, lint, test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Typecheck Output
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: typecheck-output
+          path: /tmp/artifacts/typecheck
+        continue-on-error: true
+
+      - name: Download Lint Output
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: lint-output
+          path: /tmp/artifacts/lint
+        continue-on-error: true
+
+      - name: Download Test Output
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: test-output
+          path: /tmp/artifacts/test
+        continue-on-error: true
+
+      - name: Count previous failure comments
+        id: count-failures
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+              }
+            );
+
+            const failureCount = comments.filter(
+              (c) => c.body?.includes('<!-- pr-checks-report: fail -->')
+            ).length;
+
+            core.setOutput('failure_count', failureCount);
+            core.info(`Found ${failureCount} previous failure comment(s)`);
+
+      - name: Build and post report
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            // Determine results from job outcomes
+            const typecheckResult = '${{ needs.typecheck.result }}';
+            const lintResult = '${{ needs.lint.result }}';
+            const testResult = '${{ needs.test.result }}';
+
+            const typecheckPassed = typecheckResult === 'success';
+            const lintPassed = lintResult === 'success';
+            const testPassed = testResult === 'success';
+            const allPassed = typecheckPassed && lintPassed && testPassed;
+
+            // Read output files
+            function readOutput(name) {
+              const filePath = path.join('/tmp/artifacts', name, `${name}-output.txt`);
+              try {
+                const content = fs.readFileSync(filePath, 'utf8');
+                const lines = content.split('\n');
+                // Keep last 100 lines to avoid massive comments
+                if (lines.length > 100) {
+                  return `... (truncated ${lines.length - 100} lines)\n` + lines.slice(-100).join('\n');
+                }
+                return content;
+              } catch {
+                return 'Output not available.';
+              }
+            }
+
+            const previousFailures = parseInt('${{ steps.count-failures.outputs.failure_count }}', 10) || 0;
+            const escalate = previousFailures >= 3;
+
+            let body = '';
+
+            if (allPassed) {
+              // --- SUCCESS ---
+              body = [
+                '<!-- pr-checks-report: pass -->',
+                '## ✅ All PR Checks Passed',
+                '',
+                '| Check | Status |',
+                '|-------|--------|',
+                '| Typecheck | ✅ Passed |',
+                '| Lint | ✅ Passed |',
+                '| Test | ✅ Passed |',
+                '',
+                '@enyineer All quality checks have passed. This PR is ready for your final review.',
+              ].join('\n');
+            } else {
+              // --- FAILURE ---
+              const tag = escalate ? '@enyineer' : '@jules';
+              const escalationNote = escalate
+                ? '> ⚠️ **Escalation**: Automated fixes by Jules have not resolved the issues after 3 attempts. Manual intervention is required.\n'
+                : '';
+
+              const icon = (passed) => passed ? '✅ Passed' : '❌ Failed';
+
+              const sections = [];
+
+              if (!typecheckPassed) {
+                const output = readOutput('typecheck');
+                sections.push([
+                  '<details>',
+                  '<summary>❌ Typecheck Errors</summary>',
+                  '',
+                  '```',
+                  output,
+                  '```',
+                  '',
+                  '**How to fix:** Run `bun run typecheck` locally to reproduce these errors. Inspect the reported files and line numbers, then fix all type errors. Do not use `any` as an explicit type or `@ts-ignore` to suppress errors. Ensure all function signatures, return types, and variable types are correct. Apply the fix immediately.',
+                  '',
+                  '</details>',
+                ].join('\n'));
+              }
+
+              if (!lintPassed) {
+                const output = readOutput('lint');
+                sections.push([
+                  '<details>',
+                  '<summary>❌ Lint Errors</summary>',
+                  '',
+                  '```',
+                  output,
+                  '```',
+                  '',
+                  '**How to fix:** Run `bun run lint` locally to reproduce these errors. Fix all ESLint violations shown above. Never add `eslint-disable` comments to suppress errors — fix the root cause instead. Follow the project\'s coding standards. Apply the fix immediately.',
+                  '',
+                  '</details>',
+                ].join('\n'));
+              }
+
+              if (!testPassed) {
+                const output = readOutput('test');
+                sections.push([
+                  '<details>',
+                  '<summary>❌ Test Failures</summary>',
+                  '',
+                  '```',
+                  output,
+                  '```',
+                  '',
+                  '**How to fix:** Run `bun test` locally to reproduce these failures. Read the failing test assertions carefully and fix the implementation code so the tests pass. Do not modify test expectations unless the test itself is clearly wrong. If a test is testing new functionality you introduced, make sure your implementation satisfies the test\'s contract. Apply the fix immediately.',
+                  '',
+                  '</details>',
+                ].join('\n'));
+              }
+
+              body = [
+                '<!-- pr-checks-report: fail -->',
+                `## ❌ PR Checks Failed`,
+                '',
+                escalationNote,
+                '| Check | Status |',
+                '|-------|--------|',
+                `| Typecheck | ${icon(typecheckPassed)} |`,
+                `| Lint | ${icon(lintPassed)} |`,
+                `| Test | ${icon(testPassed)} |`,
+                '',
+                ...sections,
+                '',
+                `${tag} The above code quality issues were found in this PR. Please review and fix them.`,
+              ].join('\n');
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+            // Fail the report job if any check failed
+            if (!allPassed) {
+              core.setFailed('One or more PR checks failed. See the comment above for details.');
+            }

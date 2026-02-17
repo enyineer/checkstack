@@ -1,3 +1,0 @@
-$ docker compose -f docker-compose-dev.yml up -d && bun run --filter '@checkstack/backend' --filter '@checkstack/frontend' dev
-env file /app/.env not found: stat /app/.env: no such file or directory
-error: script "dev" exited with code 1
