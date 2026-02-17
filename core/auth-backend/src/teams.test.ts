@@ -560,7 +560,6 @@ describe("Teams and Resource Access Control", () => {
 
       const context = createMockRpcContext({
         user: { ...mockRegularUser, accessRules: ["auth.teams.read"] },
-        user: { ...mockRegularUser, accessRules: ["auth.teams.read"] },
         pluginMetadata: { pluginId: "auth" },
       });
 
@@ -574,8 +573,8 @@ describe("Teams and Resource Access Control", () => {
         throw new Error("Should have failed with FORBIDDEN");
       } catch (e) {
         expect(e).toBeInstanceOf(ORPCError);
-        expect((e as ORPCError).code).toBe("FORBIDDEN");
-        expect((e as ORPCError).message).toContain(
+        expect((e as ORPCError<any, any>).code).toBe("FORBIDDEN");
+        expect((e as ORPCError<any, any>).message).toContain(
           "permission to manage this team"
         );
       }
@@ -655,7 +654,7 @@ describe("Teams and Resource Access Control", () => {
         throw new Error("Should have failed with FORBIDDEN");
       } catch (e) {
         expect(e).toBeInstanceOf(ORPCError);
-        expect((e as ORPCError).code).toBe("FORBIDDEN");
+        expect((e as ORPCError<any, any>).code).toBe("FORBIDDEN");
       }
     });
   });
@@ -767,7 +766,7 @@ describe("Teams and Resource Access Control", () => {
         throw new Error("Should have failed with FORBIDDEN");
       } catch (e) {
         expect(e).toBeInstanceOf(ORPCError);
-        expect((e as ORPCError).code).toBe("FORBIDDEN");
+        expect((e as ORPCError<any, any>).code).toBe("FORBIDDEN");
       }
     });
 
