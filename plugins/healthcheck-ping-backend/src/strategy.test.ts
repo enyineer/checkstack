@@ -137,6 +137,30 @@ describe("PingHealthCheckStrategy", () => {
 
       connectedClient.close();
     });
+
+    it("should sanitize environment variables", async () => {
+      // Setup sensitive env var
+      process.env.SECRET_KEY = "super_secret";
+
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      await connectedClient.client.exec({
+        host: "8.8.8.8",
+        count: 1,
+        timeout: 5000,
+      });
+
+      // Verify spawn was called with sanitized env
+      // @ts-expect-error - mock property access
+      const spawnCall = Bun.spawn.mock.calls[0];
+      const spawnOptions = spawnCall[0] as { env?: Record<string, string> };
+
+      expect(spawnOptions.env).toBeDefined();
+      expect(spawnOptions.env?.SECRET_KEY).toBeUndefined();
+
+      // Cleanup
+      delete process.env.SECRET_KEY;
+      connectedClient.close();
+    });
   });
 
   describe("mergeResult", () => {

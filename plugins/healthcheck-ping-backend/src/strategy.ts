@@ -210,11 +210,32 @@ export class PingHealthCheckStrategy implements HealthCheckStrategy<
       ? ["-c", String(count), "-W", String(Math.ceil(timeout / 1000)), host]
       : ["-c", String(count), "-W", String(Math.ceil(timeout / 1000)), host];
 
+    const SAFE_ENV_VARS = [
+      "PATH",
+      "HOME",
+      "USER",
+      "LANG",
+      "LC_ALL",
+      "LC_CTYPE",
+      "TZ",
+      "TMPDIR",
+      "HOSTNAME",
+      "SHELL",
+    ];
+
+    const safeEnv: Record<string, string> = {};
+    for (const key of SAFE_ENV_VARS) {
+      if (process.env[key] !== undefined) {
+        safeEnv[key] = process.env[key]!;
+      }
+    }
+
     try {
       const proc = Bun.spawn({
         cmd: ["ping", ...args],
         stdout: "pipe",
         stderr: "pipe",
+        env: safeEnv,
       });
 
       const output = await new Response(proc.stdout).text();
