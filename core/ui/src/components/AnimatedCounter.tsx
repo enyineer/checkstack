@@ -11,7 +11,7 @@ interface AnimatedCounterProps {
  * AnimatedCounter - Animates a number from 0 to target value
  * Uses requestAnimationFrame for smooth 60fps animation
  */
-export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
+export const AnimatedCounter: React.FC<AnimatedCounterProps> = React.memo(({
   value,
   duration = 500,
   formatter = (n) => Math.round(n).toString(),
@@ -20,6 +20,8 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
   const [displayValue, setDisplayValue] = useState(0);
   const displayValueRef = useRef(displayValue);
   displayValueRef.current = displayValue;
+
+  const requestRef = useRef<number>();
 
   useEffect(() => {
     // Skip animation if value is 0 or duration is 0
@@ -43,12 +45,20 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
       setDisplayValue(current);
 
       if (progress < 1) {
-        requestAnimationFrame(animate);
+        requestRef.current = requestAnimationFrame(animate);
       }
     };
 
-    requestAnimationFrame(animate);
+    requestRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (requestRef.current) {
+        cancelAnimationFrame(requestRef.current);
+      }
+    };
   }, [value, duration]);
 
   return <span className={className}>{formatter(displayValue)}</span>;
-};
+});
+
+AnimatedCounter.displayName = "AnimatedCounter";
