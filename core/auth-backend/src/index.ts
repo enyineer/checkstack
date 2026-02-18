@@ -420,7 +420,7 @@ export default createBackendPlugin({
                     id: app.id,
                     name: app.name,
                     roles: roleIds,
-                    accessRulesArray,
+                    accessRules: accessRulesArray,
                     teamIds,
                   };
                 }

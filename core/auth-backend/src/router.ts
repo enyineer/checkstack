@@ -1385,7 +1385,42 @@ export const createAuthRouter = (
 
   const updateTeam = os.updateTeam.handler(async ({ input, context }) => {
     const { id, name, description } = input;
-    // TODO: Check if user is manager or has teamsManage access
+
+    const user = context.user;
+    // Services are trusted via middleware, but for users/applications we must check permissions
+    if (user?.type !== "service") {
+      const hasGlobalManage =
+        user?.accessRules?.includes("*") ||
+        user?.accessRules?.includes("auth.teams.manage");
+
+      if (!hasGlobalManage) {
+        // If not a global manager, check if the user is a manager of this specific team
+        if (isRealUser(user)) {
+          const [managerRecord] = await internalDb
+            .select()
+            .from(schema.teamManager)
+            .where(
+              and(
+                eq(schema.teamManager.teamId, id),
+                eq(schema.teamManager.userId, user.id),
+              ),
+            )
+            .limit(1);
+
+          if (!managerRecord) {
+            throw new ORPCError("FORBIDDEN", {
+              message: "You do not have permission to update this team",
+            });
+          }
+        } else {
+          // Applications and unauthenticated users (if any reached here) without global manage are forbidden
+          throw new ORPCError("FORBIDDEN", {
+            message: "You do not have permission to update this team",
+          });
+        }
+      }
+    }
+
     const updates: {
       name?: string;
       description?: string | null;
