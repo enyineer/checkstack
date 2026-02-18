@@ -262,6 +262,8 @@ jobs:
               '',
               'Description of the changes.',
               '```',
+              '',
+              'IMPORTANT: Push the changeset file to the existing PR branch. Do NOT create a new pull request.',
             ].join('\n');
 
             core.setOutput('jules_prompt', julesPrompt);

@@ -330,6 +330,8 @@ jobs:
                   '4. Do NOT add `eslint-disable` comments to suppress lint errors — fix the root cause',
                   '5. Do NOT modify test expectations unless the test itself is clearly wrong',
                   '6. Commit and push the fixes',
+                  '',
+                  'IMPORTANT: Push your fixes to the existing PR branch. Do NOT create a new pull request.',
                 ].join('\n');
 
                 core.setOutput('jules_prompt', julesPrompt);
@@ -385,3 +387,5 @@ jobs:
 
             If the code looks good and you have no concerns, post a single
             review comment confirming the code has been reviewed and is clean.
+
+            IMPORTANT: If you suggest code changes, push them to the existing PR branch. Do NOT create a new pull request.
