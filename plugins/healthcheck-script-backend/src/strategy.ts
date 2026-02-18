@@ -129,6 +129,19 @@ export interface ScriptExecutor {
   }): Promise<ScriptExecutionResult>;
 }
 
+const SAFE_ENV_VARS = [
+  "PATH",
+  "HOME",
+  "USER",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "TZ",
+  "TMPDIR",
+  "HOSTNAME",
+  "SHELL",
+];
+
 // Default executor using Bun.spawn
 const defaultScriptExecutor: ScriptExecutor = {
   async execute(config) {
@@ -143,11 +156,18 @@ const defaultScriptExecutor: ScriptExecutor = {
       }, config.timeout);
     });
 
+    const safeEnv: Record<string, string> = {};
+    for (const key of SAFE_ENV_VARS) {
+      if (process.env[key] !== undefined) {
+        safeEnv[key] = process.env[key]!;
+      }
+    }
+
     try {
       proc = spawn({
         cmd: [config.command, ...config.args],
         cwd: config.cwd,
-        env: { ...process.env, ...config.env },
+        env: { ...safeEnv, ...config.env },
         stdout: "pipe",
         stderr: "pipe",
       });

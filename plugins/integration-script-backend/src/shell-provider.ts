@@ -97,6 +97,19 @@ interface ScriptExecutionResult {
   timedOut: boolean;
 }
 
+const SAFE_ENV_VARS = [
+  "PATH",
+  "HOME",
+  "USER",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "TZ",
+  "TMPDIR",
+  "HOSTNAME",
+  "SHELL",
+];
+
 /**
  * Execute a bash script with the given environment variables.
  */
@@ -122,12 +135,19 @@ async function executeBashScript({
     }, timeoutMs);
   });
 
+  const safeEnv: Record<string, string> = {};
+  for (const key of SAFE_ENV_VARS) {
+    if (process.env[key] !== undefined) {
+      safeEnv[key] = process.env[key]!;
+    }
+  }
+
   try {
     // Execute script via bash -c
     proc = spawn({
       cmd: ["sh", "-c", script],
       cwd,
-      env: { ...process.env, ...env },
+      env: { ...safeEnv, ...env },
       stdout: "pipe",
       stderr: "pipe",
     });

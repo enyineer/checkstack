@@ -29,6 +29,7 @@
   "devDependencies": {
     "typescript": "^5.0.0",
     "@types/react": "^18.2.0",
+    "@testing-library/react": "^16.0.0",
     "@checkstack/test-utils-frontend": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
     "@checkstack/scripts": "workspace:*"

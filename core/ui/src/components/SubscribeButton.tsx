@@ -79,11 +79,26 @@ export const SubscribeButton: React.FC<SubscribeButtonProps> = ({
           ? "Unsubscribe from notifications"
           : "Subscribe to notifications"
       }
+      aria-label={
+        loading
+          ? isSubscribed
+            ? "Unsubscribing..."
+            : "Subscribing..."
+          : isSubscribed
+          ? "Unsubscribe from notifications"
+          : "Subscribe to notifications"
+      }
+      aria-pressed={isSubscribed}
     >
       {loading ? (
-        <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        <span
+          role="status"
+          aria-label="Loading"
+          className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+        />
       ) : (
         <Bell
+          aria-hidden="true"
           className={cn(
             "h-4 w-4 transition-all duration-300",
             isSubscribed && "fill-current",
