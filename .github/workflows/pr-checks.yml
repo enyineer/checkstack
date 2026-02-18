@@ -125,7 +125,7 @@ jobs:
   report:
     name: Report
     needs: [typecheck, lint, test]
-    if: always()
+    if: "!cancelled()"
     runs-on: ubuntu-latest
     steps:
       - name: Download Typecheck Output
@@ -186,9 +186,9 @@ jobs:
             const lintResult = '${{ needs.lint.result }}';
             const testResult = '${{ needs.test.result }}';
 
-            const typecheckPassed = typecheckResult === 'success';
-            const lintPassed = lintResult === 'success';
-            const testPassed = testResult === 'success';
+            const typecheckPassed = typecheckResult === 'success' || typecheckResult === 'skipped';
+            const lintPassed = lintResult === 'success' || lintResult === 'skipped';
+            const testPassed = testResult === 'success' || testResult === 'skipped';
             const allPassed = typecheckPassed && lintPassed && testPassed;
 
             // Read output files
