@@ -129,6 +129,7 @@ export const KeyValueEditor: React.FC<KeyValueEditorProps> = ({
             onChange={(e) => handleKeyChange(index, e.target.value)}
             placeholder={keyPlaceholder}
             className="flex-1 font-mono text-sm"
+            aria-label={keyPlaceholder}
           />
           <span className="text-muted-foreground">=</span>
           <TemplateInput
@@ -137,6 +138,7 @@ export const KeyValueEditor: React.FC<KeyValueEditorProps> = ({
             onChange={(newValue) => handleValueChange(index, newValue)}
             placeholder={valuePlaceholder}
             templateProperties={templateProperties}
+            aria-label={valuePlaceholder}
           />
           <Button
             type="button"
@@ -144,6 +146,7 @@ export const KeyValueEditor: React.FC<KeyValueEditorProps> = ({
             size="icon"
             onClick={() => handleRemove(index)}
             className="h-8 w-8 text-destructive hover:text-destructive/90 hover:bg-destructive/10 shrink-0"
+            aria-label="Remove item"
           >
             <Trash2 className="h-4 w-4" />
           </Button>
@@ -173,7 +176,15 @@ const TemplateInput: React.FC<{
   onChange: (value: string) => void;
   placeholder?: string;
   templateProperties?: TemplateProperty[];
-}> = ({ id, value, onChange, placeholder, templateProperties }) => {
+  "aria-label"?: string;
+}> = ({
+  id,
+  value,
+  onChange,
+  placeholder,
+  templateProperties,
+  "aria-label": ariaLabel,
+}) => {
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [showPopup, setShowPopup] = React.useState(false);
   const [selectedIndex, setSelectedIndex] = React.useState(0);
@@ -282,6 +293,7 @@ const TemplateInput: React.FC<{
         onBlur={handleBlur}
         placeholder={placeholder}
         className="font-mono text-sm"
+        aria-label={ariaLabel}
       />
       {showPopup && filteredProperties.length > 0 && (
         <div className="absolute z-50 top-full left-0 mt-1 w-64 max-h-48 overflow-y-auto rounded-md border border-border bg-popover shadow-lg">
