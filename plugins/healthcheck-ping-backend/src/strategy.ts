@@ -110,6 +110,23 @@ const pingAggregatedFields = {
 type PingAggregatedResult = InferAggregatedResult<typeof pingAggregatedFields>;
 
 // ============================================================================
+// SECURITY CONSTANTS
+// ============================================================================
+
+const SAFE_ENV_VARS = [
+  "PATH",
+  "HOME",
+  "USER",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "TZ",
+  "TMPDIR",
+  "HOSTNAME",
+  "SHELL",
+];
+
+// ============================================================================
 // STRATEGY
 // ============================================================================
 
@@ -210,9 +227,17 @@ export class PingHealthCheckStrategy implements HealthCheckStrategy<
       ? ["-c", String(count), "-W", String(Math.ceil(timeout / 1000)), host]
       : ["-c", String(count), "-W", String(Math.ceil(timeout / 1000)), host];
 
+    const safeEnv: Record<string, string> = {};
+    for (const key of SAFE_ENV_VARS) {
+      if (process.env[key] !== undefined) {
+        safeEnv[key] = process.env[key]!;
+      }
+    }
+
     try {
       const proc = Bun.spawn({
         cmd: ["ping", ...args],
+        env: safeEnv,
         stdout: "pipe",
         stderr: "pipe",
       });

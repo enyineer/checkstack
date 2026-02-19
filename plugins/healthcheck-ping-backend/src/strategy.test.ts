@@ -137,6 +137,56 @@ describe("PingHealthCheckStrategy", () => {
 
       connectedClient.close();
     });
+
+    it("should sanitize environment variables", async () => {
+      const originalEnv = process.env;
+      // Assigning to process.env directly might not work as expected in some environments,
+      // but modifying properties does.
+      process.env.SENSITIVE_SECRET = "secret";
+      process.env.PATH = "/bin"; // Ensure PATH is present
+
+      let capturedOptions: any;
+      // @ts-expect-error - mocking global
+      Bun.spawn = mock((options) => {
+        capturedOptions = options;
+        return {
+          stdout: new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode(
+                  `PING 8.8.8.8 (8.8.8.8): 56 data bytes
+64 bytes from 8.8.8.8: icmp_seq=0 ttl=118 time=10.123 ms
+
+--- 8.8.8.8 ping statistics ---
+1 packets transmitted, 1 packets received, 0.0% packet loss
+round-trip min/avg/max/stddev = 10.123/10.123/10.123/0.000 ms`,
+                ),
+              );
+              controller.close();
+            },
+          }),
+          stderr: new ReadableStream(),
+          exited: Promise.resolve(0),
+        };
+      });
+
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      await connectedClient.client.exec({
+        host: "8.8.8.8",
+        count: 1,
+        timeout: 5000,
+      });
+
+      expect(capturedOptions).toBeDefined();
+      expect(capturedOptions.env).toBeDefined();
+      expect(capturedOptions.env.SENSITIVE_SECRET).toBeUndefined();
+      expect(capturedOptions.env.PATH).toBe("/bin");
+
+      // Cleanup
+      delete process.env.SENSITIVE_SECRET;
+      process.env = originalEnv;
+      connectedClient.close();
+    });
   });
 
   describe("mergeResult", () => {
