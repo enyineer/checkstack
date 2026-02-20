@@ -29,6 +29,7 @@ import {
 } from "@checkstack/api-docs-common";
 
 import { cors } from "hono/cors";
+import { securityHeaders } from "./middleware/security-headers";
 
 const app = new Hono();
 const pluginManager = new PluginManager();
@@ -47,6 +48,7 @@ if (!process.env.BASE_URL || corsOrigin.includes("localhost")) {
   corsOrigins.push("http://localhost:5173");
 }
 
+app.use("*", securityHeaders());
 app.use(
   "*",
   cors({
