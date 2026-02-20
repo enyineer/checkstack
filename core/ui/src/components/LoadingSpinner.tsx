@@ -17,7 +17,12 @@ export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
   };
 
   return (
-    <div className={cn("flex justify-center py-12", className)} {...props}>
+    <div
+      role="status"
+      className={cn("flex justify-center py-12", className)}
+      {...props}
+    >
+      <span className="sr-only">Loading...</span>
       <div
         className={cn(
           "border-indigo-200 border-t-indigo-500 rounded-full animate-spin",
