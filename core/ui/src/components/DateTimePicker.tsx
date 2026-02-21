@@ -262,6 +262,7 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
               className="h-9 w-9 rounded-none border-r"
               type="button"
               disabled={disabled}
+              aria-label="Open calendar"
             >
               <Calendar className="h-4 w-4" />
             </Button>

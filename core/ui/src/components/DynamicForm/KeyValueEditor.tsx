@@ -144,6 +144,7 @@ export const KeyValueEditor: React.FC<KeyValueEditorProps> = ({
             size="icon"
             onClick={() => handleRemove(index)}
             className="h-8 w-8 text-destructive hover:text-destructive/90 hover:bg-destructive/10 shrink-0"
+            aria-label="Remove item"
           >
             <Trash2 className="h-4 w-4" />
           </Button>

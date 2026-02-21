@@ -9,17 +9,19 @@
  * preload = ["@checkstack/test-utils-frontend/setup"]
  */
 
-// Register Happy DOM globals first (document, window, etc.)
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { afterEach, expect } from "bun:test";
+
+// Register Happy DOM globals first (document, window, etc.)
 GlobalRegistrator.register();
 
-// Then set up Testing Library
-import { afterEach, expect } from "bun:test";
-import { cleanup } from "@testing-library/react";
-import * as matchers from "@testing-library/jest-dom/matchers";
+// Use dynamic imports to ensure DOM is registered before Testing Library loads
+const { cleanup } = await import("@testing-library/react");
+const matchers = await import("@testing-library/jest-dom/matchers");
 
 // Extend expect with Testing Library matchers (toBeInTheDocument, etc.)
-expect.extend(matchers);
+// @ts-ignore
+expect.extend(matchers.default || matchers);
 
 // Clean up render after each test to prevent memory leaks
 afterEach(() => {

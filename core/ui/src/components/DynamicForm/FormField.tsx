@@ -428,6 +428,7 @@ export const FormField: React.FC<FormFieldProps> = ({
                     onChange(next);
                   }}
                   className="absolute -top-2 -right-2 h-7 w-7 rounded-full bg-background border shadow-sm text-destructive hover:text-destructive/90 hover:bg-destructive/10"
+                  aria-label={`Remove ${label} #${index + 1}`}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
