@@ -8,7 +8,13 @@ import {
   type ConfigService,
   toJsonSchema,
 } from "@checkstack/backend-api";
-import { authContract, passwordSchema } from "@checkstack/auth-common";
+import {
+  authContract,
+  passwordSchema,
+  authAccess,
+  pluginMetadata,
+} from "@checkstack/auth-common";
+import { qualifyAccessRuleId } from "@checkstack/common";
 import { hashPassword } from "better-auth/crypto";
 import * as schema from "./schema";
 import { eq, inArray, and } from "drizzle-orm";
@@ -115,6 +121,55 @@ function generateSecret(): string {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
   return Array.from(array, (byte) => chars[byte % chars.length]).join("");
+}
+
+/**
+ * Helper to enforce team manager or global admin access.
+ * Used for sensitive team operations where the contract only requires 'read' access.
+ */
+async function checkTeamManagerOrAdmin(
+  context: RpcContext,
+  internalDb: SafeDatabase<typeof schema>,
+  teamId: string,
+) {
+  const user = context.user;
+  if (!user) {
+    throw new ORPCError("UNAUTHORIZED", { message: "Not authenticated" });
+  }
+
+  // Calculate qualified global manage permission ID (e.g. "auth.teams.manage")
+  const managePermission = qualifyAccessRuleId(
+    pluginMetadata,
+    authAccess.teams.manage,
+  );
+
+  // Check if user has global manage permission (or wildcard)
+  const hasGlobalManage =
+    user.accessRules?.includes("*") ||
+    user.accessRules?.includes(managePermission);
+
+  if (hasGlobalManage) return;
+
+  // If not global admin, must be a real user who is a manager of this team
+  if (user.type === "user") {
+    const manager = await internalDb
+      .select()
+      .from(schema.teamManager)
+      .where(
+        and(
+          eq(schema.teamManager.teamId, teamId),
+          eq(schema.teamManager.userId, user.id),
+        ),
+      )
+      .limit(1);
+
+    if (manager.length > 0) return;
+  }
+
+  throw new ORPCError("FORBIDDEN", {
+    message:
+      "You must be a team manager or have global team management permissions to perform this action.",
+  });
 }
 
 export const createAuthRouter = (
@@ -1385,7 +1440,10 @@ export const createAuthRouter = (
 
   const updateTeam = os.updateTeam.handler(async ({ input, context }) => {
     const { id, name, description } = input;
-    // TODO: Check if user is manager or has teamsManage access
+
+    // Enforce manager or global admin access
+    await checkTeamManagerOrAdmin(context, internalDb, id);
+
     const updates: {
       name?: string;
       description?: string | null;
@@ -1419,7 +1477,10 @@ export const createAuthRouter = (
     context.logger.info(`[auth-backend] Deleted team: ${id}`);
   });
 
-  const addUserToTeam = os.addUserToTeam.handler(async ({ input }) => {
+  const addUserToTeam = os.addUserToTeam.handler(async ({ input, context }) => {
+    // Enforce manager or global admin access
+    await checkTeamManagerOrAdmin(context, internalDb, input.teamId);
+
     await internalDb
       .insert(schema.userTeam)
       .values({ userId: input.userId, teamId: input.teamId })
@@ -1427,7 +1488,10 @@ export const createAuthRouter = (
   });
 
   const removeUserFromTeam = os.removeUserFromTeam.handler(
-    async ({ input }) => {
+    async ({ input, context }) => {
+      // Enforce manager or global admin access
+      await checkTeamManagerOrAdmin(context, internalDb, input.teamId);
+
       await internalDb
         .delete(schema.userTeam)
         .where(
