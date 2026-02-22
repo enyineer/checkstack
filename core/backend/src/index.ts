@@ -29,6 +29,7 @@ import {
 } from "@checkstack/api-docs-common";
 
 import { cors } from "hono/cors";
+import { secureHeaders } from "hono/secure-headers";
 
 const app = new Hono();
 const pluginManager = new PluginManager();
@@ -58,6 +59,21 @@ app.use(
     credentials: true,
   })
 );
+
+// Add security headers to all responses
+app.use(
+  "*",
+  secureHeaders({
+    // Explicitly disable CSP to avoid conflicts with Vite's dev server (inline scripts/styles)
+    contentSecurityPolicy: false,
+    // Explicitly set Referrer-Policy to allow some referrer info for internal navigation/analytics
+    referrerPolicy: "strict-origin-when-cross-origin",
+    // Defaults:
+    // xFrameOptions: "SAMEORIGIN" - Protects against clickjacking
+    // xContentTypeOptions: "nosniff" - Protects against MIME sniffing
+  })
+);
+
 app.use("*", logger());
 
 // Runtime config endpoint - returns BASE_URL for frontend
