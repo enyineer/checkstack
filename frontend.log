@@ -1,0 +1,19 @@
+@checkstack/frontend dev:
+@checkstack/frontend dev:   VITE v5.4.21  ready in 365 ms
+@checkstack/frontend dev:
+@checkstack/frontend dev:   ➜  Local:   http://localhost:5173/
+@checkstack/frontend dev:   ➜  Network: use --host to expose
+@checkstack/frontend dev: 9:30:14 AM [vite] http proxy error: /api/plugins
+@checkstack/frontend dev: AggregateError [ECONNREFUSED]:
+@checkstack/frontend dev:     at internalConnectMultiple (node:net:1134:18)
+@checkstack/frontend dev:     at afterConnectMultiple (node:net:1715:7)
+@checkstack/frontend dev: 9:30:14 AM [vite] http proxy error: /api/config
+@checkstack/frontend dev: AggregateError [ECONNREFUSED]:
+@checkstack/frontend dev:     at internalConnectMultiple (node:net:1134:18)
+@checkstack/frontend dev:     at afterConnectMultiple (node:net:1715:7)
+@checkstack/frontend dev: 9:30:14 AM [vite] http proxy error: /api/config
+@checkstack/frontend dev: AggregateError [ECONNREFUSED]:
+@checkstack/frontend dev:     at internalConnectMultiple (node:net:1134:18)
+@checkstack/frontend dev:     at afterConnectMultiple (node:net:1715:7)
+@checkstack/frontend dev: 9:30:24 AM [vite] hmr update /src/App.tsx, /src/index.css
+@checkstack/frontend dev: Exited with code 0
