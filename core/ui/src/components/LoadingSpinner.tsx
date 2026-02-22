@@ -8,6 +8,8 @@ interface LoadingSpinnerProps extends React.HTMLAttributes<HTMLDivElement> {
 export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
   size = "md",
   className,
+  "aria-label": ariaLabel = "Loading...",
+  role = "status",
   ...props
 }) => {
   const sizeClasses = {
@@ -17,7 +19,12 @@ export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
   };
 
   return (
-    <div className={cn("flex justify-center py-12", className)} {...props}>
+    <div
+      className={cn("flex justify-center py-12", className)}
+      role={role}
+      aria-label={ariaLabel}
+      {...props}
+    >
       <div
         className={cn(
           "border-indigo-200 border-t-indigo-500 rounded-full animate-spin",
