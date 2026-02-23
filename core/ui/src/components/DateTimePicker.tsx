@@ -262,6 +262,7 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
               className="h-9 w-9 rounded-none border-r"
               type="button"
               disabled={disabled}
+              aria-label="Open calendar"
             >
               <Calendar className="h-4 w-4" />
             </Button>
@@ -278,6 +279,7 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
               className="w-7 text-center bg-transparent border-none outline-none text-sm font-mono disabled:opacity-50"
               maxLength={2}
               disabled={disabled}
+              aria-label="Day"
             />
             <span className="text-muted-foreground">/</span>
             <input
@@ -290,6 +292,7 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
               className="w-7 text-center bg-transparent border-none outline-none text-sm font-mono disabled:opacity-50"
               maxLength={2}
               disabled={disabled}
+              aria-label="Month"
             />
             <span className="text-muted-foreground">/</span>
             <input
@@ -302,6 +305,7 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
               className="w-11 text-center bg-transparent border-none outline-none text-sm font-mono disabled:opacity-50"
               maxLength={4}
               disabled={disabled}
+              aria-label="Year"
             />
           </div>
 
@@ -347,6 +351,7 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
             className="w-6 text-center bg-transparent border-none outline-none text-sm font-mono disabled:opacity-50"
             maxLength={2}
             disabled={disabled}
+            aria-label="Hour"
           />
           <span className="text-muted-foreground">:</span>
           <input
@@ -359,6 +364,7 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
             className="w-6 text-center bg-transparent border-none outline-none text-sm font-mono disabled:opacity-50"
             maxLength={2}
             disabled={disabled}
+            aria-label="Minute"
           />
         </div>
       </div>
