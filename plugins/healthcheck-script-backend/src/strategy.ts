@@ -129,7 +129,7 @@ export interface ScriptExecutor {
   }): Promise<ScriptExecutionResult>;
 }
 
-const SAFE_ENV_VARS = [
+export const SAFE_ENV_VARS = [
   "PATH",
   "HOME",
   "USER",

@@ -21,6 +21,12 @@ import {
 } from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "./plugin-metadata";
 import type { ScriptTransportClient } from "./transport-client";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { unlink } from "node:fs/promises";
+import { spawn } from "bun";
+import { SAFE_ENV_VARS } from "./strategy";
 
 // ============================================================================
 // SCRIPT EXECUTION UTILITIES (shared with integration-script-backend pattern)
@@ -59,74 +65,168 @@ interface ScriptHealthResult {
 }
 
 /**
- * Execute an inline script with the given context.
+ * Execute an inline script in a secure child process.
  */
 async function executeInlineScript({
   script,
   context,
-  safeConsole,
   timeoutMs,
 }: {
   script: string;
   context: ScriptContext;
-  safeConsole: SafeConsole;
   timeoutMs: number;
 }): Promise<{
   result: ScriptHealthResult | undefined;
+  logs: string[];
   error?: string;
   timedOut: boolean;
 }> {
+  const tmpFile = join(tmpdir(), `checkstack-script-${randomUUID()}.ts`);
+  let timedOut = false;
+
   try {
-    // Create an async function from the script
-    const asyncFn = new Function(
-      "context",
-      "console",
-      "fetch",
-      `return (async () => { ${script} })();`,
-    );
+    // Construct the wrapper script
+    // We redirect console output to stderr so we can capture logs
+    // We print the result JSON to stdout
+    const wrapperScript = `
+      const context = ${JSON.stringify({ config: context.config })};
 
-    // Execute with timeout
-    const result = await Promise.race([
-      asyncFn(context, safeConsole, fetch),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("__TIMEOUT__")), timeoutMs),
-      ),
-    ]);
-
-    // Normalize result
-    if (result === undefined || result === null) {
-      return { result: { success: true }, timedOut: false };
-    }
-
-    if (typeof result === "boolean") {
-      return { result: { success: result }, timedOut: false };
-    }
-
-    if (typeof result === "object") {
-      return {
-        result: {
-          success: Boolean(result.success ?? true),
-          message: result.message,
-          value: result.value,
-        },
-        timedOut: false,
+      // Wrap console to redirect to stderr
+      const originalConsole = console;
+      const safeConsole = {
+        log: (...args) => originalConsole.error(...args),
+        warn: (...args) => originalConsole.error('[WARN]', ...args),
+        error: (...args) => originalConsole.error('[ERROR]', ...args),
+        info: (...args) => originalConsole.error('[INFO]', ...args),
       };
+
+      // Apply safe console
+      globalThis.console = safeConsole;
+
+      async function runUserScript(context, fetch) {
+        // User script
+        ${script}
+      }
+
+      runUserScript(context, fetch)
+        .then(result => {
+           // Output result to stdout
+           if (result !== undefined) {
+             process.stdout.write(JSON.stringify(result));
+           }
+        })
+        .catch(err => {
+           // On error, print to stderr and exit 1
+           console.error(err instanceof Error ? err.message : String(err));
+           process.exit(1);
+        });
+    `;
+
+    await Bun.write(tmpFile, wrapperScript);
+
+    const safeEnv: Record<string, string> = {};
+    for (const key of SAFE_ENV_VARS) {
+      if (process.env[key] !== undefined) {
+        safeEnv[key] = process.env[key]!;
+      }
     }
 
-    return {
-      result: { success: true, message: String(result) },
-      timedOut: false,
-    };
+    // Spawn process
+    const proc = spawn({
+      cmd: ["bun", "run", tmpFile],
+      env: safeEnv,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        timedOut = true;
+        proc.kill();
+        reject(new Error("__TIMEOUT__"));
+      }, timeoutMs);
+    });
+
+    try {
+      const [stdout, stderr] = await Promise.race([
+        Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+          proc.exited,
+        ]).then(res => [res[0], res[1]]),
+        timeoutPromise,
+      ]);
+
+      const logs = stderr.split('\n').filter(line => line.trim().length > 0);
+
+      // Check for error via exit code
+      if (proc.exitCode !== 0) {
+          return {
+             result: undefined,
+             logs,
+             error: logs.length > 0 ? logs[logs.length - 1] : "Script execution failed",
+             timedOut: false
+          };
+      }
+
+      // Parse result
+      let result: ScriptHealthResult | undefined;
+      const stdoutTrimmed = stdout.trim();
+
+      if (stdoutTrimmed) {
+        try {
+          const parsed = JSON.parse(stdoutTrimmed);
+
+          if (typeof parsed === "boolean") {
+             result = { success: parsed };
+           } else if (typeof parsed === "object") {
+             result = {
+               success: Boolean(parsed.success ?? true),
+               message: parsed.message,
+               value: parsed.value,
+             };
+           } else {
+              result = { success: true, message: String(parsed) };
+           }
+        } catch (e) {
+           // If parsing fails, treat entire stdout as message if successful?
+           // But exitCode was 0.
+           // Maybe user returned a string? "return 'foo'" -> JSON.stringify -> '"foo"' -> JSON.parse -> 'foo'
+           // If user returned undefined, we handle it below.
+           // If user printed garbage to stdout? (They shouldn't, console is redirected).
+           result = { success: true, message: stdoutTrimmed };
+        }
+      }
+
+      // If success but no result (undefined return)
+      if (!result) {
+         result = { success: true };
+      }
+
+      return { result, logs, timedOut: false };
+
+    } catch (error) {
+       const message = error instanceof Error ? error.message : String(error);
+        if (message === "__TIMEOUT__") {
+          return {
+            result: undefined,
+            logs: [],
+            error: "Script execution timed out",
+            timedOut: true,
+          };
+        }
+        throw error;
+    }
+
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message === "__TIMEOUT__") {
-      return {
-        result: undefined,
-        error: "Script execution timed out",
-        timedOut: true,
-      };
-    }
-    return { result: undefined, error: message, timedOut: false };
+     const message = error instanceof Error ? error.message : String(error);
+     return { result: undefined, logs: [], error: message, timedOut: false };
+  } finally {
+     try {
+       await unlink(tmpFile);
+     } catch (e) {
+       // Ignore cleanup errors
+     }
   }
 }
 
@@ -266,38 +366,10 @@ export class InlineScriptCollector implements CollectorStrategy<
       fetch,
     };
 
-    // Create a safe console that captures logs
-    const logs: string[] = [];
-    const safeConsole: SafeConsole = {
-      log: (...args) => {
-        logs.push(
-          args
-            .map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a)))
-            .join(" "),
-        );
-      },
-      warn: (...args) => {
-        logs.push(
-          `[WARN] ${args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ")}`,
-        );
-      },
-      error: (...args) => {
-        logs.push(
-          `[ERROR] ${args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ")}`,
-        );
-      },
-      info: (...args) => {
-        logs.push(
-          `[INFO] ${args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ")}`,
-        );
-      },
-    };
-
     // Execute the script
-    const { result, error, timedOut } = await executeInlineScript({
+    const { result, logs, error, timedOut } = await executeInlineScript({
       script: config.script,
       context: scriptContext,
-      safeConsole,
       timeoutMs: config.timeout,
     });
 
