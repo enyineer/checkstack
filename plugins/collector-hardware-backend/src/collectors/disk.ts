@@ -27,6 +27,7 @@ import {
 const diskConfigSchema = z.object({
   mountPoint: z
     .string()
+    .regex(/^[\w/.-]+$/, "Invalid mount point format")
     .default("/")
     .describe("Mount point to monitor (e.g., /, /home, /var)"),
 });
@@ -120,6 +121,11 @@ export class DiskCollector implements CollectorStrategy<
     client: SshTransportClient;
     pluginId: string;
   }): Promise<CollectorResult<DiskResult>> {
+    // Validate mountPoint to prevent command injection
+    if (!/^[\w/.-]+$/.test(config.mountPoint)) {
+      throw new Error("Invalid mount point format");
+    }
+
     // Use df with specific mount point, output in 1G blocks
     const dfResult = await client.exec(`df -BG ${config.mountPoint} | tail -1`);
     const parsed = this.parseDfOutput(dfResult.stdout, config.mountPoint);

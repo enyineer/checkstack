@@ -64,6 +64,20 @@ describe("DiskCollector", () => {
 
       expect(client.exec).toHaveBeenCalledWith("df -BG /var | tail -1");
     });
+
+    it("should reject unsafe mount points", async () => {
+      const collector = new DiskCollector();
+      const client = createMockClient();
+
+      const promise = collector.execute({
+        config: { mountPoint: "/; rm -rf /" },
+        client,
+        pluginId: "test",
+      });
+
+      expect(promise).rejects.toThrow("Invalid mount point format");
+      expect(client.exec).not.toHaveBeenCalled();
+    });
   });
 
   describe("mergeResult", () => {
