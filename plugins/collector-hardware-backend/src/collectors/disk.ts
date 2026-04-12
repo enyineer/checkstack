@@ -27,6 +27,7 @@ import {
 const diskConfigSchema = z.object({
   mountPoint: z
     .string()
+    .regex(/^[\w/.:-]+$/, "Mount point contains invalid characters")
     .default("/")
     .describe("Mount point to monitor (e.g., /, /home, /var)"),
 });
@@ -120,8 +121,26 @@ export class DiskCollector implements CollectorStrategy<
     client: SshTransportClient;
     pluginId: string;
   }): Promise<CollectorResult<DiskResult>> {
+    // SECURITY: Validate mount point against shell injection
+    const SAFE_MOUNT_POINT_REGEX = /^[\w/.:-]+$/;
+    if (!SAFE_MOUNT_POINT_REGEX.test(config.mountPoint)) {
+      return {
+        result: {
+          filesystem: "error",
+          totalGb: 0,
+          usedGb: 0,
+          availableGb: 0,
+          usedPercent: 0,
+          mountPoint: config.mountPoint,
+        },
+        error: `Invalid mount point: contains unsafe characters`,
+      };
+    }
+
     // Use df with specific mount point, output in 1G blocks
-    const dfResult = await client.exec(`df -BG ${config.mountPoint} | tail -1`);
+    // SECURITY: Use shell-escaped single quotes to prevent injection
+    const escapedMountPoint = config.mountPoint.replaceAll('\'', String.raw`'\''`);
+    const dfResult = await client.exec(`df -BG '${escapedMountPoint}' | tail -1`);
     const parsed = this.parseDfOutput(dfResult.stdout, config.mountPoint);
 
     return { result: parsed };

@@ -62,7 +62,7 @@ describe("DiskCollector", () => {
         pluginId: "test",
       });
 
-      expect(client.exec).toHaveBeenCalledWith("df -BG /var | tail -1");
+      expect(client.exec).toHaveBeenCalledWith("df -BG '/var' | tail -1");
     });
   });
 

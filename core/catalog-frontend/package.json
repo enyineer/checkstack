@@ -10,15 +10,17 @@
   },
   "dependencies": {
     "@checkstack/auth-common": "workspace:*",
-    "@checkstack/catalog-common": "workspace:*",
-    "@checkstack/frontend-api": "workspace:*",
     "@checkstack/auth-frontend": "workspace:*",
+    "@checkstack/catalog-common": "workspace:*",
     "@checkstack/common": "workspace:*",
+    "@checkstack/frontend-api": "workspace:*",
     "@checkstack/notification-common": "workspace:*",
     "@checkstack/ui": "workspace:*",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/utilities": "^3.2.2",
+    "lucide-react": "^0.344.0",
     "react": "^18.2.0",
-    "react-router-dom": "^6.22.0",
-    "lucide-react": "^0.344.0"
+    "react-router-dom": "^6.22.0"
   },
   "devDependencies": {
     "typescript": "^5.0.0",

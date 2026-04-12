@@ -326,6 +326,7 @@ export const authContract = {
     operationType: "mutation",
     userType: "service",
     access: [],
+    serviceScope: ["auth-*"],
   })
     .input(UpsertExternalUserInputSchema)
     .output(UpsertExternalUserOutputSchema),
@@ -525,7 +526,7 @@ export const authContract = {
   addUserToTeam: proc({
     operationType: "mutation",
     userType: "authenticated",
-    access: [authAccess.teams.read],
+    access: [authAccess.teams.manage],
   })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
@@ -533,7 +534,7 @@ export const authContract = {
   removeUserFromTeam: proc({
     operationType: "mutation",
     userType: "authenticated",
-    access: [authAccess.teams.read],
+    access: [authAccess.teams.manage],
   })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),

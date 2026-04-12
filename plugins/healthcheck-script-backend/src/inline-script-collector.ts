@@ -77,21 +77,66 @@ async function executeInlineScript({
   timedOut: boolean;
 }> {
   try {
-    // Create an async function from the script
-    const asyncFn = new Function(
-      "context",
-      "console",
-      "fetch",
-      `return (async () => { ${script} })();`,
-    );
+    // SECURITY: Execute in isolated Worker to prevent access to process, require, Bun, etc.
+    const workerCode = `
+      self.onmessage = async (event) => {
+        const { script, config } = event.data;
+        const logs = [];
+        const safeConsole = {
+          log: (...args) => logs.push(args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ")),
+          warn: (...args) => logs.push("[WARN] " + args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ")),
+          error: (...args) => logs.push("[ERROR] " + args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ")),
+          info: (...args) => logs.push("[INFO] " + args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ")),
+        };
+        const context = { config, fetch: globalThis.fetch };
+        try {
+          const fn = new Function("context", "console", "fetch",
+            "return (async () => { " + script + " })();"
+          );
+          const result = await fn(context, safeConsole, globalThis.fetch);
+          self.postMessage({ result, logs });
+        } catch (error) {
+          self.postMessage({ error: error.message, logs });
+        }
+      };
+    `;
+    const blob = new Blob([workerCode], { type: "application/javascript" });
+    const workerUrl = URL.createObjectURL(blob);
+    const worker = new Worker(workerUrl);
 
-    // Execute with timeout
-    const result = await Promise.race([
-      asyncFn(context, safeConsole, fetch),
+    const workerResult = await Promise.race([
+      new Promise<{ result?: unknown; error?: string; logs: string[] }>((resolve) => {
+        worker.addEventListener("message", (event: MessageEvent) => resolve(event.data));
+        worker.postMessage({ script, config: context.config });
+      }),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("__TIMEOUT__")), timeoutMs),
       ),
     ]);
+
+    worker.terminate();
+    URL.revokeObjectURL(workerUrl);
+
+    // Replay logs into the outer safeConsole
+    if (workerResult.logs && Array.isArray(workerResult.logs)) {
+      for (const logLine of workerResult.logs) {
+        if (logLine.startsWith("[WARN] ")) {
+          safeConsole.warn(logLine.slice(7));
+        } else if (logLine.startsWith("[ERROR] ")) {
+          safeConsole.error(logLine.slice(8));
+        } else if (logLine.startsWith("[INFO] ")) {
+          safeConsole.info(logLine.slice(7));
+        } else {
+          safeConsole.log(logLine);
+        }
+      }
+    }
+
+    if (workerResult.error) {
+      throw new Error(workerResult.error);
+    }
+
+    const { result } = workerResult;
 
     // Normalize result
     if (result === undefined || result === null) {
@@ -103,11 +148,12 @@ async function executeInlineScript({
     }
 
     if (typeof result === "object") {
+      const resultObj = result as Record<string, unknown>;
       return {
         result: {
-          success: Boolean(result.success ?? true),
-          message: result.message,
-          value: result.value,
+          success: Boolean(resultObj.success ?? true),
+          message: typeof resultObj.message === "string" ? resultObj.message : undefined,
+          value: typeof resultObj.value === "number" ? resultObj.value : undefined,
         },
         timedOut: false,
       };

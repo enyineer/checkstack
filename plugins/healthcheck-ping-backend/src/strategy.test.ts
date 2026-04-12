@@ -202,4 +202,51 @@ describe("PingHealthCheckStrategy", () => {
       expect(aggregated.errorCount.count).toBe(1);
     });
   });
+  describe("Environment Isolation", () => {
+    it("should pass explicit env to Bun.spawn with only PATH, HOME, and LANG", async () => {
+      let spawnOptions: any = null;
+      Bun.spawn = mock((options) => {
+        spawnOptions = options;
+        throw new Error("Command not found");
+      });
+
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      await connectedClient.client.exec({
+        host: "8.8.8.8",
+        count: 3,
+        timeout: 5000,
+      });
+
+      expect(spawnOptions).toBeDefined();
+      expect(spawnOptions.env).toBeDefined();
+      expect(spawnOptions.env.PATH).toBeDefined();
+      expect(spawnOptions.env.HOME).toBeDefined();
+      expect(spawnOptions.env.LANG).toBeDefined();
+      expect(spawnOptions.env.DATABASE_URL).toBeUndefined();
+
+      connectedClient.close();
+    });
+
+    it("should not leak parent process environment variables", async () => {
+      let spawnOptions: any = null;
+      Bun.spawn = mock((options) => {
+        spawnOptions = options;
+        throw new Error("Command not found");
+      });
+
+      process.env.SUPER_SECRET = "leaked";
+
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      await connectedClient.client.exec({
+        host: "8.8.8.8",
+        count: 3,
+        timeout: 5000,
+      });
+
+      expect(spawnOptions.env.SUPER_SECRET).toBeUndefined();
+      delete process.env.SUPER_SECRET;
+
+      connectedClient.close();
+    });
+  });
 });

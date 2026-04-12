@@ -176,9 +176,12 @@ export function registerCoreServices({
           });
           const authClient = rpcClient.forPlugin(AuthApi);
           return await authClient.checkResourceTeamAccess(params);
-        } catch {
-          // Fall back to global access on error
-          return { hasAccess: params.hasGlobalAccess };
+        } catch (error) {
+          // SECURITY: Fail-Closed — deny access when auth service is unavailable
+          rootLogger.error(
+            `[auth] checkResourceTeamAccess: S2S call failed for resource ${params.resourceType}:${params.resourceId}. Denying access (Fail-Closed). Error: ${error}`,
+          );
+          return { hasAccess: false };
         }
       },
 
@@ -189,9 +192,12 @@ export function registerCoreServices({
           });
           const authClient = rpcClient.forPlugin(AuthApi);
           return await authClient.getAccessibleResourceIds(params);
-        } catch {
-          // Fall back to global access on error
-          return params.hasGlobalAccess ? params.resourceIds : [];
+        } catch (error) {
+          // SECURITY: Fail-Closed — return empty set when auth service is unavailable
+          rootLogger.error(
+            `[auth] getAccessibleResourceIds: S2S call failed for resource type ${params.resourceType}. Denying access (Fail-Closed). Error: ${error}`,
+          );
+          return [];
         }
       },
     };
