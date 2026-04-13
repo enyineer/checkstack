@@ -126,4 +126,7 @@ export interface ProcedureMetadata {
    * ```
    */
   instanceAccess?: InstanceAccessConfig;
+
+  /** Restrict service-to-service calls to specific plugin IDs */
+  serviceScope?: string[];
 }

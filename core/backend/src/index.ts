@@ -60,6 +60,15 @@ app.use(
 );
 app.use("*", logger());
 
+// SECURITY: Add missing standard security headers across all API responses
+app.use("/api/*", async (c, next) => {
+  await next();
+  c.res.headers.set("X-Content-Type-Options", "nosniff");
+  c.res.headers.set("X-Frame-Options", "DENY");
+  c.res.headers.set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+  c.res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+});
+
 // Runtime config endpoint - returns BASE_URL for frontend
 app.get("/api/config", (c) => {
   const baseUrl = process.env.BASE_URL || "http://localhost:3000";

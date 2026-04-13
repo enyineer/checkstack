@@ -349,10 +349,15 @@ export default createBackendPlugin({
             // The UUID is parts[1] and potentially includes more parts if UUID has dashes
             // For a UUID like "abc-def-ghi", after "ck_", we get the rest split by _
             // Safer approach: find the application ID by parsing
+            // Token format: ck_<uuid>_<secret>
+            // Parse using the known ck_ prefix and structured delimiter
             const tokenWithoutPrefix = token.slice(3); // Remove "ck_"
-            // UUID is 36 chars, secret is 32 chars
-            const applicationId = tokenWithoutPrefix.slice(0, 36);
-            const secret = tokenWithoutPrefix.slice(37); // Skip the _ separator
+            // Find the last underscore: UUID may contain dashes but not underscores
+            // UUID is always 36 chars (8-4-4-4-12 with dashes)
+            const separatorIndex = tokenWithoutPrefix.indexOf("_", 36);
+            if (separatorIndex === -1) return; // Malformed token
+            const applicationId = tokenWithoutPrefix.slice(0, separatorIndex);
+            const secret = tokenWithoutPrefix.slice(separatorIndex + 1);
 
             if (applicationId && secret) {
               // Look up application
@@ -420,7 +425,7 @@ export default createBackendPlugin({
                     id: app.id,
                     name: app.name,
                     roles: roleIds,
-                    accessRulesArray,
+                    accessRules: accessRulesArray,
                     teamIds,
                   };
                 }
@@ -562,9 +567,15 @@ export default createBackendPlugin({
                 const notificationClient = rpcClient.forPlugin(NotificationApi);
                 const frontendUrl =
                   process.env.BASE_URL || "http://localhost:5173";
-                const resetUrl = `${frontendUrl}/auth/reset-password?token=${
-                  url.split("token=")[1] ?? ""
-                }`;
+                // SECURITY: Use URL parsing instead of brittle string splitting
+                const parsedUrl = new URL(url);
+                const resetToken = parsedUrl.searchParams.get("token");
+                if (!resetToken) {
+                  throw new APIError("BAD_REQUEST", {
+                    message: "Malformed password reset URL: missing token parameter",
+                  });
+                }
+                const resetUrl = `${frontendUrl}/auth/reset-password?token=${encodeURIComponent(resetToken)}`;
 
                 void notificationClient.sendTransactional({
                   userId: user.id,

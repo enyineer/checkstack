@@ -8,7 +8,8 @@ import {
   type ConfigService,
   toJsonSchema,
 } from "@checkstack/backend-api";
-import { authContract, passwordSchema } from "@checkstack/auth-common";
+import { authContract, passwordSchema, authAccess, pluginMetadata } from "@checkstack/auth-common";
+import { qualifyAccessRuleId } from "@checkstack/common";
 import { hashPassword } from "better-auth/crypto";
 import * as schema from "./schema";
 import { eq, inArray, and } from "drizzle-orm";
@@ -115,6 +116,45 @@ function generateSecret(): string {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
   return Array.from(array, (byte) => chars[byte % chars.length]).join("");
+}
+
+async function assertTeamManagementAccess({
+  user,
+  teamId,
+  internalDb,
+}: {
+  user: AuthUser | undefined;
+  teamId: string;
+  internalDb: SafeDatabase<typeof schema>;
+}): Promise<void> {
+  // Services are trusted via middleware
+  if (user?.type === "service") return;
+
+  const hasGlobalManage =
+    user?.accessRules?.includes("*") ||
+    user?.accessRules?.includes(qualifyAccessRuleId(pluginMetadata, authAccess.teams.manage));
+
+  if (hasGlobalManage) return; // Global manage allows all teams
+
+  // Check if user is a manager of this specific team
+  if (isRealUser(user)) {
+    const [managerRecord] = await internalDb
+      .select()
+      .from(schema.teamManager)
+      .where(
+        and(
+          eq(schema.teamManager.teamId, teamId),
+          eq(schema.teamManager.userId, user.id),
+        ),
+      )
+      .limit(1);
+
+    if (managerRecord) return; // Is team manager
+  }
+
+  throw new ORPCError("FORBIDDEN", {
+    message: "You do not have permission to manage this team",
+  });
 }
 
 export const createAuthRouter = (
@@ -1385,7 +1425,13 @@ export const createAuthRouter = (
 
   const updateTeam = os.updateTeam.handler(async ({ input, context }) => {
     const { id, name, description } = input;
-    // TODO: Check if user is manager or has teamsManage access
+
+    await assertTeamManagementAccess({
+      user: context.user,
+      teamId: id,
+      internalDb,
+    });
+
     const updates: {
       name?: string;
       description?: string | null;
@@ -1403,6 +1449,11 @@ export const createAuthRouter = (
   });
 
   const deleteTeam = os.deleteTeam.handler(async ({ input: id, context }) => {
+    await assertTeamManagementAccess({
+      user: context.user,
+      teamId: id,
+      internalDb,
+    });
     await internalDb.transaction(async (tx) => {
       await tx.delete(schema.userTeam).where(eq(schema.userTeam.teamId, id));
       await tx
@@ -1419,7 +1470,12 @@ export const createAuthRouter = (
     context.logger.info(`[auth-backend] Deleted team: ${id}`);
   });
 
-  const addUserToTeam = os.addUserToTeam.handler(async ({ input }) => {
+  const addUserToTeam = os.addUserToTeam.handler(async ({ input, context }) => {
+    await assertTeamManagementAccess({
+      user: context.user,
+      teamId: input.teamId,
+      internalDb,
+    });
     await internalDb
       .insert(schema.userTeam)
       .values({ userId: input.userId, teamId: input.teamId })
@@ -1427,7 +1483,12 @@ export const createAuthRouter = (
   });
 
   const removeUserFromTeam = os.removeUserFromTeam.handler(
-    async ({ input }) => {
+    async ({ input, context }) => {
+      await assertTeamManagementAccess({
+        user: context.user,
+        teamId: input.teamId,
+        internalDb,
+      });
       await internalDb
         .delete(schema.userTeam)
         .where(
@@ -1439,14 +1500,24 @@ export const createAuthRouter = (
     },
   );
 
-  const addTeamManager = os.addTeamManager.handler(async ({ input }) => {
+  const addTeamManager = os.addTeamManager.handler(async ({ input, context }) => {
+    await assertTeamManagementAccess({
+      user: context.user,
+      teamId: input.teamId,
+      internalDb,
+    });
     await internalDb
       .insert(schema.teamManager)
       .values({ userId: input.userId, teamId: input.teamId })
       .onConflictDoNothing();
   });
 
-  const removeTeamManager = os.removeTeamManager.handler(async ({ input }) => {
+  const removeTeamManager = os.removeTeamManager.handler(async ({ input, context }) => {
+    await assertTeamManagementAccess({
+      user: context.user,
+      teamId: input.teamId,
+      internalDb,
+    });
     await internalDb
       .delete(schema.teamManager)
       .where(
@@ -1577,7 +1648,12 @@ export const createAuthRouter = (
         );
 
       // No grants = global access applies
-      if (grants.length === 0) return { hasAccess: hasGlobalAccess };
+      if (grants.length === 0) {
+        // SECURITY NOTE: No team grants configured for this resource.
+        // Defaulting to global access check. If this resource should be restricted,
+        // configure team grants or enable 'teamOnly' on the resource access settings.
+        return { hasAccess: hasGlobalAccess };
+      }
 
       // Check resource-level settings for teamOnly
       const settingsRows = await internalDb
@@ -1685,7 +1761,10 @@ export const createAuthRouter = (
 
       return resourceIds.filter((id) => {
         const resourceGrants = grantsByResource.get(id) || [];
-        if (resourceGrants.length === 0) return hasGlobalAccess;
+        if (resourceGrants.length === 0) {
+          // No team grants configured — fall through to global access
+          return hasGlobalAccess;
+        }
         const isTeamOnly = teamOnlyByResource.get(id) ?? false;
         if (!isTeamOnly && hasGlobalAccess) return true;
         return resourceGrants.some(

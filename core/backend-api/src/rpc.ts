@@ -206,6 +206,23 @@ export const autoAuthMiddleware = os.middleware(
 
     // 5. Skip remaining checks for services - they are trusted
     if (user?.type === "service") {
+      // SECURITY: Check service-level scope restrictions
+      const serviceScope = meta?.serviceScope;
+      if (serviceScope && serviceScope.length > 0) {
+        const isAllowed = serviceScope.some((allowedPattern) => {
+          if (allowedPattern.endsWith("*")) {
+            const prefix = allowedPattern.slice(0, -1);
+            return user.pluginId.startsWith(prefix);
+          }
+          return allowedPattern === user.pluginId;
+        });
+
+        if (!isAllowed) {
+          throw new ORPCError("FORBIDDEN", {
+            message: `Service '${user.pluginId}' is not allowed to call this endpoint`,
+          });
+        }
+      }
       return next({});
     }
 
@@ -483,8 +500,8 @@ async function checkResourceAccessViaS2S({
     });
     return result.hasAccess;
   } catch {
-    // If team access check fails (e.g., service not available), fall back to global access
-    return hasGlobalAccess;
+    // SECURITY: Fail-Closed — deny access when S2S check fails
+    return false;
   }
 }
 
@@ -520,8 +537,8 @@ async function getAccessibleResourceIdsViaS2S({
       hasGlobalAccess,
     });
   } catch {
-    // If team access check fails, fall back to global access behavior
-    return hasGlobalAccess ? resourceIds : [];
+    // SECURITY: Fail-Closed — return empty set when S2S check fails
+    return [];
   }
 }
 

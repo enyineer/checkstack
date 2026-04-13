@@ -1,16 +1,23 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+  type DragOverEvent,
+} from "@dnd-kit/core";
 import {
   useApi,
   accessApiRef,
-  ExtensionSlot,
   usePluginClient,
 } from "@checkstack/frontend-api";
 import { System, CatalogApi } from "../api";
-import {
-  CatalogSystemActionsSlot,
-  catalogAccess,
-} from "@checkstack/catalog-common";
+import { catalogAccess } from "@checkstack/catalog-common";
 import {
   PageLayout,
   Card,
@@ -19,15 +26,15 @@ import {
   CardTitle,
   CardContent,
   Button,
-  Label,
   EmptyState,
-  EditableText,
   ConfirmationModal,
   useToast,
 } from "@checkstack/ui";
-import { Plus, Trash2, LayoutGrid, Server, Edit } from "lucide-react";
+import { Plus, FolderPlus, LayoutGrid, Server } from "lucide-react";
 import { SystemEditor } from "./SystemEditor";
 import { GroupEditor } from "./GroupEditor";
+import { DraggableSystem, SystemDragOverlay } from "./DraggableSystem";
+import { DroppableGroup } from "./DroppableGroup";
 
 export const CatalogConfigPage = () => {
   const catalogClient = usePluginClient(CatalogApi);
@@ -37,9 +44,6 @@ export const CatalogConfigPage = () => {
   const { allowed: canManage, loading: accessLoading } = accessApi.useAccess(
     catalogAccess.system.manage,
   );
-
-  const [selectedGroupId, setSelectedGroupId] = useState("");
-  const [selectedSystemToAdd, setSelectedSystemToAdd] = useState("");
 
   // Dialog state
   const [isSystemEditorOpen, setIsSystemEditorOpen] = useState(false);
@@ -59,6 +63,12 @@ export const CatalogConfigPage = () => {
     onConfirm: () => {},
   });
 
+  // Drag-and-drop state
+  const [activeSystemId, setActiveSystemId] = useState<string | undefined>();
+  const [overGroupId, setOverGroupId] = useState<string | undefined>();
+  // Tracks which system was most recently added to which group (for glow animation)
+  const [recentlyAdded, setRecentlyAdded] = useState<{ systemId: string; groupId: string } | undefined>();
+
   // Fetch systems with useQuery
   const {
     data: systemsData,
@@ -77,13 +87,6 @@ export const CatalogConfigPage = () => {
   const groups = groupsData ?? [];
   const loading = systemsLoading || groupsLoading;
 
-  // Set initial group selection
-  useEffect(() => {
-    if (groups.length > 0 && !selectedGroupId) {
-      setSelectedGroupId(groups[0].id);
-    }
-  }, [groups, selectedGroupId]);
-
   // Handle ?action=create URL parameter (from command palette)
   useEffect(() => {
     if (searchParams.get("action") === "create" && canManage) {
@@ -93,6 +96,18 @@ export const CatalogConfigPage = () => {
       setSearchParams(searchParams, { replace: true });
     }
   }, [searchParams, canManage, setSearchParams]);
+
+  // DnD sensors — pointer for desktop, touch for mobile
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      // 8px movement tolerance prevents accidental drags on clicks
+      activationConstraint: { distance: 8 },
+    }),
+    useSensor(TouchSensor, {
+      // 250ms delay for touch to avoid conflicts with scrolling
+      activationConstraint: { delay: 250, tolerance: 8 },
+    }),
+  );
 
   // Mutations
   const createSystemMutation = catalogClient.createSystem.useMutation({
@@ -175,9 +190,10 @@ export const CatalogConfigPage = () => {
   });
 
   const addSystemToGroupMutation = catalogClient.addSystemToGroup.useMutation({
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       toast.success("System added to group successfully");
-      setSelectedSystemToAdd("");
+      setRecentlyAdded({ systemId: variables.systemId, groupId: variables.groupId });
+      setTimeout(() => setRecentlyAdded(undefined), 1500);
       void refetchGroups();
     },
     onError: (error) => {
@@ -244,12 +260,8 @@ export const CatalogConfigPage = () => {
     });
   };
 
-  const handleAddSystemToGroup = () => {
-    if (!selectedGroupId || !selectedSystemToAdd) return;
-    addSystemToGroupMutation.mutate({
-      groupId: selectedGroupId,
-      systemId: selectedSystemToAdd,
-    });
+  const handleAddSystemToGroup = (systemId: string, groupId: string) => {
+    addSystemToGroupMutation.mutate({ groupId, systemId });
   };
 
   const handleRemoveSystemFromGroup = (groupId: string, systemId: string) => {
@@ -260,10 +272,49 @@ export const CatalogConfigPage = () => {
     updateGroupMutation.mutate({ id, data: { name: newName } });
   };
 
-  const selectedGroup = groups.find((g) => g.id === selectedGroupId);
-  const availableSystems = systems.filter(
-    (s) => !selectedGroup?.systemIds?.includes(s.id),
-  );
+  // DnD event handlers
+  const handleDragStart = ({ active }: DragStartEvent) => {
+    setActiveSystemId(String(active.id));
+  };
+
+  const handleDragOver = ({ over }: DragOverEvent) => {
+    setOverGroupId(over ? String(over.id) : undefined);
+  };
+
+  const handleDragEnd = ({ active, over }: DragEndEvent) => {
+    setActiveSystemId(undefined);
+    setOverGroupId(undefined);
+
+    if (!over) return;
+
+    const systemId = String(active.id);
+    const groupId = String(over.id);
+    const targetGroup = groups.find((g) => g.id === groupId);
+
+    // Block if already assigned to this group
+    if (targetGroup?.systemIds?.includes(systemId)) return;
+
+    handleAddSystemToGroup(systemId, groupId);
+  };
+
+  const handleDragCancel = () => {
+    setActiveSystemId(undefined);
+    setOverGroupId(undefined);
+  };
+
+  const activeSystem = activeSystemId
+    ? systems.find((s) => s.id === activeSystemId)
+    : undefined;
+
+  // Build a map of systemId → groupIds for quick lookup
+  const systemGroupMap = new Map<string, string[]>();
+  for (const group of groups) {
+    for (const sysId of group.systemIds ?? []) {
+      const existing = systemGroupMap.get(sysId) ?? [];
+      existing.push(group.id);
+      systemGroupMap.set(sysId, existing);
+    }
+  }
 
   return (
     <PageLayout
@@ -273,213 +324,116 @@ export const CatalogConfigPage = () => {
       loading={loading || accessLoading}
       allowed={canManage}
     >
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Systems Management */}
-        <Card>
-          <CardHeader>
-            <CardHeaderRow>
-              <CardTitle className="flex items-center gap-2">
-                <Server className="w-5 h-5 text-muted-foreground" />
-                Systems
-              </CardTitle>
-              <Button size="sm" onClick={() => setIsSystemEditorOpen(true)}>
-                <Plus className="w-4 h-4 mr-2" />
-                Add System
-              </Button>
-            </CardHeaderRow>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {systems.length === 0 ? (
-              <EmptyState title="No systems created yet." />
-            ) : (
-              <div className="space-y-2">
-                {systems.map((system) => (
-                  <div
-                    key={system.id}
-                    className="flex items-start justify-between p-3 bg-muted/30 rounded-lg border border-border"
-                  >
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-foreground">
-                          {system.name}
-                        </span>
-                        <ExtensionSlot
-                          slot={CatalogSystemActionsSlot}
-                          context={{
-                            systemId: system.id,
-                            systemName: system.name,
-                          }}
-                        />
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {system.description || "No description"}
-                      </p>
-                    </div>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0"
-                        onClick={() => {
-                          setEditingSystem(system);
-                          setIsSystemEditorOpen(true);
-                        }}
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        className="text-destructive hover:text-destructive/90 hover:bg-destructive/10 h-8 w-8 p-0"
-                        onClick={() => handleDeleteSystem(system.id)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Groups Management */}
-        <Card>
-          <CardHeader>
-            <CardHeaderRow>
-              <CardTitle className="flex items-center gap-2">
-                <LayoutGrid className="w-5 h-5 text-muted-foreground" />
-                Groups
-              </CardTitle>
-              <Button size="sm" onClick={() => setIsGroupEditorOpen(true)}>
-                <Plus className="w-4 h-4 mr-2" />
-                Add Group
-              </Button>
-            </CardHeaderRow>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {groups.length === 0 ? (
-              <EmptyState title="No groups created yet." />
-            ) : (
-              <div className="space-y-2">
-                {groups.map((group) => (
-                  <div
-                    key={group.id}
-                    className="p-3 bg-muted/30 rounded-lg border border-border space-y-2"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <EditableText
-                          value={group.name}
-                          onSave={(newName) =>
-                            handleUpdateGroupName(group.id, newName)
-                          }
-                          className="font-medium text-foreground"
-                        />
-                        <p className="text-xs text-muted-foreground font-mono">
-                          {group.id}
-                        </p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        className="text-destructive hover:text-destructive/90 hover:bg-destructive/10 h-8 w-8 p-0"
-                        onClick={() => handleDeleteGroup(group.id)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-
-                    {/* Systems in this group */}
-                    {group.systemIds && group.systemIds.length > 0 && (
-                      <div className="pl-4 space-y-1">
-                        {group.systemIds
-                          .map((sysId) => systems.find((s) => s.id === sysId))
-                          .filter((sys): sys is System => !!sys)
-                          .map((sys) => (
-                            <div
-                              key={sys.id}
-                              className="flex items-center justify-between text-sm bg-background p-2 rounded border border-border"
-                            >
-                              <span className="text-foreground">
-                                {sys.name}
-                              </span>
-                              <Button
-                                variant="ghost"
-                                className="text-destructive/60 hover:text-destructive h-6 w-6 p-0"
-                                onClick={() =>
-                                  handleRemoveSystemFromGroup(group.id, sys.id)
-                                }
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </Button>
-                            </div>
-                          ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Add System to Group Section */}
-      {groups.length > 0 && systems.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Add System to Group</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Select Group</Label>
-                <select
-                  className="w-full flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  value={selectedGroupId}
-                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                    setSelectedGroupId(e.target.value)
-                  }
-                >
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Select System</Label>
-                <select
-                  className="w-full flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  value={selectedSystemToAdd}
-                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                    setSelectedSystemToAdd(e.target.value)
-                  }
-                >
-                  <option value="">Select a system</option>
-                  {availableSystems.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-end">
-                <Button
-                  onClick={handleAddSystemToGroup}
-                  disabled={!selectedSystemToAdd}
-                  className="w-full"
-                >
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+      >
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Systems Management */}
+          <Card>
+            <CardHeader>
+              <CardHeaderRow>
+                <CardTitle className="flex items-center gap-2">
+                  <Server className="w-5 h-5 text-muted-foreground" />
+                  Systems
+                </CardTitle>
+                <Button size="sm" onClick={() => setIsSystemEditorOpen(true)}>
                   <Plus className="w-4 h-4 mr-2" />
-                  Add to Group
+                  Add System
                 </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+              </CardHeaderRow>
+              {systems.length > 0 && groups.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Drag a system onto a group, or use the{" "}
+                  <FolderPlus className="w-3 h-3 inline" /> button to assign it.
+                </p>
+              )}
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {systems.length === 0 ? (
+                <EmptyState title="No systems created yet." />
+              ) : (
+                <div className="space-y-2">
+                  {systems.map((system) => (
+                    <DraggableSystem
+                      key={system.id}
+                      system={system}
+                      groups={groups}
+                      assignedGroupIds={systemGroupMap.get(system.id) ?? []}
+                      onEdit={(s) => {
+                        setEditingSystem(s);
+                        setIsSystemEditorOpen(true);
+                      }}
+                      onDelete={handleDeleteSystem}
+                      onAddToGroup={handleAddSystemToGroup}
+                    />
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Groups Management */}
+          <Card>
+            <CardHeader>
+              <CardHeaderRow>
+                <CardTitle className="flex items-center gap-2">
+                  <LayoutGrid className="w-5 h-5 text-muted-foreground" />
+                  Groups
+                </CardTitle>
+                <Button size="sm" onClick={() => setIsGroupEditorOpen(true)}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Group
+                </Button>
+              </CardHeaderRow>
+              {groups.length > 0 && systems.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Drop systems here to assign them to a group.
+                </p>
+              )}
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {groups.length === 0 ? (
+                <EmptyState title="No groups created yet." />
+              ) : (
+                <div className="space-y-2">
+                  {groups.map((group) => (
+                    <DroppableGroup
+                      key={group.id}
+                      group={group}
+                      systems={systems}
+                      isOver={overGroupId === group.id}
+                      isDragging={activeSystemId !== undefined}
+                      draggingSystemAlreadyInGroup={
+                        activeSystemId !== undefined &&
+                        (group.systemIds ?? []).includes(activeSystemId)
+                      }
+                      newlyAddedSystemId={
+                        recentlyAdded?.groupId === group.id
+                          ? recentlyAdded.systemId
+                          : undefined
+                      }
+                      onDeleteGroup={handleDeleteGroup}
+                      onUpdateGroupName={handleUpdateGroupName}
+                      onRemoveSystem={handleRemoveSystemFromGroup}
+                    />
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Drag overlay — the floating ghost shown while dragging */}
+        {/* dropAnimation must be null (not undefined) per @dnd-kit API to disable the fly-back animation */}
+        {/* eslint-disable-next-line unicorn/no-null */}
+        <DragOverlay dropAnimation={null}>
+          {activeSystem ? <SystemDragOverlay system={activeSystem} /> : undefined}
+        </DragOverlay>
+      </DndContext>
 
       {/* Dialogs */}
       <SystemEditor

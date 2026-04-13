@@ -111,3 +111,13 @@ For machine-to-machine access, create **External Applications** in **Settings â†
 - Optionally assign to teams for resource-level access
 
 See [External Applications](./external-applications.md) for more details.
+
+## Custom Authentication Plugins
+
+Checkstack's architecture supports building custom internal or third-party authentication plugins. To ensure secure privilege isolation, the core API enforces a strict naming convention for plugins attempting to synchronize external users.
+
+### The `auth-*` Naming Convention
+
+If your plugin provides an authentication strategy (and thus needs to securely call internal identity endpoints like `upsertExternalUser`), its plugin ID **MUST** begin with the `auth-` prefix (e.g., `auth-custom-backend`).
+
+Checkstack uses a **Wildcard Scope Pattern** (`serviceScope: ["auth-*"]`) on sensitive endpoints. This allows new authentication plugins to seamlessly integrate and assert identity claims without requiring modifications to the core platform's hardcoded allowlists, while still thoroughly blocking arbitrary plugins from escalating privileges.

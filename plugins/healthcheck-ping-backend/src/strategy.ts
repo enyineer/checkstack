@@ -215,6 +215,12 @@ export class PingHealthCheckStrategy implements HealthCheckStrategy<
         cmd: ["ping", ...args],
         stdout: "pipe",
         stderr: "pipe",
+        env: {
+          // SECURITY: Only pass necessary env vars to subprocess
+          PATH: process.env.PATH ?? "/usr/bin:/bin:/usr/sbin:/sbin",
+          HOME: process.env.HOME ?? "/tmp",
+          LANG: process.env.LANG ?? "en_US.UTF-8",
+        },
       });
 
       const output = await new Response(proc.stdout).text();
