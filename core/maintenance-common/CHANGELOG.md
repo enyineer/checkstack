@@ -1,5 +1,14 @@
 # @checkstack/maintenance-common
 
+## 0.4.6
+
+### Patch Changes
+
+- Updated dependencies [0ebbe56]
+  - @checkstack/common@0.6.3
+  - @checkstack/frontend-api@0.3.6
+  - @checkstack/signal-common@0.1.7
+
 ## 0.4.5
 
 ### Patch Changes

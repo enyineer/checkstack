@@ -1,5 +1,12 @@
 # @checkstack/theme-common
 
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies [0ebbe56]
+  - @checkstack/common@0.6.3
+
 ## 0.1.5
 
 ### Patch Changes

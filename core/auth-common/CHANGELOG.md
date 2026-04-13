@@ -1,5 +1,22 @@
 # @checkstack/auth-common
 
+## 0.5.6
+
+### Patch Changes
+
+- 0ebbe56: Security Vulnerability Remediation completed:
+  - Refactored core authorization to Fail-Closed architecture with secure defaults.
+  - Implemented `assertTeamManagementAccess` to resolve BOLA in Teams Management.
+  - Protected internal S2S capabilities via explicit wildcard `serviceScope` definitions.
+  - Disarmed OS Command Injection in DiskCollector via strict regex validation and bash escaping.
+  - Re-architected inline script processing executing scripts in sandboxed Web Worker contexts.
+  - Isolated subprocess environment scopes in PingStrategy limiting variable leakage.
+  - Enforced strict token/API Key parsing with URLSearchParams checking.
+  - Explicitly fail-fast on missing DATABASE_URL configuration across independent backend clusters.
+  - Activated strict HTTP Security Headers (HSTS, CSP, X-Frame-Options) across the API automatically.
+- Updated dependencies [0ebbe56]
+  - @checkstack/common@0.6.3
+
 ## 0.5.5
 
 ### Patch Changes

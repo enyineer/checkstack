@@ -1,5 +1,22 @@
 # @checkstack/healthcheck-backend
 
+## 0.10.1
+
+### Patch Changes
+
+- Updated dependencies [0ebbe56]
+  - @checkstack/backend-api@0.8.1
+  - @checkstack/common@0.6.3
+  - @checkstack/integration-backend@0.1.12
+  - @checkstack/catalog-backend@0.2.14
+  - @checkstack/catalog-common@1.2.8
+  - @checkstack/command-backend@0.1.12
+  - @checkstack/queue-api@0.2.6
+  - @checkstack/healthcheck-common@0.8.3
+  - @checkstack/incident-common@0.4.4
+  - @checkstack/maintenance-common@0.4.6
+  - @checkstack/signal-common@0.1.7
+
 ## 0.10.0
 
 ### Minor Changes

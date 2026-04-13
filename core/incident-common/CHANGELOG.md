@@ -1,5 +1,14 @@
 # @checkstack/incident-common
 
+## 0.4.4
+
+### Patch Changes
+
+- Updated dependencies [0ebbe56]
+  - @checkstack/common@0.6.3
+  - @checkstack/frontend-api@0.3.6
+  - @checkstack/signal-common@0.1.7
+
 ## 0.4.3
 
 ### Patch Changes

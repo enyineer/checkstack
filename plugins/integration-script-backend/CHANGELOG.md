@@ -1,5 +1,16 @@
 # @checkstack/integration-script-backend
 
+## 0.2.3
+
+### Patch Changes
+
+- d73e33e: Security fix: Prevent environment variable leakage to child processes.
+- Updated dependencies [0ebbe56]
+  - @checkstack/backend-api@0.8.1
+  - @checkstack/common@0.6.3
+  - @checkstack/integration-backend@0.1.12
+  - @checkstack/integration-common@0.2.6
+
 ## 0.2.2
 
 ### Patch Changes
