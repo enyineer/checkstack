@@ -210,7 +210,6 @@ jobs:
             const previousFailures = parseInt('${{ steps.count-failures.outputs.failure_count }}', 10) || 0;
             const escalate = previousFailures >= 3;
 
-            core.setOutput('should_invoke_jules', (!allPassed && !escalate).toString());
             core.setOutput('all_passed', allPassed.toString());
 
             let body = '';
@@ -227,14 +226,13 @@ jobs:
                 '| Lint | ✅ Passed |',
                 '| Test | ✅ Passed |',
                 '',
-                '🤖 **Jules has been triggered** to perform a code review.',
                 '',
-                '@enyineer All quality checks have passed. This PR is ready for your final review after Jules completes its code review.',
+                '@enyineer All quality checks have passed. This PR is ready for your review.',
               ].join('\n');
             } else {
               // --- FAILURE ---
               const escalationNote = escalate
-                ? '> ⚠️ **Escalation**: Automated fixes by Jules have not resolved the issues after 3 attempts. Manual intervention is required.\n'
+                ? '> ⚠️ **Escalation**: Automated fixes have not resolved the issues after 3 attempts. Manual intervention is required.\n'
                 : '';
 
               const icon = (passed) => passed ? '✅ Passed' : '❌ Failed';
@@ -292,7 +290,7 @@ jobs:
               // Build the trailing line based on escalation
               const trailingLine = escalate
                 ? '@enyineer The above code quality issues were found in this PR. Automated fixes have not resolved them after 3 attempts. Manual intervention is required.'
-                : '🤖 **Jules has been triggered** to fix the above code quality issues.';
+                : '@enyineer The above code quality issues were found in this PR. Please fix them before merging.';
 
               body = [
                 '<!-- pr-checks-report: fail -->',
@@ -310,32 +308,6 @@ jobs:
                 trailingLine,
               ].join('\n');
 
-              // Build Jules prompt listing which checks failed and how to fix
-              if (!escalate) {
-                const failedChecks = [];
-                if (!typecheckPassed) failedChecks.push('- Typecheck (`bun run typecheck`)');
-                if (!lintPassed) failedChecks.push('- Lint (`bun run lint`)');
-                if (!testPassed) failedChecks.push('- Tests (`bun test`)');
-
-                const julesPrompt = [
-                  'The following PR checks have failed:',
-                  '',
-                  ...failedChecks,
-                  '',
-                  'Please fix all errors. Instructions:',
-                  '',
-                  '1. Run the failing commands locally to reproduce the errors',
-                  '2. Fix all reported issues in the source code',
-                  '3. Do NOT use `any` as an explicit type or `@ts-ignore` to suppress type errors',
-                  '4. Do NOT add `eslint-disable` comments to suppress lint errors — fix the root cause',
-                  '5. Do NOT modify test expectations unless the test itself is clearly wrong',
-                  '6. Commit and push the fixes',
-                  '',
-                  'IMPORTANT: Push your fixes to the existing PR branch. Do NOT create a new pull request.',
-                ].join('\n');
-
-                core.setOutput('jules_prompt', julesPrompt);
-              }
             }
 
             await github.rest.issues.createComment({
@@ -350,42 +322,3 @@ jobs:
               core.setFailed('One or more PR checks failed. See the comment above for details.');
             }
 
-      - name: Invoke Jules to fix failures
-        if: >
-          steps.report.outputs.should_invoke_jules == 'true' &&
-          github.event.pull_request.head.repo.full_name == github.repository
-        uses: google-labs-code/jules-action@v1.0.0
-        with:
-          starting_branch: ${{ github.head_ref }}
-          jules_api_key: ${{ secrets.JULES_API_KEY }}
-          prompt: ${{ steps.report.outputs.jules_prompt }}
-
-      - name: Invoke Jules for code review
-        if: >
-          steps.report.outputs.all_passed == 'true' &&
-          github.event.pull_request.head.repo.full_name == github.repository
-        uses: google-labs-code/jules-action@v1.0.0
-        with:
-          starting_branch: ${{ github.head_ref }}
-          include_commit_log: true
-          jules_api_key: ${{ secrets.JULES_API_KEY }}
-          prompt: |
-            All automated checks (typecheck, lint, tests) have passed for this PR.
-            Please perform a thorough code review.
-
-            Review the changes and look for:
-            - Potential bugs, race conditions, or edge cases
-            - Security concerns (e.g. injection, auth bypasses, secret leaks)
-            - Performance issues (e.g. N+1 queries, unnecessary re-renders, missing indexes)
-            - Code clarity and maintainability concerns
-            - Missing error handling or validation
-            - Architectural issues or violations of project patterns
-
-            For each issue found:
-            - Add a review comment on the specific line(s) in question
-            - Explain why it is a concern and suggest a fix
-
-            If the code looks good and you have no concerns, post a single
-            review comment confirming the code has been reviewed and is clean.
-
-            IMPORTANT: If you suggest code changes, push them to the existing PR branch. Do NOT create a new pull request.

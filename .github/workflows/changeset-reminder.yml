@@ -72,7 +72,7 @@ jobs:
               );
 
               if (alreadyTriggered) {
-                core.info('Jules was already triggered for this PR. Skipping.');
+                core.info('This PR was already processed. Skipping.');
                 core.setOutput('skip', 'true');
                 return;
               }
@@ -245,28 +245,6 @@ jobs:
 
             const exampleFrontmatter = missingPackages.map((pkg) => `"${pkg}": patch`).join('\n');
 
-            const julesPrompt = [
-              'This PR is missing changeset entries for the following packages:',
-              '',
-              ...missingPackages.map((pkg) => `- ${pkg}`),
-              '',
-              'Please create a changeset file in `.changeset/` with a random kebab-case name (e.g. `.changeset/cool-dogs-fly.md`).',
-              '',
-              'Use "patch" for bug fixes or "minor" for new features — do NOT use "major" (we are pre-1.0).',
-              '',
-              'Example (`.changeset/cool-dogs-fly.md`):',
-              '```',
-              '---',
-              exampleFrontmatter,
-              '---',
-              '',
-              'Description of the changes.',
-              '```',
-              '',
-              'IMPORTANT: Push the changeset file to the existing PR branch. Do NOT create a new pull request.',
-            ].join('\n');
-
-            core.setOutput('jules_prompt', julesPrompt);
 
             // ── 9. Post or update informational comment ──
             const packageList = missingPackages.map((pkg) => `- \`${pkg}\``).join('\n');
@@ -279,7 +257,7 @@ jobs:
               '',
               packageList,
               '',
-              '🤖 **Jules has been triggered** to create a changeset covering these packages.',
+              '⚠️ Please add a changeset entry for each of the listed packages before merging.',
             ].join('\n');
 
             const allComments = await github.paginate(
@@ -313,12 +291,3 @@ jobs:
               core.info('Created new changeset coverage comment.');
             }
 
-      - name: Invoke Jules to create changeset
-        if: >
-          steps.analyze.outputs.has_missing == 'true' &&
-          steps.pr-meta.outputs.is_internal == 'true'
-        uses: google-labs-code/jules-action@v1.0.0
-        with:
-          starting_branch: ${{ steps.pr-meta.outputs.head_ref }}
-          jules_api_key: ${{ secrets.JULES_API_KEY }}
-          prompt: ${{ steps.analyze.outputs.jules_prompt }}
