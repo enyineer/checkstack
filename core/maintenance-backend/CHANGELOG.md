@@ -1,5 +1,21 @@
 # @checkstack/maintenance-backend
 
+## 0.5.7
+
+### Patch Changes
+
+- Updated dependencies [0ebbe56]
+  - @checkstack/auth-common@0.5.6
+  - @checkstack/backend-api@0.8.1
+  - @checkstack/common@0.6.3
+  - @checkstack/integration-backend@0.1.12
+  - @checkstack/catalog-common@1.2.8
+  - @checkstack/command-backend@0.1.12
+  - @checkstack/integration-common@0.2.6
+  - @checkstack/maintenance-common@0.4.6
+  - @checkstack/notification-common@0.2.6
+  - @checkstack/signal-common@0.1.7
+
 ## 0.5.6
 
 ### Patch Changes

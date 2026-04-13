@@ -1,5 +1,28 @@
 # @checkstack/notification-backend
 
+## 0.1.13
+
+### Patch Changes
+
+- 0ebbe56: Security Vulnerability Remediation completed:
+  - Refactored core authorization to Fail-Closed architecture with secure defaults.
+  - Implemented `assertTeamManagementAccess` to resolve BOLA in Teams Management.
+  - Protected internal S2S capabilities via explicit wildcard `serviceScope` definitions.
+  - Disarmed OS Command Injection in DiskCollector via strict regex validation and bash escaping.
+  - Re-architected inline script processing executing scripts in sandboxed Web Worker contexts.
+  - Isolated subprocess environment scopes in PingStrategy limiting variable leakage.
+  - Enforced strict token/API Key parsing with URLSearchParams checking.
+  - Explicitly fail-fast on missing DATABASE_URL configuration across independent backend clusters.
+  - Activated strict HTTP Security Headers (HSTS, CSP, X-Frame-Options) across the API automatically.
+- Updated dependencies [0ebbe56]
+  - @checkstack/auth-backend@0.4.9
+  - @checkstack/auth-common@0.5.6
+  - @checkstack/backend-api@0.8.1
+  - @checkstack/common@0.6.3
+  - @checkstack/queue-api@0.2.6
+  - @checkstack/notification-common@0.2.6
+  - @checkstack/signal-common@0.1.7
+
 ## 0.1.12
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.32.0
+
+### Minor Changes
+
+- a340781: Improve accessibility of SubscribeButton component by adding appropriate ARIA labels and attributes.
+
 ## 0.31.0
 
 ### Minor Changes

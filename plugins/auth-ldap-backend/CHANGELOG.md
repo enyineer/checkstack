@@ -1,5 +1,15 @@
 # @checkstack/auth-ldap-backend
 
+## 0.1.9
+
+### Patch Changes
+
+- Updated dependencies [0ebbe56]
+  - @checkstack/auth-backend@0.4.9
+  - @checkstack/auth-common@0.5.6
+  - @checkstack/backend-api@0.8.1
+  - @checkstack/common@0.6.3
+
 ## 0.1.8
 
 ### Patch Changes

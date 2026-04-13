@@ -1,5 +1,15 @@
 # @checkstack/ui
 
+## 1.1.1
+
+### Patch Changes
+
+- a340781: Improve accessibility of SubscribeButton component by adding appropriate ARIA labels and attributes.
+- 8d2660d: Added `@testing-library/react` to devDependencies.
+- Updated dependencies [0ebbe56]
+  - @checkstack/common@0.6.3
+  - @checkstack/frontend-api@0.3.6
+
 ## 1.1.0
 
 ### Minor Changes
