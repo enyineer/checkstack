@@ -1,5 +1,12 @@
 # @checkstack/maintenance-backend
 
+## 0.5.8
+
+### Patch Changes
+
+- @checkstack/catalog-common@1.2.9
+- @checkstack/maintenance-common@0.4.7
+
 ## 0.5.7
 
 ### Patch Changes

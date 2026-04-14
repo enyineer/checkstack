@@ -1,5 +1,11 @@
 # @checkstack/catalog-backend
 
+## 0.2.15
+
+### Patch Changes
+
+- @checkstack/catalog-common@1.2.9
+
 ## 0.2.14
 
 ### Patch Changes
