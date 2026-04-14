@@ -1,5 +1,12 @@
 # @checkstack/incident-common
 
+## 0.4.5
+
+### Patch Changes
+
+- Updated dependencies [0603d39]
+  - @checkstack/frontend-api@0.3.7
+
 ## 0.4.4
 
 ### Patch Changes
