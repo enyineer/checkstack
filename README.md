@@ -476,7 +476,7 @@ This project is licensed under the [**Elastic License 2.0**](LICENSE.md).
 | ✅ Modification & redistribution | |
 | ✅ Building applications on top | |
 
-**Need a commercial license?** [Contact us](mailto:hi@enking.dev)
+**Need a commercial license to provide Checkstack as a managed / SaaS service?** [Contact us](mailto:hi@enking.dev)
 
 ---
 
