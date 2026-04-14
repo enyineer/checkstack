@@ -9,7 +9,7 @@ on:
       - main
 
 concurrency:
-  group: changeset-reminder-${{ github.event.pull_request.number || github.event.issue.number }}
+  group: changeset-reminder-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.event_name }}
   cancel-in-progress: true
 
 permissions:
