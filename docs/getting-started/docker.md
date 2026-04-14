@@ -153,7 +153,35 @@ Your encryption key is not the correct length. Generate a new one using the comm
 
 Your auth secret is too short. Generate a longer one using the commands above.
 
+### Onboarding screen does not appear / app loads empty or very slowly
+
+This is almost always caused by a wrong `BASE_URL`. When `BASE_URL` points to a port that is not running (e.g. the Vite dev server on `:5173`), the frontend cannot reach the backend for session and onboarding checks, which causes it to silently show empty state.
+
+**Make sure `BASE_URL` matches the port your container exposes:**
+
+```bash
+# Docker / production (default port 3000)
+BASE_URL=http://localhost:3000
+
+# Or your public domain in production
+BASE_URL=https://status.example.com
+```
+
+You can verify the value your container is using by checking the config endpoint:
+
+```bash
+curl http://localhost:3000/api/config
+# Expected: {"baseUrl":"http://localhost:3000"}
+```
+
+If `baseUrl` in the response points to port `5173` or any other wrong address, update `BASE_URL` in your `.env` file and recreate the container:
+
+```bash
+docker compose up -d --force-recreate
+```
+
 ### Database connection errors
+
 
 - Verify your `DATABASE_URL` is correct and the database is reachable
 - Ensure PostgreSQL is running and accepting connections

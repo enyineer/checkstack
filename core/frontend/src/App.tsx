@@ -23,6 +23,7 @@ import {
   RuntimeConfigProvider,
   useRuntimeConfigLoading,
   useRuntimeConfig,
+  useRuntimeConfigContext,
   OrpcQueryProvider,
 } from "@checkstack/frontend-api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -185,6 +186,8 @@ function AppContent() {
  */
 function AppWithApis() {
   const isConfigLoading = useRuntimeConfigLoading();
+  const { error: configError, config: runtimeConfig } =
+    useRuntimeConfigContext();
   const { baseUrl } = useRuntimeConfig();
 
   const apiRegistry = useMemo(() => {
@@ -220,11 +223,53 @@ function AppWithApis() {
     return registryBuilder.build();
   }, [baseUrl]);
 
-  // Show loading while fetching runtime config
+  // Show spinner while fetching runtime config and probing baseUrl.
   if (isConfigLoading) {
     return (
       <div className="h-screen flex items-center justify-center bg-background">
         <LoadingSpinner />
+      </div>
+    );
+  }
+
+  // Config probe failed — baseUrl is not reachable (misconfigured BASE_URL).
+  // Surface a clear diagnostic rather than a broken empty dashboard.
+  if (!runtimeConfig || configError) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-background p-8">
+        <div className="max-w-lg w-full rounded-xl border border-destructive/50 bg-destructive/10 p-8 space-y-4 text-center">
+          <div className="text-4xl">⚠️</div>
+          <h1 className="text-xl font-bold text-destructive">
+            Cannot connect to Checkstack backend
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            The app loaded but its configured{" "}
+            <code className="bg-muted rounded px-1">BASE_URL</code> is not
+            reachable. Make sure it matches the URL + port your container or
+            reverse proxy exposes.
+          </p>
+          <div className="text-left bg-muted rounded-lg p-4 space-y-1 text-sm font-mono">
+            <p className="text-muted-foreground">
+              # For a default Docker setup:
+            </p>
+            <p className="text-foreground">BASE_URL=http://localhost:3000</p>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            After updating your{" "}
+            <code className="bg-muted rounded px-1">.env</code>, recreate the
+            container:
+          </p>
+          <div className="text-left bg-muted rounded-lg p-4 text-sm font-mono">
+            <p className="text-foreground">
+              docker compose up -d --force-recreate
+            </p>
+          </div>
+          {configError && (
+            <p className="text-xs text-destructive/70 break-all">
+              {configError.message}
+            </p>
+          )}
+        </div>
       </div>
     );
   }
