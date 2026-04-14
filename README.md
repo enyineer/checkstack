@@ -371,16 +371,16 @@ Checkstack requires four environment variables:
 | `DATABASE_URL` | PostgreSQL connection string | Your database provider |
 | `ENCRYPTION_MASTER_KEY` | 64 hex chars (32 bytes) | `openssl rand -hex 32` |
 | `BETTER_AUTH_SECRET` | Min 32 characters | `openssl rand -base64 32` |
-| `BASE_URL` | Public URL for Checkstack | Your domain (e.g., `https://status.example.com`) |
+| `BASE_URL` | Exact URL used to access Checkstack in the browser | e.g. `http://192.168.1.123:3000` or `https://status.example.com` |
 
 ```bash
 # Pull and run the latest version
 docker pull ghcr.io/enyineer/checkstack:latest
 docker run -d \
-  -e DATABASE_URL=postgresql://user:pass@host:5432/checkstack \
-  -e ENCRYPTION_MASTER_KEY=$(openssl rand -hex 32) \
-  -e BETTER_AUTH_SECRET=$(openssl rand -base64 32) \
-  -e BASE_URL=http://localhost:3000 \
+  -e DATABASE_URL="postgresql://user:pass@host:5432/checkstack" \
+  -e ENCRYPTION_MASTER_KEY="$(openssl rand -hex 32)" \
+  -e BETTER_AUTH_SECRET="$(openssl rand -base64 32)" \
+  -e BASE_URL="http://192.168.1.123:3000" \ 
   -p 3000:3000 \
   ghcr.io/enyineer/checkstack:latest
 ```

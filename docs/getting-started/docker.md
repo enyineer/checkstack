@@ -18,7 +18,7 @@ Checkstack requires four environment variables to run:
 | `DATABASE_URL` | PostgreSQL connection string | Valid Postgres URI |
 | `ENCRYPTION_MASTER_KEY` | Encrypts secrets in the database | 64 hex characters (32 bytes) |
 | `BETTER_AUTH_SECRET` | Signs session cookies and OAuth states | Minimum 32 characters |
-| `BASE_URL` | Public URL where Checkstack is accessed | Full URL (e.g., `https://status.example.com`) |
+| `BASE_URL` | Exact URL used to access Checkstack in the browser | e.g. `http://192.168.1.123:3000` or `https://status.example.com` |
 
 ## Generating Secrets
 
@@ -60,7 +60,7 @@ docker run -d \
   -e DATABASE_URL="postgresql://user:password@host:5432/checkstack" \
   -e ENCRYPTION_MASTER_KEY="<your-64-char-hex-key>" \
   -e BETTER_AUTH_SECRET="<your-32-char-secret>" \
-  -e BASE_URL="http://localhost:3000" \
+  -e BASE_URL="http://192.168.1.123:3000" \
   -p 3000:3000 \
   ghcr.io/enyineer/checkstack:latest
 ```
@@ -81,7 +81,7 @@ POSTGRES_PASSWORD=checkstack
 POSTGRES_DB=checkstack
 ENCRYPTION_MASTER_KEY=$(openssl rand -hex 32)
 BETTER_AUTH_SECRET=$(openssl rand -base64 32)
-BASE_URL=http://localhost:3000
+BASE_URL="http://192.168.1.123:3000" # Must match exactly how you access Checkstack!
 EOF
 
 # Start everything
@@ -116,7 +116,7 @@ docker run -d \
   -e DATABASE_URL="postgresql://user:password@host:5432/checkstack" \
   -e ENCRYPTION_MASTER_KEY="<your-64-char-hex-key>" \
   -e BETTER_AUTH_SECRET="<your-32-char-secret>" \
-  -e BASE_URL="http://localhost:3000" \
+  -e BASE_URL="http://192.168.1.123:3000" \
   -p 3000:3000 \
   ghcr.io/enyineer/checkstack:latest
 ```
@@ -155,15 +155,15 @@ Your auth secret is too short. Generate a longer one using the commands above.
 
 ### Onboarding screen does not appear / app loads empty or very slowly
 
-This is almost always caused by a wrong `BASE_URL`. When `BASE_URL` points to a port that is not running (e.g. the Vite dev server on `:5173`), the frontend cannot reach the backend for session and onboarding checks, which causes it to silently show empty state.
+This is almost always caused by a wrong `BASE_URL`. When `BASE_URL` points to an incorrect or unreachable address, the frontend cannot reach the backend for session and onboarding checks, which causes it to silently show empty state.
 
-**Make sure `BASE_URL` matches the port your container exposes:**
+**Make sure `BASE_URL` matches the EXACT URL YOU put into the browser address bar (including possible LAN IPs or the domain):**
 
 ```bash
-# Docker / production (default port 3000)
-BASE_URL=http://localhost:3000
+# Example (Docker on LAN):
+BASE_URL=http://192.168.1.123:3000
 
-# Or your public domain in production
+# Example (Production):
 BASE_URL=https://status.example.com
 ```
 
