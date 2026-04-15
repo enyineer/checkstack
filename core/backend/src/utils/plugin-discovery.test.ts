@@ -38,6 +38,7 @@ describe("extractPluginMetadata", () => {
         name: "@checkstack/test-backend",
         version: "0.0.1",
         type: "module",
+        checkstack: { type: "backend" },
       })
     );
 
@@ -57,6 +58,7 @@ describe("extractPluginMetadata", () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         name: "@checkstack/test-frontend",
+        checkstack: { type: "frontend" },
       })
     );
 
@@ -71,6 +73,7 @@ describe("extractPluginMetadata", () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         name: "@checkstack/test-common",
+        checkstack: { type: "common" },
       })
     );
 
@@ -159,13 +162,13 @@ describe("discoverLocalPlugins", () => {
     // Mock package.json reads
     mockReadFileSync.mockImplementation(((filePath: string) => {
       if (filePath.includes("auth-backend")) {
-        return JSON.stringify({ name: "@checkstack/auth-backend" });
+        return JSON.stringify({ name: "@checkstack/auth-backend", checkstack: { type: "backend" } });
       }
       if (filePath.includes("catalog-backend")) {
-        return JSON.stringify({ name: "@checkstack/catalog-backend" });
+        return JSON.stringify({ name: "@checkstack/catalog-backend", checkstack: { type: "backend" } });
       }
       if (filePath.includes("invalid-plugin")) {
-        return JSON.stringify({ name: "@checkstack/invalid-plugin" });
+        return JSON.stringify({ name: "@checkstack/invalid-plugin" }); // Missing block
       }
       return "{}";
     }) as typeof mockReadFileSync);
@@ -198,13 +201,13 @@ describe("discoverLocalPlugins", () => {
 
     mockReadFileSync.mockImplementation(((filePath: string) => {
       if (filePath.includes("auth-backend")) {
-        return JSON.stringify({ name: "@checkstack/auth-backend" });
+        return JSON.stringify({ name: "@checkstack/auth-backend", checkstack: { type: "backend" } });
       }
       if (filePath.includes("auth-frontend")) {
-        return JSON.stringify({ name: "@checkstack/auth-frontend" });
+        return JSON.stringify({ name: "@checkstack/auth-frontend", checkstack: { type: "frontend" } });
       }
       if (filePath.includes("auth-common")) {
-        return JSON.stringify({ name: "@checkstack/auth-common" });
+        return JSON.stringify({ name: "@checkstack/auth-common", checkstack: { type: "common" } });
       }
       return "{}";
     }) as typeof mockReadFileSync);
