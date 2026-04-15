@@ -1,5 +1,5 @@
 # Stage 1: Install Dependencies and Build Frontend
-FROM oven/bun:1 AS builder
+FROM oven/bun:1-alpine AS builder
 WORKDIR /app
 
 COPY package.json bun.lock ./
@@ -47,7 +47,7 @@ RUN test -d core/backend/node_modules/hono && test -d core/backend/node_modules/
 RUN bun run --filter '@checkstack/frontend' build
 
 # Stage 2: Prune devDependencies for Production
-FROM oven/bun:1 AS production-deps
+FROM oven/bun:1-alpine AS production-deps
 WORKDIR /app
 
 COPY package.json bun.lock ./
@@ -65,11 +65,10 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 RUN rm -rf core/scripts core/test-utils-backend core/test-utils-frontend
 
 # Stage 3: Production Runtime
-FROM oven/bun:1-slim AS runtime
+FROM oven/bun:1-alpine AS runtime
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends tini wget \
-  && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache tini wget
 
 # Copy from builder/production-deps
 COPY --from=production-deps /app/node_modules ./node_modules
@@ -92,7 +91,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
 
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
 CMD ["bun", "run", "core/backend/src/index.ts"]
 
 EXPOSE 3000
