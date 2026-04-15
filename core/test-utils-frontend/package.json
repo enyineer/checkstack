@@ -1,6 +1,9 @@
 {
   "name": "@checkstack/test-utils-frontend",
   "version": "0.0.3",
+  "checkstack": {
+    "type": "tooling"
+  },
   "type": "module",
   "exports": {
     ".": {

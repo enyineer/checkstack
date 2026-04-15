@@ -37,6 +37,7 @@ export default tseslint.config(
       "checkstack/no-mutation-in-deps": "error",
       "checkstack/enforce-architecture-deps": "error",
       "checkstack/no-extraneous-runtime-deps": "error",
+      "checkstack/enforce-package-metadata": "error",
     },
   }
 );

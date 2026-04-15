@@ -27,3 +27,6 @@ assets/
 # TypeScript build info
 *.tsbuildinfo
 **/*.tsbuildinfo
+
+# Local state
+data/

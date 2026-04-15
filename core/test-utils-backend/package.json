@@ -1,6 +1,9 @@
 {
   "name": "@checkstack/test-utils-backend",
   "version": "0.1.12",
+  "checkstack": {
+    "type": "tooling"
+  },
   "type": "module",
   "main": "src/index.ts",
   "scripts": {

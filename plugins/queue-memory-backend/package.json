@@ -3,6 +3,9 @@
   "version": "0.3.6",
   "type": "module",
   "main": "src/index.ts",
+  "checkstack": {
+    "type": "backend"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "bun run lint:code",

@@ -1,8 +1,9 @@
 import path from "node:path";
 import fs from "node:fs";
-import { eq, and } from "drizzle-orm";
+import { eq, and, notInArray } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import { plugins } from "../schema";
+import { rootLogger } from "../logger";
 
 export interface PluginMetadata {
   packageName: string; // From package.json "name"
@@ -34,16 +35,28 @@ export function extractPluginMetadata({
       return undefined;
     }
 
-    // Determine plugin type from package name suffix
-    let type: "backend" | "frontend" | "common";
-    if (pkgJson.name.endsWith("-backend")) {
-      type = "backend";
-    } else if (pkgJson.name.endsWith("-frontend")) {
-      type = "frontend";
-    } else if (pkgJson.name.endsWith("-common")) {
-      type = "common";
-    } else {
-      return undefined; // Not a valid plugin package
+    // Transition: Strictly require checkstack metadata block
+    if (!pkgJson.checkstack || typeof pkgJson.checkstack !== "object") {
+      if (pkgJson.name.endsWith("-backend") || pkgJson.name.endsWith("-frontend") || pkgJson.name.endsWith("-common")) {
+        rootLogger.debug(`⏭️  Skipping package '${pkgJson.name}': Missing 'checkstack' metadata block in package.json`);
+      }
+      return undefined;
+    }
+
+    // Exclusion: Never discover the host platform itself as a plugin
+    if (pkgJson.name === "@checkstack/backend") {
+      return undefined;
+    }
+
+    const type = pkgJson.checkstack.type;
+    if (type === "tooling") {
+      rootLogger.debug(`⏭️  Skipping package '${pkgJson.name}': Identified as 'tooling'`);
+      return undefined;
+    }
+
+    if (type !== "backend" && type !== "frontend" && type !== "common") {
+      rootLogger.debug(`⏭️  Skipping package '${pkgJson.name}': Invalid checkstack type '${type}'`);
+      return undefined;
     }
 
     return {
@@ -52,7 +65,8 @@ export function extractPluginMetadata({
       type,
       enabled: true, // Local plugins are always enabled
     };
-  } catch {
+  } catch (error) {
+    rootLogger.debug(`⚠️  Failed to read package.json for ${pluginDir}:`, error);
     return undefined;
   }
 }
@@ -153,5 +167,27 @@ export async function syncPluginsToDatabase({
           );
       }
     }
+  }
+
+  // 3. Prune local plugins from DB that are no longer present on disk
+  // This is critical for Docker production builds where folders are pruned
+  const localPackageNames = localPlugins.map((p) => p.packageName);
+  
+  try {
+    const whereCondition = and(
+      eq(plugins.isUninstallable, false),
+      localPackageNames.length > 0
+        ? notInArray(plugins.name, localPackageNames)
+        : undefined,
+    );
+
+    // satisfy unicorn/prefer-ternary
+    await (localPackageNames.length > 0
+      ? db.delete(plugins).where(whereCondition)
+      : db.delete(plugins).where(eq(plugins.isUninstallable, false)));
+
+    rootLogger.debug("   -> Local plugin synchronization complete");
+  } catch (error) {
+    rootLogger.error("❌ Failed to prune stale plugins from database:", error);
   }
 }

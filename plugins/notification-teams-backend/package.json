@@ -3,6 +3,9 @@
   "version": "0.0.19",
   "type": "module",
   "main": "src/index.ts",
+  "checkstack": {
+    "type": "backend"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./plugin-metadata": "./src/plugin-metadata.ts"

@@ -1,6 +1,9 @@
 {
   "name": "@checkstack/backend",
   "version": "0.4.14",
+  "checkstack": {
+    "type": "backend"
+  },
   "type": "module",
   "scripts": {
     "dev": "bun --env-file=../../.env --watch src/index.ts",

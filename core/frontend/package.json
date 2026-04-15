@@ -1,6 +1,9 @@
 {
   "name": "@checkstack/frontend",
   "version": "0.2.17",
+  "checkstack": {
+    "type": "frontend"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

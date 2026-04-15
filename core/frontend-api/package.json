@@ -24,5 +24,8 @@
     "typescript": "^5.0.0",
     "@checkstack/tsconfig": "workspace:*",
     "@checkstack/scripts": "workspace:*"
+  },
+  "checkstack": {
+    "type": "tooling"
   }
 }

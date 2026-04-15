@@ -3,6 +3,9 @@
   "version": "0.2.15",
   "type": "module",
   "main": "./dist/index.js",
+  "checkstack": {
+    "type": "frontend"
+  },
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {

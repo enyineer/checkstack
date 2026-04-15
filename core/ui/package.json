@@ -39,5 +39,8 @@
     "lint": "bun run lint:code",
     "lint:code": "eslint . --max-warnings 0",
     "test": "bun test"
+  },
+  "checkstack": {
+    "type": "tooling"
   }
 }
