@@ -17,4 +17,4 @@ export const adminPool = new Pool({
   connectionString,
 });
 
-export const db = drizzle(adminPool, { schema });
+export const db = drizzle({ client: adminPool, schema });

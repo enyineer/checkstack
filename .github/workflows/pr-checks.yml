@@ -122,9 +122,53 @@ jobs:
             exit 1
           fi
 
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Build Production Image
+        run: docker build -t checkstack-prod:latest .
+
+      - name: Security Audit
+        id: security
+        run: |
+          set +e
+          echo "🔎 Running Security Audit..." > /tmp/security-output.txt
+          
+          echo -e "\n📦 --- Filesystem Scan ---" >> /tmp/security-output.txt
+          docker run --rm -v $(pwd):/root ghcr.io/aquasecurity/trivy:latest fs --format table --exit-code 1 --ignore-unfixed --severity CRITICAL /root >> /tmp/security-output.txt
+          FS_EXIT=$?
+          
+          echo -e "\n🐳 --- Image Scan ---" >> /tmp/security-output.txt
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/aquasecurity/trivy:latest image --format table --exit-code 1 --ignore-unfixed --severity CRITICAL checkstack-prod:latest >> /tmp/security-output.txt
+          IMG_EXIT=$?
+          
+          if [ $FS_EXIT -ne 0 ] || [ $IMG_EXIT -ne 0 ]; then
+            echo "exit_code=1" >> $GITHUB_OUTPUT
+          else
+            echo "exit_code=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload Output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-output
+          path: /tmp/security-output.txt
+
+      - name: Set outcome
+        if: always()
+        run: |
+          if [ "${{ steps.security.outputs.exit_code }}" != "0" ]; then
+            exit 1
+          fi
+
   report:
     name: Report
-    needs: [typecheck, lint, test]
+    needs: [typecheck, lint, test, security]
     if: "!cancelled()"
     runs-on: ubuntu-latest
     steps:
@@ -150,6 +194,14 @@ jobs:
         with:
           name: test-output
           path: /tmp/artifacts/test
+        continue-on-error: true
+
+      - name: Download Security Output
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: security-output
+          path: /tmp/artifacts/security
         continue-on-error: true
 
       - name: Count previous failure comments
@@ -185,11 +237,12 @@ jobs:
             const typecheckResult = '${{ needs.typecheck.result }}';
             const lintResult = '${{ needs.lint.result }}';
             const testResult = '${{ needs.test.result }}';
-
+            const securityResult = '${{ needs.security.result }}';
             const typecheckPassed = typecheckResult === 'success' || typecheckResult === 'skipped';
             const lintPassed = lintResult === 'success' || lintResult === 'skipped';
             const testPassed = testResult === 'success' || testResult === 'skipped';
-            const allPassed = typecheckPassed && lintPassed && testPassed;
+            const securityPassed = securityResult === 'success' || securityResult === 'skipped';
+            const allPassed = typecheckPassed && lintPassed && testPassed && securityPassed;
 
             // Read output files
             function readOutput(name) {
@@ -225,6 +278,7 @@ jobs:
                 '| Typecheck | ✅ Passed |',
                 '| Lint | ✅ Passed |',
                 '| Test | ✅ Passed |',
+                '| Security | ✅ Passed |',
                 '',
                 '',
                 '@enyineer All quality checks have passed. This PR is ready for your review.',
@@ -287,6 +341,22 @@ jobs:
                 ].join('\n'));
               }
 
+              if (!securityPassed) {
+                const output = readOutput('security');
+                sections.push([
+                  '<details>',
+                  '<summary>❌ Security Audit Failures</summary>',
+                  '',
+                  '```',
+                  output,
+                  '```',
+                  '',
+                  '**How to fix:** Run `bun run audit:security` and `bun run audit:image` locally to identify the vulnerabilities. For filesystem vulnerabilities, update the affected packages in `bun.lock`. For image vulnerabilities, check the base image or runtime dependencies. All **CRITICAL** vulnerabilities must be resolved or ignored if they are confirmed false positives.',
+                  '',
+                  '</details>',
+                ].join('\n'));
+              }
+
               // Build the trailing line based on escalation
               const trailingLine = escalate
                 ? '@enyineer The above code quality issues were found in this PR. Automated fixes have not resolved them after 3 attempts. Manual intervention is required.'
@@ -302,6 +372,7 @@ jobs:
                 `| Typecheck | ${icon(typecheckPassed)} |`,
                 `| Lint | ${icon(lintPassed)} |`,
                 `| Test | ${icon(testPassed)} |`,
+                `| Security | ${icon(securityPassed)} |`,
                 '',
                 ...sections,
                 '',
