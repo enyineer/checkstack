@@ -20,7 +20,7 @@
     "@checkstack/auth-backend": "workspace:*",
     "@checkstack/notification-common": "workspace:*",
     "@orpc/server": "^1.13.2",
-    "drizzle-orm": "^1.0.0-beta.21",
+    "drizzle-orm": "^0.45.0",
     "hono": "^4.12.14",
     "uuid": "^13.0.0",
     "zod": "^4.2.1",
@@ -33,7 +33,6 @@
     "@types/bun": "^1.3.5",
     "@types/node": "^20.0.0",
     "@types/uuid": "^11.0.0",
-    "drizzle-kit": "^1.0.0-beta.21",
     "typescript": "^5.0.0"
   }
 }

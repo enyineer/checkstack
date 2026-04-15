@@ -61,12 +61,6 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
   { echo "Attempt $i failed (timeout or error), retrying in 5s..."; sleep 5; }; \
   done || true
 
-# Aggressively prune non-runtime build tools that contain vulnerabilities (esbuild/drizzle-kit)
-# We use find to catch nested .bun entries and binaries that may trigger security alerts.
-RUN find node_modules -type d -name "drizzle-kit" -prune -exec rm -rf {} + && \
-    find node_modules -type d -name "esbuild" -prune -exec rm -rf {} + && \
-    find node_modules -type f -name "esbuild" -exec rm -f {} +
-
 # Remove development-only folders
 RUN rm -rf core/scripts core/test-utils-backend core/test-utils-frontend
 

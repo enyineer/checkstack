@@ -23,7 +23,7 @@
     "@checkstack/integration-backend": "workspace:*",
     "@checkstack/integration-common": "workspace:*",
     "@checkstack/common": "workspace:*",
-    "drizzle-orm": "^1.0.0-beta.21",
+    "drizzle-orm": "^0.45.0",
     "zod": "^4.2.1",
     "@orpc/server": "^1.13.2"
   },
@@ -33,7 +33,6 @@
     "@checkstack/test-utils-backend": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
     "@types/bun": "^1.0.0",
-    "drizzle-kit": "^1.0.0-beta.21",
     "typescript": "^5.0.0"
   }
 }

@@ -19,7 +19,7 @@
     "@checkstack/notification-common": "workspace:*",
     "@checkstack/command-backend": "workspace:*",
     "better-auth": "^1.4.7",
-    "drizzle-orm": "^1.0.0-beta.21",
+    "drizzle-orm": "^0.45.0",
     "hono": "^4.12.14",
     "jose": "^6.1.3",
     "zod": "^4.2.1",
@@ -31,7 +31,6 @@
     "@checkstack/scripts": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
     "@types/node": "^20.0.0",
-    "drizzle-kit": "^1.0.0-beta.21",
     "typescript": "^5.0.0"
   }
 }

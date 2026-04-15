@@ -20,7 +20,7 @@
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/auth-backend": "workspace:*",
     "@checkstack/auth-common": "workspace:*",
-    "drizzle-orm": "^1.0.0-beta.21",
+    "drizzle-orm": "^0.45.0",
     "zod": "^4.2.1",
     "@checkstack/common": "workspace:*",
     "@orpc/server": "^1.13.2"
@@ -31,7 +31,6 @@
     "@checkstack/tsconfig": "workspace:*",
     "@checkstack/test-utils-backend": "workspace:*",
     "@types/node": "^20.0.0",
-    "drizzle-kit": "^1.0.0-beta.21",
     "typescript": "^5.0.0"
   }
 }
