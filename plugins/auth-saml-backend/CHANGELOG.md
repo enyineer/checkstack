@@ -1,5 +1,17 @@
 # @checkstack/auth-saml-backend
 
+## 0.1.11
+
+### Patch Changes
+
+- 67158e2: Standardize package metadata, unify AJV versions to 8.18.0, and enforce monorepo architecture rules via updated ESLint configuration. This ensures consistent package discovery and runtime dependency safety across the platform.
+- Updated dependencies [67158e2]
+- Updated dependencies [b839ccb]
+  - @checkstack/auth-backend@0.4.11
+  - @checkstack/auth-common@0.5.7
+  - @checkstack/backend-api@0.8.2
+  - @checkstack/common@0.6.4
+
 ## 0.1.10
 
 ### Patch Changes

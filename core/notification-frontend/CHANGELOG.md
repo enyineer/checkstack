@@ -1,5 +1,18 @@
 # @checkstack/notification-frontend
 
+## 0.2.18
+
+### Patch Changes
+
+- Updated dependencies [67158e2]
+- Updated dependencies [6c743d4]
+  - @checkstack/auth-frontend@0.5.13
+  - @checkstack/common@0.6.4
+  - @checkstack/frontend-api@0.3.8
+  - @checkstack/notification-common@0.2.7
+  - @checkstack/signal-frontend@0.0.14
+  - @checkstack/ui@1.1.3
+
 ## 0.2.17
 
 ### Patch Changes

@@ -1,5 +1,17 @@
 # @checkstack/api-docs-frontend
 
+## 0.1.17
+
+### Patch Changes
+
+- 67158e2: Standardize package metadata, unify AJV versions to 8.18.0, and enforce monorepo architecture rules via updated ESLint configuration. This ensures consistent package discovery and runtime dependency safety across the platform.
+- Updated dependencies [67158e2]
+- Updated dependencies [6c743d4]
+  - @checkstack/api-docs-common@0.1.8
+  - @checkstack/common@0.6.4
+  - @checkstack/frontend-api@0.3.8
+  - @checkstack/ui@1.1.3
+
 ## 0.1.16
 
 ### Patch Changes

@@ -1,5 +1,18 @@
 # @checkstack/theme-backend
 
+## 0.1.15
+
+### Patch Changes
+
+- 67158e2: Standardize package metadata, unify AJV versions to 8.18.0, and enforce monorepo architecture rules via updated ESLint configuration. This ensures consistent package discovery and runtime dependency safety across the platform.
+- b839ccb: Security: Hardened production Docker image by upgrading Alpine system libraries, migrating to Drizzle beta (v1.0.0-beta.21), and implementing aggressive binary pruning to eliminate vulnerable build-time tools (esbuild/drizzle-kit).
+- Updated dependencies [67158e2]
+- Updated dependencies [b839ccb]
+  - @checkstack/auth-backend@0.4.11
+  - @checkstack/backend-api@0.8.2
+  - @checkstack/common@0.6.4
+  - @checkstack/theme-common@0.1.7
+
 ## 0.1.14
 
 ### Patch Changes

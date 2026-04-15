@@ -1,5 +1,27 @@
 # @checkstack/dashboard-frontend
 
+## 0.3.19
+
+### Patch Changes
+
+- 67158e2: Standardize package metadata, unify AJV versions to 8.18.0, and enforce monorepo architecture rules via updated ESLint configuration. This ensures consistent package discovery and runtime dependency safety across the platform.
+- Updated dependencies [67158e2]
+- Updated dependencies [6c743d4]
+  - @checkstack/auth-frontend@0.5.13
+  - @checkstack/catalog-common@1.2.10
+  - @checkstack/catalog-frontend@0.5.2
+  - @checkstack/command-common@0.2.7
+  - @checkstack/command-frontend@0.2.16
+  - @checkstack/common@0.6.4
+  - @checkstack/frontend-api@0.3.8
+  - @checkstack/healthcheck-common@0.8.4
+  - @checkstack/incident-common@0.4.6
+  - @checkstack/maintenance-common@0.4.8
+  - @checkstack/notification-common@0.2.7
+  - @checkstack/signal-frontend@0.0.14
+  - @checkstack/ui@1.1.3
+  - @checkstack/queue-frontend@0.2.16
+
 ## 0.3.18
 
 ### Patch Changes

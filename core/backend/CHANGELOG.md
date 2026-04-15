@@ -1,5 +1,21 @@
 # @checkstack/backend
 
+## 0.4.15
+
+### Patch Changes
+
+- 4d59cc7: Prune devDependencies and development-only source folders (like `core/scripts` and `test-utils-*`) from the production Docker image to reduce size and improve security.
+- b839ccb: Security: Hardened production Docker image by upgrading Alpine system libraries, migrating to Drizzle beta (v1.0.0-beta.21), and implementing aggressive binary pruning to eliminate vulnerable build-time tools (esbuild/drizzle-kit).
+- Updated dependencies [67158e2]
+  - @checkstack/api-docs-common@0.1.8
+  - @checkstack/auth-common@0.5.7
+  - @checkstack/backend-api@0.8.2
+  - @checkstack/common@0.6.4
+  - @checkstack/drizzle-helper@0.0.4
+  - @checkstack/queue-api@0.2.7
+  - @checkstack/signal-backend@0.1.13
+  - @checkstack/signal-common@0.1.8
+
 ## 0.4.14
 
 ### Patch Changes

@@ -1,5 +1,15 @@
 # @checkstack/healthcheck-jenkins-backend
 
+## 0.3.3
+
+### Patch Changes
+
+- 67158e2: Standardize package metadata, unify AJV versions to 8.18.0, and enforce monorepo architecture rules via updated ESLint configuration. This ensures consistent package discovery and runtime dependency safety across the platform.
+- Updated dependencies [67158e2]
+  - @checkstack/backend-api@0.8.2
+  - @checkstack/common@0.6.4
+  - @checkstack/healthcheck-common@0.8.4
+
 ## 0.3.2
 
 ### Patch Changes

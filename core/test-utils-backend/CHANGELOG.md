@@ -1,5 +1,16 @@
 # @checkstack/test-utils-backend
 
+## 0.1.13
+
+### Patch Changes
+
+- 67158e2: Standardize package metadata, unify AJV versions to 8.18.0, and enforce monorepo architecture rules via updated ESLint configuration. This ensures consistent package discovery and runtime dependency safety across the platform.
+- Updated dependencies [67158e2]
+  - @checkstack/backend-api@0.8.2
+  - @checkstack/common@0.6.4
+  - @checkstack/queue-api@0.2.7
+  - @checkstack/signal-common@0.1.8
+
 ## 0.1.12
 
 ### Patch Changes
