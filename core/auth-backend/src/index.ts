@@ -1,4 +1,5 @@
 import { betterAuth } from "better-auth";
+import * as socialProviderFactories from "better-auth/social-providers";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError } from "better-auth/api";
 import {
@@ -515,10 +516,23 @@ export default createBackendPlugin({
                 strategy.id
               }: ${Object.keys(strategyConfig || {}).join(", ")}`,
             );
-            socialProviders[strategy.id] = strategyConfig;
-            logger.debug(
-              `[auth-backend]    -> ✅ Added ${strategy.id} to socialProviders`,
-            );
+
+            const providerFactory = (
+              socialProviderFactories as Record<string, unknown>
+            )[strategy.id];
+
+            if (typeof providerFactory === "function") {
+              socialProviders[strategy.id] = (
+                providerFactory as (options: unknown) => unknown
+              )(strategyConfig);
+              logger.debug(
+                `[auth-backend]    -> ✅ Added ${strategy.id} to socialProviders`,
+              );
+            } else {
+              logger.debug(
+                `[auth-backend]    -> Strategy ${strategy.id} is not a standard social provider, skipping better-auth registration`,
+              );
+            }
           }
 
           // Check if credential strategy is enabled from meta config
