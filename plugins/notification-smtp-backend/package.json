@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/notification-smtp-backend",
-  "version": "0.0.18",
+  "version": "0.0.19",
   "type": "module",
   "main": "src/index.ts",
   "exports": {

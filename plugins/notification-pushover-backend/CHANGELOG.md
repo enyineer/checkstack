@@ -1,5 +1,11 @@
 # @checkstack/notification-pushover-backend
 
+## 0.1.11
+
+### Patch Changes
+
+- @checkstack/notification-backend@0.1.14
+
 ## 0.1.10
 
 ### Patch Changes
