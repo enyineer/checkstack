@@ -22,10 +22,9 @@
     "@checkstack/queue-common": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
-    "ajv": "^8.17.1",
+    "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
     "lucide-react": "^0.468.0",
-    "prismjs": "^1.29.0",
     "react": "^18.3.1",
     "react-router-dom": "^7.1.1",
     "zod": "^4.0.0"

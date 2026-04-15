@@ -23,7 +23,7 @@
     "@checkstack/signal-common": "workspace:*",
     "@hono/zod-validator": "^0.7.6",
     "drizzle-orm": "^0.45.1",
-    "hono": "^4.0.0",
+    "hono": "^4.12.14",
     "tdigest": "^0.1.2",
     "zod": "^4.2.1"
   },

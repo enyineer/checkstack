@@ -20,7 +20,7 @@ import { NotificationApi } from "@checkstack/notification-common";
 import * as schema from "./schema";
 import { eq, inArray } from "drizzle-orm";
 import { SafeDatabase } from "@checkstack/backend-api";
-import { User } from "better-auth/types";
+import { BetterAuthOptions, User } from "better-auth/types";
 import { verifyPassword } from "better-auth/crypto";
 import { createExtensionPoint } from "@checkstack/backend-api";
 import { enrichUser } from "./utils/user";
@@ -564,7 +564,7 @@ export default createBackendPlugin({
             } social providers: ${Object.keys(socialProviders).join(", ")}`,
           );
 
-          return betterAuth({
+          const authOptions: BetterAuthOptions = {
             database: drizzleAdapter(database, {
               provider: "pg",
               schema: { ...schema },
@@ -586,10 +586,13 @@ export default createBackendPlugin({
                 const resetToken = parsedUrl.searchParams.get("token");
                 if (!resetToken) {
                   throw new APIError("BAD_REQUEST", {
-                    message: "Malformed password reset URL: missing token parameter",
+                    message:
+                      "Malformed password reset URL: missing token parameter",
                   });
                 }
-                const resetUrl = `${frontendUrl}/auth/reset-password?token=${encodeURIComponent(resetToken)}`;
+                const resetUrl = `${frontendUrl}/auth/reset-password?token=${encodeURIComponent(
+                  resetToken,
+                )}`;
 
                 void notificationClient.sendTransactional({
                   userId: user.id,
@@ -648,7 +651,9 @@ export default createBackendPlugin({
                 },
               },
             },
-          });
+          };
+
+          return betterAuth(authOptions);
         };
 
         // Initialize better-auth

@@ -8,7 +8,7 @@
     }
   },
   "dependencies": {
-    "@orpc/contract": "^0.48.0",
+    "@orpc/contract": "^1.13.14",
     "zod": "^4.2.1",
     "@checkstack/common": "workspace:*"
   },

@@ -13,12 +13,12 @@
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
-    "@orpc/client": "^1.13.2",
+    "@orpc/client": "^1.13.14",
     "@orpc/openapi": "^1.13.2",
     "@orpc/server": "^1.13.2",
     "@orpc/zod": "^1.13.2",
     "drizzle-orm": "^0.45.1",
-    "hono": "^4.0.0",
+    "hono": "^4.12.14",
     "marked": "^17.0.1",
     "zod": "^4.2.1"
   },
@@ -28,7 +28,7 @@
     "@checkstack/scripts": "workspace:*"
   },
   "peerDependencies": {
-    "hono": "^4.0.0",
+    "hono": "^4.12.14",
     "drizzle-orm": "^0.45.1"
   }
 }

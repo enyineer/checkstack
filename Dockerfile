@@ -46,17 +46,35 @@ RUN test -d core/backend/node_modules/hono && test -d core/backend/node_modules/
 # Build frontend
 RUN bun run --filter '@checkstack/frontend' build
 
-# Stage 2: Production Runtime
+# Stage 2: Prune devDependencies for Production
+FROM oven/bun:1 AS production-deps
+WORKDIR /app
+
+COPY package.json bun.lock ./
+COPY core ./core
+COPY plugins ./plugins
+
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+  for i in 1 2 3; do \
+  echo "Attempt $i: Installing production dependencies..." && \
+  timeout 300 bun install --frozen-lockfile --production && break || \
+  { echo "Attempt $i failed (timeout or error), retrying in 5s..."; sleep 5; }; \
+  done || true
+
+# Remove development-only folders
+RUN rm -rf core/scripts core/test-utils-backend core/test-utils-frontend
+
+# Stage 3: Production Runtime
 FROM oven/bun:1-slim AS runtime
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends tini wget \
   && rm -rf /var/lib/apt/lists/*
 
-# Copy from builder
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/core ./core
-COPY --from=builder /app/plugins ./plugins
+# Copy from builder/production-deps
+COPY --from=production-deps /app/node_modules ./node_modules
+COPY --from=production-deps /app/core ./core
+COPY --from=production-deps /app/plugins ./plugins
 COPY --from=builder /app/core/frontend/dist ./core/frontend/dist
 COPY package.json bun.lock ./
 

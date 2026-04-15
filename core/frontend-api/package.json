@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@checkstack/common": "workspace:*",
-    "@orpc/client": "^1.13.2",
+    "@orpc/client": "^1.13.14",
     "@orpc/react-query": "1.13.4",
     "@orpc/tanstack-query": "^1.13.2",
     "@tanstack/react-query": "^5.64.0"
