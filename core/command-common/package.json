@@ -8,7 +8,7 @@
     }
   },
   "dependencies": {
-    "@orpc/contract": "^0.48.0",
+    "@orpc/contract": "^1.13.14",
     "zod": "^4.2.1",
     "@checkstack/common": "workspace:*"
   },
@@ -21,5 +21,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "bun run lint:code",
     "lint:code": "eslint . --max-warnings 0"
+  },
+  "checkstack": {
+    "type": "common"
   }
 }

@@ -10,28 +10,42 @@
     "dev": "docker compose -f docker-compose-dev.yml up -d && bun run --filter '@checkstack/backend' --filter '@checkstack/frontend' dev",
     "typecheck": "bun run scripts/typecheck.ts",
     "lint": "bun run lint:code",
-    "lint:code": "bun run eslint .",
+    "lint:code": "eslint .",
     "bundle-vendor": "bun run scripts/bundle-vendor.ts",
     "docker:stop": "docker compose -f docker-compose-dev.yml down",
+    "docker:build": "docker build -t checkstack-prod:latest .",
+    "audit:security": "bun run scripts/audit-trivy.ts fs",
+    "audit:image": "bun run scripts/audit-trivy.ts image",
     "changeset": "changeset",
     "version-packages": "bun run scripts/inject-release.ts && changeset version",
     "publish-packages": "bun run scripts/publish-packages.ts",
     "create": "bun run core/scripts/src/commands/create.ts"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.29.8",
-    "@eslint/js": "^9.39.2",
-    "@types/bun": "^1.3.5",
+    "@changesets/cli": "^2.30.0",
+    "@eslint/js": "^9.39.4",
+    "@types/bun": "^1.3.12",
     "@types/semver": "^7.7.1",
-    "@typescript-eslint/eslint-plugin": "^8.50.0",
-    "@typescript-eslint/parser": "^8.50.0",
-    "eslint": "^9.39.2",
+    "@typescript-eslint/eslint-plugin": "^8.58.2",
+    "@typescript-eslint/parser": "^8.58.2",
+    "drizzle-kit": "^0.31.0",
+    "eslint": "^9.39.4",
     "eslint-plugin-unicorn": "^62.0.0",
-    "semver": "^7.7.3",
+    "semver": "^7.7.4",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.50.0"
+    "typescript-eslint": "^8.58.2"
   },
   "dependencies": {
-    "@orpc/contract": "^1.13.2"
+    "@orpc/contract": "^1.13.14"
+  },
+  "overrides": {
+    "drizzle-orm": "^0.45.0",
+    "drizzle-kit": "^0.31.0",
+    "esbuild": "^0.27.7"
+  },
+  "resolutions": {
+    "drizzle-orm": "^0.45.0",
+    "drizzle-kit": "^0.31.0",
+    "esbuild": "^0.27.7"
   }
 }

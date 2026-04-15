@@ -3,6 +3,9 @@
   "version": "0.11.2",
   "type": "module",
   "main": "src/index.tsx",
+  "checkstack": {
+    "type": "frontend"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "bun run lint:code",
@@ -17,11 +20,10 @@
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
-    "ajv": "^8.17.1",
+    "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.344.0",
-    "prismjs": "^1.30.0",
     "react": "^18.2.0",
     "react-router-dom": "^6.20.0",
     "recharts": "^3.6.0",
@@ -31,7 +33,6 @@
   "devDependencies": {
     "@checkstack/scripts": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
-    "@types/prismjs": "^1.26.5",
     "@types/react": "^18.2.0",
     "typescript": "^5.0.0"
   }

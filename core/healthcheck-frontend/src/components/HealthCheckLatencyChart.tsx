@@ -86,7 +86,7 @@ export const HealthCheckLatencyChart: React.FC<
           fontSize={12}
           tickFormatter={(v: number) => `${v}ms`}
         />
-        <Tooltip<number, "latencyMs">
+        <Tooltip
           content={({ active, payload }) => {
             // eslint-disable-next-line unicorn/no-null -- recharts requires null return, not undefined
             if (!active || !payload?.length) return null;

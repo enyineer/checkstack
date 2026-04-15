@@ -3,6 +3,9 @@
   "version": "0.10.3",
   "type": "module",
   "main": "src/index.ts",
+  "checkstack": {
+    "type": "backend"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "generate": "drizzle-kit generate",
@@ -22,21 +25,20 @@
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
     "@hono/zod-validator": "^0.7.6",
-    "drizzle-orm": "^0.45.1",
-    "hono": "^4.0.0",
+    "drizzle-orm": "^0.45.0",
+    "hono": "^4.12.14",
     "tdigest": "^0.1.2",
-    "zod": "^4.2.1"
+    "zod": "^4.2.1",
+    "@orpc/server": "^1.13.2"
   },
   "devDependencies": {
     "@checkstack/drizzle-helper": "workspace:*",
     "@checkstack/scripts": "workspace:*",
     "@checkstack/test-utils-backend": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
-    "@orpc/server": "^1.13.2",
     "@types/bun": "^1.0.0",
     "@types/tdigest": "^0.1.5",
     "date-fns": "^4.1.0",
-    "drizzle-kit": "^0.31.8",
     "typescript": "^5.0.0"
   }
 }

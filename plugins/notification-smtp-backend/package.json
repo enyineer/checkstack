@@ -3,6 +3,9 @@
   "version": "0.0.19",
   "type": "module",
   "main": "src/index.ts",
+  "checkstack": {
+    "type": "backend"
+  },
   "exports": {
     ".": "./src/index.ts"
   },
@@ -13,11 +16,11 @@
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/notification-backend": "workspace:*",
     "@checkstack/common": "workspace:*",
-    "nodemailer": "^7.0.3",
+    "nodemailer": "^8.0.5",
     "zod": "^4.2.1"
   },
   "devDependencies": {
-    "@types/nodemailer": "^6.4.17",
+    "@types/nodemailer": "^8.0.0",
     "@checkstack/tsconfig": "workspace:*",
     "typescript": "^5.9.3"
   }

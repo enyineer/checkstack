@@ -1,6 +1,9 @@
 {
   "name": "@checkstack/scripts",
   "version": "0.1.1",
+  "checkstack": {
+    "type": "tooling"
+  },
   "bin": {
     "checkstack-scripts": "./src/cli.ts"
   },
@@ -9,7 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "inquirer": "^8.1.0",
+    "inquirer": "^13.4.1",
     "handlebars": "^4.7.8"
   },
   "devDependencies": {

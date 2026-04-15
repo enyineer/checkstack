@@ -3,6 +3,9 @@
   "version": "0.1.7",
   "type": "module",
   "main": "src/index.ts",
+  "checkstack": {
+    "type": "common"
+  },
   "dependencies": {
     "@checkstack/common": "workspace:*"
   },

@@ -3,6 +3,9 @@
   "version": "0.1.10",
   "type": "module",
   "main": "src/index.ts",
+  "checkstack": {
+    "type": "backend"
+  },
   "exports": {
     ".": "./src/index.ts"
   },
@@ -14,7 +17,7 @@
     "@checkstack/auth-backend": "workspace:*",
     "@checkstack/auth-common": "workspace:*",
     "better-auth": "^1.4.9",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.0",
     "ldapts": "^8.0.0",
     "zod": "^4.0.0",
     "@checkstack/common": "workspace:*"

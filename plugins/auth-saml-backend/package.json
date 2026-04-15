@@ -3,6 +3,9 @@
   "version": "0.1.10",
   "type": "module",
   "main": "src/index.ts",
+  "checkstack": {
+    "type": "backend"
+  },
   "exports": {
     ".": "./src/index.ts"
   },
@@ -15,7 +18,7 @@
     "@checkstack/auth-common": "workspace:*",
     "@checkstack/common": "workspace:*",
     "better-auth": "^1.4.9",
-    "samlify": "^2.8.11",
+    "samlify": "^2.12.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {

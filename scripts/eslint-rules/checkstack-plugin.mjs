@@ -7,11 +7,15 @@
 import { noDirectRpcInComponents } from "./no-direct-rpc-in-components.mjs";
 import { noMutationInDeps } from "./no-mutation-in-deps.mjs";
 import { enforceArchitectureDeps } from "./enforce-architecture-deps.mjs";
+import { noExtraneousRuntimeDeps } from "./no-extraneous-runtime-deps.mjs";
+import enforcePackageMetadata from "./enforce-package-metadata.mjs";
 
 export default {
   rules: {
     "no-direct-rpc-in-components": noDirectRpcInComponents,
     "no-mutation-in-deps": noMutationInDeps,
     "enforce-architecture-deps": enforceArchitectureDeps,
+    "no-extraneous-runtime-deps": noExtraneousRuntimeDeps,
+    "enforce-package-metadata": enforcePackageMetadata,
   },
 };

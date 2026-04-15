@@ -11,7 +11,7 @@
     "@checkstack/common": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
-    "@orpc/contract": "^1.13.2",
+    "@orpc/contract": "^1.13.14",
     "zod": "^4.2.1"
   },
   "devDependencies": {
@@ -23,5 +23,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "bun run lint:code",
     "lint:code": "eslint . --max-warnings 0"
+  },
+  "checkstack": {
+    "type": "common"
   }
 }

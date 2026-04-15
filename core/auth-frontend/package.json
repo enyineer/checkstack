@@ -3,6 +3,9 @@
   "version": "0.5.12",
   "type": "module",
   "main": "src/index.tsx",
+  "checkstack": {
+    "type": "frontend"
+  },
   "exports": {
     ".": "./src/index.tsx",
     "./api": "./src/api.ts"

@@ -1,5 +1,5 @@
 # Stage 1: Install Dependencies and Build Frontend
-FROM oven/bun:1 AS builder
+FROM oven/bun:1-alpine AS builder
 WORKDIR /app
 
 COPY package.json bun.lock ./
@@ -46,17 +46,34 @@ RUN test -d core/backend/node_modules/hono && test -d core/backend/node_modules/
 # Build frontend
 RUN bun run --filter '@checkstack/frontend' build
 
-# Stage 2: Production Runtime
-FROM oven/bun:1-slim AS runtime
+# Stage 2: Prune devDependencies for Production
+FROM oven/bun:1-alpine AS production-deps
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends tini wget \
-  && rm -rf /var/lib/apt/lists/*
+COPY package.json bun.lock ./
+COPY core ./core
+COPY plugins ./plugins
 
-# Copy from builder
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/core ./core
-COPY --from=builder /app/plugins ./plugins
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+  for i in 1 2 3; do \
+  echo "Attempt $i: Installing production dependencies..." && \
+  timeout 300 bun install --frozen-lockfile --production && break || \
+  { echo "Attempt $i failed (timeout or error), retrying in 5s..."; sleep 5; }; \
+  done || true
+
+# Remove development-only folders
+RUN rm -rf core/scripts core/test-utils-backend core/test-utils-frontend
+
+# Stage 3: Production Runtime
+FROM oven/bun:1-alpine AS runtime
+WORKDIR /app
+
+RUN apk update && apk upgrade --no-cache && apk add --no-cache tini wget
+
+# Copy from builder/production-deps
+COPY --from=production-deps /app/node_modules ./node_modules
+COPY --from=production-deps /app/core ./core
+COPY --from=production-deps /app/plugins ./plugins
 COPY --from=builder /app/core/frontend/dist ./core/frontend/dist
 COPY package.json bun.lock ./
 
@@ -74,7 +91,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
 
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
 CMD ["bun", "run", "core/backend/src/index.ts"]
 
 EXPOSE 3000

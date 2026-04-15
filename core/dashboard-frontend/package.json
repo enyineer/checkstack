@@ -3,6 +3,9 @@
   "version": "0.3.18",
   "type": "module",
   "main": "src/index.tsx",
+  "checkstack": {
+    "type": "frontend"
+  },
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",

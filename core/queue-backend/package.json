@@ -3,6 +3,9 @@
   "version": "0.2.10",
   "type": "module",
   "main": "src/index.ts",
+  "checkstack": {
+    "type": "backend"
+  },
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc",
@@ -16,14 +19,14 @@
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/queue-common": "workspace:*",
     "@hono/zod-validator": "^0.4.1",
-    "hono": "^4.6.14",
+    "hono": "^4.12.14",
     "zod": "^4.0.0",
-    "@checkstack/common": "workspace:*"
+    "@checkstack/common": "workspace:*",
+    "@orpc/server": "^1.13.2"
   },
   "devDependencies": {
     "@checkstack/scripts": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
-    "@orpc/server": "^1.13.2",
     "typescript": "^5.7.2"
   }
 }
