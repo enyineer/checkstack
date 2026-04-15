@@ -1,5 +1,16 @@
 # @checkstack/collector-hardware-backend
 
+## 0.1.18
+
+### Patch Changes
+
+- 67158e2: Standardize package metadata, unify AJV versions to 8.18.0, and enforce monorepo architecture rules via updated ESLint configuration. This ensures consistent package discovery and runtime dependency safety across the platform.
+- Updated dependencies [67158e2]
+  - @checkstack/backend-api@0.8.2
+  - @checkstack/common@0.6.4
+  - @checkstack/healthcheck-common@0.8.4
+  - @checkstack/healthcheck-ssh-common@0.1.10
+
 ## 0.1.17
 
 ### Patch Changes

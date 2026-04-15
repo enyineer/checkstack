@@ -1,5 +1,18 @@
 # @checkstack/queue-frontend
 
+## 0.2.16
+
+### Patch Changes
+
+- 6c743d4: Resolve AJV version mismatch and update to 8.18.0 for security reasons. Also fixed a TypeScript error in the HealthCheck latency chart caused by the Recharts v3 API change.
+- Updated dependencies [67158e2]
+- Updated dependencies [6c743d4]
+  - @checkstack/common@0.6.4
+  - @checkstack/frontend-api@0.3.8
+  - @checkstack/queue-common@0.2.7
+  - @checkstack/signal-frontend@0.0.14
+  - @checkstack/ui@1.1.3
+
 ## 0.2.15
 
 ### Patch Changes

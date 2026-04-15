@@ -1,5 +1,14 @@
 # @checkstack/healthcheck-common
 
+## 0.8.4
+
+### Patch Changes
+
+- 67158e2: Standardize package metadata, unify AJV versions to 8.18.0, and enforce monorepo architecture rules via updated ESLint configuration. This ensures consistent package discovery and runtime dependency safety across the platform.
+- Updated dependencies [67158e2]
+  - @checkstack/common@0.6.4
+  - @checkstack/signal-common@0.1.8
+
 ## 0.8.3
 
 ### Patch Changes

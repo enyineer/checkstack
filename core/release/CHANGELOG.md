@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.35.0
+
+### Minor Changes
+
+- 6c743d4: Resolve AJV version mismatch and update to 8.18.0 for security reasons. Also fixed a TypeScript error in the HealthCheck latency chart caused by the Recharts v3 API change.
+
 ## 0.34.0
 
 ### Minor Changes
