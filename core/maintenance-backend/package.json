@@ -21,14 +21,14 @@
     "@checkstack/integration-common": "workspace:*",
     "drizzle-orm": "^0.45.1",
     "zod": "^4.2.1",
-    "@checkstack/common": "workspace:*"
+    "@checkstack/common": "workspace:*",
+    "@orpc/server": "^1.13.2"
   },
   "devDependencies": {
     "@checkstack/drizzle-helper": "workspace:*",
     "@checkstack/scripts": "workspace:*",
     "@checkstack/test-utils-backend": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
-    "@orpc/server": "^1.13.2",
     "@types/bun": "^1.0.0",
     "drizzle-kit": "^0.31.8",
     "typescript": "^5.0.0"

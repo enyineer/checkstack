@@ -14,6 +14,7 @@
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
     "@orpc/client": "^1.13.14",
+    "@orpc/contract": "^1.13.14",
     "@orpc/openapi": "^1.13.2",
     "@orpc/server": "^1.13.2",
     "@orpc/zod": "^1.13.2",

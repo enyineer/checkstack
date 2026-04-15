@@ -20,13 +20,13 @@
     "hono": "^4.12.14",
     "jose": "^6.1.3",
     "zod": "^4.2.1",
-    "@checkstack/common": "workspace:*"
+    "@checkstack/common": "workspace:*",
+    "@orpc/server": "^1.13.2"
   },
   "devDependencies": {
     "@checkstack/drizzle-helper": "workspace:*",
     "@checkstack/scripts": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
-    "@orpc/server": "^1.13.2",
     "@types/node": "^20.0.0",
     "drizzle-kit": "^0.31.8",
     "typescript": "^5.0.0"
