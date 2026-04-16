@@ -71,7 +71,7 @@ const _ldapConfigV1 = z.object({
         .default(true)
         .describe("Reject unauthorized SSL certificates"),
       ca: configString({ "x-secret": true })
-        .describe("Custom CA certificate (PEM format)")
+        .describe("[textarea] Custom CA certificate (PEM format)")
         .optional(),
     })
     .default({ rejectUnauthorized: true })
@@ -138,7 +138,7 @@ const _ldapConfigV2 = z.object({
         .default(true)
         .describe("Reject unauthorized SSL certificates"),
       ca: configString({ "x-secret": true })
-        .describe("Custom CA certificate (PEM format)")
+        .describe("[textarea] Custom CA certificate (PEM format)")
         .optional(),
     })
     .default({ rejectUnauthorized: true })
@@ -239,7 +239,7 @@ const ldapConfigV3 = z.object({
         .default(true)
         .describe("Reject unauthorized SSL certificates"),
       ca: configString({ "x-secret": true })
-        .describe("Custom CA certificate (PEM format)")
+        .describe("[textarea] Custom CA certificate (PEM format)")
         .optional(),
     })
     .default({ rejectUnauthorized: true })
