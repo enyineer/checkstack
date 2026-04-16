@@ -1,34 +1,19 @@
-import { useMemo } from "react";
 import { createAuthClient } from "better-auth/react";
-import {
-  useRuntimeConfig,
-  getCachedRuntimeConfig,
-} from "@checkstack/frontend-api";
+import { getCachedRuntimeConfig } from "@checkstack/frontend-api";
 
 // Cache for lazy-initialized client
 let cachedClient: ReturnType<typeof createAuthClient> | undefined;
 let cachedBaseUrl: string | undefined;
 
 /**
- * React hook to get the auth client with proper runtime config.
- * Uses RuntimeConfigProvider to get the base URL.
- */
-export function useAuthClient() {
-  const { baseUrl } = useRuntimeConfig();
-
-  return useMemo(
-    () =>
-      createAuthClient({
-        baseURL: baseUrl,
-        basePath: "/api/auth",
-      }),
-    [baseUrl]
-  );
-}
-
-/**
- * Lazy-initialized auth client for class-based APIs.
+ * Lazy-initialized auth client for imperative (non-hook) APIs like
+ * `getAuthClientLazy().listAccounts()` or `getAuthClientLazy().signOut()`.
+ *
  * Uses the cached runtime config from RuntimeConfigProvider.
+ *
+ * IMPORTANT: Do NOT call `.useSession()` on this client from components.
+ * Use `authApi.useSession()` (via `useApi(authApiRef)`) instead — it reads
+ * from the shared SessionProvider context and does not trigger extra fetches.
  *
  * Note: This should only be called AFTER RuntimeConfigProvider has loaded.
  * Components rendered inside the provider tree are guaranteed to have config available.
@@ -48,3 +33,4 @@ export function getAuthClientLazy(): ReturnType<typeof createAuthClient> {
 
   return cachedClient;
 }
+

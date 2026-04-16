@@ -639,6 +639,12 @@ export default createBackendPlugin({
               provider: "pg",
               schema: { ...schema },
             }),
+            session: {
+              cookieCache: {
+                enabled: true,
+                maxAge: 5 * 60, // 5 minutes — session verified from signed cookie, not DB
+              },
+            },
             emailAndPassword: {
               enabled: credentialEnabled,
               autoSignIn: true, // Log in user immediately after successful registration

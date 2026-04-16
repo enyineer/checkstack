@@ -14,13 +14,13 @@ import {
   CardContent,
   CardFooter,
 } from "@checkstack/ui";
-import { useAuthClient } from "../lib/auth-client";
+import { getAuthClientLazy } from "../lib/auth-client";
 
 export const ForgotPasswordPage = () => {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const authClient = useAuthClient();
+  const authClient = getAuthClientLazy();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

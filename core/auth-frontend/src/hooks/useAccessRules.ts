@@ -1,12 +1,11 @@
-import { usePluginClient } from "@checkstack/frontend-api";
+import { useApi, usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
-import { useAuthClient } from "../lib/auth-client";
+import { authApiRef } from "../api";
 
 export const useAccessRules = () => {
-  const authBetterClient = useAuthClient();
+  const authApi = useApi(authApiRef);
   const authClient = usePluginClient(AuthApi);
-  const { data: session, isPending: sessionPending } =
-    authBetterClient.useSession();
+  const { data: session, isPending: sessionPending } = authApi.useSession();
 
   // Query: Fetch access rules (only when user is authenticated)
   const { data, isLoading } = authClient.accessRules.useQuery(
