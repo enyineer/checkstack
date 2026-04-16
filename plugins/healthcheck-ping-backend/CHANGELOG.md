@@ -1,5 +1,12 @@
 # @checkstack/healthcheck-ping-backend
 
+## 0.2.4
+
+### Patch Changes
+
+- Updated dependencies [c0c0ed2]
+  - @checkstack/backend-api@0.9.0
+
 ## 0.2.3
 
 ### Patch Changes

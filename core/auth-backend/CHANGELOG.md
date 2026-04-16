@@ -1,5 +1,17 @@
 # @checkstack/auth-backend
 
+## 0.4.12
+
+### Patch Changes
+
+- c0c0ed2: Introduce generic "Login Flows" to allow authentication strategies to define their own interaction patterns (form, redirect, or oauth) during registration. This fixes an issue where LDAP login attempts were incorrectly routed through the standard social login flow by instead providing a dedicated credential collection form for LDAP.
+- c0c0ed2: Refactor manual session creation to use a secure, bridged oRPC endpoint. This ensures that custom authentication strategies (LDAP, SAML) leverage Better-Auth's native session establishment utilities, including cryptographic signing and reliable cookie attribute management.
+- Updated dependencies [c0c0ed2]
+- Updated dependencies [c0c0ed2]
+  - @checkstack/backend-api@0.9.0
+  - @checkstack/auth-common@0.6.0
+  - @checkstack/command-backend@0.1.14
+
 ## 0.4.11
 
 ### Patch Changes
