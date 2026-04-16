@@ -1,5 +1,11 @@
 # @checkstack/healthcheck-backend
 
+## 0.10.6
+
+### Patch Changes
+
+- @checkstack/catalog-backend@0.2.19
+
 ## 0.10.5
 
 ### Patch Changes
