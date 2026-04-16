@@ -137,7 +137,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -187,7 +188,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -252,7 +254,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       // Use mockRegularUser who has only auth.teams.read access
@@ -309,7 +312,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockRegularUser });
@@ -333,7 +337,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -389,7 +394,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -423,7 +429,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -453,7 +460,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -487,7 +495,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -520,7 +529,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -557,7 +567,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -596,7 +607,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -621,7 +633,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -658,7 +671,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -683,7 +697,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -716,7 +731,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -763,7 +779,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -808,7 +825,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -848,7 +866,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -878,7 +897,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockAdminUser });
@@ -914,7 +934,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -947,7 +968,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -998,7 +1020,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1049,7 +1072,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1102,7 +1126,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1155,7 +1180,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1206,7 +1232,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1252,7 +1279,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1303,7 +1331,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1356,7 +1385,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1414,7 +1444,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1465,7 +1496,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1518,7 +1550,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1571,7 +1604,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1601,7 +1635,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1639,7 +1674,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1702,7 +1738,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1750,7 +1787,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1813,7 +1851,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1870,7 +1909,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1933,7 +1973,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });
@@ -1966,7 +2007,8 @@ describe("Teams and Resource Access Control", () => {
         mockRegistry,
         async () => {},
         mockConfigService,
-        mockAccessRuleRegistry
+        mockAccessRuleRegistry,
+        () => undefined
       );
 
       const context = createMockRpcContext({ user: mockServiceUser });

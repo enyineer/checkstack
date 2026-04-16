@@ -257,6 +257,11 @@ export class ConfigServiceImpl implements ConfigService {
     // Decrypt secrets
     const decryptedData = this.decryptSecrets(schema, migratedData);
 
+    // Auto-save if migrated
+    if (versioned.needsMigration(storedRecord)) {
+      await this.set(configId, schema, version, decryptedData as T, migrations);
+    }
+
     // Validate with schema
     return schema.parse(decryptedData);
   }
@@ -294,8 +299,22 @@ export class ConfigServiceImpl implements ConfigService {
     // Parse and migrate the stored record
     const migratedData = await versioned.parse(storedRecord);
 
-    // Redact secrets (don't decrypt)
-    const redactedData = this.redactSecrets(schema, migratedData);
+    // Decrypt for auto-save (ConfigService can decrypt locally for migration persistence)
+    const decryptedData = this.decryptSecrets(schema, migratedData);
+
+    // Auto-save if migrated
+    if (versioned.needsMigration(storedRecord)) {
+      await this.set(
+        configId,
+        schema,
+        version,
+        decryptedData as T,
+        migrations
+      );
+    }
+
+    // Redact secrets for return
+    const redactedData = this.redactSecrets(schema, decryptedData);
 
     return redactedData as Partial<T>;
   }

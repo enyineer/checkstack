@@ -266,6 +266,24 @@ const ldapStrategy: AuthStrategy<LdapConfig> = {
   configVersion: 3,
   configSchema: ldapConfigV3,
   requiresManualRegistration: false,
+  clientFlow: {
+    type: "form",
+    target: "/api/auth-ldap/ldap/login",
+    fields: [
+      {
+        name: "username",
+        label: "Username",
+        type: "text",
+        placeholder: "Username",
+      },
+      {
+        name: "password",
+        label: "Password",
+        type: "password",
+        placeholder: "Password",
+      },
+    ],
+  },
   adminInstructions: `
 ## LDAP Configuration
 
@@ -325,10 +343,9 @@ export default createBackendPlugin({
       deps: {
         rpc: coreServices.rpc,
         logger: coreServices.logger,
-        config: coreServices.config,
         rpcClient: coreServices.rpcClient,
       },
-      init: async ({ rpc, logger, config, rpcClient }) => {
+      init: async ({ rpc, logger, rpcClient }) => {
         logger.debug("[auth-ldap-backend] Initializing LDAP authentication...");
 
         // Create auth client once for reuse
@@ -344,8 +361,10 @@ export default createBackendPlugin({
           error?: string;
         }> => {
           try {
-            // Load LDAP configuration
-            const ldapConfig = await config.get("ldap", ldapConfigV3, 3);
+            // Load LDAP configuration from central auth-backend
+            const { config: rawConfig } =
+              await authClient.getOwnStrategyConfig();
+            const ldapConfig = ldapConfigV3.parse(rawConfig);
 
             if (!ldapConfig) {
               return {
@@ -355,19 +374,22 @@ export default createBackendPlugin({
             }
 
             // Create LDAP client
+            const isSecure = ldapConfig.url.startsWith("ldaps://");
             const client = new LdapClient({
-              url: ldapConfig.url,
+              url: ldapConfig.url.trim(),
               timeout: ldapConfig.timeout,
-              tlsOptions: ldapConfig.tlsOptions.ca
-                ? {
-                    rejectUnauthorized:
-                      ldapConfig.tlsOptions.rejectUnauthorized,
-                    ca: ldapConfig.tlsOptions.ca,
-                  }
-                : {
-                    rejectUnauthorized:
-                      ldapConfig.tlsOptions.rejectUnauthorized,
-                  },
+              tlsOptions: isSecure
+                ? ldapConfig.tlsOptions.ca
+                  ? {
+                      rejectUnauthorized:
+                        ldapConfig.tlsOptions.rejectUnauthorized,
+                      ca: ldapConfig.tlsOptions.ca,
+                    }
+                  : {
+                      rejectUnauthorized:
+                        ldapConfig.tlsOptions.rejectUnauthorized,
+                    }
+                : undefined,
             });
 
             try {
@@ -381,9 +403,17 @@ export default createBackendPlugin({
                 "{0}",
                 username,
               );
+              // Request all user attributes (*) plus the memberOf operational attribute
+              // memberOf is not returned by default in most LDAP servers
+              const searchAttributes = ["*"];
+              if (ldapConfig.groupMapping?.enabled && ldapConfig.groupMapping.memberOfAttribute) {
+                searchAttributes.push(ldapConfig.groupMapping.memberOfAttribute);
+              }
+
               const searchResult = await client.search(ldapConfig.baseDN, {
                 filter: searchFilter,
                 scope: "sub",
+                attributes: searchAttributes,
               });
 
               if (
@@ -407,18 +437,20 @@ export default createBackendPlugin({
 
               // Step 3: Try to bind as the user to verify password
               const userClient = new LdapClient({
-                url: ldapConfig.url,
+                url: ldapConfig.url.trim(),
                 timeout: ldapConfig.timeout,
-                tlsOptions: ldapConfig.tlsOptions.ca
-                  ? {
-                      rejectUnauthorized:
-                        ldapConfig.tlsOptions.rejectUnauthorized,
-                      ca: ldapConfig.tlsOptions.ca,
-                    }
-                  : {
-                      rejectUnauthorized:
-                        ldapConfig.tlsOptions.rejectUnauthorized,
-                    },
+                tlsOptions: isSecure
+                  ? ldapConfig.tlsOptions.ca
+                    ? {
+                        rejectUnauthorized:
+                          ldapConfig.tlsOptions.rejectUnauthorized,
+                        ca: ldapConfig.tlsOptions.ca,
+                      }
+                    : {
+                        rejectUnauthorized:
+                          ldapConfig.tlsOptions.rejectUnauthorized,
+                      }
+                  : undefined,
               });
 
               try {
@@ -436,8 +468,17 @@ export default createBackendPlugin({
                 if (typeof value === "string" || typeof value === "number") {
                   attributes[key] = value;
                 } else if (Array.isArray(value) && value.length > 0) {
-                  // Take first value for arrays
-                  attributes[key] = value[0];
+                  // Normalize memberOf attribute case and preserve arrays for group mapping
+                  if (
+                    ldapConfig.groupMapping?.enabled &&
+                    ldapConfig.groupMapping.memberOfAttribute &&
+                    key.toLowerCase() === ldapConfig.groupMapping.memberOfAttribute.toLowerCase()
+                  ) {
+                    attributes[ldapConfig.groupMapping.memberOfAttribute] = value;
+                  } else {
+                    // Take first value for standard attributes like name/email
+                    attributes[key] = value[0];
+                  }
                 }
               }
 
@@ -459,7 +500,9 @@ export default createBackendPlugin({
           username: string,
           ldapAttributes: Record<string, unknown>,
         ): Promise<{ userId: string; email: string; name: string }> => {
-          const ldapConfig = await config.get("ldap", ldapConfigV3, 3);
+          const { config: rawConfig } = await authClient.getOwnStrategyConfig();
+          const ldapConfig = ldapConfigV3.parse(rawConfig);
+
           if (!ldapConfig) {
             throw new Error("LDAP configuration not found");
           }
@@ -506,9 +549,11 @@ export default createBackendPlugin({
               memberOfAttribute: ldapConfig.groupMapping.memberOfAttribute,
             });
 
-            // Map groups to roles
+            // Map groups to roles (case-insensitive comparison for DN matching)
             const mappedRoles = ldapConfig.groupMapping.mappings
-              .filter((m) => groups.includes(m.directoryGroup))
+              .filter((m) =>
+                groups.some(g => g.toLowerCase() === m.directoryGroup.toLowerCase()),
+              )
               .map((m) => m.checkstackRole);
 
             // Add default role if configured
@@ -531,7 +576,7 @@ export default createBackendPlugin({
 
             if (syncRoles.length > 0) {
               logger.debug(
-                `LDAP user ${email} will be assigned roles: ${syncRoles.join(", ")}`,
+                `LDAP user ${email} matched ${groups.length} groups, assigning roles: ${syncRoles.join(", ")}`,
               );
             }
           }
@@ -586,18 +631,19 @@ export default createBackendPlugin({
             );
 
             // Create session via RPC
-            const sessionToken = crypto.randomUUID();
-            const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+            // This delegates cookie signing to the auth-backend (Better-Auth)
+            const ipAddress = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || undefined;
+            const userAgent = req.headers.get("user-agent") || undefined;
 
-            await authClient.createSession({
+            const { setCookie } = await authClient.createSession({
               userId,
-              token: sessionToken,
-              expiresAt,
+              ipAddress,
+              userAgent,
             });
 
-            logger.info(`Created session for LDAP user: ${email}`);
+            logger.info(`Created bridged session for LDAP user: ${email} (IP: ${ipAddress ?? "unknown"})`);
 
-            // Return session token in cookie format
+            // Return user info and include the signed session cookie from better-auth
             return Response.json(
               {
                 success: true,
@@ -608,12 +654,8 @@ export default createBackendPlugin({
                 },
               },
               {
-                status: 200,
                 headers: {
-                  "Content-Type": "application/json",
-                  "Set-Cookie": `better-auth.session_token=${sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${
-                    7 * 24 * 60 * 60
-                  }`,
+                  "Set-Cookie": setCookie,
                 },
               },
             );
@@ -625,7 +667,7 @@ export default createBackendPlugin({
                 : "Authentication failed. Please try again.";
             return redirectToAuthError(message);
           }
-        });
+        }, "/ldap/login");
 
         logger.debug("✅ LDAP authentication initialized");
       },

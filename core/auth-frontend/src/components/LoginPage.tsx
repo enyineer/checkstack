@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
-import { LogIn, LogOut, AlertCircle } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { LogIn, LogOut, AlertCircle, ArrowLeft } from "lucide-react";
 import {
   useApi,
   ExtensionSlot,
@@ -36,7 +36,7 @@ import {
   InfoBannerTitle,
   InfoBannerDescription,
 } from "@checkstack/ui";
-import { authApiRef } from "../api";
+import { authApiRef, EnabledAuthStrategy } from "../api";
 import { useEnabledStrategies } from "../hooks/useEnabledStrategies";
 import { useAccessRules } from "../hooks/useAccessRules";
 import { useAuthClient } from "../lib/auth-client";
@@ -44,10 +44,16 @@ import { SocialProviderButton } from "./SocialProviderButton";
 import { useEffect } from "react";
 
 export const LoginPage = () => {
+  const [activeStrategy, setActiveStrategy] = useState<
+    EnabledAuthStrategy | undefined
+  >();
+  const [formValues, setFormValues] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | undefined>();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
 
+  const navigate = useNavigate();
   const authApi = useApi(authApiRef);
   const authClient = usePluginClient(AuthApi);
   const { strategies, loading: strategiesLoading } = useEnabledStrategies();
@@ -61,12 +67,12 @@ export const LoginPage = () => {
   const handleCredentialLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError(undefined);
     try {
       const { error } = await authApi.signIn(email, password);
       if (error) {
-        console.error("Login failed:", error);
+        setError(error.message);
       } else {
-        // Use full page navigation to ensure session/permissions state refreshes
         globalThis.location.href = "/";
       }
     } finally {
@@ -74,24 +80,78 @@ export const LoginPage = () => {
     }
   };
 
-  const handleSocialLogin = async (provider: string) => {
+  const handleProviderClick = async (strategy: EnabledAuthStrategy) => {
+    setError(undefined);
+    const flow = strategy.clientFlow;
+
+    // Use default OAuth flow if no clientFlow provided (backward compat)
+    if (!flow || flow.type === "oauth") {
+      try {
+        await authApi.signInWithSocial(strategy.id);
+      } catch (error) {
+        setError("Failed to initialize social login");
+        console.error("Social login failed:", error);
+      }
+      return;
+    }
+
+    if (flow.type === "redirect") {
+      navigate(flow.target);
+      return;
+    }
+
+    if (flow.type === "form") {
+      setActiveStrategy(strategy);
+      setFormValues({});
+      return;
+    }
+  };
+
+  const handleCustomFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const flow = activeStrategy?.clientFlow;
+    if (flow?.type !== "form") return;
+
+    setLoading(true);
+    setError(undefined);
     try {
-      // SAML uses a custom endpoint, not the better-auth OAuth flow
-      if (provider === "saml") {
-        globalThis.location.href = "/api/auth-saml/saml/login";
+      const response = await fetch(flow.target, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formValues),
+      });
+
+      if (response.redirected) {
+        globalThis.location.href = response.url;
         return;
       }
-      await authApi.signInWithSocial(provider);
-      // Navigation will happen automatically after OAuth redirect
+
+      if (response.ok) {
+        const data = await response.json().catch(() => ({ success: true }));
+        if (data.success) {
+          globalThis.location.href = "/";
+          return;
+        }
+        setError(data.error?.message || "Authentication failed");
+      } else {
+        const data = await response.json().catch(() => ({}));
+        setError(data.error?.message || "Authentication failed");
+      }
     } catch (error) {
       console.error("Social login failed:", error);
     }
   };
 
-  const credentialStrategy = strategies.find((s) => s.type === "credential");
-  const socialStrategies = strategies.filter((s) => s.type === "social");
+  const credentialStrategy = strategies.find(
+    (s) => s.id === "credential" || s.clientFlow?.type === "credential",
+  );
+  const providerStrategies = strategies.filter(
+    (s) =>
+      s.id !== "credential" &&
+      (!s.clientFlow || s.clientFlow.type !== "credential"),
+  );
   const hasCredential = !!credentialStrategy;
-  const hasSocial = socialStrategies.length > 0;
+  const hasProviders = providerStrategies.length > 0;
 
   // Loading state
   if (strategiesLoading) {
@@ -144,7 +204,7 @@ export const LoginPage = () => {
         <CardHeader className="flex flex-col space-y-1 items-center">
           <CardTitle>Sign in to your account</CardTitle>
           <CardDescription>
-            {hasCredential && hasSocial
+            {hasCredential && hasProviders
               ? "Choose your preferred sign-in method"
               : hasCredential
                 ? "Enter your credentials to access the dashboard"
@@ -169,70 +229,155 @@ export const LoginPage = () => {
               </InfoBanner>
             )}
 
-            {/* Credential Form */}
-            {hasCredential && (
-              <form className="space-y-4" onSubmit={handleCredentialLogin}>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    placeholder="name@example.com"
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    required
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                  />
-                  <div className="text-right">
-                    <Link
-                      to={resolveRoute(authRoutes.routes.forgotPassword)}
-                      className="text-sm text-primary hover:underline"
-                    >
-                      Forgot password?
-                    </Link>
+            {/* Generic Error Alert */}
+            {error && (
+              <Alert variant="warning">
+                <AlertIcon>
+                  <AlertCircle className="h-4 w-4" />
+                </AlertIcon>
+                <AlertContent>
+                  <AlertDescription>{error}</AlertDescription>
+                </AlertContent>
+              </Alert>
+            )}
+
+            {/* Main Login Options */}
+            {!activeStrategy && (
+              <>
+                {/* Internal Credential Form */}
+                {hasCredential && (
+                  <form className="space-y-4" onSubmit={handleCredentialLogin}>
+                    <div className="space-y-2">
+                      <Label htmlFor="email">Email</Label>
+                      <Input
+                        id="email"
+                        placeholder="name@example.com"
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="password">Password</Label>
+                      <Input
+                        id="password"
+                        required
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                      />
+                      <div className="text-right">
+                        <Link
+                          to={resolveRoute(authRoutes.routes.forgotPassword)}
+                          className="text-sm text-primary hover:underline"
+                        >
+                          Forgot password?
+                        </Link>
+                      </div>
+                    </div>
+                    <Button type="submit" className="w-full" disabled={loading}>
+                      {loading ? "Signing In..." : "Sign In"}
+                    </Button>
+                  </form>
+                )}
+
+                {/* Separator */}
+                {hasCredential && hasProviders && (
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t border-border" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-card px-2 text-muted-foreground">
+                        Or continue with
+                      </span>
+                    </div>
                   </div>
-                </div>
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? "Signing In..." : "Sign In"}
-                </Button>
+                )}
+
+                {/* Provider Buttons (OAuth, Redirect, or trigger Form view) */}
+                {hasProviders && (
+                  <div className="space-y-2">
+                    {providerStrategies.map((strategy) => (
+                      <SocialProviderButton
+                        key={strategy.id}
+                        displayName={strategy.displayName}
+                        icon={strategy.icon}
+                        onClick={() => handleProviderClick(strategy)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Custom Form View (e.g. LDAP) */}
+            {activeStrategy && activeStrategy.clientFlow?.type === "form" && (
+              <form className="space-y-4" onSubmit={handleCustomFormSubmit}>
+                {(() => {
+                  const flow = activeStrategy.clientFlow;
+                  if (flow?.type !== "form") return;
+
+                  return (
+                    <>
+                      <div className="flex items-center mb-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="p-0 h-auto hover:bg-transparent -ml-1 text-muted-foreground hover:text-foreground"
+                          onClick={() => {
+                            setActiveStrategy(undefined);
+                            setError(undefined);
+                          }}
+                        >
+                          <ArrowLeft className="h-4 w-4 mr-1" />
+                          Back
+                        </Button>
+                      </div>
+
+                      <div className="space-y-2">
+                        <h4 className="font-medium text-sm">
+                          Log in with {activeStrategy.displayName}
+                        </h4>
+                        {activeStrategy.description && (
+                          <p className="text-xs text-muted-foreground">
+                            {activeStrategy.description}
+                          </p>
+                        )}
+                      </div>
+
+                      {flow.fields.map((field) => (
+                        <div key={field.name} className="space-y-2">
+                          <Label htmlFor={field.name}>{field.label}</Label>
+                          <Input
+                            id={field.name}
+                            name={field.name}
+                            type={field.type}
+                            placeholder={field.placeholder}
+                            required
+                            value={formValues[field.name] || ""}
+                            onChange={(e) =>
+                              setFormValues((prev) => ({
+                                ...prev,
+                                [field.name]: e.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                      ))}
+
+                      <Button
+                        type="submit"
+                        className="w-full"
+                        disabled={loading}
+                      >
+                        {loading ? "Processing..." : "Continue"}
+                      </Button>
+                    </>
+                  );
+                })()}
               </form>
-            )}
-
-            {/* Separator */}
-            {hasCredential && hasSocial && (
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t border-border" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">
-                    Or continue with
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* Social Provider Buttons */}
-            {hasSocial && (
-              <div className="space-y-2">
-                {socialStrategies.map((strategy) => (
-                  <SocialProviderButton
-                    key={strategy.id}
-                    displayName={strategy.displayName}
-                    icon={strategy.icon}
-                    onClick={() => handleSocialLogin(strategy.id)}
-                  />
-                ))}
-              </div>
             )}
           </div>
         </CardContent>

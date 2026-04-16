@@ -45,9 +45,28 @@ const EnabledStrategyDtoSchema = z.object({
   id: z.string(),
   displayName: z.string(),
   description: z.string().optional(),
-  type: z.enum(["credential", "social"]),
+  type: z.enum(["credential", "social", "ldap", "saml"]), // Kept for backward compatibility, but we should use clientFlow
   icon: lucideIconSchema.optional(),
   requiresManualRegistration: z.boolean(),
+  clientFlow: z
+    .discriminatedUnion("type", [
+      z.object({ type: z.literal("oauth") }),
+      z.object({ type: z.literal("redirect"), target: z.string() }),
+      z.object({
+        type: z.literal("form"),
+        target: z.string(),
+        fields: z.array(
+          z.object({
+            name: z.string(),
+            label: z.string(),
+            type: z.enum(["text", "password"]),
+            placeholder: z.string().optional(),
+          }),
+        ),
+      }),
+      z.object({ type: z.literal("credential") }),
+    ])
+    .optional(),
 });
 
 const RegistrationStatusSchema = z.object({
@@ -81,8 +100,8 @@ const UpsertExternalUserOutputSchema = z.object({
 
 const CreateSessionInputSchema = z.object({
   userId: z.string(),
-  token: z.string(),
-  expiresAt: z.coerce.date(),
+  ipAddress: z.string().optional().nullable(),
+  userAgent: z.string().optional().nullable(),
 });
 
 const CreateCredentialUserInputSchema = z.object({
@@ -337,7 +356,7 @@ export const authContract = {
     access: [],
   })
     .input(CreateSessionInputSchema)
-    .output(z.object({ sessionId: z.string() })),
+    .output(z.object({ sessionId: z.string(), setCookie: z.string() })),
 
   getUserById: proc({
     operationType: "query",
@@ -669,6 +688,12 @@ export const authContract = {
   })
     .input(z.object({ resourceType: z.string(), resourceId: z.string() }))
     .output(z.void()),
+
+  getOwnStrategyConfig: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  }).output(z.object({ config: z.record(z.string(), z.unknown()) })),
 };
 
 // Export contract type

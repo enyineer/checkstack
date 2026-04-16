@@ -45,7 +45,31 @@ export interface AuthStrategy<Config = unknown> {
    * Displayed in the StrategyConfigCard before the configuration form.
    */
   adminInstructions?: string;
+
+  /**
+   * Defines how the frontend should interact with this strategy during login.
+   * If not provided, it defaults to 'oauth' for non-credential strategies.
+   */
+  clientFlow?: AuthClientFlow;
 }
+
+/**
+ * Defines the interaction pattern for the frontend during login.
+ */
+export type AuthClientFlow =
+  | { type: "oauth" } // Standard Better-Auth social flow
+  | { type: "redirect"; target: string } // Redirects user to a custom URL
+  | {
+      type: "form";
+      target: string;
+      fields: Array<{
+        name: string;
+        label: string;
+        type: "text" | "password";
+        placeholder?: string;
+      }>;
+    } // Custom credential collection form
+  | { type: "credential" }; // Native internal credential flow (internal only)
 
 /**
  * Registry for authentication strategies.

@@ -1,7 +1,9 @@
 import { betterAuth } from "better-auth";
 import * as socialProviderFactories from "better-auth/social-providers";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { APIError } from "better-auth/api";
+import { APIError, createAuthEndpoint } from "better-auth/api";
+import { setSessionCookie } from "better-auth/cookies";
+import { z } from "zod";
 import {
   createBackendPlugin,
   coreServices,
@@ -549,6 +551,74 @@ export default createBackendPlugin({
           // Default to true on fresh installs (no meta config)
           const credentialEnabled = credentialMetaConfig?.enabled ?? true;
 
+          const baseUrl = process.env.BASE_URL;
+          if (!baseUrl) {
+            throw new Error(
+              "[auth-backend] BASE_URL environment variable is not defined.",
+            );
+          }
+
+          const betterAuthSecret = process.env.BETTER_AUTH_SECRET;
+          if (!betterAuthSecret) {
+            throw new Error(
+              "[auth-backend] BETTER_AUTH_SECRET environment variable is not defined.",
+            );
+          }
+
+          const checkstackBridge = {
+            id: "checkstack-bridge",
+            endpoints: {
+              trustedLogin: createAuthEndpoint(
+                "/internal/trusted-login",
+                {
+                  method: "POST",
+                  body: z.object({ userId: z.string() }),
+                },
+                async (ctx) => {
+                  const secretHeader = ctx.request?.headers.get(
+                    "x-checkstack-internal",
+                  );
+                  if (
+                    !secretHeader ||
+                    secretHeader !== betterAuthSecret
+                  ) {
+                    throw new APIError("UNAUTHORIZED");
+                  }
+
+                  const { userId } = ctx.body;
+                  const ipAddress =
+                    ctx.request?.headers
+                      .get("x-forwarded-for")
+                      ?.split(",")[0]
+                      .trim() || undefined;
+                  const userAgent =
+                    ctx.request?.headers.get("user-agent") || undefined;
+
+                  const session =
+                    await ctx.context.internalAdapter.createSession(
+                      userId,
+                      false,
+                      {
+                        ipAddress,
+                        userAgent,
+                      },
+                    );
+                  const user =
+                    await ctx.context.internalAdapter.findUserById(userId);
+
+                  if (!user) {
+                    throw new APIError("NOT_FOUND", {
+                      message: "User not found",
+                    });
+                  }
+
+                  await setSessionCookie(ctx, { session, user });
+                  return ctx.json({ success: true, sessionId: session.id });
+                },
+              ),
+            },
+          };
+
           // Check platform registration setting
           const platformRegistrationConfig = await config.get(
             PLATFORM_REGISTRATION_CONFIG_ID,
@@ -579,8 +649,7 @@ export default createBackendPlugin({
                 // Send password reset notification via all enabled strategies
                 // Using void to prevent timing attacks revealing email existence
                 const notificationClient = rpcClient.forPlugin(NotificationApi);
-                const frontendUrl =
-                  process.env.BASE_URL || "http://localhost:5173";
+                const frontendUrl = baseUrl;
                 // SECURITY: Use URL parsing instead of brittle string splitting
                 const parsedUrl = new URL(url);
                 const resetToken = parsedUrl.searchParams.get("token");
@@ -614,8 +683,8 @@ export default createBackendPlugin({
             },
             socialProviders,
             basePath: "/api/auth",
-            baseURL: process.env.BASE_URL || "http://localhost:5173",
-            trustedOrigins: [process.env.BASE_URL || "http://localhost:5173"],
+            baseURL: baseUrl,
+            trustedOrigins: [baseUrl],
             databaseHooks: {
               user: {
                 create: {
@@ -651,6 +720,7 @@ export default createBackendPlugin({
                 },
               },
             },
+            plugins: [checkstackBridge],
           };
 
           return betterAuth(authOptions);
@@ -737,6 +807,8 @@ export default createBackendPlugin({
           reloadAuth,
           config,
           accessRuleRegistry,
+          () => auth,
+          logger,
         );
         rpc.registerRouter(authRouter, authContract);
 

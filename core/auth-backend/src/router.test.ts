@@ -89,6 +89,7 @@ describe("Auth Router", () => {
     async () => {},
     mockConfigService,
     mockAccessRuleRegistry,
+    () => undefined,
   );
 
   it("getAccessRules returns current user access rules", async () => {
@@ -349,23 +350,53 @@ describe("Auth Router", () => {
     expect(mockDb.update).toHaveBeenCalled();
   });
 
-  it("createSession creates session record", async () => {
+  it("createSession calls the internal auth bridge", async () => {
     const context = createMockRpcContext({ user: mockServiceUser });
 
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    // Setup environment variables for the bridge call
+    process.env.BASE_URL = "http://localhost:3000";
+    process.env.BETTER_AUTH_SECRET = "test-secret";
+
+    const mockResponse = { sessionId: "session-123" };
+    const mockHandler = mock(async (_req: Request) => {
+      return new Response(JSON.stringify(mockResponse), {
+        status: 200,
+        headers: {
+          "Set-Cookie": "better-auth.session_token=test-token; Path=/; HttpOnly",
+        },
+      });
+    });
+
+    // We need to use a router instance that has access to our mock handler
+    const testRouter = createAuthRouter(
+      mockDb,
+      mockRegistry,
+      async () => {},
+      mockConfigService,
+      mockAccessRuleRegistry,
+      () => ({ handler: mockHandler }),
+    );
 
     const result = await call(
-      router.createSession,
+      testRouter.createSession,
       {
         userId: "user-123",
-        token: "session-token",
-        expiresAt,
       },
       { context },
     );
 
-    expect(result.sessionId).toBeDefined();
-    expect(mockDb.insert).toHaveBeenCalled();
+    expect(result.sessionId).toBe("session-123");
+    expect(result.setCookie).toContain("better-auth.session_token=test-token");
+    expect(mockHandler).toHaveBeenCalled();
+
+    // Verify the virtual request headers
+    const lastCall = mockHandler.mock.calls[0][0] as unknown as Request;
+    expect(lastCall.headers.get("Host")).toBe("localhost:3000");
+    expect(lastCall.url).toBe("http://localhost/api/auth/internal/trusted-login");
+
+    // Cleanup environment variables
+    delete process.env.BASE_URL;
+    delete process.env.BETTER_AUTH_SECRET;
   });
 
   it("upsertExternalUser syncs roles when syncRoles provided for new user", async () => {
