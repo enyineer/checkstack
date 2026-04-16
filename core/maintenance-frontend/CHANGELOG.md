@@ -1,5 +1,14 @@
 # @checkstack/maintenance-frontend
 
+## 0.4.15
+
+### Patch Changes
+
+- Updated dependencies [95aa716]
+  - @checkstack/ui@1.1.5
+  - @checkstack/auth-frontend@0.5.15
+  - @checkstack/dashboard-frontend@0.3.21
+
 ## 0.4.14
 
 ### Patch Changes

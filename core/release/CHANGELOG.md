@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.37.0
+
+### Minor Changes
+
+- 95aa716: Fix LDAP CA certificate input: The custom CA certificate field was rendered as a single-line password input, which stripped newlines from PEM certificates and caused TLS connection failures ("Failed to connect"). The field now renders as a multi-line secret textarea that properly preserves PEM format while still encrypting the value in storage.
+
 ## 0.36.0
 
 ### Minor Changes
