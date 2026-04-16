@@ -48,8 +48,13 @@ export function isValueEmpty(
 ): boolean {
   if (val === undefined || val === null) return true;
   if (typeof val === "string" && val.trim() === "") return true;
-  // For arrays, check if empty
-  if (Array.isArray(val) && val.length === 0) return true;
+  // For arrays, only consider empty if schema requires minimum items
+  if (Array.isArray(val) && val.length === 0) {
+    const minItems = (propSchema as JsonSchemaProperty & { minItems?: number }).minItems;
+    if (minItems !== undefined && minItems > 0) return true;
+    // Empty arrays are valid by default (e.g., optional mappings lists)
+    return false;
+  }
   // For objects (nested schemas), recursively check required fields
   if (propSchema.type === "object" && propSchema.properties) {
     const objVal = val as Record<string, unknown>;

@@ -225,6 +225,10 @@ const samlStrategy: AuthStrategy<SamlConfig> = {
     },
   ],
   requiresManualRegistration: false,
+  clientFlow: {
+    type: "redirect",
+    target: "/api/auth-saml/saml/login",
+  },
   adminInstructions: `
 ## SAML SSO Configuration
 
@@ -274,10 +278,9 @@ export default createBackendPlugin({
       deps: {
         rpc: coreServices.rpc,
         logger: coreServices.logger,
-        config: coreServices.config,
         rpcClient: coreServices.rpcClient,
       },
-      init: async ({ rpc, logger, config, rpcClient }) => {
+      init: async ({ rpc, logger, rpcClient }) => {
         logger.debug("[auth-saml-backend] Initializing SAML authentication...");
 
         // Create auth client once for reuse
@@ -290,7 +293,8 @@ export default createBackendPlugin({
           sp: samlify.ServiceProviderInstance;
           idp: samlify.IdentityProviderInstance;
         }> => {
-          const samlConfig = await config.get("saml", samlConfigV2, 2);
+          const { config: rawConfig } = await authClient.getOwnStrategyConfig();
+          const samlConfig = samlConfigV2.parse(rawConfig);
 
           if (!samlConfig) {
             throw new Error("SAML configuration not found");
@@ -381,7 +385,9 @@ export default createBackendPlugin({
           nameId: string;
           attributes: Record<string, unknown>;
         }): Promise<{ userId: string; email: string; name: string }> => {
-          const samlConfig = await config.get("saml", samlConfigV2, 2);
+          const { config: rawConfig } = await authClient.getOwnStrategyConfig();
+          const samlConfig = samlConfigV2.parse(rawConfig);
+
           if (!samlConfig) {
             throw new Error("SAML configuration not found");
           }
@@ -539,25 +545,24 @@ export default createBackendPlugin({
             });
 
             // Create session via RPC
-            const sessionToken = crypto.randomUUID();
-            const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+            // This delegates cookie signing to the auth-backend (Better-Auth)
+            const ipAddress = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || undefined;
+            const userAgent = req.headers.get("user-agent") || undefined;
 
-            await authClient.createSession({
+            const { setCookie } = await authClient.createSession({
               userId,
-              token: sessionToken,
-              expiresAt,
+              ipAddress,
+              userAgent,
             });
 
-            logger.info(`Created session for SAML user: ${email}`);
+            logger.info(`Created bridged session for SAML user: ${email} (IP: ${ipAddress ?? "unknown"})`);
 
-            // Redirect to home with session cookie
+            // Redirect to home with the signed session cookie from better-auth
             return new Response(undefined, {
               status: 302,
               headers: {
                 Location: "/",
-                "Set-Cookie": `better-auth.session_token=${sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${
-                  7 * 24 * 60 * 60
-                }`,
+                "Set-Cookie": setCookie,
               },
             });
           } catch (error) {

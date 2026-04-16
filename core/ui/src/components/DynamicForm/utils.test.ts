@@ -155,12 +155,22 @@ describe("isValueEmpty", () => {
   });
 
   describe("arrays", () => {
-    it("treats empty array as empty", () => {
-      expect(isValueEmpty([], arraySchema)).toBe(true);
+    it("treats empty array as valid when no minItems specified", () => {
+      expect(isValueEmpty([], arraySchema)).toBe(false);
+    });
+
+    it("treats empty array as empty when minItems > 0", () => {
+      const requiredArraySchema: JsonSchemaProperty = { type: "array", minItems: 1 } as JsonSchemaProperty;
+      expect(isValueEmpty([], requiredArraySchema)).toBe(true);
     });
 
     it("treats non-empty array as not empty", () => {
       expect(isValueEmpty([1, 2, 3], arraySchema)).toBe(false);
+    });
+
+    it("treats non-empty array as not empty even with minItems", () => {
+      const requiredArraySchema: JsonSchemaProperty = { type: "array", minItems: 1 } as JsonSchemaProperty;
+      expect(isValueEmpty([1], requiredArraySchema)).toBe(false);
     });
   });
 

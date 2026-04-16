@@ -17,6 +17,7 @@ const credentialStrategy: AuthStrategy<z.infer<typeof credentialConfigV1>> = {
   configVersion: 1,
   configSchema: credentialConfigV1,
   requiresManualRegistration: true,
+  clientFlow: { type: "credential" },
 };
 
 export default createBackendPlugin({

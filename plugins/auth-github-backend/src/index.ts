@@ -38,6 +38,7 @@ const githubStrategy: AuthStrategy<z.infer<typeof githubConfigV2>> = {
   configVersion: 2,
   configSchema: githubConfigV2,
   requiresManualRegistration: false,
+  clientFlow: { type: "oauth" },
   adminInstructions: `
 ## GitHub OAuth App Setup
 

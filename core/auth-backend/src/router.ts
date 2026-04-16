@@ -8,7 +8,12 @@ import {
   type ConfigService,
   toJsonSchema,
 } from "@checkstack/backend-api";
-import { authContract, passwordSchema, authAccess, pluginMetadata } from "@checkstack/auth-common";
+import {
+  authContract,
+  passwordSchema,
+  authAccess,
+  pluginMetadata,
+} from "@checkstack/auth-common";
 import { qualifyAccessRuleId } from "@checkstack/common";
 import { hashPassword } from "better-auth/crypto";
 import * as schema from "./schema";
@@ -132,7 +137,9 @@ async function assertTeamManagementAccess({
 
   const hasGlobalManage =
     user?.accessRules?.includes("*") ||
-    user?.accessRules?.includes(qualifyAccessRuleId(pluginMetadata, authAccess.teams.manage));
+    user?.accessRules?.includes(
+      qualifyAccessRuleId(pluginMetadata, authAccess.teams.manage),
+    );
 
   if (hasGlobalManage) return; // Global manage allows all teams
 
@@ -157,6 +164,12 @@ async function assertTeamManagementAccess({
   });
 }
 
+const DEFAULT_LOGGER = {
+  info: () => {},
+  error: () => {},
+  debug: () => {},
+};
+
 export const createAuthRouter = (
   internalDb: SafeDatabase<typeof schema>,
   strategyRegistry: { getStrategies: () => AuthStrategy<unknown>[] },
@@ -170,6 +183,14 @@ export const createAuthRouter = (
       isPublic?: boolean;
     }[];
   },
+  getBetterAuth: () =>
+    | { handler: (request: Request) => Promise<Response> }
+    | undefined,
+  logger: {
+    info: (msg: string, metadata?: Record<string, unknown>) => void;
+    error: (msg: string, metadata?: Record<string, unknown>) => void;
+    debug: (msg: string, metadata?: Record<string, unknown>) => void;
+  } = DEFAULT_LOGGER,
 ) => {
   // Public endpoint for enabled strategies (no authentication required)
   const getEnabledStrategies = os.getEnabledStrategies.handler(async () => {
@@ -180,9 +201,15 @@ export const createAuthRouter = (
         // Get enabled state from meta config
         const enabled = await getStrategyEnabled(strategy.id, configService);
 
-        // Determine strategy type
-        const type: "credential" | "social" =
-          strategy.id === "credential" ? "credential" : "social";
+        // Determine strategy type (backward compatibility)
+        let type: "credential" | "social" | "ldap" | "saml" = "social";
+        if (strategy.id === "credential") {
+          type = "credential";
+        } else if (strategy.clientFlow?.type === "form") {
+          type = "ldap"; // Map generic 'form' to 'ldap' for frontend compat
+        } else if (strategy.clientFlow?.type === "redirect") {
+          type = "saml"; // Map generic 'redirect' to 'saml' for frontend compat
+        }
 
         return {
           id: strategy.id,
@@ -192,6 +219,7 @@ export const createAuthRouter = (
           enabled,
           icon: strategy.icon,
           requiresManualRegistration: strategy.requiresManualRegistration,
+          clientFlow: strategy.clientFlow,
         };
       }),
     );
@@ -1031,20 +1059,82 @@ export const createAuthRouter = (
   );
 
   const createSession = os.createSession.handler(async ({ input }) => {
-    const { userId, token, expiresAt } = input;
-    const sessionId = crypto.randomUUID();
-    const now = new Date();
+    const { userId, ipAddress, userAgent } = input;
+    const auth = getBetterAuth();
 
-    await internalDb.insert(schema.session).values({
-      id: sessionId,
-      userId,
-      token,
-      expiresAt,
-      createdAt: now,
-      updatedAt: now,
+    if (!auth) {
+      throw new ORPCError("INTERNAL_SERVER_ERROR", {
+        message: "Authentication service not fully initialized.",
+      });
+    }
+
+    // Construct virtual request to the internal trusted login endpoint
+    // This allows better-auth to handle cookie signing and database persistence
+    const baseUrl = process.env.BASE_URL;
+    if (!baseUrl) {
+      throw new ORPCError("INTERNAL_SERVER_ERROR", {
+        message: "BASE_URL environment variable is not defined.",
+      });
+    }
+
+    const secret = process.env.BETTER_AUTH_SECRET;
+    if (!secret) {
+      throw new ORPCError("INTERNAL_SERVER_ERROR", {
+        message: "BETTER_AUTH_SECRET environment variable is not defined.",
+      });
+    }
+
+    const url = new URL(baseUrl);
+    const req = new Request(`${url.origin}/api/auth/internal/trusted-login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-checkstack-internal": secret,
+        "x-forwarded-for": ipAddress || "",
+        "user-agent": userAgent || "",
+        Host: url.host,
+      },
+      body: JSON.stringify({ userId }),
     });
 
-    return { sessionId };
+    const res = await auth.handler(req);
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      throw new ORPCError("INTERNAL_SERVER_ERROR", {
+        message: `Failed to create session via bridge: ${res.status} ${errorText}`,
+      });
+    }
+
+    // Extract Set-Cookie. Use getSetCookie() if available (Bun/Node 20+), otherwise fallback to get()
+    // get() usually joins multiple cookies with a comma, which is often correct but sometimes brittle
+    const setCookie =
+      typeof res.headers.getSetCookie === "function"
+        ? res.headers.getSetCookie().join(", ")
+        : res.headers.get("set-cookie");
+
+    if (!setCookie) {
+      const headers: Record<string, string> = {};
+      // eslint-disable-next-line unicorn/no-array-for-each
+      res.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+
+      logger.error("Authentication bridge did not return session cookies", {
+        status: res.status,
+        headers,
+      });
+      throw new ORPCError("INTERNAL_SERVER_ERROR", {
+        message: "Authentication service did not return session cookies.",
+      });
+    }
+
+    const body = (await res.json()) as { sessionId: string };
+
+    return {
+      sessionId: body.sessionId,
+      setCookie,
+    };
   });
 
   // ==========================================================================
@@ -1500,33 +1590,37 @@ export const createAuthRouter = (
     },
   );
 
-  const addTeamManager = os.addTeamManager.handler(async ({ input, context }) => {
-    await assertTeamManagementAccess({
-      user: context.user,
-      teamId: input.teamId,
-      internalDb,
-    });
-    await internalDb
-      .insert(schema.teamManager)
-      .values({ userId: input.userId, teamId: input.teamId })
-      .onConflictDoNothing();
-  });
+  const addTeamManager = os.addTeamManager.handler(
+    async ({ input, context }) => {
+      await assertTeamManagementAccess({
+        user: context.user,
+        teamId: input.teamId,
+        internalDb,
+      });
+      await internalDb
+        .insert(schema.teamManager)
+        .values({ userId: input.userId, teamId: input.teamId })
+        .onConflictDoNothing();
+    },
+  );
 
-  const removeTeamManager = os.removeTeamManager.handler(async ({ input, context }) => {
-    await assertTeamManagementAccess({
-      user: context.user,
-      teamId: input.teamId,
-      internalDb,
-    });
-    await internalDb
-      .delete(schema.teamManager)
-      .where(
-        and(
-          eq(schema.teamManager.userId, input.userId),
-          eq(schema.teamManager.teamId, input.teamId),
-        ),
-      );
-  });
+  const removeTeamManager = os.removeTeamManager.handler(
+    async ({ input, context }) => {
+      await assertTeamManagementAccess({
+        user: context.user,
+        teamId: input.teamId,
+        internalDb,
+      });
+      await internalDb
+        .delete(schema.teamManager)
+        .where(
+          and(
+            eq(schema.teamManager.userId, input.userId),
+            eq(schema.teamManager.teamId, input.teamId),
+          ),
+        );
+    },
+  );
 
   const getResourceTeamAccess = os.getResourceTeamAccess.handler(
     async ({ input }) => {
@@ -1787,6 +1881,50 @@ export const createAuthRouter = (
     },
   );
 
+  const getOwnStrategyConfig = os.getOwnStrategyConfig.handler(
+    async ({ context }) => {
+      if (context.user?.type !== "service") {
+        throw new ORPCError("UNAUTHORIZED", {
+          message: "This endpoint is only callable by services.",
+        });
+      }
+
+      const callerPluginId = context.user?.pluginId;
+
+      // Infer strategyId from pluginId (e.g. auth-ldap-backend -> ldap)
+      const strategyId = callerPluginId
+        .replace(/^auth-/, "")
+        .replace(/-backend$/, "");
+
+      const strategy = strategyRegistry
+        .getStrategies()
+        .find((s) => s.id === strategyId);
+
+      if (!strategy) {
+        throw new ORPCError("NOT_FOUND", {
+          message: `No strategy found for plugin ${callerPluginId} (inferred strategy ID: ${strategyId})`,
+        });
+      }
+
+      // Load full (non-redacted) config from ConfigService
+      // These configurations are stored in the auth-backend's scope
+      const config = await configService.get(
+        strategy.id,
+        strategy.configSchema,
+        strategy.configVersion,
+        strategy.migrations,
+      );
+
+      if (!config) {
+        throw new ORPCError("NOT_FOUND", {
+          message: `Configuration not found for strategy ${strategyId}`,
+        });
+      }
+
+      return { config: config as Record<string, unknown> };
+    },
+  );
+
   return os.router({
     getEnabledStrategies,
     accessRules: accessRulesHandler,
@@ -1820,6 +1958,7 @@ export const createAuthRouter = (
     updateApplication,
     deleteApplication,
     regenerateApplicationSecret,
+    getOwnStrategyConfig,
     // Teams
     getTeams,
     getTeam,

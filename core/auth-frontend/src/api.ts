@@ -49,10 +49,26 @@ export interface EnabledAuthStrategy {
   id: string;
   displayName: string;
   description?: string;
-  type: "credential" | "social";
+  type: "credential" | "social" | "ldap" | "saml";
   icon?: LucideIconName;
   requiresManualRegistration: boolean;
+  clientFlow?: AuthClientFlow;
 }
+
+export type AuthClientFlow =
+  | { type: "oauth" }
+  | { type: "redirect"; target: string }
+  | {
+      type: "form";
+      target: string;
+      fields: Array<{
+        name: string;
+        label: string;
+        type: "text" | "password";
+        placeholder?: string;
+      }>;
+    }
+  | { type: "credential" };
 
 /**
  * AuthApi provides better-auth client methods for authentication.

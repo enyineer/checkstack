@@ -1,0 +1,46 @@
+# LDIF Bootstrap for OpenLDAP
+# Base DN: dc=example,dc=org
+
+# Organizational Unit for People
+dn: ou=People,dc=example,dc=org
+changetype: add
+objectClass: organizationalUnit
+ou: People
+
+# Organizational Unit for Groups
+dn: ou=Groups,dc=example,dc=org
+changetype: add
+objectClass: organizationalUnit
+ou: Groups
+
+# Test User: John Doe
+dn: uid=john,ou=People,dc=example,dc=org
+changetype: add
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: top
+cn: John Doe
+sn: Doe
+uid: john
+userPassword: password
+uidNumber: 1000
+gidNumber: 1000
+homeDirectory: /home/john
+loginShell: /bin/bash
+mail: john@example.org
+
+# Group: admins
+dn: cn=admins,ou=Groups,dc=example,dc=org
+changetype: add
+objectClass: groupOfUniqueNames
+objectClass: top
+cn: admins
+uniqueMember: uid=john,ou=People,dc=example,dc=org
+
+# Group: developers
+dn: cn=developers,ou=Groups,dc=example,dc=org
+changetype: add
+objectClass: groupOfUniqueNames
+objectClass: top
+cn: developers
+uniqueMember: cn=placeholder,ou=People,dc=example,dc=org
