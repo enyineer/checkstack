@@ -39,7 +39,7 @@ import {
 import { authApiRef, EnabledAuthStrategy } from "../api";
 import { useEnabledStrategies } from "../hooks/useEnabledStrategies";
 import { useAccessRules } from "../hooks/useAccessRules";
-import { useAuthClient } from "../lib/auth-client";
+import { getAuthClientLazy } from "../lib/auth-client";
 import { SocialProviderButton } from "./SocialProviderButton";
 import { useEffect } from "react";
 
@@ -417,7 +417,6 @@ export const LoginNavbarAction = () => {
   const authApi = useApi(authApiRef);
   const { data: session, isPending } = authApi.useSession();
   const { accessRules, loading: accessRulesLoading } = useAccessRules();
-  const authClient = useAuthClient();
   const [hasCredentialAccount, setHasCredentialAccount] =
     useState<boolean>(false);
   const [credentialLoading, setCredentialLoading] = useState(true);
@@ -427,7 +426,7 @@ export const LoginNavbarAction = () => {
       setCredentialLoading(false);
       return;
     }
-    authClient.listAccounts().then((result) => {
+    getAuthClientLazy().listAccounts().then((result) => {
       if (result.data) {
         const hasCredential = result.data.some(
           (account) => account.providerId === "credential",
@@ -436,7 +435,7 @@ export const LoginNavbarAction = () => {
       }
       setCredentialLoading(false);
     });
-  }, [session?.user, authClient]);
+  }, [session?.user]);
 
   if (isPending || accessRulesLoading || credentialLoading) {
     return <div className="w-20 h-9 bg-muted animate-pulse rounded-full" />;

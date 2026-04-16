@@ -38,6 +38,7 @@ import {
   AmbientBackground,
 } from "@checkstack/ui";
 import { SignalProvider } from "@checkstack/signal-frontend";
+import { SessionProvider } from "@checkstack/auth-frontend";
 import { usePluginLifecycle } from "./hooks/usePluginLifecycle";
 import { useCommands, useGlobalShortcuts } from "@checkstack/command-frontend";
 
@@ -278,11 +279,13 @@ function AppWithApis() {
     <QueryClientProvider client={queryClient}>
       <ApiProvider registry={apiRegistry}>
         <OrpcQueryProvider>
-          <SignalProvider backendUrl={baseUrl}>
-            <ToastProvider>
-              <AppContent />
-            </ToastProvider>
-          </SignalProvider>
+          <SessionProvider>
+            <SignalProvider backendUrl={baseUrl}>
+              <ToastProvider>
+                <AppContent />
+              </ToastProvider>
+            </SignalProvider>
+          </SessionProvider>
         </OrpcQueryProvider>
       </ApiProvider>
       {/* DevTools only in development - toggle with keyboard or floating button */}

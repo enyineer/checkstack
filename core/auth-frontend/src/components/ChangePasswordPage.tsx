@@ -19,7 +19,7 @@ import {
   AlertDescription,
   Checkbox,
 } from "@checkstack/ui";
-import { useAuthClient } from "../lib/auth-client";
+import { getAuthClientLazy } from "../lib/auth-client";
 
 export const ChangePasswordPage = () => {
   const navigate = useNavigate();
@@ -32,7 +32,7 @@ export const ChangePasswordPage = () => {
   const [error, setError] = useState<string>();
   const [success, setSuccess] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
-  const authClient = useAuthClient();
+  const authClient = getAuthClientLazy();
 
   // Validate new password on change
   useEffect(() => {

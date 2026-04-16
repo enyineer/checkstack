@@ -20,7 +20,7 @@ import {
   AlertTitle,
   AlertDescription,
 } from "@checkstack/ui";
-import { useAuthClient } from "../lib/auth-client";
+import { getAuthClientLazy } from "../lib/auth-client";
 
 export const OnboardingPage = () => {
   const navigate = useNavigate();
@@ -36,7 +36,7 @@ export const OnboardingPage = () => {
   const authClient = usePluginClient(AuthApi);
   const completeOnboardingMutation =
     authClient.completeOnboarding.useMutation();
-  const betterAuthClient = useAuthClient();
+  const betterAuthClient = getAuthClientLazy();
 
   // Check if onboarding is needed
   const { data: onboardingStatus, isLoading: checkingStatus } =

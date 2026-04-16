@@ -23,7 +23,7 @@ import {
 } from "@checkstack/ui";
 import { useEnabledStrategies } from "../hooks/useEnabledStrategies";
 import { SocialProviderButton } from "./SocialProviderButton";
-import { useAuthClient } from "../lib/auth-client";
+import { getAuthClientLazy } from "../lib/auth-client";
 
 export const RegisterPage = () => {
   const [name, setName] = useState("");
@@ -35,7 +35,7 @@ export const RegisterPage = () => {
   const authApi = useApi(authApiRef);
   const authClient = usePluginClient(AuthApi);
   const { strategies, loading: strategiesLoading } = useEnabledStrategies();
-  const authBetterClient = useAuthClient();
+  const authBetterClient = getAuthClientLazy();
 
   // Validate password on change
   useEffect(() => {

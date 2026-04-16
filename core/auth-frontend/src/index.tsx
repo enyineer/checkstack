@@ -24,6 +24,7 @@ import { ProfilePage } from "./components/ProfilePage";
 import { authApiRef, AuthApi, AuthSession } from "./api";
 import { getAuthClientLazy } from "./lib/auth-client";
 import { AuthAccessApi } from "./lib/AuthAccessApi";
+import { useSessionContext } from "./lib/SessionProvider";
 
 import { useNavigate } from "react-router-dom";
 import { Settings2, User } from "lucide-react";
@@ -107,18 +108,16 @@ class BetterAuthApi implements AuthApi {
   }
 
   useSession() {
-    const { data, isPending, error } = getAuthClientLazy().useSession();
-    return {
-      data: data as AuthSession | undefined,
-      isPending,
-      error: error as Error | undefined,
-    };
+    return useSessionContext();
   }
 }
 
 // Re-export TeamAccessEditor for use in other plugins
 export { TeamAccessEditor } from "./components/TeamAccessEditor";
 export type { TeamAccessEditorProps } from "./components/TeamAccessEditor";
+
+// Re-export SessionProvider for App.tsx to wrap the component tree
+export { SessionProvider } from "./lib/SessionProvider";
 
 export const authPlugin = createFrontendPlugin({
   metadata: pluginMetadata,
