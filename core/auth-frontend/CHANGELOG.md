@@ -1,5 +1,16 @@
 # @checkstack/auth-frontend
 
+## 0.5.14
+
+### Patch Changes
+
+- c0c0ed2: Introduce generic "Login Flows" to allow authentication strategies to define their own interaction patterns (form, redirect, or oauth) during registration. This fixes an issue where LDAP login attempts were incorrectly routed through the standard social login flow by instead providing a dedicated credential collection form for LDAP.
+- Updated dependencies [c0c0ed2]
+- Updated dependencies [c0c0ed2]
+- Updated dependencies [c0c0ed2]
+  - @checkstack/auth-common@0.6.0
+  - @checkstack/ui@1.1.4
+
 ## 0.5.13
 
 ### Patch Changes

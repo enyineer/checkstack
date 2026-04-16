@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.36.0
+
+### Minor Changes
+
+- c0c0ed2: Introduce generic "Login Flows" to allow authentication strategies to define their own interaction patterns (form, redirect, or oauth) during registration. This fixes an issue where LDAP login attempts were incorrectly routed through the standard social login flow by instead providing a dedicated credential collection form for LDAP.
+
 ## 0.35.0
 
 ### Minor Changes
