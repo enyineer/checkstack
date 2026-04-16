@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/notification-frontend",
-  "version": "0.2.20",
+  "version": "0.2.21",
   "type": "module",
   "main": "src/index.tsx",
   "checkstack": {
