@@ -392,7 +392,7 @@ describe("Auth Router", () => {
     // Verify the virtual request headers
     const lastCall = mockHandler.mock.calls[0][0] as unknown as Request;
     expect(lastCall.headers.get("Host")).toBe("localhost:3000");
-    expect(lastCall.url).toBe("http://localhost/api/auth/internal/trusted-login");
+    expect(lastCall.url).toBe("http://localhost:3000/api/auth/internal/trusted-login");
 
     // Cleanup environment variables
     delete process.env.BASE_URL;
