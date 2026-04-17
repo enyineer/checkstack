@@ -22,6 +22,37 @@
         "typescript-eslint": "^8.58.2",
       },
     },
+    "core/about-common": {
+      "name": "@checkstack/about-common",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/common": "workspace:*",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
+    "core/about-frontend": {
+      "name": "@checkstack/about-frontend",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/about-common": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/ui": "workspace:*",
+        "lucide-react": "^0.344.0",
+        "react": "^18.2.0",
+        "react-router-dom": "^6.22.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/react": "^18.2.0",
+        "typescript": "^5.0.0",
+      },
+    },
     "core/announcement-backend": {
       "name": "@checkstack/announcement-backend",
       "version": "0.1.0",
@@ -407,6 +438,7 @@
       "name": "@checkstack/frontend",
       "version": "0.2.22",
       "dependencies": {
+        "@checkstack/about-frontend": "workspace:*",
         "@checkstack/announcement-frontend": "workspace:*",
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-frontend": "workspace:*",
@@ -1727,6 +1759,10 @@
     "@changesets/types": ["@changesets/types@6.1.0", "", {}, "sha512-rKQcJ+o1nKNgeoYRHKOS07tAMNd3YSN0uHaJOZYjBAgxfV7TUE7JE+z4BzZdQwb5hKaYbayKN5KrYV7ODb2rAA=="],
 
     "@changesets/write": ["@changesets/write@0.4.0", "", { "dependencies": { "@changesets/types": "^6.1.0", "fs-extra": "^7.0.1", "human-id": "^4.1.1", "prettier": "^2.7.1" } }, "sha512-CdTLvIOPiCNuH71pyDu3rA+Q0n65cmAbXnwWH84rKGiFumFzkmHNT8KHTMEchcxN+Kl8I54xGUhJ7l3E7X396Q=="],
+
+    "@checkstack/about-common": ["@checkstack/about-common@workspace:core/about-common"],
+
+    "@checkstack/about-frontend": ["@checkstack/about-frontend@workspace:core/about-frontend"],
 
     "@checkstack/announcement-backend": ["@checkstack/announcement-backend@workspace:core/announcement-backend"],
 
