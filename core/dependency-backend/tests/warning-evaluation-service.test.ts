@@ -428,4 +428,346 @@ describe("WarningEvaluationService", () => {
       expect(result.has("sys-c")).toBe(false);
     });
   });
+
+  describe("mixed transitive/non-transitive edges", () => {
+    // Topology: A --transitive--> B --non-transitive--> C (down)
+    // B is operational but depends on C (non-transitively).
+    // The non-transitive B→C edge means B only sees C's direct status.
+    // Since A→B is transitive, A recursively evaluates B's deps.
+    // B→C fires because C is down, promoting B's effective status.
+    // A then sees B's promoted status and fires its own warning.
+    test("transitive first hop + non-transitive second hop: propagation reaches through direct failures", () => {
+      const result = service.evaluateWarnings({
+        systemIds: ["sys-a"],
+        allDependencies: [
+          makeDependency({
+            sourceSystemId: "sys-a",
+            targetSystemId: "sys-b",
+            impactType: "critical",
+            transitive: true,
+          }),
+          makeDependency({
+            sourceSystemId: "sys-b",
+            targetSystemId: "sys-c",
+            impactType: "critical",
+            transitive: false,
+          }),
+        ],
+        systemStatuses: new Map([
+          ["sys-a", makeSystemStatus({ systemId: "sys-a" })],
+          ["sys-b", makeSystemStatus({ systemId: "sys-b", status: "operational" })],
+          ["sys-c", makeSystemStatus({ systemId: "sys-c", status: "down" })],
+        ]),
+      });
+
+      // A→B is transitive, so A evaluates B's dependencies.
+      // B→C (non-transitive) sees C is down, B gets promoted to "down".
+      // A→B (critical + down) = down derived state.
+      const warning = result.get("sys-a")!;
+      expect(warning).toBeDefined();
+      expect(warning.derivedState).toBe("down");
+    });
+
+    // Topology: A --non-transitive--> B --transitive--> C --critical--> D (down)
+    // A→B is NOT transitive, so A only sees B's direct status.
+    // B is operational, so no warning for A — even though B would
+    // transitively derive a warning from C→D.
+    test("non-transitive first hop blocks all deeper propagation", () => {
+      const result = service.evaluateWarnings({
+        systemIds: ["sys-a"],
+        allDependencies: [
+          makeDependency({
+            sourceSystemId: "sys-a",
+            targetSystemId: "sys-b",
+            impactType: "critical",
+            transitive: false,
+          }),
+          makeDependency({
+            sourceSystemId: "sys-b",
+            targetSystemId: "sys-c",
+            impactType: "critical",
+            transitive: true,
+          }),
+          makeDependency({
+            sourceSystemId: "sys-c",
+            targetSystemId: "sys-d",
+            impactType: "critical",
+          }),
+        ],
+        systemStatuses: new Map([
+          ["sys-a", makeSystemStatus({ systemId: "sys-a" })],
+          ["sys-b", makeSystemStatus({ systemId: "sys-b", status: "operational" })],
+          ["sys-c", makeSystemStatus({ systemId: "sys-c", status: "operational" })],
+          ["sys-d", makeSystemStatus({ systemId: "sys-d", status: "down" })],
+        ]),
+      });
+
+      // A→B is non-transitive. B is operational (own status).
+      // A does NOT look through B's dependencies. No warning.
+      expect(result.size).toBe(0);
+    });
+
+    // Topology: A has two branches:
+    //   A --transitive--> B (operational) --> C (down)
+    //   A --non-transitive--> D (operational) --> E (down)
+    // Expected: A gets a warning from the transitive B branch,
+    //           but NOT from the non-transitive D branch.
+    test("fan-out: transitive branch propagates, non-transitive branch does not", () => {
+      const result = service.evaluateWarnings({
+        systemIds: ["sys-a"],
+        allDependencies: [
+          // Transitive branch
+          makeDependency({
+            sourceSystemId: "sys-a",
+            targetSystemId: "sys-b",
+            impactType: "critical",
+            transitive: true,
+          }),
+          makeDependency({
+            sourceSystemId: "sys-b",
+            targetSystemId: "sys-c",
+            impactType: "critical",
+          }),
+          // Non-transitive branch
+          makeDependency({
+            sourceSystemId: "sys-a",
+            targetSystemId: "sys-d",
+            impactType: "critical",
+            transitive: false,
+          }),
+          makeDependency({
+            sourceSystemId: "sys-d",
+            targetSystemId: "sys-e",
+            impactType: "critical",
+          }),
+        ],
+        systemStatuses: new Map([
+          ["sys-a", makeSystemStatus({ systemId: "sys-a" })],
+          ["sys-b", makeSystemStatus({ systemId: "sys-b", status: "operational" })],
+          ["sys-c", makeSystemStatus({ systemId: "sys-c", status: "down" })],
+          ["sys-d", makeSystemStatus({ systemId: "sys-d", status: "operational" })],
+          ["sys-e", makeSystemStatus({ systemId: "sys-e", status: "down" })],
+        ]),
+      });
+
+      const warning = result.get("sys-a")!;
+      expect(warning).toBeDefined();
+      expect(warning.derivedState).toBe("down");
+      // Only the transitive branch contributes
+      expect(warning.affectedUpstreams).toHaveLength(1);
+      expect(warning.affectedUpstreams[0].systemId).toBe("sys-b");
+    });
+
+    // Topology: A --transitive--> B --transitive--> C --non-transitive--> D (operational) --> E (down)
+    //           C is also down directly.
+    // Expected: A sees through B and C (both transitive).
+    //           C→D is non-transitive but C is down regardless.
+    //           The chain A→B→C propagates C's "down" status all the way.
+    test("deep chain: transitive-transitive-nontransitive propagates direct failures", () => {
+      const result = service.evaluateWarnings({
+        systemIds: ["sys-a"],
+        allDependencies: [
+          makeDependency({
+            sourceSystemId: "sys-a",
+            targetSystemId: "sys-b",
+            impactType: "critical",
+            transitive: true,
+          }),
+          makeDependency({
+            sourceSystemId: "sys-b",
+            targetSystemId: "sys-c",
+            impactType: "critical",
+            transitive: true,
+          }),
+          makeDependency({
+            sourceSystemId: "sys-c",
+            targetSystemId: "sys-d",
+            impactType: "critical",
+            transitive: false,
+          }),
+        ],
+        systemStatuses: new Map([
+          ["sys-a", makeSystemStatus({ systemId: "sys-a" })],
+          ["sys-b", makeSystemStatus({ systemId: "sys-b", status: "operational" })],
+          ["sys-c", makeSystemStatus({ systemId: "sys-c", status: "down" })],
+          ["sys-d", makeSystemStatus({ systemId: "sys-d", status: "operational" })],
+        ]),
+      });
+
+      const warning = result.get("sys-a")!;
+      expect(warning).toBeDefined();
+      // C is down → B promoted to down (transitive) → A gets critical+down = down
+      expect(warning.derivedState).toBe("down");
+    });
+
+    // Same deep chain but upstream C is operational, failure is only at D.
+    // C→D is non-transitive, so C doesn't look through D's deps.
+    // But D is directly down and C's edge to D fires.
+    // B→C is transitive so B evaluates C's deps.
+    // C→D fires (D is down, non-transitive), promoting C to "down".
+    // A→B is transitive, so A evaluates B's deps.
+    // B→C fires with C promoted to "down". B promoted to "down".
+    test("deep chain: non-transitive leaf edge still fires on direct failure", () => {
+      const result = service.evaluateWarnings({
+        systemIds: ["sys-a"],
+        allDependencies: [
+          makeDependency({
+            sourceSystemId: "sys-a",
+            targetSystemId: "sys-b",
+            impactType: "critical",
+            transitive: true,
+          }),
+          makeDependency({
+            sourceSystemId: "sys-b",
+            targetSystemId: "sys-c",
+            impactType: "degraded",
+            transitive: true,
+          }),
+          makeDependency({
+            sourceSystemId: "sys-c",
+            targetSystemId: "sys-d",
+            impactType: "critical",
+            transitive: false,
+          }),
+        ],
+        systemStatuses: new Map([
+          ["sys-a", makeSystemStatus({ systemId: "sys-a" })],
+          ["sys-b", makeSystemStatus({ systemId: "sys-b", status: "operational" })],
+          ["sys-c", makeSystemStatus({ systemId: "sys-c", status: "operational" })],
+          ["sys-d", makeSystemStatus({ systemId: "sys-d", status: "down" })],
+        ]),
+      });
+
+      const warning = result.get("sys-a")!;
+      expect(warning).toBeDefined();
+      // C→D: critical + down = down → C promoted to "down"
+      // B→C: degraded + down(promoted) = degraded → B promoted to "degraded"
+      // A→B: critical + degraded(promoted) = degraded
+      expect(warning.derivedState).toBe("degraded");
+    });
+
+    // Topology: A has two branches with different impact types:
+    //   A --transitive/informational--> B (operational) --> C (down)
+    //   A --transitive/critical--------> D (operational) --> E (degraded)
+    // Expected: worst-of-all branches applies.
+    test("mixed impact fan-out: worst derived state wins across branches", () => {
+      const result = service.evaluateWarnings({
+        systemIds: ["sys-a"],
+        allDependencies: [
+          makeDependency({
+            sourceSystemId: "sys-a",
+            targetSystemId: "sys-b",
+            impactType: "informational",
+            transitive: true,
+          }),
+          makeDependency({
+            sourceSystemId: "sys-b",
+            targetSystemId: "sys-c",
+            impactType: "critical",
+          }),
+          makeDependency({
+            sourceSystemId: "sys-a",
+            targetSystemId: "sys-d",
+            impactType: "critical",
+            transitive: true,
+          }),
+          makeDependency({
+            sourceSystemId: "sys-d",
+            targetSystemId: "sys-e",
+            impactType: "critical",
+          }),
+        ],
+        systemStatuses: new Map([
+          ["sys-a", makeSystemStatus({ systemId: "sys-a" })],
+          ["sys-b", makeSystemStatus({ systemId: "sys-b", status: "operational" })],
+          ["sys-c", makeSystemStatus({ systemId: "sys-c", status: "down" })],
+          ["sys-d", makeSystemStatus({ systemId: "sys-d", status: "operational" })],
+          ["sys-e", makeSystemStatus({ systemId: "sys-e", status: "degraded" })],
+        ]),
+      });
+
+      const warning = result.get("sys-a")!;
+      expect(warning).toBeDefined();
+      // Branch 1: B promoted to "down" from C, then A→B (informational+down) = info
+      // Branch 2: D promoted to "degraded" from E, then A→D (critical+degraded) = degraded
+      // Worst: degraded > info → degraded
+      expect(warning.derivedState).toBe("degraded");
+      expect(warning.affectedUpstreams).toHaveLength(2);
+    });
+
+    // All hops operational except last — non-transitive first hop should block everything.
+    test("non-transitive first hop shields from deep transitive chain failure", () => {
+      const result = service.evaluateWarnings({
+        systemIds: ["sys-a"],
+        allDependencies: [
+          makeDependency({
+            sourceSystemId: "sys-a",
+            targetSystemId: "sys-b",
+            impactType: "critical",
+            transitive: false,
+          }),
+          makeDependency({
+            sourceSystemId: "sys-b",
+            targetSystemId: "sys-c",
+            impactType: "critical",
+            transitive: true,
+          }),
+          makeDependency({
+            sourceSystemId: "sys-c",
+            targetSystemId: "sys-d",
+            impactType: "critical",
+            transitive: true,
+          }),
+          makeDependency({
+            sourceSystemId: "sys-d",
+            targetSystemId: "sys-e",
+            impactType: "critical",
+            transitive: true,
+          }),
+        ],
+        systemStatuses: new Map([
+          ["sys-a", makeSystemStatus({ systemId: "sys-a" })],
+          ["sys-b", makeSystemStatus({ systemId: "sys-b", status: "operational" })],
+          ["sys-c", makeSystemStatus({ systemId: "sys-c", status: "operational" })],
+          ["sys-d", makeSystemStatus({ systemId: "sys-d", status: "operational" })],
+          ["sys-e", makeSystemStatus({ systemId: "sys-e", status: "down" })],
+        ]),
+      });
+
+      // A→B is non-transitive. B is operational. A sees no failure.
+      expect(result.size).toBe(0);
+    });
+
+    // Verify that the intermediate system B is correctly warned even when A is not.
+    test("intermediate system gets warning even when downstream is shielded", () => {
+      const result = service.evaluateWarnings({
+        systemIds: ["sys-a", "sys-b"],
+        allDependencies: [
+          makeDependency({
+            sourceSystemId: "sys-a",
+            targetSystemId: "sys-b",
+            impactType: "critical",
+            transitive: false,
+          }),
+          makeDependency({
+            sourceSystemId: "sys-b",
+            targetSystemId: "sys-c",
+            impactType: "critical",
+            transitive: false,
+          }),
+        ],
+        systemStatuses: new Map([
+          ["sys-a", makeSystemStatus({ systemId: "sys-a" })],
+          ["sys-b", makeSystemStatus({ systemId: "sys-b", status: "operational" })],
+          ["sys-c", makeSystemStatus({ systemId: "sys-c", status: "down" })],
+        ]),
+      });
+
+      // B→C fires (C is down). B gets warning "down".
+      // A→B is non-transitive and B is operational (own status). A has no warning.
+      expect(result.size).toBe(1);
+      expect(result.has("sys-a")).toBe(false);
+      expect(result.get("sys-b")!.derivedState).toBe("down");
+    });
+  });
 });
