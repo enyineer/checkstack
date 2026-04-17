@@ -1,5 +1,13 @@
 # @checkstack/integration-script-backend
 
+## 0.2.6
+
+### Patch Changes
+
+- Updated dependencies [23c80bc]
+  - @checkstack/backend-api@0.10.0
+  - @checkstack/integration-backend@0.1.15
+
 ## 0.2.5
 
 ### Patch Changes

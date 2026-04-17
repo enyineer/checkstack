@@ -1,5 +1,14 @@
 # @checkstack/maintenance-backend
 
+## 0.5.11
+
+### Patch Changes
+
+- Updated dependencies [23c80bc]
+  - @checkstack/backend-api@0.10.0
+  - @checkstack/command-backend@0.1.15
+  - @checkstack/integration-backend@0.1.15
+
 ## 0.5.10
 
 ### Patch Changes
