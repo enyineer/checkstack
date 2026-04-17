@@ -27,6 +27,8 @@ import {
   Settings2,
   Check,
   X,
+  AlertTriangle,
+  RotateCcw,
 } from "lucide-react";
 
 type Props = SlotContext<typeof SystemEditorSlot>;
@@ -224,9 +226,10 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
             />
           </div>
           {createMutation.error && (
-            <p className="text-sm text-destructive">
-              {createMutation.error.message}
-            </p>
+            <CycleErrorDisplay
+              error={createMutation.error}
+              systemNameMap={systemNameMap}
+            />
           )}
           <div className="flex gap-2 justify-end">
             <Button
@@ -462,6 +465,87 @@ function DependencyRow({
         >
           <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
         </Button>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Cycle Error Display
+// =============================================================================
+
+const CYCLE_CHAIN_REGEX = /circular chain: (.+)$/;
+const UUID_REGEX = /[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}/gi;
+
+function CycleErrorDisplay({
+  error,
+  systemNameMap,
+}: {
+  error: Error;
+  systemNameMap: Map<string, string>;
+}) {
+  const message = error.message;
+
+  // Try to parse cycle chain from error message
+  const chainMatch = CYCLE_CHAIN_REGEX.exec(message);
+  if (!chainMatch) {
+    // Not a cycle error — render as plain text
+    return (
+      <p className="text-sm text-destructive">{message}</p>
+    );
+  }
+
+  // Extract system IDs from the chain
+  const chainIds = chainMatch[1].match(UUID_REGEX) ?? [];
+  if (chainIds.length === 0) {
+    return (
+      <p className="text-sm text-destructive">{message}</p>
+    );
+  }
+
+  const chainNames = chainIds.map(
+    (id) => systemNameMap.get(id) ?? id.slice(0, 8),
+  );
+
+  return (
+    <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-2.5">
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
+        <p className="text-sm font-medium text-destructive">
+          Circular dependency detected
+        </p>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        This dependency would create a cycle. Systems cannot transitively
+        depend on themselves.
+      </p>
+      <div className="flex items-center gap-1.5 flex-wrap py-1">
+        {chainNames.map((name, i) => {
+          const isFirst = i === 0;
+          const isLast = i === chainNames.length - 1;
+          // First and last are the same node (the cycle)
+          const isCycleNode = isFirst || isLast;
+
+          return (
+            <React.Fragment key={`${name}-${String(i)}`}>
+              <span
+                className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${
+                  isCycleNode
+                    ? "border-destructive/40 bg-destructive/10 text-destructive"
+                    : "border-border bg-muted text-foreground"
+                }`}
+              >
+                {isCycleNode && (
+                  <RotateCcw className="h-3 w-3 mr-1 shrink-0" />
+                )}
+                {name}
+              </span>
+              {!isLast && (
+                <span className="text-muted-foreground text-xs">→</span>
+              )}
+            </React.Fragment>
+          );
+        })}
       </div>
     </div>
   );
