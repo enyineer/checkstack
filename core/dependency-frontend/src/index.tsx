@@ -1,6 +1,7 @@
 import {
   createFrontendPlugin,
   createSlotExtension,
+  UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
 import {
   pluginMetadata,
@@ -15,14 +16,15 @@ import {
 import { DependencyBadge } from "./components/DependencyBadge";
 import { DependencyAlert } from "./components/DependencyAlert";
 import { DependencyEditor } from "./components/DependencyEditor";
+import { DependencyMapPage } from "./components/DependencyMapPage";
+import { DependencyMenuItems } from "./components/DependencyMenuItems";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
   routes: [
     {
       route: dependencyRoutes.routes.map,
-      // Placeholder - will be implemented in Phase 4 with React Flow
-      element: <div>Dependency Map (coming soon)</div>,
+      element: <DependencyMapPage />,
       title: "Dependency Map",
       accessRule: dependencyAccess.dependency.read,
     },
@@ -40,6 +42,10 @@ export default createFrontendPlugin({
     createSlotExtension(SystemDetailsSlot, {
       id: "dependency.system-details.editor",
       component: DependencyEditor,
+    }),
+    createSlotExtension(UserMenuItemsSlot, {
+      id: "dependency.user-menu.map",
+      component: DependencyMenuItems,
     }),
   ],
 });
