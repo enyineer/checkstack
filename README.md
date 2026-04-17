@@ -163,7 +163,7 @@ Interactive API documentation. Explore all available endpoints and view response
 **Checkstack** is a self-hosted, open-source status page and monitoring platform that helps you:
 
 - 📊 **Monitor** your services with automated health checks
-- 📢 **Communicate** incidents and maintenance to your users
+- 📢 **Communicate** incidents, maintenance, and announcements to your users
 - 🔔 **Notify** stakeholders through multiple channels instantly
 - 🔌 **Integrate** with your existing tools and workflows
 
@@ -222,6 +222,20 @@ Organize your infrastructure into **Systems** and **Groups**. Track dependencies
 - **Automatic Transitions** - Status changes from "Planned" → "Active" → "Completed"
 - **Multi-System Impact** - Associate maintenance with multiple affected services
 - **User Notifications** - Alert subscribers before and during maintenance
+
+---
+
+### Announcements
+> *Broadcast important messages to your portal users*
+
+- **Global Banners** - Display severity-colored notification strips above the navbar on every page
+- **Dashboard Cards** - Show announcements as expandable cards in the dashboard overview
+- **Markdown Support** - Rich text formatting for announcement messages
+- **Visibility Control** - Target all visitors or only authenticated users
+- **Scheduling** - Configure start and expiry dates for time-limited announcements
+- **Dismissal Persistence** - Users can dismiss banners (stored server-side for logged-in users)
+- **Realtime Updates** - Announcements appear/disappear instantly for all connected users via WebSocket
+- **Command Palette** - Quick access via `⇧⌘A` / `Ctrl+Shift+A`
 
 ---
 

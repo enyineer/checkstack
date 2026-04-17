@@ -15,6 +15,7 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
+    "@checkstack/announcement-frontend": "workspace:*",
     "@checkstack/auth-frontend": "workspace:*",
     "@checkstack/catalog-frontend": "workspace:*",
     "@checkstack/command-frontend": "workspace:*",
