@@ -1,6 +1,10 @@
 import React, { useState, useCallback } from "react";
-import { usePluginClient, useQueryClient } from "@checkstack/frontend-api";
-import { AnnouncementApi, ANNOUNCEMENT_UPDATED, type Announcement } from "@checkstack/announcement-common";
+import { usePluginClient } from "@checkstack/frontend-api";
+import {
+  AnnouncementApi,
+  ANNOUNCEMENT_UPDATED,
+  type Announcement,
+} from "@checkstack/announcement-common";
 import { useSignal } from "@checkstack/signal-frontend";
 import { MarkdownBlock } from "@checkstack/ui";
 import {
@@ -91,10 +95,7 @@ function getLocalDismissedIds(): Set<string> {
 function saveLocalDismissedId(id: string) {
   const current = getLocalDismissedIds();
   current.add(id);
-  localStorage.setItem(
-    DISMISSED_STORAGE_KEY,
-    JSON.stringify([...current]),
-  );
+  localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify([...current]));
 }
 
 /**
@@ -178,11 +179,9 @@ const SEVERITY_ORDER: Record<string, number> = {
  */
 export const AnnouncementBanner: React.FC = () => {
   const announcementClient = usePluginClient(AnnouncementApi);
-  const [localDismissedIds, setLocalDismissedIds] = useState<Set<string>>(
-    () => getLocalDismissedIds(),
+  const [localDismissedIds, setLocalDismissedIds] = useState<Set<string>>(() =>
+    getLocalDismissedIds(),
   );
-
-  const queryClient = useQueryClient();
 
   const { data, isLoading, refetch } =
     announcementClient.getActiveAnnouncements.useQuery();
@@ -192,12 +191,6 @@ export const AnnouncementBanner: React.FC = () => {
   // oRPC query keys are structured as [[...path], { type, input }].
   useSignal(ANNOUNCEMENT_UPDATED, () => {
     void refetch();
-    void queryClient.invalidateQueries({
-      predicate: (query) => {
-        const key = query.queryKey;
-        return Array.isArray(key[0]) && key[0][0] === "announcement";
-      },
-    });
   });
 
   // Server-side dismiss — extract stable mutate function to avoid re-renders
@@ -213,8 +206,7 @@ export const AnnouncementBanner: React.FC = () => {
       .filter((a) => !localDismissedIds.has(a.id))
       .toSorted(
         (a, b) =>
-          (SEVERITY_ORDER[a.severity] ?? 2) -
-          (SEVERITY_ORDER[b.severity] ?? 2),
+          (SEVERITY_ORDER[a.severity] ?? 2) - (SEVERITY_ORDER[b.severity] ?? 2),
       );
   }, [data?.announcements, localDismissedIds]);
 
