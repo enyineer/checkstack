@@ -25,8 +25,15 @@ import {
   type Dependency,
   type NodePosition,
 } from "@checkstack/dependency-common";
-import { Button, Badge, LoadingSpinner, useToast } from "@checkstack/ui";
-import { Maximize2, Save, RefreshCw } from "lucide-react";
+import {
+  Button,
+  Badge,
+  LoadingSpinner,
+  Toggle,
+  useToast,
+} from "@checkstack/ui";
+import { Maximize2, Save, RefreshCw, Trash2 } from "lucide-react";
+import type { ImpactType } from "@checkstack/dependency-common";
 
 import {
   SystemNodeComponent,
@@ -85,6 +92,18 @@ function DependencyMapContent() {
   const [hasUnsaved, setHasUnsaved] = useState(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
+  // Edge editor state
+  const [selectedEdge, setSelectedEdge] = useState<
+    | {
+        id: string;
+        sourceSystemId: string;
+        targetSystemId: string;
+        impactType: ImpactType;
+        transitive: boolean;
+      }
+    | undefined
+  >();
+
   // Fetch systems
   const { data: systemsData, isLoading: systemsLoading } =
     catalogClient.getSystems.useQuery({});
@@ -119,6 +138,19 @@ function DependencyMapContent() {
     },
   });
 
+  // System name lookup
+  const systemNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of systemsData?.systems ?? []) {
+      map.set(s.id, s.name);
+    }
+    return map;
+  }, [systemsData]);
+
+  // UUID regex for parsing cycle errors
+  const UUID_REGEX =
+    /[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}/gi;
+
   // Create dependency mutation (for drag-to-connect)
   const toast = useToast();
   const createMutation = depClient.createDependency.useMutation({
@@ -128,9 +160,43 @@ function DependencyMapContent() {
       void refetchWarnings();
     },
     onError: (error) => {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to create dependency",
-      );
+      const message =
+        error instanceof Error ? error.message : "Failed to create dependency";
+
+      // Check for cycle error and resolve names
+      if (message.includes("circular chain")) {
+        const ids = message.match(UUID_REGEX) ?? [];
+        const names = ids.map((id) => systemNameMap.get(id) ?? id.slice(0, 8));
+        toast.error(`Circular dependency: ${names.join(" → ")}`);
+      } else {
+        toast.error(message);
+      }
+    },
+  });
+
+  // Update dependency mutation (for edge editor)
+  const updateMutation = depClient.updateDependency.useMutation({
+    onSuccess: () => {
+      toast.success("Dependency updated");
+      setSelectedEdge(undefined);
+      void refetchDeps();
+      void refetchWarnings();
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to update");
+    },
+  });
+
+  // Delete dependency mutation (for edge editor)
+  const deleteMutation = depClient.deleteDependency.useMutation({
+    onSuccess: () => {
+      toast.success("Dependency deleted");
+      setSelectedEdge(undefined);
+      void refetchDeps();
+      void refetchWarnings();
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to delete");
     },
   });
 
@@ -283,6 +349,19 @@ function DependencyMapContent() {
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onEdgeClick={(_event, edge) => {
+          const dep = depsData?.dependencies.find((d) => d.id === edge.id);
+          if (dep) {
+            setSelectedEdge({
+              id: dep.id,
+              sourceSystemId: dep.sourceSystemId,
+              targetSystemId: dep.targetSystemId,
+              impactType: dep.impactType,
+              transitive: dep.transitive,
+            });
+          }
+        }}
+        onPaneClick={() => setSelectedEdge(undefined)}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
@@ -375,13 +454,105 @@ function DependencyMapContent() {
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-6 h-[1px] border-t border-dashed border-muted-foreground/50" />
-                <span className="text-xs text-muted-foreground">
-                  Multi-hop
-                </span>
+                <span className="text-xs text-muted-foreground">Multi-hop</span>
               </div>
             </div>
           </div>
         </Panel>
+
+        {/* Edge editor panel */}
+        {selectedEdge && (
+          <Panel position="top-left">
+            <div className="bg-card/95 backdrop-blur-sm border border-border rounded-lg shadow-lg p-4 w-72 space-y-3">
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-foreground">
+                  Edit Dependency
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {systemNameMap.get(selectedEdge.sourceSystemId) ??
+                    selectedEdge.sourceSystemId}
+                  {" → "}
+                  {systemNameMap.get(selectedEdge.targetSystemId) ??
+                    selectedEdge.targetSystemId}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Impact</label>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={selectedEdge.impactType}
+                  onChange={(e) =>
+                    setSelectedEdge({
+                      ...selectedEdge,
+                      impactType: e.target.value as ImpactType,
+                    })
+                  }
+                >
+                  <option value="informational">Informational</option>
+                  <option value="degraded">Degraded</option>
+                  <option value="critical">Critical</option>
+                </select>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-border p-3">
+                <div className="space-y-0.5">
+                  <label className="text-sm font-medium">Multi-hop</label>
+                  <p className="text-xs text-muted-foreground">
+                    Cascade failures transitively.
+                  </p>
+                </div>
+                <Toggle
+                  checked={selectedEdge.transitive}
+                  onCheckedChange={(checked) =>
+                    setSelectedEdge({ ...selectedEdge, transitive: checked })
+                  }
+                  aria-label="Enable multi-hop propagation"
+                />
+              </div>
+              <div className="flex gap-2 justify-between">
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={() =>
+                    deleteMutation.mutate({
+                      id: selectedEdge.id,
+                      systemId: selectedEdge.sourceSystemId,
+                    })
+                  }
+                  disabled={deleteMutation.isPending}
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1" />
+                  Delete
+                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedEdge(undefined)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() =>
+                      updateMutation.mutate({
+                        id: selectedEdge.id,
+                        systemId: selectedEdge.sourceSystemId,
+                        impactType: selectedEdge.impactType,
+                        transitive: selectedEdge.transitive,
+                      })
+                    }
+                    disabled={updateMutation.isPending}
+                  >
+                    {updateMutation.isPending ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </Panel>
+        )}
       </ReactFlow>
     </div>
   );
@@ -395,9 +566,7 @@ const DependencyMapPageContent = () => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">
-            Dependency Map
-          </h1>
+          <h1 className="text-2xl font-bold text-foreground">Dependency Map</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Interactive topology view of system dependencies. Drag nodes to
             rearrange — positions auto-save.

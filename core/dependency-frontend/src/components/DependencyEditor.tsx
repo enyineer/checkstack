@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   usePluginClient,
   type SlotContext,
@@ -8,10 +9,12 @@ import { SystemEditorSlot } from "@checkstack/catalog-common";
 import {
   DependencyApi,
   DEPENDENCY_CHANGED,
+  dependencyRoutes,
   type Dependency,
   type ImpactType,
 } from "@checkstack/dependency-common";
 import { CatalogApi } from "@checkstack/catalog-common";
+import { resolveRoute } from "@checkstack/common";
 import {
   Badge,
   Button,
@@ -29,6 +32,7 @@ import {
   X,
   AlertTriangle,
   RotateCcw,
+  MapIcon,
 } from "lucide-react";
 
 type Props = SlotContext<typeof SystemEditorSlot>;
@@ -304,6 +308,21 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
           No dependencies configured.
         </p>
       )}
+
+      {/* Dependency Map link */}
+      <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 p-2.5">
+        <MapIcon className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+        <p className="text-xs text-muted-foreground">
+          Managing dependencies is easier on a larger screen using the{" "}
+          <Link
+            to={resolveRoute(dependencyRoutes.routes.map)}
+            className="text-primary underline underline-offset-2 hover:text-primary/80"
+          >
+            Dependency Map
+          </Link>
+          .
+        </p>
+      </div>
     </div>
   );
 };
