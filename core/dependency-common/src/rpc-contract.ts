@@ -20,6 +20,7 @@ export const dependencyContract = {
     operationType: "query",
     userType: "public",
     access: [dependencyAccess.dependency.read],
+    instanceAccess: { idParam: "systemId" },
   })
     .input(
       z.object({
@@ -70,6 +71,7 @@ export const dependencyContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [dependencyAccess.dependency.manage],
+    instanceAccess: { idParam: "sourceSystemId" },
   })
     .input(CreateDependencyInputSchema)
     .output(DependencySchema),
@@ -79,6 +81,7 @@ export const dependencyContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [dependencyAccess.dependency.manage],
+    instanceAccess: { idParam: "systemId" },
   })
     .input(UpdateDependencyInputSchema)
     .output(DependencySchema),
@@ -88,8 +91,9 @@ export const dependencyContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [dependencyAccess.dependency.manage],
+    instanceAccess: { idParam: "systemId" },
   })
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string(), systemId: z.string() }))
     .output(z.object({ success: z.boolean() })),
 
   // ==========================================================================

@@ -10,11 +10,10 @@ import { SystemDetailsSlot } from "@checkstack/catalog-common";
 import {
   DependencyApi,
   DEPENDENCY_CHANGED,
-  dependencyAccess,
   type Dependency,
   type ImpactType,
 } from "@checkstack/dependency-common";
-import { CatalogApi } from "@checkstack/catalog-common";
+import { CatalogApi, catalogAccess } from "@checkstack/catalog-common";
 import {
   Card,
   CardHeader,
@@ -58,7 +57,7 @@ export const DependencyEditor: React.FC<Props> = ({ system }) => {
   const catalogClient = usePluginClient(CatalogApi);
   const accessApi = useApi(accessApiRef);
   const { allowed: canManage } = accessApi.useAccess(
-    dependencyAccess.dependency.manage,
+    catalogAccess.system.manage,
   );
 
   const [isAdding, setIsAdding] = useState(false);
@@ -112,7 +111,7 @@ export const DependencyEditor: React.FC<Props> = ({ system }) => {
   };
 
   const handleDelete = (dep: Dependency) => {
-    deleteMutation.mutate({ id: dep.id });
+    deleteMutation.mutate({ id: dep.id, systemId: system?.id ?? "" });
   };
 
   if (!system?.id) return;

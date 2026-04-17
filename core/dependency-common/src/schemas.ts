@@ -125,6 +125,7 @@ export type CreateDependencyInput = z.infer<typeof CreateDependencyInputSchema>;
  */
 export const UpdateDependencyInputSchema = z.object({
   id: z.string(),
+  systemId: z.string(),
   impactType: ImpactTypeSchema.optional(),
   transitive: z.boolean().optional(),
   label: z.string().nullable().optional(),

@@ -1,4 +1,4 @@
-CREATE TYPE "public"."impact_type" AS ENUM('informational', 'degraded', 'critical');--> statement-breakpoint
+CREATE TYPE "impact_type" AS ENUM('informational', 'degraded', 'critical');--> statement-breakpoint
 CREATE TABLE "dependencies" (
 	"id" text PRIMARY KEY NOT NULL,
 	"source_system_id" text NOT NULL,
@@ -27,4 +27,4 @@ CREATE TABLE "node_positions" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "dependency_health_check_rules" ADD CONSTRAINT "dependency_health_check_rules_dependency_id_dependencies_id_fk" FOREIGN KEY ("dependency_id") REFERENCES "public"."dependencies"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "dependency_health_check_rules" ADD CONSTRAINT "dependency_health_check_rules_dependency_id_dependencies_id_fk" FOREIGN KEY ("dependency_id") REFERENCES "dependencies"("id") ON DELETE cascade ON UPDATE no action;
