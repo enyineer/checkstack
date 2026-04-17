@@ -1,0 +1,17 @@
+# @checkstack/about-frontend
+
+## 0.2.0
+
+### Minor Changes
+
+- 3589199: Add About page with platform information, license, contact details, and version information
+
+  - New `about-common` package with plugin metadata
+  - New `about-frontend` package with the About page and user menu item
+  - New `/api/about` backend endpoint exposing core version and loaded plugin versions
+  - Accessible via "About Checkstack" in the user menu dropdown
+
+### Patch Changes
+
+- Updated dependencies [3589199]
+  - @checkstack/about-common@0.2.0
