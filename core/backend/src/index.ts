@@ -95,6 +95,54 @@ app.get("/api/plugins", async (c) => {
   return c.json(enabledPlugins);
 });
 
+// About endpoint - returns core version and loaded plugin versions
+app.get("/api/about", async (c) => {
+  // Read core backend version from package.json
+  let coreVersion = "unknown";
+  try {
+    const corePkgPath = path.join(import.meta.dir, "..", "package.json");
+    if (fs.existsSync(corePkgPath)) {
+      const corePkg = JSON.parse(fs.readFileSync(corePkgPath, "utf8"));
+      coreVersion = corePkg.version ?? "unknown";
+    }
+  } catch {
+    rootLogger.debug("Failed to read core backend package.json for version");
+  }
+
+  // Read all enabled plugins with their versions from their package.json files
+  const enabledPlugins = await db
+    .select({
+      name: plugins.name,
+      path: plugins.path,
+      type: plugins.type,
+    })
+    .from(plugins)
+    .where(eq(plugins.enabled, true));
+
+  const pluginInfos = enabledPlugins.map((plugin) => {
+    let version = "unknown";
+    try {
+      const pkgJsonPath = path.join(plugin.path, "package.json");
+      if (fs.existsSync(pkgJsonPath)) {
+        const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8"));
+        version = pkgJson.version ?? "unknown";
+      }
+    } catch {
+      // Plugin path may not have a readable package.json (e.g., remote plugins)
+    }
+    return {
+      name: plugin.name,
+      version,
+      type: plugin.type,
+    };
+  });
+
+  return c.json({
+    coreVersion,
+    plugins: pluginInfos,
+  });
+});
+
 app.get("/.well-known/jwks.json", async (c) => {
   const { keyStore } = await import("./services/keystore");
   const jwks = await keyStore.getPublicJWKS();

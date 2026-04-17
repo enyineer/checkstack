@@ -23,9 +23,13 @@
 ---
 
 > [!WARNING]
-> Checkstack is currently in **alpha** and is not ready for production use.
+> Checkstack Core is currently in **beta**.
 >
-> Breaking changes are to be expected regularly in this development phase. We're still happy if you try it out and give us feedback!
+> Breaking changes might happen, but are not to be expected regularly.
+>
+> Some plugins are still in Alpha and need more testing, as we don't have all the integration systems available to thoroughly test them right now.
+>
+> Please report any issues you find via the [issue tracker](https://github.com/checkstack/checkstack/issues)!
 
 ## 📸 Screenshots
 
