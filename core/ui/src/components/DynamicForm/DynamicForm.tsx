@@ -3,7 +3,7 @@ import React from "react";
 import { EmptyState } from "../../index";
 
 import type { DynamicFormProps } from "./types";
-import { extractDefaults, isValueEmpty } from "./utils";
+import { extractDefaults, isValueEmpty, isFieldHiddenByCondition } from "./utils";
 import { FormField } from "./FormField";
 
 /**
@@ -50,6 +50,13 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
       // Skip hidden fields - they are auto-populated
       if (propSchema["x-hidden"]) continue;
 
+      // Skip conditionally hidden fields - they are not visible
+      if (
+        propSchema["x-hidden-when"] &&
+        isFieldHiddenByCondition(propSchema["x-hidden-when"], value)
+      )
+        continue;
+
       if (isValueEmpty(value[key], propSchema)) {
         isValid = false;
         break;
@@ -79,7 +86,15 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   return (
     <div className="space-y-6">
       {Object.entries(schema.properties)
-        .filter(([, propSchema]) => !propSchema["x-hidden"])
+        .filter(([, propSchema]) => {
+          if (propSchema["x-hidden"]) return false;
+          if (
+            propSchema["x-hidden-when"] &&
+            isFieldHiddenByCondition(propSchema["x-hidden-when"], value)
+          )
+            return false;
+          return true;
+        })
         .map(([key, propSchema]) => {
           const isRequired = schema.required?.includes(key);
           const label = key.charAt(0).toUpperCase() + key.slice(1);

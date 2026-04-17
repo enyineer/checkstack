@@ -5,14 +5,16 @@ import type {
   JiraField,
   JiraConnection,
 } from "@checkstack/integration-jira-common";
+import type { JiraAuthMode } from "./provider";
 
 /**
  * Connection config for generic connection management.
  * Mirrors the structure from provider.ts.
  */
 export interface JiraConnectionConfig {
+  authMode?: JiraAuthMode;
   baseUrl: string;
-  email: string;
+  email?: string;
   apiToken: string;
 }
 
@@ -53,28 +55,43 @@ export interface CreateIssuePayload {
  * Options for creating a Jira client.
  */
 interface JiraClientOptions {
+  authMode?: JiraAuthMode;
   baseUrl: string;
-  email: string;
+  email?: string;
   apiToken: string;
   logger: Logger;
 }
 
 /**
+ * API version per api-name.
+ * Data Center versions each api-name independently.
+ * Currently we only use the 'api' name. Cloud=3, Data Center=2.
+ */
+const API_VERSIONS = {
+  cloud: { api: "3", agile: "1", auth: "1" },
+  datacenter: { api: "2", agile: "1", auth: "1" },
+} as const;
+
+/**
  * Create a typed Jira REST API client.
  */
 export function createJiraClient(options: JiraClientOptions) {
-  const { baseUrl, email, apiToken, logger } = options;
+  const { baseUrl, email, apiToken, logger, authMode = "cloud" } = options;
 
-  // Build basic auth header
-  const authHeader = `Basic ${Buffer.from(`${email}:${apiToken}`).toString(
-    "base64"
-  )}`;
+  // Build auth header based on mode
+  const authHeader =
+    authMode === "datacenter"
+      ? `Bearer ${apiToken}`
+      : `Basic ${Buffer.from(`${email}:${apiToken}`).toString("base64")}`;
+
+  // Resolve API version for the 'api' name
+  const apiVersion = API_VERSIONS[authMode].api;
 
   /**
    * Make an authenticated request to the Jira API.
    */
   async function request<T>(path: string, init?: RequestInit): Promise<T> {
-    const url = `${baseUrl.replace(/\/$/, "")}/rest/api/3${path}`;
+    const url = `${baseUrl.replace(/\/$/, "")}/rest/api/${apiVersion}${path}`;
 
     const response = await fetch(url, {
       ...init,
@@ -104,7 +121,8 @@ export function createJiraClient(options: JiraClientOptions) {
      */
     async testConnection(): Promise<{ success: boolean; message?: string }> {
       try {
-        await request<{ accountId: string }>("/myself");
+        // Cloud returns accountId, Data Center returns name/key — we only check for success
+        await request<Record<string, unknown>>("/myself");
         return { success: true };
       } catch (error) {
         return {
@@ -272,17 +290,20 @@ export function createJiraClient(options: JiraClientOptions) {
       };
 
       if (description) {
-        // Use Atlassian Document Format for description
-        fields.description = {
-          type: "doc",
-          version: 1,
-          content: [
-            {
-              type: "paragraph",
-              content: [{ type: "text", text: description }],
-            },
-          ],
-        };
+        // Data Center uses plain text (REST API v2), Cloud uses Atlassian Document Format (REST API v3)
+        fields.description =
+          authMode === "datacenter"
+            ? description
+            : {
+                type: "doc",
+                version: 1,
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [{ type: "text", text: description }],
+                  },
+                ],
+              };
       }
 
       if (priorityId) {
@@ -303,9 +324,10 @@ export function createJiraClient(options: JiraClientOptions) {
  */
 export function createJiraClientFromConfig(
   config: JiraConnectionConfig,
-  logger: Logger
+  logger: Logger,
 ) {
   return createJiraClient({
+    authMode: config.authMode ?? "cloud",
     baseUrl: config.baseUrl,
     email: config.email,
     apiToken: config.apiToken,

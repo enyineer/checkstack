@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Versioned, configString } from "@checkstack/backend-api";
+import { Versioned, configString, type Migration } from "@checkstack/backend-api";
 import type {
   IntegrationProvider,
   IntegrationDeliveryContext,
@@ -8,20 +8,74 @@ import type {
   ConnectionOption,
   GetConnectionOptionsParams,
 } from "@checkstack/integration-backend";
-import { createJiraClient, createJiraClientFromConfig } from "./jira-client";
+import { createJiraClientFromConfig } from "./jira-client";
 import { expandTemplate } from "./template-engine";
 
 /**
+ * Supported Jira authentication modes.
+ * - cloud: Jira Cloud (email + API token, Basic Auth, REST API v3)
+ * - datacenter: Jira Data Center / Server (Personal Access Token, Bearer Auth, REST API v2)
+ */
+export const JIRA_AUTH_MODES = ["cloud", "datacenter"] as const;
+export type JiraAuthMode = (typeof JIRA_AUTH_MODES)[number];
+
+/**
  * Schema for Jira connection configuration.
+ * Supports both Jira Cloud and Jira Data Center (on-premise) deployments.
  * Uses configString with x-secret for API token encryption and automatic redaction.
  */
-export const JiraConnectionConfigSchema = z.object({
-  baseUrl: configString({}).url().describe("Jira Cloud base URL"),
-  email: configString({}).email().describe("Jira user email"),
-  apiToken: configString({ "x-secret": true }).describe("Jira API token"),
-});
+export const JiraConnectionConfigSchema = z
+  .object({
+    authMode: z
+      .enum(JIRA_AUTH_MODES)
+      .default("cloud")
+      .describe("Authentication mode"),
+    baseUrl: configString({}).url().describe("Jira base URL"),
+    email: configString({
+      "x-hidden-when": { authMode: ["datacenter"] },
+    })
+      .email()
+      .optional()
+      .describe("Jira user email"),
+    apiToken: configString({ "x-secret": true }).describe(
+      "API token or Personal Access Token",
+    ),
+  })
+  .superRefine((data, ctx) => {
+    if (data.authMode === "cloud" && !data.email) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Email is required for Jira Cloud connections",
+        path: ["email"],
+      });
+    }
+  });
 
 export type JiraConnectionConfig = z.infer<typeof JiraConnectionConfigSchema>;
+
+/** V1 connection config shape (before authMode was added) */
+interface JiraConnectionConfigV1 {
+  baseUrl: string;
+  email: string;
+  apiToken: string;
+}
+
+/**
+ * Migration from v1 to v2: adds authMode field.
+ * All existing connections were Jira Cloud, so we default to "cloud".
+ */
+const connectionConfigV1ToV2: Migration<
+  JiraConnectionConfigV1,
+  JiraConnectionConfig
+> = {
+  fromVersion: 1,
+  toVersion: 2,
+  description: "Add authMode field (default: cloud) for Data Center support",
+  migrate: (data) => ({
+    ...data,
+    authMode: "cloud" as const,
+  }),
+};
 
 /**
  * Resolver names for dynamic dropdowns.
@@ -115,17 +169,26 @@ export function createJiraProvider(): IntegrationProvider<
 
     // Connection configuration schema for generic connection management
     connectionSchema: new Versioned({
-      version: 1,
+      version: 2,
       schema: JiraConnectionConfigSchema,
+      migrations: [connectionConfigV1ToV2],
     }),
 
     documentation: {
       setupGuide: `
 ## Jira Integration Setup
 
-1. **Create a Jira Connection**: First, set up a site-wide Jira connection with your Atlassian credentials.
-2. **Configure the Subscription**: Select your connection, project, and issue type.
-3. **Set Up Templates**: Use \`{{payload.property}}\` syntax to dynamically populate issue fields from event data.
+This integration supports both **Jira Cloud** and **Jira Data Center** (on-premise).
+
+### Jira Cloud
+1. Select **cloud** as the authentication mode.
+2. Enter your Atlassian base URL (e.g., \`https://yourcompany.atlassian.net\`).
+3. Enter your Jira user email and an [API token](https://id.atlassian.com/manage-profile/security/api-tokens).
+
+### Jira Data Center (On-Premise)
+1. Select **datacenter** as the authentication mode.
+2. Enter your Jira Server base URL (e.g., \`https://jira.yourcompany.com\`).
+3. Enter a [Personal Access Token (PAT)](https://confluence.atlassian.com/enterprise/using-personal-access-tokens-1026032365.html) — no email is required.
 
 ### Template Syntax
 
@@ -300,13 +363,8 @@ If a property is missing, the placeholder will be preserved in the output for de
       // Type-safe config access
       const config = connection.config as JiraConnectionConfig;
 
-      // Create Jira client
-      const client = createJiraClient({
-        baseUrl: config.baseUrl,
-        email: config.email,
-        apiToken: config.apiToken,
-        logger,
-      });
+      // Create Jira client (authMode is handled by createJiraClientFromConfig)
+      const client = createJiraClientFromConfig(config, logger);
 
       // Expand templates using the event payload
       const payload = event.payload as Record<string, unknown>;
