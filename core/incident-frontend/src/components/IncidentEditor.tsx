@@ -274,11 +274,12 @@ export const IncidentEditor: React.FC<Props> = ({
                     htmlFor="suppress-notifications"
                     className="cursor-pointer font-medium"
                   >
-                    Suppress health notifications
+                    Suppress notifications
                   </Label>
                   <p className="text-xs text-muted-foreground mt-1">
-                    When enabled, health status change notifications will not be
-                    sent for affected systems while this incident is active.
+                    When enabled, health status change notifications and
+                    downstream dependency impact notifications will not be sent
+                    for affected systems while this incident is active.
                   </p>
                 </div>
               </div>

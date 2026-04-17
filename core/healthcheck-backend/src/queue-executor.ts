@@ -20,6 +20,7 @@ import { eq, and, max } from "drizzle-orm";
 import { type SignalService } from "@checkstack/signal-common";
 import {
   HEALTH_CHECK_RUN_COMPLETED,
+  SYSTEM_STATUS_CHANGED,
   type HealthCheckStatus,
   stripEphemeralFields,
 } from "@checkstack/healthcheck-common";
@@ -600,6 +601,13 @@ async function executeHealthCheckJob(props: {
         logger,
       });
 
+      // Broadcast system-level status change signal for frontend reactivity
+      await signalService.broadcast(SYSTEM_STATUS_CHANGED, {
+        systemId,
+        previousStatus: previousStatus as HealthCheckStatus,
+        newStatus: newState.status,
+      });
+
       // Emit integration hooks for external integrations
       const emitHook = getEmitHook();
       if (emitHook) {
@@ -705,6 +713,13 @@ async function executeHealthCheckJob(props: {
         maintenanceClient,
         incidentClient,
         logger,
+      });
+
+      // Broadcast system-level status change signal for frontend reactivity
+      await signalService.broadcast(SYSTEM_STATUS_CHANGED, {
+        systemId,
+        previousStatus: previousStatus as HealthCheckStatus,
+        newStatus: newState.status,
       });
 
       // Emit integration hooks for external integrations

@@ -61,3 +61,18 @@ export const HEALTH_CHECK_RUN_COMPLETED = createSignal(
     latencyMs: z.number().optional(),
   }),
 );
+
+/**
+ * Broadcast when a system's overall health status transitions.
+ * Only fires on actual status changes (e.g. healthy → degraded, unhealthy → healthy),
+ * NOT on every individual health check run. Use this for coarse-grained reactivity
+ * like dashboard badges and dependency map node statuses.
+ */
+export const SYSTEM_STATUS_CHANGED = createSignal(
+  "healthcheck.system.status-changed",
+  z.object({
+    systemId: z.string(),
+    previousStatus: z.enum(["healthy", "degraded", "unhealthy"]),
+    newStatus: z.enum(["healthy", "degraded", "unhealthy"]),
+  }),
+);
