@@ -13,7 +13,7 @@
 ---
 
 <p align="center">
-  <img src="https://img.shields.io/badge/status-alpha-orange?style=flat-square" alt="Alpha Status" />
+  <img src="https://img.shields.io/badge/status-beta-orange?style=flat-square" alt="Beta Status" />
   <img src="https://img.shields.io/badge/runtime-bun-f9f1e1?style=flat-square&logo=bun" alt="Bun Runtime" />
   <img src="https://img.shields.io/badge/frontend-react-61dafb?style=flat-square&logo=react" alt="React" />
   <img src="https://img.shields.io/badge/database-postgresql-336791?style=flat-square&logo=postgresql" alt="PostgreSQL" />
