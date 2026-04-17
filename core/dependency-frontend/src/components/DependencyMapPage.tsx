@@ -9,6 +9,7 @@ import {
   useReactFlow,
   ReactFlowProvider,
   type NodeChange,
+  type Connection,
   MarkerType,
   Panel,
 } from "@xyflow/react";
@@ -24,7 +25,7 @@ import {
   type Dependency,
   type NodePosition,
 } from "@checkstack/dependency-common";
-import { Button, Badge, LoadingSpinner } from "@checkstack/ui";
+import { Button, Badge, LoadingSpinner, useToast } from "@checkstack/ui";
 import { Maximize2, Save, RefreshCw } from "lucide-react";
 
 import {
@@ -117,6 +118,38 @@ function DependencyMapContent() {
       setHasUnsaved(false);
     },
   });
+
+  // Create dependency mutation (for drag-to-connect)
+  const toast = useToast();
+  const createMutation = depClient.createDependency.useMutation({
+    onSuccess: () => {
+      toast.success("Dependency created");
+      void refetchDeps();
+      void refetchWarnings();
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create dependency",
+      );
+    },
+  });
+
+  // Handle edge connection (drag from source handle to target handle)
+  const { mutate: createDependency } = createMutation;
+  const onConnect = useCallback(
+    (connection: Connection) => {
+      if (!connection.source || !connection.target) return;
+      if (connection.source === connection.target) return;
+
+      createDependency({
+        sourceSystemId: connection.source,
+        targetSystemId: connection.target,
+        impactType: "degraded",
+        transitive: false,
+      });
+    },
+    [createDependency],
+  );
 
   // Build graph from data
   useEffect(() => {
@@ -249,6 +282,7 @@ function DependencyMapContent() {
         edges={edges}
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
