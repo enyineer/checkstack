@@ -1,5 +1,12 @@
 # @checkstack/auth-saml-backend
 
+## 0.1.15
+
+### Patch Changes
+
+- @checkstack/backend-api@0.10.1
+- @checkstack/auth-backend@0.4.15
+
 ## 0.1.14
 
 ### Patch Changes
