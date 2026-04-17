@@ -41,6 +41,7 @@ import { SignalProvider } from "@checkstack/signal-frontend";
 import { SessionProvider } from "@checkstack/auth-frontend";
 import { usePluginLifecycle } from "./hooks/usePluginLifecycle";
 import { useCommands, useGlobalShortcuts } from "@checkstack/command-frontend";
+import { AnnouncementBanner } from "@checkstack/announcement-frontend";
 
 // Create a stable query client instance
 const queryClient = new QueryClient({
@@ -132,6 +133,7 @@ function AppContent() {
       {/* Global keyboard shortcuts for commands */}
       <GlobalShortcuts />
       <AmbientBackground className="text-foreground font-sans">
+        <AnnouncementBanner />
         <header className="p-4 bg-card/80 backdrop-blur-sm shadow-sm border-b border-border z-50 relative">
           <div className="flex items-center justify-between gap-4">
             {/* Left: Logo and main navigation */}
