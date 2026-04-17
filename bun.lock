@@ -24,7 +24,7 @@
     },
     "core/about-common": {
       "name": "@checkstack/about-common",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@checkstack/common": "workspace:*",
       },
@@ -36,7 +36,7 @@
     },
     "core/about-frontend": {
       "name": "@checkstack/about-frontend",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@checkstack/about-common": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -55,7 +55,7 @@
     },
     "core/announcement-backend": {
       "name": "@checkstack/announcement-backend",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/auth-backend": "workspace:*",
@@ -78,7 +78,7 @@
     },
     "core/announcement-common": {
       "name": "@checkstack/announcement-common",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
@@ -93,7 +93,7 @@
     },
     "core/announcement-frontend": {
       "name": "@checkstack/announcement-frontend",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/auth-frontend": "workspace:*",
@@ -206,7 +206,7 @@
     },
     "core/backend": {
       "name": "@checkstack/backend",
-      "version": "0.4.17",
+      "version": "0.5.0",
       "dependencies": {
         "@checkstack/api-docs-common": "workspace:*",
         "@checkstack/auth-common": "workspace:*",
@@ -427,6 +427,68 @@
         "typescript": "^5.0.0",
       },
     },
+    "core/dependency-backend": {
+      "name": "@checkstack/dependency-backend",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/backend-api": "workspace:*",
+        "@checkstack/catalog-backend": "workspace:*",
+        "@checkstack/catalog-common": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/dependency-common": "workspace:*",
+        "@checkstack/healthcheck-common": "workspace:*",
+        "@checkstack/signal-common": "workspace:*",
+        "@orpc/server": "^1.13.2",
+        "drizzle-orm": "^0.45.0",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkstack/drizzle-helper": "workspace:*",
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/test-utils-backend": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/bun": "^1.0.0",
+        "typescript": "^5.0.0",
+      },
+    },
+    "core/dependency-common": {
+      "name": "@checkstack/dependency-common",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/common": "workspace:*",
+        "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/signal-common": "workspace:*",
+        "@orpc/contract": "^1.13.14",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
+    "core/dependency-frontend": {
+      "name": "@checkstack/dependency-frontend",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/catalog-common": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/dashboard-frontend": "workspace:*",
+        "@checkstack/dependency-common": "workspace:*",
+        "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/signal-frontend": "workspace:*",
+        "@checkstack/ui": "workspace:*",
+        "lucide-react": "^0.344.0",
+        "react": "^18.2.0",
+        "react-router-dom": "^6.20.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/react": "^18.2.0",
+        "typescript": "^5.0.0",
+      },
+    },
     "core/drizzle-helper": {
       "name": "@checkstack/drizzle-helper",
       "version": "0.0.4",
@@ -436,7 +498,7 @@
     },
     "core/frontend": {
       "name": "@checkstack/frontend",
-      "version": "0.2.22",
+      "version": "0.3.0",
       "dependencies": {
         "@checkstack/about-frontend": "workspace:*",
         "@checkstack/announcement-frontend": "workspace:*",
@@ -444,6 +506,7 @@
         "@checkstack/catalog-frontend": "workspace:*",
         "@checkstack/command-frontend": "workspace:*",
         "@checkstack/common": "workspace:*",
+        "@checkstack/dependency-frontend": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
@@ -893,7 +956,7 @@
     },
     "core/release": {
       "name": "@checkstack/release",
-      "version": "0.39.0",
+      "version": "0.40.0",
     },
     "core/scripts": {
       "name": "@checkstack/scripts",
@@ -1809,6 +1872,12 @@
     "@checkstack/common": ["@checkstack/common@workspace:core/common"],
 
     "@checkstack/dashboard-frontend": ["@checkstack/dashboard-frontend@workspace:core/dashboard-frontend"],
+
+    "@checkstack/dependency-backend": ["@checkstack/dependency-backend@workspace:core/dependency-backend"],
+
+    "@checkstack/dependency-common": ["@checkstack/dependency-common@workspace:core/dependency-common"],
+
+    "@checkstack/dependency-frontend": ["@checkstack/dependency-frontend@workspace:core/dependency-frontend"],
 
     "@checkstack/drizzle-helper": ["@checkstack/drizzle-helper@workspace:core/drizzle-helper"],
 

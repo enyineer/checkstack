@@ -21,6 +21,7 @@
     "@checkstack/catalog-frontend": "workspace:*",
     "@checkstack/command-frontend": "workspace:*",
     "@checkstack/common": "workspace:*",
+    "@checkstack/dependency-frontend": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
