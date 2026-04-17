@@ -29,7 +29,7 @@
 >
 > Some plugins are still in Alpha and need more testing, as we don't have all the integration systems available to thoroughly test them right now.
 >
-> Please report any issues you find via the [issue tracker](https://github.com/checkstack/checkstack/issues)!
+> Please report any issues you find via the [issue tracker](https://github.com/enyineer/checkstack/issues)!
 
 ## 📸 Screenshots
 
