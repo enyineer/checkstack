@@ -69,3 +69,14 @@ export const nodePositions = pgTable("node_positions", {
   y: real("y").notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+/**
+ * Tracks the last known derived state per downstream system.
+ * Used by the notification sidecar to detect state transitions
+ * and avoid duplicate notifications across horizontally-scaled instances.
+ */
+export const dependencyDerivedStates = pgTable("dependency_derived_states", {
+  systemId: text("system_id").primaryKey(),
+  derivedState: text("derived_state").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
