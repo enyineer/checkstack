@@ -1,5 +1,47 @@
 # @checkstack/healthcheck-backend
 
+## 0.11.0
+
+### Minor Changes
+
+- 1f191cf: Add SYSTEM_STATUS_CHANGED signal and dependency-driven notification improvements
+
+  **healthcheck-common:**
+
+  - New `SYSTEM_STATUS_CHANGED` signal that fires only on system-level health status transitions (healthy ↔ degraded ↔ unhealthy), providing a low-noise alternative to `HEALTH_CHECK_RUN_COMPLETED` for coarse-grained reactivity
+
+  **healthcheck-backend:**
+
+  - Broadcast `SYSTEM_STATUS_CHANGED` signal at both status transition code paths in the queue executor
+
+  **healthcheck-frontend:**
+
+  - Switch `SystemHealthBadge` from `HEALTH_CHECK_RUN_COMPLETED` to `SYSTEM_STATUS_CHANGED` to reduce unnecessary refetch noise
+
+  **dashboard-frontend:**
+
+  - Switch `SystemBadgeDataProvider` from `HEALTH_CHECK_RUN_COMPLETED` to `SYSTEM_STATUS_CHANGED` for more efficient badge updates
+
+  **maintenance-frontend:**
+
+  - Clarify that notification suppression toggle also applies to downstream dependency-driven notifications
+
+  **incident-frontend:**
+
+  - Clarify that notification suppression toggle also applies to downstream dependency-driven notifications
+
+### Patch Changes
+
+- Updated dependencies [1f191cf]
+- Updated dependencies [3f36a64]
+  - @checkstack/healthcheck-common@0.9.0
+  - @checkstack/catalog-common@1.3.0
+  - @checkstack/backend-api@0.10.1
+  - @checkstack/catalog-backend@0.2.21
+  - @checkstack/command-backend@0.1.16
+  - @checkstack/integration-backend@0.1.16
+  - @checkstack/queue-api@0.2.10
+
 ## 0.10.7
 
 ### Patch Changes

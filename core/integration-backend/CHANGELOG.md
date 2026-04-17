@@ -1,5 +1,13 @@
 # @checkstack/integration-backend
 
+## 0.1.16
+
+### Patch Changes
+
+- @checkstack/backend-api@0.10.1
+- @checkstack/command-backend@0.1.16
+- @checkstack/queue-api@0.2.10
+
 ## 0.1.15
 
 ### Patch Changes

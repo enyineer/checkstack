@@ -1,5 +1,12 @@
 # @checkstack/auth-ldap-backend
 
+## 0.1.16
+
+### Patch Changes
+
+- @checkstack/backend-api@0.10.1
+- @checkstack/auth-backend@0.4.15
+
 ## 0.1.15
 
 ### Patch Changes

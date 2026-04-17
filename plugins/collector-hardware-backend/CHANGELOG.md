@@ -1,5 +1,13 @@
 # @checkstack/collector-hardware-backend
 
+## 0.1.21
+
+### Patch Changes
+
+- Updated dependencies [1f191cf]
+  - @checkstack/healthcheck-common@0.9.0
+  - @checkstack/backend-api@0.10.1
+
 ## 0.1.20
 
 ### Patch Changes

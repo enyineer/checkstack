@@ -1,5 +1,15 @@
 # @checkstack/maintenance-backend
 
+## 0.5.12
+
+### Patch Changes
+
+- Updated dependencies [3f36a64]
+  - @checkstack/catalog-common@1.3.0
+  - @checkstack/backend-api@0.10.1
+  - @checkstack/command-backend@0.1.16
+  - @checkstack/integration-backend@0.1.16
+
 ## 0.5.11
 
 ### Patch Changes
