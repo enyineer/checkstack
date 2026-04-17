@@ -85,11 +85,15 @@ Detailed maintenance view showing schedule, affected systems, and status history
 </details>
 
 <details>
-<summary><strong>📋 Catalog & Notifications</strong></summary>
+<summary><strong>📋 Catalog, Dependencies & Notifications</strong></summary>
 
 ### System Catalog
 Organize your infrastructure into Systems and Groups. Track dependencies, assign owners, and maintain a clear inventory of all monitored services.
 ![Catalog Management](assets/screenshots/catalog-management.png)
+
+### Dependency Map
+Interactive topology view of your system dependencies. Drag to connect systems, click edges to edit impact and propagation settings, and auto-save node positions.
+![Dependency Map](assets/screenshots/dependency-map.png)
 
 ### In-App Notification Bell
 Real-time notification center accessible from any page. Shows unread count badge and instant updates via WebSocket.
@@ -179,6 +183,19 @@ Think of it as your all-in-one solution for operational visibility - combining t
 > *Your single source of truth for all monitored services*
 
 Organize your infrastructure into **Systems** and **Groups**. Track dependencies, assign owners, and maintain a clear inventory of everything that matters.
+
+---
+
+### System Dependencies
+> *Understand how your systems are connected*
+
+- **Dependency Mapping** - Define directional edges between systems ("A depends on B")
+- **Impact Types** - Classify dependencies as informational, degraded, or critical
+- **Multi-hop Propagation** - Enable transitive warning cascading through dependency chains
+- **Cycle Detection** - Prevent circular dependencies with visual chain feedback
+- **Health Check Rules** - Fine-grained dependency impact per health check
+- **Interactive Dependency Map** - Visual graph canvas with drag-to-connect, edge editing, and auto-saving node positions
+- **Integrated Editor** - Configure dependencies directly in the system editor dialog
 
 ---
 
