@@ -277,6 +277,9 @@ function DependencyMapContent() {
   }, [systemsData, depsData, posData, warningsData, setNodes, setEdges]);
 
   // Track node position changes for saving
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+
   const handleNodesChange = useCallback(
     (changes: NodeChange<SystemNode>[]) => {
       onNodesChange(changes);
@@ -301,17 +304,17 @@ function DependencyMapContent() {
     [onNodesChange],
   );
 
-  // Save positions
+  // Save positions — reads from nodesRef to avoid stale closure
   const { mutate: savePositions } = saveMutation;
   const handleSave = useCallback(() => {
-    const positions: NodePosition[] = nodes.map((n) => ({
+    const positions: NodePosition[] = nodesRef.current.map((n) => ({
       systemId: n.id,
       x: Math.round(n.position.x),
       y: Math.round(n.position.y),
     }));
 
     savePositions({ positions });
-  }, [nodes, savePositions]);
+  }, [savePositions]);
 
   // Listen for realtime dependency changes
   useSignal(DEPENDENCY_CHANGED, () => {
