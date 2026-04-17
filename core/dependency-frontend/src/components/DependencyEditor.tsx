@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   usePluginClient,
   type SlotContext,
@@ -25,6 +25,8 @@ import {
   Plus,
   Trash2,
   Settings2,
+  Check,
+  X,
 } from "lucide-react";
 
 type Props = SlotContext<typeof SystemEditorSlot>;
@@ -68,10 +70,17 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
     { enabled: !!systemId },
   );
 
-  // Fetch all systems for the dropdown
-  const { data: systemsData } = catalogClient.getSystems.useQuery(undefined, {
-    enabled: isAdding,
-  });
+  // Fetch all systems — needed for name resolution in rows and the dropdown
+  const { data: systemsData } = catalogClient.getSystems.useQuery({});
+
+  // Build name lookup map
+  const systemNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of systemsData?.systems ?? []) {
+      map.set(s.id, s.name);
+    }
+    return map;
+  }, [systemsData]);
 
   // Listen for realtime changes
   useSignal(DEPENDENCY_CHANGED, () => {
@@ -92,6 +101,12 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
     },
   });
 
+  const updateMutation = depClient.updateDependency.useMutation({
+    onSuccess: () => {
+      void refetchDeps();
+    },
+  });
+
   const handleCreate = () => {
     if (!systemId || !selectedTargetId) return;
     createMutation.mutate({
@@ -104,6 +119,23 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
 
   const handleDelete = (dep: Dependency) => {
     deleteMutation.mutate({ id: dep.id, systemId });
+  };
+
+  const handleUpdate = ({
+    dep,
+    impactType,
+    transitive,
+  }: {
+    dep: Dependency;
+    impactType: ImpactType;
+    transitive: boolean;
+  }) => {
+    updateMutation.mutate({
+      id: dep.id,
+      systemId,
+      impactType,
+      transitive,
+    });
   };
 
   if (!systemId) return;
@@ -229,9 +261,11 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
               <DependencyRow
                 key={dep.id}
                 dependency={dep}
-                systemLabel={dep.targetSystemId}
+                systemName={systemNameMap.get(dep.targetSystemId) ?? dep.targetSystemId}
                 direction="upstream"
                 onDelete={() => handleDelete(dep)}
+                onUpdate={handleUpdate}
+                isUpdating={updateMutation.isPending}
               />
             ))}
           </div>
@@ -250,9 +284,11 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
               <DependencyRow
                 key={dep.id}
                 dependency={dep}
-                systemLabel={dep.sourceSystemId}
+                systemName={systemNameMap.get(dep.sourceSystemId) ?? dep.sourceSystemId}
                 direction="downstream"
                 onDelete={() => handleDelete(dep)}
+                onUpdate={handleUpdate}
+                isUpdating={updateMutation.isPending}
               />
             ))}
           </div>
@@ -275,24 +311,125 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
 
 function DependencyRow({
   dependency,
-  systemLabel,
+  systemName,
   direction,
   onDelete,
+  onUpdate,
+  isUpdating,
 }: {
   dependency: Dependency;
-  systemLabel: string;
+  systemName: string;
   direction: "upstream" | "downstream";
   onDelete: () => void;
+  onUpdate: (args: {
+    dep: Dependency;
+    impactType: ImpactType;
+    transitive: boolean;
+  }) => void;
+  isUpdating: boolean;
 }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editImpact, setEditImpact] = useState<ImpactType>(
+    dependency.impactType,
+  );
+  const [editTransitive, setEditTransitive] = useState(dependency.transitive);
+
+  const handleSave = () => {
+    onUpdate({ dep: dependency, impactType: editImpact, transitive: editTransitive });
+    setIsEditing(false);
+  };
+
+  const handleCancel = () => {
+    setEditImpact(dependency.impactType);
+    setEditTransitive(dependency.transitive);
+    setIsEditing(false);
+  };
+
+  if (isEditing) {
+    return (
+      <div className="p-3 rounded-lg border border-primary/30 bg-muted/30 space-y-3">
+        <div className="flex items-center gap-2">
+          {direction === "upstream" ? (
+            <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ArrowDownRight className="h-4 w-4 text-muted-foreground" />
+          )}
+          <span className="text-sm font-medium">{systemName}</span>
+          {dependency.label && (
+            <span className="text-xs text-muted-foreground">
+              ({dependency.label})
+            </span>
+          )}
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Impact</label>
+          <select
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            value={editImpact}
+            onChange={(e) => setEditImpact(e.target.value as ImpactType)}
+          >
+            <option value="informational">Informational</option>
+            <option value="degraded">Degraded</option>
+            <option value="critical">Critical</option>
+          </select>
+        </div>
+        <div className="flex items-center justify-between rounded-lg border border-border p-3">
+          <div className="space-y-0.5">
+            <label className="text-sm font-medium">Multi-hop propagation</label>
+            <p className="text-xs text-muted-foreground">
+              Propagate status warnings through transitive dependency chains.
+            </p>
+          </div>
+          <Toggle
+            checked={editTransitive}
+            onCheckedChange={setEditTransitive}
+            aria-label="Enable multi-hop propagation"
+          />
+        </div>
+        <div className="flex gap-2 justify-end">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleCancel}
+          >
+            <X className="h-3.5 w-3.5 mr-1" />
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleSave}
+            disabled={isUpdating}
+          >
+            <Check className="h-3.5 w-3.5 mr-1" />
+            {isUpdating ? "Saving..." : "Save"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex items-center justify-between p-2 rounded border border-border bg-background hover:bg-muted/30 transition-colors">
+    <div
+      className="flex items-center justify-between p-2 rounded border border-border bg-background hover:bg-muted/30 transition-colors cursor-pointer"
+      onClick={() => setIsEditing(true)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setIsEditing(true);
+        }
+      }}
+    >
       <div className="flex items-center gap-2">
         {direction === "upstream" ? (
           <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
         ) : (
           <ArrowDownRight className="h-4 w-4 text-muted-foreground" />
         )}
-        <span className="text-sm font-medium">{systemLabel}</span>
+        <span className="text-sm font-medium">{systemName}</span>
         {dependency.label && (
           <span className="text-xs text-muted-foreground">
             ({dependency.label})
@@ -318,7 +455,10 @@ function DependencyRow({
           variant="ghost"
           size="icon"
           className="h-7 w-7"
-          onClick={onDelete}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
         >
           <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
         </Button>
