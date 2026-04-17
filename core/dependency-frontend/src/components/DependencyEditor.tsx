@@ -13,6 +13,7 @@ import {
   type Dependency,
   type ImpactType,
 } from "@checkstack/dependency-common";
+import { DependencyEdgeForm } from "./DependencyEdgeForm";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { resolveRoute } from "@checkstack/common";
 import {
@@ -20,7 +21,6 @@ import {
   Button,
   Label,
   LoadingSpinner,
-  Toggle,
 } from "@checkstack/ui";
 import {
   ArrowUpRight,
@@ -65,6 +65,9 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
   const [selectedImpactType, setSelectedImpactType] =
     useState<ImpactType>("degraded");
   const [selectedTransitive, setSelectedTransitive] = useState(false);
+  const [selectedHealthCheckRules, setSelectedHealthCheckRules] = useState<
+    { healthCheckId: string; overrideImpactType: ImpactType }[]
+  >([]);
 
   // Fetch dependencies for this system
   const {
@@ -120,6 +123,10 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
       targetSystemId: selectedTargetId,
       impactType: selectedImpactType,
       transitive: selectedTransitive,
+      healthCheckRules:
+        selectedHealthCheckRules.length > 0
+          ? selectedHealthCheckRules
+          : undefined,
     });
   };
 
@@ -131,16 +138,19 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
     dep,
     impactType,
     transitive,
+    healthCheckRules,
   }: {
     dep: Dependency;
     impactType: ImpactType;
     transitive: boolean;
+    healthCheckRules?: { healthCheckId: string; overrideImpactType: ImpactType }[];
   }) => {
     updateMutation.mutate({
       id: dep.id,
       systemId,
       impactType,
       transitive,
+      healthCheckRules,
     });
   };
 
@@ -201,34 +211,15 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
               ))}
             </select>
           </div>
-          <div className="space-y-2 flex-1">
-              <label className="text-sm font-medium">Impact</label>
-              <select
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={selectedImpactType}
-                onChange={(e) =>
-                  setSelectedImpactType(e.target.value as ImpactType)
-                }
-              >
-                <option value="informational">Informational</option>
-                <option value="degraded">Degraded</option>
-                <option value="critical">Critical</option>
-              </select>
-            </div>
-          <div className="flex items-center justify-between rounded-lg border border-border p-3">
-            <div className="space-y-0.5">
-              <label className="text-sm font-medium">Multi-hop propagation</label>
-              <p className="text-xs text-muted-foreground">
-                Propagate status warnings through transitive dependency chains.
-                When enabled, failures cascade beyond the direct upstream.
-              </p>
-            </div>
-            <Toggle
-              checked={selectedTransitive}
-              onCheckedChange={setSelectedTransitive}
-              aria-label="Enable multi-hop propagation"
-            />
-          </div>
+          <DependencyEdgeForm
+            impactType={selectedImpactType}
+            onImpactTypeChange={setSelectedImpactType}
+            transitive={selectedTransitive}
+            onTransitiveChange={setSelectedTransitive}
+            targetSystemId={selectedTargetId}
+            healthCheckRules={selectedHealthCheckRules}
+            onHealthCheckRulesChange={setSelectedHealthCheckRules}
+          />
           {createMutation.error && (
             <CycleErrorDisplay
               error={createMutation.error}
@@ -347,6 +338,7 @@ function DependencyRow({
     dep: Dependency;
     impactType: ImpactType;
     transitive: boolean;
+    healthCheckRules?: { healthCheckId: string; overrideImpactType: ImpactType }[];
   }) => void;
   isUpdating: boolean;
 }) {
@@ -355,9 +347,23 @@ function DependencyRow({
     dependency.impactType,
   );
   const [editTransitive, setEditTransitive] = useState(dependency.transitive);
+  const [editHealthCheckRules, setEditHealthCheckRules] = useState<
+    { healthCheckId: string; overrideImpactType: ImpactType }[]
+  >(
+    dependency.healthCheckRules?.map((r) => ({
+      healthCheckId: r.healthCheckId,
+      overrideImpactType: r.overrideImpactType,
+    })) ?? [],
+  );
 
   const handleSave = () => {
-    onUpdate({ dep: dependency, impactType: editImpact, transitive: editTransitive });
+    onUpdate({
+      dep: dependency,
+      impactType: editImpact,
+      transitive: editTransitive,
+      healthCheckRules:
+        editHealthCheckRules.length > 0 ? editHealthCheckRules : [],
+    });
     setIsEditing(false);
   };
 
@@ -383,31 +389,15 @@ function DependencyRow({
             </span>
           )}
         </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Impact</label>
-          <select
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            value={editImpact}
-            onChange={(e) => setEditImpact(e.target.value as ImpactType)}
-          >
-            <option value="informational">Informational</option>
-            <option value="degraded">Degraded</option>
-            <option value="critical">Critical</option>
-          </select>
-        </div>
-        <div className="flex items-center justify-between rounded-lg border border-border p-3">
-          <div className="space-y-0.5">
-            <label className="text-sm font-medium">Multi-hop propagation</label>
-            <p className="text-xs text-muted-foreground">
-              Propagate status warnings through transitive dependency chains.
-            </p>
-          </div>
-          <Toggle
-            checked={editTransitive}
-            onCheckedChange={setEditTransitive}
-            aria-label="Enable multi-hop propagation"
-          />
-        </div>
+        <DependencyEdgeForm
+          impactType={editImpact}
+          onImpactTypeChange={setEditImpact}
+          transitive={editTransitive}
+          onTransitiveChange={setEditTransitive}
+          targetSystemId={dependency.targetSystemId}
+          healthCheckRules={editHealthCheckRules}
+          onHealthCheckRulesChange={setEditHealthCheckRules}
+        />
         <div className="flex gap-2 justify-end">
           <Button
             type="button"

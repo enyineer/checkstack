@@ -58,7 +58,13 @@ export default createBackendPlugin({
 
         logger.debug("✅ Dependency Backend initialized.");
       },
-      afterPluginsReady: async ({ database, rpcClient, logger, onHook }) => {
+      afterPluginsReady: async ({
+        database,
+        rpcClient,
+        logger,
+        onHook,
+        signalService,
+      }) => {
         const typedDb = database as SafeDatabase<typeof schema>;
         const service = new DependencyService(typedDb);
         const warningService = new WarningEvaluationService();
@@ -157,6 +163,7 @@ export default createBackendPlugin({
               catalogClient,
               maintenanceClient,
               incidentClient,
+              signalService,
               logger,
             });
           },
@@ -181,12 +188,13 @@ export default createBackendPlugin({
               catalogClient,
               maintenanceClient,
               incidentClient,
+              signalService,
               logger,
             });
           },
           {
             mode: "work-queue",
-            workerGroup: "dependency-notification-evaluator",
+            workerGroup: "dependency-notification-recovery",
           },
         );
 

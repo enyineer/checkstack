@@ -3,7 +3,7 @@ import { usePluginClient, useQueryClient } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
 import {
   HealthCheckApi,
-  HEALTH_CHECK_RUN_COMPLETED,
+  SYSTEM_STATUS_CHANGED,
   type SystemHealthStatusResponse,
 } from "@checkstack/healthcheck-common";
 import {
@@ -96,7 +96,7 @@ export const SystemBadgeDataProvider: React.FC<
     [systemIds, queryClient]
   );
 
-  useSignal(HEALTH_CHECK_RUN_COMPLETED, ({ systemId }) => {
+  useSignal(SYSTEM_STATUS_CHANGED, ({ systemId }) => {
     refetchHealth(systemId);
   });
 

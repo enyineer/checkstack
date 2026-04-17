@@ -94,15 +94,40 @@ export const SystemNodeComponent = memo(function SystemNodeComponent({
           </span>
         </div>
 
-        {/* Subtle status label */}
-        <div className="mt-1.5">
-          <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground/60">
-            {effectiveStatus === "operational"
-              ? "Operational"
-              : effectiveStatus === "degraded"
+        {/* Status labels */}
+        <div className="mt-1.5 flex flex-col gap-0.5">
+          <span
+            className={`text-[10px] uppercase tracking-wider font-semibold ${
+              (data.status ?? "operational") === "operational"
+                ? "text-emerald-500/70"
+                : (data.status ?? "operational") === "degraded"
+                  ? "text-amber-500/70"
+                  : "text-red-500/70"
+            }`}
+          >
+            {(data.status ?? "operational") === "operational"
+              ? "Healthy"
+              : (data.status ?? "operational") === "degraded"
                 ? "Degraded"
-                : "Down"}
+                : "Unhealthy"}
           </span>
+          {data.derivedState && (
+            <span
+              className={`text-[10px] uppercase tracking-wider font-semibold ${
+                data.derivedState === "info"
+                  ? "text-blue-400/70"
+                  : data.derivedState === "degraded"
+                    ? "text-amber-500/70"
+                    : "text-red-500/70"
+              }`}
+            >
+              {data.derivedState === "info"
+                ? "↑ Upstream issue"
+                : data.derivedState === "degraded"
+                  ? "↑ Upstream degraded"
+                  : "↑ Upstream down"}
+            </span>
+          )}
         </div>
       </div>
 

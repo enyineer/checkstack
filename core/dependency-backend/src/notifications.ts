@@ -6,12 +6,14 @@ import { catalogRoutes } from "@checkstack/catalog-common";
 import type { MaintenanceApi } from "@checkstack/maintenance-common";
 import type { IncidentApi } from "@checkstack/incident-common";
 import type { DerivedState } from "@checkstack/dependency-common";
+import { DEPENDENCY_WARNINGS_CHANGED } from "@checkstack/dependency-common";
 import type { DependencyService } from "./services/dependency-service";
 import type {
   WarningEvaluationService,
   SystemStatus,
 } from "./services/warning-evaluation-service";
 import type { SafeDatabase } from "@checkstack/backend-api";
+import type { SignalService } from "@checkstack/signal-common";
 import * as schema from "./schema";
 import { dependencyDerivedStates } from "./schema";
 import { eq } from "drizzle-orm";
@@ -117,6 +119,7 @@ export async function evaluateAndNotifyDownstream({
   catalogClient,
   maintenanceClient,
   incidentClient,
+  signalService,
   logger,
 }: {
   changedSystemId: string;
@@ -129,6 +132,7 @@ export async function evaluateAndNotifyDownstream({
   catalogClient: InferClient<typeof CatalogApi>;
   maintenanceClient: InferClient<typeof MaintenanceApi>;
   incidentClient: InferClient<typeof IncidentApi>;
+  signalService: SignalService;
   logger: Logger;
 }): Promise<void> {
   try {
@@ -233,6 +237,7 @@ export async function evaluateAndNotifyDownstream({
     }
 
     // 6. Compare and notify for each downstream system
+    const changedSystemIds: string[] = [];
     for (const systemId of downstreamIds) {
       const currentWarning = warningMap.get(systemId);
       const currentState = currentWarning?.derivedState;
@@ -263,6 +268,8 @@ export async function evaluateAndNotifyDownstream({
             .delete(dependencyDerivedStates)
             .where(eq(dependencyDerivedStates.systemId, systemId)));
 
+      changedSystemIds.push(systemId);
+
       // Skip notifications if upstream is suppressed
       if (upstreamSuppressed) {
         logger.debug(
@@ -291,10 +298,9 @@ export async function evaluateAndNotifyDownstream({
         ? ("info" as const)
         : derivedStateToImportance(currentState!);
 
-      const systemDetailPath = resolveRoute(
-        catalogRoutes.routes.systemDetail,
-        { systemId },
-      );
+      const systemDetailPath = resolveRoute(catalogRoutes.routes.systemDetail, {
+        systemId,
+      });
 
       try {
         await catalogClient.notifySystemSubscribers({
@@ -315,6 +321,13 @@ export async function evaluateAndNotifyDownstream({
           error,
         );
       }
+    }
+
+    // 7. Broadcast signal so frontends can react
+    if (changedSystemIds.length > 0) {
+      await signalService.broadcast(DEPENDENCY_WARNINGS_CHANGED, {
+        affectedSystemIds: changedSystemIds,
+      });
     }
   } catch (error) {
     // Don't crash the hook handler

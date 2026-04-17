@@ -18,6 +18,7 @@ import "@xyflow/react/dist/style.css";
 import { usePluginClient, wrapInSuspense } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
 import { CatalogApi } from "@checkstack/catalog-common";
+import { HealthCheckApi, SYSTEM_STATUS_CHANGED } from "@checkstack/healthcheck-common";
 import {
   DependencyApi,
   DEPENDENCY_CHANGED,
@@ -29,11 +30,11 @@ import {
   Button,
   Badge,
   LoadingSpinner,
-  Toggle,
   useToast,
 } from "@checkstack/ui";
 import { Maximize2, Save, RefreshCw, Trash2 } from "lucide-react";
 import type { ImpactType } from "@checkstack/dependency-common";
+import { DependencyEdgeForm } from "./DependencyEdgeForm";
 
 import {
   SystemNodeComponent,
@@ -86,6 +87,7 @@ function autoLayout(
 function DependencyMapContent() {
   const depClient = usePluginClient(DependencyApi);
   const catalogClient = usePluginClient(CatalogApi);
+  const healthCheckClient = usePluginClient(HealthCheckApi);
   const { fitView } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<SystemNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<DependencyEdge>([]);
@@ -100,6 +102,7 @@ function DependencyMapContent() {
         targetSystemId: string;
         impactType: ImpactType;
         transitive: boolean;
+        healthCheckRules: { healthCheckId: string; overrideImpactType: ImpactType }[];
       }
     | undefined
   >();
@@ -127,6 +130,13 @@ function DependencyMapContent() {
 
   const { data: warningsData, refetch: refetchWarnings } =
     depClient.getWarnings.useQuery(
+      { systemIds },
+      { enabled: systemIds.length > 0 },
+    );
+
+  // Fetch real health statuses for all systems
+  const { data: healthData, refetch: refetchHealth } =
+    healthCheckClient.getBulkSystemHealthStatus.useQuery(
       { systemIds },
       { enabled: systemIds.length > 0 },
     );
@@ -228,15 +238,27 @@ function DependencyMapContent() {
     );
 
     const warnings = warningsData?.warnings ?? {};
+    const healthStatuses = healthData?.statuses ?? {};
 
     const newNodes: SystemNode[] = systemsData.systems.map((system) => {
       const pos = positions.get(system.id) ?? { x: 0, y: 0 };
       const warning = warnings[system.id];
 
+      // Map real health status to node status
+      const healthStatus = healthStatuses[system.id];
+      let selfStatus: "operational" | "degraded" | "down" = "operational";
+      if (healthStatus) {
+        if (healthStatus.status === "unhealthy") {
+          selfStatus = "down";
+        } else if (healthStatus.status === "degraded") {
+          selfStatus = "degraded";
+        }
+      }
+
       const nodeData: SystemNodeData = {
         label: system.name,
         systemId: system.id,
-        status: "operational" as const, // TODO: integrate real health status
+        status: selfStatus,
         derivedState: warning?.derivedState,
       };
 
@@ -274,7 +296,7 @@ function DependencyMapContent() {
 
     setNodes(newNodes);
     setEdges(newEdges);
-  }, [systemsData, depsData, posData, warningsData, setNodes, setEdges]);
+  }, [systemsData, depsData, posData, warningsData, healthData, setNodes, setEdges]);
 
   // Track node position changes for saving
   const nodesRef = useRef(nodes);
@@ -325,6 +347,11 @@ function DependencyMapContent() {
     void refetchWarnings();
   });
 
+  useSignal(SYSTEM_STATUS_CHANGED, () => {
+    void refetchHealth();
+    void refetchWarnings();
+  });
+
   // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
@@ -361,6 +388,11 @@ function DependencyMapContent() {
               targetSystemId: dep.targetSystemId,
               impactType: dep.impactType,
               transitive: dep.transitive,
+              healthCheckRules:
+                dep.healthCheckRules?.map((r) => ({
+                  healthCheckId: r.healthCheckId,
+                  overrideImpactType: r.overrideImpactType,
+                })) ?? [],
             });
           }
         }}
@@ -504,38 +536,22 @@ function DependencyMapContent() {
                     selectedEdge.targetSystemId}
                 </p>
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Impact</label>
-                <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={selectedEdge.impactType}
-                  onChange={(e) =>
-                    setSelectedEdge({
-                      ...selectedEdge,
-                      impactType: e.target.value as ImpactType,
-                    })
-                  }
-                >
-                  <option value="informational">Informational</option>
-                  <option value="degraded">Degraded</option>
-                  <option value="critical">Critical</option>
-                </select>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-border p-3">
-                <div className="space-y-0.5">
-                  <label className="text-sm font-medium">Multi-hop</label>
-                  <p className="text-xs text-muted-foreground">
-                    Cascade failures transitively.
-                  </p>
-                </div>
-                <Toggle
-                  checked={selectedEdge.transitive}
-                  onCheckedChange={(checked) =>
-                    setSelectedEdge({ ...selectedEdge, transitive: checked })
-                  }
-                  aria-label="Enable multi-hop propagation"
-                />
-              </div>
+              <DependencyEdgeForm
+                impactType={selectedEdge.impactType}
+                onImpactTypeChange={(impactType) =>
+                  setSelectedEdge({ ...selectedEdge, impactType })
+                }
+                transitive={selectedEdge.transitive}
+                onTransitiveChange={(transitive) =>
+                  setSelectedEdge({ ...selectedEdge, transitive })
+                }
+                targetSystemId={selectedEdge.targetSystemId}
+                healthCheckRules={selectedEdge.healthCheckRules}
+                onHealthCheckRulesChange={(rules) =>
+                  setSelectedEdge({ ...selectedEdge, healthCheckRules: rules })
+                }
+                compact
+              />
               <div className="flex gap-2 justify-between">
                 <Button
                   type="button"
@@ -570,6 +586,10 @@ function DependencyMapContent() {
                         systemId: selectedEdge.sourceSystemId,
                         impactType: selectedEdge.impactType,
                         transitive: selectedEdge.transitive,
+                        healthCheckRules:
+                          selectedEdge.healthCheckRules.length > 0
+                            ? selectedEdge.healthCheckRules
+                            : [],
                       })
                     }
                     disabled={updateMutation.isPending}

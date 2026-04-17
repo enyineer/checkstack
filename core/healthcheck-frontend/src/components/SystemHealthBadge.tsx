@@ -2,7 +2,7 @@ import React from "react";
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
 import { SystemStateBadgesSlot } from "@checkstack/catalog-common";
-import { HEALTH_CHECK_RUN_COMPLETED } from "@checkstack/healthcheck-common";
+import { SYSTEM_STATUS_CHANGED } from "@checkstack/healthcheck-common";
 import { HealthCheckApi } from "../api";
 import { HealthBadge } from "@checkstack/ui";
 import { useSystemBadgeDataOptional } from "@checkstack/dashboard-frontend";
@@ -40,8 +40,8 @@ export const SystemHealthBadge: React.FC<Props> = ({ system }) => {
 
   const localStatus = healthData?.status;
 
-  // Listen for realtime health check updates (only in fallback mode)
-  useSignal(HEALTH_CHECK_RUN_COMPLETED, ({ systemId: changedId }) => {
+  // Listen for realtime system status changes (only in fallback mode)
+  useSignal(SYSTEM_STATUS_CHANGED, ({ systemId: changedId }) => {
     if (!badgeData && changedId === system?.id) {
       void refetch();
     }

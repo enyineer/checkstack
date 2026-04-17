@@ -479,6 +479,7 @@
         "@checkstack/dashboard-frontend": "workspace:*",
         "@checkstack/dependency-common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "@xyflow/react": "^12.10.2",
