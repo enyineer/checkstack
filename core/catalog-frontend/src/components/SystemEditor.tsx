@@ -13,6 +13,8 @@ import {
 } from "@checkstack/ui";
 import { TeamAccessEditor } from "@checkstack/auth-frontend";
 import { ContactsEditor } from "./ContactsEditor";
+import { ExtensionSlot } from "@checkstack/frontend-api";
+import { SystemEditorSlot } from "@checkstack/catalog-common";
 
 interface SystemEditorProps {
   open: boolean;
@@ -111,6 +113,14 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
                 resourceId={initialData.id}
                 compact
                 expanded
+              />
+            )}
+
+            {/* Plugin-injected editor sections — only for existing systems */}
+            {initialData?.id && (
+              <ExtensionSlot
+                slot={SystemEditorSlot}
+                context={{ systemId: initialData.id }}
               />
             )}
           </div>

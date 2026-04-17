@@ -11,7 +11,7 @@ import {
 import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
-  SystemDetailsSlot,
+  SystemEditorSlot,
 } from "@checkstack/catalog-common";
 import { DependencyBadge } from "./components/DependencyBadge";
 import { DependencyAlert } from "./components/DependencyAlert";
@@ -39,8 +39,8 @@ export default createFrontendPlugin({
       id: "dependency.system-details-top.alert",
       component: DependencyAlert,
     }),
-    createSlotExtension(SystemDetailsSlot, {
-      id: "dependency.system-details.editor",
+    createSlotExtension(SystemEditorSlot, {
+      id: "dependency.system-editor",
       component: DependencyEditor,
     }),
     createSlotExtension(UserMenuItemsSlot, {

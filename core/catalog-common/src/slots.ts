@@ -72,3 +72,22 @@ export const CatalogSystemActionsSlot = createSlot<{
 export const SystemStateBadgesSlot = createSlot<{ system: System }>(
   "plugin.catalog.system-state-badges"
 );
+
+/**
+ * Slot for extending the System Editor dialog with additional sections.
+ * Only rendered when editing an existing system (not during creation).
+ * Extensions receive the system ID.
+ *
+ * @example
+ * // In your plugin
+ * import { SystemEditorSlot } from "@checkstack/catalog-common";
+ *
+ * extensions: [{
+ *   id: "my-plugin.system-editor",
+ *   slotId: SystemEditorSlot.id,
+ *   component: ({ systemId }) => <MySection systemId={systemId} />,
+ * }]
+ */
+export const SystemEditorSlot = createSlot<{ systemId: string }>(
+  "plugin.catalog.system-editor"
+);
