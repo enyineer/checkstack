@@ -436,7 +436,7 @@ function DependencyMapContent() {
 
         {/* Bottom-left legend */}
         <Panel position="bottom-left">
-          <div className="bg-card/90 backdrop-blur-sm border border-border rounded-lg p-3 shadow-lg">
+          <div className="bg-card/90 backdrop-blur-sm border border-border rounded-lg p-3 shadow-lg max-w-64">
             <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider">
               Impact Legend
             </p>
@@ -460,6 +460,31 @@ function DependencyMapContent() {
                 <span className="text-xs text-muted-foreground">Multi-hop</span>
               </div>
             </div>
+            <details className="mt-2.5 group">
+              <summary className="text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors">
+                How multi-hop works
+              </summary>
+              <div className="mt-2 space-y-2 text-xs text-muted-foreground leading-relaxed">
+                <p>
+                  A <strong className="text-foreground">multi-hop</strong> edge
+                  looks through its target's own dependencies. A{" "}
+                  <strong className="text-foreground">single-hop</strong> edge
+                  only reacts to its direct target's status.
+                </p>
+                <div className="space-y-1 font-mono text-[11px]">
+                  <p className="text-destructive">
+                    A ⟶<sup>multi</sup> B ⟶ C<sub>down</sub> → A warned
+                  </p>
+                  <p className="text-emerald-400">
+                    A ⟶<sup>single</sup> B ⟶ C<sub>down</sub> → A safe
+                  </p>
+                </div>
+                <p>
+                  B is operational in both cases. Multi-hop sees through B to
+                  C's failure; single-hop only sees B directly.
+                </p>
+              </div>
+            </details>
           </div>
         </Panel>
 
