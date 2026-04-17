@@ -73,6 +73,22 @@ export function isValueEmpty(
 export const NONE_SENTINEL = "__none__";
 
 /**
+ * Evaluate x-hidden-when conditions against current form values.
+ * Returns true if the field should be hidden.
+ *
+ * Each condition maps a sibling field name to values that trigger hiding.
+ * The field is hidden if ANY condition matches (OR semantics).
+ */
+export function isFieldHiddenByCondition(
+  conditions: Record<string, string[]>,
+  formValues: Record<string, unknown>,
+): boolean {
+  return Object.entries(conditions).some(([field, values]) =>
+    values.includes(String(formValues[field] ?? "")),
+  );
+}
+
+/**
  * Converts a select value to the actual form value.
  * Handles the "None" sentinel value by returning undefined.
  */

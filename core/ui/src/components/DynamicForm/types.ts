@@ -21,6 +21,7 @@ export interface JsonSchemaProperty extends JsonSchemaPropertyCore<JsonSchemaPro
   "x-hidden"?: boolean; // Field should be hidden in form (auto-populated)
   "x-searchable"?: boolean; // Shows search input for filtering dropdown options
   "x-editor-types"?: EditorType[]; // Available editor types for multi-type input
+  "x-hidden-when"?: Record<string, string[]>; // Conditionally hide based on sibling field values
 }
 
 /** Option returned by an options resolver */

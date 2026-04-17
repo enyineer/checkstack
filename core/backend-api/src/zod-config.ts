@@ -23,6 +23,13 @@ export interface ConfigMeta {
   /** If true, renders a searchable/filterable dropdown */
   "x-searchable"?: boolean;
   /**
+   * Conditionally hide this field based on sibling field values.
+   * Keys are sibling field names, values are arrays of values that trigger hiding.
+   * The field is hidden when any condition matches.
+   * @example { authMode: ["datacenter"] } — hides this field when authMode is "datacenter"
+   */
+  "x-hidden-when"?: Record<string, string[]>;
+  /**
    * Available editor types for this field. Renders a dropdown to select editor mode.
    * When templateProperties are provided to DynamicForm, autocomplete works in all types.
    * - "none": Field is disabled/empty

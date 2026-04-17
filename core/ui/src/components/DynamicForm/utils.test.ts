@@ -5,6 +5,7 @@ import {
   extractDefaults,
   getCleanDescription,
   isValueEmpty,
+  isFieldHiddenByCondition,
   NONE_SENTINEL,
   parseSelectValue,
   serializeFormData,
@@ -396,5 +397,73 @@ describe("detectEditorType", () => {
         "json",
       );
     });
+  });
+});
+
+// =============================================================================
+// Conditional Visibility Tests
+// =============================================================================
+
+describe("isFieldHiddenByCondition", () => {
+  it("returns true when sibling value matches a value in the array", () => {
+    const conditions = { authMode: ["datacenter"] };
+    const formValues = { authMode: "datacenter" };
+    expect(isFieldHiddenByCondition(conditions, formValues)).toBe(true);
+  });
+
+  it("returns true when sibling value matches any value in the array", () => {
+    const conditions = { authMode: ["datacenter", "server"] };
+    const formValues = { authMode: "server" };
+    expect(isFieldHiddenByCondition(conditions, formValues)).toBe(true);
+  });
+
+  it("returns false when sibling value does not match", () => {
+    const conditions = { authMode: ["datacenter"] };
+    const formValues = { authMode: "cloud" };
+    expect(isFieldHiddenByCondition(conditions, formValues)).toBe(false);
+  });
+
+  it("returns false when sibling field is missing (coerces to empty string)", () => {
+    const conditions = { authMode: ["datacenter"] };
+    const formValues = {};
+    expect(isFieldHiddenByCondition(conditions, formValues)).toBe(false);
+  });
+
+  it("returns true when sibling field is missing and empty string is in the value list", () => {
+    const conditions = { authMode: [""] };
+    const formValues = {};
+    expect(isFieldHiddenByCondition(conditions, formValues)).toBe(true);
+  });
+
+  it("handles multiple conditions with OR semantics (any match hides)", () => {
+    const conditions = {
+      authMode: ["datacenter"],
+      environment: ["staging"],
+    };
+    // Only authMode matches
+    expect(
+      isFieldHiddenByCondition(conditions, {
+        authMode: "datacenter",
+        environment: "production",
+      }),
+    ).toBe(true);
+    // Only environment matches
+    expect(
+      isFieldHiddenByCondition(conditions, {
+        authMode: "cloud",
+        environment: "staging",
+      }),
+    ).toBe(true);
+    // Neither matches
+    expect(
+      isFieldHiddenByCondition(conditions, {
+        authMode: "cloud",
+        environment: "production",
+      }),
+    ).toBe(false);
+  });
+
+  it("returns false for empty conditions object", () => {
+    expect(isFieldHiddenByCondition({}, { authMode: "cloud" })).toBe(false);
   });
 });
