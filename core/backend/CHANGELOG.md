@@ -1,5 +1,14 @@
 # @checkstack/backend
 
+## 0.4.17
+
+### Patch Changes
+
+- Updated dependencies [23c80bc]
+  - @checkstack/backend-api@0.10.0
+  - @checkstack/queue-api@0.2.9
+  - @checkstack/signal-backend@0.1.15
+
 ## 0.4.16
 
 ### Patch Changes

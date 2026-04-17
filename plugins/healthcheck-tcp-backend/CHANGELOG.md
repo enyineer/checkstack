@@ -1,5 +1,12 @@
 # @checkstack/healthcheck-tcp-backend
 
+## 0.2.5
+
+### Patch Changes
+
+- Updated dependencies [23c80bc]
+  - @checkstack/backend-api@0.10.0
+
 ## 0.2.4
 
 ### Patch Changes
