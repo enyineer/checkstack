@@ -17,6 +17,7 @@ import {
   Button,
   Label,
   LoadingSpinner,
+  Toggle,
 } from "@checkstack/ui";
 import {
   ArrowUpRight,
@@ -162,8 +163,7 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
               ))}
             </select>
           </div>
-          <div className="flex gap-3">
-            <div className="space-y-2 flex-1">
+          <div className="space-y-2 flex-1">
               <label className="text-sm font-medium">Impact</label>
               <select
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -177,21 +177,19 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
                 <option value="critical">Critical</option>
               </select>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Propagation</label>
-              <div className="flex items-center gap-2 h-[38px]">
-                <input
-                  type="checkbox"
-                  id="dep-transitive"
-                  checked={selectedTransitive}
-                  onChange={(e) => setSelectedTransitive(e.target.checked)}
-                  className="rounded"
-                />
-                <label htmlFor="dep-transitive" className="text-sm">
-                  Multi-hop
-                </label>
-              </div>
+          <div className="flex items-center justify-between rounded-lg border border-border p-3">
+            <div className="space-y-0.5">
+              <label className="text-sm font-medium">Multi-hop propagation</label>
+              <p className="text-xs text-muted-foreground">
+                Propagate status warnings through transitive dependency chains.
+                When enabled, failures cascade beyond the direct upstream.
+              </p>
             </div>
+            <Toggle
+              checked={selectedTransitive}
+              onCheckedChange={setSelectedTransitive}
+              aria-label="Enable multi-hop propagation"
+            />
           </div>
           {createMutation.error && (
             <p className="text-sm text-destructive">
