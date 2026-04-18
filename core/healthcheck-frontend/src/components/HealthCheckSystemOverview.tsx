@@ -36,7 +36,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  AnimatedNumber,
+
 } from "@checkstack/ui";
 import { formatDistanceToNow } from "date-fns";
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -71,22 +71,6 @@ interface ExpandedRowProps {
   systemId: string;
 }
 
-// Helper to get color class for availability percentage
-const getAvailabilityColorClass = (
-  value: number | null,
-  totalRuns: number,
-): string => {
-  if (value === null || totalRuns === 0) {
-    return "text-muted-foreground";
-  }
-  if (value >= 99.9) {
-    return "text-green-600 dark:text-green-400";
-  }
-  if (value >= 99) {
-    return "text-yellow-600 dark:text-yellow-400";
-  }
-  return "text-red-600 dark:text-red-400";
-};
 
 const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
   const healthCheckClient = usePluginClient(HealthCheckApi);
@@ -193,12 +177,11 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
   }
   const runs = displayRuns;
 
-  // Listen for realtime health check updates to refresh history table and availability stats
+  // Listen for realtime health check updates to refresh history table
   // Charts are refreshed automatically by useHealthCheckData
   useSignal(HEALTH_CHECK_RUN_COMPLETED, ({ systemId: changedId }) => {
     if (changedId === systemId) {
       void refetch();
-      void refetchAvailability();
     }
   });
 
@@ -208,12 +191,6 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
       : `Window mode (${item.stateThresholds.windowSize} runs): Degraded at ${item.stateThresholds.degraded.minFailureCount}+ failures, Unhealthy at ${item.stateThresholds.unhealthy.minFailureCount}+ failures`
     : "Using default thresholds";
 
-  // Fetch availability stats
-  const { data: availabilityData, refetch: refetchAvailability } =
-    healthCheckClient.getAvailabilityStats.useQuery({
-      systemId,
-      configurationId: item.configurationId,
-    });
 
   // Render charts - charts handle data transformation internally
   const renderCharts = () => {
@@ -289,48 +266,7 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
         </div>
       </div>
 
-      {/* Availability Stats - Prominent Display */}
-      {availabilityData && (
-        <div className="grid grid-cols-2 gap-4">
-          <div className="flex flex-col gap-1 p-4 rounded-lg border bg-card">
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-              31-Day Availability
-            </span>
-            <div className="flex items-baseline gap-2">
-              <AnimatedNumber
-                value={availabilityData.availability31Days ?? undefined}
-                suffix="%"
-                className={`text-2xl font-bold ${getAvailabilityColorClass(availabilityData.availability31Days, availabilityData.totalRuns31Days)}`}
-              />
-              {availabilityData.totalRuns31Days > 0 && (
-                <span className="text-sm text-muted-foreground">
-                  ({availabilityData.totalRuns31Days.toLocaleString()} runs)
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex flex-col gap-1 p-4 rounded-lg border bg-card">
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-              365-Day Availability
-            </span>
-            <div className="flex items-baseline gap-2">
-              <AnimatedNumber
-                value={availabilityData.availability365Days ?? undefined}
-                suffix="%"
-                className={`text-2xl font-bold ${getAvailabilityColorClass(availabilityData.availability365Days, availabilityData.totalRuns365Days)}`}
-              />
-              {availabilityData.totalRuns365Days > 0 && (
-                <span className="text-sm text-muted-foreground">
-                  ({availabilityData.totalRuns365Days.toLocaleString()} runs)
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Divider */}
-      <div className="h-px bg-border" />
 
       {/* Date Range Filter with Loading Spinner */}
       <div className="flex items-center gap-3 flex-wrap">

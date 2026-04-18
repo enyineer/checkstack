@@ -230,10 +230,6 @@ export const createHealthCheckRouter = (
         return service.getSystemHealthOverview(input.systemId);
       },
     ),
-
-    getAvailabilityStats: os.getAvailabilityStats.handler(async ({ input }) => {
-      return service.getAvailabilityStats(input);
-    }),
   });
 };
 

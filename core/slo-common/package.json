@@ -1,0 +1,30 @@
+{
+  "name": "@checkstack/slo-common",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@checkstack/common": "workspace:*",
+    "@checkstack/frontend-api": "workspace:*",
+    "@checkstack/signal-common": "workspace:*",
+    "@orpc/contract": "^1.13.14",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/scripts": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
+  },
+  "checkstack": {
+    "type": "common"
+  }
+}
