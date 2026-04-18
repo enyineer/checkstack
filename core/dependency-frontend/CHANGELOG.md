@@ -1,5 +1,13 @@
 # @checkstack/dependency-frontend
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [54a5f80]
+  - @checkstack/healthcheck-common@0.10.0
+  - @checkstack/dashboard-frontend@0.3.25
+
 ## 0.2.0
 
 ### Minor Changes
