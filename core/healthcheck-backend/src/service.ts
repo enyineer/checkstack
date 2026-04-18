@@ -12,10 +12,9 @@ import {
   healthCheckRuns,
   healthCheckAggregates,
   VersionedStateThresholds,
-  DEFAULT_RETENTION_CONFIG,
 } from "./schema";
 import * as schema from "./schema";
-import { eq, and, InferSelectModel, desc, gte, lte, lt } from "drizzle-orm";
+import { eq, and, InferSelectModel, desc, gte, lte } from "drizzle-orm";
 import { ORPCError } from "@orpc/server";
 import { evaluateHealthStatus } from "./state-evaluator";
 import { stateThresholds } from "./state-thresholds-migrations";
@@ -928,122 +927,6 @@ export class HealthCheckService {
    * Calculate bucket start time for dynamic interval sizing.
    * Aligns buckets to the query start time.
    */
-  /**
-   * Get availability statistics for a health check over 31-day and 365-day periods.
-   * Availability is calculated as (healthyCount / totalRunCount) * 100.
-   *
-   * With incremental real-time aggregation, hourly aggregates are always up-to-date
-   * (updated immediately on every run), so we don't need to query raw runs.
-   */
-  async getAvailabilityStats(props: {
-    systemId: string;
-    configurationId: string;
-  }): Promise<{
-    availability31Days: number | null;
-    availability365Days: number | null;
-    totalRuns31Days: number;
-    totalRuns365Days: number;
-  }> {
-    const { systemId, configurationId } = props;
-    const now = new Date();
-
-    // Get retention config to determine what data tiers are available
-    const { retentionConfig } = await this.getRetentionConfig(
-      systemId,
-      configurationId,
-    );
-    const config = retentionConfig ?? DEFAULT_RETENTION_CONFIG;
-
-    // Calculate cutoff dates
-    const cutoff31Days = new Date(now.getTime() - 31 * 24 * 60 * 60 * 1000);
-    const cutoff365Days = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
-
-    // Cutoff for hourly aggregates based on retention config
-    const hourlyCutoff = new Date(
-      now.getTime() - config.hourlyRetentionDays * 24 * 60 * 60 * 1000,
-    );
-
-    // Query hourly aggregates for the period they cover (up to hourlyRetentionDays)
-    // These are always up-to-date due to incremental real-time aggregation
-    const hourlyAggregates = await this.db
-      .select({
-        bucketStart: healthCheckAggregates.bucketStart,
-        runCount: healthCheckAggregates.runCount,
-        healthyCount: healthCheckAggregates.healthyCount,
-      })
-      .from(healthCheckAggregates)
-      .where(
-        and(
-          eq(healthCheckAggregates.systemId, systemId),
-          eq(healthCheckAggregates.configurationId, configurationId),
-          eq(healthCheckAggregates.bucketSize, "hourly"),
-          gte(healthCheckAggregates.bucketStart, hourlyCutoff),
-        ),
-      );
-
-    // Query daily aggregates for data beyond hourly retention
-    const dailyAggregates = await this.db
-      .select({
-        bucketStart: healthCheckAggregates.bucketStart,
-        runCount: healthCheckAggregates.runCount,
-        healthyCount: healthCheckAggregates.healthyCount,
-      })
-      .from(healthCheckAggregates)
-      .where(
-        and(
-          eq(healthCheckAggregates.systemId, systemId),
-          eq(healthCheckAggregates.configurationId, configurationId),
-          eq(healthCheckAggregates.bucketSize, "daily"),
-          gte(healthCheckAggregates.bucketStart, cutoff365Days),
-          lt(healthCheckAggregates.bucketStart, hourlyCutoff),
-        ),
-      );
-
-    // Aggregate counts
-    let totalRuns31Days = 0;
-    let healthyRuns31Days = 0;
-    let totalRuns365Days = 0;
-    let healthyRuns365Days = 0;
-
-    // Process hourly aggregates (fresh data within hourlyRetentionDays)
-    for (const agg of hourlyAggregates) {
-      totalRuns365Days += agg.runCount;
-      healthyRuns365Days += agg.healthyCount;
-
-      if (agg.bucketStart >= cutoff31Days) {
-        totalRuns31Days += agg.runCount;
-        healthyRuns31Days += agg.healthyCount;
-      }
-    }
-
-    // Process daily aggregates (older data beyond hourly retention)
-    for (const agg of dailyAggregates) {
-      totalRuns365Days += agg.runCount;
-      healthyRuns365Days += agg.healthyCount;
-
-      if (agg.bucketStart >= cutoff31Days) {
-        totalRuns31Days += agg.runCount;
-        healthyRuns31Days += agg.healthyCount;
-      }
-    }
-
-    // Calculate availability percentages
-    const availability31Days =
-      // eslint-disable-next-line unicorn/no-null -- RPC contract uses nullable()
-      totalRuns31Days > 0 ? (healthyRuns31Days / totalRuns31Days) * 100 : null;
-    const availability365Days =
-      totalRuns365Days > 0
-        ? (healthyRuns365Days / totalRuns365Days) * 100
-        : // eslint-disable-next-line unicorn/no-null -- RPC contract uses nullable()
-          null;
-
-    return {
-      availability31Days,
-      availability365Days,
-      totalRuns31Days,
-      totalRuns365Days,
-    };
-  }
 
   private getBucketStartDynamic(
     timestamp: Date,

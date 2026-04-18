@@ -72,6 +72,7 @@ export const catalogContract = {
     operationType: "query",
     userType: "public",
     access: [catalogAccess.system.read],
+    instanceAccess: { idParam: "systemId" },
   })
     .input(z.object({ systemId: z.string() }))
     .output(SystemSchema.nullable()),
