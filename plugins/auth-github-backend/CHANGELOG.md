@@ -1,5 +1,14 @@
 # @checkstack/auth-github-backend
 
+## 0.0.26
+
+### Patch Changes
+
+- Updated dependencies [d1a2796]
+  - @checkstack/common@0.6.5
+  - @checkstack/backend-api@0.11.1
+  - @checkstack/auth-backend@0.4.17
+
 ## 0.0.25
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/queue-api",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "checkstack": {
     "type": "tooling"
   },

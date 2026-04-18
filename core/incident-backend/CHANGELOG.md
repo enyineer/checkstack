@@ -1,5 +1,22 @@
 # @checkstack/incident-backend
 
+## 0.4.13
+
+### Patch Changes
+
+- Updated dependencies [d1a2796]
+- Updated dependencies [3c34b07]
+  - @checkstack/common@0.6.5
+  - @checkstack/backend-api@0.11.1
+  - @checkstack/catalog-backend@0.2.23
+  - @checkstack/integration-backend@0.1.18
+  - @checkstack/catalog-common@1.3.1
+  - @checkstack/auth-common@0.6.1
+  - @checkstack/command-backend@0.1.18
+  - @checkstack/incident-common@0.4.7
+  - @checkstack/integration-common@0.2.8
+  - @checkstack/signal-common@0.1.9
+
 ## 0.4.12
 
 ### Patch Changes

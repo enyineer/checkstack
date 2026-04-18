@@ -1,5 +1,41 @@
 # @checkstack/queue-frontend
 
+## 0.2.20
+
+### Patch Changes
+
+- d1a2796: Enforce stricter code quality standards and eliminate AI slop anti-patterns.
+
+  **New utility**
+
+  - `extractErrorMessage(error, fallback?)` in `@checkstack/common` for consistent error extraction
+
+  **ESLint rules**
+
+  - `react-hooks/rules-of-hooks` and `exhaustive-deps` for hook correctness
+  - `no-console` in frontend packages — forces `toast` over silent `console.error`
+  - `no-restricted-syntax` banning `instanceof Error` — forces `extractErrorMessage`
+  - Custom `no-eslint-disable-any` rule preventing `@typescript-eslint/no-explicit-any` circumvention
+
+  **Refactoring**
+
+  - Replace 141 `instanceof Error` boilerplate patterns across the codebase
+  - Replace swallowed `console.error` with user-visible `toast.error()` feedback
+  - Remove 15 redundant `as` type casts in IntegrationsPage and ProviderConnectionsPage
+  - Consolidate 3 identical callback handlers into `handleDialogClose`
+  - Fix conditional React hook call in `FormField.tsx`
+  - Fix unstable useMemo deps in `Dashboard.tsx`
+  - Replace `useEffect`→`setState` with derived `useMemo` in `RegisterPage.tsx`
+  - Rewrite `keystore.test.ts` with typed `DrizzleMockChain` (eliminating 7 `any` suppressions)
+  - Delete obvious comments in `encryption.ts` and Teams `provider.ts`
+
+- Updated dependencies [d1a2796]
+  - @checkstack/common@0.6.5
+  - @checkstack/ui@1.2.1
+  - @checkstack/frontend-api@0.3.9
+  - @checkstack/queue-common@0.2.8
+  - @checkstack/signal-frontend@0.0.15
+
 ## 0.2.19
 
 ### Patch Changes
