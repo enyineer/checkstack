@@ -1,6 +1,9 @@
 ---
 "@checkstack/slo-frontend": minor
 "@checkstack/slo-backend": minor
+"@checkstack/slo-common": minor
+"@checkstack/catalog-common": patch
+"@checkstack/healthcheck-common": patch
 ---
 
 Complete SLO Reliability Engine frontend and backend
