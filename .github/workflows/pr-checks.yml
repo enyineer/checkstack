@@ -16,7 +16,7 @@ permissions:
 jobs:
   typecheck:
     name: Typecheck
-    if: github.head_ref != 'changeset-release/main'
+    if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -53,7 +53,7 @@ jobs:
 
   lint:
     name: Lint
-    if: github.head_ref != 'changeset-release/main'
+    if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -90,7 +90,7 @@ jobs:
 
   test:
     name: Test
-    if: github.head_ref != 'changeset-release/main'
+    if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -127,7 +127,7 @@ jobs:
 
   security:
     name: Security
-    if: github.head_ref != 'changeset-release/main'
+    if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
