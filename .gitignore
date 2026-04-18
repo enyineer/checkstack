@@ -2,7 +2,7 @@ node_modules/
 .env
 .DS_Store
 dist/
-tsconfig.tsbuildinfo
+*.tsbuildinfo
 packages/frontend/public/vendor/
 runtime_plugins/
 .dev/

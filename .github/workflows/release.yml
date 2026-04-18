@@ -16,64 +16,12 @@ permissions:
   id-token: write
 
 jobs:
-  # Run quality checks in parallel for faster CI
-  typecheck:
-    name: Typecheck
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install Dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Typecheck
-        run: bun run typecheck
-
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install Dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Lint
-        run: bun run lint
-
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install Dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Run Tests
-        run: bun test
+  # Quality checks (typecheck, lint, test) are enforced via pr-checks.yml
+  # and GitHub branch protection rules. They are not repeated here to avoid
+  # ~6 minutes of redundant CI time on every merge to main.
 
   release:
     name: Release & Publish NPM
-    needs: [typecheck, lint, test]
     runs-on: ubuntu-latest
     outputs:
       published: ${{ steps.changesets.outputs.published }}
