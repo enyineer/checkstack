@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.43.0
+
+### Minor Changes
+
+- 81f141a: Enable TypeScript incremental compilation for faster typecheck runs
+
 ## 0.42.0
 
 ### Minor Changes
