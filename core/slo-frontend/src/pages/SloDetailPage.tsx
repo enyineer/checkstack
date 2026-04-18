@@ -7,6 +7,13 @@ import { SLO_STATUS_CHANGED } from "@checkstack/slo-common";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { ErrorBudgetBar } from "../components/ErrorBudgetBar";
 import { BurnRateIndicator } from "../components/BurnRateIndicator";
+import { StreakCounter } from "../components/StreakCounter";
+import { AttributionChart } from "../components/AttributionChart";
+import { DowntimeTimeline } from "../components/DowntimeTimeline";
+import {
+  AchievementBadge,
+  NoAchievements,
+} from "../components/AchievementBadge";
 import {
   Card,
   CardContent,
@@ -21,8 +28,10 @@ import {
   Clock,
   Shield,
   TrendingUp,
+  Flame,
+  Award,
+  BarChart3,
 } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
 
 const SloDetailPageContent: React.FC = () => {
   const { sloId } = useParams<{ sloId: string }>();
@@ -40,6 +49,18 @@ const SloDetailPageContent: React.FC = () => {
       { enabled: !!sloId },
     );
 
+  const { data: streaksData } = sloClient.getStreaks.useQuery({});
+
+  const { data: systemData } = catalogClient.getSystem.useQuery(
+    { systemId: data?.objective?.systemId ?? "" },
+    { enabled: !!data?.objective?.systemId },
+  );
+
+  const { data: achievementsData } = sloClient.getAchievements.useQuery(
+    { systemId: data?.objective?.systemId ?? "" },
+    { enabled: !!data?.objective?.systemId },
+  );
+
   const events = eventsData?.events;
 
   useSignal(SLO_STATUS_CHANGED, ({ objectiveId }) => {
@@ -48,11 +69,6 @@ const SloDetailPageContent: React.FC = () => {
       void refetchEvents();
     }
   });
-
-  const { data: systemData } = catalogClient.getSystem.useQuery(
-    { systemId: data?.objective?.systemId ?? "" },
-    { enabled: !!data?.objective?.systemId },
-  );
 
   if (isLoading || !data) {
     return (
@@ -66,6 +82,14 @@ const SloDetailPageContent: React.FC = () => {
 
   const { objective, status } = data;
   const systemName = systemData?.name ?? objective.systemId;
+
+  // Find streak for this objective
+  const streak = streaksData?.streaks.find(
+    (s) => s.objectiveId === objective.id,
+  );
+
+  // Filter achievements for this system
+  const achievements = achievementsData?.achievements ?? [];
 
   return (
     <PageLayout
@@ -141,57 +165,82 @@ const SloDetailPageContent: React.FC = () => {
         </Card>
       </div>
 
-      {/* Downtime Events */}
+      {/* Streak & Achievements Row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+              <Flame className="w-4 h-4" />
+              Compliance Streak
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {streak ? (
+              <StreakCounter
+                currentStreak={streak.currentStreak}
+                bestStreak={streak.bestStreak}
+              />
+            ) : (
+              <div className="text-sm text-muted-foreground">
+                Streaks will be calculated after the first daily snapshot
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+              <Award className="w-4 h-4" />
+              Achievements
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {achievements.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {achievements.map((a) => (
+                  <AchievementBadge
+                    key={a.id}
+                    achievement={a.achievement}
+                    unlockedAt={a.unlockedAt}
+                  />
+                ))}
+              </div>
+            ) : (
+              <NoAchievements />
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Attribution Chart */}
+      {status.attribution.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <BarChart3 className="w-4 h-4" />
+              Budget Attribution
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AttributionChart
+              attribution={status.attribution}
+              totalBudgetMinutes={status.errorBudgetTotalMinutes}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Downtime Events Timeline */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">Recent Downtime Events</CardTitle>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Clock className="w-4 h-4" />
+            Recent Downtime Events
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          {!events || events.length === 0 ? (
-            <div className="text-sm text-muted-foreground text-center py-4">
-              No downtime events in the current window
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {events.map((event) => (
-                <div
-                  key={event.id}
-                  className="flex items-center justify-between rounded-md border border-border p-3"
-                >
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>
-                      {formatDistanceToNow(new Date(event.startTime), {
-                        addSuffix: true,
-                      })}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      variant={
-                        event.attributionType === "self"
-                          ? "destructive"
-                          : "warning"
-                      }
-                    >
-                      {event.attributionType === "self"
-                        ? "Self"
-                        : `Upstream: ${event.upstreamSystemName ?? event.upstreamSystemId}`}
-                    </Badge>
-                    {event.durationSeconds !== undefined &&
-                      event.durationSeconds !== null && (
-                        <span className="text-sm text-muted-foreground">
-                          {Math.round(event.durationSeconds / 60)} min
-                        </span>
-                      )}
-                    {event.endTime === null && (
-                      <Badge variant="destructive">Ongoing</Badge>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          <DowntimeTimeline events={events ?? []} />
         </CardContent>
       </Card>
     </PageLayout>
