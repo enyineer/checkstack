@@ -35,14 +35,16 @@ export const SystemSloPanel: React.FC<Props> = ({ system }) => {
   if (!objectives || objectives.length === 0) return;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm font-medium">
-          <Target className="w-4 h-4" />
-          Service Level Objectives
-        </CardTitle>
+    <Card className="border-border shadow-sm">
+      <CardHeader className="border-b border-border bg-muted/30">
+        <div className="flex items-center gap-2">
+          <Target className="h-5 w-5 text-muted-foreground" />
+          <CardTitle className="text-lg font-semibold">
+            Service Level Objectives
+          </CardTitle>
+        </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-6">
         <div className="space-y-4">
           {objectives.map((item) => (
             <Link
