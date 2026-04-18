@@ -227,21 +227,44 @@ function DependencyMapContent() {
     [createDependency],
   );
 
-  // Build graph from data
+  // Track node positions for saving and for preserving in-memory positions
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+
+  // Build nodes from systems, positions, warnings, and health data.
+  // Position resolution priority:
+  //   1. Current in-memory position (user may have dragged but not saved yet)
+  //   2. Saved position from the backend
+  //   3. Auto-layout fallback for brand-new systems with no position at all
+
   useEffect(() => {
-    if (!systemsData?.systems || !depsData?.dependencies) return;
+    if (!systemsData?.systems) return;
 
     const savedPositions = posData?.positions ?? [];
-    const positions = autoLayout(
-      systemsData.systems.map((s) => s.id),
-      savedPositions,
-    );
-
     const warnings = warningsData?.warnings ?? {};
     const healthStatuses = healthData?.statuses ?? {};
 
+    // Lookup maps for position resolution
+    const savedPositionMap = new Map(
+      savedPositions.map((p) => [p.systemId, { x: p.x, y: p.y }]),
+    );
+    const currentPositionMap = new Map<string, { x: number; y: number }>();
+    for (const node of nodesRef.current) {
+      currentPositionMap.set(node.id, node.position);
+    }
+
+    // Auto-layout only for systems that have no saved and no in-memory position
+    const unpositioned = systemsData.systems
+      .map((s) => s.id)
+      .filter((id) => !savedPositionMap.has(id) && !currentPositionMap.has(id));
+    const fallbackPositions = autoLayout(unpositioned, []);
+
     const newNodes: SystemNode[] = systemsData.systems.map((system) => {
-      const pos = positions.get(system.id) ?? { x: 0, y: 0 };
+      const pos =
+        currentPositionMap.get(system.id) ??
+        savedPositionMap.get(system.id) ??
+        fallbackPositions.get(system.id) ?? { x: 0, y: 0 };
+
       const warning = warnings[system.id];
 
       // Map real health status to node status
@@ -270,6 +293,13 @@ function DependencyMapContent() {
       };
     });
 
+    setNodes(newNodes);
+  }, [systemsData, posData, warningsData, healthData, setNodes]);
+
+  // Build edges separately — only depends on dependency data
+  useEffect(() => {
+    if (!depsData?.dependencies) return;
+
     const newEdges: DependencyEdge[] = depsData.dependencies.map(
       (dep: Dependency) => {
         const edgeData: DependencyEdgeData = {
@@ -294,13 +324,10 @@ function DependencyMapContent() {
       },
     );
 
-    setNodes(newNodes);
     setEdges(newEdges);
-  }, [systemsData, depsData, posData, warningsData, healthData, setNodes, setEdges]);
+  }, [depsData, setEdges]);
 
   // Track node position changes for saving
-  const nodesRef = useRef(nodes);
-  nodesRef.current = nodes;
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<SystemNode>[]) => {
