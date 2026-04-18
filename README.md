@@ -64,6 +64,15 @@ Comprehensive system view showing current health status, historical performance 
 </details>
 
 <details>
+<summary><strong>📈 Service Level Objectives (SLO)</strong></summary>
+
+### SLO Details
+Real-time error budget tracking with dependency-aware downtime attribution, compliance streaks, and availability trend charts.
+![SLO Details](assets/screenshots/slo-details.png)
+
+</details>
+
+<details>
 <summary><strong>🚨 Incidents & Maintenance</strong></summary>
 
 ### Incident Management
@@ -223,6 +232,23 @@ Organize your infrastructure into **Systems** and **Groups**. Track dependencies
 - ⚡ **Flexible Assertions** - Validate response time, status, content, numeric comparisons
 - 📊 **Historical Data** - Multi-tier storage with automatic aggregation for trend analysis
 - 🔌 **Pluggable Architecture** - Create custom check strategies for any protocol
+
+---
+
+### Service Level Objectives (SLO)
+> *Track reliability with dependency-aware error budgets*
+
+Most SLO tools treat every minute of downtime the same. Checkstack's SLO engine knows *why* your system was down — and whether it was your fault.
+
+- **Event-Sourced Budget Tracking** — Downtime is recorded to the second as it happens, not computed retroactively from hourly buckets
+- **Dependency-Aware Attribution** — When an upstream dependency fails, that downtime is automatically attributed to the upstream system instead of burning your error budget
+- **Real-Time Event Splitting** — If an upstream goes down mid-outage, the timeline is split: self-caused minutes before, upstream-attributed minutes after
+- **Configurable Exclusion Modes** — Choose between "Strict" (all downtime counts) and "Self-Only" (upstream failures excluded) per SLO
+- **Burn Rate Alerts** — Configurable warning/critical thresholds with integration events for Slack, Teams, Discord, and more
+- **Compliance Streaks** — Track consecutive days meeting your SLO target with daily cron-based streak calculation
+- **Achievements** — Gamified milestones (Iron Uptime, Diamond Uptime, Nines Club, Rapid Recovery, and more)
+- **Weekly Digest** — Automated Monday morning summary of SLO performance across all systems
+- **Multiple SLOs per System** — Run a strict 30-day SLO alongside a lenient 90-day upstream-overlap SLO on the same system
 
 ---
 
