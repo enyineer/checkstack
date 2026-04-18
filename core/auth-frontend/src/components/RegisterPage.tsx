@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { AlertCircle } from "lucide-react";
 import { useApi, usePluginClient } from "@checkstack/frontend-api";
@@ -31,7 +31,6 @@ export const RegisterPage = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
   const authApi = useApi(authApiRef);
   const authClient = usePluginClient(AuthApi);
@@ -39,18 +38,11 @@ export const RegisterPage = () => {
   const authBetterClient = getAuthClientLazy();
   const toast = useToast();
 
-  // Validate password on change
-  useEffect(() => {
-    if (password) {
-      const result = passwordSchema.safeParse(password);
-      if (result.success) {
-        setValidationErrors([]);
-      } else {
-        setValidationErrors(result.error.issues.map((issue) => issue.message));
-      }
-    } else {
-      setValidationErrors([]);
-    }
+  // Derive validation errors directly from password (no state/effect needed)
+  const validationErrors = useMemo(() => {
+    if (!password) return [];
+    const result = passwordSchema.safeParse(password);
+    return result.success ? [] : result.error.issues.map((issue) => issue.message);
   }, [password]);
 
   // Query: Registration status

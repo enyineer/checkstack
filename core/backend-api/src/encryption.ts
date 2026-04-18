@@ -30,22 +30,18 @@ const getMasterKey = (): Buffer => {
 export const encrypt = (plaintext: string): string => {
   const key = getMasterKey();
 
-  // Generate random IV (12 bytes for GCM)
   const iv = crypto.randomBytes(12);
 
-  // Create cipher
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
 
-  // Encrypt
   const encrypted = Buffer.concat([
     cipher.update(plaintext, "utf8"),
     cipher.final(),
   ]);
 
-  // Get auth tag
   const authTag = cipher.getAuthTag();
 
-  // Return base64-encoded iv:authTag:ciphertext
+
   return `${iv.toString("base64")}:${authTag.toString(
     "base64"
   )}:${encrypted.toString("base64")}`;
@@ -58,7 +54,6 @@ export const encrypt = (plaintext: string): string => {
 export const decrypt = (encrypted: string): string => {
   const key = getMasterKey();
 
-  // Parse the encrypted string
   const parts = encrypted.split(":");
   if (parts.length !== 3) {
     throw new Error("Invalid encrypted format");
@@ -68,11 +63,9 @@ export const decrypt = (encrypted: string): string => {
   const authTag = Buffer.from(parts[1], "base64");
   const ciphertext = Buffer.from(parts[2], "base64");
 
-  // Create decipher
   const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
   decipher.setAuthTag(authTag);
 
-  // Decrypt
   const decrypted = Buffer.concat([
     decipher.update(ciphertext),
     decipher.final(),

@@ -298,7 +298,7 @@ For the app to send messages, it must be installed in the target Team:
       getConnectionWithCredentials,
     } = params;
 
-    // Get connection credentials
+
     const connection = await getConnectionWithCredentials(connectionId);
     if (!connection) {
       return [];
@@ -306,7 +306,7 @@ For the app to send messages, it must be installed in the target Team:
 
     const config = connection.config as TeamsConnectionConfig;
 
-    // Get app token
+
     const tokenResult = await getAppToken(config);
     if (!tokenResult.success) {
       return [];
@@ -354,7 +354,7 @@ For the app to send messages, it must be installed in the target Team:
         };
       }
 
-      // Verify we can list teams
+      // Verify Graph API access by listing teams
       const teamsResult = await fetchTeams(tokenResult.token);
       if (!teamsResult.success) {
         return {
@@ -382,10 +382,8 @@ For the app to send messages, it must be installed in the target Team:
   ): Promise<IntegrationDeliveryResult> {
     const { event, subscription, providerConfig, logger } = context;
 
-    // Parse and validate config
     const config = TeamsSubscriptionSchema.parse(providerConfig);
 
-    // Get connection with credentials
     if (!context.getConnectionWithCredentials) {
       return {
         success: false,
@@ -406,7 +404,7 @@ For the app to send messages, it must be installed in the target Team:
 
     const connectionConfig = connection.config as TeamsConnectionConfig;
 
-    // Get app token
+
     const tokenResult = await getAppToken(connectionConfig);
     if (!tokenResult.success) {
       logger.error("Failed to get Graph API token", {
@@ -418,7 +416,7 @@ For the app to send messages, it must be installed in the target Team:
       };
     }
 
-    // Build Adaptive Card
+
     const adaptiveCard = buildAdaptiveCard({
       eventId: event.eventId,
       payload: event.payload as Record<string, unknown>,
@@ -426,7 +424,7 @@ For the app to send messages, it must be installed in the target Team:
       timestamp: event.timestamp,
     });
 
-    // Send message to channel
+
     try {
       const response = await fetch(
         `${GRAPH_API_BASE}/teams/${config.teamId}/channels/${config.channelId}/messages`,
