@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { usePluginClient, wrapInSuspense } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
@@ -65,11 +65,15 @@ const SloDetailPageContent: React.FC = () => {
   );
 
   const snapshotWindowDays = data?.objective?.windowDays ?? 30;
+  const snapshotRange = useMemo(() => ({
+    startDate: subDays(new Date(), snapshotWindowDays),
+    endDate: new Date(),
+  }), [snapshotWindowDays]);
+
   const { data: snapshotsData } = sloClient.getDailySnapshots.useQuery(
     {
       objectiveId: sloId ?? "",
-      startDate: subDays(new Date(), snapshotWindowDays),
-      endDate: new Date(),
+      ...snapshotRange,
     },
     { enabled: !!sloId },
   );
