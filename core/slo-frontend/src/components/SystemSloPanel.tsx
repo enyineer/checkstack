@@ -37,7 +37,7 @@ export const SystemSloPanel: React.FC<Props> = ({ system }) => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 text-sm font-medium">
           <Target className="w-4 h-4" />
           Service Level Objectives
         </CardTitle>
