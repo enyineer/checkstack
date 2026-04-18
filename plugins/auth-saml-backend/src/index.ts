@@ -15,6 +15,7 @@ import { z } from "zod";
 import { hashPassword } from "better-auth/crypto";
 import * as samlify from "samlify";
 import { extractAttribute, extractGroups } from "./helpers";
+import { extractErrorMessage } from "@checkstack/common";
 
 // SAML Configuration Schema V1
 const _samlConfigV1 = z.object({
@@ -503,9 +504,7 @@ export default createBackendPlugin({
           } catch (error) {
             logger.error("SAML login initiation failed:", error);
             return redirectToAuthError(
-              error instanceof Error
-                ? error.message
-                : "Failed to initiate SAML login",
+              extractErrorMessage(error, "Failed to initiate SAML login"),
             );
           }
         }, "saml/login");
@@ -568,9 +567,7 @@ export default createBackendPlugin({
           } catch (error) {
             logger.error("SAML ACS error:", error);
             const message =
-              error instanceof Error
-                ? error.message
-                : "SAML authentication failed";
+              extractErrorMessage(error, "SAML authentication failed");
             return redirectToAuthError(message);
           }
         }, "saml/acs");

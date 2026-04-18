@@ -8,6 +8,7 @@ import type { IntegrationProviderRegistry } from "./provider-registry";
 import type { ConnectionStore } from "./connection-store";
 import * as schema from "./schema";
 import { INTEGRATION_DELIVERY_COMPLETED } from "@checkstack/integration-common";
+import { extractErrorMessage } from "@checkstack/common";
 
 /**
  * Event payload for delivery routing
@@ -201,7 +202,7 @@ export function createDeliveryCoordinator(
       }
     } catch (error) {
       const errorMessage =
-        error instanceof Error ? error.message : String(error);
+        extractErrorMessage(error);
 
       // Get current attempt count
       const [log] = await db

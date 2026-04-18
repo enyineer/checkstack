@@ -25,6 +25,7 @@ import type {
   PingRequest,
   PingResult as PingResultType,
 } from "./transport-client";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ============================================================================
 // SCHEMAS
@@ -230,7 +231,7 @@ export class PingHealthCheckStrategy implements HealthCheckStrategy<
 
       return this.parsePingOutput(output, count, exitCode);
     } catch (error_) {
-      const error = error_ instanceof Error ? error_.message : String(error_);
+      const error = extractErrorMessage(error_);
       return {
         packetsSent: count,
         packetsReceived: 0,

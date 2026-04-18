@@ -5,6 +5,7 @@ import type {
   IntegrationDeliveryContext,
   IntegrationDeliveryResult,
 } from "@checkstack/integration-backend";
+import { extractErrorMessage } from "@checkstack/common";
 
 // =============================================================================
 // Script Configuration Schema
@@ -109,7 +110,7 @@ async function executeScript({
 
     return { result };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = extractErrorMessage(error);
     return { result: undefined, error: message };
   }
 }

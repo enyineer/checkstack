@@ -10,6 +10,7 @@ import type {
 } from "@checkstack/integration-backend";
 import { createJiraClientFromConfig } from "./jira-client";
 import { expandTemplate } from "./template-engine";
+import { extractErrorMessage } from "@checkstack/common";
 
 /**
  * Supported Jira authentication modes.
@@ -408,7 +409,7 @@ If a property is missing, the placeholder will be preserved in the output for de
         };
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : "Unknown error";
+          extractErrorMessage(error, "Unknown error");
         logger.error(`Failed to create Jira issue: ${message}`, { error });
 
         // Check if it's a rate limit error

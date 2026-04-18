@@ -23,6 +23,7 @@ import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
 import type { AuthUser, Role, AuthStrategy } from "../api";
 import { CreateUserDialog } from "./CreateUserDialog";
+import { extractErrorMessage } from "@checkstack/common";
 
 export interface UsersTabProps {
   users: (AuthUser & { roles: string[] })[];
@@ -66,7 +67,7 @@ export const UsersTab: React.FC<UsersTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to delete user",
+        extractErrorMessage(error, "Failed to delete user"),
       );
     },
   });
@@ -77,7 +78,7 @@ export const UsersTab: React.FC<UsersTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to update roles",
+        extractErrorMessage(error, "Failed to update roles"),
       );
     },
   });
@@ -89,7 +90,7 @@ export const UsersTab: React.FC<UsersTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to create user",
+        extractErrorMessage(error, "Failed to create user"),
       );
       throw error;
     },

@@ -66,8 +66,7 @@ export class MigrationBuilder<TCurrent> {
     migration: Migration<TCurrent, TNext>
   ): MigrationBuilder<TNext> {
     this.migrations.push(migration);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return this as any as MigrationBuilder<TNext>;
+    return this as unknown as MigrationBuilder<TNext>;
   }
 
   /**

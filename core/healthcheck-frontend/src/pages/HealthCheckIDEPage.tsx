@@ -11,7 +11,7 @@ import {
 } from "@checkstack/healthcheck-common";
 import { PageLayout, Button, useToast } from "@checkstack/ui";
 import { Save, Settings } from "lucide-react";
-import { resolveRoute } from "@checkstack/common";
+import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 import { useCollectors } from "../hooks/useCollectors";
 import { EditorTree, type TreeNodeId } from "../components/editor/EditorTree";
 import { EditorPanel } from "../components/editor/EditorPanel";
@@ -249,7 +249,7 @@ const HealthCheckIDEPageContent = () => {
       navigate(resolveRoute(healthcheckRoutes.routes.config));
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to create");
+      toast.error(extractErrorMessage(error, "Failed to create"));
     },
   });
 
@@ -260,7 +260,7 @@ const HealthCheckIDEPageContent = () => {
       navigate(resolveRoute(healthcheckRoutes.routes.config));
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to update");
+      toast.error(extractErrorMessage(error, "Failed to update"));
     },
   });
 

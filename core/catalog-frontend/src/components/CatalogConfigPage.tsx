@@ -35,6 +35,7 @@ import { SystemEditor } from "./SystemEditor";
 import { GroupEditor } from "./GroupEditor";
 import { DraggableSystem, SystemDragOverlay } from "./DraggableSystem";
 import { DroppableGroup } from "./DroppableGroup";
+import { extractErrorMessage } from "@checkstack/common";
 
 export const CatalogConfigPage = () => {
   const catalogClient = usePluginClient(CatalogApi);
@@ -118,7 +119,7 @@ export const CatalogConfigPage = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to create system",
+        extractErrorMessage(error, "Failed to create system"),
       );
     },
   });
@@ -132,7 +133,7 @@ export const CatalogConfigPage = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to update system",
+        extractErrorMessage(error, "Failed to update system"),
       );
     },
   });
@@ -145,7 +146,7 @@ export const CatalogConfigPage = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to delete system",
+        extractErrorMessage(error, "Failed to delete system"),
       );
     },
   });
@@ -158,7 +159,7 @@ export const CatalogConfigPage = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to create group",
+        extractErrorMessage(error, "Failed to create group"),
       );
     },
   });
@@ -171,7 +172,7 @@ export const CatalogConfigPage = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to delete group",
+        extractErrorMessage(error, "Failed to delete group"),
       );
     },
   });
@@ -183,7 +184,7 @@ export const CatalogConfigPage = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to update group name",
+        extractErrorMessage(error, "Failed to update group name"),
       );
       throw error;
     },
@@ -198,9 +199,7 @@ export const CatalogConfigPage = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to add system to group",
+        extractErrorMessage(error, "Failed to add system to group"),
       );
     },
   });
@@ -213,9 +212,7 @@ export const CatalogConfigPage = () => {
       },
       onError: (error) => {
         toast.error(
-          error instanceof Error
-            ? error.message
-            : "Failed to remove system from group",
+          extractErrorMessage(error, "Failed to remove system from group"),
         );
       },
     });

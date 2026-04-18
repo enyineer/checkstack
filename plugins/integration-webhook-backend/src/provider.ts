@@ -5,6 +5,7 @@ import type {
   IntegrationDeliveryContext,
   IntegrationDeliveryResult,
 } from "@checkstack/integration-backend";
+import { extractErrorMessage } from "@checkstack/common";
 
 // =============================================================================
 // Template Expansion Helper
@@ -320,7 +321,7 @@ Configure your server to:
         externalId,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = extractErrorMessage(error);
       logger.error(`Webhook delivery failed: ${message}`);
 
       // Network errors should trigger retry

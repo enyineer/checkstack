@@ -10,6 +10,7 @@ import {
 } from "@checkstack/backend-api";
 import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Configuration Schemas
@@ -346,7 +347,7 @@ const teamsStrategy: NotificationStrategy<TeamsConfig> = {
       };
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Unknown Graph API error";
+        extractErrorMessage(error, "Unknown Graph API error");
       logger.error("Teams notification error", { error: message });
       return {
         success: false,

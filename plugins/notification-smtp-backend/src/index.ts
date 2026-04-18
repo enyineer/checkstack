@@ -13,6 +13,7 @@ import { notificationStrategyExtensionPoint } from "@checkstack/notification-bac
 import { z } from "zod";
 import { createTransport, type Transporter } from "nodemailer";
 import { pluginMetadata } from "./plugin-metadata";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SMTP Configuration Schema
@@ -169,7 +170,7 @@ Configure your SMTP server to enable email notifications:
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: extractErrorMessage(error),
       };
     }
   },

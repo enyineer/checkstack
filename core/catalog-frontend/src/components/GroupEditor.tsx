@@ -11,6 +11,7 @@ import {
   DialogFooter,
   useToast,
 } from "@checkstack/ui";
+import { extractErrorMessage } from "@checkstack/common";
 
 interface GroupEditorProps {
   open: boolean;
@@ -46,7 +47,7 @@ export const GroupEditor: React.FC<GroupEditorProps> = ({
       onClose();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to save group";
+        extractErrorMessage(error, "Failed to save group");
       toast.error(message);
     } finally {
       setLoading(false);

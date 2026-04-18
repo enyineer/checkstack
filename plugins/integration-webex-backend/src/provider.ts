@@ -8,6 +8,7 @@ import type {
   ConnectionOption,
   TestConnectionResult,
 } from "@checkstack/integration-backend";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Resolver Names
@@ -96,7 +97,7 @@ async function fetchWebexRooms(
     const data = (await response.json()) as WebexRoomsResponse;
     return { success: true, rooms: data.items ?? [] };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = extractErrorMessage(error, "Unknown error");
     return { success: false, error: message };
   }
 }
@@ -136,7 +137,7 @@ async function sendWebexMessage(params: {
     const data = (await response.json()) as WebexMessageResponse;
     return { success: true, messageId: data.id };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = extractErrorMessage(error, "Unknown error");
     return { success: false, error: message };
   }
 }
@@ -161,7 +162,7 @@ async function testWebexConnection(
     const data = (await response.json()) as WebexMeResponse;
     return { success: true, botName: data.displayName };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = extractErrorMessage(error, "Unknown error");
     return { success: false, error: message };
   }
 }
@@ -298,7 +299,7 @@ export const webexProvider: IntegrationProvider<
           };
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Invalid configuration";
+        extractErrorMessage(error, "Invalid configuration");
       return {
         success: false,
         message: `Validation failed: ${message}`,

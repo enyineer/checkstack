@@ -21,6 +21,7 @@ import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
 import type { Role, AccessRuleEntry } from "../api";
 import { RoleDialog } from "./RoleDialog";
+import { extractErrorMessage } from "@checkstack/common";
 
 export interface RolesTabProps {
   roles: Role[];
@@ -58,7 +59,7 @@ export const RolesTab: React.FC<RolesTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to create role",
+        extractErrorMessage(error, "Failed to create role"),
       );
     },
   });
@@ -70,7 +71,7 @@ export const RolesTab: React.FC<RolesTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to update role",
+        extractErrorMessage(error, "Failed to update role"),
       );
     },
   });
@@ -83,7 +84,7 @@ export const RolesTab: React.FC<RolesTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to delete role",
+        extractErrorMessage(error, "Failed to delete role"),
       );
     },
   });

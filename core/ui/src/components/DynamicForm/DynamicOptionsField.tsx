@@ -13,6 +13,7 @@ import {
 
 import type { DynamicOptionsFieldProps, ResolverOption } from "./types";
 import { getCleanDescription, NONE_SENTINEL } from "./utils";
+import { extractErrorMessage } from "@checkstack/common";
 
 /**
  * Field component for dynamically resolved options.
@@ -72,7 +73,7 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
       .catch((error_) => {
         if (!cancelled) {
           setError(
-            error_ instanceof Error ? error_.message : "Failed to load options",
+            extractErrorMessage(error_, "Failed to load options"),
           );
           setLoading(false);
         }

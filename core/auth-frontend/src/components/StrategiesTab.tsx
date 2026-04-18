@@ -19,6 +19,7 @@ import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
 import type { AuthStrategy } from "../api";
 import { AuthStrategyCard } from "./AuthStrategyCard";
+import { extractErrorMessage } from "@checkstack/common";
 
 export interface StrategiesTabProps {
   strategies: AuthStrategy[];
@@ -88,7 +89,7 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to update strategy"
+        extractErrorMessage(error, "Failed to update strategy")
       );
     },
   });
@@ -99,7 +100,7 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to save settings"
+        extractErrorMessage(error, "Failed to save settings")
       );
     },
   });
@@ -112,7 +113,7 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to reload auth"
+        extractErrorMessage(error, "Failed to reload auth")
       );
       setReloading(false);
     },

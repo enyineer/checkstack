@@ -26,7 +26,7 @@ import {
   type LucideIconName,
 } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
-import { resolveRoute } from "@checkstack/common";
+import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 import {
   IntegrationApi,
   integrationRoutes,
@@ -67,9 +67,7 @@ export const IntegrationsPage = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to toggle subscription",
+        extractErrorMessage(error, "Failed to toggle subscription"),
       );
     },
   });

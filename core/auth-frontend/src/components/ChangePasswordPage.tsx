@@ -20,6 +20,7 @@ import {
   Checkbox,
 } from "@checkstack/ui";
 import { getAuthClientLazy } from "../lib/auth-client";
+import { extractErrorMessage } from "@checkstack/common";
 
 export const ChangePasswordPage = () => {
   const navigate = useNavigate();
@@ -84,7 +85,7 @@ export const ChangePasswordPage = () => {
       }
     } catch (error_) {
       setError(
-        error_ instanceof Error ? error_.message : "Failed to change password"
+        extractErrorMessage(error_, "Failed to change password")
       );
     } finally {
       setLoading(false);

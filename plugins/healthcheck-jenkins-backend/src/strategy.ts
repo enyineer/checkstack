@@ -27,6 +27,7 @@ import type {
   JenkinsRequest,
   JenkinsResponse,
 } from "./transport-client";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ============================================================================
 // SCHEMAS
@@ -188,7 +189,7 @@ export class JenkinsHealthCheckStrategy implements HealthCheckStrategy<
           clearTimeout(timeoutId);
 
           const errorMessage =
-            error instanceof Error ? error.message : String(error);
+            extractErrorMessage(error);
           return {
             statusCode: 0,
             data: undefined,

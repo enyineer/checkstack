@@ -10,6 +10,7 @@ import {
   DropdownMenuSeparator,
   Button,
   stripMarkdown,
+  useToast,
 } from "@checkstack/ui";
 import { useApi, usePluginClient } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
@@ -28,6 +29,7 @@ export const NotificationBell = () => {
   const authApi = useApi(authApiRef);
   const { data: session, isPending: isAuthLoading } = authApi.useSession();
   const notificationClient = usePluginClient(NotificationApi);
+  const toast = useToast();
 
   const [isOpen, setIsOpen] = useState(false);
 
@@ -130,8 +132,8 @@ export const NotificationBell = () => {
       await markAsReadMutation.mutateAsync({});
       setSignalUnreadCount(0);
       setSignalNotifications([]);
-    } catch (error) {
-      console.error("Failed to mark all as read:", error);
+    } catch {
+      toast.error("Failed to mark all as read");
     }
   };
 

@@ -14,6 +14,7 @@ import {
   useToast,
 } from "@checkstack/ui";
 import { Loader2 } from "lucide-react";
+import { extractErrorMessage } from "@checkstack/common";
 
 interface MaintenanceUpdateFormProps {
   maintenanceId: string;
@@ -45,7 +46,7 @@ export const MaintenanceUpdateForm: React.FC<MaintenanceUpdateFormProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to post update"
+        extractErrorMessage(error, "Failed to post update")
       );
     },
   });

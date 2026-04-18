@@ -8,6 +8,7 @@ import type {
   ConnectionOption,
   TestConnectionResult,
 } from "@checkstack/integration-backend";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Resolver Names
@@ -124,7 +125,7 @@ async function getAppToken(
     const data = (await response.json()) as TokenResponse;
     return { success: true, token: data.access_token };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = extractErrorMessage(error, "Unknown error");
     return { success: false, error: message };
   }
 }
@@ -149,7 +150,7 @@ async function fetchTeams(
     const data = (await response.json()) as GraphTeamsResponse;
     return { success: true, teams: data.value ?? [] };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = extractErrorMessage(error, "Unknown error");
     return { success: false, error: message };
   }
 }
@@ -176,7 +177,7 @@ async function fetchChannels(
     const data = (await response.json()) as GraphChannelsResponse;
     return { success: true, channels: data.value ?? [] };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = extractErrorMessage(error, "Unknown error");
     return { success: false, error: message };
   }
 }
@@ -368,7 +369,7 @@ For the app to send messages, it must be installed in the target Team:
       };
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Invalid configuration";
+        extractErrorMessage(error, "Invalid configuration");
       return {
         success: false,
         message: `Validation failed: ${message}`,
@@ -476,7 +477,7 @@ For the app to send messages, it must be installed in the target Team:
       };
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Unknown Graph API error";
+        extractErrorMessage(error, "Unknown Graph API error");
       logger.error("Teams delivery error", { error: message });
       return {
         success: false,

@@ -7,6 +7,8 @@
  * @module @checkstack/backend-api/oauth-handler
  */
 
+import { extractErrorMessage } from "@checkstack/common";
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // OAuth Configuration Interface
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -416,7 +418,7 @@ export function createOAuthHandler(
         return Response.json(result);
       } catch (error) {
         return Response.json(
-          { error: error instanceof Error ? error.message : "Refresh failed" },
+          { error: extractErrorMessage(error, "Refresh failed") },
           { status: 500 }
         );
       }

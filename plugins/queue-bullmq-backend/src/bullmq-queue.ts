@@ -9,6 +9,7 @@ import {
 } from "@checkstack/queue-api";
 import { Queue as BullQueue, Worker, JobsOptions } from "bullmq";
 import type { BullMQConfig } from "./plugin";
+import { extractErrorMessage } from "@checkstack/common";
 
 /**
  * Consumer group state tracking
@@ -57,7 +58,7 @@ export class BullMQQueue<T = unknown> implements Queue<T> {
       // Try to get job counts - this will fail if Redis is not accessible
       await this.queue.getJobCounts();
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = extractErrorMessage(error);
       throw new Error(
         `Failed to connect to Redis at ${this.config.host}:${this.config.port}: ${message}`,
       );

@@ -59,6 +59,7 @@ import {
   Columns,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ---------------------------------------------------------------------------
 // Editor Dialog
@@ -133,7 +134,7 @@ const AnnouncementEditor: React.FC<AnnouncementEditorProps> = ({
       onSave();
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to create");
+      toast.error(extractErrorMessage(error, "Failed to create"));
     },
   });
 
@@ -144,7 +145,7 @@ const AnnouncementEditor: React.FC<AnnouncementEditorProps> = ({
       onSave();
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to update");
+      toast.error(extractErrorMessage(error, "Failed to update"));
     },
   });
 
@@ -467,7 +468,7 @@ const AnnouncementManageContent: React.FC = () => {
       setDeleteId(undefined);
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to delete");
+      toast.error(extractErrorMessage(error, "Failed to delete"));
     },
   });
 

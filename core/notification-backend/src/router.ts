@@ -39,6 +39,7 @@ import {
   createStrategyService,
   type StrategyService,
 } from "./strategy-service";
+import { extractErrorMessage } from "@checkstack/common";
 
 /**
  * Helper: Resolve user contact information based on strategy's contactResolution type.
@@ -345,10 +346,8 @@ export const createNotificationRouter = (
         await subscribeToGroup(database, userId, input.groupId);
       } catch (error) {
         // Convert group-not-found errors to proper ORPC errors
-        if (
-          error instanceof Error &&
-          error.message.includes("does not exist")
-        ) {
+        const message = extractErrorMessage(error);
+        if (message.includes("does not exist")) {
           throw new ORPCError("NOT_FOUND", {
             message: `Notification group '${input.groupId}' does not exist. It may not have been created yet.`,
           });
@@ -680,7 +679,7 @@ export const createNotificationRouter = (
           results.push({
             strategyId: strategy.qualifiedId,
             success: false,
-            error: error instanceof Error ? error.message : "Unknown error",
+            error: extractErrorMessage(error, "Unknown error"),
           });
         }
       }
@@ -1077,9 +1076,7 @@ export const createNotificationRouter = (
           return {
             success: false,
             error:
-              error instanceof Error
-                ? error.message
-                : "Failed to send test notification",
+              extractErrorMessage(error, "Failed to send test notification"),
           };
         }
       }

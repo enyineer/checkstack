@@ -15,6 +15,7 @@ import { TeamAccessEditor } from "@checkstack/auth-frontend";
 import { ContactsEditor } from "./ContactsEditor";
 import { ExtensionSlot } from "@checkstack/frontend-api";
 import { SystemEditorSlot } from "@checkstack/catalog-common";
+import { extractErrorMessage } from "@checkstack/common";
 
 interface SystemEditorProps {
   open: boolean;
@@ -57,7 +58,7 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
       onClose();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to save system";
+        extractErrorMessage(error, "Failed to save system");
       toast.error(message);
     } finally {
       setLoading(false);

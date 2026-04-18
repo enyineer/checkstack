@@ -33,6 +33,7 @@ import {
   accessApiRef,
 } from "@checkstack/frontend-api";
 import { AuthApi, authAccess } from "@checkstack/auth-common";
+import { extractErrorMessage } from "@checkstack/common";
 
 interface TeamAccess {
   teamId: string;
@@ -121,7 +122,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to update access",
+        extractErrorMessage(error, "Failed to update access"),
       );
     },
   });
@@ -134,7 +135,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to remove access",
+        extractErrorMessage(error, "Failed to remove access"),
       );
     },
   });
@@ -146,7 +147,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to update settings",
+        extractErrorMessage(error, "Failed to update settings"),
       );
     },
   });

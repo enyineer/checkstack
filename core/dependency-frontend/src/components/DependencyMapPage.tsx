@@ -46,6 +46,7 @@ import {
   type DependencyEdge,
   type DependencyEdgeData,
 } from "./canvas/DependencyEdge";
+import { extractErrorMessage } from "@checkstack/common";
 
 const nodeTypes = { system: SystemNodeComponent };
 const edgeTypes = { dependency: DependencyEdgeComponent };
@@ -171,7 +172,7 @@ function DependencyMapContent() {
     },
     onError: (error) => {
       const message =
-        error instanceof Error ? error.message : "Failed to create dependency";
+        extractErrorMessage(error, "Failed to create dependency");
 
       // Check for cycle error and resolve names
       if (message.includes("circular chain")) {
@@ -193,7 +194,7 @@ function DependencyMapContent() {
       void refetchWarnings();
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to update");
+      toast.error(extractErrorMessage(error, "Failed to update"));
     },
   });
 
@@ -206,7 +207,7 @@ function DependencyMapContent() {
       void refetchWarnings();
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to delete");
+      toast.error(extractErrorMessage(error, "Failed to delete"));
     },
   });
 

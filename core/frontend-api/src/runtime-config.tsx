@@ -116,6 +116,7 @@ export const RuntimeConfigProvider: React.FC<RuntimeConfigProviderProps> = ({
       } catch (error_) {
         console.error("RuntimeConfigProvider: Failed to load config", error_);
         setError(
+          // eslint-disable-next-line no-restricted-syntax -- Needs Error object for state, not just message
           error_ instanceof Error ? error_ : new Error(String(error_))
         );
         // Do NOT set a fallback — surface the error visibly.

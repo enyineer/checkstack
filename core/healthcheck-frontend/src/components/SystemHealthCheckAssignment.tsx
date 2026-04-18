@@ -35,7 +35,7 @@ import {
   healthcheckRoutes,
   healthCheckAccess,
 } from "@checkstack/healthcheck-common";
-import { resolveRoute } from "@checkstack/common";
+import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 import { DEFAULT_RETENTION_CONFIG } from "@checkstack/healthcheck-common";
 
 type SelectedPanel = { configId: string; panel: "thresholds" | "retention" };
@@ -132,7 +132,7 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
       void refetchAssociations();
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to update");
+      toast.error(extractErrorMessage(error, "Failed to update"));
     },
   });
 
@@ -144,7 +144,7 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
       },
       onError: (error) => {
         toast.error(
-          error instanceof Error ? error.message : "Failed to update"
+          extractErrorMessage(error, "Failed to update")
         );
       },
     }
@@ -158,7 +158,7 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
         setSelectedPanel(undefined);
       },
       onError: (error) => {
-        toast.error(error instanceof Error ? error.message : "Failed to save");
+        toast.error(extractErrorMessage(error, "Failed to save"));
       },
     });
 

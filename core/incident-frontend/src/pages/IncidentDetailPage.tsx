@@ -7,7 +7,7 @@ import {
   wrapInSuspense,
 } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
-import { resolveRoute } from "@checkstack/common";
+import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 import { IncidentApi } from "../api";
 import {
   incidentRoutes,
@@ -91,7 +91,7 @@ const IncidentDetailPageContent: React.FC = () => {
       void refetchIncident();
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to resolve");
+      toast.error(extractErrorMessage(error, "Failed to resolve"));
     },
   });
 

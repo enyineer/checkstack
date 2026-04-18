@@ -9,3 +9,4 @@ export * from "./transport-client";
 export * from "./json-schema";
 export * from "./chart-types";
 export * from "./procedure-builder";
+export * from "./error-utils";

@@ -8,6 +8,7 @@ import {
 import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
 import { z } from "zod";
 import { pluginMetadata } from "./plugin-metadata";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Admin Configuration Schema
@@ -259,11 +260,11 @@ const backstageStrategy: NotificationStrategy<
       };
     } catch (error) {
       logger?.error?.("Failed to send notification to Backstage", {
-        error: error instanceof Error ? error.message : String(error),
+        error: extractErrorMessage(error),
       });
       return {
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: extractErrorMessage(error),
       };
     }
   },

@@ -16,6 +16,7 @@ import { z } from "zod";
 import { Client as LdapClient } from "ldapts";
 import { hashPassword } from "better-auth/crypto";
 import { extractGroups } from "./helpers";
+import { extractErrorMessage } from "@checkstack/common";
 
 // LDAP Configuration Schema V1
 const _ldapConfigV1 = z.object({
@@ -490,7 +491,7 @@ export default createBackendPlugin({
             logger.error("LDAP authentication error:", error);
             return {
               success: false,
-              error: error instanceof Error ? error.message : "Unknown error",
+              error: extractErrorMessage(error, "Unknown error"),
             };
           }
         };
@@ -662,9 +663,7 @@ export default createBackendPlugin({
           } catch (error) {
             logger.error("LDAP login error:", error);
             const message =
-              error instanceof Error
-                ? error.message
-                : "Authentication failed. Please try again.";
+              extractErrorMessage(error, "Authentication failed. Please try again.");
             return redirectToAuthError(message);
           }
         }, "/ldap/login");

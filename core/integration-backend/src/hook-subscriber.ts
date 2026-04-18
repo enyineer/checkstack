@@ -5,6 +5,7 @@ import type {
 import type { IntegrationEventRegistry } from "./event-registry";
 import type { DeliveryCoordinator } from "./delivery-coordinator";
 import type { RegisteredIntegrationEvent } from "./provider-types";
+import { extractErrorMessage } from "@checkstack/common";
 
 /**
  * Hook subscription function type (matches env.onHook signature)
@@ -84,7 +85,7 @@ function subscribeToEvent(
       } catch (error) {
         logger.error(
           `Failed to route integration event ${event.eventId}:`,
-          error instanceof Error ? error.message : String(error)
+          extractErrorMessage(error)
         );
         // Don't re-throw - we don't want to fail the entire hook chain
         // The event will be logged but not retried at the hook level

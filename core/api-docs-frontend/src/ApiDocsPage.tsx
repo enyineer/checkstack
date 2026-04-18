@@ -20,6 +20,7 @@ import {
   Server,
   FileCode,
 } from "lucide-react";
+import { extractErrorMessage } from "@checkstack/common";
 
 interface OpenApiSpec {
   info: {
@@ -379,7 +380,7 @@ export function ApiDocsPage() {
         const data = (await response.json()) as OpenApiSpec;
         setSpec(data);
       } catch (error_) {
-        setError(error_ instanceof Error ? error_.message : "Unknown error");
+        setError(extractErrorMessage(error_, "Unknown error"));
       } finally {
         setLoading(false);
       }

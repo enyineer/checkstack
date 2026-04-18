@@ -31,6 +31,7 @@ import { Plus, MessageSquare, Loader2, AlertCircle } from "lucide-react";
 import { IncidentUpdateForm } from "./IncidentUpdateForm";
 import { getIncidentStatusBadge } from "../utils/badges";
 import { TeamAccessEditor } from "@checkstack/auth-frontend";
+import { extractErrorMessage } from "@checkstack/common";
 
 interface Props {
   open: boolean;
@@ -71,7 +72,7 @@ export const IncidentEditor: React.FC<Props> = ({
       onSave();
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to save");
+      toast.error(extractErrorMessage(error, "Failed to save"));
     },
   });
 
@@ -81,7 +82,7 @@ export const IncidentEditor: React.FC<Props> = ({
       onSave();
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to save");
+      toast.error(extractErrorMessage(error, "Failed to save"));
     },
   });
 

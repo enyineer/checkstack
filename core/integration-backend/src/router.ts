@@ -17,6 +17,7 @@ import {
   integrationContract,
   INTEGRATION_SUBSCRIPTION_CHANGED,
 } from "@checkstack/integration-common";
+import { extractErrorMessage } from "@checkstack/common";
 
 /**
  * Recursively extracts flattened property paths from a JSON Schema.
@@ -430,7 +431,7 @@ export function createIntegrationRouter(deps: RouterDeps) {
         } catch (error) {
           return {
             success: false,
-            message: error instanceof Error ? error.message : String(error),
+            message: extractErrorMessage(error),
           };
         }
       }
@@ -544,7 +545,7 @@ export function createIntegrationRouter(deps: RouterDeps) {
       } catch (error) {
         throw new ORPCError("NOT_FOUND", {
           message:
-            error instanceof Error ? error.message : "Connection not found",
+            extractErrorMessage(error, "Connection not found"),
         });
       }
     }),
@@ -590,7 +591,7 @@ export function createIntegrationRouter(deps: RouterDeps) {
       } catch (error) {
         return {
           success: false,
-          message: error instanceof Error ? error.message : String(error),
+          message: extractErrorMessage(error),
         };
       }
     }),
@@ -632,7 +633,7 @@ export function createIntegrationRouter(deps: RouterDeps) {
         logger.error(`Failed to get connection options: ${error}`);
         throw new ORPCError("INTERNAL_SERVER_ERROR", {
           message:
-            error instanceof Error ? error.message : "Failed to fetch options",
+            extractErrorMessage(error, "Failed to fetch options"),
         });
       }
     }),

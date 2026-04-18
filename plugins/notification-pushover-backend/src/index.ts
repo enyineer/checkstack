@@ -10,6 +10,7 @@ import {
 } from "@checkstack/backend-api";
 import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Configuration Schemas
@@ -216,7 +217,7 @@ const pushoverStrategy: NotificationStrategy<
       };
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Unknown Pushover API error";
+        extractErrorMessage(error, "Unknown Pushover API error");
       logger.error("Pushover notification error", { error: message });
       return {
         success: false,

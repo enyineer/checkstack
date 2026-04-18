@@ -68,11 +68,15 @@ export function createApiRouteHandler({
               return await next(rest);
             } catch (error) {
               if (logger) {
-                (logger as Logger).error(
-                  `RPC procedure error: ${String(error)}`,
-                );
-                if (error instanceof Error && error.stack) {
-                  (logger as Logger).error(`Stack trace: ${error.stack}`);
+                logger.error(`RPC procedure error: ${String(error)}`);
+                const stack =
+                  error !== null &&
+                  typeof error === "object" &&
+                  "stack" in error
+                    ? (error as { stack: string }).stack
+                    : undefined;
+                if (stack) {
+                  logger.error(`Stack trace: ${stack}`);
                 }
               }
               throw error;

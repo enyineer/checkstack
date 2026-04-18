@@ -31,9 +31,8 @@ export const ForgotPasswordPage = () => {
         email,
         redirectTo: "/auth/reset-password",
       });
-    } catch (error) {
+    } catch {
       // Silently handle errors to prevent timing attacks
-      console.error("Password reset request failed:", error);
     } finally {
       setLoading(false);
       setSubmitted(true);

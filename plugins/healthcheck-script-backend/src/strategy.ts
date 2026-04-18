@@ -27,6 +27,7 @@ import type {
   ScriptRequest,
   ScriptResult as ScriptResultType,
 } from "./transport-client";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ============================================================================
 // SCHEMAS
@@ -305,7 +306,7 @@ export class ScriptHealthCheckStrategy implements HealthCheckStrategy<
             stdout: "",
             stderr: "",
             timedOut: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: extractErrorMessage(error),
           };
         }
       },

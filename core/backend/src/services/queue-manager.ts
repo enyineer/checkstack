@@ -9,6 +9,7 @@ import type { QueuePluginRegistryImpl } from "./queue-plugin-registry";
 import type { Logger, ConfigService } from "@checkstack/backend-api";
 import { z } from "zod";
 import { QueueProxy } from "./queue-proxy";
+import { extractErrorMessage } from "@checkstack/common";
 
 // Schema for active plugin pointer with version for multi-instance coordination
 const activePluginPointerSchema = z.object({
@@ -151,7 +152,7 @@ export class QueueManagerImpl implements QueueManager {
       await testQueue.stop();
       this.logger.info("✅ Connection test successful");
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = extractErrorMessage(error);
       this.logger.error(`❌ Connection test failed: ${message}`);
       throw new Error(`Failed to connect to queue: ${message}`);
     }

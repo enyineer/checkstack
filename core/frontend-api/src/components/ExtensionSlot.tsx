@@ -37,8 +37,7 @@ export function ExtensionSlot<TSlot extends SlotDefinition<unknown>>({
   return (
     <>
       {extensions.map((ext) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const Component = ext.component as React.ComponentType<any>;
+        const Component = ext.component as React.ComponentType<Record<string, unknown>>;
         return <Component key={ext.id} {...(context ?? {})} />;
       })}
     </>

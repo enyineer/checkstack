@@ -45,7 +45,7 @@ import {
   type LucideIconName,
 } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
-import { resolveRoute } from "@checkstack/common";
+import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 import {
   IntegrationApi,
   integrationRoutes,
@@ -111,7 +111,7 @@ export const ProviderConnectionsPage = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to create connection",
+        extractErrorMessage(error, "Failed to create connection"),
       );
       setSaving(false);
     },
@@ -127,7 +127,7 @@ export const ProviderConnectionsPage = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to update connection",
+        extractErrorMessage(error, "Failed to update connection"),
       );
       setSaving(false);
     },
@@ -142,7 +142,7 @@ export const ProviderConnectionsPage = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to delete connection",
+        extractErrorMessage(error, "Failed to delete connection"),
       );
     },
   });
@@ -166,7 +166,7 @@ export const ProviderConnectionsPage = () => {
         [variables.connectionId]: { success: false, message: "Test failed" },
       }));
       toast.error(
-        error instanceof Error ? error.message : "Connection test failed",
+        extractErrorMessage(error, "Connection test failed"),
       );
       setTestingId(undefined);
     },

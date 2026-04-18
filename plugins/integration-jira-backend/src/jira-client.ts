@@ -6,6 +6,7 @@ import type {
   JiraConnection,
 } from "@checkstack/integration-jira-common";
 import type { JiraAuthMode } from "./provider";
+import { extractErrorMessage } from "@checkstack/common";
 
 /**
  * Connection config for generic connection management.
@@ -127,7 +128,7 @@ export function createJiraClient(options: JiraClientOptions) {
       } catch (error) {
         return {
           success: false,
-          message: error instanceof Error ? error.message : "Unknown error",
+          message: extractErrorMessage(error, "Unknown error"),
         };
       }
     },

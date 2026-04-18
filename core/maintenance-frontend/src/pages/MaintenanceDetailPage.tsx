@@ -11,7 +11,7 @@ import {
   accessApiRef,
   useApi,
 } from "@checkstack/frontend-api";
-import { resolveRoute } from "@checkstack/common";
+import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 import { MaintenanceApi } from "../api";
 import {
   maintenanceRoutes,
@@ -86,7 +86,7 @@ const MaintenanceDetailPageContent: React.FC = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to complete",
+        extractErrorMessage(error, "Failed to complete"),
       );
     },
   });

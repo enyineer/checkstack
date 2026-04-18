@@ -17,6 +17,7 @@ import type {
 } from "./services/warning-evaluation-service";
 import { dependencyHooks } from "./hooks";
 import type { InferClient } from "@checkstack/common";
+import { extractErrorMessage } from "@checkstack/common";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 
@@ -205,12 +206,12 @@ export function createRouter({
 
           return result;
         } catch (error) {
+          const message = extractErrorMessage(error);
           if (
-            error instanceof Error &&
-            (error.message.includes("circular chain") ||
-              error.message.includes("already exists"))
+            message.includes("circular chain") ||
+            message.includes("already exists")
           ) {
-            throw new ORPCError("BAD_REQUEST", { message: error.message });
+            throw new ORPCError("BAD_REQUEST", { message });
           }
           throw error;
         }
