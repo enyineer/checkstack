@@ -3,6 +3,7 @@ import { usePluginClient } from "@checkstack/frontend-api";
 import { SloApi, type SloObjective } from "../api";
 import type { System } from "@checkstack/catalog-common";
 import type { DependencyExclusionMode } from "@checkstack/slo-common";
+import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +39,7 @@ export const SloEditor: React.FC<Props> = ({
   onSave,
 }) => {
   const sloClient = usePluginClient(SloApi);
+  const hcClient = usePluginClient(HealthCheckApi);
   const toast = useToast();
 
   // Form state
@@ -48,6 +50,15 @@ export const SloEditor: React.FC<Props> = ({
     useState<DependencyExclusionMode>("strict");
   const [warningPercent, setWarningPercent] = useState("50");
   const [criticalPercent, setCriticalPercent] = useState("80");
+  const [healthCheckConfigurationId, setHealthCheckConfigurationId] =
+    useState<string | undefined>();
+  // Fetch health check associations for the selected system
+  const effectiveSystemId = systemId || objective?.systemId;
+  const { data: hcAssociationsData } =
+    hcClient.getSystemAssociations.useQuery(
+      { systemId: effectiveSystemId ?? "" },
+      { enabled: !!effectiveSystemId },
+    );
 
   // Reset form when objective changes
   useEffect(() => {
@@ -62,6 +73,9 @@ export const SloEditor: React.FC<Props> = ({
       setCriticalPercent(
         String(objective.burnRateThresholds.criticalPercent),
       );
+      setHealthCheckConfigurationId(
+        objective.healthCheckConfigurationId ?? undefined,
+      );
     } else {
       setSystemId("");
       setTarget("99.9");
@@ -69,6 +83,7 @@ export const SloEditor: React.FC<Props> = ({
       setDependencyExclusion("strict");
       setWarningPercent("50");
       setCriticalPercent("80");
+      setHealthCheckConfigurationId(undefined);
     }
   }, [objective, open]);
 
@@ -127,6 +142,7 @@ export const SloEditor: React.FC<Props> = ({
     } else {
       createMutation.mutate({
         systemId,
+        healthCheckConfigurationId,
         target: targetNum,
         windowDays: windowNum,
         dependencyExclusion,
@@ -140,6 +156,8 @@ export const SloEditor: React.FC<Props> = ({
   };
 
   const saving = createMutation.isPending || updateMutation.isPending;
+
+  const systemAssociations = hcAssociationsData ?? [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -174,6 +192,44 @@ export const SloEditor: React.FC<Props> = ({
               </Select>
             </div>
           )}
+
+          {/* Health Check scope - only show when system has associated HCs */}
+          {systemAssociations.length > 0 && (
+            <div className="grid gap-2">
+              <Label>Health Check Scope</Label>
+              <Select
+                value={healthCheckConfigurationId ?? "__all__"}
+                onValueChange={(v) =>
+                  setHealthCheckConfigurationId(
+                    v === "__all__" ? undefined : v,
+                  )
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">
+                    All health checks (system-global)
+                  </SelectItem>
+                  {systemAssociations.map((assoc) => (
+                    <SelectItem
+                      key={assoc.configurationId}
+                      value={assoc.configurationId}
+                    >
+                      {assoc.configurationName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {healthCheckConfigurationId
+                  ? "This SLO only tracks downtime from the selected health check."
+                  : "This SLO tracks all health checks for the system."}
+              </p>
+            </div>
+          )}
+
 
           {/* Target */}
           <div className="grid gap-2">

@@ -18,6 +18,7 @@
     "@checkstack/frontend-api": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/dependency-common": "workspace:*",
+    "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/slo-common": "workspace:*",
     "@checkstack/ui": "workspace:*",
     "date-fns": "^4.1.0",
