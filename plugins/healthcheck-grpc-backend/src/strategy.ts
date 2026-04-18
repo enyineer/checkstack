@@ -20,6 +20,7 @@ import {
   healthResultNumber,
   healthResultString,
   healthResultSchema,
+  StrategyCategory,
 } from "@checkstack/healthcheck-common";
 import type {
   GrpcTransportClient,
@@ -198,6 +199,7 @@ export class GrpcHealthCheckStrategy implements HealthCheckStrategy<
   displayName = "gRPC Health Check";
   description =
     "gRPC server health check using the standard Health Checking Protocol";
+  category = StrategyCategory.APPLICATION;
 
   private grpcClient: GrpcHealthClient;
 

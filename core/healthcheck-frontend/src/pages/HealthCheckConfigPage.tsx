@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useEffect } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   usePluginClient,
   wrapInSuspense,
@@ -8,13 +8,11 @@ import {
 } from "@checkstack/frontend-api";
 import { HealthCheckApi } from "../api";
 import {
-  HealthCheckConfiguration,
-  CreateHealthCheckConfiguration,
+  type HealthCheckConfiguration,
   healthcheckRoutes,
   healthCheckAccess,
 } from "@checkstack/healthcheck-common";
 import { HealthCheckList } from "../components/HealthCheckList";
-import { HealthCheckEditor } from "../components/HealthCheckEditor";
 import {
   Button,
   ConfirmationModal,
@@ -24,11 +22,13 @@ import {
 import { Plus, History, Activity } from "lucide-react";
 import { Link } from "react-router-dom";
 import { resolveRoute } from "@checkstack/common";
+import { useState } from "react";
 
 const HealthCheckConfigPageContent = () => {
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { allowed: canRead, loading: accessLoading } = accessApi.useAccess(
     healthCheckAccess.configuration.read,
@@ -36,11 +36,6 @@ const HealthCheckConfigPageContent = () => {
   const { allowed: canManage } = accessApi.useAccess(
     healthCheckAccess.configuration.manage,
   );
-
-  const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [editingConfig, setEditingConfig] = useState<
-    HealthCheckConfiguration | undefined
-  >();
 
   // Delete modal state
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -60,35 +55,14 @@ const HealthCheckConfigPageContent = () => {
   // Handle ?action=create URL parameter (from command palette)
   useEffect(() => {
     if (searchParams.get("action") === "create" && canManage) {
-      setEditingConfig(undefined);
-      setIsEditorOpen(true);
-      // Clear the URL param after opening
+      // Clear the URL param and navigate to the create flow
       searchParams.delete("action");
       setSearchParams(searchParams, { replace: true });
+      navigate(resolveRoute(healthcheckRoutes.routes.create));
     }
-  }, [searchParams, canManage, setSearchParams]);
+  }, [searchParams, canManage, setSearchParams, navigate]);
 
   // Mutations
-  const createMutation = healthCheckClient.createConfiguration.useMutation({
-    onSuccess: () => {
-      setIsEditorOpen(false);
-      void refetchConfigurations();
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to create");
-    },
-  });
-
-  const updateMutation = healthCheckClient.updateConfiguration.useMutation({
-    onSuccess: () => {
-      setIsEditorOpen(false);
-      void refetchConfigurations();
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to update");
-    },
-  });
-
   const deleteMutation = healthCheckClient.deleteConfiguration.useMutation({
     onSuccess: () => {
       setIsDeleteModalOpen(false);
@@ -119,13 +93,13 @@ const HealthCheckConfigPageContent = () => {
   });
 
   const handleCreate = () => {
-    setEditingConfig(undefined);
-    setIsEditorOpen(true);
+    navigate(resolveRoute(healthcheckRoutes.routes.create));
   };
 
   const handleEdit = (config: HealthCheckConfiguration) => {
-    setEditingConfig(config);
-    setIsEditorOpen(true);
+    navigate(
+      resolveRoute(healthcheckRoutes.routes.edit, { configId: config.id }),
+    );
   };
 
   const handleDelete = (id: string) => {
@@ -136,19 +110,6 @@ const HealthCheckConfigPageContent = () => {
   const confirmDelete = () => {
     if (!idToDelete) return;
     deleteMutation.mutate(idToDelete);
-  };
-
-  const handleSave = async (data: CreateHealthCheckConfiguration) => {
-    if (editingConfig) {
-      updateMutation.mutate({ id: editingConfig.id, body: data });
-    } else {
-      createMutation.mutate(data);
-    }
-  };
-
-  const handleEditorClose = () => {
-    setIsEditorOpen(false);
-    setEditingConfig(undefined);
   };
 
   return (
@@ -181,14 +142,6 @@ const HealthCheckConfigPageContent = () => {
         onPause={(id) => pauseMutation.mutate(id)}
         onResume={(id) => resumeMutation.mutate(id)}
         canManage={canManage}
-      />
-
-      <HealthCheckEditor
-        open={isEditorOpen}
-        strategies={strategies}
-        initialData={editingConfig}
-        onSave={handleSave}
-        onCancel={handleEditorClose}
       />
 
       <ConfirmationModal

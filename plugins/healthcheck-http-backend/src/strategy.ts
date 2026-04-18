@@ -13,6 +13,7 @@ import {
 import {
   healthResultString,
   healthResultSchema,
+  StrategyCategory,
 } from "@checkstack/healthcheck-common";
 import type {
   HttpTransportClient,
@@ -77,6 +78,7 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
   id = "http";
   displayName = "HTTP/HTTPS Health Check";
   description = "HTTP endpoint health monitoring";
+  category = StrategyCategory.NETWORKING;
 
   config: Versioned<HttpHealthCheckConfig> = new Versioned({
     version: 3, // v3 for createClient pattern with action params moved to RequestCollector

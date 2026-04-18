@@ -23,6 +23,7 @@ import {
   healthResultNumber,
   healthResultString,
   healthResultSchema,
+  StrategyCategory,
 } from "@checkstack/healthcheck-common";
 import type { RconTransportClient } from "@checkstack/healthcheck-rcon-common";
 
@@ -150,6 +151,7 @@ export class RconHealthCheckStrategy implements HealthCheckStrategy<
   displayName = "RCON Health Check";
   description =
     "Game server connectivity via RCON protocol (Minecraft, CS:GO, etc.)";
+  category = StrategyCategory.GAMING;
 
   private rconClient: RconClient;
 

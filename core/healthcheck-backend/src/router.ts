@@ -8,6 +8,7 @@ import {
   type CollectorRegistry,
 } from "@checkstack/backend-api";
 import { healthCheckContract } from "@checkstack/healthcheck-common";
+import type { StrategyCategory } from "@checkstack/healthcheck-common";
 import { HealthCheckService } from "./service";
 import * as schema from "./schema";
 import { toJsonSchemaWithChartMeta } from "./schema-utils";
@@ -37,6 +38,7 @@ export const createHealthCheckRouter = (
         id: r.qualifiedId, // Return fully qualified ID
         displayName: r.strategy.displayName,
         description: r.strategy.description,
+        category: (r.strategy.category ?? "other") as StrategyCategory,
         configSchema: toJsonSchema(r.strategy.config.schema),
         resultSchema: r.strategy.result
           ? toJsonSchemaWithChartMeta(r.strategy.result.schema)
@@ -85,6 +87,10 @@ export const createHealthCheckRouter = (
 
     getConfigurations: os.getConfigurations.handler(async () => {
       return { configurations: await service.getConfigurations() };
+    }),
+
+    getConfiguration: os.getConfiguration.handler(async ({ input }) => {
+      return service.getConfiguration(input.id);
     }),
 
     createConfiguration: os.createConfiguration.handler(async ({ input }) => {

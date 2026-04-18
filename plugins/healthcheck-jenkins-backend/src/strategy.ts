@@ -20,6 +20,7 @@ import {
   healthResultString,
   healthResultBoolean,
   healthResultSchema,
+  StrategyCategory,
 } from "@checkstack/healthcheck-common";
 import type {
   JenkinsTransportClient,
@@ -104,6 +105,7 @@ export class JenkinsHealthCheckStrategy implements HealthCheckStrategy<
   id = "jenkins";
   displayName = "Jenkins Health Check";
   description = "Monitor Jenkins CI/CD server health and job status";
+  category = StrategyCategory.INTEGRATION;
 
   config: Versioned<JenkinsConfig> = new Versioned({
     version: 1,

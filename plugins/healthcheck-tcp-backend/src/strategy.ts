@@ -19,6 +19,7 @@ import {
   healthResultNumber,
   healthResultString,
   healthResultSchema,
+  StrategyCategory,
 } from "@checkstack/healthcheck-common";
 import type {
   TcpTransportClient,
@@ -170,6 +171,7 @@ export class TcpHealthCheckStrategy implements HealthCheckStrategy<
   id = "tcp";
   displayName = "TCP Health Check";
   description = "TCP port connectivity check with optional banner grab";
+  category = StrategyCategory.NETWORKING;
 
   private socketFactory: SocketFactory;
 

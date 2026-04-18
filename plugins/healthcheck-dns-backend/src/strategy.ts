@@ -18,6 +18,7 @@ import {
   healthResultString,
   healthResultArray,
   healthResultSchema,
+  StrategyCategory,
 } from "@checkstack/healthcheck-common";
 import type {
   DnsTransportClient,
@@ -125,6 +126,7 @@ export class DnsHealthCheckStrategy implements HealthCheckStrategy<
   id = "dns";
   displayName = "DNS Health Check";
   description = "DNS record resolution with response validation";
+  category = StrategyCategory.NETWORKING;
 
   private resolverFactory: ResolverFactory;
 

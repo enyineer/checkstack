@@ -25,6 +25,7 @@ import {
   healthResultNumber,
   healthResultString,
   healthResultSchema,
+  StrategyCategory,
 } from "@checkstack/healthcheck-common";
 import type {
   RedisTransportClient,
@@ -176,6 +177,7 @@ export class RedisHealthCheckStrategy implements HealthCheckStrategy<
   id = "redis";
   displayName = "Redis Health Check";
   description = "Redis server connectivity and health monitoring";
+  category = StrategyCategory.DATABASE;
 
   private redisClient: RedisClient;
 

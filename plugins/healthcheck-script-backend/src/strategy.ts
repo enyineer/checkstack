@@ -20,6 +20,7 @@ import {
   healthResultNumber,
   healthResultString,
   healthResultSchema,
+  StrategyCategory,
 } from "@checkstack/healthcheck-common";
 import type {
   ScriptTransportClient,
@@ -214,6 +215,7 @@ export class ScriptHealthCheckStrategy implements HealthCheckStrategy<
   id = "script";
   displayName = "Script Health Check";
   description = "Execute local scripts or commands for health checking";
+  category = StrategyCategory.INFRASTRUCTURE;
 
   private executor: ScriptExecutor;
 

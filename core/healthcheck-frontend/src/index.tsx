@@ -4,6 +4,8 @@ import {
   UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
 import { HealthCheckConfigPage } from "./pages/HealthCheckConfigPage";
+import { StrategyPickerPage } from "./pages/StrategyPickerPage";
+import { HealthCheckIDEPage } from "./pages/HealthCheckIDEPage";
 import { HealthCheckHistoryPage } from "./pages/HealthCheckHistoryPage";
 import { HealthCheckHistoryDetailPage } from "./pages/HealthCheckHistoryDetailPage";
 import { HealthCheckMenuItems } from "./components/HealthCheckMenuItems";
@@ -41,6 +43,18 @@ export default createFrontendPlugin({
       route: healthcheckRoutes.routes.config,
       element: <HealthCheckConfigPage />,
       title: "Health Checks",
+      accessRule: healthCheckAccess.configuration.manage,
+    },
+    {
+      route: healthcheckRoutes.routes.create,
+      element: <StrategyPickerPage />,
+      title: "Create Health Check",
+      accessRule: healthCheckAccess.configuration.manage,
+    },
+    {
+      route: healthcheckRoutes.routes.edit,
+      element: <HealthCheckIDEPage />,
+      title: "Edit Health Check",
       accessRule: healthCheckAccess.configuration.manage,
     },
     {
