@@ -1,5 +1,19 @@
 # @checkstack/dependency-frontend
 
+## 0.2.2
+
+### Patch Changes
+
+- c0935d8: Fix dependency map node positions resetting when connecting two nodes. The graph-building effect was rebuilding all nodes from scratch on every data change, discarding unsaved drag positions. Node and edge construction are now split into separate effects with a clear position resolution priority: in-memory positions → saved positions → auto-layout fallback for new systems only.
+  - @checkstack/catalog-common@1.3.0
+  - @checkstack/common@0.6.4
+  - @checkstack/dashboard-frontend@0.3.25
+  - @checkstack/dependency-common@0.2.0
+  - @checkstack/frontend-api@0.3.8
+  - @checkstack/healthcheck-common@0.10.0
+  - @checkstack/signal-frontend@0.0.14
+  - @checkstack/ui@1.2.0
+
 ## 0.2.1
 
 ### Patch Changes
