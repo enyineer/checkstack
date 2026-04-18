@@ -52,4 +52,25 @@ export const sloHooks = {
     systemId: string;
     achievement: string;
   }>("slo.achievement.unlocked"),
+
+  /**
+   * Emitted weekly with a summary of SLO performance across all systems.
+   * Delivered through configured notification channels (Slack, Teams, etc.).
+   */
+  sloWeeklyDigest: createHook<{
+    totalObjectives: number;
+    breachingCount: number;
+    atRiskCount: number;
+    healthyCount: number;
+    topPerformers: Array<{
+      systemName: string;
+      availability: number;
+      streakDays: number;
+    }>;
+    worstPerformers: Array<{
+      systemName: string;
+      availability: number;
+      budgetRemainingPercent: number;
+    }>;
+  }>("slo.weekly.digest"),
 } as const;

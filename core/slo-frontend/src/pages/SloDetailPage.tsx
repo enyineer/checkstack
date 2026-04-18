@@ -10,6 +10,7 @@ import { BurnRateIndicator } from "../components/BurnRateIndicator";
 import { StreakCounter } from "../components/StreakCounter";
 import { AttributionChart } from "../components/AttributionChart";
 import { DowntimeTimeline } from "../components/DowntimeTimeline";
+import { SloTrendChart } from "../components/SloTrendChart";
 import {
   AchievementBadge,
   NoAchievements,
@@ -31,7 +32,9 @@ import {
   Flame,
   Award,
   BarChart3,
+  LineChart,
 } from "lucide-react";
+import { subDays } from "date-fns";
 
 const SloDetailPageContent: React.FC = () => {
   const { sloId } = useParams<{ sloId: string }>();
@@ -59,6 +62,16 @@ const SloDetailPageContent: React.FC = () => {
   const { data: achievementsData } = sloClient.getAchievements.useQuery(
     { systemId: data?.objective?.systemId ?? "" },
     { enabled: !!data?.objective?.systemId },
+  );
+
+  const snapshotWindowDays = data?.objective?.windowDays ?? 30;
+  const { data: snapshotsData } = sloClient.getDailySnapshots.useQuery(
+    {
+      objectiveId: sloId ?? "",
+      startDate: subDays(new Date(), snapshotWindowDays),
+      endDate: new Date(),
+    },
+    { enabled: !!sloId },
   );
 
   const events = eventsData?.events;
@@ -230,6 +243,22 @@ const SloDetailPageContent: React.FC = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* Availability Trend Chart */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <LineChart className="w-4 h-4" />
+            Availability Trend
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <SloTrendChart
+            snapshots={snapshotsData?.snapshots ?? []}
+            target={objective.target}
+          />
+        </CardContent>
+      </Card>
 
       {/* Downtime Events Timeline */}
       <Card>

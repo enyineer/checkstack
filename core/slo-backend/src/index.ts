@@ -21,6 +21,7 @@ import { registerSearchProvider } from "@checkstack/command-backend";
 import { resolveRoute } from "@checkstack/common";
 import { sloHooks } from "./hooks";
 import { setupDailySnapshotJob } from "./streak-calculator";
+import { setupWeeklyDigestJob } from "./weekly-digest";
 import { evaluateAchievements } from "./achievement-evaluator";
 
 // =============================================================================
@@ -57,6 +58,27 @@ const sloStreakBrokenPayloadSchema = z.object({
 const sloAchievementUnlockedPayloadSchema = z.object({
   systemId: z.string(),
   achievement: z.string(),
+});
+
+const sloWeeklyDigestPayloadSchema = z.object({
+  totalObjectives: z.number(),
+  breachingCount: z.number(),
+  atRiskCount: z.number(),
+  healthyCount: z.number(),
+  topPerformers: z.array(
+    z.object({
+      systemName: z.string(),
+      availability: z.number(),
+      streakDays: z.number(),
+    }),
+  ),
+  worstPerformers: z.array(
+    z.object({
+      systemName: z.string(),
+      availability: z.number(),
+      budgetRemainingPercent: z.number(),
+    }),
+  ),
 });
 
 // =============================================================================
@@ -131,6 +153,18 @@ export default createBackendPlugin({
       pluginMetadata,
     );
 
+    integrationEvents.registerEvent(
+      {
+        hook: sloHooks.sloWeeklyDigest,
+        displayName: "SLO Weekly Digest",
+        description:
+          "Weekly summary of SLO performance across all systems (Monday 09:00 UTC)",
+        category: "SLO",
+        payloadSchema: sloWeeklyDigestPayloadSchema,
+      },
+      pluginMetadata,
+    );
+
     // Shared references across init/afterPluginsReady (maintenance-backend pattern)
     let sharedEngine: SloEngine;
 
@@ -189,6 +223,7 @@ export default createBackendPlugin({
         database,
         logger,
         onHook,
+        emitHook,
         rpcClient,
         signalService,
         queueManager,
@@ -367,6 +402,17 @@ export default createBackendPlugin({
           engine,
           logger,
           queueManager,
+        });
+
+        // =====================================================================
+        // Weekly digest cron job
+        // =====================================================================
+        await setupWeeklyDigestJob({
+          service,
+          engine,
+          logger,
+          queueManager,
+          emitHook,
         });
 
         logger.debug("✅ SLO Backend afterPluginsReady complete.");
