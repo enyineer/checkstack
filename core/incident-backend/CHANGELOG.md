@@ -1,5 +1,15 @@
 # @checkstack/incident-backend
 
+## 0.4.12
+
+### Patch Changes
+
+- Updated dependencies [54a5f80]
+  - @checkstack/backend-api@0.11.0
+  - @checkstack/catalog-backend@0.2.22
+  - @checkstack/command-backend@0.1.17
+  - @checkstack/integration-backend@0.1.17
+
 ## 0.4.11
 
 ### Patch Changes

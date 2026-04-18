@@ -1,5 +1,27 @@
 # @checkstack/healthcheck-tcp-backend
 
+## 0.2.7
+
+### Patch Changes
+
+- 54a5f80: ### Health Check Editor Redesign — IDE-Style Experience
+
+  Replaces the modal-based health check editor with a full-page, IDE-style experience:
+
+  - **Strategy Picker Page**: New `/config/create` page with categorized strategy discovery, search filtering, and grouped card grid layout
+  - **IDE Editor Page**: New `/config/:configId/edit` page with a split-view layout — explorer tree on the left, editor panel on the right
+  - **Strategy Categories**: Introduces `StrategyCategory` enum with 16 categories (Networking, Database, Infrastructure, etc.) — all 13 strategy plugins now declare their category
+  - **New RPC Endpoint**: Added `getConfiguration` (singular by ID) for efficient single-resource fetching on the edit page
+  - **Explorer Tree**: Left-hand navigation with General, Check Items (collectors), and Access Control sections, with real-time validation indicators
+  - **Validation Status Bar**: Bottom bar showing aggregated validation issues with clickable navigation
+  - **Unsaved Changes Guard**: Browser `beforeunload` protection when the form is dirty
+  - **Responsive Design**: Split-view on desktop, stacked layout on mobile
+  - **Deleted**: Legacy `HealthCheckEditor.tsx` modal component
+
+- Updated dependencies [54a5f80]
+  - @checkstack/healthcheck-common@0.10.0
+  - @checkstack/backend-api@0.11.0
+
 ## 0.2.6
 
 ### Patch Changes
