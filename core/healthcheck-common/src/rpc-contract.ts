@@ -70,6 +70,14 @@ export const healthCheckContract = {
     z.object({ configurations: z.array(HealthCheckConfigurationSchema) }),
   ),
 
+  getConfiguration: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.read],
+  })
+    .input(z.object({ id: z.string() }))
+    .output(HealthCheckConfigurationSchema.optional()),
+
   createConfiguration: proc({
     operationType: "mutation",
     userType: "authenticated",

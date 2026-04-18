@@ -66,6 +66,7 @@ describe("HealthCheck Router", () => {
               id: "http",
               displayName: "HTTP",
               description: "Check HTTP",
+              category: "networking",
               config: {
                 version: 1,
                 schema: z.object({}),
@@ -95,6 +96,19 @@ describe("HealthCheck Router", () => {
     const result = await call(router.getConfigurations, undefined, { context });
     expect(result).toHaveProperty("configurations");
     expect(Array.isArray(result.configurations)).toBe(true);
+  });
+
+  it("getConfiguration returns undefined for non-existent config", async () => {
+    const context = createMockRpcContext({
+      user: mockUser,
+    });
+
+    const result = await call(
+      router.getConfiguration,
+      { id: "non-existent" },
+      { context },
+    );
+    expect(result).toBeUndefined();
   });
 
   it("getCollectors returns collectors for strategy", async () => {

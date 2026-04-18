@@ -64,6 +64,8 @@ export interface HealthCheckStrategy<
   id: string;
   displayName: string;
   description?: string;
+  /** Strategy category for UI grouping in the strategy picker */
+  category?: string;
 
   /** Configuration schema with versioning and migrations */
   config: Versioned<TConfig>;

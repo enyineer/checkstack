@@ -1,16 +1,20 @@
 export * from "./access";
 export * from "./schemas";
 export * from "./zod-health-result";
+export * from "./strategy-category";
 
 // --- DTOs for API Responses ---
 
 /**
  * Represents a Health Check Strategy available in the system.
  */
+import type { StrategyCategory } from "./strategy-category";
+
 export interface HealthCheckStrategyDto {
   id: string;
   displayName: string;
   description?: string;
+  category: StrategyCategory;
   // schema is a JSON schema object derived from the Zod schema
   configSchema: Record<string, unknown>;
 }

@@ -49,13 +49,13 @@ Lightning-fast keyboard-driven navigation with `Ctrl+K` / `Cmd+K`. Search for sy
 <details>
 <summary><strong>✅ Health Checks</strong></summary>
 
-### Health Check Configuration
-Configure automated monitoring with strategy-specific settings. Supports HTTP, TCP, DNS, TLS, PostgreSQL, MySQL, Redis, gRPC, RCON, SSH, and custom scripts.
-![Health Check Configuration](assets/screenshots/healthcheck-config.png)
+### Strategy Picker
+Browse and search all available health check strategies organized by category — Networking, Database, Infrastructure, and more. Choose a strategy to start configuring.
+![Health Check Strategy Picker](assets/screenshots/healthcheck-categories.png)
 
-### Flexible Assertions
-Define custom success criteria with multiple assertion types: status codes, response times, content matching, numeric comparisons, and more.
-![Health Check Assertions](assets/screenshots/healthcheck-config-assertion.png)
+### IDE-Style Editor
+Full-page editor with tree navigation, real-time validation, strategy-specific configuration, collector management, and assertion building — all in one view.
+![Health Check IDE Editor](assets/screenshots/healthcheck-ide.png)
 
 ### System Details with Health Status
 Comprehensive system view showing current health status, historical performance charts with response times, and detailed check results.

@@ -20,6 +20,7 @@ import {
   healthResultNumber,
   healthResultString,
   healthResultSchema,
+  StrategyCategory,
 } from "@checkstack/healthcheck-common";
 import type {
   TlsTransportClient,
@@ -183,6 +184,7 @@ export class TlsHealthCheckStrategy implements HealthCheckStrategy<
   id = "tls";
   displayName = "TLS/SSL Health Check";
   description = "SSL/TLS certificate validation and expiry monitoring";
+  category = StrategyCategory.NETWORKING;
 
   private tlsClient: TlsClient;
 

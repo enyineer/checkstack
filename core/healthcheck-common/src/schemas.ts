@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { StrategyCategorySchema } from "./strategy-category";
 
 // --- API Request/Response Schemas (Zod) ---
 
@@ -6,6 +7,7 @@ export const HealthCheckStrategyDtoSchema = z.object({
   id: z.string(),
   displayName: z.string(),
   description: z.string().optional(),
+  category: StrategyCategorySchema,
   configSchema: z.record(z.string(), z.unknown()),
   /** JSON Schema for per-run result metadata (with chart annotations) */
   resultSchema: z.record(z.string(), z.unknown()).optional(),

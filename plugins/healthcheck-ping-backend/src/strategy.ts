@@ -18,6 +18,7 @@ import {
   healthResultNumber,
   healthResultString,
   healthResultSchema,
+  StrategyCategory,
 } from "@checkstack/healthcheck-common";
 import type {
   PingTransportClient,
@@ -122,6 +123,7 @@ export class PingHealthCheckStrategy implements HealthCheckStrategy<
   id = "ping";
   displayName = "Ping Health Check";
   description = "ICMP ping check for network reachability and latency";
+  category = StrategyCategory.NETWORKING;
 
   config: Versioned<PingConfig> = new Versioned({
     version: 2,

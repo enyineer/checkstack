@@ -25,6 +25,7 @@ import {
   healthResultNumber,
   healthResultString,
   healthResultSchema,
+  StrategyCategory,
 } from "@checkstack/healthcheck-common";
 import type {
   PostgresTransportClient,
@@ -149,6 +150,7 @@ export class PostgresHealthCheckStrategy implements HealthCheckStrategy<
   id = "postgres";
   displayName = "PostgreSQL Health Check";
   description = "PostgreSQL database connectivity and query health check";
+  category = StrategyCategory.DATABASE;
 
   private dbClient: DbClient;
 

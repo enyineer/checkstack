@@ -23,6 +23,7 @@ import {
   healthResultNumber,
   healthResultString,
   healthResultSchema,
+  StrategyCategory,
 } from "@checkstack/healthcheck-common";
 import type { SshTransportClient, SshCommandResult } from "./transport-client";
 
@@ -191,6 +192,7 @@ export class SshHealthCheckStrategy implements HealthCheckStrategy<
   id = "ssh";
   displayName = "SSH Health Check";
   description = "SSH server connectivity and command execution health check";
+  category = StrategyCategory.INFRASTRUCTURE;
 
   private sshClient: SshClient;
 

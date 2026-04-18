@@ -24,6 +24,7 @@ import {
   healthResultNumber,
   healthResultString,
   healthResultSchema,
+  StrategyCategory,
 } from "@checkstack/healthcheck-common";
 import type {
   MysqlTransportClient,
@@ -163,6 +164,7 @@ export class MysqlHealthCheckStrategy implements HealthCheckStrategy<
   id = "mysql";
   displayName = "MySQL Health Check";
   description = "MySQL database connectivity and query health check";
+  category = StrategyCategory.DATABASE;
 
   private dbClient: DbClient;
 
