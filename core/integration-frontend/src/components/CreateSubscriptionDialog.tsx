@@ -304,7 +304,7 @@ export const SubscriptionDialog = ({
         formValues: Record<string, unknown>,
       ) => Promise<{ value: string; label: string }[]>
     >;
-    // Note: getOptionsMutation intentionally omitted - mutation objects change on every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- getOptionsMutation is a TanStack mutation object that changes identity every render; including it would destroy the Proxy on each render, breaking in-flight requests
   }, [selectedProvider, selectedConnectionId]);
 
   return (

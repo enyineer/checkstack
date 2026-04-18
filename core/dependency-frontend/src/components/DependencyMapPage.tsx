@@ -351,6 +351,7 @@ function DependencyMapContent() {
         }, 2000);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSave reads from nodesRef (always current); including it would cause infinite re-render loops via setHasUnsaved
     [onNodesChange],
   );
 

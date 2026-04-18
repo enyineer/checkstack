@@ -103,7 +103,6 @@ export const Dashboard: React.FC = () => {
   // Fetch entities from catalog (groups and systems in one call)
   const { data: entitiesData, isLoading: entitiesLoading } =
     catalogClient.getEntities.useQuery({}, { staleTime: 30_000 });
-  const groups = entitiesData?.groups ?? [];
   const systems = entitiesData?.systems ?? [];
 
   // Fetch active incidents
@@ -167,6 +166,8 @@ export const Dashboard: React.FC = () => {
 
   // Map groups to include their systems
   const groupsWithSystems = useMemo<GroupWithSystems[]>(() => {
+    const groups = entitiesData?.groups ?? [];
+    const systems = entitiesData?.systems ?? [];
     const systemMap = new Map(systems.map((s) => [s.id, s]));
     return groups.map((group) => {
       const groupSystems = (group.systemIds || [])
@@ -174,7 +175,7 @@ export const Dashboard: React.FC = () => {
         .filter((s): s is System => s !== undefined);
       return { ...group, systems: groupSystems };
     });
-  }, [groups, systems]);
+  }, [entitiesData]);
 
   // -------------------------------------------------------------------------
   // SIGNAL HANDLERS

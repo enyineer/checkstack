@@ -33,7 +33,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     if (JSON.stringify(merged) !== JSON.stringify(value)) {
       onChange(merged);
     }
-  }, [schema]); // Only run when schema changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentional: runs only on schema change. Including onChange would re-fire on parent re-renders; including value would cause an infinite loop since this effect calls onChange(merged)
+  }, [schema]);
 
   // Compute validity and report changes
   React.useEffect(() => {
