@@ -29,16 +29,6 @@ jobs:
       - name: Install Dependencies
         run: bun install --frozen-lockfile
 
-      - name: Cache TypeScript Build Info
-        uses: actions/cache@v4
-        with:
-          path: |
-            core/**/*.tsbuildinfo
-            plugins/**/*.tsbuildinfo
-          key: tsbuildinfo-${{ hashFiles('bun.lock') }}-${{ github.sha }}
-          restore-keys: |
-            tsbuildinfo-${{ hashFiles('bun.lock') }}-
-
       - name: Typecheck
         id: typecheck
         run: |
