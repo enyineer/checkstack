@@ -43,6 +43,7 @@ import {
 import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
 import type { AuthUser } from "../api";
+import { extractErrorMessage } from "@checkstack/common";
 
 interface Team {
   id: string;
@@ -116,7 +117,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to create team",
+        extractErrorMessage(error, "Failed to create team"),
       );
     },
   });
@@ -130,7 +131,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to update team",
+        extractErrorMessage(error, "Failed to update team"),
       );
     },
   });
@@ -144,7 +145,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to delete team",
+        extractErrorMessage(error, "Failed to delete team"),
       );
     },
   });
@@ -158,7 +159,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to add member",
+        extractErrorMessage(error, "Failed to add member"),
       );
     },
   });
@@ -171,7 +172,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to remove member",
+        extractErrorMessage(error, "Failed to remove member"),
       );
     },
   });
@@ -183,7 +184,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to promote to manager",
+        extractErrorMessage(error, "Failed to promote to manager"),
       );
     },
   });
@@ -195,9 +196,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to remove manager role",
+        extractErrorMessage(error, "Failed to remove manager role"),
       );
     },
   });

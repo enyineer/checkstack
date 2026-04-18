@@ -27,7 +27,7 @@ import {
 import { CatalogApi, catalogRoutes } from "@checkstack/catalog-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { IncidentApi } from "@checkstack/incident-common";
-import { resolveRoute, type InferClient } from "@checkstack/common";
+import { resolveRoute, type InferClient, extractErrorMessage} from "@checkstack/common";
 import { HealthCheckService } from "./service";
 import { healthCheckHooks } from "./hooks";
 import { incrementHourlyAggregate } from "./realtime-aggregation";
@@ -400,7 +400,7 @@ async function executeHealthCheckJob(props: {
               };
             } catch (error) {
               const errorStr =
-                error instanceof Error ? error.message : String(error);
+                extractErrorMessage(error);
               logger.debug(`Collector ${storageKey} failed: ${errorStr}`);
               return {
                 storageKey,
@@ -465,7 +465,7 @@ async function executeHealthCheckJob(props: {
     } catch (error) {
       const latencyMs = Math.round(performance.now() - start);
       const caughtError =
-        error instanceof Error ? error.message : String(error);
+        extractErrorMessage(error);
 
       // Use a specific error message if available, otherwise use the caught error
       const finalError = errorMessage || caughtError;

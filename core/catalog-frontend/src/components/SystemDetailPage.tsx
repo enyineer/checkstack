@@ -33,6 +33,7 @@ import {
   Mail,
   User,
 } from "lucide-react";
+import { extractErrorMessage } from "@checkstack/common";
 
 const CATALOG_PLUGIN_ID = "catalog";
 
@@ -88,7 +89,7 @@ export const SystemDetailPage: React.FC = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to subscribe",
+        extractErrorMessage(error, "Failed to subscribe"),
       );
     },
   });
@@ -101,7 +102,7 @@ export const SystemDetailPage: React.FC = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to unsubscribe",
+        extractErrorMessage(error, "Failed to unsubscribe"),
       );
     },
   });

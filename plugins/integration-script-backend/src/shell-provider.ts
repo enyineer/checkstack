@@ -6,6 +6,7 @@ import type {
   IntegrationDeliveryContext,
   IntegrationDeliveryResult,
 } from "@checkstack/integration-backend";
+import { extractErrorMessage } from "@checkstack/common";
 
 // =============================================================================
 // Bash Configuration Schema
@@ -315,7 +316,7 @@ exit 0
         externalId: result.stdout.split("\n")[0]?.slice(0, 100) || undefined,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = extractErrorMessage(error);
       logger.error(`Script execution failed: ${message}`);
       return {
         success: false,

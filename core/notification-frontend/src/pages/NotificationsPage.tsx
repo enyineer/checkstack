@@ -16,6 +16,7 @@ import {
 import { usePluginClient } from "@checkstack/frontend-api";
 import type { Notification } from "@checkstack/notification-common";
 import { NotificationApi } from "@checkstack/notification-common";
+import { extractErrorMessage } from "@checkstack/common";
 
 export const NotificationsPage = () => {
   const notificationClient = usePluginClient(NotificationApi);
@@ -48,7 +49,7 @@ export const NotificationsPage = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to mark as read",
+        extractErrorMessage(error, "Failed to mark as read"),
       );
     },
   });
@@ -61,9 +62,7 @@ export const NotificationsPage = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to delete notification",
+        extractErrorMessage(error, "Failed to delete notification"),
       );
     },
   });
@@ -76,7 +75,7 @@ export const NotificationsPage = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to mark all as read",
+        extractErrorMessage(error, "Failed to mark all as read"),
       );
     },
   });

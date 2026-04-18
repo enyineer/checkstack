@@ -21,6 +21,7 @@ import {
 import { CatalogApi, type SystemContact } from "@checkstack/catalog-common";
 import { AuthApi, authAccess } from "@checkstack/auth-common";
 import { User, Mail, Trash2, Plus } from "lucide-react";
+import { extractErrorMessage } from "@checkstack/common";
 
 interface ContactsEditorProps {
   systemId: string;
@@ -79,7 +80,7 @@ export const ContactsEditor: React.FC<ContactsEditorProps> = ({ systemId }) => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to add contact",
+        extractErrorMessage(error, "Failed to add contact"),
       );
     },
   });
@@ -92,7 +93,7 @@ export const ContactsEditor: React.FC<ContactsEditorProps> = ({ systemId }) => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to remove contact",
+        extractErrorMessage(error, "Failed to remove contact"),
       );
     },
   });

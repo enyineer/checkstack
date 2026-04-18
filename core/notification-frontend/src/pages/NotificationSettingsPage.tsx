@@ -26,6 +26,7 @@ import {
   UserChannelCard,
   type UserDeliveryChannel,
 } from "../components/UserChannelCard";
+import { extractErrorMessage } from "@checkstack/common";
 
 export const NotificationSettingsPage = () => {
   const notificationClient = usePluginClient(NotificationApi);
@@ -97,7 +98,7 @@ export const NotificationSettingsPage = () => {
       },
       onError: (error) => {
         toast.error(
-          error instanceof Error ? error.message : "Failed to save settings",
+          extractErrorMessage(error, "Failed to save settings"),
         );
       },
     });
@@ -109,7 +110,7 @@ export const NotificationSettingsPage = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to unsubscribe",
+        extractErrorMessage(error, "Failed to unsubscribe"),
       );
     },
   });
@@ -123,7 +124,7 @@ export const NotificationSettingsPage = () => {
       },
       onError: (error) => {
         toast.error(
-          error instanceof Error ? error.message : "Failed to update channel",
+          extractErrorMessage(error, "Failed to update channel"),
         );
         setStrategySaving(undefined);
       },
@@ -138,9 +139,7 @@ export const NotificationSettingsPage = () => {
       },
       onError: (error) => {
         toast.error(
-          error instanceof Error
-            ? error.message
-            : "Failed to update preference",
+          extractErrorMessage(error, "Failed to update preference"),
         );
         setChannelSaving(undefined);
       },
@@ -155,7 +154,7 @@ export const NotificationSettingsPage = () => {
       },
       onError: (error) => {
         toast.error(
-          error instanceof Error ? error.message : "Failed to disconnect",
+          extractErrorMessage(error, "Failed to disconnect"),
         );
         setChannelSaving(undefined);
       },
@@ -168,7 +167,7 @@ export const NotificationSettingsPage = () => {
       },
       onError: (error) => {
         toast.error(
-          error instanceof Error ? error.message : "Failed to start OAuth flow",
+          extractErrorMessage(error, "Failed to start OAuth flow"),
         );
         setChannelConnecting(undefined);
       },

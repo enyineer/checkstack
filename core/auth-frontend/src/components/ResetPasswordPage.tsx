@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { Lock, ArrowLeft, CheckCircle, AlertCircle } from "lucide-react";
 import { authRoutes, passwordSchema } from "@checkstack/auth-common";
-import { resolveRoute } from "@checkstack/common";
+import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 import {
   Button,
   Input,
@@ -83,7 +83,7 @@ export const ResetPasswordPage = () => {
       }
     } catch (error_) {
       setError(
-        error_ instanceof Error ? error_.message : "Failed to reset password"
+        extractErrorMessage(error_, "Failed to reset password")
       );
     } finally {
       setLoading(false);

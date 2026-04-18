@@ -14,6 +14,11 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { $ } from "bun";
 import semver from "semver";
+function extractErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return "An error occurred";
+}
 
 export interface PackageJson {
   name: string;
@@ -146,7 +151,7 @@ export async function publishPackage({
 
     return { name: pkg.name, version: pkg.version, success: true };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = extractErrorMessage(error);
     return {
       name: pkg.name,
       version: pkg.version,

@@ -9,6 +9,7 @@ import {
 } from "@checkstack/backend-api";
 import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Configuration Schemas
@@ -178,7 +179,7 @@ const webexStrategy: NotificationStrategy<WebexConfig, WebexUserConfig> = {
       };
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Unknown Webex API error";
+        extractErrorMessage(error, "Unknown Webex API error");
       return {
         success: false,
         error: `Failed to send Webex message: ${message}`,

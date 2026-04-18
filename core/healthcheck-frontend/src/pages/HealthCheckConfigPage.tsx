@@ -21,7 +21,7 @@ import {
 } from "@checkstack/ui";
 import { Plus, History, Activity } from "lucide-react";
 import { Link } from "react-router-dom";
-import { resolveRoute } from "@checkstack/common";
+import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 import { useState } from "react";
 
 const HealthCheckConfigPageContent = () => {
@@ -70,7 +70,7 @@ const HealthCheckConfigPageContent = () => {
       void refetchConfigurations();
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to delete");
+      toast.error(extractErrorMessage(error, "Failed to delete"));
     },
   });
 
@@ -79,7 +79,7 @@ const HealthCheckConfigPageContent = () => {
       void refetchConfigurations();
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to pause");
+      toast.error(extractErrorMessage(error, "Failed to pause"));
     },
   });
 
@@ -88,7 +88,7 @@ const HealthCheckConfigPageContent = () => {
       void refetchConfigurations();
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to resume");
+      toast.error(extractErrorMessage(error, "Failed to resume"));
     },
   });
 

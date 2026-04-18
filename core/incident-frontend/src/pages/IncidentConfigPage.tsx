@@ -47,6 +47,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { IncidentEditor } from "../components/IncidentEditor";
+import { extractErrorMessage } from "@checkstack/common";
 
 const IncidentConfigPageContent: React.FC = () => {
   const incidentClient = usePluginClient(IncidentApi);
@@ -114,7 +115,7 @@ const IncidentConfigPageContent: React.FC = () => {
       setDeleteId(undefined);
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to delete");
+      toast.error(extractErrorMessage(error, "Failed to delete"));
     },
   });
 
@@ -125,7 +126,7 @@ const IncidentConfigPageContent: React.FC = () => {
       setResolveId(undefined);
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to resolve");
+      toast.error(extractErrorMessage(error, "Failed to resolve"));
     },
   });
 

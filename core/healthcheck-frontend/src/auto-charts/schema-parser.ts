@@ -230,10 +230,6 @@ function extractComputedValue(value: unknown): unknown {
 
   // _type is required for all aggregated state objects
   if (!("_type" in obj)) {
-    console.error(
-      "[AutoChart] Missing _type discriminator in aggregated state:",
-      obj,
-    );
     return value;
   }
 
@@ -252,9 +248,6 @@ function extractComputedValue(value: unknown): unknown {
       return obj.max;
     }
     default: {
-      console.error(
-        `[AutoChart] Unrecognized aggregated state type: ${String(obj._type)}`,
-      );
       return value;
     }
   }

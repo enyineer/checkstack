@@ -1,6 +1,7 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import unicorn from "eslint-plugin-unicorn";
+import reactHooks from "eslint-plugin-react-hooks";
 import checkstackPlugin from "./scripts/eslint-rules/checkstack-plugin.mjs";
 
 export default tseslint.config(
@@ -19,6 +20,7 @@ export default tseslint.config(
   {
     plugins: {
       unicorn,
+      "react-hooks": reactHooks,
       checkstack: checkstackPlugin,
     },
     rules: {
@@ -32,12 +34,50 @@ export default tseslint.config(
       "unicorn/prevent-abbreviations": "off",
       "unicorn/prefer-module": "off",
       "unicorn/no-nested-ternary": "off",
+      // React hooks rules
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
+      // Ban raw `instanceof Error` — use extractErrorMessage() instead
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "BinaryExpression[operator='instanceof'][right.name='Error']",
+          message:
+            "Do not use 'instanceof Error' directly. Use extractErrorMessage() from @checkstack/common instead.",
+        },
+      ],
       // Custom checkstack rules
       "checkstack/no-direct-rpc-in-components": "error",
       "checkstack/no-mutation-in-deps": "error",
       "checkstack/enforce-architecture-deps": "error",
       "checkstack/no-extraneous-runtime-deps": "error",
       "checkstack/enforce-package-metadata": "error",
+      "checkstack/no-eslint-disable-any": "error",
+    },
+  },
+  // Frontend packages: ban console.* to enforce proper error handling
+  {
+    files: [
+      "core/*-frontend/src/**/*.{ts,tsx}",
+      "plugins/*-frontend/src/**/*.{ts,tsx}",
+    ],
+    ignores: [
+      "**/logger-api.ts",
+      "**/plugin-loader.ts",
+      "**/plugin-registry.ts",
+      "**/SignalProvider.tsx",
+      "**/runtime-config.tsx",
+    ],
+    rules: {
+      "no-console": "error",
+    },
+  },
+  // Standalone scripts: exempt from instanceof Error ban (can't import workspace packages)
+  {
+    files: ["scripts/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": "off",
     },
   }
 );

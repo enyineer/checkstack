@@ -10,6 +10,7 @@ import {
 } from "@checkstack/backend-api";
 import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Configuration Schema
@@ -188,7 +189,7 @@ const telegramStrategy: NotificationStrategy<
       };
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Unknown Telegram API error";
+        extractErrorMessage(error, "Unknown Telegram API error");
       return {
         success: false,
         error: `Failed to send Telegram message: ${message}`,

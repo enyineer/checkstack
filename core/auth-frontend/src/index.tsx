@@ -108,6 +108,7 @@ class BetterAuthApi implements AuthApi {
   }
 
   useSession() {
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
     return useSessionContext();
   }
 }
@@ -178,6 +179,7 @@ export const authPlugin = createFrontendPlugin({
     createSlotExtension(UserMenuItemsSlot, {
       id: "auth.user-menu.settings",
       component: ({ accessRules: userPerms }: UserMenuItemsContext) => {
+        // eslint-disable-next-line react-hooks/rules-of-hooks -- Inline component used via createSlotExtension
         const navigate = useNavigate();
         const qualifiedId = `${pluginMetadata.pluginId}.${authAccess.strategies.id}`;
         const canManage =
@@ -198,6 +200,7 @@ export const authPlugin = createFrontendPlugin({
     createSlotExtension(UserMenuItemsSlot, {
       id: "auth.user-menu.profile",
       component: () => {
+        // eslint-disable-next-line react-hooks/rules-of-hooks -- Inline component used via createSlotExtension
         const navigate = useNavigate();
 
         return (

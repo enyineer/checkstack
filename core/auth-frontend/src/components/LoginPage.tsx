@@ -36,6 +36,8 @@ import {
   InfoBannerTitle,
   InfoBannerDescription,
 } from "@checkstack/ui";
+import { useToast } from "@checkstack/ui";
+import { extractErrorMessage } from "@checkstack/common";
 import { authApiRef, EnabledAuthStrategy } from "../api";
 import { useEnabledStrategies } from "../hooks/useEnabledStrategies";
 import { useAccessRules } from "../hooks/useAccessRules";
@@ -57,6 +59,7 @@ export const LoginPage = () => {
   const authApi = useApi(authApiRef);
   const authClient = usePluginClient(AuthApi);
   const { strategies, loading: strategiesLoading } = useEnabledStrategies();
+  const toast = useToast();
 
   // Query: Registration status
   const { data: registrationData } = authClient.getRegistrationStatus.useQuery(
@@ -90,7 +93,7 @@ export const LoginPage = () => {
         await authApi.signInWithSocial(strategy.id);
       } catch (error) {
         setError("Failed to initialize social login");
-        console.error("Social login failed:", error);
+        toast.error(extractErrorMessage(error, "Failed to initialize social login"));
       }
       return;
     }
@@ -138,7 +141,7 @@ export const LoginPage = () => {
         setError(data.error?.message || "Authentication failed");
       }
     } catch (error) {
-      console.error("Social login failed:", error);
+      toast.error(extractErrorMessage(error, "Social login failed"));
     }
   };
 

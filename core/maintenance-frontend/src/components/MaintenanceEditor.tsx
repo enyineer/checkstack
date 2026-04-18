@@ -26,6 +26,7 @@ import { Plus, MessageSquare, Loader2, AlertCircle } from "lucide-react";
 import { MaintenanceUpdateForm } from "./MaintenanceUpdateForm";
 import { getMaintenanceStatusBadge } from "../utils/badges";
 import { TeamAccessEditor } from "@checkstack/auth-frontend";
+import { extractErrorMessage } from "@checkstack/common";
 
 interface Props {
   open: boolean;
@@ -73,7 +74,7 @@ export const MaintenanceEditor: React.FC<Props> = ({
       onSave();
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to save");
+      toast.error(extractErrorMessage(error, "Failed to save"));
     },
   });
 
@@ -83,7 +84,7 @@ export const MaintenanceEditor: React.FC<Props> = ({
       onSave();
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to save");
+      toast.error(extractErrorMessage(error, "Failed to save"));
     },
   });
 

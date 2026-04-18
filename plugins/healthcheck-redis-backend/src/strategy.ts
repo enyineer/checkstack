@@ -32,6 +32,7 @@ import type {
   RedisCommand,
   RedisCommandResult,
 } from "./transport-client";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ============================================================================
 // SCHEMAS
@@ -283,7 +284,7 @@ export class RedisHealthCheckStrategy implements HealthCheckStrategy<
         } catch (error) {
           return {
             value: undefined,
-            error: error instanceof Error ? error.message : String(error),
+            error: extractErrorMessage(error),
           };
         }
       },

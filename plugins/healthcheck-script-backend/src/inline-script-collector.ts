@@ -21,6 +21,7 @@ import {
 } from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "./plugin-metadata";
 import type { ScriptTransportClient } from "./transport-client";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ============================================================================
 // SCRIPT EXECUTION UTILITIES (shared with integration-script-backend pattern)
@@ -164,7 +165,7 @@ async function executeInlineScript({
       timedOut: false,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = extractErrorMessage(error);
     if (message === "__TIMEOUT__") {
       return {
         result: undefined,

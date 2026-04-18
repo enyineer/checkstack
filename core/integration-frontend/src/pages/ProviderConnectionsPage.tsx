@@ -45,11 +45,10 @@ import {
   type LucideIconName,
 } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
-import { resolveRoute } from "@checkstack/common";
+import { resolveRoute, extractErrorMessage } from "@checkstack/common";
 import {
   IntegrationApi,
   integrationRoutes,
-  type IntegrationProviderInfo,
   type ProviderConnectionRedacted,
 } from "@checkstack/integration-common";
 
@@ -95,9 +94,7 @@ export const ProviderConnectionsPage = () => {
   );
 
   const loading = providersLoading || connectionsLoading;
-  const provider = (providers as IntegrationProviderInfo[]).find(
-    (p) => p.qualifiedId === providerId,
-  );
+  const provider = providers.find((p) => p.qualifiedId === providerId);
 
   // Mutations
   const createMutation = client.createConnection.useMutation({
@@ -110,9 +107,7 @@ export const ProviderConnectionsPage = () => {
       setSaving(false);
     },
     onError: (error) => {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to create connection",
-      );
+      toast.error(extractErrorMessage(error, "Failed to create connection"));
       setSaving(false);
     },
   });
@@ -126,9 +121,7 @@ export const ProviderConnectionsPage = () => {
       setSaving(false);
     },
     onError: (error) => {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to update connection",
-      );
+      toast.error(extractErrorMessage(error, "Failed to update connection"));
       setSaving(false);
     },
   });
@@ -141,9 +134,7 @@ export const ProviderConnectionsPage = () => {
       toast.success("Connection deleted");
     },
     onError: (error) => {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to delete connection",
-      );
+      toast.error(extractErrorMessage(error, "Failed to delete connection"));
     },
   });
 
@@ -165,9 +156,7 @@ export const ProviderConnectionsPage = () => {
         ...prev,
         [variables.connectionId]: { success: false, message: "Test failed" },
       }));
-      toast.error(
-        error instanceof Error ? error.message : "Connection test failed",
-      );
+      toast.error(extractErrorMessage(error, "Connection test failed"));
       setTestingId(undefined);
     },
   });
@@ -275,11 +264,13 @@ export const ProviderConnectionsPage = () => {
         </div>
       }
     >
-      {(connections as ProviderConnectionRedacted[]).length === 0 ? (
+      {connections.length === 0 ? (
         <EmptyState
           icon={
             <DynamicIcon
-              name={(provider?.icon ?? "Settings2") as LucideIconName}
+              name={
+                (provider?.icon as LucideIconName | undefined) ?? "Settings2"
+              }
               className="h-12 w-12"
             />
           }
@@ -296,7 +287,9 @@ export const ProviderConnectionsPage = () => {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <DynamicIcon
-                name={(provider?.icon ?? "Settings2") as LucideIconName}
+                name={
+                  (provider?.icon as LucideIconName | undefined) ?? "Settings2"
+                }
                 className="h-5 w-5"
               />
               Connections
@@ -313,7 +306,7 @@ export const ProviderConnectionsPage = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(connections as ProviderConnectionRedacted[]).map((conn) => {
+                {connections.map((conn) => {
                   const testResult = testResults[conn.id];
                   const isTesting = testingId === conn.id;
 

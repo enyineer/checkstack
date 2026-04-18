@@ -10,6 +10,7 @@ import {
 } from "@checkstack/backend-api";
 import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Configuration Schemas
@@ -217,7 +218,7 @@ const slackStrategy: NotificationStrategy<SlackConfig, SlackUserConfig> = {
       };
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Unknown Slack API error";
+        extractErrorMessage(error, "Unknown Slack API error");
       logger.error("Slack notification error", { error: message });
       return {
         success: false,

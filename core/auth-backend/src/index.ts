@@ -38,7 +38,7 @@ import {
   PLATFORM_REGISTRATION_CONFIG_ID,
 } from "./platform-registration-config";
 import { registerSearchProvider } from "@checkstack/command-backend";
-import { resolveRoute } from "@checkstack/common";
+import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 
 export interface BetterAuthExtensionPoint {
   addStrategy(strategy: AuthStrategy<unknown>): void;
@@ -318,7 +318,7 @@ export default createBackendPlugin({
           validateStrategySchema(s.configSchema, s.id);
         } catch (error) {
           const message =
-            error instanceof Error ? error.message : String(error);
+            extractErrorMessage(error);
           throw new Error(
             `Failed to register authentication strategy "${s.id}": ${message}`,
           );

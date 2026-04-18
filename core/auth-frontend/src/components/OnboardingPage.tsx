@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { User, Lock, Mail, CheckCircle, AlertCircle } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi, authRoutes, passwordSchema } from "@checkstack/auth-common";
-import { resolveRoute } from "@checkstack/common";
+import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 import {
   Button,
   Input,
@@ -111,7 +111,7 @@ export const OnboardingPage = () => {
       }
     } catch (error_) {
       const message =
-        error_ instanceof Error ? error_.message : "Failed to complete setup";
+        extractErrorMessage(error_, "Failed to complete setup");
       setError(message);
     } finally {
       setLoading(false);

@@ -11,6 +11,7 @@ import {
   type LagSeverity,
 } from "@checkstack/queue-common";
 import { implement, ORPCError } from "@orpc/server";
+import { extractErrorMessage } from "@checkstack/common";
 
 const os = implement(queueContract)
   .$context<RpcContext>()
@@ -81,12 +82,9 @@ export const createQueueRouter = (configService: ConfigService) => {
         try {
           await context.queueManager.setActiveBackend(pluginId, config);
         } catch (error) {
-          if (error instanceof Error) {
-            throw new ORPCError("INTERNAL_SERVER_ERROR", {
-              message: error.message,
-            });
-          }
-          throw error;
+          throw new ORPCError("INTERNAL_SERVER_ERROR", {
+            message: extractErrorMessage(error),
+          });
         }
         context.logger.info(
           `Queue configuration updated to plugin: ${pluginId}`

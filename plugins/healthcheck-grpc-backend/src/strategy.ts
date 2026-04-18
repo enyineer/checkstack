@@ -27,6 +27,7 @@ import type {
   GrpcHealthRequest,
   GrpcHealthResponse,
 } from "./transport-client";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ============================================================================
 // SCHEMAS
@@ -278,7 +279,7 @@ export class GrpcHealthCheckStrategy implements HealthCheckStrategy<
           return { status: result.status };
         } catch (error_) {
           const error =
-            error_ instanceof Error ? error_.message : String(error_);
+            extractErrorMessage(error_);
           return { status: "UNKNOWN", error };
         }
       },

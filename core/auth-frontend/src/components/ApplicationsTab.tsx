@@ -29,6 +29,7 @@ import { Plus, Trash2, RotateCcw, Copy } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
 import type { Role } from "../api";
+import { extractErrorMessage } from "@checkstack/common";
 
 export interface Application {
   id: string;
@@ -89,7 +90,7 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to create application",
+        extractErrorMessage(error, "Failed to create application"),
       );
     },
   });
@@ -100,7 +101,7 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to update application",
+        extractErrorMessage(error, "Failed to update application"),
       );
     },
   });
@@ -113,7 +114,7 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to delete application",
+        extractErrorMessage(error, "Failed to delete application"),
       );
     },
   });
@@ -130,9 +131,7 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
       },
       onError: (error) => {
         toast.error(
-          error instanceof Error
-            ? error.message
-            : "Failed to regenerate secret",
+          extractErrorMessage(error, "Failed to regenerate secret"),
         );
       },
     });

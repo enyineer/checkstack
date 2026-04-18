@@ -1,4 +1,4 @@
-import React from "react";
+import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 
 import {
@@ -37,6 +37,14 @@ export const FormField: React.FC<FormFieldProps> = ({
 }) => {
   const description = propSchema.description || "";
 
+  // Const field handling - must be before any early returns (rules-of-hooks)
+  const isConstField = propSchema.const !== undefined;
+  useEffect(() => {
+    if (isConstField && value !== propSchema.const) {
+      onChange(propSchema.const);
+    }
+  }, [isConstField, value, propSchema.const, onChange]);
+
   // Dynamic options via resolver
   const resolverName = propSchema["x-options-resolver"];
   if (resolverName && optionsResolvers) {
@@ -57,14 +65,7 @@ export const FormField: React.FC<FormFieldProps> = ({
     );
   }
 
-  // Const field handling - auto-set value and hide (value is fixed)
-  if (propSchema.const !== undefined) {
-    // Silently ensure the value is set, no UI needed
-    React.useEffect(() => {
-      if (value !== propSchema.const) {
-        onChange(propSchema.const);
-      }
-    }, [value, propSchema.const, onChange]);
+  if (isConstField) {
     return <></>;
   }
 
@@ -653,7 +654,7 @@ const SecretField: React.FC<{
   isRequired?: boolean;
   onChange: (val: unknown) => void;
 }> = ({ id, label, description, value, isRequired, onChange }) => {
-  const [showPassword, setShowPassword] = React.useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const currentValue = value || "";
   const hasExistingValue = currentValue.length > 0;
 
@@ -702,7 +703,7 @@ const SecretTextareaField: React.FC<{
   isRequired?: boolean;
   onChange: (val: unknown) => void;
 }> = ({ id, label, description, value, isRequired, onChange }) => {
-  const [showContent, setShowContent] = React.useState(false);
+  const [showContent, setShowContent] = useState(false);
   const currentValue = value || "";
   const hasExistingValue = currentValue.length > 0;
 
@@ -723,7 +724,9 @@ const SecretTextareaField: React.FC<{
             value={currentValue}
             onChange={(e) => onChange(e.target.value)}
             placeholder={
-              hasExistingValue ? "Leave empty to keep existing value" : "Paste content here"
+              hasExistingValue
+                ? "Leave empty to keep existing value"
+                : "Paste content here"
             }
             rows={5}
             className="pr-10 font-mono text-xs"
@@ -750,7 +753,9 @@ const SecretTextareaField: React.FC<{
               }
             }}
             placeholder={
-              hasExistingValue ? "Leave empty to keep existing value" : "Paste content here"
+              hasExistingValue
+                ? "Leave empty to keep existing value"
+                : "Paste content here"
             }
             rows={3}
             className="pr-10"

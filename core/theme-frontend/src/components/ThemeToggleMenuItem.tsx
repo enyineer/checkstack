@@ -3,6 +3,7 @@ import { Moon, Sun } from "lucide-react";
 import { Toggle, useTheme, useToast } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { ThemeApi } from "@checkstack/theme-common";
+import { extractErrorMessage } from "@checkstack/common";
 
 /**
  * Theme toggle menu item for logged-in users (displayed in UserMenu).
@@ -37,11 +38,8 @@ export const ThemeToggleMenuItem = () => {
       await setThemeMutation.mutateAsync({ theme: newTheme });
     } catch (error) {
       const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to save theme preference";
+        extractErrorMessage(error, "Failed to save theme preference");
       toast.error(message);
-      console.error("Failed to save theme preference:", error);
       // Revert on error
       setIsDark(!checked);
       setTheme(checked ? "light" : "dark");

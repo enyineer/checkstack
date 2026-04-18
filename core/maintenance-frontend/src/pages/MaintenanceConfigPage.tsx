@@ -48,6 +48,7 @@ import {
 import { format } from "date-fns";
 import { MaintenanceEditor } from "../components/MaintenanceEditor";
 import { getMaintenanceStatusBadge } from "../utils/badges";
+import { extractErrorMessage } from "@checkstack/common";
 
 const MaintenanceConfigPageContent: React.FC = () => {
   const maintenanceClient = usePluginClient(MaintenanceApi);
@@ -112,7 +113,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
       setDeleteId(undefined);
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to delete");
+      toast.error(extractErrorMessage(error, "Failed to delete"));
     },
   });
 
@@ -124,7 +125,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to complete",
+        extractErrorMessage(error, "Failed to complete"),
       );
     },
   });

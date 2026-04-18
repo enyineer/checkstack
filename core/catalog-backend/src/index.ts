@@ -14,7 +14,7 @@ import { createCatalogRouter } from "./router";
 import { NotificationApi } from "@checkstack/notification-common";
 import { AuthApi } from "@checkstack/auth-common";
 import { authHooks } from "@checkstack/auth-backend";
-import { resolveRoute, type InferClient } from "@checkstack/common";
+import { resolveRoute, type InferClient, extractErrorMessage} from "@checkstack/common";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { EntityService } from "./services/entity-service";
 
@@ -176,7 +176,7 @@ async function bootstrapNotificationGroups(
     // Don't fail startup if notification service is unavailable
     logger.debug(
       `Failed to bootstrap notification groups: ${
-        error instanceof Error ? error.message : "Unknown error"
+        extractErrorMessage(error, "Unknown error")
       }`,
     );
   }

@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { AlertCircle } from "lucide-react";
 import { useApi, usePluginClient } from "@checkstack/frontend-api";
 import { authApiRef } from "../api";
 import { AuthApi, authRoutes, passwordSchema } from "@checkstack/auth-common";
-import { resolveRoute } from "@checkstack/common";
+import { resolveRoute, extractErrorMessage } from "@checkstack/common";
 import {
   Button,
   Input,
@@ -20,6 +20,7 @@ import {
   InfoBannerContent,
   InfoBannerTitle,
   InfoBannerDescription,
+  useToast,
 } from "@checkstack/ui";
 import { useEnabledStrategies } from "../hooks/useEnabledStrategies";
 import { SocialProviderButton } from "./SocialProviderButton";
@@ -30,25 +31,18 @@ export const RegisterPage = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
   const authApi = useApi(authApiRef);
   const authClient = usePluginClient(AuthApi);
   const { strategies, loading: strategiesLoading } = useEnabledStrategies();
   const authBetterClient = getAuthClientLazy();
+  const toast = useToast();
 
-  // Validate password on change
-  useEffect(() => {
-    if (password) {
-      const result = passwordSchema.safeParse(password);
-      if (result.success) {
-        setValidationErrors([]);
-      } else {
-        setValidationErrors(result.error.issues.map((issue) => issue.message));
-      }
-    } else {
-      setValidationErrors([]);
-    }
+  // Derive validation errors directly from password (no state/effect needed)
+  const validationErrors = useMemo(() => {
+    if (!password) return [];
+    const result = passwordSchema.safeParse(password);
+    return result.success ? [] : result.error.issues.map((issue) => issue.message);
   }, [password]);
 
   // Query: Registration status
@@ -73,13 +67,13 @@ export const RegisterPage = () => {
         password,
       });
       if (res.error) {
-        console.error("Registration failed:", res.error);
+        toast.error(res.error.message ?? "Registration failed");
       } else {
         // Use full page navigation to ensure session state refreshes in navbar
         globalThis.location.href = "/";
       }
     } catch (error) {
-      console.error("Registration failed:", error);
+      toast.error(extractErrorMessage(error, "Registration failed"));
     } finally {
       setLoading(false);
     }
@@ -90,7 +84,7 @@ export const RegisterPage = () => {
       await authApi.signInWithSocial(provider);
       // Navigation will happen automatically after OAuth redirect
     } catch (error) {
-      console.error("Social registration failed:", error);
+      toast.error(extractErrorMessage(error, "Social registration failed"));
     }
   };
 

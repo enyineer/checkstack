@@ -90,8 +90,7 @@ export const DeliveryLogsPage = () => {
         toast.error(result.message ?? "Failed to retry delivery");
       }
     },
-    onError: (error) => {
-      console.error("Failed to retry delivery:", error);
+    onError: () => {
       toast.error("Failed to retry delivery");
     },
     onSettled: () => {

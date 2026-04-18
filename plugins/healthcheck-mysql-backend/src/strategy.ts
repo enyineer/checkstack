@@ -31,6 +31,7 @@ import type {
   SqlQueryRequest,
   SqlQueryResult,
 } from "./transport-client";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ============================================================================
 // SCHEMAS
@@ -250,7 +251,7 @@ export class MysqlHealthCheckStrategy implements HealthCheckStrategy<
         } catch (error) {
           return {
             rowCount: 0,
-            error: error instanceof Error ? error.message : String(error),
+            error: extractErrorMessage(error),
           };
         }
       },

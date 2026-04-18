@@ -26,7 +26,7 @@ export function useCollectors(strategyId: string): UseCollectorsResult {
   );
 
   const collectors = data ?? [];
-  const error = queryError instanceof Error ? queryError : undefined;
+  const error = queryError ?? undefined;
 
   return {
     collectors,

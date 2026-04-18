@@ -25,6 +25,7 @@ import type {
   DnsLookupRequest,
   DnsLookupResult,
 } from "./transport-client";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ============================================================================
 // SCHEMAS
@@ -223,7 +224,7 @@ export class DnsHealthCheckStrategy implements HealthCheckStrategy<
         } catch (error) {
           return {
             values: [],
-            error: error instanceof Error ? error.message : String(error),
+            error: extractErrorMessage(error),
           };
         }
       },

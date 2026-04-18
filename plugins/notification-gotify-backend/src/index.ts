@@ -10,6 +10,7 @@ import {
 } from "@checkstack/backend-api";
 import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Configuration Schemas
@@ -184,7 +185,7 @@ const gotifyStrategy: NotificationStrategy<GotifyConfig, GotifyUserConfig> = {
       };
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Unknown Gotify API error";
+        extractErrorMessage(error, "Unknown Gotify API error");
       logger.error("Gotify notification error", { error: message });
       return {
         success: false,

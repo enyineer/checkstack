@@ -8,6 +8,7 @@ import type { AccessRule } from "@checkstack/common";
  */
 export class AuthAccessApi implements AccessApi {
   useAccess(accessRule: AccessRule): { loading: boolean; allowed: boolean } {
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
     const { accessRules, loading } = useAccessRules();
 
     if (loading) {

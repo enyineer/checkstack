@@ -26,7 +26,7 @@ import {
   type LucideIconName,
 } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
-import { resolveRoute } from "@checkstack/common";
+import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 import {
   IntegrationApi,
   integrationRoutes,
@@ -67,9 +67,7 @@ export const IntegrationsPage = () => {
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to toggle subscription",
+        extractErrorMessage(error, "Failed to toggle subscription"),
       );
     },
   });
@@ -91,28 +89,14 @@ export const IntegrationsPage = () => {
   const getProviderInfo = (
     providerId: string,
   ): IntegrationProviderInfo | undefined => {
-    return (providers as IntegrationProviderInfo[]).find(
-      (p) => p.qualifiedId === providerId,
-    );
+    return providers.find((p) => p.qualifiedId === providerId);
   };
 
   const handleToggle = (id: string, enabled: boolean) => {
     toggleMutation.mutate({ id, enabled });
   };
 
-  const handleCreated = () => {
-    void refetchSubs();
-    setDialogOpen(false);
-    setSelectedSubscription(undefined);
-  };
-
-  const handleUpdated = () => {
-    void refetchSubs();
-    setDialogOpen(false);
-    setSelectedSubscription(undefined);
-  };
-
-  const handleDeleted = () => {
+  const handleDialogClose = () => {
     void refetchSubs();
     setDialogOpen(false);
     setSelectedSubscription(undefined);
@@ -239,8 +223,8 @@ export const IntegrationsPage = () => {
                             <div className="p-2 rounded-lg bg-muted">
                               <DynamicIcon
                                 name={
-                                  (provider?.icon ??
-                                    "Webhook") as LucideIconName
+                                  (provider?.icon as LucideIconName | undefined) ??
+                                    "Webhook"
                                 }
                                 className="h-5 w-5 text-muted-foreground"
                               />
@@ -305,14 +289,14 @@ export const IntegrationsPage = () => {
             description="Providers handle the delivery of events to external systems"
           />
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {(providers as IntegrationProviderInfo[]).map((provider) => (
+            {providers.map((provider) => (
               <Card key={provider.qualifiedId}>
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="p-2 rounded-lg bg-muted">
                         <DynamicIcon
-                          name={(provider.icon ?? "Webhook") as LucideIconName}
+                          name={(provider.icon as LucideIconName | undefined) ?? "Webhook"}
                           className="h-6 w-6"
                         />
                       </div>
@@ -341,7 +325,7 @@ export const IntegrationsPage = () => {
                 </CardContent>
               </Card>
             ))}
-            {(providers as IntegrationProviderInfo[]).length === 0 && (
+            {providers.length === 0 && (
               <Card className="col-span-full">
                 <CardContent className="p-4">
                   <div className="text-center text-muted-foreground py-4">
@@ -361,11 +345,11 @@ export const IntegrationsPage = () => {
           setDialogOpen(open);
           if (!open) setSelectedSubscription(undefined);
         }}
-        providers={providers as IntegrationProviderInfo[]}
+        providers={providers}
         subscription={selectedSubscription}
-        onCreated={handleCreated}
-        onUpdated={handleUpdated}
-        onDeleted={handleDeleted}
+        onCreated={handleDialogClose}
+        onUpdated={handleDialogClose}
+        onDeleted={handleDialogClose}
       />
     </PageLayout>
   );

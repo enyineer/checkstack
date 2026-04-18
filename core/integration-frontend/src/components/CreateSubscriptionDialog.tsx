@@ -24,7 +24,7 @@ import {
   type LucideIconName,
 } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
-import { resolveRoute } from "@checkstack/common";
+import { resolveRoute, extractErrorMessage } from "@checkstack/common";
 import {
   IntegrationApi,
   integrationRoutes,
@@ -111,11 +111,7 @@ export const SubscriptionDialog = ({
       setSaving(false);
     },
     onError: (error) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to create subscription",
-      );
+      toast.error(extractErrorMessage(error, "Failed to create subscription"));
       setSaving(false);
     },
   });
@@ -128,11 +124,7 @@ export const SubscriptionDialog = ({
       setSaving(false);
     },
     onError: (error) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to update subscription",
-      );
+      toast.error(extractErrorMessage(error, "Failed to update subscription"));
       setSaving(false);
     },
   });
@@ -144,11 +136,7 @@ export const SubscriptionDialog = ({
       onOpenChange(false);
     },
     onError: (error) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to delete subscription",
-      );
+      toast.error(extractErrorMessage(error, "Failed to delete subscription"));
     },
   });
 
@@ -303,11 +291,7 @@ export const SubscriptionDialog = ({
                 value: opt.value,
                 label: opt.label,
               }));
-            } catch (error) {
-              console.error(
-                `Failed to fetch options for ${resolverName}:`,
-                error,
-              );
+            } catch {
               return [];
             }
           };
@@ -320,7 +304,7 @@ export const SubscriptionDialog = ({
         formValues: Record<string, unknown>,
       ) => Promise<{ value: string; label: string }[]>
     >;
-    // Note: getOptionsMutation intentionally omitted - mutation objects change on every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- getOptionsMutation is a TanStack mutation object that changes identity every render; including it would destroy the Proxy on each render, breaking in-flight requests
   }, [selectedProvider, selectedConnectionId]);
 
   return (

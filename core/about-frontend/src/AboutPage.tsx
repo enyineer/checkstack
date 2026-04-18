@@ -10,6 +10,7 @@ import {
   Badge,
   LoadingSpinner,
 } from "@checkstack/ui";
+import { extractErrorMessage } from "@checkstack/common";
 
 interface PluginInfo {
   name: string;
@@ -74,7 +75,7 @@ export function AboutPage() {
         setAboutInfo(data);
       } catch (error) {
         setError(
-          error instanceof Error ? error.message : "Failed to load about info",
+          extractErrorMessage(error, "Failed to load about info"),
         );
       } finally {
         setLoading(false);
