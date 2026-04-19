@@ -12,6 +12,7 @@ import {
   HealthCheckRunSchema,
   HealthCheckRunPublicSchema,
   HealthCheckStatusSchema,
+  HealthCheckRunResultSchema,
   StateThresholdsSchema,
   RetentionConfigSchema,
   AggregatedBucketBaseSchema,
@@ -148,6 +149,10 @@ export const healthCheckContract = {
           configurationName: z.string(),
           enabled: z.boolean(),
           stateThresholds: StateThresholdsSchema.optional(),
+          /** IDs of satellites assigned to execute this health check */
+          satelliteIds: z.array(z.string()).optional(),
+          /** Whether to also run this check locally on the core (default: true) */
+          includeLocal: z.boolean(),
         }),
       ),
     ),
@@ -228,6 +233,8 @@ export const healthCheckContract = {
         configurationId: z.string().optional(),
         startDate: z.date().optional(),
         endDate: z.date().optional(),
+        /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
+        sourceFilter: z.string().optional(),
         limit: z.number().optional().default(10),
         offset: z.number().optional().default(0),
         sortOrder: z.enum(["asc", "desc"]),
@@ -251,6 +258,8 @@ export const healthCheckContract = {
         configurationId: z.string().optional(),
         startDate: z.date().optional(),
         endDate: z.date().optional(),
+        /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
+        sourceFilter: z.string().optional(),
         limit: z.number().optional().default(10),
         offset: z.number().optional().default(0),
         sortOrder: z.enum(["asc", "desc"]),
@@ -309,6 +318,8 @@ export const healthCheckContract = {
         configurationId: z.string(),
         startDate: z.date(),
         endDate: z.date(),
+        /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
+        sourceFilter: z.string().optional(),
         /** Target number of data points (default: 500). Bucket interval is calculated as (endDate - startDate) / targetPoints */
         targetPoints: z.number().min(10).max(2000).default(500),
       }),
@@ -371,6 +382,67 @@ export const healthCheckContract = {
         ),
       }),
     ),
+
+  // ==========================================================================
+  // SERVICE INTERFACE (userType: "service" — backend-to-backend only)
+  // Used by satellite-backend to fetch assignments and submit results.
+  // ==========================================================================
+
+  getAssignmentsForSatellite: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .input(z.object({ satelliteId: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          configId: z.string(),
+          systemId: z.string(),
+          strategyId: z.string(),
+          config: z.record(z.string(), z.unknown()),
+          collectors: z
+            .array(
+              z.object({
+                id: z.string(),
+                collectorId: z.string(),
+                config: z.record(z.string(), z.unknown()),
+                assertions: z
+                  .array(
+                    z.object({
+                      field: z.string(),
+                      jsonPath: z.string().optional(),
+                      operator: z.string(),
+                      value: z.unknown().optional(),
+                    }),
+                  )
+                  .optional(),
+              }),
+            )
+            .optional(),
+          intervalSeconds: z.number(),
+        }),
+      ),
+    ),
+
+  ingestSatelliteResult: proc({
+    operationType: "mutation",
+    userType: "service",
+    access: [],
+  })
+    .input(
+      z.object({
+        configId: z.string(),
+        systemId: z.string(),
+        status: HealthCheckStatusSchema,
+        latencyMs: z.number().optional(),
+        result: HealthCheckRunResultSchema.optional(),
+        executedAt: z.string(),
+        sourceId: z.string(),
+        sourceLabel: z.string(),
+      }),
+    )
+    .output(z.void()),
 };
 // Export contract type
 export type HealthCheckContract = typeof healthCheckContract;

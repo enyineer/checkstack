@@ -67,6 +67,10 @@ interface IncrementHourlyAggregateParams {
   result?: Record<string, unknown>;
   /** Collector registry for aggregating collector data via mergeResult */
   collectorRegistry?: CollectorRegistry;
+  /** Source identifier: undefined = local core, string = satellite ID */
+  sourceId?: string;
+  /** Human-readable source label for display */
+  sourceLabel?: string;
 }
 
 /**
@@ -88,6 +92,8 @@ export async function incrementHourlyAggregate(
     runTimestamp,
     result,
     collectorRegistry,
+    sourceId,
+    sourceLabel,
   } = params;
 
   const bucketStart = getHourBucketStart(runTimestamp);
@@ -107,6 +113,9 @@ export async function incrementHourlyAggregate(
         eq(healthCheckAggregates.configurationId, configurationId),
         eq(healthCheckAggregates.bucketStart, bucketStart),
         eq(healthCheckAggregates.bucketSize, "hourly"),
+        sourceId
+          ? eq(healthCheckAggregates.sourceId, sourceId)
+          : sql`${healthCheckAggregates.sourceId} IS NULL`,
       ),
     )
     .limit(1);
@@ -181,6 +190,8 @@ export async function incrementHourlyAggregate(
       p95LatencyMs: latencyUpdate?.p95,
       tdigestState: latencyUpdate?.tdigestState,
       aggregatedResult,
+      sourceId: sourceId ?? undefined,
+      sourceLabel: sourceLabel ?? undefined,
     })
     .onConflictDoUpdate({
       target: [
@@ -188,6 +199,7 @@ export async function incrementHourlyAggregate(
         healthCheckAggregates.systemId,
         healthCheckAggregates.bucketStart,
         healthCheckAggregates.bucketSize,
+        healthCheckAggregates.sourceId,
       ],
       set: {
         runCount: sql`${healthCheckAggregates.runCount} + 1`,

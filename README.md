@@ -235,6 +235,34 @@ Organize your infrastructure into **Systems** and **Groups**. Track dependencies
 
 ---
 
+### Satellite Agents
+> *Monitor from everywhere — not just your data center*
+
+A service reachable from your server might be unreachable from your customers. Satellite agents are lightweight containers that execute health checks from remote locations and report results back to the core platform.
+
+**How it works:**
+
+```
+┌─────────────┐     WebSocket      ┌──────────────┐
+│  Satellite  │◄──────────────────►│  Core Server │
+│  (eu-west)  │  auth + heartbeat  │              │
+│             │───────────────────►│  Ingestion   │
+│  Executes   │  result payloads   │  Pipeline    │
+│  HTTP/DNS/  │                    │              │
+│  TCP checks │  ◄────────────────│  Config Push │
+└─────────────┘  live assignments  └──────────────┘
+```
+
+**Features:**
+- 🌍 **Multi-Location Monitoring** — Deploy satellites in any region to test reachability from your users' perspective
+- 🔄 **Live Configuration Push** — Assign health checks to satellites in the UI and they receive updates instantly via WebSocket
+- 🏷️ **Source Attribution** — Every run is tagged with its origin (Local vs. satellite name + region)
+- 🔍 **Source Filtering** — Filter charts and history by source to isolate results from a specific satellite or local execution
+- 📊 **Unified Aggregation** — Satellite results flow through the same aggregation pipeline (raw → hourly → daily)
+- 🐳 **Single Container** — Each satellite is a lean Alpine-based Docker image with no database required
+
+---
+
 ### Service Level Objectives (SLO)
 > *Track reliability with dependency-aware error budgets*
 
@@ -450,6 +478,42 @@ docker run -d \
 > After first start, you'll have to create your first admin user.
 >
 > Upon opening the page eg. at `http://localhost:3000` you'll be greeted with a signup form.
+
+#### Satellite Agents
+
+Satellite agents execute health checks from remote locations and report back to the core. Deploy one per region you want to monitor from.
+
+**1. Create a satellite in the UI**
+
+Go to **Settings → Satellites → Create Satellite**. Give it a name and region (e.g. "EU West", "eu-west-1"). You'll receive a **Client ID** and **Token** — save the token, it's shown only once.
+
+**2. Run the satellite container**
+
+```bash
+docker run -d \
+  -e CHECKSTACK_CORE_URL="https://checkstack.example.com" \
+  -e CHECKSTACK_SATELLITE_CLIENT_ID="<client-id-from-ui>" \
+  -e CHECKSTACK_SATELLITE_TOKEN="<token-from-ui>" \
+  ghcr.io/enyineer/checkstack-satellite:latest
+```
+
+| Variable | Description |
+|----------|-------------|
+| `CHECKSTACK_CORE_URL` | URL of your Checkstack core server (WebSocket endpoint is derived automatically) |
+| `CHECKSTACK_SATELLITE_CLIENT_ID` | UUID shown when creating the satellite |
+| `CHECKSTACK_SATELLITE_TOKEN` | Auth token shown once on creation |
+
+**3. Assign health checks**
+
+Open a health check configuration in the Assignment IDE and assign it to your satellite. The configuration is pushed to the satellite in real-time — no restart needed.
+
+**4. View results**
+
+Results appear alongside local runs in the system detail view. Use the **Source filter** (All / Local / per-satellite) to isolate results by origin. Charts and tables both respect the filter.
+
+> [!TIP]
+> The satellite image uses the same version tags as the core image.
+> Always use matching versions: `checkstack:0.5.0` with `checkstack-satellite:0.5.0`.
 
 
 ### NPM Packages

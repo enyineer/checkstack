@@ -50,11 +50,12 @@ describe("HealthCheck Router", () => {
     getCollectorsForPlugin: mock(() => []),
   };
 
-  const router = createHealthCheckRouter(
-    mockDb as never,
-    mockRegistry,
-    mockCollectorRegistry as never,
-  );
+  const router = createHealthCheckRouter({
+    database: mockDb as never,
+    registry: mockRegistry,
+    collectorRegistry: mockCollectorRegistry as never,
+    getEmitHook: () => undefined,
+  });
 
   it("getStrategies returns strategies from registry", async () => {
     const context = createMockRpcContext({

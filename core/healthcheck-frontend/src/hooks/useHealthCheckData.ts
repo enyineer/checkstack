@@ -23,6 +23,8 @@ interface UseHealthCheckDataProps {
     startDate: Date;
     endDate: Date;
   };
+  /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
+  sourceFilter?: string;
   /** Whether the date range is a rolling preset (e.g., 'Last 7 days') that should auto-update */
   isRollingPreset?: boolean;
   /** Callback to update the date range (e.g., to refresh endDate to current time) */
@@ -60,6 +62,7 @@ export function useHealthCheckData({
   configurationId,
   strategyId,
   dateRange,
+  sourceFilter,
   isRollingPreset = false,
   onDateRangeRefresh,
 }: UseHealthCheckDataProps): UseHealthCheckDataResult {
@@ -82,6 +85,7 @@ export function useHealthCheckData({
       configurationId,
       startDate: dateRange.startDate,
       endDate: dateRange.endDate,
+      sourceFilter,
       targetPoints: 500,
     },
     {

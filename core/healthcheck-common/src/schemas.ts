@@ -124,6 +124,25 @@ export const HealthCheckStatusSchema = z.enum([
 
 export type HealthCheckStatus = z.infer<typeof HealthCheckStatusSchema>;
 
+/**
+ * Canonical shape for a single health check run result.
+ * Both the local queue-executor and satellite agent MUST produce this shape
+ * to ensure the frontend (auto-charts, history detail) renders correctly.
+ */
+export const HealthCheckRunResultSchema = z.object({
+  status: HealthCheckStatusSchema,
+  latencyMs: z.number(),
+  message: z.string().optional(),
+  metadata: z.object({
+    connected: z.boolean(),
+    connectionTimeMs: z.number().optional(),
+    collectors: z.record(z.string(), z.unknown()).optional(),
+    error: z.string().optional(),
+  }),
+});
+
+export type HealthCheckRunResult = z.infer<typeof HealthCheckRunResultSchema>;
+
 // --- State Threshold Schemas ---
 
 /**
@@ -192,6 +211,10 @@ export const AssociateHealthCheckSchema = z.object({
   configurationId: z.string().uuid(),
   enabled: z.boolean().default(true),
   stateThresholds: StateThresholdsSchema.optional(),
+  /** IDs of satellites assigned to execute this health check */
+  satelliteIds: z.array(z.string()).optional(),
+  /** Whether to also run this check locally on the core instance (default: true) */
+  includeLocal: z.boolean().default(true),
 });
 
 export type AssociateHealthCheck = z.infer<typeof AssociateHealthCheckSchema>;
@@ -210,6 +233,10 @@ export const HealthCheckRunSchema = z.object({
   result: z.record(z.string(), z.unknown()),
   timestamp: z.date(),
   latencyMs: z.number().optional(),
+  /** Source ID for result attribution (null = local core, UUID = satellite) */
+  sourceId: z.string().optional(),
+  /** Human-readable source label (e.g. "Local" or "EU West (eu-west-1)") */
+  sourceLabel: z.string().optional(),
 });
 
 export type HealthCheckRun = z.infer<typeof HealthCheckRunSchema>;
@@ -246,6 +273,10 @@ export const HealthCheckRunPublicSchema = z.object({
   status: HealthCheckStatusSchema,
   timestamp: z.date(),
   latencyMs: z.number().optional(),
+  /** Source ID for result attribution (null = local core, UUID = satellite) */
+  sourceId: z.string().optional(),
+  /** Human-readable source label (e.g. "Local" or "EU West (eu-west-1)") */
+  sourceLabel: z.string().optional(),
 });
 
 export type HealthCheckRunPublic = z.infer<typeof HealthCheckRunPublicSchema>;

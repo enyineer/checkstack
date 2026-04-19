@@ -53,3 +53,4 @@ export * from "./components/AmbientBackground";
 export * from "./components/CodeEditor";
 export * from "./components/AnimatedNumber";
 export * from "./hooks/useAnimatedNumber";
+export * from "./components/IDELayout";

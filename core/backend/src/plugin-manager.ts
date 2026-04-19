@@ -2,6 +2,7 @@ import type { Hono } from "hono";
 import { adminPool, db } from "./db";
 import { ServiceRegistry } from "./services/service-registry";
 import type { CoreCollectorRegistry } from "./services/collector-registry";
+import type { WebSocketRouteStoreImpl } from "./services/ws-route-registry";
 import {
   BackendPlugin,
   ServiceRef,
@@ -50,6 +51,9 @@ export class PluginManager {
   // Global collector registry reference for cleanup
   private collectorRegistry: CoreCollectorRegistry;
 
+  // Global WebSocket route store for server-level routing
+  private wsStore: WebSocketRouteStoreImpl;
+
   constructor() {
     const registries = registerCoreServices({
       registry: this.registry,
@@ -59,6 +63,15 @@ export class PluginManager {
       pluginContractRegistry: this.pluginContractRegistry,
     });
     this.collectorRegistry = registries.collectorRegistry;
+    this.wsStore = registries.wsStore;
+  }
+
+  /**
+   * Get the global WebSocket route store for the backend server to use
+   * during WebSocket upgrade routing.
+   */
+  getWsStore(): WebSocketRouteStoreImpl {
+    return this.wsStore;
   }
 
   registerExtensionPoint<T>(ref: ExtensionPoint<T>, impl: T) {

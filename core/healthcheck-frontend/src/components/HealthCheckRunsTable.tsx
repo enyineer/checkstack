@@ -10,7 +10,7 @@ import {
   Pagination,
 } from "@checkstack/ui";
 import { formatDistanceToNow, format } from "date-fns";
-import { ExternalLink, Loader2 } from "lucide-react";
+import { ExternalLink, Loader2, Satellite, Server } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { healthcheckRoutes } from "@checkstack/healthcheck-common";
 import { resolveRoute } from "@checkstack/common";
@@ -22,6 +22,10 @@ export interface HealthCheckRunDetailed {
   status: "healthy" | "unhealthy" | "degraded";
   result: Record<string, unknown>;
   timestamp: Date;
+  /** Source ID for result attribution (undefined = local core, UUID = satellite) */
+  sourceId?: string;
+  /** Human-readable source label (e.g. "Local" or "EU West (eu-west-1)") */
+  sourceLabel?: string;
 }
 
 export interface HealthCheckRunsTableProps {
@@ -93,6 +97,7 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
                 </>
               )}
               <TableHead>Timestamp</TableHead>
+              <TableHead>Source</TableHead>
               {showFilterColumns && <TableHead className="w-16"></TableHead>}
             </TableRow>
           </TableHeader>
@@ -122,6 +127,19 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
                       addSuffix: true,
                     })}
                   </span>
+                </TableCell>
+                <TableCell>
+                  {run.sourceId ? (
+                    <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-orange-500/10 text-orange-600">
+                      <Satellite className="h-3 w-3" />
+                      {run.sourceLabel ?? "Remote"}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+                      <Server className="h-3 w-3" />
+                      {run.sourceLabel ?? "Local"}
+                    </span>
+                  )}
                 </TableCell>
                 {showFilterColumns && (
                   <TableCell>

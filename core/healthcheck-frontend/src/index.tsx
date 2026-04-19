@@ -6,6 +6,7 @@ import {
 import { HealthCheckConfigPage } from "./pages/HealthCheckConfigPage";
 import { StrategyPickerPage } from "./pages/StrategyPickerPage";
 import { HealthCheckIDEPage } from "./pages/HealthCheckIDEPage";
+import { AssignmentIDEPage } from "./pages/AssignmentIDEPage";
 import { HealthCheckHistoryPage } from "./pages/HealthCheckHistoryPage";
 import { HealthCheckHistoryDetailPage } from "./pages/HealthCheckHistoryDetailPage";
 import { HealthCheckMenuItems } from "./components/HealthCheckMenuItems";
@@ -55,6 +56,12 @@ export default createFrontendPlugin({
       route: healthcheckRoutes.routes.edit,
       element: <HealthCheckIDEPage />,
       title: "Edit Health Check",
+      accessRule: healthCheckAccess.configuration.manage,
+    },
+    {
+      route: healthcheckRoutes.routes.assignments,
+      element: <AssignmentIDEPage />,
+      title: "Health Check Assignments",
       accessRule: healthCheckAccess.configuration.manage,
     },
     {

@@ -23,6 +23,7 @@
     "@checkstack/integration-backend": "workspace:*",
     "@checkstack/maintenance-common": "workspace:*",
     "@checkstack/queue-api": "workspace:*",
+    "@checkstack/satellite-backend": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
     "@hono/zod-validator": "^0.7.6",
     "drizzle-orm": "^0.45.0",

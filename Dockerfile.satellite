@@ -1,0 +1,52 @@
+# Dockerfile.satellite — Checkstack Satellite Agent
+#
+# Lean image for running health checks from remote locations.
+# Connects to the core over WebSocket and executes assigned checks.
+#
+# Build:
+#   docker build -f Dockerfile.satellite -t checkstack-satellite .
+#
+# Required env vars (set at runtime, never baked in):
+#   CHECKSTACK_CORE_URL     — WebSocket URL of the core server (e.g., https://checkstack.example.com)
+#   CHECKSTACK_SATELLITE_CLIENT_ID — Satellite client ID (UUID)
+#   CHECKSTACK_SATELLITE_TOKEN     — Satellite auth token (shown once on creation)
+
+# Stage 1: Production dependencies only (same pattern as main Dockerfile)
+FROM oven/bun:1-alpine AS production-deps
+WORKDIR /app
+
+COPY package.json bun.lock ./
+COPY core ./core
+COPY plugins ./plugins
+
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+  for i in 1 2 3; do \
+  echo "Attempt $i: Installing production dependencies..." && \
+  timeout 300 bun install --frozen-lockfile --production && break || \
+  { echo "Attempt $i failed, retrying in 5s..."; sleep 5; }; \
+  done || true
+
+# Prune to only satellite-relevant packages:
+# - Remove dev-only core packages
+# - Remove all non-healthcheck/collector plugins
+RUN rm -rf core/scripts core/test-utils-backend core/test-utils-frontend \
+  && cd plugins && find . -maxdepth 1 -mindepth 1 -type d ! -name 'healthcheck-*' ! -name 'collector-*' -exec rm -rf {} +
+
+# Stage 2: Production runtime
+FROM oven/bun:1-alpine AS runtime
+WORKDIR /app
+
+RUN apk update && apk upgrade --no-cache && apk add --no-cache tini
+
+# Copy production node_modules + all remaining packages
+COPY --from=production-deps /app/node_modules ./node_modules
+COPY --from=production-deps /app/core ./core
+COPY --from=production-deps /app/plugins ./plugins
+COPY --from=production-deps /app/package.json ./package.json
+
+ENV NODE_ENV=production
+
+HEALTHCHECK NONE
+
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["bun", "run", "core/satellite/src/index.ts"]

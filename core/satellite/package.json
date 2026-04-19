@@ -1,0 +1,23 @@
+{
+  "name": "@checkstack/satellite",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "start": "bun run src/index.ts",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@checkstack/satellite-common": "workspace:*",
+    "@checkstack/backend-api": "workspace:*",
+    "@checkstack/common": "workspace:*"
+  },
+  "devDependencies": {
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/scripts": "workspace:*",
+    "@types/bun": "^1.0.0",
+    "typescript": "^5.0.0"
+  }
+}
