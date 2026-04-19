@@ -30,6 +30,8 @@ export const providers = pgTable("providers", {
   pathPattern: text("path_pattern").notNull(), // e.g., ".checkstack/**/*.yaml"
   /** Encrypted auth token (DynamicForm secret field). */
   authToken: text("auth_token"),
+  /** Custom API base URL for enterprise/on-prem installations (e.g., "https://github.example.com/api/v3"). */
+  baseUrl: text("base_url"),
   /** Sync interval in seconds. */
   syncInterval: integer("sync_interval").notNull().default(300),
   deletionPolicy: deletionPolicyEnum("deletion_policy")

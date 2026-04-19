@@ -16,7 +16,10 @@ import type {
 } from "@checkstack/gitops-common";
 import { createEntityKindRegistry } from "./kind-registry";
 import { createGitOpsRouter } from "./router";
+import { setupSyncWorker } from "./sync/sync-worker";
+import { decrypt } from "@checkstack/backend-api";
 import * as schema from "./schema";
+import { eq } from "drizzle-orm";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Extension Points
@@ -76,23 +79,49 @@ export default createBackendPlugin({
       deps: {
         logger: coreServices.logger,
         rpc: coreServices.rpc,
+        queueManager: coreServices.queueManager,
       },
-      init: async ({ logger, database, rpc }) => {
+      init: async ({ logger, database, rpc, queueManager }) => {
         logger.debug("🔄 Initializing GitOps Backend...");
 
-        const router = createGitOpsRouter({
-          database: database as SafeDatabase<typeof schema>,
-        });
+        const db = database as SafeDatabase<typeof schema>;
+
+        const router = createGitOpsRouter({ database: db, queueManager });
         rpc.registerRouter(router, gitopsContract);
 
         logger.debug("✅ GitOps Backend initialized.");
       },
-      afterPluginsReady: async ({ logger }) => {
+      afterPluginsReady: async ({ logger, database, queueManager }) => {
         const registeredKinds = kindRegistry.getKinds();
         logger.debug(
           `🔄 GitOps: ${registeredKinds.length} entity kinds registered: ${registeredKinds.map((k) => k.kind).join(", ")}`,
         );
-        // TODO(phase-2): Bootstrap sync workers for each provider
+
+        const db = database as SafeDatabase<typeof schema>;
+
+        // Create a SecretStore backed by the secrets table
+        const secretStore = {
+          resolve: async (name: string): Promise<string> => {
+            const rows = await db
+              .select()
+              .from(schema.secrets)
+              .where(eq(schema.secrets.name, name));
+            const secret = rows[0];
+            if (!secret) {
+              throw new Error(`Secret not found: ${name}`);
+            }
+            return decrypt(secret.encryptedValue);
+          },
+        };
+
+        // Bootstrap sync worker
+        await setupSyncWorker({
+          db,
+          logger,
+          queueManager,
+          kindRegistry,
+          secretStore,
+        });
       },
     });
   },

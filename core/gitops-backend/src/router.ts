@@ -3,6 +3,8 @@ import { autoAuthMiddleware, type RpcContext } from "@checkstack/backend-api";
 import { encrypt, decrypt } from "@checkstack/backend-api";
 import { gitopsContract } from "@checkstack/gitops-common";
 import type { SafeDatabase } from "@checkstack/backend-api";
+import type { QueueManager } from "@checkstack/queue-api";
+import { triggerSyncForProvider } from "./sync/sync-worker";
 import * as schema from "./schema";
 import { eq, and } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
@@ -19,9 +21,10 @@ const os = implement(gitopsContract)
 
 export interface GitOpsRouterDeps {
   database: SafeDatabase<typeof schema>;
+  queueManager: QueueManager;
 }
 
-export const createGitOpsRouter = ({ database: db }: GitOpsRouterDeps) => {
+export const createGitOpsRouter = ({ database: db, queueManager }: GitOpsRouterDeps) => {
   // ─── Provenance ──────────────────────────────────────────────────────
 
   const getProvenance = os.getProvenance.handler(async ({ input }) => {
@@ -58,6 +61,7 @@ export const createGitOpsRouter = ({ database: db }: GitOpsRouterDeps) => {
       type: r.type,
       target: r.target,
       pathPattern: r.pathPattern,
+      baseUrl: r.baseUrl,
       syncInterval: r.syncInterval,
       deletionPolicy: r.deletionPolicy,
       lastSyncAt: r.lastSyncAt,
@@ -66,7 +70,6 @@ export const createGitOpsRouter = ({ database: db }: GitOpsRouterDeps) => {
     }));
   });
 
-  // TODO(phase-2): Implement actual sync dispatch via queue job
   const triggerSync = os.triggerSync.handler(async ({ input }) => {
     // Verify provider exists
     const provider = await db
@@ -79,6 +82,12 @@ export const createGitOpsRouter = ({ database: db }: GitOpsRouterDeps) => {
         message: `Provider not found: ${input.providerId}`,
       });
     }
+
+    // Dispatch one-off sync job via the queue
+    await triggerSyncForProvider({
+      queueManager,
+      providerId: input.providerId,
+    });
 
     return { success: true };
   });

@@ -54,6 +54,7 @@ export const gitopsContract = {
         type: z.enum(["github", "gitlab"]),
         target: z.string(),
         pathPattern: z.string(),
+        baseUrl: z.string().nullable(),
         syncInterval: z.number(),
         deletionPolicy: deletionPolicySchema,
         lastSyncAt: z.date().nullable(),
