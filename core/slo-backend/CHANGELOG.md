@@ -1,5 +1,19 @@
 # @checkstack/slo-backend
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [26d8bae]
+- Updated dependencies [26d8bae]
+  - @checkstack/healthcheck-common@0.11.0
+  - @checkstack/healthcheck-backend@0.13.0
+  - @checkstack/backend-api@0.12.0
+  - @checkstack/catalog-backend@0.2.24
+  - @checkstack/command-backend@0.1.19
+  - @checkstack/integration-backend@0.1.19
+  - @checkstack/queue-api@0.2.13
+
 ## 0.2.0
 
 ### Minor Changes
