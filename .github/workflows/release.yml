@@ -54,10 +54,17 @@ jobs:
 
 
   docker:
-    name: Build and Push Docker Image
+    name: Build and Push Docker Image (${{ matrix.image }})
     needs: release
     if: needs.release.outputs.releasePublished == 'true'
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image: checkstack
+            dockerfile: Dockerfile
+          - image: checkstack-satellite
+            dockerfile: Dockerfile.satellite
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -82,13 +89,14 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/${{ github.repository_owner }}/checkstack:${{ steps.version.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/checkstack:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:latest
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
   create-github-release:
     name: Create GitHub Release
@@ -116,10 +124,14 @@ jobs:
         run: |
           # Start with Docker and NPM info
           cat > /tmp/changelog.md << EOF
-          ## Docker Image
+          ## Docker Images
 
           \`\`\`bash
+          # Core platform
           docker pull ghcr.io/${{ github.repository_owner }}/checkstack:${{ steps.version.outputs.version }}
+
+          # Satellite agent
+          docker pull ghcr.io/${{ github.repository_owner }}/checkstack-satellite:${{ steps.version.outputs.version }}
           \`\`\`
 
           ## NPM Packages
