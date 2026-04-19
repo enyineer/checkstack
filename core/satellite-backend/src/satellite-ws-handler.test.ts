@@ -186,7 +186,14 @@ describe("SatelliteWsHandler", () => {
         systemId: "system-1",
         status: "healthy",
         latencyMs: 42,
-        result: { statusCode: 200 },
+        result: {
+          status: "healthy",
+          latencyMs: 42,
+          metadata: {
+            connected: true,
+            connectionTimeMs: 40,
+          },
+        },
         executedAt: new Date().toISOString(),
       };
 
