@@ -79,5 +79,12 @@ export default tseslint.config(
     rules: {
       "no-restricted-syntax": "off",
     },
+  },
+  // Standalone satellite agent: not a platform plugin, exempt from metadata requirement
+  {
+    files: ["core/satellite/src/**/*.ts"],
+    rules: {
+      "checkstack/enforce-package-metadata": "off",
+    },
   }
 );

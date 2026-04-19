@@ -148,6 +148,10 @@ export const healthCheckContract = {
           configurationName: z.string(),
           enabled: z.boolean(),
           stateThresholds: StateThresholdsSchema.optional(),
+          /** IDs of satellites assigned to execute this health check */
+          satelliteIds: z.array(z.string()).optional(),
+          /** Whether to also run this check locally on the core (default: true) */
+          includeLocal: z.boolean(),
         }),
       ),
     ),
@@ -371,6 +375,67 @@ export const healthCheckContract = {
         ),
       }),
     ),
+
+  // ==========================================================================
+  // SERVICE INTERFACE (userType: "service" — backend-to-backend only)
+  // Used by satellite-backend to fetch assignments and submit results.
+  // ==========================================================================
+
+  getAssignmentsForSatellite: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .input(z.object({ satelliteId: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          configId: z.string(),
+          systemId: z.string(),
+          strategyId: z.string(),
+          config: z.record(z.string(), z.unknown()),
+          collectors: z
+            .array(
+              z.object({
+                id: z.string(),
+                collectorId: z.string(),
+                config: z.record(z.string(), z.unknown()),
+                assertions: z
+                  .array(
+                    z.object({
+                      field: z.string(),
+                      jsonPath: z.string().optional(),
+                      operator: z.string(),
+                      value: z.unknown().optional(),
+                    }),
+                  )
+                  .optional(),
+              }),
+            )
+            .optional(),
+          intervalSeconds: z.number(),
+        }),
+      ),
+    ),
+
+  ingestSatelliteResult: proc({
+    operationType: "mutation",
+    userType: "service",
+    access: [],
+  })
+    .input(
+      z.object({
+        configId: z.string(),
+        systemId: z.string(),
+        status: HealthCheckStatusSchema,
+        latencyMs: z.number().optional(),
+        result: z.record(z.string(), z.unknown()).optional(),
+        executedAt: z.string(),
+        sourceId: z.string(),
+        sourceLabel: z.string(),
+      }),
+    )
+    .output(z.void()),
 };
 // Export contract type
 export type HealthCheckContract = typeof healthCheckContract;

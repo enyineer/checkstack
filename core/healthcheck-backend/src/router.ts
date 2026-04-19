@@ -10,6 +10,7 @@ import {
 import { healthCheckContract } from "@checkstack/healthcheck-common";
 import type { StrategyCategory } from "@checkstack/healthcheck-common";
 import { HealthCheckService } from "./service";
+import { healthCheckHooks } from "./hooks";
 import * as schema from "./schema";
 import { toJsonSchemaWithChartMeta } from "./schema-utils";
 
@@ -19,11 +20,13 @@ import { toJsonSchemaWithChartMeta } from "./schema-utils";
  * Auth and access rules are automatically enforced via autoAuthMiddleware
  * based on the contract's meta.userType and meta.access.
  */
-export const createHealthCheckRouter = (
-  database: SafeDatabase<typeof schema>,
-  registry: HealthCheckRegistry,
-  collectorRegistry: CollectorRegistry,
-) => {
+export const createHealthCheckRouter = (opts: {
+  database: SafeDatabase<typeof schema>;
+  registry: HealthCheckRegistry;
+  collectorRegistry: CollectorRegistry;
+  getEmitHook: () => ((hook: { id: string }, payload: Record<string, unknown>) => Promise<void>) | undefined;
+}) => {
+  const { database, registry, collectorRegistry, getEmitHook } = opts;
   // Create service instance once - shared across all handlers
   const service = new HealthCheckService(database, registry, collectorRegistry);
 
@@ -137,6 +140,8 @@ export const createHealthCheckRouter = (
         configurationId: input.body.configurationId,
         enabled: input.body.enabled,
         stateThresholds: input.body.stateThresholds,
+        satelliteIds: input.body.satelliteIds,
+        includeLocal: input.body.includeLocal,
       });
 
       // If enabling the health check, schedule it immediately
@@ -156,10 +161,28 @@ export const createHealthCheckRouter = (
           });
         }
       }
+
+      // Notify subscribers (e.g., satellite-backend) that assignments changed
+      const emitHook = getEmitHook();
+      if (emitHook) {
+        await emitHook(healthCheckHooks.assignmentChanged, {
+          systemId: input.systemId,
+          configurationId: input.body.configurationId,
+        });
+      }
     }),
 
     disassociateSystem: os.disassociateSystem.handler(async ({ input }) => {
       await service.disassociateSystem(input.systemId, input.configId);
+
+      // Notify subscribers that assignments changed
+      const emitHook = getEmitHook();
+      if (emitHook) {
+        await emitHook(healthCheckHooks.assignmentChanged, {
+          systemId: input.systemId,
+          configurationId: input.configId,
+        });
+      }
     }),
 
     getRetentionConfig: os.getRetentionConfig.handler(async ({ input }) => {
@@ -228,6 +251,22 @@ export const createHealthCheckRouter = (
     getSystemHealthOverview: os.getSystemHealthOverview.handler(
       async ({ input }) => {
         return service.getSystemHealthOverview(input.systemId);
+      },
+    ),
+
+    // ========================================================================
+    // SERVICE INTERFACE (S2S — satellite-backend)
+    // ========================================================================
+
+    getAssignmentsForSatellite: os.getAssignmentsForSatellite.handler(
+      async ({ input }) => {
+        return service.getAssignmentsForSatellite(input.satelliteId);
+      },
+    ),
+
+    ingestSatelliteResult: os.ingestSatelliteResult.handler(
+      async ({ input }) => {
+        await service.ingestSatelliteResult(input);
       },
     ),
   });

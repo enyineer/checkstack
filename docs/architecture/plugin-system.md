@@ -60,6 +60,7 @@ checkstack/
 │   ├── catalog-*/         # Entity management (essential)
 │   ├── notification-*/    # Notifications (essential)
 │   ├── healthcheck-*/     # Health monitoring (essential)
+│   ├── satellite-*/       # Remote satellite agents (essential)
 │   ├── queue-*/           # Queue abstraction (essential)
 │   └── theme-*/           # UI theming (essential)
 │
@@ -242,6 +243,24 @@ sequenceDiagram
     P2->>P2: Validate service token
     P2->>P1: Response
 ```
+
+### WebSocket (Plugin-Registered)
+
+Plugins can register custom WebSocket endpoints via the **WebSocket Route Registry**. All routes are automatically namespaced by plugin ID to prevent collisions:
+
+```typescript
+// In satellite-backend's afterPluginsReady:
+wsRegistry.register("/", wsHandler);
+// → Available at /api/ws/satellite
+
+// Plugins can register sub-paths too:
+wsRegistry.register("/events", eventsHandler);
+// → Available at /api/ws/{pluginId}/events
+```
+
+The registry uses the same **scoped factory pattern** as RPC and health check registries — plugins never provide their ID manually.
+
+> **Note:** The signal/realtime WebSocket (`/api/signals/ws`) uses Bun's native pub/sub and is handled separately from the registry.
 
 ## Access System
 

@@ -32,4 +32,14 @@ export const healthCheckHooks = {
     totalChecks: number;
     timestamp: string;
   }>("healthcheck.system.healthy"),
+
+  /**
+   * Emitted when a health check ↔ system association changes.
+   * Subscribers (e.g., satellite-backend) can use this to push
+   * updated assignments to connected satellites.
+   */
+  assignmentChanged: createHook<{
+    systemId: string;
+    configurationId: string;
+  }>("healthcheck.assignment.changed"),
 } as const;

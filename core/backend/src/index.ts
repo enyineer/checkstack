@@ -18,6 +18,26 @@ import {
   SignalServiceImpl,
   type WebSocketData,
 } from "@checkstack/signal-backend";
+import type { WsConnectionHandlers } from "@checkstack/backend-api";
+
+// =============================================================================
+// SERVER-LEVEL WEBSOCKET DATA
+// =============================================================================
+
+/**
+ * Discriminated union for all WebSocket connection types.
+ * Signal connections are handled by signal-backend.
+ * Plugin WS connections are routed via the generic WebSocket route registry.
+ */
+type ServerWsData =
+  | ({ connectionType: "signal" } & WebSocketData)
+  | {
+      connectionType: "plugin";
+      createdAt: number;
+      pluginHandlers: WsConnectionHandlers;
+      /** Mutable proxy — patched in open() to the real Bun WS */
+      wsProxy: { send: (data: string) => void; close: () => void };
+    };
 import {
   PLUGIN_INSTALLED,
   PLUGIN_DEREGISTERED,
@@ -398,7 +418,7 @@ void init();
 // Custom fetch handler that handles WebSocket upgrades
 const fetch = async (
   req: Request,
-  server: Server<WebSocketData>
+  server: Server<ServerWsData>
 ): Promise<Response | undefined> => {
   // Set the server reference for WebSocket pub/sub after startup
   if (wsHandler && !server.upgrade) {
@@ -407,7 +427,8 @@ const fetch = async (
   }
 
   // Give the WebSocket handler the server reference if needed
-  wsHandler?.setServer(server);
+  // Cast is safe: signal handler only reads its own fields via connectionType guard
+  wsHandler?.setServer(server as unknown as Server<WebSocketData>);
 
   const url = new URL(req.url);
 
@@ -427,8 +448,40 @@ const fetch = async (
 
     const success = server.upgrade(req, {
       data: {
+        connectionType: "signal" as const,
         userId, // undefined for anonymous, set for authenticated users
         createdAt: Date.now(),
+      },
+    });
+
+    return success
+      ? undefined
+      : new Response("WebSocket upgrade failed", { status: 500 });
+  }
+
+  // Handle WebSocket upgrade for plugin-registered routes (/api/ws/*)
+  const WS_PREFIX = "/api/ws/";
+  if (url.pathname.startsWith(WS_PREFIX)) {
+    const pluginPath = url.pathname.slice(WS_PREFIX.length);
+    const handler = pluginManager.getWsStore().getHandler(pluginPath);
+    if (!handler) {
+      return new Response("Not Found", { status: 404 });
+    }
+
+    // Mutable WsConnection proxy — starts as no-op, patched in open() to the real Bun WS.
+    // The handler captures this object reference, so patching its methods works.
+    const wsProxy = {
+      send: (_: string) => {},
+      close: () => {},
+    };
+    const pluginHandlers = handler.onConnection(wsProxy);
+
+    const success = server.upgrade(req, {
+      data: {
+        connectionType: "plugin" as const,
+        createdAt: Date.now(),
+        pluginHandlers,
+        wsProxy,
       },
     });
 
@@ -446,25 +499,49 @@ export default {
   fetch,
   websocket: {
     // Type template for ws.data
-    data: {} as WebSocketData,
+    data: {} as ServerWsData,
 
-    open(ws: import("bun").ServerWebSocket<WebSocketData>) {
-      wsHandler?.websocket.open(ws);
+    open(ws: import("bun").ServerWebSocket<ServerWsData>) {
+      if (ws.data.connectionType === "plugin") {
+        // Patch the mutable proxy to wire through to the real Bun WebSocket
+        ws.data.wsProxy.send = (data: string) => ws.send(data);
+        ws.data.wsProxy.close = () => ws.close();
+        return;
+      }
+      // Signal connection
+      wsHandler?.websocket.open(
+        ws as unknown as import("bun").ServerWebSocket<WebSocketData>,
+      );
     },
 
     message(
-      ws: import("bun").ServerWebSocket<WebSocketData>,
-      message: string | Buffer
+      ws: import("bun").ServerWebSocket<ServerWsData>,
+      message: string | Buffer,
     ) {
-      wsHandler?.websocket.message(ws, message);
+      if (ws.data.connectionType === "plugin") {
+        void ws.data.pluginHandlers.onMessage(message.toString());
+        return;
+      }
+      wsHandler?.websocket.message(
+        ws as unknown as import("bun").ServerWebSocket<WebSocketData>,
+        message,
+      );
     },
 
     close(
-      ws: import("bun").ServerWebSocket<WebSocketData>,
+      ws: import("bun").ServerWebSocket<ServerWsData>,
       code: number,
-      reason: string
+      reason: string,
     ) {
-      wsHandler?.websocket.close(ws, code, reason);
+      if (ws.data.connectionType === "plugin") {
+        ws.data.pluginHandlers.onClose();
+        return;
+      }
+      wsHandler?.websocket.close(
+        ws as unknown as import("bun").ServerWebSocket<WebSocketData>,
+        code,
+        reason,
+      );
     },
   },
 };

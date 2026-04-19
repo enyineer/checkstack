@@ -14,6 +14,7 @@ import {
   RpcClient,
 } from "./types";
 import type { EventBus } from "./event-bus-types";
+import type { WebSocketRouteRegistry } from "./ws-registry";
 
 export * from "./types";
 
@@ -43,4 +44,5 @@ export const coreServices = {
   config: createServiceRef<ConfigService>("core.config"),
   eventBus: createServiceRef<EventBus>("core.eventBus"),
   signalService: createServiceRef<SignalService>("core.signalService"),
+  wsRegistry: createServiceRef<WebSocketRouteRegistry>("core.wsRegistry"),
 };

@@ -9,13 +9,12 @@ import {
   healthcheckRoutes,
   type CollectorConfigEntry,
 } from "@checkstack/healthcheck-common";
-import { PageLayout, Button, useToast } from "@checkstack/ui";
+import { PageLayout, Button, useToast, IDELayout, type ValidationIssue } from "@checkstack/ui";
 import { Save, Settings } from "lucide-react";
 import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 import { useCollectors } from "../hooks/useCollectors";
 import { EditorTree, type TreeNodeId } from "../components/editor/EditorTree";
 import { EditorPanel } from "../components/editor/EditorPanel";
-import { IDEStatusBar, type ValidationIssue } from "../components/editor/IDEStatusBar";
 
 // =============================================================================
 // TYPES
@@ -328,9 +327,8 @@ const HealthCheckIDEPageContent = () => {
         </Button>
       }
     >
-      <div className="flex flex-col lg:flex-row gap-0 min-h-[60vh] border rounded-lg bg-card overflow-hidden">
-        {/* Explorer Tree — Left Panel */}
-        <div className="w-full lg:w-64 shrink-0 border-b lg:border-b-0 lg:border-r bg-muted/30">
+      <IDELayout
+        tree={
           <EditorTree
             collectors={formState.collectors}
             availableCollectors={availableCollectors}
@@ -340,10 +338,8 @@ const HealthCheckIDEPageContent = () => {
             validationIssues={validationIssues}
             strategyId={activeStrategyId ?? ""}
           />
-        </div>
-
-        {/* Editor Panel — Right Panel */}
-        <div className="flex-1 min-w-0">
+        }
+        panel={
           <EditorPanel
             selectedNode={selectedNode}
             formState={formState}
@@ -367,13 +363,9 @@ const HealthCheckIDEPageContent = () => {
             onCollectorAdd={handleCollectorAdd}
             strategyId={activeStrategyId ?? ""}
           />
-        </div>
-      </div>
-
-      {/* Status Bar */}
-      <IDEStatusBar
+        }
         issues={validationIssues}
-        onIssueClick={(nodeId) => setSelectedNode(nodeId)}
+        onIssueClick={(nodeId) => setSelectedNode(nodeId as TreeNodeId)}
       />
     </PageLayout>
   );

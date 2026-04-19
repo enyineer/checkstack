@@ -5,8 +5,11 @@ import type {
 } from "@checkstack/healthcheck-common";
 import { Plus, Settings, Shield, ChevronRight } from "lucide-react";
 import { isBuiltInCollector } from "../../hooks/useCollectors";
-import type { ValidationIssue } from "./IDEStatusBar";
-import { Badge } from "@checkstack/ui";
+import {
+  IDETreeNode,
+  IDETreeSection,
+  type ValidationIssue,
+} from "@checkstack/ui";
 
 // =============================================================================
 // TYPES
@@ -26,66 +29,6 @@ interface EditorTreeProps {
   onAddCollector: (collectorId: string) => void;
   validationIssues: ValidationIssue[];
   strategyId: string;
-}
-
-// =============================================================================
-// VALIDATION INDICATOR
-// =============================================================================
-
-function ValidationDot({ nodeId, issues }: { nodeId: string; issues: ValidationIssue[] }) {
-  const nodeIssues = issues.filter((i) => i.nodeId === nodeId);
-  if (nodeIssues.length === 0) return;
-
-  return (
-    <span className="ml-auto flex h-2 w-2 rounded-full bg-destructive shrink-0" />
-  );
-}
-
-// =============================================================================
-// TREE NODE
-// =============================================================================
-
-function TreeNode({
-  nodeId,
-  label,
-  icon: Icon,
-  selected,
-  onClick,
-  issues,
-  indent = false,
-  badge,
-}: {
-  nodeId: string;
-  label: string;
-  icon: React.ElementType;
-  selected: boolean;
-  onClick: () => void;
-  issues: ValidationIssue[];
-  indent?: boolean;
-  badge?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex items-center gap-2 w-full px-3 py-2 text-sm text-left transition-colors ${
-        indent ? "pl-7" : ""
-      } ${
-        selected
-          ? "bg-primary/10 text-primary border-l-2 border-primary"
-          : "hover:bg-muted/50 border-l-2 border-transparent"
-      }`}
-    >
-      <Icon className="h-4 w-4 shrink-0 opacity-60" />
-      <span className="truncate flex-1">{label}</span>
-      {badge && (
-        <Badge variant="secondary" className="text-[10px] shrink-0">
-          {badge}
-        </Badge>
-      )}
-      <ValidationDot nodeId={nodeId} issues={issues} />
-    </button>
-  );
 }
 
 // =============================================================================
@@ -111,7 +54,7 @@ export const EditorTree: React.FC<EditorTreeProps> = ({
   return (
     <div className="py-2">
       {/* General */}
-      <TreeNode
+      <IDETreeNode
         nodeId="general"
         label="General"
         icon={Settings}
@@ -121,11 +64,7 @@ export const EditorTree: React.FC<EditorTreeProps> = ({
       />
 
       {/* Collectors Section Header */}
-      <div className="px-3 pt-4 pb-1">
-        <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-          Check Items
-        </span>
-      </div>
+      <IDETreeSection label="Check Items" />
 
       {/* Configured Collectors */}
       {collectors.map((entry) => {
@@ -135,7 +74,7 @@ export const EditorTree: React.FC<EditorTreeProps> = ({
         const builtIn = isBuiltInCollector(entry.collectorId, strategyId);
 
         return (
-          <TreeNode
+          <IDETreeNode
             key={entry.id}
             nodeId={`collector:${entry.id}`}
             label={collector?.displayName ?? entry.collectorId}
@@ -166,13 +105,9 @@ export const EditorTree: React.FC<EditorTreeProps> = ({
       )}
 
       {/* Access Control */}
-      <div className="px-3 pt-4 pb-1">
-        <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-          Permissions
-        </span>
-      </div>
+      <IDETreeSection label="Permissions" />
 
-      <TreeNode
+      <IDETreeNode
         nodeId="access"
         label="Access Control"
         icon={Shield}

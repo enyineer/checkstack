@@ -71,6 +71,13 @@
       "when": 1769077338943,
       "tag": "0009_late_argent",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1776599270689,
+      "tag": "0010_colorful_shinobi_shaw",
+      "breakpoints": true
     }
   ]
 }

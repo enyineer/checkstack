@@ -22,6 +22,7 @@ import { z } from "zod";
 import { createHealthCheckRouter } from "./router";
 import { HealthCheckService } from "./service";
 import { catalogHooks } from "@checkstack/catalog-backend";
+import { satelliteHooks } from "@checkstack/satellite-backend";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { IncidentApi } from "@checkstack/incident-common";
@@ -142,11 +143,12 @@ export default createBackendPlugin({
           queueManager,
         });
 
-        const healthCheckRouter = createHealthCheckRouter(
-          database as SafeDatabase<typeof schema>,
-          healthCheckRegistry,
+        const healthCheckRouter = createHealthCheckRouter({
+          database: database as SafeDatabase<typeof schema>,
+          registry: healthCheckRegistry,
           collectorRegistry,
-        );
+          getEmitHook: () => storedEmitHook,
+        });
         rpc.registerRouter(healthCheckRouter, healthCheckContract);
 
         // Register command palette commands
@@ -210,6 +212,18 @@ export default createBackendPlugin({
             await service.removeAllSystemAssociations(payload.systemId);
           },
           { mode: "work-queue", workerGroup: "system-cleanup" },
+        );
+
+        // Subscribe to satellite deletion to scrub satellite IDs from associations
+        onHook(
+          satelliteHooks.satelliteRemoved,
+          async (payload) => {
+            logger.debug(
+              `Scrubbing satellite ${payload.satelliteId} from health check associations`,
+            );
+            await service.scrubSatelliteFromAssociations(payload.satelliteId);
+          },
+          { mode: "work-queue", workerGroup: "satellite-cleanup" },
         );
 
         logger.debug("✅ Health Check Backend afterPluginsReady complete.");

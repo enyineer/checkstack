@@ -259,6 +259,8 @@ async function executeHealthCheckJob(props: {
         interval: healthCheckConfigurations.intervalSeconds,
         enabled: systemHealthChecks.enabled,
         paused: healthCheckConfigurations.paused,
+        includeLocal: systemHealthChecks.includeLocal,
+        satelliteIds: systemHealthChecks.satelliteIds,
       })
       .from(systemHealthChecks)
       .innerJoin(
@@ -285,6 +287,19 @@ async function executeHealthCheckJob(props: {
     if (configRow.paused) {
       logger.debug(
         `Health check ${configId} is paused, skipping execution for system ${systemId}`,
+      );
+      return;
+    }
+
+    // If includeLocal is false and satellites are assigned, skip local execution
+    // (satellites handle execution, local core doesn't run this check)
+    if (
+      !configRow.includeLocal &&
+      configRow.satelliteIds &&
+      configRow.satelliteIds.length > 0
+    ) {
+      logger.debug(
+        `Health check ${configId} for system ${systemId} is satellite-only, skipping local execution`,
       );
       return;
     }
@@ -486,6 +501,8 @@ async function executeHealthCheckJob(props: {
         status: result.status,
         latencyMs: result.latencyMs,
         result: { ...result } as Record<string, unknown>,
+        sourceId: undefined,
+        sourceLabel: "Local",
       });
 
       await incrementHourlyAggregate({
@@ -497,6 +514,7 @@ async function executeHealthCheckJob(props: {
         runTimestamp: new Date(),
         result: { ...result } as Record<string, unknown>,
         collectorRegistry,
+        sourceLabel: "Local",
       });
 
       logger.debug(
@@ -560,6 +578,8 @@ async function executeHealthCheckJob(props: {
       status: result.status,
       latencyMs: result.latencyMs,
       result: { ...result } as Record<string, unknown>,
+      sourceId: undefined,
+      sourceLabel: "Local",
     });
 
     // Trigger incremental hourly aggregation
@@ -572,6 +592,7 @@ async function executeHealthCheckJob(props: {
       runTimestamp: new Date(),
       result: { ...result } as Record<string, unknown>,
       collectorRegistry,
+      sourceLabel: "Local",
     });
 
     logger.debug(
@@ -660,6 +681,8 @@ async function executeHealthCheckJob(props: {
       systemId,
       status: "unhealthy",
       result: { error: String(error) } as Record<string, unknown>,
+      sourceId: undefined,
+      sourceLabel: "Local",
     });
 
     // Trigger incremental hourly aggregation
@@ -672,6 +695,7 @@ async function executeHealthCheckJob(props: {
       runTimestamp: new Date(),
       // No collector data for error cases
       collectorRegistry,
+      sourceLabel: "Local",
     });
 
     // Try to fetch names for the enriched signal (best-effort)

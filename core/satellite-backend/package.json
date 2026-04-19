@@ -1,0 +1,35 @@
+{
+  "name": "@checkstack/satellite-backend",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "checkstack": {
+    "type": "backend"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "generate": "drizzle-kit generate",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@checkstack/backend-api": "workspace:*",
+    "@checkstack/satellite-common": "workspace:*",
+    "@checkstack/healthcheck-common": "workspace:*",
+    "@checkstack/signal-common": "workspace:*",
+    "@checkstack/healthcheck-backend": "workspace:*",
+    "@checkstack/common": "workspace:*",
+    "@checkstack/queue-api": "workspace:*",
+    "drizzle-orm": "^0.45.0",
+    "zod": "^4.2.1",
+    "@orpc/server": "^1.13.2"
+  },
+  "devDependencies": {
+    "@checkstack/drizzle-helper": "workspace:*",
+    "@checkstack/scripts": "workspace:*",
+    "@checkstack/test-utils-backend": "workspace:*",
+    "@checkstack/tsconfig": "workspace:*",
+    "@types/bun": "^1.0.0",
+    "typescript": "^5.0.0"
+  }
+}

@@ -26,6 +26,10 @@ import {
 import { EventBus } from "../services/event-bus.js";
 import { getPluginSchemaName } from "@checkstack/drizzle-helper";
 import { createScopedDb } from "../utils/scoped-db.js";
+import {
+  WebSocketRouteStoreImpl,
+  createScopedWsRegistry,
+} from "../services/ws-route-registry";
 
 /**
  * Check if a PostgreSQL schema exists.
@@ -55,7 +59,7 @@ export function registerCoreServices({
   pluginRpcRouters: Map<string, unknown>;
   pluginHttpHandlers: Map<string, (req: Request) => Promise<Response>>;
   pluginContractRegistry: Map<string, unknown>;
-}): { collectorRegistry: CoreCollectorRegistry } {
+}): { collectorRegistry: CoreCollectorRegistry; wsStore: WebSocketRouteStoreImpl } {
   // 1. Database Factory (Scoped)
   registry.registerFactory(coreServices.database, async (metadata) => {
     const { pluginId, previousPluginIds } = metadata;
@@ -346,6 +350,12 @@ export function registerCoreServices({
     return eventBusInstance;
   });
 
+  // 10. WebSocket Route Registry (Scoped Factory - auto-prefixes with pluginId)
+  const globalWsStore = new WebSocketRouteStoreImpl();
+  registry.registerFactory(coreServices.wsRegistry, (metadata) =>
+    createScopedWsRegistry(globalWsStore, metadata.pluginId),
+  );
+
   // Return global registries for lifecycle cleanup
-  return { collectorRegistry: globalCollectorRegistry };
+  return { collectorRegistry: globalCollectorRegistry, wsStore: globalWsStore };
 }

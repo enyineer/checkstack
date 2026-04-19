@@ -90,6 +90,16 @@ export const systemHealthChecks = pgTable(
      * Null means use default retention settings.
      */
     retentionConfig: jsonb("retention_config").$type<RetentionConfig>(),
+    /**
+     * IDs of satellites assigned to execute this health check.
+     * When set, the check runs on these satellite nodes in addition to (or instead of) the core.
+     */
+    satelliteIds: jsonb("satellite_ids").$type<string[]>(),
+    /**
+     * Whether to also run this check locally on the core instance.
+     * Defaults to true. Only relevant when satelliteIds is set.
+     */
+    includeLocal: boolean("include_local").default(true).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -108,6 +118,16 @@ export const healthCheckRuns = pgTable("health_check_runs", {
   /** Execution duration in milliseconds */
   latencyMs: integer("latency_ms"),
   result: jsonb("result").$type<Record<string, unknown>>(),
+  /**
+   * Source identifier for result attribution.
+   * null = local core execution, UUID = satellite ID.
+   */
+  sourceId: text("source_id"),
+  /**
+   * Human-readable source label for UI display.
+   * e.g. "Local" or "EU West (eu-west-1)".
+   */
+  sourceLabel: text("source_label"),
   timestamp: timestamp("timestamp").defaultNow().notNull(),
 });
 
@@ -151,14 +171,24 @@ export const healthCheckAggregates = pgTable(
       jsonb("aggregated_result").$type<Record<string, unknown>>(),
     /** Serialized t-digest state for incremental p95 calculation */
     tdigestState: jsonb("tdigest_state").$type<number[]>(),
+    /**
+     * Source identifier for per-region aggregation.
+     * null = local core execution, UUID = satellite ID.
+     */
+    sourceId: text("source_id"),
+    /**
+     * Human-readable source label for UI display.
+     */
+    sourceLabel: text("source_label"),
   },
   (t) => ({
-    // Unique constraint for upsert operations
+    // Unique constraint includes sourceId for per-region aggregation
     bucketUnique: uniqueIndex("health_check_aggregates_bucket_unique").on(
       t.configurationId,
       t.systemId,
       t.bucketStart,
       t.bucketSize,
+      t.sourceId,
     ),
   }),
 );

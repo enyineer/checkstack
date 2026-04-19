@@ -25,5 +25,22 @@ services:
       timeout: 5s
       retries: 5
 
+  # Optional: Satellite agent for remote health check execution.
+  # Uncomment and configure to deploy satellites alongside the core.
+  #
+  # satellite:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.satellite
+  #   restart: always
+  #   environment:
+  #     CHECKSTACK_CORE_URL: http://checkstack:3000
+  #     CHECKSTACK_SATELLITE_CLIENT_ID: ${SATELLITE_CLIENT_ID}
+  #     CHECKSTACK_SATELLITE_TOKEN: ${SATELLITE_TOKEN}
+  #   depends_on:
+  #     checkstack:
+  #       condition: service_started
+
 volumes:
   postgres_data:
+
