@@ -5,6 +5,7 @@ import {
   StateThresholds,
   HealthCheckStatus,
   RetentionConfig,
+  type HealthCheckRunResult,
 } from "@checkstack/healthcheck-common";
 import {
   healthCheckConfigurations,
@@ -1056,7 +1057,7 @@ export class HealthCheckService {
     systemId: string;
     status: HealthCheckStatus;
     latencyMs?: number;
-    result?: Record<string, unknown>;
+    result?: HealthCheckRunResult;
     executedAt: string;
     sourceId: string;
     sourceLabel: string;
@@ -1071,12 +1072,14 @@ export class HealthCheckService {
       sourceLabel,
     } = props;
 
+    const resultRecord = result ? { ...result } as Record<string, unknown> : {};
+
     await this.db.insert(healthCheckRuns).values({
       configurationId: configId,
       systemId,
       status,
       latencyMs,
-      result: result ?? {},
+      result: resultRecord,
       sourceId,
       sourceLabel,
     });
@@ -1089,7 +1092,7 @@ export class HealthCheckService {
       status,
       latencyMs,
       runTimestamp: new Date(props.executedAt),
-      result: result ?? {},
+      result: resultRecord,
       collectorRegistry: this.collectorRegistry,
       sourceLabel,
     });

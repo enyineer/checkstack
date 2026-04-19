@@ -124,6 +124,25 @@ export const HealthCheckStatusSchema = z.enum([
 
 export type HealthCheckStatus = z.infer<typeof HealthCheckStatusSchema>;
 
+/**
+ * Canonical shape for a single health check run result.
+ * Both the local queue-executor and satellite agent MUST produce this shape
+ * to ensure the frontend (auto-charts, history detail) renders correctly.
+ */
+export const HealthCheckRunResultSchema = z.object({
+  status: HealthCheckStatusSchema,
+  latencyMs: z.number(),
+  message: z.string().optional(),
+  metadata: z.object({
+    connected: z.boolean(),
+    connectionTimeMs: z.number().optional(),
+    collectors: z.record(z.string(), z.unknown()).optional(),
+    error: z.string().optional(),
+  }),
+});
+
+export type HealthCheckRunResult = z.infer<typeof HealthCheckRunResultSchema>;
+
 // --- State Threshold Schemas ---
 
 /**

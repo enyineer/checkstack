@@ -78,9 +78,16 @@ async function executeAssignment(
       configId: assignment.configId,
       systemId: assignment.systemId,
       status: "unhealthy",
+      latencyMs: 0,
       executedAt: new Date().toISOString(),
       result: {
-        error: `Strategy ${assignment.strategyId} not found in satellite`,
+        status: "unhealthy",
+        latencyMs: 0,
+        message: `Strategy ${assignment.strategyId} not found in satellite`,
+        metadata: {
+          connected: false,
+          error: `Strategy ${assignment.strategyId} not found in satellite`,
+        },
       },
     };
   }
@@ -256,8 +263,17 @@ const scheduler = new Scheduler({
         configId: assignment.configId,
         systemId: assignment.systemId,
         status: "unhealthy",
+        latencyMs: 0,
         executedAt: new Date().toISOString(),
-        result: { error: String(error) },
+        result: {
+          status: "unhealthy",
+          latencyMs: 0,
+          message: String(error),
+          metadata: {
+            connected: false,
+            error: String(error),
+          },
+        },
       });
     }
   },

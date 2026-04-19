@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { HealthCheckStatusSchema } from "@checkstack/healthcheck-common";
+import {
+  HealthCheckStatusSchema,
+  HealthCheckRunResultSchema,
+} from "@checkstack/healthcheck-common";
 
 // =============================================================================
 // SATELLITE ASSIGNMENT (Core → Satellite configuration payload)
@@ -61,7 +64,8 @@ const ResultMessageSchema = z.object({
   systemId: z.string(),
   status: HealthCheckStatusSchema,
   latencyMs: z.number().optional(),
-  result: z.record(z.string(), z.unknown()).optional(),
+  /** Structured run result — typed to enforce parity with the local executor */
+  result: HealthCheckRunResultSchema.optional(),
   executedAt: z.string(),
 });
 
