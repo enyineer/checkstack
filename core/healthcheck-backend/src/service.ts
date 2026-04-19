@@ -18,6 +18,7 @@ import { eq, and, InferSelectModel, desc, gte, lte } from "drizzle-orm";
 import { ORPCError } from "@orpc/server";
 import { evaluateHealthStatus } from "./state-evaluator";
 import { stateThresholds } from "./state-thresholds-migrations";
+import { incrementHourlyAggregate } from "./realtime-aggregation";
 import type {
   HealthCheckRegistry,
   SafeDatabase,
@@ -1047,7 +1048,8 @@ export class HealthCheckService {
 
   /**
    * Ingest a health check result from a satellite.
-   * Stores the run with source attribution (sourceId + sourceLabel).
+   * Stores the run with source attribution (sourceId + sourceLabel)
+   * and triggers incremental aggregation to keep charts/availability current.
    */
   async ingestSatelliteResult(props: {
     configId: string;
@@ -1076,6 +1078,19 @@ export class HealthCheckService {
       latencyMs,
       result: result ?? {},
       sourceId,
+      sourceLabel,
+    });
+
+    // Trigger incremental hourly aggregation — same as local executor
+    await incrementHourlyAggregate({
+      db: this.db,
+      systemId,
+      configurationId: configId,
+      status,
+      latencyMs,
+      runTimestamp: new Date(props.executedAt),
+      result: result ?? {},
+      collectorRegistry: this.collectorRegistry,
       sourceLabel,
     });
   }

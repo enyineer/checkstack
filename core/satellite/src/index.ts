@@ -167,7 +167,8 @@ async function executeAssignment(
 
     const latencyMs = Math.round(performance.now() - start);
 
-    // 3. Build result
+    // 3. Build result — matches local queue-executor structure so
+    //    frontend auto-charts and history detail page work identically.
     const status = hasCollectorError ? "unhealthy" : "healthy";
     const result: ResultMessage = {
       type: "result",
@@ -179,10 +180,14 @@ async function executeAssignment(
       result: {
         status,
         latencyMs,
-        connectionTimeMs,
-        message: errorMessage,
-        metadata: { connected: true },
-        collectors: collectorResults,
+        message: errorMessage
+          ? `Check failed: ${errorMessage}`
+          : `Completed in ${latencyMs}ms`,
+        metadata: {
+          connected: true,
+          connectionTimeMs,
+          collectors: collectorResults,
+        },
       },
     };
 
