@@ -153,13 +153,23 @@ describe("Webex Integration Provider", () => {
     });
 
     it("returns failure for invalid config", async () => {
-      // Pass config with empty botToken - passes validation but fails API call
-      const result = await webexProvider.testConnection!({
-        botToken: "",
-      });
+      // Explicitly mock fetch to simulate network error for empty token
+      const mockFetch = spyOn(globalThis, "fetch").mockImplementation(
+        (async () => {
+          throw new TypeError("fetch failed");
+        }) as unknown as typeof fetch
+      );
 
-      expect(result.success).toBe(false);
-      expect(result.message).toContain("failed");
+      try {
+        const result = await webexProvider.testConnection!({
+          botToken: "",
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.message).toContain("failed");
+      } finally {
+        mockFetch.mockRestore();
+      }
     });
   });
 
