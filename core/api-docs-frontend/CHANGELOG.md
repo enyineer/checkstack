@@ -1,5 +1,12 @@
 # @checkstack/api-docs-frontend
 
+## 0.1.22
+
+### Patch Changes
+
+- Updated dependencies [26d8bae]
+  - @checkstack/ui@1.3.0
+
 ## 0.1.21
 
 ### Patch Changes

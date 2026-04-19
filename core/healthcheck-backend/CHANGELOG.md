@@ -1,5 +1,70 @@
 # @checkstack/healthcheck-backend
 
+## 0.13.0
+
+### Minor Changes
+
+- 26d8bae: Distributed satellite health checks and Assignment IDE page
+
+  **Satellite System**
+
+  - New `satellite-backend`, `satellite-common`, `satellite-frontend`, and `satellite` agent packages for distributed health check execution
+  - WebSocket-based satellite connectivity with authentication, heartbeats, and live configuration push
+  - Satellite management UI with create dialog, status badges, and list page
+
+  **Live Configuration Updates**
+
+  - Added `assignmentChanged` hook to `healthcheck-backend` for cross-plugin communication
+  - `satellite-backend` subscribes to assignment changes and pushes config updates to connected satellites in real-time
+
+  **Assignment IDE Page**
+
+  - Replaced the 1028-line modal-based `SystemHealthCheckAssignment` component with a full-page IDE layout
+  - New modular components: `AssignmentTree`, `GeneralPanel`, `ThresholdsPanel`, `RetentionPanel`, `ExecutionPanel`
+  - Added unassign capability and sorted assignment lists for stable ordering
+
+  **Shared IDE Primitives**
+
+  - Extracted `IDETreeNode`, `IDETreeSection`, `IDEStatusBar`, `IDELayout` to `@checkstack/ui` for cross-plugin reuse
+  - Migrated existing health check IDE editor to use shared primitives
+
+  **Infrastructure**
+
+  - Added `Dockerfile.satellite` for containerized satellite deployment
+  - WebSocket route registry in `@checkstack/backend` and `@checkstack/backend-api`
+
+- 26d8bae: Source attribution and filtering for satellite health checks
+
+  **Source Attribution**
+
+  - Fixed satellite result attribution: runs from satellites now correctly display their source instead of defaulting to "Local"
+  - Added `sourceId` and `sourceLabel` to both public and detailed history API responses
+
+  **Source Filtering**
+
+  - Added `sourceFilter` parameter to `getHistory`, `getDetailedHistory`, and `getDetailedAggregatedHistory` RPC endpoints
+  - Source filter supports "local" (core-only), specific satellite UUID, or all sources
+  - Filter applies to all three aggregation tiers (raw, hourly, daily)
+
+  **Frontend**
+
+  - System detail accordion shows source filter buttons (All / Local / per-satellite) next to date range filter
+  - Filter applies to both charts and recent runs table
+  - Source column added to the recent runs table with Local/Remote badges
+  - Health check history detail page includes per-satellite source filter buttons
+
+### Patch Changes
+
+- Updated dependencies [26d8bae]
+- Updated dependencies [26d8bae]
+  - @checkstack/healthcheck-common@0.11.0
+  - @checkstack/satellite-backend@0.2.0
+  - @checkstack/backend-api@0.12.0
+  - @checkstack/catalog-backend@0.2.24
+  - @checkstack/command-backend@0.1.19
+  - @checkstack/integration-backend@0.1.19
+  - @checkstack/queue-api@0.2.13
+
 ## 0.12.1
 
 ### Patch Changes
