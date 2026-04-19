@@ -1306,57 +1306,6 @@
         "typescript": "^5.0.0",
       },
     },
-    "plugins/_test-scaffolds/scaffoldtest-backend": {
-      "name": "@checkstack/scaffoldtest-backend",
-      "version": "0.0.1",
-      "dependencies": {
-        "@checkstack/backend-api": "workspace:*",
-        "@checkstack/common": "workspace:*",
-        "@checkstack/scaffoldtest-common": "workspace:*",
-        "@orpc/server": "^1.13.2",
-        "drizzle-orm": "^0.45.1",
-      },
-      "devDependencies": {
-        "@checkstack/drizzle-helper": "workspace:*",
-        "@checkstack/test-utils-backend": "workspace:*",
-        "@checkstack/tsconfig": "workspace:*",
-        "drizzle-kit": "^0.28.1",
-        "typescript": "^5.7.2",
-      },
-    },
-    "plugins/_test-scaffolds/scaffoldtest-common": {
-      "name": "@checkstack/scaffoldtest-common",
-      "version": "0.0.1",
-      "dependencies": {
-        "@checkstack/common": "workspace:*",
-        "@orpc/contract": "^1.13.2",
-        "zod": "^3.23.0",
-      },
-      "devDependencies": {
-        "@checkstack/tsconfig": "workspace:*",
-        "typescript": "^5.7.2",
-      },
-    },
-    "plugins/_test-scaffolds/scaffoldtest-frontend": {
-      "name": "@checkstack/scaffoldtest-frontend",
-      "version": "0.0.1",
-      "dependencies": {
-        "@checkstack/common": "workspace:*",
-        "@checkstack/frontend-api": "workspace:*",
-        "@checkstack/scaffoldtest-common": "workspace:*",
-        "@checkstack/ui": "workspace:*",
-        "lucide-react": "^0.469.0",
-        "react": "^18.3.1",
-        "react-router-dom": "^7.1.1",
-      },
-      "devDependencies": {
-        "@checkstack/test-utils-frontend": "workspace:*",
-        "@checkstack/tsconfig": "workspace:*",
-        "@playwright/test": "^1.49.0",
-        "@types/react": "^18.3.1",
-        "typescript": "^5.7.2",
-      },
-    },
     "plugins/auth-credential-backend": {
       "name": "@checkstack/auth-credential-backend",
       "version": "0.0.26",
@@ -2233,12 +2182,6 @@
     "@checkstack/satellite-common": ["@checkstack/satellite-common@workspace:core/satellite-common"],
 
     "@checkstack/satellite-frontend": ["@checkstack/satellite-frontend@workspace:core/satellite-frontend"],
-
-    "@checkstack/scaffoldtest-backend": ["@checkstack/scaffoldtest-backend@workspace:plugins/_test-scaffolds/scaffoldtest-backend"],
-
-    "@checkstack/scaffoldtest-common": ["@checkstack/scaffoldtest-common@workspace:plugins/_test-scaffolds/scaffoldtest-common"],
-
-    "@checkstack/scaffoldtest-frontend": ["@checkstack/scaffoldtest-frontend@workspace:plugins/_test-scaffolds/scaffoldtest-frontend"],
 
     "@checkstack/scripts": ["@checkstack/scripts@workspace:core/scripts"],
 
@@ -3854,12 +3797,6 @@
 
     "@checkstack/queue-frontend/react-router-dom": ["react-router-dom@7.14.1", "", { "dependencies": { "react-router": "7.14.1" }, "peerDependencies": { "react": ">=18", "react-dom": ">=18" } }, "sha512-ZkrQuwwhGibjQLqH1eCdyiZyLWglPxzxdl5tgwgKEyCSGC76vmAjleGocRe3J/MLfzMUIKwaFJWpFVJhK3d2xA=="],
 
-    "@checkstack/scaffoldtest-common/zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
-
-    "@checkstack/scaffoldtest-frontend/lucide-react": ["lucide-react@0.469.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-28vvUnnKQ/dBwiCQtwJw7QauYnE7yd2Cyp4tTTJpvglX4EMpbflcdBgrgToX2j71B3YvugK/NH3BGUk+E/p/Fw=="],
-
-    "@checkstack/scaffoldtest-frontend/react-router-dom": ["react-router-dom@7.14.1", "", { "dependencies": { "react-router": "7.14.1" }, "peerDependencies": { "react": ">=18", "react-dom": ">=18" } }, "sha512-ZkrQuwwhGibjQLqH1eCdyiZyLWglPxzxdl5tgwgKEyCSGC76vmAjleGocRe3J/MLfzMUIKwaFJWpFVJhK3d2xA=="],
-
     "@checkstack/ui/lucide-react": ["lucide-react@0.562.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-82hOAu7y0dbVuFfmO4bYF1XEwYk/mEbM5E+b1jgci/udUBEE/R7LF5Ip0CCEmXe8AybRM8L+04eP+LGZeDvkiw=="],
 
     "@eslint-community/eslint-utils/eslint-visitor-keys": ["eslint-visitor-keys@3.4.3", "", {}, "sha512-wpc+LXeiyiisxPlEkUzU6svyS1frIO3Mgxj1fdy7Pm8Ygzguax2N3Fa/D/ag1WqbOprdI+uY6wMUl8/a2G+iag=="],
@@ -4012,8 +3949,6 @@
 
     "@checkstack/queue-frontend/react-router-dom/react-router": ["react-router@7.14.1", "", { "dependencies": { "cookie": "^1.0.1", "set-cookie-parser": "^2.6.0" }, "peerDependencies": { "react": ">=18", "react-dom": ">=18" }, "optionalPeers": ["react-dom"] }, "sha512-5BCvFskyAAVumqhEKh/iPhLOIkfxcEUz8WqFIARCkMg8hZZzDYX9CtwxXA0e+qT8zAxmMC0x3Ckb9iMONwc5jg=="],
 
-    "@checkstack/scaffoldtest-frontend/react-router-dom/react-router": ["react-router@7.14.1", "", { "dependencies": { "cookie": "^1.0.1", "set-cookie-parser": "^2.6.0" }, "peerDependencies": { "react": ">=18", "react-dom": ">=18" }, "optionalPeers": ["react-dom"] }, "sha512-5BCvFskyAAVumqhEKh/iPhLOIkfxcEUz8WqFIARCkMg8hZZzDYX9CtwxXA0e+qT8zAxmMC0x3Ckb9iMONwc5jg=="],
-
     "@eslint/eslintrc/ajv/json-schema-traverse": ["json-schema-traverse@0.4.1", "", {}, "sha512-xbbCH5dCYU5T8LcEhhuh7HJ88HXuW3qsI3Y0zOZFKfZEHcpWiHU/Jxzk629Brsab/mMiHQti9wMP+845RPe3Vg=="],
 
     "@manypkg/find-root/find-up/locate-path": ["locate-path@5.0.0", "", { "dependencies": { "p-locate": "^4.1.0" } }, "sha512-t7hw9pI+WvuwNJXwk5zVHpyhIqzg2qTlklJOf0mVxGSbe3Fp2VieZcduNYjaLDoy6p9uGpQEGWG87WpMKlNq8g=="],
@@ -4125,8 +4060,6 @@
     "@checkstack/command-frontend/react-router-dom/react-router/set-cookie-parser": ["set-cookie-parser@2.7.2", "", {}, "sha512-oeM1lpU/UvhTxw+g3cIfxXHyJRc/uidd3yK1P242gzHds0udQBYzs3y8j4gCCW+ZJ7ad0yctld8RYO+bdurlvw=="],
 
     "@checkstack/queue-frontend/react-router-dom/react-router/set-cookie-parser": ["set-cookie-parser@2.7.2", "", {}, "sha512-oeM1lpU/UvhTxw+g3cIfxXHyJRc/uidd3yK1P242gzHds0udQBYzs3y8j4gCCW+ZJ7ad0yctld8RYO+bdurlvw=="],
-
-    "@checkstack/scaffoldtest-frontend/react-router-dom/react-router/set-cookie-parser": ["set-cookie-parser@2.7.2", "", {}, "sha512-oeM1lpU/UvhTxw+g3cIfxXHyJRc/uidd3yK1P242gzHds0udQBYzs3y8j4gCCW+ZJ7ad0yctld8RYO+bdurlvw=="],
 
     "@manypkg/find-root/find-up/locate-path/p-locate": ["p-locate@4.1.0", "", { "dependencies": { "p-limit": "^2.2.0" } }, "sha512-R79ZZ/0wAxKGu3oYMlz8jy/kbhsNrS7SKZ7PxEHBgJ5+F2mtFW2fK2cOtBh1cHYkQsbzFV7I+EoRKe6Yt0oK7A=="],
 
