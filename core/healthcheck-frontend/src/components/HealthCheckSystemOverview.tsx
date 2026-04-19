@@ -15,6 +15,7 @@ import {
   healthCheckAccess,
   healthcheckRoutes,
 } from "@checkstack/healthcheck-common";
+import { SatelliteApi, satelliteAccess } from "@checkstack/satellite-common";
 import { resolveRoute } from "@checkstack/common";
 import {
   HealthBadge,
@@ -36,10 +37,14 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-
 } from "@checkstack/ui";
 import { formatDistanceToNow } from "date-fns";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Satellite as SatelliteIcon,
+  Server,
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { HealthCheckSparkline } from "./HealthCheckSparkline";
 import { HealthCheckLatencyChart } from "./HealthCheckLatencyChart";
@@ -71,14 +76,24 @@ interface ExpandedRowProps {
   systemId: string;
 }
 
-
 const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
   const healthCheckClient = usePluginClient(HealthCheckApi);
+  const satelliteClient = usePluginClient(SatelliteApi);
   const navigate = useNavigate();
   const accessApi = useApi(accessApiRef);
   const { allowed: canViewDetails } = accessApi.useAccess(
     healthCheckAccess.details,
   );
+  const { allowed: canReadSatellites } = accessApi.useAccess(
+    satelliteAccess.satellite.read,
+  );
+
+  // Fetch satellites for source filter (only if user has access)
+  const { data: satellitesData } = satelliteClient.listSatellites.useQuery(
+    {},
+    { enabled: canReadSatellites },
+  );
+  const satellites = satellitesData?.satellites ?? [];
 
   // Date range state for filtering - default to last 24 hours
   const [dateRange, setDateRange] = useState(() =>
@@ -86,6 +101,7 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
   );
   // Track if a rolling preset is active (vs custom range)
   const [isRollingPreset, setIsRollingPreset] = useState(true);
+  const [sourceFilter, setSourceFilter] = useState<string | undefined>();
 
   // Callback to handle date range changes from the filter
   const handleDateRangeChange = useCallback(
@@ -139,6 +155,7 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
     configurationId: item.configurationId,
     strategyId: item.strategyId,
     dateRange,
+    sourceFilter,
     isRollingPreset,
     // Update endDate to current time when new runs are detected (only for rolling presets)
     onDateRangeRefresh: (newEndDate) => {
@@ -161,6 +178,7 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
     offset: pagination.offset,
     startDate: dateRange.startDate,
     // Don't pass endDate - backend defaults to 'now' so new runs are included
+    sourceFilter,
     sortOrder: "desc",
   });
 
@@ -190,7 +208,6 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
       ? `Consecutive mode: Healthy after ${item.stateThresholds.healthy.minSuccessCount} success(es), Degraded after ${item.stateThresholds.degraded.minFailureCount} failure(s), Unhealthy after ${item.stateThresholds.unhealthy.minFailureCount} failure(s)`
       : `Window mode (${item.stateThresholds.windowSize} runs): Degraded at ${item.stateThresholds.degraded.minFailureCount}+ failures, Unhealthy at ${item.stateThresholds.unhealthy.minFailureCount}+ failures`
     : "Using default thresholds";
-
 
   // Render charts - charts handle data transformation internally
   const renderCharts = () => {
@@ -266,8 +283,6 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
         </div>
       </div>
 
-
-
       {/* Date Range Filter with Loading Spinner */}
       <div className="flex items-center gap-3 flex-wrap">
         <DateRangeFilter
@@ -292,6 +307,49 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
         )}
       </div>
+      {/* Source filter (visible when satellites exist and user has read access) */}
+      {canReadSatellites && satellites.length > 0 && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Source:</span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setSourceFilter(undefined)}
+              className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
+                sourceFilter === undefined
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setSourceFilter("local")}
+              className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
+                sourceFilter === "local"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+            >
+              <Server className="h-3 w-3" />
+              Local
+            </button>
+            {satellites.map((sat) => (
+              <button
+                key={sat.id}
+                onClick={() => setSourceFilter(sat.id)}
+                className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
+                  sourceFilter === sat.id
+                    ? "bg-orange-500 text-white"
+                    : "bg-orange-500/10 text-orange-600 hover:bg-orange-500/20"
+                }`}
+              >
+                <SatelliteIcon className="h-3 w-3" />
+                {sat.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Charts Section */}
       {renderCharts()}
@@ -309,12 +367,14 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
             </span>
             <div className="flex-1 h-px bg-border" />
           </div>
+
           <div className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-24">Status</TableHead>
                   <TableHead>Time</TableHead>
+                  <TableHead>Source</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -347,6 +407,19 @@ const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
                       {formatDistanceToNow(new Date(run.timestamp), {
                         addSuffix: true,
                       })}
+                    </TableCell>
+                    <TableCell>
+                      {run.sourceId ? (
+                        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-orange-500/10 text-orange-600">
+                          <SatelliteIcon className="h-3 w-3" />
+                          {run.sourceLabel ?? "Remote"}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+                          <Server className="h-3 w-3" />
+                          {run.sourceLabel ?? "Local"}
+                        </span>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

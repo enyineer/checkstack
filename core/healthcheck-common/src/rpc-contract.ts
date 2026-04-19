@@ -233,6 +233,8 @@ export const healthCheckContract = {
         configurationId: z.string().optional(),
         startDate: z.date().optional(),
         endDate: z.date().optional(),
+        /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
+        sourceFilter: z.string().optional(),
         limit: z.number().optional().default(10),
         offset: z.number().optional().default(0),
         sortOrder: z.enum(["asc", "desc"]),
@@ -256,6 +258,8 @@ export const healthCheckContract = {
         configurationId: z.string().optional(),
         startDate: z.date().optional(),
         endDate: z.date().optional(),
+        /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
+        sourceFilter: z.string().optional(),
         limit: z.number().optional().default(10),
         offset: z.number().optional().default(0),
         sortOrder: z.enum(["asc", "desc"]),
@@ -314,6 +318,8 @@ export const healthCheckContract = {
         configurationId: z.string(),
         startDate: z.date(),
         endDate: z.date(),
+        /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
+        sourceFilter: z.string().optional(),
         /** Target number of data points (default: 500). Bucket interval is calculated as (endDate - startDate) / targetPoints */
         targetPoints: z.number().min(10).max(2000).default(500),
       }),

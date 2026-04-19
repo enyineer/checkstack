@@ -10,6 +10,7 @@ import {
   healthCheckAccess,
   HealthCheckApi,
 } from "@checkstack/healthcheck-common";
+import { SatelliteApi } from "@checkstack/satellite-common";
 import { resolveRoute } from "@checkstack/common";
 import {
   PageLayout,
@@ -26,7 +27,7 @@ import {
   type DateRange,
 } from "@checkstack/ui";
 import { useParams, useNavigate } from "react-router-dom";
-import { History, X } from "lucide-react";
+import { History, X, Server, Satellite } from "lucide-react";
 import { format } from "date-fns";
 import {
   HealthCheckRunsTable,
@@ -44,15 +45,21 @@ const HealthCheckHistoryDetailPageContent = () => {
 
   const navigate = useNavigate();
   const healthCheckClient = usePluginClient(HealthCheckApi);
+  const satelliteClient = usePluginClient(SatelliteApi);
   const accessApi = useApi(accessApiRef);
   const { allowed: canManage, loading: accessLoading } = accessApi.useAccess(
     healthCheckAccess.configuration.manage,
   );
 
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
+  const [sourceFilter, setSourceFilter] = useState<string | undefined>();
 
   // Pagination state
   const pagination = usePagination({ defaultLimit: 20 });
+
+  // Fetch satellites for the source filter dropdown
+  const { data: satellitesData } = satelliteClient.listSatellites.useQuery({});
+  const satellites = satellitesData?.satellites ?? [];
 
   // Fetch specific run if runId is provided
   const { data: specificRun } = healthCheckClient.getRunById.useQuery(
@@ -81,6 +88,7 @@ const HealthCheckHistoryDetailPageContent = () => {
     configurationId,
     startDate: dateRange.startDate,
     endDate: dateRange.endDate,
+    sourceFilter,
     limit: pagination.limit,
     offset: pagination.offset,
     sortOrder: "desc",
@@ -156,11 +164,50 @@ const HealthCheckHistoryDetailPageContent = () => {
           <CardTitle>Run History</CardTitle>
         </CardHeader>
         <CardContent>
-          <DateRangeFilter
-            value={dateRange}
-            onChange={setDateRange}
-            className="mb-4"
-          />
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <DateRangeFilter value={dateRange} onChange={setDateRange} />
+            {/* Source filter */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Source:</span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setSourceFilter(undefined)}
+                  className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
+                    sourceFilter === undefined
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  }`}
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => setSourceFilter("local")}
+                  className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
+                    sourceFilter === "local"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  }`}
+                >
+                  <Server className="h-3 w-3" />
+                  Local
+                </button>
+                {satellites.map((sat) => (
+                  <button
+                    key={sat.id}
+                    onClick={() => setSourceFilter(sat.id)}
+                    className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
+                      sourceFilter === sat.id
+                        ? "bg-orange-500 text-white"
+                        : "bg-orange-500/10 text-orange-600 hover:bg-orange-500/20"
+                    }`}
+                  >
+                    <Satellite className="h-3 w-3" />
+                    {sat.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
           <HealthCheckRunsTable
             runs={runs}
             loading={isLoading}

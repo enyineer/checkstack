@@ -15,7 +15,7 @@ import {
   VersionedStateThresholds,
 } from "./schema";
 import * as schema from "./schema";
-import { eq, and, InferSelectModel, desc, gte, lte } from "drizzle-orm";
+import { eq, and, InferSelectModel, desc, gte, lte, isNull } from "drizzle-orm";
 import { ORPCError } from "@orpc/server";
 import { evaluateHealthStatus } from "./state-evaluator";
 import { stateThresholds } from "./state-thresholds-migrations";
@@ -488,6 +488,7 @@ export class HealthCheckService {
     configurationId?: string;
     startDate?: Date;
     endDate?: Date;
+    sourceFilter?: string;
     limit?: number;
     offset?: number;
     sortOrder: "asc" | "desc";
@@ -497,6 +498,7 @@ export class HealthCheckService {
       configurationId,
       startDate,
       endDate,
+      sourceFilter,
       limit = 10,
       offset = 0,
       sortOrder,
@@ -508,6 +510,13 @@ export class HealthCheckService {
       conditions.push(eq(healthCheckRuns.configurationId, configurationId));
     if (startDate) conditions.push(gte(healthCheckRuns.timestamp, startDate));
     if (endDate) conditions.push(lte(healthCheckRuns.timestamp, endDate));
+
+    // Source filtering: "local" = no sourceId, UUID = specific satellite
+    if (sourceFilter === "local") {
+      conditions.push(isNull(healthCheckRuns.sourceId));
+    } else if (sourceFilter) {
+      conditions.push(eq(healthCheckRuns.sourceId, sourceFilter));
+    }
 
     // Build where clause
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -536,6 +545,8 @@ export class HealthCheckService {
         status: run.status,
         timestamp: run.timestamp,
         latencyMs: run.latencyMs ?? undefined,
+        sourceId: run.sourceId ?? undefined,
+        sourceLabel: run.sourceLabel ?? undefined,
       })),
       total,
     };
@@ -551,6 +562,7 @@ export class HealthCheckService {
     configurationId?: string;
     startDate?: Date;
     endDate?: Date;
+    sourceFilter?: string;
     limit?: number;
     offset?: number;
     sortOrder: "asc" | "desc";
@@ -560,6 +572,7 @@ export class HealthCheckService {
       configurationId,
       startDate,
       endDate,
+      sourceFilter,
       limit = 10,
       offset = 0,
       sortOrder,
@@ -571,6 +584,13 @@ export class HealthCheckService {
       conditions.push(eq(healthCheckRuns.configurationId, configurationId));
     if (startDate) conditions.push(gte(healthCheckRuns.timestamp, startDate));
     if (endDate) conditions.push(lte(healthCheckRuns.timestamp, endDate));
+
+    // Source filtering: "local" = no sourceId, UUID = specific satellite
+    if (sourceFilter === "local") {
+      conditions.push(isNull(healthCheckRuns.sourceId));
+    } else if (sourceFilter) {
+      conditions.push(eq(healthCheckRuns.sourceId, sourceFilter));
+    }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
     const total = await this.db.$count(healthCheckRuns, whereClause);
@@ -596,6 +616,8 @@ export class HealthCheckService {
         result: run.result ?? {},
         timestamp: run.timestamp,
         latencyMs: run.latencyMs ?? undefined,
+        sourceId: run.sourceId ?? undefined,
+        sourceLabel: run.sourceLabel ?? undefined,
       })),
       total,
     };
@@ -624,6 +646,8 @@ export class HealthCheckService {
       result: r.result ?? {},
       timestamp: r.timestamp,
       latencyMs: r.latencyMs ?? undefined,
+      sourceId: r.sourceId ?? undefined,
+      sourceLabel: r.sourceLabel ?? undefined,
     };
   }
 
@@ -638,6 +662,7 @@ export class HealthCheckService {
       configurationId: string;
       startDate: Date;
       endDate: Date;
+      sourceFilter?: string;
       targetPoints?: number;
     },
     options: { includeAggregatedResult: boolean },
@@ -647,6 +672,7 @@ export class HealthCheckService {
       configurationId,
       startDate,
       endDate,
+      sourceFilter,
       targetPoints = 500,
     } = props;
 
@@ -669,48 +695,66 @@ export class HealthCheckService {
         ? this.registry.getStrategy(config.strategyId)
         : undefined;
 
+    // Build source condition for raw runs
+    const rawConditions = [
+      eq(healthCheckRuns.systemId, systemId),
+      eq(healthCheckRuns.configurationId, configurationId),
+      gte(healthCheckRuns.timestamp, startDate),
+      lte(healthCheckRuns.timestamp, endDate),
+      ...(sourceFilter === "local"
+        ? [isNull(healthCheckRuns.sourceId)]
+        : sourceFilter
+          ? [eq(healthCheckRuns.sourceId, sourceFilter)]
+          : []),
+    ];
+
+    // Build source condition for hourly aggregates
+    const hourlyConditions = [
+      eq(healthCheckAggregates.systemId, systemId),
+      eq(healthCheckAggregates.configurationId, configurationId),
+      eq(healthCheckAggregates.bucketSize, "hourly"),
+      gte(healthCheckAggregates.bucketStart, startDate),
+      lte(healthCheckAggregates.bucketStart, endDate),
+      ...(sourceFilter === "local"
+        ? [isNull(healthCheckAggregates.sourceId)]
+        : sourceFilter
+          ? [eq(healthCheckAggregates.sourceId, sourceFilter)]
+          : []),
+    ];
+
+    // Build source condition for daily aggregates
+    const dailyConditions = [
+      eq(healthCheckAggregates.systemId, systemId),
+      eq(healthCheckAggregates.configurationId, configurationId),
+      eq(healthCheckAggregates.bucketSize, "daily"),
+      gte(healthCheckAggregates.bucketStart, startDate),
+      lte(healthCheckAggregates.bucketStart, endDate),
+      ...(sourceFilter === "local"
+        ? [isNull(healthCheckAggregates.sourceId)]
+        : sourceFilter
+          ? [eq(healthCheckAggregates.sourceId, sourceFilter)]
+          : []),
+    ];
+
     // Query all three tiers in parallel
     const [rawRuns, hourlyAggregates, dailyAggregates] = await Promise.all([
       // Raw runs
       this.db
         .select()
         .from(healthCheckRuns)
-        .where(
-          and(
-            eq(healthCheckRuns.systemId, systemId),
-            eq(healthCheckRuns.configurationId, configurationId),
-            gte(healthCheckRuns.timestamp, startDate),
-            lte(healthCheckRuns.timestamp, endDate),
-          ),
-        )
+        .where(and(...rawConditions))
         .orderBy(healthCheckRuns.timestamp),
       // Hourly aggregates
       this.db
         .select()
         .from(healthCheckAggregates)
-        .where(
-          and(
-            eq(healthCheckAggregates.systemId, systemId),
-            eq(healthCheckAggregates.configurationId, configurationId),
-            eq(healthCheckAggregates.bucketSize, "hourly"),
-            gte(healthCheckAggregates.bucketStart, startDate),
-            lte(healthCheckAggregates.bucketStart, endDate),
-          ),
-        )
+        .where(and(...hourlyConditions))
         .orderBy(healthCheckAggregates.bucketStart),
       // Daily aggregates
       this.db
         .select()
         .from(healthCheckAggregates)
-        .where(
-          and(
-            eq(healthCheckAggregates.systemId, systemId),
-            eq(healthCheckAggregates.configurationId, configurationId),
-            eq(healthCheckAggregates.bucketSize, "daily"),
-            gte(healthCheckAggregates.bucketStart, startDate),
-            lte(healthCheckAggregates.bucketStart, endDate),
-          ),
-        )
+        .where(and(...dailyConditions))
         .orderBy(healthCheckAggregates.bucketStart),
     ]);
 
