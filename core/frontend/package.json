@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/frontend",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "checkstack": {
     "type": "frontend"
   },

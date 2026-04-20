@@ -1,5 +1,12 @@
 # @checkstack/integration-frontend
 
+## 0.2.25
+
+### Patch Changes
+
+- Updated dependencies [692c717]
+  - @checkstack/ui@1.3.4
+
 ## 0.2.24
 
 ### Patch Changes
