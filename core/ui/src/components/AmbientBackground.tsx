@@ -24,35 +24,19 @@ export const AmbientBackground: React.FC<AmbientBackgroundProps> = ({
     return (
       <>
         <div
-          className="aurora-blob absolute w-[50%] h-[50%] -top-[10%] -left-[10%]"
+          className="aurora-blob absolute w-[100%] h-[100%] -top-[40%] -left-[20%]"
           style={{
             background:
-              "radial-gradient(circle at center, hsl(var(--primary) / 0.8), transparent 60%)",
-            animation: "aurora-float-1 25s ease-in-out infinite",
+              "radial-gradient(circle at center, hsl(var(--primary) / 0.9) 0%, hsl(var(--primary) / 0.3) 50%, transparent 90%)",
+            animation: "aurora-float-1 60s ease-in-out infinite",
           }}
         />
         <div
-          className="aurora-blob absolute w-[40%] h-[40%] bottom-[10%] right-[10%]"
+          className="aurora-blob absolute w-[90%] h-[90%] -bottom-[30%] -right-[20%]"
           style={{
             background:
-              "radial-gradient(circle at center, hsl(var(--chart-2) / 0.7), transparent 60%)",
-            animation: "aurora-float-2 20s ease-in-out infinite",
-          }}
-        />
-        <div
-          className="aurora-blob absolute w-[35%] h-[35%] top-[30%] left-[40%]"
-          style={{
-            background:
-              "radial-gradient(circle at center, hsl(var(--primary) / 0.6), transparent 60%)",
-            animation: "aurora-float-3 30s ease-in-out infinite",
-          }}
-        />
-        <div
-          className="aurora-blob absolute w-[45%] h-[45%] bottom-[20%] left-[10%]"
-          style={{
-            background:
-              "radial-gradient(circle at center, hsl(var(--chart-1) / 0.5), transparent 60%)",
-            animation: "aurora-float-4 35s ease-in-out infinite",
+              "radial-gradient(circle at center, hsl(var(--chart-2) / 0.8) 0%, hsl(var(--chart-2) / 0.2) 50%, transparent 90%)",
+            animation: "aurora-float-2 50s ease-in-out infinite",
           }}
         />
       </>
@@ -67,8 +51,10 @@ export const AmbientBackground: React.FC<AmbientBackgroundProps> = ({
       )}
     >
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        {/* Layer 1: Aurora Blobs (Bottom) */}
-        {auroraBlobs}
+        {/* Layer 1: Aurora Blobs (Bottom) - Centered in content area */}
+        <div className="max-w-7xl mx-auto h-full relative">
+          {auroraBlobs}
+        </div>
 
         {/* Layer 2: Grid Mask - Switches mode based on performance capability */}
         <div
