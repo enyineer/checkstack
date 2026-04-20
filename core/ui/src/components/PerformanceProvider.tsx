@@ -62,7 +62,7 @@ export const PerformanceProvider: React.FC<PerformanceProviderProps> = ({ childr
           const renderer = (
             debugInfo
               ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
-              : gl.getParameter(gl.RENDERER)
+              : gl.getParameter(gl.RENDERER) || ""
           ).toLowerCase();
 
           isSoftwareRenderer = [
@@ -75,9 +75,14 @@ export const PerformanceProvider: React.FC<PerformanceProviderProps> = ({ childr
             "mesa off-screen",
             "basic render",
             "warp",
-          ].some((id) => renderer.includes(id));
+            "driver", // Catch-all for generic software drivers
+            "generic",
+            "microsoft", // Microsoft Basic Render Driver
+          ].some((id) => renderer.includes(id)) || renderer === ""; // Empty renderer usually means disabled/untrusted
+          
+          // Debugging: Log the actual renderer string to see what we're missing
+          console.log(`[PerformanceAudit] Data: { renderer: "${renderer}" }`);
         } else {
-          // No WebGL support at all usually implies old/stripped browser
           isSoftwareRenderer = true;
         }
       } catch {
@@ -93,7 +98,7 @@ export const PerformanceProvider: React.FC<PerformanceProviderProps> = ({ childr
         benchCanvas.height = 100;
         const ctx = benchCanvas.getContext("2d");
         if (ctx) {
-          // Warm-up run to ensure JIT optimization doesn't skew results
+          // Warm-up
           ctx.filter = "blur(20px)";
           ctx.fillRect(0, 0, 1, 1);
           ctx.getImageData(0, 0, 1, 1);
@@ -103,28 +108,28 @@ export const PerformanceProvider: React.FC<PerformanceProviderProps> = ({ childr
           for (let i = 0; i < 50; i++) {
             ctx.fillRect(i, i, 5, 5);
           }
-          // Force pipeline sync to measure actual drawing time
           ctx.getImageData(0, 0, 1, 1);
           const t1 = globalThis.performance.now();
           rawDuration = t1 - t0;
           
           /**
-           * PERFORMANCE THRESHOLD: 60ms
-           * Truly slow software rasterizers (llvmpipe, etc.) typically take 80ms - 200ms+.
-           * Modern browsers (even with slower 2D pipelines like Firefox) hit 5ms - 25ms.
-           * 60ms is a safe "disaster" threshold.
+           * PERFORMANCE THRESHOLD: 35ms
+           * Adjusted to be more sensitive to software fallback on high-core CPUs.
+           * Your 16ms with HW off suggests we should tighten this slightly, 
+           * but keep it above the 15ms "healthy" Firefox result.
            */
-          isSlow = rawDuration > 60; 
+          isSlow = rawDuration > 35; 
         }
       } catch {
         isSlow = true;
       }
 
-      // Final Verdict: Only go Low Power if we are SURE it's a constrained device
+      // Final Verdict
       const isLowPowerVerdict = 
-        prefersReducedMotion || // User specifically asked for less motion
-        isSoftwareRenderer ||   // Explicitly detected a software-only rasterizer
-        (isLowEndHardware && isSlow); // Both reported low-end specs AND failed the speed test
+        prefersReducedMotion || 
+        isSoftwareRenderer ||   
+        (isLowEndHardware && isSlow) ||
+        isSlow; // If the benchmark fails (even on "good" hardware), it's low power
       
       // Detailed Debug Logging
       console.group("Checkstack Performance Audit");
