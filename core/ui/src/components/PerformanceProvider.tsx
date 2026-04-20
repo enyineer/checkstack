@@ -93,6 +93,11 @@ export const PerformanceProvider: React.FC<PerformanceProviderProps> = ({ childr
         benchCanvas.height = 100;
         const ctx = benchCanvas.getContext("2d");
         if (ctx) {
+          // Warm-up run to ensure JIT optimization doesn't skew results
+          ctx.filter = "blur(20px)";
+          ctx.fillRect(0, 0, 1, 1);
+          ctx.getImageData(0, 0, 1, 1);
+
           const t0 = globalThis.performance.now();
           ctx.filter = "blur(20px)";
           for (let i = 0; i < 50; i++) {
@@ -102,8 +107,17 @@ export const PerformanceProvider: React.FC<PerformanceProviderProps> = ({ childr
           ctx.getImageData(0, 0, 1, 1);
           const t1 = globalThis.performance.now();
           rawDuration = t1 - t0;
-          // Increased threshold: 25ms is a safer bet for "truly slow" devices.
-          // Your browser hit 15ms, which is common for modern Firefox/Safari 2D pipelines.
+          
+          /**
+           * PERFORMANCE THRESHOLD: 25ms
+           * - Elite (Chrome on Desktop): < 5ms
+           * - Capable (Firefox/Safari on Desktop): 10ms - 20ms
+           * - Software/Legacy: > 50ms
+           * 
+           * We use 25ms as the cutoff to allow high-quality environments 
+           * with slightly less optimized 2D pipelines (Firefox) to remain 
+           * in the high-performance tier.
+           */
           isSlow = rawDuration > 25; 
         }
       } catch {
