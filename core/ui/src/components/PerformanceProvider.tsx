@@ -86,6 +86,7 @@ export const PerformanceProvider: React.FC<PerformanceProviderProps> = ({ childr
 
       // 4. Empirical Benchmark (Stress Test)
       let isSlow = false;
+      let rawDuration = 0;
       try {
         const benchCanvas = document.createElement("canvas");
         benchCanvas.width = 100;
@@ -100,13 +101,31 @@ export const PerformanceProvider: React.FC<PerformanceProviderProps> = ({ childr
           // Force pipeline sync to measure actual drawing time
           ctx.getImageData(0, 0, 1, 1);
           const t1 = globalThis.performance.now();
-          isSlow = t1 - t0 > 4; // Threshold for CPU-based rasterization
+          rawDuration = t1 - t0;
+          isSlow = rawDuration > 4; // Threshold for CPU-based rasterization
         }
       } catch {
         isSlow = true;
       }
 
       const isLowPowerVerdict = prefersReducedMotion || isLowEndHardware || isSoftwareRenderer || isSlow;
+      
+      // Detailed Debug Logging
+      console.group("Checkstack Performance Audit");
+      console.log("Verdict:", isLowPowerVerdict ? "LOW POWER (Animations Restricted)" : "HIGH PERFORMANCE (Animations Enabled)");
+      console.log("Heuristics:", {
+        prefersReducedMotion,
+        isLowEndHardware,
+        isSoftwareRenderer,
+        isSlow,
+      });
+      console.log("Hardware Details:", {
+        deviceMemory: nav.deviceMemory,
+        hardwareConcurrency: nav.hardwareConcurrency,
+        renderer: isSoftwareRenderer ? "Detected Software" : "Detected Hardware-Accelerated",
+        benchmarkDuration: `${rawDuration.toFixed(2)}ms`
+      });
+      console.groupEnd();
       
       setState({
         isLowPower: isLowPowerVerdict,
