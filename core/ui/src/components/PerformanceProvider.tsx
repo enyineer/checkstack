@@ -109,22 +109,22 @@ export const PerformanceProvider: React.FC<PerformanceProviderProps> = ({ childr
           rawDuration = t1 - t0;
           
           /**
-           * PERFORMANCE THRESHOLD: 25ms
-           * - Elite (Chrome on Desktop): < 5ms
-           * - Capable (Firefox/Safari on Desktop): 10ms - 20ms
-           * - Software/Legacy: > 50ms
-           * 
-           * We use 25ms as the cutoff to allow high-quality environments 
-           * with slightly less optimized 2D pipelines (Firefox) to remain 
-           * in the high-performance tier.
+           * PERFORMANCE THRESHOLD: 60ms
+           * Truly slow software rasterizers (llvmpipe, etc.) typically take 80ms - 200ms+.
+           * Modern browsers (even with slower 2D pipelines like Firefox) hit 5ms - 25ms.
+           * 60ms is a safe "disaster" threshold.
            */
-          isSlow = rawDuration > 25; 
+          isSlow = rawDuration > 60; 
         }
       } catch {
         isSlow = true;
       }
 
-      const isLowPowerVerdict = prefersReducedMotion || isLowEndHardware || isSoftwareRenderer || isSlow;
+      // Final Verdict: Only go Low Power if we are SURE it's a constrained device
+      const isLowPowerVerdict = 
+        prefersReducedMotion || // User specifically asked for less motion
+        isSoftwareRenderer ||   // Explicitly detected a software-only rasterizer
+        (isLowEndHardware && isSlow); // Both reported low-end specs AND failed the speed test
       
       // Detailed Debug Logging
       console.group("Checkstack Performance Audit");
@@ -138,7 +138,6 @@ export const PerformanceProvider: React.FC<PerformanceProviderProps> = ({ childr
       console.log("Hardware Details:", {
         deviceMemory: nav.deviceMemory,
         hardwareConcurrency: nav.hardwareConcurrency,
-        renderer: isSoftwareRenderer ? "Detected Software" : "Detected Hardware-Accelerated",
         benchmarkDuration: `${rawDuration.toFixed(2)}ms`
       });
       console.groupEnd();
