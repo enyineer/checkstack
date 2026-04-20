@@ -102,7 +102,9 @@ export const PerformanceProvider: React.FC<PerformanceProviderProps> = ({ childr
           ctx.getImageData(0, 0, 1, 1);
           const t1 = globalThis.performance.now();
           rawDuration = t1 - t0;
-          isSlow = rawDuration > 4; // Threshold for CPU-based rasterization
+          // Increased threshold: 25ms is a safer bet for "truly slow" devices.
+          // Your browser hit 15ms, which is common for modern Firefox/Safari 2D pipelines.
+          isSlow = rawDuration > 25; 
         }
       } catch {
         isSlow = true;
