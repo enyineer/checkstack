@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Button } from "./Button";
 import { Bell } from "lucide-react";
 import { cn } from "../utils";
+import { usePerformance } from "./PerformanceProvider";
 
 export interface SubscribeButtonProps {
   /**
@@ -43,15 +44,16 @@ export const SubscribeButton: React.FC<SubscribeButtonProps> = ({
   className,
 }) => {
   const [animating, setAnimating] = useState(false);
+  const { isLowPower } = usePerformance();
 
   // Trigger animation when subscription state changes
   useEffect(() => {
-    if (!loading) {
+    if (!loading && !isLowPower) {
       setAnimating(true);
       const timer = setTimeout(() => setAnimating(false), 500);
       return () => clearTimeout(timer);
     }
-  }, [isSubscribed, loading]);
+  }, [isSubscribed, loading, isLowPower]);
 
   const handleClick = () => {
     if (loading) return;
@@ -94,7 +96,10 @@ export const SubscribeButton: React.FC<SubscribeButtonProps> = ({
         <span
           role="status"
           aria-label="Loading"
-          className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+          className={cn(
+            "h-4 w-4 rounded-full border-2 border-current border-t-transparent",
+            !isLowPower && "animate-spin"
+          )}
         />
       ) : (
         <Bell
@@ -102,7 +107,7 @@ export const SubscribeButton: React.FC<SubscribeButtonProps> = ({
           className={cn(
             "h-4 w-4 transition-all duration-300",
             isSubscribed && "fill-current",
-            animating && "animate-bell-ring"
+            animating && !isLowPower && "animate-bell-ring"
           )}
         />
       )}

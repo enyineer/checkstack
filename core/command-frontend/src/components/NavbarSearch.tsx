@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { cn } from "@checkstack/ui";
+import { cn, usePerformance } from "@checkstack/ui";
 import { Search, Command } from "lucide-react";
 import { SearchDialog } from "./SearchDialog";
 
@@ -10,6 +10,7 @@ import { SearchDialog } from "./SearchDialog";
  */
 export const NavbarSearch = () => {
   const [searchOpen, setSearchOpen] = useState(false);
+  const { isLowPower } = usePerformance();
 
   // Detect Mac for keyboard shortcut display
   const isMac = useMemo(
@@ -45,8 +46,8 @@ export const NavbarSearch = () => {
           "flex items-center gap-2 px-3 py-1.5 rounded-lg",
           // Glassmorphism effect
           "bg-muted/50 border border-primary/30",
-          // Subtle primary pulse animation
-          "animate-pulse-subtle ring-1 ring-primary/20",
+          // Subtle primary pulse animation - disabled in low power
+          !isLowPower && "animate-pulse-subtle ring-1 ring-primary/20",
           // Hover state
           "hover:bg-muted hover:border-primary/50 hover:ring-primary/40",
           // Transition
@@ -57,7 +58,8 @@ export const NavbarSearch = () => {
           "cursor-pointer"
         )}
         style={{
-          animation: "pulse-glow 3s ease-in-out infinite",
+          // GPU-heavy animation disabled in low power
+          animation: isLowPower ? undefined : "pulse-glow 3s ease-in-out infinite",
         }}
         aria-label="Open search"
       >

@@ -1,6 +1,7 @@
 import React from "react";
 import { cn } from "../utils";
 import { Command } from "lucide-react";
+import { usePerformance } from "./PerformanceProvider";
 
 interface CommandPaletteProps {
   onClick?: () => void;
@@ -17,6 +18,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   placeholder = "Search systems, incidents, or run commands...",
   className,
 }) => {
+  const { isLowPower } = usePerformance();
+
   return (
     <button
       onClick={onClick}
@@ -24,18 +27,20 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         // Base styles
         "w-full flex items-center gap-3 px-4 py-3 rounded-xl",
         // Glassmorphism effect
-        "bg-card/50 backdrop-blur-sm border border-border/50",
+        isLowPower ? "bg-card" : "bg-card/50 backdrop-blur-sm",
+        "border border-border/50",
         // Glow and shadow
         "shadow-lg shadow-primary/5 hover:shadow-xl hover:shadow-primary/10",
         // Hover state
         "hover:border-primary/30 hover:bg-card/70",
         // Transition
-        "transition-all duration-300 ease-out",
+        "transition-all",
+        !isLowPower && "duration-300 ease-out",
         // Focus ring
         "focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-2 focus:ring-offset-background",
         // Cursor
         "cursor-text",
-        className
+        className,
       )}
     >
       {/* Search icon */}
@@ -63,7 +68,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         className={cn(
           "hidden sm:flex items-center gap-1 px-2 py-1 rounded-md",
           "bg-muted/50 border border-border/50",
-          "text-xs text-muted-foreground font-mono"
+          "text-xs text-muted-foreground font-mono",
         )}
       >
         <Command className="w-3 h-3" />

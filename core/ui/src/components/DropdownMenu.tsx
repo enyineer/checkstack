@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from "react";
 import { cn } from "../utils";
+import { usePerformance } from "./PerformanceProvider";
 
 export const DropdownMenu: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -25,6 +26,7 @@ export const DropdownMenuContent: React.FC<{
   onClose: () => void;
   className?: string;
 }> = ({ children, isOpen, onClose, className }) => {
+  const { isLowPower } = usePerformance();
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,7 +53,8 @@ export const DropdownMenuContent: React.FC<{
     <div
       ref={contentRef}
       className={cn(
-        "absolute right-0 mt-2 w-56 origin-top-right rounded-md bg-popover shadow-lg ring-1 ring-border focus:outline-none z-[100] animate-in fade-in zoom-in-95 duration-100",
+        "absolute right-0 mt-2 w-56 origin-top-right rounded-md bg-popover shadow-lg ring-1 ring-border focus:outline-none z-[100]",
+        !isLowPower && "animate-in fade-in zoom-in-95 duration-100",
         className
       )}
     >
