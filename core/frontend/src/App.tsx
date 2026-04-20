@@ -36,6 +36,9 @@ import {
   LoadingSpinner,
   ToastProvider,
   AmbientBackground,
+  PerformanceProvider,
+  usePerformance,
+  cn,
 } from "@checkstack/ui";
 import { SignalProvider } from "@checkstack/signal-frontend";
 import { SessionProvider } from "@checkstack/auth-frontend";
@@ -125,7 +128,7 @@ const RouteGuard: React.FC<{
  */
 function AppContent() {
   // Enable dynamic plugin loading/unloading via signals
-  // This causes re-renders when plugins change
+  const { isLowPower } = usePerformance();
   usePluginLifecycle();
 
   return (
@@ -134,7 +137,10 @@ function AppContent() {
       <GlobalShortcuts />
       <AmbientBackground className="text-foreground font-sans">
         <AnnouncementBanner />
-        <header className="p-4 bg-card/80 backdrop-blur-sm shadow-sm border-b border-border z-50 relative">
+        <header className={cn(
+          "p-4 shadow-sm border-b border-border z-50 relative",
+          isLowPower ? "bg-card" : "bg-card/80 backdrop-blur-sm"
+        )}>
           <div className="flex items-center justify-between gap-4">
             {/* Left: Logo and main navigation */}
             <div className="flex items-center gap-8 flex-shrink-0">
@@ -284,7 +290,9 @@ function AppWithApis() {
           <SessionProvider>
             <SignalProvider backendUrl={baseUrl}>
               <ToastProvider>
-                <AppContent />
+                <PerformanceProvider>
+                  <AppContent />
+                </PerformanceProvider>
               </ToastProvider>
             </SignalProvider>
           </SessionProvider>

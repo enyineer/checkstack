@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
+import { usePerformance } from "./PerformanceProvider";
 
 interface AnimatedCounterProps {
   value: number;
@@ -20,15 +21,17 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
   const [displayValue, setDisplayValue] = useState(0);
   const displayValueRef = useRef(displayValue);
   displayValueRef.current = displayValue;
+  
+  const { isLowPower } = usePerformance();
 
   useEffect(() => {
-    // Skip animation if value is 0 or duration is 0
-    if (value === 0 || duration === 0) {
+    // Skip animation if value is 0, duration is 0, or in low-power mode
+    if (value === 0 || duration === 0 || isLowPower) {
       setDisplayValue(value);
       return;
     }
 
-    const startTime = performance.now();
+    const startTime = globalThis.performance.now();
     const startValue = displayValueRef.current;
     const diff = value - startValue;
 
@@ -48,7 +51,7 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
     };
 
     requestAnimationFrame(animate);
-  }, [value, duration]);
+  }, [value, duration, isLowPower]);
 
   return <span className={className}>{formatter(displayValue)}</span>;
 };

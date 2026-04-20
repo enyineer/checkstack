@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from "react";
 import { cn } from "../utils";
+import { usePerformance } from "./PerformanceProvider";
 
 export interface TerminalEntry {
   id: string;
@@ -65,6 +66,7 @@ export const TerminalFeed: React.FC<TerminalFeedProps> = ({
   title = "terminal",
   className,
 }) => {
+  const { isLowPower } = usePerformance();
   const contentRef = useRef<HTMLDivElement>(null);
   const [isHovering, setIsHovering] = useState(false);
 
@@ -107,7 +109,7 @@ export const TerminalFeed: React.FC<TerminalFeedProps> = ({
         onMouseLeave={() => setIsHovering(false)}
       >
         {displayEntries.length === 0 ? (
-          <div className="text-gray-500 animate-pulse">
+          <div className={cn("text-gray-500", !isLowPower && "animate-pulse")}>
             Waiting for events...
           </div>
         ) : (
@@ -141,10 +143,13 @@ export const TerminalFeed: React.FC<TerminalFeedProps> = ({
           })
         )}
 
-        {/* Blinking cursor */}
+        {/* Blinking cursor - animation disabled in low power mode */}
         <div className="flex items-center gap-1 mt-2">
           <span className="text-emerald-400">$</span>
-          <span className="w-2 h-4 bg-emerald-400 animate-pulse" />
+          <span className={cn(
+            "w-2 h-4 bg-emerald-400",
+            !isLowPower && "animate-pulse"
+          )} />
         </div>
       </div>
     </div>

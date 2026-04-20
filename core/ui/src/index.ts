@@ -49,6 +49,7 @@ export * from "./components/ColorPicker";
 export * from "./components/AnimatedCounter";
 export * from "./components/CommandPalette";
 export * from "./components/TerminalFeed";
+export * from "./components/PerformanceProvider";
 export * from "./components/AmbientBackground";
 export * from "./components/CodeEditor";
 export * from "./components/AnimatedNumber";
