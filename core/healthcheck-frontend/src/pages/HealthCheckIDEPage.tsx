@@ -15,6 +15,8 @@ import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 import { useCollectors } from "../hooks/useCollectors";
 import { EditorTree, type TreeNodeId } from "../components/editor/EditorTree";
 import { EditorPanel } from "../components/editor/EditorPanel";
+import { useProvenanceLock, GitOpsLockBanner } from "@checkstack/gitops-frontend";
+
 
 // =============================================================================
 // TYPES
@@ -38,9 +40,14 @@ const HealthCheckIDEPageContent = () => {
   const toast = useToast();
   const healthCheckClient = usePluginClient(HealthCheckApi);
 
-  // "new" is a sentinel value used by the create flow
   const isEditMode = !!configId && configId !== "new";
   const strategyIdFromUrl = searchParams.get("strategy") ?? undefined;
+
+  // --- GitOps Provenance Lock ---
+  const { isLocked, provenance } = useProvenanceLock({
+    kind: "Healthcheck",
+    entityId: isEditMode ? configId : undefined,
+  });
 
   // --- Data Fetching ---
 
@@ -320,13 +327,18 @@ const HealthCheckIDEPageContent = () => {
       actions={
         <Button
           onClick={handleSave}
-          disabled={!isValid || isSaving}
+      disabled={!isValid || isSaving || isLocked}
         >
           <Save className="mr-2 h-4 w-4" />
           {isSaving ? "Saving..." : "Save"}
         </Button>
       }
     >
+      {isLocked && provenance && (
+        <div className="mb-4">
+          <GitOpsLockBanner provenance={provenance} />
+        </div>
+      )}
       <IDELayout
         tree={
           <EditorTree

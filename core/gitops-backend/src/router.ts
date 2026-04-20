@@ -26,7 +26,11 @@ export interface GitOpsRouterDeps {
   kindRegistry: InternalEntityKindRegistry;
 }
 
-export const createGitOpsRouter = ({ database: db, queueManager, kindRegistry }: GitOpsRouterDeps) => {
+export const createGitOpsRouter = ({
+  database: db,
+  queueManager,
+  kindRegistry,
+}: GitOpsRouterDeps) => {
   // ─── Provenance ──────────────────────────────────────────────────────
 
   const getProvenance = os.getProvenance.handler(async ({ input }) => {
@@ -105,11 +109,15 @@ export const createGitOpsRouter = ({ database: db, queueManager, kindRegistry }:
 
     const updates: Record<string, unknown> = { updatedAt: new Date() };
     if (input.data.target !== undefined) updates.target = input.data.target;
-    if (input.data.pathPattern !== undefined) updates.pathPattern = input.data.pathPattern;
+    if (input.data.pathPattern !== undefined)
+      updates.pathPattern = input.data.pathPattern;
     if (input.data.baseUrl !== undefined) updates.baseUrl = input.data.baseUrl;
-    if (input.data.authToken !== undefined) updates.authToken = encrypt(input.data.authToken);
-    if (input.data.syncInterval !== undefined) updates.syncInterval = input.data.syncInterval;
-    if (input.data.deletionPolicy !== undefined) updates.deletionPolicy = input.data.deletionPolicy;
+    if (input.data.authToken !== undefined)
+      updates.authToken = encrypt(input.data.authToken);
+    if (input.data.syncInterval !== undefined)
+      updates.syncInterval = input.data.syncInterval;
+    if (input.data.deletionPolicy !== undefined)
+      updates.deletionPolicy = input.data.deletionPolicy;
 
     await db
       .update(schema.providers)
@@ -132,9 +140,7 @@ export const createGitOpsRouter = ({ database: db, queueManager, kindRegistry }:
     }
 
     // Provenance entries are cascade-deleted via FK constraint
-    await db
-      .delete(schema.providers)
-      .where(eq(schema.providers.id, input.id));
+    await db.delete(schema.providers).where(eq(schema.providers.id, input.id));
 
     return { success: true };
   });
@@ -198,6 +204,10 @@ export const createGitOpsRouter = ({ database: db, queueManager, kindRegistry }:
                 info: () => {},
                 warn: () => {},
                 error: () => {},
+              },
+              resolveEntityRef: async () => {
+                // eslint-disable-next-line unicorn/no-useless-undefined
+                return undefined;
               },
             },
           });
@@ -294,9 +304,7 @@ export const createGitOpsRouter = ({ database: db, queueManager, kindRegistry }:
   });
 
   const deleteSecret = os.deleteSecret.handler(async ({ input }) => {
-    await db
-      .delete(schema.secrets)
-      .where(eq(schema.secrets.id, input.id));
+    await db.delete(schema.secrets).where(eq(schema.secrets.id, input.id));
 
     return { success: true };
   });

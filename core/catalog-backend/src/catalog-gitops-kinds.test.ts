@@ -90,11 +90,14 @@ function createMockEntityService() {
 
 // ─── Test Context ──────────────────────────────────────────────────────────
 
-const mockLogger: ReconcileContext["logger"] = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
+const mockContext: ReconcileContext = {
+  logger: {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  },
+  resolveEntityRef: async () => undefined,
 };
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
@@ -156,7 +159,7 @@ describe("Catalog GitOps Kind: System", () => {
         },
         spec: {},
       },
-      context: { logger: mockLogger },
+      context: mockContext,
     });
 
     expect(result.entityId).toBe("sys-1");
@@ -179,7 +182,7 @@ describe("Catalog GitOps Kind: System", () => {
         },
         spec: {},
       },
-      context: { logger: mockLogger },
+      context: mockContext,
     });
 
     expect(result.entityId).toBe("sys-1");
@@ -196,7 +199,7 @@ describe("Catalog GitOps Kind: System", () => {
         metadata: { name: "my-service" },
         spec: {},
       },
-      context: { logger: mockLogger },
+      context: mockContext,
     });
 
     expect(mockService.systems[0].name).toBe("my-service");
@@ -226,7 +229,7 @@ describe("Catalog GitOps Kind: System", () => {
         spec: {},
       },
       existingEntityId: "sys-existing",
-      context: { logger: mockLogger },
+      context: mockContext,
     });
 
     expect(result.entityId).toBe("sys-existing");
@@ -249,7 +252,7 @@ describe("Catalog GitOps Kind: System", () => {
     await kind.delete!({
       entityName: "old-service",
       entityId: "sys-del",
-      context: { logger: mockLogger },
+      context: mockContext,
     });
 
     expect(mockService.deleteSystem).toHaveBeenCalledWith("sys-del");
@@ -261,7 +264,7 @@ describe("Catalog GitOps Kind: System", () => {
 
     await kind.delete!({
       entityName: "unknown-service",
-      context: { logger: mockLogger },
+      context: mockContext,
     });
 
     expect(mockService.deleteSystem).not.toHaveBeenCalled();
@@ -317,7 +320,7 @@ describe("Catalog GitOps Kind: Group", () => {
         },
         spec: {},
       },
-      context: { logger: mockLogger },
+      context: mockContext,
     });
 
     expect(result.entityId).toBe("grp-1");
@@ -347,7 +350,7 @@ describe("Catalog GitOps Kind: Group", () => {
         spec: {},
       },
       existingEntityId: "grp-existing",
-      context: { logger: mockLogger },
+      context: mockContext,
     });
 
     expect(result.entityId).toBe("grp-existing");
@@ -369,7 +372,7 @@ describe("Catalog GitOps Kind: Group", () => {
     await kind.delete!({
       entityName: "old-team",
       entityId: "grp-del",
-      context: { logger: mockLogger },
+      context: mockContext,
     });
 
     expect(mockService.deleteGroup).toHaveBeenCalledWith("grp-del");

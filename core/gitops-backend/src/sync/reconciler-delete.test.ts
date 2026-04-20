@@ -41,6 +41,7 @@ describe("Kind delete reconciler wiring", () => {
           warn: () => {},
           error: () => {},
         },
+        resolveEntityRef: async () => undefined,
       },
     });
 
@@ -103,6 +104,7 @@ describe("Kind delete reconciler wiring", () => {
             warn: () => {},
             error: () => {},
           },
+          resolveEntityRef: async () => undefined,
         },
       }),
     ).rejects.toThrow("DB connection failed");

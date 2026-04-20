@@ -1,0 +1,333 @@
+import { z } from "zod";
+import type {
+  EntityKindDefinition,
+  EntityKindExtensionDefinition,
+  EntityKindRegistry,
+  ReconcileContext,
+} from "@checkstack/gitops-common";
+import { CHECKSTACK_API_VERSION, secretField } from "@checkstack/gitops-common";
+import type {
+  HealthCheckRegistry,
+  CollectorRegistry,
+  SafeDatabase,
+} from "@checkstack/backend-api";
+import type * as schema from "./schema";
+
+// ─── Types ─────────────────────────────────────────────────────────────────
+
+type Db = SafeDatabase<typeof schema>;
+
+/**
+ * Lazy accessor functions — populated during init(), consumed during reconcile.
+ * Safe because reconcile only runs during sync (afterPluginsReady), by which
+ * point init() has completed.
+ */
+interface HealthcheckGitOpsKindsDeps {
+  getDb: () => Db;
+  getHealthCheckRegistry: () => HealthCheckRegistry;
+  getCollectorRegistry: () => CollectorRegistry;
+}
+
+// ─── Healthcheck Spec Schema ───────────────────────────────────────────────
+
+/**
+ * GitOps spec schema for kind: Healthcheck.
+ *
+ * Strategy `config` fields use `secretField()` for sensitive values
+ * (passwords, tokens) that are resolved by the reconciliation engine.
+ */
+const healthcheckSpecSchema = z.object({
+  strategy: z.string().min(1),
+  intervalSeconds: z.number().int().min(1),
+  config: z.record(z.string(), z.union([z.unknown(), secretField()])),
+  collectors: z
+    .array(
+      z.object({
+        collectorId: z.string().min(1),
+        config: z.record(z.string(), z.unknown()),
+        assertions: z
+          .array(
+            z.object({
+              field: z.string(),
+              jsonPath: z.string().optional(),
+              operator: z.string(),
+              value: z.unknown().optional(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .optional(),
+});
+
+type HealthcheckSpec = z.infer<typeof healthcheckSpecSchema>;
+
+// ─── System Extension Schema ───────────────────────────────────────────────
+
+const systemHealthcheckExtensionSchema = z
+  .array(
+    z.object({
+      ref: z.string().min(1),
+      degradedThreshold: z.number().int().min(1).optional(),
+      unhealthyThreshold: z.number().int().min(1).optional(),
+      satelliteIds: z.array(z.string()).optional(),
+      includeLocal: z.boolean().optional(),
+    }),
+  )
+  .optional();
+
+type SystemHealthcheckExtension = z.infer<
+  typeof systemHealthcheckExtensionSchema
+>;
+
+// ─── Kind Builder Functions ────────────────────────────────────────────────
+
+/**
+ * Build the ``kind: Healthcheck`` definition.
+ *
+ * Exported for isolated unit testing — the register() phase calls this
+ * and passes the result to `kindRegistry.registerKind()`.
+ */
+export function buildHealthcheckKind(
+  deps: HealthcheckGitOpsKindsDeps,
+): EntityKindDefinition<HealthcheckSpec> {
+  return {
+    apiVersion: CHECKSTACK_API_VERSION,
+    kind: "Healthcheck",
+    specSchema: healthcheckSpecSchema,
+
+    reconcile: async ({
+      entity,
+      existingEntityId,
+      context,
+    }: {
+      entity: { metadata: { name: string; title?: string; description?: string }; spec: HealthcheckSpec };
+      existingEntityId?: string;
+      context: ReconcileContext;
+    }) => {
+      const db = deps.getDb();
+      const healthCheckRegistry = deps.getHealthCheckRegistry();
+      const collectorRegistry = deps.getCollectorRegistry();
+      const { HealthCheckService: HCService } = await import("./service");
+      const service = new HCService(db, healthCheckRegistry, collectorRegistry);
+      const spec = entity.spec;
+
+      // Validate strategy exists in registry
+      const strategy = healthCheckRegistry.getStrategy(spec.strategy);
+      if (!strategy) {
+        throw new Error(
+          `Unknown health check strategy "${spec.strategy}". ` +
+            `Available: ${healthCheckRegistry.getStrategies().map((s) => s.id).join(", ")}`,
+        );
+      }
+
+      // Validate config against strategy's Zod schema
+      const configValidation = strategy.config.schema.safeParse(spec.config);
+      if (!configValidation.success) {
+        throw new Error(
+          `Strategy "${spec.strategy}" config validation failed: ${configValidation.error.message}`,
+        );
+      }
+
+      // Validate collector configs against their registry schemas
+      if (spec.collectors) {
+        for (const collector of spec.collectors) {
+          const registered = collectorRegistry.getCollector(
+            collector.collectorId,
+          );
+          if (!registered) {
+            throw new Error(
+              `Unknown collector "${collector.collectorId}". ` +
+                `Available: ${collectorRegistry.getCollectors().map((c) => c.qualifiedId).join(", ")}`,
+            );
+          }
+          const collectorConfigValidation =
+            registered.collector.config.schema.safeParse(collector.config);
+          if (!collectorConfigValidation.success) {
+            throw new Error(
+              `Collector "${collector.collectorId}" config validation failed: ${collectorConfigValidation.error.message}`,
+            );
+          }
+        }
+      }
+
+      // Create or update configuration
+      const displayName = entity.metadata.title ?? entity.metadata.name;
+
+      if (existingEntityId) {
+        await service.updateConfiguration(existingEntityId, {
+          name: displayName,
+          strategyId: spec.strategy,
+          config: spec.config,
+          intervalSeconds: spec.intervalSeconds,
+          collectors: spec.collectors?.map((c) => ({
+            id: c.collectorId,
+            collectorId: c.collectorId,
+            config: c.config,
+            assertions: c.assertions,
+          })),
+        });
+        context.logger.info(
+          `GitOps: updated Healthcheck "${displayName}" (id: ${existingEntityId})`,
+        );
+        return { entityId: existingEntityId };
+      }
+
+      const config = await service.createConfiguration({
+        name: displayName,
+        strategyId: spec.strategy,
+        config: spec.config,
+        intervalSeconds: spec.intervalSeconds,
+        collectors: spec.collectors?.map((c) => ({
+          id: c.collectorId,
+          collectorId: c.collectorId,
+          config: c.config,
+          assertions: c.assertions,
+        })),
+      });
+      context.logger.info(
+        `GitOps: created Healthcheck "${displayName}" (id: ${config.id})`,
+      );
+      return { entityId: config.id };
+    },
+
+    delete: async ({
+      entityId,
+      context,
+    }: {
+      entityName: string;
+      entityId?: string;
+      context: ReconcileContext;
+    }) => {
+      if (!entityId) return;
+      const db = deps.getDb();
+      const healthCheckRegistry = deps.getHealthCheckRegistry();
+      const collectorRegistry = deps.getCollectorRegistry();
+      const { HealthCheckService: HCService } = await import("./service");
+      const service = new HCService(db, healthCheckRegistry, collectorRegistry);
+      await service.deleteConfiguration(entityId);
+      context.logger.info(`GitOps: deleted Healthcheck (id: ${entityId})`);
+    },
+  };
+}
+
+/**
+ * Build the System → healthchecks extension definition.
+ *
+ * Resolves health check entity references to configuration IDs via
+ * `context.resolveEntityRef`, then manages system ↔ health check associations.
+ */
+export function buildSystemHealthcheckExtension(
+  deps: HealthcheckGitOpsKindsDeps,
+): EntityKindExtensionDefinition<SystemHealthcheckExtension> {
+  return {
+    apiVersion: CHECKSTACK_API_VERSION,
+    kind: "System",
+    namespace: "healthchecks",
+    specSchema: systemHealthcheckExtensionSchema,
+
+    reconcile: async ({
+      entity,
+      extensionSpec,
+      context,
+    }: {
+      entity: { metadata: { name: string } };
+      extensionSpec: SystemHealthcheckExtension;
+      context: ReconcileContext;
+    }) => {
+      if (!extensionSpec || extensionSpec.length === 0) return;
+
+      const db = deps.getDb();
+      const healthCheckRegistry = deps.getHealthCheckRegistry();
+      const collectorRegistry = deps.getCollectorRegistry();
+      const { HealthCheckService: HCService } = await import("./service");
+      const service = new HCService(db, healthCheckRegistry, collectorRegistry);
+
+      // Resolve the system's entityId from provenance
+      const systemEntityId = await context.resolveEntityRef({
+        kind: "System",
+        entityName: entity.metadata.name,
+      });
+
+      if (!systemEntityId) {
+        throw new Error(
+          `Cannot resolve System "${entity.metadata.name}" — ensure the System kind is reconciled before its extensions`,
+        );
+      }
+
+      // Resolve each healthcheck ref → configurationId
+      const desiredConfigIds = new Set<string>();
+
+      for (const entry of extensionSpec) {
+        const configId = await context.resolveEntityRef({
+          kind: "Healthcheck",
+          entityName: entry.ref,
+        });
+
+        if (!configId) {
+          throw new Error(
+            `Cannot resolve Healthcheck ref "${entry.ref}" — ensure the Healthcheck entity exists`,
+          );
+        }
+
+        desiredConfigIds.add(configId);
+
+        // Build state thresholds from the shorthand
+        const stateThresholds =
+          entry.degradedThreshold || entry.unhealthyThreshold
+            ? ({
+                mode: "consecutive" as const,
+                healthy: { minSuccessCount: 1 },
+                degraded: {
+                  minFailureCount: entry.degradedThreshold ?? 2,
+                },
+                unhealthy: {
+                  minFailureCount: entry.unhealthyThreshold ?? 5,
+                },
+              })
+            : undefined;
+
+        await service.associateSystem({
+          systemId: systemEntityId,
+          configurationId: configId,
+          enabled: true,
+          stateThresholds,
+          satelliteIds: entry.satelliteIds,
+          includeLocal: entry.includeLocal,
+        });
+
+        context.logger.info(
+          `GitOps: associated Healthcheck "${entry.ref}" (${configId}) with System "${entity.metadata.name}"`,
+        );
+      }
+
+      // Remove stale associations not in the spec
+      const currentAssociations =
+        await service.getSystemConfigurations(systemEntityId);
+      for (const existing of currentAssociations) {
+        if (!desiredConfigIds.has(existing.id)) {
+          await service.disassociateSystem(systemEntityId, existing.id);
+          context.logger.info(
+            `GitOps: removed stale association ${existing.id} from System "${entity.metadata.name}"`,
+          );
+        }
+      }
+    },
+  };
+}
+
+// ─── Registration Entry Point ──────────────────────────────────────────────
+
+/**
+ * Register all healthcheck-related GitOps entity kinds and extensions.
+ * Called from healthcheck-backend's `register()` phase.
+ */
+export function registerHealthcheckGitOpsKinds({
+  kindRegistry,
+  ...deps
+}: HealthcheckGitOpsKindsDeps & {
+  kindRegistry: EntityKindRegistry;
+}): void {
+  kindRegistry.registerKind(buildHealthcheckKind(deps));
+  kindRegistry.registerKindExtension(buildSystemHealthcheckExtension(deps));
+}

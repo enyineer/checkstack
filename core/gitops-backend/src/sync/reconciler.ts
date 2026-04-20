@@ -86,7 +86,9 @@ export async function reconcileProvider(
       fetch: fetchFn,
     });
   } catch (error) {
-    logger.error(`Reconciler: scraper failed for provider ${providerId}: ${error}`);
+    logger.error(
+      `Reconciler: scraper failed for provider ${providerId}: ${error}`,
+    );
     // Update provider with sync error
     await updateProviderSyncStatus({ db, providerId, error: String(error) });
     throw error;
@@ -187,6 +189,26 @@ async function reconcileEntity(params: {
     result,
   } = params;
 
+  // Build resolve function that queries local provenance (no RPC round-trip)
+  const resolveEntityRef = async (refParams: {
+    kind: string;
+    entityName: string;
+  }): Promise<string | undefined> => {
+    const rows = await db
+      .select({ entityId: schema.provenance.entityId })
+      .from(schema.provenance)
+      .where(
+        and(
+          eq(schema.provenance.kind, refParams.kind),
+          eq(schema.provenance.entityName, refParams.entityName),
+          eq(schema.provenance.status, "synced"),
+        ),
+      );
+    return rows[0]?.entityId;
+  };
+
+  const context = { logger, resolveEntityRef };
+
   // Look up registered kind
   const kindDef = kindRegistry.getKind({
     apiVersion: entity.apiVersion,
@@ -207,7 +229,9 @@ async function reconcileEntity(params: {
 
   const validationResult = mergedSchema.safeParse(entity.spec);
   if (!validationResult.success) {
-    throw new Error(`Spec validation failed: ${validationResult.error.message}`);
+    throw new Error(
+      `Spec validation failed: ${validationResult.error.message}`,
+    );
   }
 
   // Check provenance for diff
@@ -239,7 +263,7 @@ async function reconcileEntity(params: {
   const reconcileResult = await kindDef.reconcile({
     entity: { ...entity, spec: resolvedSpec },
     existingEntityId: existing?.entityId ?? undefined,
-    context: { logger },
+    context,
   });
 
   // Call extension reconcilers for present namespaces
@@ -256,7 +280,7 @@ async function reconcileEntity(params: {
       await ext.reconcile({
         entity: { ...entity, spec: resolvedSpec },
         extensionSpec,
-        context: { logger },
+        context,
       });
     }
   }
@@ -313,7 +337,13 @@ async function detectOrphans(params: {
             await kindDef.delete({
               entityName: prov.entityName,
               entityId: prov.entityId,
-              context: { logger },
+              context: {
+                logger,
+                resolveEntityRef: async () => {
+                  // eslint-disable-next-line unicorn/no-useless-undefined
+                  return undefined;
+                },
+              },
             });
           } catch (deleteError) {
             logger.error(
@@ -359,8 +389,16 @@ async function upsertProvenance(params: {
   status: "synced" | "error";
   errorMessage?: string;
 }): Promise<void> {
-  const { db, providerId, entity, file, contentHash, entityId, status, errorMessage } =
-    params;
+  const {
+    db,
+    providerId,
+    entity,
+    file,
+    contentHash,
+    entityId,
+    status,
+    errorMessage,
+  } = params;
   const existing = await db
     .select()
     .from(schema.provenance)

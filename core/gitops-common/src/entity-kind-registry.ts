@@ -13,6 +13,18 @@ export interface ReconcileContext {
     warn: (msg: string) => void;
     error: (msg: string) => void;
   };
+
+  /**
+   * Resolve a GitOps entity reference to its plugin-specific entity ID.
+   * Used by extension reconcilers to look up cross-kind references
+   * (e.g., a System extension resolving a Healthcheck ref name → config UUID).
+   *
+   * Returns `undefined` if the entity is not found in provenance.
+   */
+  resolveEntityRef: (params: {
+    kind: string;
+    entityName: string;
+  }) => Promise<string | undefined>;
 }
 
 /**

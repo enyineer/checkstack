@@ -17,6 +17,7 @@
     "@checkstack/common": "workspace:*",
     "@checkstack/dashboard-frontend": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",
+    "@checkstack/gitops-frontend": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
