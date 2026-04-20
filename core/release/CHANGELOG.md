@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.48.0
+
+### Minor Changes
+
+- 765b764: Optimize AmbientBackground performance by replacing thousand-div grid with a single-element CSS mask and hardware-accelerated Aurora Mesh animations.
+
 ## 0.47.0
 
 ### Minor Changes

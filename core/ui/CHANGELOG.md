@@ -1,5 +1,11 @@
 # @checkstack/ui
 
+## 1.3.1
+
+### Patch Changes
+
+- 765b764: Optimize AmbientBackground performance by replacing thousand-div grid with a single-element CSS mask and hardware-accelerated Aurora Mesh animations.
+
 ## 1.3.0
 
 ### Minor Changes
