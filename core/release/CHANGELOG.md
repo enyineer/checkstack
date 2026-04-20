@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.47.0
+
+### Minor Changes
+
+- 53a64c1: Fix Docker build by whitelisting LICENSE.md in .dockerignore
+
 ## 0.46.0
 
 ### Minor Changes
