@@ -1,5 +1,12 @@
 # @checkstack/about-frontend
 
+## 0.2.4
+
+### Patch Changes
+
+- Updated dependencies [0388000]
+  - @checkstack/ui@1.3.2
+
 ## 0.2.3
 
 ### Patch Changes

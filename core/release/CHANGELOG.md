@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.49.0
+
+### Minor Changes
+
+- 0388000: Implemented a global performance-aware UI infrastructure that detects hardware capabilities (using heuristics and frame-budget benchmarks) to automatically disable expensive CSS animations, backdrop-blurs, and glassmorphism effects on low-power or non-hardware-accelerated devices.
+
 ## 0.48.0
 
 ### Minor Changes

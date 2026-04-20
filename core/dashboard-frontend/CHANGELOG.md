@@ -1,5 +1,17 @@
 # @checkstack/dashboard-frontend
 
+## 0.3.29
+
+### Patch Changes
+
+- 0388000: Implemented a global performance-aware UI infrastructure that detects hardware capabilities (using heuristics and frame-budget benchmarks) to automatically disable expensive CSS animations, backdrop-blurs, and glassmorphism effects on low-power or non-hardware-accelerated devices.
+- Updated dependencies [0388000]
+  - @checkstack/ui@1.3.2
+  - @checkstack/command-frontend@0.2.23
+  - @checkstack/auth-frontend@0.5.21
+  - @checkstack/catalog-frontend@0.5.11
+  - @checkstack/queue-frontend@0.2.23
+
 ## 0.3.28
 
 ### Patch Changes
