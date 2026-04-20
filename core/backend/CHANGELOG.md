@@ -1,5 +1,12 @@
 # @checkstack/backend
 
+## 0.6.2
+
+### Patch Changes
+
+- 53a64c1: Fix Docker build by whitelisting LICENSE.md in .dockerignore
+- 53a64c1: Update license to Elastic License with revised terms (copyright 2026). The license is now bundled inside both the main and satellite container images.
+
 ## 0.6.1
 
 ### Patch Changes
