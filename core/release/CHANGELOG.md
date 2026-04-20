@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.46.0
+
+### Minor Changes
+
+- e111f4a: Update license to Elastic License with revised terms (copyright 2026). The license is now bundled inside both the main and satellite container images.
+
 ## 0.45.0
 
 ### Minor Changes
