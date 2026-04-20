@@ -1,18 +1,26 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 
+const STORAGE_KEY = "checkstack-low-power";
+
 interface PerformanceContextValue {
   /** 
-   * Whether the device is considered low-power or lacks hardware acceleration.
-   * If true, expensive animations, blurs, and transitions should be disabled.
+   * Whether the application should run in low-power mode.
+   * Derived from (manualLowPower || prefersReducedMotion).
    */
   isLowPower: boolean;
-  /** Whether the performance detection has completed */
+  /** Whether the performance state has been initialized from storage */
   isLoaded: boolean;
+  /** The current state of the manual toggle */
+  manualLowPower: boolean;
+  /** Toggle the manual low power setting */
+  toggleManualLowPower: () => void;
 }
 
 const PerformanceContext = createContext<PerformanceContextValue>({
   isLowPower: false,
   isLoaded: false,
+  manualLowPower: false,
+  toggleManualLowPower: () => {},
 });
 
 /**
@@ -26,99 +34,54 @@ interface PerformanceProviderProps {
 }
 
 /**
- * PerformanceProvider - Centralizes detection of hardware capabilities and user preferences.
- * Runs a suite of heuristics (Media Queries, WebGL Audit, and Canvas Benchmarks) 
- * once on mount and provides the result to the entire application.
+ * PerformanceProvider - Centralizes management of the application's performance tier.
+ * Supports manual override (persisted to localStorage) and respects OS-level
+ * Reduced Motion preferences.
  */
 export const PerformanceProvider: React.FC<PerformanceProviderProps> = ({ children }) => {
-  const [state, setState] = useState<PerformanceContextValue>({
-    isLowPower: false,
-    isLoaded: false,
-  });
+  const [manualLowPower, setManualLowPower] = useState<boolean>(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState<boolean>(false);
+  const [isLoaded, setIsLoaded] = useState<boolean>(false);
 
   useEffect(() => {
-    const runPerformanceChecks = () => {
-      // 1. Accessibility Override (Reduced Motion)
-      const prefersReducedMotion = globalThis.matchMedia(
-        "(prefers-reduced-motion: reduce)"
-      ).matches;
+    // 1. Initialize Manual Toggle from localStorage
+    const stored = globalThis.localStorage?.getItem(STORAGE_KEY);
+    if (stored === "true") {
+      setManualLowPower(true);
+    }
 
-      // 2. Hardware Hint Check (Low RAM or CPU Cores)
-      const nav = globalThis.navigator as Navigator & { deviceMemory?: number };
-      const isLowEndHardware =
-        (nav.deviceMemory !== undefined && nav.deviceMemory < 4) ||
-        nav.hardwareConcurrency <= 2;
+    // 2. Initialize Reduced Motion Detection
+    const mediaQuery = globalThis.matchMedia("(prefers-reduced-motion: reduce)");
+    setPrefersReducedMotion(mediaQuery.matches);
 
-      // 3. Renderer Audit (Detecting Software Rasterizers)
-      let isSoftwareRenderer = false;
-      try {
-        const canvas = document.createElement("canvas");
-        const gl =
-          canvas.getContext("webgl") ||
-          canvas.getContext("experimental-webgl");
-        
-        if (gl instanceof WebGLRenderingContext) {
-          const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
-          const renderer = (
-            debugInfo
-              ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
-              : gl.getParameter(gl.RENDERER)
-          ).toLowerCase();
+    // 3. Listen for changes in OS-level settings
+    const listener = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    mediaQuery.addEventListener("change", listener);
 
-          isSoftwareRenderer = [
-            "software",
-            "swiftshader",
-            "llvmpipe",
-            "softpipe",
-            "swrast",
-            "osmesa",
-            "mesa off-screen",
-            "basic render",
-            "warp",
-          ].some((id) => renderer.includes(id));
-        } else {
-          // No WebGL support at all usually implies old/stripped browser
-          isSoftwareRenderer = true;
-        }
-      } catch {
-        isSoftwareRenderer = true;
-      }
+    setIsLoaded(true);
 
-      // 4. Empirical Benchmark (Stress Test)
-      let isSlow = false;
-      try {
-        const benchCanvas = document.createElement("canvas");
-        benchCanvas.width = 100;
-        benchCanvas.height = 100;
-        const ctx = benchCanvas.getContext("2d");
-        if (ctx) {
-          const t0 = globalThis.performance.now();
-          ctx.filter = "blur(20px)";
-          for (let i = 0; i < 50; i++) {
-            ctx.fillRect(i, i, 5, 5);
-          }
-          // Force pipeline sync to measure actual drawing time
-          ctx.getImageData(0, 0, 1, 1);
-          const t1 = globalThis.performance.now();
-          isSlow = t1 - t0 > 4; // Threshold for CPU-based rasterization
-        }
-      } catch {
-        isSlow = true;
-      }
-
-      const isLowPowerVerdict = prefersReducedMotion || isLowEndHardware || isSoftwareRenderer || isSlow;
-      
-      setState({
-        isLowPower: isLowPowerVerdict,
-        isLoaded: true,
-      });
-    };
-
-    runPerformanceChecks();
+    return () => mediaQuery.removeEventListener("change", listener);
   }, []);
 
+  const toggleManualLowPower = () => {
+    setManualLowPower((prev) => {
+      const next = !prev;
+      globalThis.localStorage?.setItem(STORAGE_KEY, String(next));
+      return next;
+    });
+  };
+
+  const isLowPower = manualLowPower || prefersReducedMotion;
+
+  const value = {
+    isLowPower,
+    isLoaded,
+    manualLowPower,
+    toggleManualLowPower,
+  };
+
   return (
-    <PerformanceContext.Provider value={state}>
+    <PerformanceContext.Provider value={value}>
       {children}
     </PerformanceContext.Provider>
   );
