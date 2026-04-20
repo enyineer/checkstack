@@ -1,5 +1,17 @@
 # @checkstack/release
 
+## 0.47.0
+
+### Minor Changes
+
+- 53a64c1: Fix Docker build by whitelisting LICENSE.md in .dockerignore
+
+## 0.46.0
+
+### Minor Changes
+
+- e111f4a: Update license to Elastic License with revised terms (copyright 2026). The license is now bundled inside both the main and satellite container images.
+
 ## 0.45.0
 
 ### Minor Changes

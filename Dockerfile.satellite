@@ -43,6 +43,7 @@ COPY --from=production-deps /app/node_modules ./node_modules
 COPY --from=production-deps /app/core ./core
 COPY --from=production-deps /app/plugins ./plugins
 COPY --from=production-deps /app/package.json ./package.json
+COPY LICENSE.md ./
 
 ENV NODE_ENV=production
 

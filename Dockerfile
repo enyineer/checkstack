@@ -76,6 +76,7 @@ COPY --from=production-deps /app/core ./core
 COPY --from=production-deps /app/plugins ./plugins
 COPY --from=builder /app/core/frontend/dist ./core/frontend/dist
 COPY package.json bun.lock ./
+COPY LICENSE.md ./
 
 RUN mkdir -p /app/runtime_plugins /app/data
 

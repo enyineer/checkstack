@@ -23,6 +23,7 @@ docs/
 assets/
 *.md
 !README.md
+!LICENSE.md
 
 # TypeScript build info
 *.tsbuildinfo
