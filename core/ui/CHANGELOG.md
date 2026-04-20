@@ -1,5 +1,29 @@
 # @checkstack/ui
 
+## 1.3.4
+
+### Patch Changes
+
+- 692c717: Increased the brightness and color intensity of the AmbientBackground auroras to ensure high visibility through the 1px grid lines.
+
+## 1.3.3
+
+### Patch Changes
+
+- 594eecc: Implemented a manual "Low Power Mode" toggle in the user menu, allowing users to explicitly disable expensive visual effects. This replaces the previous automatic performance diagnostics with a more predictable, user-controlled system that persists to localStorage while still respecting OS-level "Reduced Motion" settings.
+
+## 1.3.2
+
+### Patch Changes
+
+- 0388000: Implemented a global performance-aware UI infrastructure that detects hardware capabilities (using heuristics and frame-budget benchmarks) to automatically disable expensive CSS animations, backdrop-blurs, and glassmorphism effects on low-power or non-hardware-accelerated devices.
+
+## 1.3.1
+
+### Patch Changes
+
+- 765b764: Optimize AmbientBackground performance by replacing thousand-div grid with a single-element CSS mask and hardware-accelerated Aurora Mesh animations.
+
 ## 1.3.0
 
 ### Minor Changes

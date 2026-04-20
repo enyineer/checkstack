@@ -1,5 +1,34 @@
 # @checkstack/command-frontend
 
+## 0.2.25
+
+### Patch Changes
+
+- Updated dependencies [692c717]
+  - @checkstack/ui@1.3.4
+
+## 0.2.24
+
+### Patch Changes
+
+- Updated dependencies [594eecc]
+  - @checkstack/ui@1.3.3
+
+## 0.2.23
+
+### Patch Changes
+
+- 0388000: Implemented a global performance-aware UI infrastructure that detects hardware capabilities (using heuristics and frame-budget benchmarks) to automatically disable expensive CSS animations, backdrop-blurs, and glassmorphism effects on low-power or non-hardware-accelerated devices.
+- Updated dependencies [0388000]
+  - @checkstack/ui@1.3.2
+
+## 0.2.22
+
+### Patch Changes
+
+- Updated dependencies [765b764]
+  - @checkstack/ui@1.3.1
+
 ## 0.2.21
 
 ### Patch Changes

@@ -1,5 +1,6 @@
 import React from "react";
 import { cn } from "../utils";
+import { usePerformance } from "./PerformanceProvider";
 
 interface LoadingSpinnerProps extends React.HTMLAttributes<HTMLDivElement> {
   size?: "sm" | "md" | "lg";
@@ -10,6 +11,8 @@ export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
   className,
   ...props
 }) => {
+  const { isLowPower } = usePerformance();
+
   const sizeClasses = {
     sm: "w-4 h-4 border-2",
     md: "w-8 h-8 border-4",
@@ -20,7 +23,8 @@ export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
     <div className={cn("flex justify-center py-12", className)} {...props}>
       <div
         className={cn(
-          "border-indigo-200 border-t-indigo-500 rounded-full animate-spin",
+          "border-indigo-200 border-t-indigo-500 rounded-full",
+          !isLowPower && "animate-spin",
           sizeClasses[size]
         )}
       />

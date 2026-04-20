@@ -1,5 +1,58 @@
 # @checkstack/frontend
 
+## 0.3.9
+
+### Patch Changes
+
+- Updated dependencies [692c717]
+  - @checkstack/ui@1.3.4
+  - @checkstack/about-frontend@0.2.6
+  - @checkstack/announcement-frontend@0.2.6
+  - @checkstack/auth-frontend@0.5.23
+  - @checkstack/catalog-frontend@0.5.13
+  - @checkstack/command-frontend@0.2.25
+  - @checkstack/dependency-frontend@0.2.8
+
+## 0.3.8
+
+### Patch Changes
+
+- Updated dependencies [594eecc]
+  - @checkstack/ui@1.3.3
+  - @checkstack/about-frontend@0.2.5
+  - @checkstack/announcement-frontend@0.2.5
+  - @checkstack/auth-frontend@0.5.22
+  - @checkstack/catalog-frontend@0.5.12
+  - @checkstack/command-frontend@0.2.24
+  - @checkstack/dependency-frontend@0.2.7
+
+## 0.3.7
+
+### Patch Changes
+
+- 0388000: Implemented a global performance-aware UI infrastructure that detects hardware capabilities (using heuristics and frame-budget benchmarks) to automatically disable expensive CSS animations, backdrop-blurs, and glassmorphism effects on low-power or non-hardware-accelerated devices.
+- Updated dependencies [0388000]
+  - @checkstack/ui@1.3.2
+  - @checkstack/command-frontend@0.2.23
+  - @checkstack/about-frontend@0.2.4
+  - @checkstack/announcement-frontend@0.2.4
+  - @checkstack/auth-frontend@0.5.21
+  - @checkstack/catalog-frontend@0.5.11
+  - @checkstack/dependency-frontend@0.2.6
+
+## 0.3.6
+
+### Patch Changes
+
+- Updated dependencies [765b764]
+  - @checkstack/ui@1.3.1
+  - @checkstack/about-frontend@0.2.3
+  - @checkstack/announcement-frontend@0.2.3
+  - @checkstack/auth-frontend@0.5.20
+  - @checkstack/catalog-frontend@0.5.10
+  - @checkstack/command-frontend@0.2.22
+  - @checkstack/dependency-frontend@0.2.5
+
 ## 0.3.5
 
 ### Patch Changes

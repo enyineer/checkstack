@@ -1,5 +1,37 @@
 # @checkstack/slo-frontend
 
+## 0.2.5
+
+### Patch Changes
+
+- Updated dependencies [692c717]
+  - @checkstack/ui@1.3.4
+  - @checkstack/dashboard-frontend@0.3.31
+
+## 0.2.4
+
+### Patch Changes
+
+- Updated dependencies [594eecc]
+  - @checkstack/ui@1.3.3
+  - @checkstack/dashboard-frontend@0.3.30
+
+## 0.2.3
+
+### Patch Changes
+
+- Updated dependencies [0388000]
+  - @checkstack/ui@1.3.2
+  - @checkstack/dashboard-frontend@0.3.29
+
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [765b764]
+  - @checkstack/ui@1.3.1
+  - @checkstack/dashboard-frontend@0.3.28
+
 ## 0.2.1
 
 ### Patch Changes

@@ -1,5 +1,6 @@
 import React from "react";
 import { Loader2, ChevronDown } from "lucide-react";
+import { cn } from "../../utils";
 
 import {
   Input,
@@ -9,6 +10,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  usePerformance,
 } from "../../index";
 
 import type { DynamicOptionsFieldProps, ResolverOption } from "./types";
@@ -33,6 +35,7 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
   optionsResolvers,
   onChange,
 }) => {
+  const { isLowPower } = usePerformance();
   const [options, setOptions] = React.useState<ResolverOption[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | undefined>();
@@ -72,9 +75,7 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
       })
       .catch((error_) => {
         if (!cancelled) {
-          setError(
-            extractErrorMessage(error_, "Failed to load options"),
-          );
+          setError(extractErrorMessage(error_, "Failed to load options"));
           setLoading(false);
         }
       });
@@ -199,7 +200,12 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
       <div className="relative">
         {loading ? (
           <div className="flex items-center gap-2 h-10 px-3 border rounded-md bg-muted/50">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            <Loader2
+              className={cn(
+                "h-4 w-4 text-muted-foreground",
+                !isLowPower && "animate-spin",
+              )}
+            />
             <span className="text-sm text-muted-foreground">
               Loading options...
             </span>

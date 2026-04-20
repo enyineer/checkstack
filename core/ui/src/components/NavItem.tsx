@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 import { cn } from "../utils";
 import { useApi, accessApiRef } from "@checkstack/frontend-api";
 import type { AccessRule } from "@checkstack/common";
+import { usePerformance } from "./PerformanceProvider";
 
 export interface NavItemProps {
   to?: string;
@@ -25,6 +26,7 @@ export const NavItem: React.FC<NavItemProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const { isLowPower } = usePerformance();
 
   // Always call hooks at top level
   const accessApi = useApi(accessApiRef);
@@ -66,10 +68,6 @@ export const NavItem: React.FC<NavItemProps> = ({
 
   // Dropdown / Parent Item
   if (children) {
-    // Check if any child is active to highlight parent
-    // This is naive; normally we'd check paths.
-    // For now, let's just rely on click state or strict path matching if 'to' is present on parent.
-
     return (
       <div className="relative group" ref={containerRef}>
         <button
@@ -88,7 +86,10 @@ export const NavItem: React.FC<NavItemProps> = ({
         </button>
 
         {isOpen && (
-          <div className="absolute left-0 mt-1 w-48 rounded-md shadow-lg bg-popover ring-1 ring-border z-50 animate-in fade-in zoom-in-95 duration-100">
+          <div className={cn(
+            "absolute left-0 mt-1 w-48 rounded-md shadow-lg bg-popover ring-1 ring-border z-50",
+            !isLowPower && "animate-in fade-in zoom-in-95 duration-100"
+          )}>
             <div className="py-1 flex flex-col p-1 gap-1">{children}</div>
           </div>
         )}

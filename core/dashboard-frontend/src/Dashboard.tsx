@@ -35,6 +35,8 @@ import {
   AnimatedCounter,
   TerminalFeed,
   type TerminalEntry,
+  usePerformance,
+  cn,
 } from "@checkstack/ui";
 import {
   LayoutGrid,
@@ -78,6 +80,7 @@ const statusToVariant = (
 };
 
 export const Dashboard: React.FC = () => {
+  const { isLowPower } = usePerformance();
   const catalogClient = usePluginClient(CatalogApi);
   const notificationClient = usePluginClient(NotificationApi);
   const incidentClient = usePluginClient(IncidentApi);
@@ -339,7 +342,12 @@ export const Dashboard: React.FC = () => {
 
   return (
     <>
-      <div className="space-y-8 animate-in fade-in duration-500">
+      <div
+        className={cn(
+          "space-y-8",
+          !isLowPower && "animate-in fade-in duration-500",
+        )}
+      >
         {/* Queue Lag Warning */}
         <QueueLagAlert />
 

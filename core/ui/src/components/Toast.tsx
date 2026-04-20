@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from "lucide-react";
 import { cn } from "../utils";
+import { usePerformance } from "./PerformanceProvider";
 
 const toastVariants = cva(
   "relative flex items-start gap-3 w-full max-w-md rounded-lg p-4 transition-all",
@@ -55,6 +56,7 @@ export const Toast: React.FC<ToastProps> = ({
   duration = 4000,
   onDismiss,
 }) => {
+  const { isLowPower } = usePerformance();
   const Icon = iconMap[variant || "default"];
   const iconColor = iconColorMap[variant || "default"];
   const [isHovered, setIsHovered] = React.useState(false);
@@ -97,7 +99,7 @@ export const Toast: React.FC<ToastProps> = ({
     <div
       className={cn(
         toastVariants({ variant }),
-        "animate-in slide-in-from-right fade-in zoom-in-95 duration-300 hover:-translate-y-1 hover:shadow-2xl cursor-default"
+        !isLowPower && "animate-in slide-in-from-right fade-in zoom-in-95 duration-300 hover:-translate-y-1 hover:shadow-2xl cursor-default"
       )}
       role="alert"
       aria-live="polite"

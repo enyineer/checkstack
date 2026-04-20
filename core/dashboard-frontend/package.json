@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/dashboard-frontend",
-  "version": "0.3.27",
+  "version": "0.3.31",
   "type": "module",
   "main": "src/index.tsx",
   "checkstack": {

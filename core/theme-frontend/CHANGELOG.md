@@ -1,5 +1,38 @@
 # @checkstack/theme-frontend
 
+## 0.1.27
+
+### Patch Changes
+
+- Updated dependencies [692c717]
+  - @checkstack/ui@1.3.4
+  - @checkstack/auth-frontend@0.5.23
+
+## 0.1.26
+
+### Patch Changes
+
+- 594eecc: Implemented a manual "Low Power Mode" toggle in the user menu, allowing users to explicitly disable expensive visual effects. This replaces the previous automatic performance diagnostics with a more predictable, user-controlled system that persists to localStorage while still respecting OS-level "Reduced Motion" settings.
+- Updated dependencies [594eecc]
+  - @checkstack/ui@1.3.3
+  - @checkstack/auth-frontend@0.5.22
+
+## 0.1.25
+
+### Patch Changes
+
+- Updated dependencies [0388000]
+  - @checkstack/ui@1.3.2
+  - @checkstack/auth-frontend@0.5.21
+
+## 0.1.24
+
+### Patch Changes
+
+- Updated dependencies [765b764]
+  - @checkstack/ui@1.3.1
+  - @checkstack/auth-frontend@0.5.20
+
 ## 0.1.23
 
 ### Patch Changes

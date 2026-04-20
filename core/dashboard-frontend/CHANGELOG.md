@@ -1,5 +1,50 @@
 # @checkstack/dashboard-frontend
 
+## 0.3.31
+
+### Patch Changes
+
+- Updated dependencies [692c717]
+  - @checkstack/ui@1.3.4
+  - @checkstack/auth-frontend@0.5.23
+  - @checkstack/catalog-frontend@0.5.13
+  - @checkstack/command-frontend@0.2.25
+  - @checkstack/queue-frontend@0.2.25
+
+## 0.3.30
+
+### Patch Changes
+
+- Updated dependencies [594eecc]
+  - @checkstack/ui@1.3.3
+  - @checkstack/auth-frontend@0.5.22
+  - @checkstack/catalog-frontend@0.5.12
+  - @checkstack/command-frontend@0.2.24
+  - @checkstack/queue-frontend@0.2.24
+
+## 0.3.29
+
+### Patch Changes
+
+- 0388000: Implemented a global performance-aware UI infrastructure that detects hardware capabilities (using heuristics and frame-budget benchmarks) to automatically disable expensive CSS animations, backdrop-blurs, and glassmorphism effects on low-power or non-hardware-accelerated devices.
+- Updated dependencies [0388000]
+  - @checkstack/ui@1.3.2
+  - @checkstack/command-frontend@0.2.23
+  - @checkstack/auth-frontend@0.5.21
+  - @checkstack/catalog-frontend@0.5.11
+  - @checkstack/queue-frontend@0.2.23
+
+## 0.3.28
+
+### Patch Changes
+
+- Updated dependencies [765b764]
+  - @checkstack/ui@1.3.1
+  - @checkstack/auth-frontend@0.5.20
+  - @checkstack/catalog-frontend@0.5.10
+  - @checkstack/command-frontend@0.2.22
+  - @checkstack/queue-frontend@0.2.22
+
 ## 0.3.27
 
 ### Patch Changes
