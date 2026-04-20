@@ -4,6 +4,7 @@ import { encrypt, decrypt } from "@checkstack/backend-api";
 import { gitopsContract } from "@checkstack/gitops-common";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import type { QueueManager } from "@checkstack/queue-api";
+import type { InternalEntityKindRegistry } from "./kind-registry";
 import { triggerSyncForProvider } from "./sync/sync-worker";
 import * as schema from "./schema";
 import { eq, and } from "drizzle-orm";
@@ -22,9 +23,10 @@ const os = implement(gitopsContract)
 export interface GitOpsRouterDeps {
   database: SafeDatabase<typeof schema>;
   queueManager: QueueManager;
+  kindRegistry: InternalEntityKindRegistry;
 }
 
-export const createGitOpsRouter = ({ database: db, queueManager }: GitOpsRouterDeps) => {
+export const createGitOpsRouter = ({ database: db, queueManager, kindRegistry }: GitOpsRouterDeps) => {
   // ─── Provenance ──────────────────────────────────────────────────────
 
   const getProvenance = os.getProvenance.handler(async ({ input }) => {
@@ -112,7 +114,32 @@ export const createGitOpsRouter = ({ database: db, queueManager }: GitOpsRouterD
         });
       }
 
-      // TODO(phase-2): Call the kind's delete reconciler before removing provenance
+      // Call the kind's delete reconciler before removing provenance
+      const kindDef = kindRegistry.getKind({
+        apiVersion: prov.apiVersion,
+        kind: prov.kind,
+      });
+
+      if (kindDef?.delete) {
+        try {
+          await kindDef.delete({
+            entityName: prov.entityName,
+            context: {
+              logger: {
+                debug: () => {},
+                info: () => {},
+                warn: () => {},
+                error: () => {},
+              },
+            },
+          });
+        } catch (deleteError) {
+          throw new ORPCError("INTERNAL_SERVER_ERROR", {
+            message: `Delete reconciler failed: ${deleteError}`,
+          });
+        }
+      }
+
       await db
         .delete(schema.provenance)
         .where(eq(schema.provenance.id, input.provenanceId));

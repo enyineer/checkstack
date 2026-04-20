@@ -300,7 +300,27 @@ async function detectOrphans(params: {
     const key = `${prov.kind}::${prov.entityName}`;
     if (!seenEntityKeys.has(key)) {
       if (deletionPolicy === "auto") {
-        // TODO(phase-3): Call kind's delete reconciler before removing
+        // Call the kind's delete reconciler before removing provenance
+        const kindDef = params.kindRegistry.getKind({
+          apiVersion: prov.apiVersion,
+          kind: prov.kind,
+        });
+
+        if (kindDef?.delete) {
+          try {
+            await kindDef.delete({
+              entityName: prov.entityName,
+              context: { logger },
+            });
+          } catch (deleteError) {
+            logger.error(
+              `Reconciler: delete reconciler failed for ${key}: ${deleteError}`,
+            );
+            result.errors++;
+            continue;
+          }
+        }
+
         await db
           .delete(schema.provenance)
           .where(eq(schema.provenance.id, prov.id));

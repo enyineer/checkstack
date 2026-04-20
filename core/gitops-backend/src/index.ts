@@ -86,7 +86,7 @@ export default createBackendPlugin({
 
         const db = database as SafeDatabase<typeof schema>;
 
-        const router = createGitOpsRouter({ database: db, queueManager });
+        const router = createGitOpsRouter({ database: db, queueManager, kindRegistry });
         rpc.registerRouter(router, gitopsContract);
 
         logger.debug("✅ GitOps Backend initialized.");
