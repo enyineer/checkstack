@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.50.0
+
+### Minor Changes
+
+- 594eecc: Implemented a manual "Low Power Mode" toggle in the user menu, allowing users to explicitly disable expensive visual effects. This replaces the previous automatic performance diagnostics with a more predictable, user-controlled system that persists to localStorage while still respecting OS-level "Reduced Motion" settings.
+
 ## 0.49.0
 
 ### Minor Changes

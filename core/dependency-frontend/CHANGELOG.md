@@ -1,5 +1,13 @@
 # @checkstack/dependency-frontend
 
+## 0.2.7
+
+### Patch Changes
+
+- Updated dependencies [594eecc]
+  - @checkstack/ui@1.3.3
+  - @checkstack/dashboard-frontend@0.3.30
+
 ## 0.2.6
 
 ### Patch Changes
