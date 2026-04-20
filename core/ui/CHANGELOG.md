@@ -1,5 +1,11 @@
 # @checkstack/ui
 
+## 1.3.4
+
+### Patch Changes
+
+- 692c717: Increased the brightness and color intensity of the AmbientBackground auroras to ensure high visibility through the 1px grid lines.
+
 ## 1.3.3
 
 ### Patch Changes

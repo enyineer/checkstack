@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.51.0
+
+### Minor Changes
+
+- 692c717: Increased the brightness and color intensity of the AmbientBackground auroras to ensure high visibility through the 1px grid lines.
+
 ## 0.50.0
 
 ### Minor Changes

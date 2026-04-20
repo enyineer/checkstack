@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/api-docs-frontend",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "type": "module",
   "main": "src/index.tsx",
   "checkstack": {
