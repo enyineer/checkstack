@@ -1,5 +1,13 @@
 # @checkstack/notification-frontend
 
+## 0.2.26
+
+### Patch Changes
+
+- Updated dependencies [0388000]
+  - @checkstack/ui@1.3.2
+  - @checkstack/auth-frontend@0.5.21
+
 ## 0.2.25
 
 ### Patch Changes
