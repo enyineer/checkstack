@@ -12,7 +12,7 @@ describe("EntityKindRegistry", () => {
       apiVersion: CHECKSTACK_API_VERSION,
       kind: "System",
       specSchema,
-      reconcile: async () => {},
+      reconcile: async () => ({ entityId: "test-id" }),
     });
 
     const kind = registry.getKind({
@@ -29,7 +29,7 @@ describe("EntityKindRegistry", () => {
       apiVersion: CHECKSTACK_API_VERSION,
       kind: "System",
       specSchema: z.object({}),
-      reconcile: async () => {},
+      reconcile: async () => ({ entityId: "test-id" }),
     };
 
     registry.registerKind(def);
@@ -43,7 +43,7 @@ describe("EntityKindRegistry", () => {
       apiVersion: CHECKSTACK_API_VERSION,
       kind: "System",
       specSchema: z.object({ description: z.string().optional() }),
-      reconcile: async () => {},
+      reconcile: async () => ({ entityId: "test-id" }),
     });
 
     registry.registerKindExtension({
@@ -69,7 +69,7 @@ describe("EntityKindRegistry", () => {
       apiVersion: CHECKSTACK_API_VERSION,
       kind: "System",
       specSchema: z.object({}),
-      reconcile: async () => {},
+      reconcile: async () => ({ entityId: "test-id" }),
     });
 
     const extDef = {
@@ -103,7 +103,7 @@ describe("EntityKindRegistry", () => {
       apiVersion: CHECKSTACK_API_VERSION,
       kind: "System",
       specSchema: z.object({ description: z.string().optional() }),
-      reconcile: async () => {},
+      reconcile: async () => ({ entityId: "test-id" }),
     });
 
     const kind = registry.getKind({
@@ -126,7 +126,7 @@ describe("EntityKindRegistry", () => {
       apiVersion: CHECKSTACK_API_VERSION,
       kind: "System",
       specSchema: z.object({ description: z.string().optional() }),
-      reconcile: async () => {},
+      reconcile: async () => ({ entityId: "test-id" }),
     });
 
     registry.registerKindExtension({
@@ -165,14 +165,14 @@ describe("EntityKindRegistry", () => {
       apiVersion: CHECKSTACK_API_VERSION,
       kind: "System",
       specSchema: z.object({}),
-      reconcile: async () => {},
+      reconcile: async () => ({ entityId: "test-id" }),
     });
 
     registry.registerKind({
       apiVersion: CHECKSTACK_API_VERSION,
       kind: "Healthcheck",
       specSchema: z.object({}),
-      reconcile: async () => {},
+      reconcile: async () => ({ entityId: "test-id" }),
     });
 
     expect(registry.getKinds()).toHaveLength(2);

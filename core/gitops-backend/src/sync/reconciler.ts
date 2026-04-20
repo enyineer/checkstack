@@ -236,8 +236,9 @@ async function reconcileEntity(params: {
   });
 
   // Call base kind reconciler
-  await kindDef.reconcile({
+  const reconcileResult = await kindDef.reconcile({
     entity: { ...entity, spec: resolvedSpec },
+    existingEntityId: existing?.entityId ?? undefined,
     context: { logger },
   });
 
@@ -267,6 +268,7 @@ async function reconcileEntity(params: {
     entity,
     file,
     contentHash,
+    entityId: reconcileResult.entityId,
     status: "synced",
   });
 
@@ -310,6 +312,7 @@ async function detectOrphans(params: {
           try {
             await kindDef.delete({
               entityName: prov.entityName,
+              entityId: prov.entityId,
               context: { logger },
             });
           } catch (deleteError) {
@@ -351,10 +354,12 @@ async function upsertProvenance(params: {
   entity: EntityEnvelope;
   file: DiscoveredFile;
   contentHash: string;
+  /** Required for synced status. On error, may be omitted to preserve existing value. */
+  entityId?: string;
   status: "synced" | "error";
   errorMessage?: string;
 }): Promise<void> {
-  const { db, providerId, entity, file, contentHash, status, errorMessage } =
+  const { db, providerId, entity, file, contentHash, entityId, status, errorMessage } =
     params;
   const existing = await db
     .select()
@@ -371,6 +376,8 @@ async function upsertProvenance(params: {
       .update(schema.provenance)
       .set({
         lastSyncHash: contentHash,
+        // Preserve existing entityId on error retries; update on successful reconcile
+        ...(entityId ? { entityId } : {}),
         status,
         errorMessage: errorMessage ?? null, // eslint-disable-line unicorn/no-null
         repository: file.repository,
@@ -381,11 +388,18 @@ async function upsertProvenance(params: {
     return;
   }
 
+  // First-time error: no entityId available yet, skip provenance creation.
+  // The entity will be retried on the next sync cycle.
+  if (!entityId) {
+    return;
+  }
+
   await db.insert(schema.provenance).values({
     id: uuidv4(),
     apiVersion: entity.apiVersion,
     kind: entity.kind,
     entityName: entity.metadata.name,
+    entityId,
     providerId,
     repository: file.repository,
     filePath: file.filePath,

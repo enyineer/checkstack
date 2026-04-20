@@ -207,7 +207,7 @@
     },
     "core/backend": {
       "name": "@checkstack/backend",
-      "version": "0.6.0",
+      "version": "0.6.2",
       "dependencies": {
         "@checkstack/api-docs-common": "workspace:*",
         "@checkstack/auth-common": "workspace:*",
@@ -321,6 +321,7 @@
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/gitops-frontend": "workspace:*",
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "@dnd-kit/core": "^6.3.1",
@@ -603,6 +604,25 @@
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
         "typescript": "^5.7.2",
+      },
+    },
+    "core/gitops-frontend": {
+      "name": "@checkstack/gitops-frontend",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/common": "workspace:*",
+        "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/gitops-common": "workspace:*",
+        "@checkstack/ui": "workspace:*",
+        "lucide-react": "^0.344.0",
+        "react": "^18.2.0",
+        "react-router-dom": "^6.22.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/react": "^18.2.0",
+        "typescript": "^5.0.0",
       },
     },
     "core/healthcheck-backend": {
@@ -1006,7 +1026,7 @@
     },
     "core/release": {
       "name": "@checkstack/release",
-      "version": "0.45.0",
+      "version": "0.47.0",
     },
     "core/satellite": {
       "name": "@checkstack/satellite",
@@ -2112,6 +2132,8 @@
     "@checkstack/gitops-backend": ["@checkstack/gitops-backend@workspace:core/gitops-backend"],
 
     "@checkstack/gitops-common": ["@checkstack/gitops-common@workspace:core/gitops-common"],
+
+    "@checkstack/gitops-frontend": ["@checkstack/gitops-frontend@workspace:core/gitops-frontend"],
 
     "@checkstack/healthcheck-backend": ["@checkstack/healthcheck-backend@workspace:core/healthcheck-backend"],
 

@@ -19,7 +19,13 @@ export const gitopsContract = {
     userType: "public",
     access: [gitopsAccess.provider.read],
   })
-    .input(z.object({ kind: z.string(), entityName: z.string() }))
+    .input(z.object({
+      kind: z.string(),
+      /** Look up by envelope entity name. */
+      entityName: z.string().optional(),
+      /** Look up by plugin-specific entity ID (e.g., catalog system UUID). */
+      entityId: z.string().optional(),
+    }))
     .output(provenanceSchema.nullable()),
 
   /** List all provenance entries, optionally filtered by status. */
@@ -63,6 +69,55 @@ export const gitopsContract = {
       }),
     ),
   ),
+
+  /** Create a new GitOps provider. */
+  createProvider: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [gitopsAccess.provider.manage],
+  })
+    .input(
+      z.object({
+        type: z.enum(["github", "gitlab"]),
+        target: z.string().min(1),
+        pathPattern: z.string().min(1),
+        baseUrl: z.string().optional(),
+        authToken: z.string().optional(),
+        syncInterval: z.number().int().min(60).optional(),
+        deletionPolicy: deletionPolicySchema.optional(),
+      }),
+    )
+    .output(z.object({ id: z.string() })),
+
+  /** Update an existing provider. */
+  updateProvider: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [gitopsAccess.provider.manage],
+  })
+    .input(
+      z.object({
+        id: z.string(),
+        data: z.object({
+          target: z.string().min(1).optional(),
+          pathPattern: z.string().min(1).optional(),
+          baseUrl: z.string().nullable().optional(),
+          authToken: z.string().optional(),
+          syncInterval: z.number().int().min(60).optional(),
+          deletionPolicy: deletionPolicySchema.optional(),
+        }),
+      }),
+    )
+    .output(z.object({ success: z.boolean() })),
+
+  /** Delete a provider and all its provenance entries. */
+  deleteProvider: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [gitopsAccess.provider.manage],
+  })
+    .input(z.object({ id: z.string() }))
+    .output(z.object({ success: z.boolean() })),
 
   /** Trigger a manual sync for a provider. */
   triggerSync: proc({

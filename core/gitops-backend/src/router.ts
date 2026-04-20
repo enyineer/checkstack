@@ -30,15 +30,19 @@ export const createGitOpsRouter = ({ database: db, queueManager, kindRegistry }:
   // ─── Provenance ──────────────────────────────────────────────────────
 
   const getProvenance = os.getProvenance.handler(async ({ input }) => {
+    const conditions = [eq(schema.provenance.kind, input.kind)];
+
+    if (input.entityName) {
+      conditions.push(eq(schema.provenance.entityName, input.entityName));
+    }
+    if (input.entityId) {
+      conditions.push(eq(schema.provenance.entityId, input.entityId));
+    }
+
     const result = await db
       .select()
       .from(schema.provenance)
-      .where(
-        and(
-          eq(schema.provenance.kind, input.kind),
-          eq(schema.provenance.entityName, input.entityName),
-        ),
-      );
+      .where(and(...conditions));
     // eslint-disable-next-line unicorn/no-null
     return result[0] ?? null;
   });
@@ -70,6 +74,69 @@ export const createGitOpsRouter = ({ database: db, queueManager, kindRegistry }:
       lastSyncError: r.lastSyncError,
       createdAt: r.createdAt,
     }));
+  });
+
+  const createProvider = os.createProvider.handler(async ({ input }) => {
+    const id = uuidv4();
+    await db.insert(schema.providers).values({
+      id,
+      type: input.type,
+      target: input.target,
+      pathPattern: input.pathPattern,
+      baseUrl: input.baseUrl ?? null, // eslint-disable-line unicorn/no-null
+      authToken: input.authToken ? encrypt(input.authToken) : null, // eslint-disable-line unicorn/no-null
+      syncInterval: input.syncInterval ?? 300,
+      deletionPolicy: input.deletionPolicy ?? "orphan",
+    });
+    return { id };
+  });
+
+  const updateProvider = os.updateProvider.handler(async ({ input }) => {
+    const existing = await db
+      .select()
+      .from(schema.providers)
+      .where(eq(schema.providers.id, input.id));
+
+    if (!existing[0]) {
+      throw new ORPCError("NOT_FOUND", {
+        message: `Provider not found: ${input.id}`,
+      });
+    }
+
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    if (input.data.target !== undefined) updates.target = input.data.target;
+    if (input.data.pathPattern !== undefined) updates.pathPattern = input.data.pathPattern;
+    if (input.data.baseUrl !== undefined) updates.baseUrl = input.data.baseUrl;
+    if (input.data.authToken !== undefined) updates.authToken = encrypt(input.data.authToken);
+    if (input.data.syncInterval !== undefined) updates.syncInterval = input.data.syncInterval;
+    if (input.data.deletionPolicy !== undefined) updates.deletionPolicy = input.data.deletionPolicy;
+
+    await db
+      .update(schema.providers)
+      .set(updates)
+      .where(eq(schema.providers.id, input.id));
+
+    return { success: true };
+  });
+
+  const deleteProvider = os.deleteProvider.handler(async ({ input }) => {
+    const existing = await db
+      .select()
+      .from(schema.providers)
+      .where(eq(schema.providers.id, input.id));
+
+    if (!existing[0]) {
+      throw new ORPCError("NOT_FOUND", {
+        message: `Provider not found: ${input.id}`,
+      });
+    }
+
+    // Provenance entries are cascade-deleted via FK constraint
+    await db
+      .delete(schema.providers)
+      .where(eq(schema.providers.id, input.id));
+
+    return { success: true };
   });
 
   const triggerSync = os.triggerSync.handler(async ({ input }) => {
@@ -124,6 +191,7 @@ export const createGitOpsRouter = ({ database: db, queueManager, kindRegistry }:
         try {
           await kindDef.delete({
             entityName: prov.entityName,
+            entityId: prov.entityId,
             context: {
               logger: {
                 debug: () => {},
@@ -255,6 +323,9 @@ export const createGitOpsRouter = ({ database: db, queueManager, kindRegistry }:
     getProvenance,
     listProvenance,
     listProviders,
+    createProvider,
+    updateProvider,
+    deleteProvider,
     triggerSync,
     confirmOrphanDeletion,
     dismissOrphan,

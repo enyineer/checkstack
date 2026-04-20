@@ -164,41 +164,6 @@ export class EntityService {
       );
   }
 
-  // GitOps entity name lookups
-  // These methods support the GitOps reconciliation engine by finding catalog entities
-  // that were created/managed via GitOps, identified by a `gitops_entity_name` marker
-  // stored in the metadata JSON column.
-
-  async findSystemByGitOpsName(entityName: string) {
-    const allSystems = await this.database.select().from(schema.systems);
-    return allSystems.find((s) => {
-      const meta = s.metadata as Record<string, unknown> | null;
-      return meta?.gitops_entity_name === entityName;
-    });
-  }
-
-  async findGroupByGitOpsName(entityName: string) {
-    const allGroups = await this.database.select().from(schema.groups);
-    return allGroups.find((g) => {
-      const meta = g.metadata as Record<string, unknown> | null;
-      return meta?.gitops_entity_name === entityName;
-    });
-  }
-
-  async deleteSystemByGitOpsName(entityName: string) {
-    const system = await this.findSystemByGitOpsName(entityName);
-    if (system) {
-      await this.deleteSystem(system.id);
-    }
-  }
-
-  async deleteGroupByGitOpsName(entityName: string) {
-    const group = await this.findGroupByGitOpsName(entityName);
-    if (group) {
-      await this.deleteGroup(group.id);
-    }
-  }
-
   // Views
   async getViews() {
     return this.database.select().from(schema.views);

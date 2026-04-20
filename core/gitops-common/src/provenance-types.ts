@@ -11,6 +11,8 @@ export const provenanceSchema = z.object({
   apiVersion: z.string(),
   kind: z.string(),
   entityName: z.string(),
+  /** Plugin-specific entity ID (e.g., catalog system UUID). Set by the reconciler engine. */
+  entityId: z.string(),
   providerId: z.string(),
   repository: z.string(),
   filePath: z.string(),

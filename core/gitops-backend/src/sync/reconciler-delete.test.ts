@@ -13,14 +13,14 @@ import { createEntityKindRegistry } from "../kind-registry";
 
 describe("Kind delete reconciler wiring", () => {
   it("calls the registered delete function when available", async () => {
-    const deleteHandler = mock(async () => {});
+    const deleteHandler = mock(async (_params: { entityName: string; entityId?: string }) => {});
     const registry = createEntityKindRegistry();
 
     registry.registerKind({
       apiVersion: CHECKSTACK_API_VERSION,
       kind: "System",
       specSchema: z.object({ description: z.string().optional() }),
-      reconcile: async () => {},
+      reconcile: async () => ({ entityId: "test-id" }),
       delete: deleteHandler,
     });
 
@@ -33,6 +33,7 @@ describe("Kind delete reconciler wiring", () => {
 
     await kindDef!.delete!({
       entityName: "payment-service",
+      entityId: "sys-123",
       context: {
         logger: {
           debug: () => {},
@@ -46,6 +47,7 @@ describe("Kind delete reconciler wiring", () => {
     expect(deleteHandler).toHaveBeenCalledTimes(1);
     expect(deleteHandler).toHaveBeenCalledWith({
       entityName: "payment-service",
+      entityId: "sys-123",
       context: expect.objectContaining({
         logger: expect.any(Object),
       }),
@@ -59,7 +61,7 @@ describe("Kind delete reconciler wiring", () => {
       apiVersion: CHECKSTACK_API_VERSION,
       kind: "ReadOnlyKind",
       specSchema: z.object({}),
-      reconcile: async () => {},
+      reconcile: async () => ({ entityId: "test-id" }),
       // No delete handler
     });
 
@@ -79,7 +81,7 @@ describe("Kind delete reconciler wiring", () => {
       apiVersion: CHECKSTACK_API_VERSION,
       kind: "FailingKind",
       specSchema: z.object({}),
-      reconcile: async () => {},
+      reconcile: async () => ({ entityId: "test-id" }),
       delete: async () => {
         throw new Error("DB connection failed");
       },
@@ -93,6 +95,7 @@ describe("Kind delete reconciler wiring", () => {
     expect(
       kindDef!.delete!({
         entityName: "broken-entity",
+        entityId: "broken-id",
         context: {
           logger: {
             debug: () => {},

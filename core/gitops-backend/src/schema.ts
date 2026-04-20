@@ -49,6 +49,8 @@ export const provenance = pgTable("provenance", {
   apiVersion: text("api_version").notNull(),
   kind: text("kind").notNull(),
   entityName: text("entity_name").notNull(),
+  /** Plugin-specific entity ID (e.g., catalog system UUID). Set by the reconciler engine. */
+  entityId: text("entity_id").notNull(),
   providerId: text("provider_id")
     .notNull()
     .references(() => providers.id, { onDelete: "cascade" }),

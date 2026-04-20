@@ -32,11 +32,16 @@ export interface EntityKindDefinition<TSpec = unknown> {
   /**
    * Called when an entity of this kind is discovered or updated via GitOps.
    * The entity's spec is fully validated and all secretRef values are resolved.
+   *
+   * Must return the plugin-specific entity ID (e.g., the catalog system UUID).
+   * The reconciler engine stores this in provenance for generic frontend lookups.
    */
   reconcile: (params: {
     entity: EntityEnvelope & { spec: TSpec };
+    /** The plugin-specific entity ID from a previous reconcile, if this entity was reconciled before. */
+    existingEntityId?: string;
     context: ReconcileContext;
-  }) => Promise<void>;
+  }) => Promise<{ entityId: string }>;
 
   /**
    * Called when an entity of this kind is removed from git (deletion policy: "auto")
@@ -44,6 +49,8 @@ export interface EntityKindDefinition<TSpec = unknown> {
    */
   delete?: (params: {
     entityName: string;
+    /** The plugin-specific entity ID from provenance, if available. */
+    entityId?: string;
     context: ReconcileContext;
   }) => Promise<void>;
 }
