@@ -8,6 +8,7 @@ import { ThemeToggleMenuItem } from "./components/ThemeToggleMenuItem";
 import { PerformanceToggleMenuItem } from "./components/PerformanceToggleMenuItem";
 import { ThemeSynchronizer } from "./components/ThemeSynchronizer";
 import { NavbarThemeToggle } from "./components/NavbarThemeToggle";
+import { NavbarPerformanceToggle } from "./components/NavbarPerformanceToggle";
 
 export const themePlugin = createFrontendPlugin({
   metadata: pluginMetadata,
@@ -36,6 +37,12 @@ export const themePlugin = createFrontendPlugin({
       id: "theme.navbar.toggle",
       slot: NavbarRightSlot,
       component: NavbarThemeToggle,
+    },
+    // Performance toggle button in navbar (for non-logged-in users)
+    {
+      id: "theme.navbar.performance.toggle",
+      slot: NavbarRightSlot,
+      component: NavbarPerformanceToggle,
     },
   ],
 });

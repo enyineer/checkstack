@@ -410,6 +410,7 @@ async function executeHealthCheckJob(props: {
                 result: {
                   _collectorId: collectorEntry.collectorId,
                   _assertionFailed: assertionFailed,
+                  _collectorError: collectorError,
                   ...strippedResult,
                 },
               };
@@ -425,7 +426,7 @@ async function executeHealthCheckJob(props: {
                 result: {
                   _collectorId: collectorEntry.collectorId,
                   _assertionFailed: undefined,
-                  error: errorStr,
+                  _collectorError: errorStr,
                 },
               };
             }

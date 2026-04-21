@@ -1,5 +1,17 @@
 # @checkstack/release
 
+## 0.53.0
+
+### Minor Changes
+
+- aa2b3aa: fix: remove arbitrary hardcoded assertions in jenkins collectors (queue-info, node-health, job-status) to prevent silent fallback assertion failures, instead properly threading transport execution errors directly to the SingleRunChartGrid UI display widget via a new `_collectorError` result payload property.
+
+## 0.52.0
+
+### Minor Changes
+
+- 286491a: Added automatic FPS detection that enables "Low Power Mode" once for devices running below 50 FPS, ensuring smooth performance even for users unaware of the manual toggle.
+
 ## 0.51.0
 
 ### Minor Changes
