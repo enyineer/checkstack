@@ -9,13 +9,9 @@ import { CHECKSTACK_API_VERSION, secretField, entityRefSchema } from "@checkstac
 import type {
   HealthCheckRegistry,
   CollectorRegistry,
-  SafeDatabase,
 } from "@checkstack/backend-api";
-import type * as schema from "./schema";
+import { HealthCheckService } from "./service";
 
-// ─── Types ─────────────────────────────────────────────────────────────────
-
-type Db = SafeDatabase<typeof schema>;
 
 /**
  * Lazy accessor functions — populated during init(), consumed during reconcile.
@@ -23,7 +19,7 @@ type Db = SafeDatabase<typeof schema>;
  * point init() has completed.
  */
 interface HealthcheckGitOpsKindsDeps {
-  getDb: () => Db;
+  createService: () => HealthCheckService;
   getHealthCheckRegistry: () => HealthCheckRegistry;
   getCollectorRegistry: () => CollectorRegistry;
 }
@@ -105,14 +101,11 @@ export function buildHealthcheckKind(
       existingEntityId?: string;
       context: ReconcileContext;
     }) => {
-      const db = deps.getDb();
-      const healthCheckRegistry = deps.getHealthCheckRegistry();
-      const collectorRegistry = deps.getCollectorRegistry();
-      const { HealthCheckService: HCService } = await import("./service");
-      const service = new HCService(db, healthCheckRegistry, collectorRegistry);
+      const service = deps.createService();
       const spec = entity.spec;
 
       // Validate strategy exists in registry
+      const healthCheckRegistry = deps.getHealthCheckRegistry();
       const strategy = healthCheckRegistry.getStrategy(spec.strategy);
       if (!strategy) {
         throw new Error(
@@ -132,13 +125,14 @@ export function buildHealthcheckKind(
       // Validate collector configs against their registry schemas
       if (spec.collectors) {
         for (const collector of spec.collectors) {
-          const registered = collectorRegistry.getCollector(
+          const collectorReg = deps.getCollectorRegistry();
+          const registered = collectorReg.getCollector(
             collector.collectorId,
           );
           if (!registered) {
             throw new Error(
               `Unknown collector "${collector.collectorId}". ` +
-                `Available: ${collectorRegistry.getCollectors().map((c) => c.qualifiedId).join(", ")}`,
+                `Available: ${collectorReg.getCollectors().map((c) => c.qualifiedId).join(", ")}`,
             );
           }
           const collectorConfigValidation =
@@ -200,11 +194,7 @@ export function buildHealthcheckKind(
       context: ReconcileContext;
     }) => {
       if (!entityId) return;
-      const db = deps.getDb();
-      const healthCheckRegistry = deps.getHealthCheckRegistry();
-      const collectorRegistry = deps.getCollectorRegistry();
-      const { HealthCheckService: HCService } = await import("./service");
-      const service = new HCService(db, healthCheckRegistry, collectorRegistry);
+      const service = deps.createService();
       await service.deleteConfiguration(entityId);
       context.logger.info(`GitOps: deleted Healthcheck (id: ${entityId})`);
     },
@@ -239,11 +229,7 @@ export function buildSystemHealthcheckExtension(
     }) => {
       if (!extensionSpec || extensionSpec.length === 0) return;
 
-      const db = deps.getDb();
-      const healthCheckRegistry = deps.getHealthCheckRegistry();
-      const collectorRegistry = deps.getCollectorRegistry();
-      const { HealthCheckService: HCService } = await import("./service");
-      const service = new HCService(db, healthCheckRegistry, collectorRegistry);
+      const service = deps.createService();
 
       // entityId is injected directly from the base reconciler — no provenance lookup needed
       const systemEntityId = entityId;

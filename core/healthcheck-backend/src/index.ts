@@ -102,9 +102,17 @@ export default createBackendPlugin({
     const kindRegistry = env.getExtensionPoint(entityKindExtensionPoint);
     registerHealthcheckGitOpsKinds({
       kindRegistry,
-      getDb: () => {
+      createService: () => {
         if (!gitopsDb) throw new Error("Healthcheck database not initialized");
-        return gitopsDb;
+        if (!gitopsHealthCheckRegistry)
+          throw new Error("HealthCheckRegistry not initialized");
+        if (!gitopsCollectorRegistry)
+          throw new Error("CollectorRegistry not initialized");
+        return new HealthCheckService(
+          gitopsDb,
+          gitopsHealthCheckRegistry,
+          gitopsCollectorRegistry,
+        );
       },
       getHealthCheckRegistry: () => {
         if (!gitopsHealthCheckRegistry)

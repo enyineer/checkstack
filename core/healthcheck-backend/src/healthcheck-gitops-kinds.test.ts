@@ -204,20 +204,16 @@ describe("Healthcheck GitOps Kind: Healthcheck", () => {
     mockService = createMockService();
     mockHCRegistry = createMockHealthCheckRegistry();
     mockCollectorRegistry = createMockCollectorRegistry();
-
-    // Mock the dynamic import of HealthCheckService
-    mock.module("./service", () => ({
-      HealthCheckService: class {
-        createConfiguration = mockService.createConfiguration;
-        updateConfiguration = mockService.updateConfiguration;
-        deleteConfiguration = mockService.deleteConfiguration;
-      },
-    }));
   });
 
   function buildKind() {
     return buildHealthcheckKind({
-      getDb: () => ({}) as ReturnType<typeof createMockService>["configs"] & Record<string, unknown> as never,
+      createService: () =>
+        ({
+          createConfiguration: mockService.createConfiguration,
+          updateConfiguration: mockService.updateConfiguration,
+          deleteConfiguration: mockService.deleteConfiguration,
+        }) as never,
       getHealthCheckRegistry: () => mockHCRegistry as never,
       getCollectorRegistry: () => mockCollectorRegistry as never,
     });
@@ -443,19 +439,16 @@ describe("Healthcheck GitOps Kind: System Extension", () => {
 
   beforeEach(() => {
     mockService = createMockService();
-
-    mock.module("./service", () => ({
-      HealthCheckService: class {
-        associateSystem = mockService.associateSystem;
-        disassociateSystem = mockService.disassociateSystem;
-        getSystemConfigurations = mockService.getSystemConfigurations;
-      },
-    }));
   });
 
   function buildExtension() {
     return buildSystemHealthcheckExtension({
-      getDb: () => ({}) as never,
+      createService: () =>
+        ({
+          associateSystem: mockService.associateSystem,
+          disassociateSystem: mockService.disassociateSystem,
+          getSystemConfigurations: mockService.getSystemConfigurations,
+        }) as never,
       getHealthCheckRegistry: () => createMockHealthCheckRegistry() as never,
       getCollectorRegistry: () => createMockCollectorRegistry() as never,
     });

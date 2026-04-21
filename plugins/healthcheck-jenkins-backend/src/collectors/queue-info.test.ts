@@ -56,8 +56,8 @@ describe("QueueInfoCollector", () => {
     expect(result.result.buildableCount).toBe(2);
     expect(result.result.stuckCount).toBe(1);
     expect(result.result.oldestWaitingMs).toBeGreaterThanOrEqual(30000);
-    // Error should be set because stuck > 0
-    expect(result.error).toContain("stuck");
+    // Non-critical status (stuck items) is reported in result metrics, not as an error
+    expect(result.error).toBeUndefined();
   });
 
   it("should report no error for empty queue", async () => {
