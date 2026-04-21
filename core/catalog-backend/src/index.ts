@@ -18,7 +18,7 @@ import { resolveRoute, type InferClient, extractErrorMessage} from "@checkstack/
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { EntityService } from "./services/entity-service";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
-import { CHECKSTACK_API_VERSION } from "@checkstack/gitops-common";
+import { CHECKSTACK_API_VERSION, entityRefSchema } from "@checkstack/gitops-common";
 import { z } from "zod";
 
 // Database schema is still needed for types in creating the router
@@ -79,6 +79,61 @@ export default createBackendPlugin({
         const entityService = new EntityService(gitopsDb);
         await entityService.deleteSystem(entityId);
         context.logger.info(`GitOps: deleted System (id: ${entityId})`);
+      },
+    });
+
+    // Register kind extension: System -> groups
+    kindRegistry.registerKindExtension({
+      apiVersion: CHECKSTACK_API_VERSION,
+      kind: "System",
+      namespace: "groups",
+      specSchema: z.array(entityRefSchema).optional(),
+      reconcile: async ({ entity, extensionSpec, entityId, context }) => {
+        if (!gitopsDb) throw new Error("Catalog database not initialized");
+        if (!extensionSpec || extensionSpec.length === 0) return;
+
+        const entityService = new EntityService(gitopsDb);
+        const systemEntityId = entityId;
+
+        const desiredGroupIds = new Set<string>();
+
+        for (const entry of extensionSpec) {
+          const groupId = await context.resolveEntityRef({
+            kind: entry.kind,
+            entityName: entry.name,
+          });
+
+          if (!groupId) {
+            throw new Error(
+              `Cannot resolve ${entry.kind} ref "${entry.name}" — ensure the entity exists`
+            );
+          }
+
+          desiredGroupIds.add(groupId);
+
+          await entityService.addSystemToGroup({
+            groupId: groupId,
+            systemId: systemEntityId,
+          });
+
+          context.logger.info(
+            `GitOps: associated System "${entity.metadata.name}" with Group "${entry.name}" (${groupId})`
+          );
+        }
+
+        // Remove stale associations not in the spec
+        const currentAssociations = await entityService.getGroupsForSystem(systemEntityId);
+        for (const existing of currentAssociations) {
+          if (!desiredGroupIds.has(existing.groupId)) {
+            await entityService.removeSystemFromGroup({
+              groupId: existing.groupId,
+              systemId: systemEntityId,
+            });
+            context.logger.info(
+              `GitOps: removed stale association ${existing.groupId} from System "${entity.metadata.name}"`
+            );
+          }
+        }
       },
     });
 
