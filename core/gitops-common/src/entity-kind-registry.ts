@@ -95,6 +95,8 @@ export interface EntityKindExtensionDefinition<TExtensionSpec = unknown> {
   reconcile: (params: {
     entity: EntityEnvelope;
     extensionSpec: TExtensionSpec;
+    /** The plugin-specific entity ID returned by the base kind's reconciler. */
+    entityId: string;
     context: ReconcileContext;
   }) => Promise<void>;
 }

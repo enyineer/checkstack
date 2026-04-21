@@ -464,12 +464,11 @@ describe("Healthcheck GitOps Kind: System Extension", () => {
   it("creates associations from ref array", async () => {
     const ext = buildExtension();
 
-    // Setup: System and two healthchecks exist in provenance
+    // Setup: two healthchecks exist in provenance
     const contextWithRefs: ReconcileContext = {
       ...mockContext,
       resolveEntityRef: async ({ kind, entityName }) => {
         const entries: Record<string, Record<string, string>> = {
-          System: { "payment-service": "sys-123" },
           Healthcheck: {
             "db-check": "hc-1",
             "api-check": "hc-2",
@@ -487,9 +486,10 @@ describe("Healthcheck GitOps Kind: System Extension", () => {
         spec: {},
       },
       extensionSpec: [
-        { ref: "db-check", degradedThreshold: 3, unhealthyThreshold: 5 },
-        { ref: "api-check" },
+        { ref: { kind: "Healthcheck", name: "db-check" }, degradedThreshold: 3, unhealthyThreshold: 5 },
+        { ref: { kind: "Healthcheck", name: "api-check" } },
       ],
+      entityId: "sys-123",
       context: contextWithRefs,
     });
 
@@ -535,7 +535,6 @@ describe("Healthcheck GitOps Kind: System Extension", () => {
       ...mockContext,
       resolveEntityRef: async ({ kind, entityName }) => {
         const entries: Record<string, Record<string, string>> = {
-          System: { "my-system": "sys-123" },
           Healthcheck: { "keep-check": "hc-keep" },
         };
         return entries[kind]?.[entityName];
@@ -549,7 +548,8 @@ describe("Healthcheck GitOps Kind: System Extension", () => {
         metadata: { name: "my-system" },
         spec: {},
       },
-      extensionSpec: [{ ref: "keep-check" }],
+      extensionSpec: [{ ref: { kind: "Healthcheck", name: "keep-check" } }],
+      entityId: "sys-123",
       context: contextWithRefs,
     });
 
@@ -563,12 +563,9 @@ describe("Healthcheck GitOps Kind: System Extension", () => {
   it("errors on unresolvable healthcheck ref", async () => {
     const ext = buildExtension();
 
-    const contextWithSystemOnly: ReconcileContext = {
+    const contextEmpty: ReconcileContext = {
       ...mockContext,
-      resolveEntityRef: async ({ kind, entityName }) => {
-        if (kind === "System" && entityName === "my-system") return "sys-123";
-        return undefined;
-      },
+      resolveEntityRef: async () => undefined,
     };
 
     await expect(
@@ -579,8 +576,9 @@ describe("Healthcheck GitOps Kind: System Extension", () => {
           metadata: { name: "my-system" },
           spec: {},
         },
-        extensionSpec: [{ ref: "nonexistent-check" }],
-        context: contextWithSystemOnly,
+        extensionSpec: [{ ref: { kind: "Healthcheck", name: "nonexistent-check" } }],
+        entityId: "sys-123",
+        context: contextEmpty,
       }),
     ).rejects.toThrow(/Cannot resolve Healthcheck ref "nonexistent-check"/);
   });
@@ -596,6 +594,7 @@ describe("Healthcheck GitOps Kind: System Extension", () => {
         spec: {},
       },
       extensionSpec: [],
+      entityId: "sys-123",
       context: mockContext,
     });
 

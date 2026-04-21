@@ -5,7 +5,7 @@ import type {
   EntityKindRegistry,
   ReconcileContext,
 } from "@checkstack/gitops-common";
-import { CHECKSTACK_API_VERSION, secretField } from "@checkstack/gitops-common";
+import { CHECKSTACK_API_VERSION, secretField, entityRefSchema } from "@checkstack/gitops-common";
 import type {
   HealthCheckRegistry,
   CollectorRegistry,
@@ -67,7 +67,7 @@ type HealthcheckSpec = z.infer<typeof healthcheckSpecSchema>;
 const systemHealthcheckExtensionSchema = z
   .array(
     z.object({
-      ref: z.string().min(1),
+      ref: entityRefSchema,
       degradedThreshold: z.number().int().min(1).optional(),
       unhealthyThreshold: z.number().int().min(1).optional(),
       satelliteIds: z.array(z.string()).optional(),
@@ -229,10 +229,12 @@ export function buildSystemHealthcheckExtension(
     reconcile: async ({
       entity,
       extensionSpec,
+      entityId,
       context,
     }: {
       entity: { metadata: { name: string } };
       extensionSpec: SystemHealthcheckExtension;
+      entityId: string;
       context: ReconcileContext;
     }) => {
       if (!extensionSpec || extensionSpec.length === 0) return;
@@ -243,30 +245,21 @@ export function buildSystemHealthcheckExtension(
       const { HealthCheckService: HCService } = await import("./service");
       const service = new HCService(db, healthCheckRegistry, collectorRegistry);
 
-      // Resolve the system's entityId from provenance
-      const systemEntityId = await context.resolveEntityRef({
-        kind: "System",
-        entityName: entity.metadata.name,
-      });
-
-      if (!systemEntityId) {
-        throw new Error(
-          `Cannot resolve System "${entity.metadata.name}" — ensure the System kind is reconciled before its extensions`,
-        );
-      }
+      // entityId is injected directly from the base reconciler — no provenance lookup needed
+      const systemEntityId = entityId;
 
       // Resolve each healthcheck ref → configurationId
       const desiredConfigIds = new Set<string>();
 
       for (const entry of extensionSpec) {
         const configId = await context.resolveEntityRef({
-          kind: "Healthcheck",
-          entityName: entry.ref,
+          kind: entry.ref.kind,
+          entityName: entry.ref.name,
         });
 
         if (!configId) {
           throw new Error(
-            `Cannot resolve Healthcheck ref "${entry.ref}" — ensure the Healthcheck entity exists`,
+            `Cannot resolve ${entry.ref.kind} ref "${entry.ref.name}" — ensure the entity exists`,
           );
         }
 
@@ -297,7 +290,7 @@ export function buildSystemHealthcheckExtension(
         });
 
         context.logger.info(
-          `GitOps: associated Healthcheck "${entry.ref}" (${configId}) with System "${entity.metadata.name}"`,
+          `GitOps: associated ${entry.ref.kind} "${entry.ref.name}" (${configId}) with System "${entity.metadata.name}"`,
         );
       }
 

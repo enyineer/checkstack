@@ -4,6 +4,7 @@ import type { InternalEntityKindRegistry } from "../kind-registry";
 import type { SecretStore } from "../secret-resolver";
 import type { DiscoveredFile, Scraper, FetchFn } from "../scrapers/types";
 import { parseEntityDocuments } from "./document-parser";
+import { sortEntitiesByDependency, type CollectedEntity } from "./sort-entities";
 import { resolveSecrets } from "../secret-resolver";
 import * as schema from "../schema";
 import { eq, and } from "drizzle-orm";
@@ -98,8 +99,9 @@ export async function reconcileProvider(
     `Reconciler: scraped ${discoveredFiles.length} file(s) from provider ${providerId}`,
   );
 
-  // 2. Parse all files
+  // 2. Collect all entities from all files
   const seenEntityKeys = new Set<string>();
+  const collected: CollectedEntity[] = [];
 
   for (const file of discoveredFiles) {
     const parseResult = parseEntityDocuments({ content: file.content });
@@ -112,42 +114,50 @@ export async function reconcileProvider(
       result.errors++;
     }
 
-    // 3. Process each entity
     for (const { entity, contentHash } of parseResult.entities) {
       const entityKey = `${entity.kind}::${entity.metadata.name}`;
       seenEntityKeys.add(entityKey);
-
-      try {
-        await reconcileEntity({
-          entity,
-          contentHash,
-          file,
-          providerId,
-          db,
-          logger,
-          kindRegistry,
-          secretStore,
-          result,
-        });
-      } catch (error) {
-        logger.error(
-          `Reconciler: error reconciling ${entityKey} from ${file.repository}/${file.filePath}: ${error}`,
-        );
-        await upsertProvenance({
-          db,
-          providerId,
-          entity,
-          file,
-          contentHash,
-          status: "error",
-          errorMessage: String(error),
-        });
-        result.errors++;
-      }
+      collected.push({ entity, contentHash, file });
     }
   }
 
-  // 4. Detect orphans
+  // 3. Sort by dependency order (topological sort via entity refs)
+  const sorted = sortEntitiesByDependency({ entities: collected });
+
+  // 4. Reconcile in dependency order (provenance written immediately per entity)
+  for (const { entity, contentHash, file } of sorted) {
+    const entityKey = `${entity.kind}::${entity.metadata.name}`;
+
+    try {
+      await reconcileEntity({
+        entity,
+        contentHash,
+        file,
+        providerId,
+        db,
+        logger,
+        kindRegistry,
+        secretStore,
+        result,
+      });
+    } catch (error) {
+      logger.error(
+        `Reconciler: error reconciling ${entityKey} from ${file.repository}/${file.filePath}: ${error}`,
+      );
+      await upsertProvenance({
+        db,
+        providerId,
+        entity,
+        file,
+        contentHash,
+        status: "error",
+        errorMessage: String(error),
+      });
+      result.errors++;
+    }
+  }
+
+  // 5. Detect orphans
   await detectOrphans({
     db,
     providerId,
@@ -158,7 +168,7 @@ export async function reconcileProvider(
     result,
   });
 
-  // 5. Update provider sync status
+  // 6. Update provider sync status
   await updateProviderSyncStatus({ db, providerId });
 
   return result;
@@ -280,6 +290,7 @@ async function reconcileEntity(params: {
       await ext.reconcile({
         entity: { ...entity, spec: resolvedSpec },
         extensionSpec,
+        entityId: reconcileResult.entityId,
         context,
       });
     }

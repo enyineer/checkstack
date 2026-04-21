@@ -14,6 +14,11 @@ export {
   type ResolvedSecretField,
 } from "./secret-field";
 export {
+  entityRefSchema,
+  extractEntityRefs,
+  type EntityRef,
+} from "./entity-ref";
+export {
   type EntityKindDefinition,
   type EntityKindExtensionDefinition,
   type EntityKindRegistry,

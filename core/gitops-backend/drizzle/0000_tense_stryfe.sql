@@ -1,6 +1,6 @@
-CREATE TYPE "public"."deletion_policy" AS ENUM('orphan', 'auto');--> statement-breakpoint
-CREATE TYPE "public"."provenance_status" AS ENUM('synced', 'error', 'orphaned');--> statement-breakpoint
-CREATE TYPE "public"."provider_type" AS ENUM('github', 'gitlab');--> statement-breakpoint
+CREATE TYPE "deletion_policy" AS ENUM('orphan', 'auto');--> statement-breakpoint
+CREATE TYPE "provenance_status" AS ENUM('synced', 'error', 'orphaned');--> statement-breakpoint
+CREATE TYPE "provider_type" AS ENUM('github', 'gitlab');--> statement-breakpoint
 CREATE TABLE "provenance" (
 	"id" text PRIMARY KEY NOT NULL,
 	"api_version" text NOT NULL,
@@ -43,4 +43,4 @@ CREATE TABLE "secrets" (
 	CONSTRAINT "secrets_name_unique" UNIQUE("name")
 );
 --> statement-breakpoint
-ALTER TABLE "provenance" ADD CONSTRAINT "provenance_provider_id_providers_id_fk" FOREIGN KEY ("provider_id") REFERENCES "public"."providers"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "provenance" ADD CONSTRAINT "provenance_provider_id_providers_id_fk" FOREIGN KEY ("provider_id") REFERENCES "providers"("id") ON DELETE cascade ON UPDATE no action;

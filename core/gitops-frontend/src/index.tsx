@@ -1,4 +1,8 @@
-import { createFrontendPlugin } from "@checkstack/frontend-api";
+import {
+  createFrontendPlugin,
+  createSlotExtension,
+  UserMenuItemsSlot,
+} from "@checkstack/frontend-api";
 import {
   gitopsRoutes,
   pluginMetadata,
@@ -6,6 +10,7 @@ import {
 } from "@checkstack/gitops-common";
 
 import { GitOpsPage } from "./pages/GitOpsPage";
+import { GitOpsMenuItem } from "./components/GitOpsMenuItem";
 
 export const gitopsPlugin = createFrontendPlugin({
   metadata: pluginMetadata,
@@ -17,7 +22,12 @@ export const gitopsPlugin = createFrontendPlugin({
       accessRule: gitopsAccess.provider.read,
     },
   ],
-  extensions: [],
+  extensions: [
+    createSlotExtension(UserMenuItemsSlot, {
+      id: "gitops.user-menu.link",
+      component: GitOpsMenuItem,
+    }),
+  ],
 });
 
 // Public API for other frontend plugins
