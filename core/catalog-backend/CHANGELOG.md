@@ -1,5 +1,11 @@
 # @checkstack/catalog-backend
 
+## 0.4.0
+
+### Minor Changes
+
+- b01078f: Added GitOps System kind extension for managing system group associations
+
 ## 0.3.0
 
 ### Minor Changes
