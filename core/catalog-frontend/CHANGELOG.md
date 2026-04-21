@@ -1,5 +1,31 @@
 # @checkstack/catalog-frontend
 
+## 0.6.0
+
+### Minor Changes
+
+- 6c40b5b: Generalized provenance system and GitOps frontend plugin
+
+  **Breaking**: `EntityKindDefinition.reconcile()` now returns `{ entityId: string }` instead of `void`. Plugins must return the plugin-specific entity ID (e.g., catalog system UUID) so the engine can store it in provenance.
+
+  - Added `entityId` column to the provenance table (non-nullable)
+  - Reconciler engine passes `existingEntityId` to plugins for updates
+  - `getProvenance` now supports lookup by `entityId` in addition to `entityName`
+  - Added provider CRUD endpoints: `createProvider`, `updateProvider`, `deleteProvider`
+  - Created `gitops-frontend` plugin with provider management, secret management, and sync status dashboard
+  - Removed `gitops_entity_name` metadata markers from catalog entities
+  - Removed `findSystemByGitOpsName`, `deleteSystemByGitOpsName` (and Group equivalents) from EntityService
+  - Added provenance-based UI locking in catalog-frontend: edit/delete/drag disabled for GitOps-managed systems and groups
+
+### Patch Changes
+
+- Updated dependencies [6c40b5b]
+- Updated dependencies [6c40b5b]
+- Updated dependencies [4b0934d]
+  - @checkstack/gitops-frontend@0.2.0
+  - @checkstack/ui@1.3.6
+  - @checkstack/auth-frontend@0.5.25
+
 ## 0.5.14
 
 ### Patch Changes

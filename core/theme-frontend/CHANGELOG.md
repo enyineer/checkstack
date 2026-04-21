@@ -1,5 +1,14 @@
 # @checkstack/theme-frontend
 
+## 0.1.29
+
+### Patch Changes
+
+- 4b0934d: Refactored UserMenu to use a responsive grid layout, improved menu item alignment, and implemented a full-screen scrollable portal for mobile devices. Fixed an issue where the UserMenu would instantly close and reopen when clicking the trigger while the menu was open.
+- Updated dependencies [4b0934d]
+  - @checkstack/ui@1.3.6
+  - @checkstack/auth-frontend@0.5.25
+
 ## 0.1.28
 
 ### Patch Changes

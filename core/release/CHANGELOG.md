@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.54.0
+
+### Minor Changes
+
+- 4b0934d: Refactored UserMenu to use a responsive grid layout, improved menu item alignment, and implemented a full-screen scrollable portal for mobile devices. Fixed an issue where the UserMenu would instantly close and reopen when clicking the trigger while the menu was open.
+
 ## 0.53.0
 
 ### Minor Changes
