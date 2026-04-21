@@ -1,5 +1,11 @@
 # @checkstack/healthcheck-frontend
 
+## 0.13.6
+
+### Patch Changes
+
+- aa2b3aa: fix: remove arbitrary hardcoded assertions in jenkins collectors (queue-info, node-health, job-status) to prevent silent fallback assertion failures, instead properly threading transport execution errors directly to the SingleRunChartGrid UI display widget via a new `_collectorError` result payload property.
+
 ## 0.13.5
 
 ### Patch Changes

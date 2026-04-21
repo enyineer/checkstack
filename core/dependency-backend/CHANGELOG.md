@@ -1,5 +1,12 @@
 # @checkstack/dependency-backend
 
+## 0.2.4
+
+### Patch Changes
+
+- Updated dependencies [aa2b3aa]
+  - @checkstack/healthcheck-backend@0.13.1
+
 ## 0.2.3
 
 ### Patch Changes
