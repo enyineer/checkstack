@@ -199,14 +199,8 @@ export class JobStatusCollector implements CollectorStrategy<
       }
     }
 
-    // Determine if there's an error based on build result
-    const isFailure =
-      result.lastBuildResult === "FAILURE" ||
-      result.lastBuildResult === "ABORTED";
-
     return {
       result,
-      error: isFailure ? `Last build: ${result.lastBuildResult}` : undefined,
     };
   }
 

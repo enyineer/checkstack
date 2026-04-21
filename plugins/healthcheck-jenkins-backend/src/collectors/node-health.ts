@@ -207,9 +207,6 @@ export class NodeHealthCollector implements CollectorStrategy<
 
     return {
       result,
-      error: isOffline
-        ? `Node offline: ${data.offlineCauseReason || "Unknown reason"}`
-        : undefined,
     };
   }
 
