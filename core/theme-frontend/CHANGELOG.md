@@ -1,5 +1,14 @@
 # @checkstack/theme-frontend
 
+## 0.1.28
+
+### Patch Changes
+
+- 286491a: Added automatic FPS detection that enables "Low Power Mode" once for devices running below 50 FPS, ensuring smooth performance even for users unaware of the manual toggle.
+- Updated dependencies [286491a]
+  - @checkstack/ui@1.3.5
+  - @checkstack/auth-frontend@0.5.24
+
 ## 0.1.27
 
 ### Patch Changes

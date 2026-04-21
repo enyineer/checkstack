@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.52.0
+
+### Minor Changes
+
+- 286491a: Added automatic FPS detection that enables "Low Power Mode" once for devices running below 50 FPS, ensuring smooth performance even for users unaware of the manual toggle.
+
 ## 0.51.0
 
 ### Minor Changes
