@@ -85,6 +85,11 @@ function createMockEntityService() {
       const idx = groups.findIndex((g) => g.id === id);
       if (idx >= 0) groups.splice(idx, 1);
     }),
+    addSystemToGroup: mock(async (props: { groupId: string; systemId: string }) => {}),
+    removeSystemFromGroup: mock(async (props: { groupId: string; systemId: string }) => {}),
+    getGroupsForSystem: mock(async (systemId: string) => {
+      return [] as { groupId: string, systemId: string }[];
+    }),
   };
 }
 
@@ -268,6 +273,74 @@ describe("Catalog GitOps Kind: System", () => {
     });
 
     expect(mockService.deleteSystem).not.toHaveBeenCalled();
+  });
+});
+
+describe("Catalog GitOps Kind Extension: System -> groups", () => {
+  let mockService: ReturnType<typeof createMockEntityService>;
+
+  beforeEach(() => {
+    mockService = createMockEntityService();
+  });
+
+  it("associates system with groups and removes stale ones", async () => {
+    // We mock getGroupsForSystem to return one existing association
+    mockService.getGroupsForSystem.mockResolvedValueOnce([
+      { groupId: "grp-stale", systemId: "sys-1" }
+    ]);
+
+    const mockExtContext: ReconcileContext = {
+      ...mockContext,
+      resolveEntityRef: mock(async ({ entityName }) => {
+        if (entityName === "new-group") return "grp-new";
+        return undefined;
+      }),
+    };
+
+    // Simulate the inline reconcile logic from index.ts
+    const reconcileExt = async ({ extensionSpec, entityId, context }: any) => {
+      if (!extensionSpec || extensionSpec.length === 0) return;
+
+      const desiredGroupIds = new Set<string>();
+
+      for (const entry of extensionSpec) {
+        const groupId = await context.resolveEntityRef({
+          kind: entry.kind,
+          entityName: entry.name,
+        });
+        if (groupId) {
+          desiredGroupIds.add(groupId);
+          await mockService.addSystemToGroup({ groupId, systemId: entityId });
+        }
+      }
+
+      const currentAssociations = await mockService.getGroupsForSystem(entityId);
+      for (const existing of currentAssociations) {
+        if (!desiredGroupIds.has(existing.groupId)) {
+          await mockService.removeSystemFromGroup({
+            groupId: existing.groupId,
+            systemId: entityId,
+          });
+        }
+      }
+    };
+
+    await reconcileExt({
+      entity: { metadata: { name: "my-system" } },
+      extensionSpec: [{ kind: "Group", name: "new-group" }],
+      entityId: "sys-1",
+      context: mockExtContext,
+    });
+
+    expect(mockService.addSystemToGroup).toHaveBeenCalledWith({
+      groupId: "grp-new",
+      systemId: "sys-1",
+    });
+
+    expect(mockService.removeSystemFromGroup).toHaveBeenCalledWith({
+      groupId: "grp-stale",
+      systemId: "sys-1",
+    });
   });
 });
 

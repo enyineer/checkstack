@@ -144,6 +144,15 @@ export class EntityService {
     await this.database.delete(schema.groups).where(eq(schema.groups.id, id));
   }
 
+  async getGroupsForSystem(systemId: string) {
+    const associations = await this.database
+      .select()
+      .from(schema.systemsGroups)
+      .where(eq(schema.systemsGroups.systemId, systemId));
+
+    return associations;
+  }
+
   async addSystemToGroup(props: { groupId: string; systemId: string }) {
     const { groupId, systemId } = props;
     await this.database
