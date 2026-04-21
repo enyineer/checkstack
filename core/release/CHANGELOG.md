@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.55.0
+
+### Minor Changes
+
+- b01078f: Added GitOps System kind extension for managing system group associations
+
 ## 0.54.0
 
 ### Minor Changes

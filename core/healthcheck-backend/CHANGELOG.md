@@ -1,5 +1,13 @@
 # @checkstack/healthcheck-backend
 
+## 0.14.1
+
+### Patch Changes
+
+- Updated dependencies [b01078f]
+  - @checkstack/catalog-backend@0.4.0
+  - @checkstack/satellite-backend@0.2.3
+
 ## 0.14.0
 
 ### Minor Changes
