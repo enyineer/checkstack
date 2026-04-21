@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { GripVertical, Edit, Trash2, FolderPlus } from "lucide-react";
+import { GripVertical, Edit, Trash2, FolderPlus, GitBranch } from "lucide-react";
 import { Button } from "@checkstack/ui";
 import { ExtensionSlot } from "@checkstack/frontend-api";
 import { CatalogSystemActionsSlot } from "@checkstack/catalog-common";
+import { useProvenanceLock } from "@checkstack/gitops-frontend";
 import type { Group, System } from "../api";
 
 interface DraggableSystemProps {
@@ -38,8 +39,14 @@ export const DraggableSystem = ({
 }: DraggableSystemProps) => {
   const [isPickerOpen, setIsPickerOpen] = useState(false);
 
+  const { isLocked } = useProvenanceLock({
+    kind: "System",
+    entityId: system.id,
+  });
+
   const { attributes, listeners, setNodeRef } = useDraggable({
     id: system.id,
+    disabled: isLocked,
   });
 
   const availableGroups = groups.filter((g) => !assignedGroupIds.includes(g.id));
@@ -55,10 +62,18 @@ export const DraggableSystem = ({
         <div
           {...listeners}
           {...attributes}
-          className="flex-shrink-0 mt-0.5 cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground touch-none"
-          aria-label={`Drag ${system.name}`}
+          className={`flex-shrink-0 mt-0.5 text-muted-foreground/40 touch-none ${
+            isLocked
+              ? "cursor-not-allowed opacity-30"
+              : "cursor-grab active:cursor-grabbing hover:text-muted-foreground"
+          }`}
+          aria-label={isLocked ? `${system.name} is managed by GitOps` : `Drag ${system.name}`}
         >
-          <GripVertical className="w-4 h-4" />
+          {isLocked ? (
+            <GitBranch className="w-4 h-4 text-primary" />
+          ) : (
+            <GripVertical className="w-4 h-4" />
+          )}
         </div>
 
         {/* Name + description — gets all remaining width, never truncated */}
@@ -142,6 +157,8 @@ export const DraggableSystem = ({
             size="sm"
             className="h-7 w-7 p-0"
             onClick={() => onEdit(system)}
+            disabled={isLocked}
+            title={isLocked ? "Managed by GitOps" : undefined}
             aria-label={`Edit ${system.name}`}
           >
             <Edit className="w-3.5 h-3.5" />
@@ -152,6 +169,8 @@ export const DraggableSystem = ({
             size="sm"
             className="text-destructive hover:text-destructive/90 hover:bg-destructive/10 h-7 w-7 p-0"
             onClick={() => onDelete(system.id)}
+            disabled={isLocked}
+            title={isLocked ? "Managed by GitOps" : undefined}
             aria-label={`Delete ${system.name}`}
           >
             <Trash2 className="w-3.5 h-3.5" />

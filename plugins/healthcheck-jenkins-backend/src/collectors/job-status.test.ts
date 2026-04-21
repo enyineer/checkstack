@@ -70,7 +70,8 @@ describe("JobStatusCollector", () => {
       pluginId: "healthcheck-jenkins",
     });
 
-    expect(result.error).toBe("Last build: FAILURE");
+    // Failed builds are reported in result metrics, not as collector errors
+    expect(result.error).toBeUndefined();
     expect(result.result.lastBuildResult).toBe("FAILURE");
   });
 

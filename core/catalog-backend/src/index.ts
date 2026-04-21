@@ -17,6 +17,9 @@ import { authHooks } from "@checkstack/auth-backend";
 import { resolveRoute, type InferClient, extractErrorMessage} from "@checkstack/common";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { EntityService } from "./services/entity-service";
+import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
+import { CHECKSTACK_API_VERSION } from "@checkstack/gitops-common";
+import { z } from "zod";
 
 // Database schema is still needed for types in creating the router
 import * as schema from "./schema";
@@ -31,6 +34,91 @@ export default createBackendPlugin({
   register(env) {
     env.registerAccessRules(catalogAccessRules);
 
+    // ─── GitOps Entity Kind Registration ───────────────────────────────
+    // Mutable DB reference — populated during init(), consumed by reconcile closures.
+    // Safe because reconcile is only called during sync (afterPluginsReady), by which
+    // point init() has already completed.
+    let gitopsDb: SafeDatabase<typeof schema> | undefined;
+
+    const kindRegistry = env.getExtensionPoint(entityKindExtensionPoint);
+
+    // Register kind: System
+    kindRegistry.registerKind({
+      apiVersion: CHECKSTACK_API_VERSION,
+      kind: "System",
+      specSchema: z.object({}),
+      reconcile: async ({ entity, existingEntityId, context }) => {
+        if (!gitopsDb) throw new Error("Catalog database not initialized");
+        const entityService = new EntityService(gitopsDb);
+        const displayName = entity.metadata.title ?? entity.metadata.name;
+        const description = entity.metadata.description;
+
+        if (existingEntityId) {
+          await entityService.updateSystem(existingEntityId, {
+            name: displayName,
+            description,
+          });
+          context.logger.info(
+            `GitOps: updated System "${displayName}" (id: ${existingEntityId})`,
+          );
+          return { entityId: existingEntityId };
+        }
+
+        const system = await entityService.createSystem({
+          name: displayName,
+          description,
+        });
+        context.logger.info(
+          `GitOps: created System "${displayName}" (id: ${system.id})`,
+        );
+        return { entityId: system.id };
+      },
+      delete: async ({ entityId, context }) => {
+        if (!gitopsDb) throw new Error("Catalog database not initialized");
+        if (!entityId) return;
+        const entityService = new EntityService(gitopsDb);
+        await entityService.deleteSystem(entityId);
+        context.logger.info(`GitOps: deleted System (id: ${entityId})`);
+      },
+    });
+
+    // Register kind: Group
+    kindRegistry.registerKind({
+      apiVersion: CHECKSTACK_API_VERSION,
+      kind: "Group",
+      specSchema: z.object({}),
+      reconcile: async ({ entity, existingEntityId, context }) => {
+        if (!gitopsDb) throw new Error("Catalog database not initialized");
+        const entityService = new EntityService(gitopsDb);
+        const displayName = entity.metadata.title ?? entity.metadata.name;
+
+        if (existingEntityId) {
+          await entityService.updateGroup(existingEntityId, {
+            name: displayName,
+          });
+          context.logger.info(
+            `GitOps: updated Group "${displayName}" (id: ${existingEntityId})`,
+          );
+          return { entityId: existingEntityId };
+        }
+
+        const group = await entityService.createGroup({
+          name: displayName,
+        });
+        context.logger.info(
+          `GitOps: created Group "${displayName}" (id: ${group.id})`,
+        );
+        return { entityId: group.id };
+      },
+      delete: async ({ entityId, context }) => {
+        if (!gitopsDb) throw new Error("Catalog database not initialized");
+        if (!entityId) return;
+        const entityService = new EntityService(gitopsDb);
+        await entityService.deleteGroup(entityId);
+        context.logger.info(`GitOps: deleted Group (id: ${entityId})`);
+      },
+    });
+
     env.registerInit({
       schema,
       deps: {
@@ -41,6 +129,9 @@ export default createBackendPlugin({
       // Phase 2: Register router only - no RPC calls to other plugins
       init: async ({ database, rpc, rpcClient, logger }) => {
         logger.debug("Initializing Catalog Backend...");
+
+        // Populate the mutable DB reference for GitOps reconcile closures
+        gitopsDb = database as SafeDatabase<typeof schema>;
 
         const typedDb = database as SafeDatabase<typeof schema>;
 

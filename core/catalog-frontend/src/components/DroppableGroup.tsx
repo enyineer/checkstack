@@ -1,6 +1,7 @@
 import { useDroppable } from "@dnd-kit/core";
 import { EditableText, Button } from "@checkstack/ui";
-import { Trash2 } from "lucide-react";
+import { Trash2, GitBranch } from "lucide-react";
+import { useProvenanceLock } from "@checkstack/gitops-frontend";
 import type { Group, System } from "../api";
 
 interface DroppableGroupProps {
@@ -35,6 +36,11 @@ export const DroppableGroup = ({
 }: DroppableGroupProps) => {
   const { setNodeRef } = useDroppable({ id: group.id });
 
+  const { isLocked } = useProvenanceLock({
+    kind: "Group",
+    entityId: group.id,
+  });
+
   const groupSystems = (group.systemIds ?? [])
     .map((sysId) => systems.find((s) => s.id === sysId))
     .filter((sys): sys is System => !!sys);
@@ -56,18 +62,28 @@ export const DroppableGroup = ({
     >
       {/* Group header */}
       <div className="flex items-center justify-between">
-        <div className="flex-1">
-          <EditableText
-            value={group.name}
-            onSave={(newName) => onUpdateGroupName(group.id, newName)}
-            className="font-medium text-foreground"
-          />
-          <p className="text-xs text-muted-foreground font-mono">{group.id}</p>
+        <div className="flex items-center gap-2 flex-1">
+          {isLocked && (
+            <span title="Managed by GitOps">
+              <GitBranch className="w-4 h-4 text-primary shrink-0" />
+            </span>
+          )}
+          <div className="flex-1">
+            <EditableText
+              value={group.name}
+              onSave={(newName) => onUpdateGroupName(group.id, newName)}
+              className="font-medium text-foreground"
+              disabled={isLocked}
+            />
+            <p className="text-xs text-muted-foreground font-mono">{group.id}</p>
+          </div>
         </div>
         <Button
           variant="ghost"
           className="text-destructive hover:text-destructive/90 hover:bg-destructive/10 h-8 w-8 p-0"
           onClick={() => onDeleteGroup(group.id)}
+          disabled={isLocked}
+          title={isLocked ? "Managed by GitOps" : undefined}
           aria-label={`Delete group ${group.name}`}
         >
           <Trash2 className="w-4 h-4" />

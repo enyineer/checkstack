@@ -17,6 +17,7 @@
     "@checkstack/catalog-common": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",
+    "@checkstack/gitops-frontend": "workspace:*",
     "@checkstack/notification-common": "workspace:*",
     "@checkstack/ui": "workspace:*",
     "@dnd-kit/core": "^6.3.1",

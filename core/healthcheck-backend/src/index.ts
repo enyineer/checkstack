@@ -16,11 +16,15 @@ import {
   coreServices,
   type EmitHookFn,
   type SafeDatabase,
+  type HealthCheckRegistry,
+  type CollectorRegistry,
 } from "@checkstack/backend-api";
 import { integrationEventExtensionPoint } from "@checkstack/integration-backend";
+import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
 import { z } from "zod";
 import { createHealthCheckRouter } from "./router";
 import { HealthCheckService } from "./service";
+import { registerHealthcheckGitOpsKinds } from "./healthcheck-gitops-kinds";
 import { catalogHooks } from "@checkstack/catalog-backend";
 import { satelliteHooks } from "@checkstack/satellite-backend";
 import { CatalogApi } from "@checkstack/catalog-common";
@@ -89,6 +93,39 @@ export default createBackendPlugin({
       pluginMetadata,
     );
 
+    // ─── GitOps Entity Kind Registration ───────────────────────────────
+    // Mutable refs — populated during init(), consumed by reconcile closures.
+    let gitopsDb: SafeDatabase<typeof schema> | undefined;
+    let gitopsHealthCheckRegistry: HealthCheckRegistry | undefined;
+    let gitopsCollectorRegistry: CollectorRegistry | undefined;
+
+    const kindRegistry = env.getExtensionPoint(entityKindExtensionPoint);
+    registerHealthcheckGitOpsKinds({
+      kindRegistry,
+      createService: () => {
+        if (!gitopsDb) throw new Error("Healthcheck database not initialized");
+        if (!gitopsHealthCheckRegistry)
+          throw new Error("HealthCheckRegistry not initialized");
+        if (!gitopsCollectorRegistry)
+          throw new Error("CollectorRegistry not initialized");
+        return new HealthCheckService(
+          gitopsDb,
+          gitopsHealthCheckRegistry,
+          gitopsCollectorRegistry,
+        );
+      },
+      getHealthCheckRegistry: () => {
+        if (!gitopsHealthCheckRegistry)
+          throw new Error("HealthCheckRegistry not initialized");
+        return gitopsHealthCheckRegistry;
+      },
+      getCollectorRegistry: () => {
+        if (!gitopsCollectorRegistry)
+          throw new Error("CollectorRegistry not initialized");
+        return gitopsCollectorRegistry;
+      },
+    });
+
     env.registerInit({
       schema,
       deps: {
@@ -112,6 +149,11 @@ export default createBackendPlugin({
         signalService,
       }) => {
         logger.debug("🏥 Initializing Health Check Backend...");
+
+        // Populate mutable refs for GitOps reconcile closures
+        gitopsDb = database;
+        gitopsHealthCheckRegistry = healthCheckRegistry;
+        gitopsCollectorRegistry = collectorRegistry;
 
         // Create catalog client for notification delegation
         const catalogClient = rpcClient.forPlugin(CatalogApi);

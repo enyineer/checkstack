@@ -107,7 +107,9 @@ describe("NodeHealthCollector", () => {
 
     expect(result.result.offlineNodes).toBe(1);
     expect(result.result.nodeOffline).toBe(true);
-    expect(result.error).toContain("Connection lost");
+    expect(result.result.nodeOfflineReason).toBe("Connection lost");
+    // Offline status is reported in result metrics, not as an error
+    expect(result.error).toBeUndefined();
   });
 
   it("should aggregate correctly", () => {
