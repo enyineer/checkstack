@@ -60,7 +60,12 @@ export const UserMenu: React.FC<UserMenuProps> = ({
         </button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent isOpen={isOpen} onClose={() => setIsOpen(false)}>
+      <DropdownMenuContent 
+        isOpen={isOpen} 
+        onClose={() => setIsOpen(false)}
+        className="w-full sm:w-[400px] md:w-[460px]"
+        innerClassName="grid grid-cols-1 sm:grid-cols-2 p-2 gap-2 sm:gap-1"
+      >
         <DropdownMenuLabel>
           <div className="flex flex-col">
             <span className="text-sm font-bold text-foreground truncate">
