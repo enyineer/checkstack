@@ -1,5 +1,11 @@
 # @checkstack/ui
 
+## 1.3.5
+
+### Patch Changes
+
+- 286491a: Added automatic FPS detection that enables "Low Power Mode" once for devices running below 50 FPS, ensuring smooth performance even for users unaware of the manual toggle.
+
 ## 1.3.4
 
 ### Patch Changes
