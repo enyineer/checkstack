@@ -325,6 +325,12 @@ export const createGitOpsRouter = ({
     return { value: decrypt(secret.encryptedValue) };
   });
 
+  // ─── Kind Registry ────────────────────────────────────────────────────
+
+  const listKinds = os.listKinds.handler(async () => {
+    return kindRegistry.describeKinds();
+  });
+
   // ─── Build Router ────────────────────────────────────────────────────
 
   return os.router({
@@ -342,6 +348,7 @@ export const createGitOpsRouter = ({
     rotateSecret,
     deleteSecret,
     resolveSecret,
+    listKinds,
   });
 };
 

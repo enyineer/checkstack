@@ -217,6 +217,31 @@ export const gitopsContract = {
   })
     .input(z.object({ name: z.string() }))
     .output(z.object({ value: z.string() })),
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // KIND REGISTRY (browsing)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** List all registered entity kinds with their spec schemas and extensions. */
+  listKinds: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [gitopsAccess.kinds.read],
+  }).output(
+    z.array(
+      z.object({
+        apiVersion: z.string(),
+        kind: z.string(),
+        specSchema: z.record(z.string(), z.unknown()),
+        extensions: z.array(
+          z.object({
+            namespace: z.string(),
+            specSchema: z.record(z.string(), z.unknown()),
+          }),
+        ),
+      }),
+    ),
+  ),
 };
 
 export type GitOpsContract = typeof gitopsContract;

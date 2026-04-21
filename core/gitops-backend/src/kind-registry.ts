@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { toJsonSchema } from "@checkstack/backend-api";
 import type {
   EntityKindDefinition,
   EntityKindExtensionDefinition,
@@ -41,6 +42,16 @@ export function createEntityKindRegistry() {
     }) => z.ZodType<unknown>;
     /** List all registered kinds. */
     getKinds: () => EntityKindDefinition<unknown>[];
+    /** Describe all registered kinds with JSON Schema representations. */
+    describeKinds: () => Array<{
+      apiVersion: string;
+      kind: string;
+      specSchema: Record<string, unknown>;
+      extensions: Array<{
+        namespace: string;
+        specSchema: Record<string, unknown>;
+      }>;
+    }>;
   } = {
     registerKind<TSpec>(definition: EntityKindDefinition<TSpec>) {
       const key = kindKey(definition);
@@ -132,6 +143,43 @@ export function createEntityKindRegistry() {
       return [...kinds.values()]
         .map((r) => r.definition)
         .filter((d): d is EntityKindDefinition<unknown> => d !== undefined);
+    },
+
+    describeKinds() {
+      const result: Array<{
+        apiVersion: string;
+        kind: string;
+        specSchema: Record<string, unknown>;
+        extensions: Array<{
+          namespace: string;
+          specSchema: Record<string, unknown>;
+        }>;
+      }> = [];
+
+      for (const registered of kinds.values()) {
+        if (!registered.definition) continue;
+
+        const def = registered.definition;
+        const baseSchema = toJsonSchema(
+          def.specSchema as z.ZodTypeAny,
+        );
+
+        const extensions = [...registered.extensions.entries()].map(
+          ([namespace, ext]) => ({
+            namespace,
+            specSchema: toJsonSchema(ext.specSchema as z.ZodTypeAny),
+          }),
+        );
+
+        result.push({
+          apiVersion: def.apiVersion,
+          kind: def.kind,
+          specSchema: baseSchema,
+          extensions,
+        });
+      }
+
+      return result;
     },
   };
 

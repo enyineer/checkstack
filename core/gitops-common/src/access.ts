@@ -1,4 +1,4 @@
-import { accessPair } from "@checkstack/common";
+import { access, accessPair } from "@checkstack/common";
 
 /**
  * Access rules for the GitOps plugin.
@@ -25,6 +25,13 @@ export const gitopsAccess = {
       description: "Create, rotate, and delete secrets",
     },
   }),
+
+  /** Kind registry browsing. */
+  kinds: {
+    read: access("kinds", "read", "View entity kind definitions and schemas", {
+      isDefault: true,
+    }),
+  },
 };
 
 /**
@@ -35,4 +42,6 @@ export const gitopsAccessRules = [
   gitopsAccess.provider.manage,
   gitopsAccess.secret.read,
   gitopsAccess.secret.manage,
+  gitopsAccess.kinds.read,
 ];
+

@@ -8,4 +8,5 @@ export const gitopsRoutes = createRoutes("gitops", {
   providers: "/providers",
   secrets: "/secrets",
   status: "/status",
+  kinds: "/kinds",
 });

@@ -186,4 +186,77 @@ describe("EntityKindRegistry", () => {
     });
     expect(extensions).toHaveLength(0);
   });
+
+  describe("describeKinds", () => {
+    it("returns JSON Schema representations of registered kinds", () => {
+      const registry = createEntityKindRegistry();
+
+      registry.registerKind({
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "System",
+        specSchema: z.object({
+          description: z.string().optional(),
+          tier: z.enum(["critical", "standard"]),
+        }),
+        reconcile: async () => ({ entityId: "test-id" }),
+      });
+
+      const described = registry.describeKinds();
+      expect(described).toHaveLength(1);
+
+      const sys = described[0];
+      expect(sys.apiVersion).toBe(CHECKSTACK_API_VERSION);
+      expect(sys.kind).toBe("System");
+      expect(sys.specSchema).toBeDefined();
+      expect(sys.extensions).toHaveLength(0);
+
+      // Verify JSON Schema structure
+      const schema = sys.specSchema as Record<string, unknown>;
+      expect(schema.type).toBe("object");
+      const props = schema.properties as Record<string, Record<string, unknown>>;
+      expect(props.description).toBeDefined();
+      expect(props.tier).toBeDefined();
+    });
+
+    it("includes extensions in the description", () => {
+      const registry = createEntityKindRegistry();
+
+      registry.registerKind({
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "System",
+        specSchema: z.object({ description: z.string().optional() }),
+        reconcile: async () => ({ entityId: "test-id" }),
+      });
+
+      registry.registerKindExtension({
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "System",
+        namespace: "healthcheck",
+        specSchema: z.array(z.object({ ref: z.string() })).optional(),
+        reconcile: async () => {},
+      });
+
+      const described = registry.describeKinds();
+      expect(described).toHaveLength(1);
+      expect(described[0].extensions).toHaveLength(1);
+      expect(described[0].extensions[0].namespace).toBe("healthcheck");
+      expect(described[0].extensions[0].specSchema).toBeDefined();
+    });
+
+    it("skips kinds without a base definition", () => {
+      const registry = createEntityKindRegistry();
+
+      // Only register an extension — no base kind
+      registry.registerKindExtension({
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "Orphaned",
+        namespace: "test",
+        specSchema: z.object({}).optional(),
+        reconcile: async () => {},
+      });
+
+      const described = registry.describeKinds();
+      expect(described).toHaveLength(0);
+    });
+  });
 });

@@ -10,7 +10,9 @@ import {
 } from "@checkstack/gitops-common";
 
 import { GitOpsPage } from "./pages/GitOpsPage";
+import { KindRegistryPage } from "./pages/KindRegistryPage";
 import { GitOpsMenuItem } from "./components/GitOpsMenuItem";
+import { KindRegistryMenuItem } from "./components/KindRegistryMenuItem";
 
 export const gitopsPlugin = createFrontendPlugin({
   metadata: pluginMetadata,
@@ -21,11 +23,20 @@ export const gitopsPlugin = createFrontendPlugin({
       element: <GitOpsPage />,
       accessRule: gitopsAccess.provider.read,
     },
+    {
+      route: gitopsRoutes.routes.kinds,
+      element: <KindRegistryPage />,
+      accessRule: gitopsAccess.kinds.read,
+    },
   ],
   extensions: [
     createSlotExtension(UserMenuItemsSlot, {
       id: "gitops.user-menu.link",
       component: GitOpsMenuItem,
+    }),
+    createSlotExtension(UserMenuItemsSlot, {
+      id: "gitops.user-menu.kind-registry",
+      component: KindRegistryMenuItem,
     }),
   ],
 });
