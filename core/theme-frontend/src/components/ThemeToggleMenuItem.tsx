@@ -47,17 +47,25 @@ export const ThemeToggleMenuItem = () => {
   };
 
   return (
-    <div className="flex items-center justify-between w-full px-4 py-2 text-sm text-popover-foreground">
-      <div className="flex items-center gap-2">
-        {isDark ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-        <span>Dark Mode</span>
+    <div className="flex items-center justify-between w-full px-4 py-2 text-sm text-popover-foreground hover:bg-accent hover:text-accent-foreground rounded-sm transition-colors">
+      <div className="flex flex-col flex-1 items-start">
+        <div className="flex items-center w-full">
+          {isDark ? (
+            <Moon className="h-4 w-4 text-muted-foreground shrink-0 mr-3" />
+          ) : (
+            <Sun className="h-4 w-4 text-muted-foreground shrink-0 mr-3" />
+          )}
+          <span className="flex-1 text-left">Dark Mode</span>
+        </div>
       </div>
-      <Toggle
-        checked={isDark}
-        onCheckedChange={handleToggle}
-        disabled={setThemeMutation.isPending}
-        aria-label="Toggle dark mode"
-      />
+      <div className="ml-2 shrink-0 flex items-center">
+        <Toggle
+          checked={isDark}
+          onCheckedChange={handleToggle}
+          disabled={setThemeMutation.isPending}
+          aria-label="Toggle dark mode"
+        />
+      </div>
     </div>
   );
 };
