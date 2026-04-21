@@ -1,5 +1,15 @@
 # @checkstack/slo-backend
 
+## 0.2.3
+
+### Patch Changes
+
+- Updated dependencies [6c40b5b]
+- Updated dependencies [6c40b5b]
+- Updated dependencies [6c40b5b]
+  - @checkstack/catalog-backend@0.3.0
+  - @checkstack/healthcheck-backend@0.14.0
+
 ## 0.2.2
 
 ### Patch Changes
