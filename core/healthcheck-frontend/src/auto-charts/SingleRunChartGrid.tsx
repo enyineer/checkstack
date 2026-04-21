@@ -120,6 +120,7 @@ function CollectorSection({
 }: CollectorSectionProps) {
   const displayName = collectorId.split(".").pop() || collectorId;
   const assertionFailed = data._assertionFailed as string | undefined;
+  const collectorError = data._collectorError as string | undefined;
 
   return (
     <div className="space-y-4">
@@ -143,6 +144,22 @@ function CollectorSection({
           <CardContent>
             <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950 px-2 py-1 rounded">
               {assertionFailed}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Collector execution error if present */}
+      {collectorError && (
+        <Card className="border-red-200 dark:border-red-900 border-dashed">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-red-600">
+              Collector Execution Failed
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950 px-2 py-1 rounded">
+              {collectorError}
             </div>
           </CardContent>
         </Card>

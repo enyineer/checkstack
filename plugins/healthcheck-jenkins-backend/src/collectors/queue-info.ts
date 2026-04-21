@@ -179,16 +179,8 @@ export class QueueInfoCollector implements CollectorStrategy<
       avgWaitingMs,
     };
 
-    // Warn if queue is backing up
-    const hasIssue = stuckCount > 0 || items.length > 10;
-
     return {
       result,
-      error: hasIssue
-        ? `Queue has ${items.length} items${
-            stuckCount > 0 ? `, ${stuckCount} stuck` : ""
-          }`
-        : undefined,
     };
   }
 
