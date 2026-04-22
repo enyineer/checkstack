@@ -5,7 +5,7 @@ import { gitopsContract } from "@checkstack/gitops-common";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import type { QueueManager } from "@checkstack/queue-api";
 import type { InternalEntityKindRegistry } from "./kind-registry";
-import { triggerSyncForProvider } from "./sync/sync-worker";
+import { triggerSyncForProvider, scheduleSyncForProvider, cancelSyncForProvider } from "./sync/sync-worker";
 import * as schema from "./schema";
 import { eq, and } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
@@ -82,6 +82,7 @@ export const createGitOpsRouter = ({
 
   const createProvider = os.createProvider.handler(async ({ input }) => {
     const id = uuidv4();
+    const syncInterval = input.syncInterval ?? 300;
     await db.insert(schema.providers).values({
       id,
       type: input.type,
@@ -89,9 +90,17 @@ export const createGitOpsRouter = ({
       pathPattern: input.pathPattern,
       baseUrl: input.baseUrl ?? null, // eslint-disable-line unicorn/no-null
       authToken: input.authToken ? encrypt(input.authToken) : null, // eslint-disable-line unicorn/no-null
-      syncInterval: input.syncInterval ?? 300,
+      syncInterval,
       deletionPolicy: input.deletionPolicy ?? "orphan",
     });
+
+    // Schedule recurring sync for the new provider
+    await scheduleSyncForProvider({
+      queueManager,
+      providerId: id,
+      syncIntervalSeconds: syncInterval,
+    });
+
     return { id };
   });
 
@@ -127,6 +136,15 @@ export const createGitOpsRouter = ({
       .set(updates)
       .where(eq(schema.providers.id, input.id));
 
+    // If syncInterval changed, reschedule the recurring job
+    if (input.data.syncInterval !== undefined) {
+      await scheduleSyncForProvider({
+        queueManager,
+        providerId: input.id,
+        syncIntervalSeconds: input.data.syncInterval,
+      });
+    }
+
     return { success: true };
   });
 
@@ -144,6 +162,12 @@ export const createGitOpsRouter = ({
 
     // Provenance entries are cascade-deleted via FK constraint
     await db.delete(schema.providers).where(eq(schema.providers.id, input.id));
+
+    // Cancel the recurring sync job
+    await cancelSyncForProvider({
+      queueManager,
+      providerId: input.id,
+    });
 
     return { success: true };
   });
