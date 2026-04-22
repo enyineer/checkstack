@@ -165,8 +165,18 @@ export async function triggerSyncForProvider(params: {
   const { queueManager, providerId } = params;
   const queue = queueManager.getQueue<SyncJobPayload>(SYNC_QUEUE);
 
-  await queue.enqueue(
-    { providerId },
-    { jobId: `gitops-sync-${providerId}-manual` },
-  );
+  await queue.enqueue({ providerId });
+}
+
+/**
+ * Cancels the recurring sync job for a provider (used when deleting a provider).
+ */
+export async function cancelSyncForProvider(params: {
+  queueManager: QueueManager;
+  providerId: string;
+}): Promise<void> {
+  const { queueManager, providerId } = params;
+  const queue = queueManager.getQueue<SyncJobPayload>(SYNC_QUEUE);
+
+  await queue.cancelRecurring(`gitops-sync-${providerId}`);
 }
