@@ -102,7 +102,7 @@ export const gitopsContract = {
           target: z.string().min(1).optional(),
           pathPattern: z.string().min(1).optional(),
           baseUrl: z.string().nullable().optional(),
-          authToken: z.string().optional(),
+          authToken: z.string().nullable().optional(),
           syncInterval: z.number().int().min(60).optional(),
           deletionPolicy: deletionPolicySchema.optional(),
         }),

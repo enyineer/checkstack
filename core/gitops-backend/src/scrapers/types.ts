@@ -32,8 +32,8 @@ export interface ScraperOptions {
   target: string;
   /** Glob pattern for matching file paths (e.g., ".checkstack/**\/*.yaml"). */
   pathPattern: string;
-  /** Decrypted auth token for the Git provider API. */
-  authToken: string;
+  /** Decrypted auth token for the Git provider API. Optional for public repos. */
+  authToken?: string;
   /** Custom API base URL for enterprise/on-prem installations. */
   baseUrl?: string;
   /** Logger for diagnostic output. */

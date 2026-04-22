@@ -43,17 +43,18 @@ function parseNextPageUrl(linkHeader: string | null): string | undefined {
  */
 async function githubFetch(params: {
   url: string;
-  authToken: string;
+  authToken?: string;
   fetchFn: FetchFn;
 }): Promise<Response> {
   const { url, authToken, fetchFn } = params;
-  return fetchFn(url, {
-    headers: {
-      Authorization: `Bearer ${authToken}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-  });
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+  if (authToken) {
+    headers.Authorization = `Bearer ${authToken}`;
+  }
+  return fetchFn(url, { headers });
 }
 
 // ─── Core Logic ────────────────────────────────────────────────────────────
@@ -64,7 +65,7 @@ async function githubFetch(params: {
  */
 async function enumerateRepos(params: {
   target: string;
-  authToken: string;
+  authToken?: string;
   fetchFn: FetchFn;
   apiUrl: string;
 }): Promise<GitHubRepo[]> {
@@ -113,7 +114,7 @@ async function enumerateRepos(params: {
 async function getMatchingFiles(params: {
   repo: GitHubRepo;
   pathPattern: string;
-  authToken: string;
+  authToken?: string;
   fetchFn: FetchFn;
   apiUrl: string;
 }): Promise<string[]> {
@@ -143,7 +144,7 @@ async function fetchFileContent(params: {
   repoFullName: string;
   filePath: string;
   branch: string;
-  authToken: string;
+  authToken?: string;
   fetchFn: FetchFn;
   apiUrl: string;
 }): Promise<string> {

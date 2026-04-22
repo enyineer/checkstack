@@ -34,9 +34,9 @@ const ACHIEVEMENT_DEFINITIONS: Array<{
   },
   {
     type: "nines_club",
-    description: "Achieved 99.9% or higher availability in a rolling window",
-    evaluate: ({ bestAvailability }) =>
-      bestAvailability !== undefined && bestAvailability >= 99.9,
+    description: "Maintained 99.99% or higher availability for 365 days",
+    evaluate: ({ bestAvailability, streakDays }) =>
+      bestAvailability !== undefined && bestAvailability >= 99.99 && streakDays >= 365,
   },
   {
     type: "budget_miser",
@@ -199,3 +199,7 @@ export function getAchievementDefinitions() {
     description: d.description,
   }));
 }
+
+// Export for testing
+export { ACHIEVEMENT_DEFINITIONS };
+export type { AchievementContext };

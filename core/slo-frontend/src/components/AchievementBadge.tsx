@@ -19,12 +19,12 @@ const ACHIEVEMENT_META: Record<
   iron_uptime: {
     label: "Iron Uptime",
     emoji: "🛡️",
-    description: "30-day compliance streak",
+    description: "7-day compliance streak",
   },
   diamond_uptime: {
     label: "Diamond Uptime",
     emoji: "💎",
-    description: "90-day compliance streak",
+    description: "30-day compliance streak",
   },
   budget_miser: {
     label: "Budget Miser",
@@ -34,12 +34,12 @@ const ACHIEVEMENT_META: Record<
   clean_sheet: {
     label: "Clean Sheet",
     emoji: "✨",
-    description: "Zero breaches in a quarter",
+    description: "Zero downtime in the rolling window",
   },
   nines_club: {
     label: "Nines Club",
     emoji: "🏆",
-    description: "99.99% over 365 days",
+    description: "99.99% availability over 365 days",
   },
   cascade_breaker: {
     label: "Cascade Breaker",
@@ -49,7 +49,7 @@ const ACHIEVEMENT_META: Record<
   full_coverage: {
     label: "Full Coverage",
     emoji: "🔒",
-    description: "All systems in group have SLOs",
+    description: "3+ SLOs configured on a system",
   },
   rapid_recovery: {
     label: "Rapid Recovery",

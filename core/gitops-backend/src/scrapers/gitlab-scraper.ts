@@ -25,15 +25,15 @@ interface GitLabTreeItem {
  */
 async function gitlabFetch(params: {
   url: string;
-  authToken: string;
+  authToken?: string;
   fetchFn: FetchFn;
 }): Promise<Response> {
   const { url, authToken, fetchFn } = params;
-  return fetchFn(url, {
-    headers: {
-      "PRIVATE-TOKEN": authToken,
-    },
-  });
+  const headers: Record<string, string> = {};
+  if (authToken) {
+    headers["PRIVATE-TOKEN"] = authToken;
+  }
+  return fetchFn(url, { headers });
 }
 
 /**
@@ -41,7 +41,7 @@ async function gitlabFetch(params: {
  */
 async function paginateGitLab<T>(params: {
   initialUrl: string;
-  authToken: string;
+  authToken?: string;
   fetchFn: FetchFn;
 }): Promise<T[]> {
   const { initialUrl, authToken, fetchFn } = params;
@@ -80,7 +80,7 @@ async function paginateGitLab<T>(params: {
  */
 async function enumerateProjects(params: {
   target: string;
-  authToken: string;
+  authToken?: string;
   fetchFn: FetchFn;
   apiUrl: string;
 }): Promise<GitLabProject[]> {
@@ -96,7 +96,7 @@ async function enumerateProjects(params: {
 async function getMatchingFiles(params: {
   project: GitLabProject;
   pathPattern: string;
-  authToken: string;
+  authToken?: string;
   fetchFn: FetchFn;
   apiUrl: string;
 }): Promise<string[]> {
@@ -122,7 +122,7 @@ async function fetchFileContent(params: {
   projectId: number;
   filePath: string;
   branch: string;
-  authToken: string;
+  authToken?: string;
   fetchFn: FetchFn;
   apiUrl: string;
 }): Promise<string> {

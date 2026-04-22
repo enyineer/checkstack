@@ -352,4 +352,55 @@ describe("githubScraper", () => {
       expect(url).toStartWith(enterpriseUrl);
     }
   });
+  it("works without auth token and does not send Authorization header", async () => {
+    const capturedHeaders: Record<string, string>[] = [];
+
+    const mockFetch: FetchFn = async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const headers = init?.headers as Record<string, string> | undefined;
+      if (headers) {
+        capturedHeaders.push(headers);
+      }
+
+      if (url.includes("git/trees")) {
+        return new Response(
+          JSON.stringify({
+            sha: "abc",
+            tree: [{ path: ".checkstack/sys.yaml", type: "blob" }],
+            truncated: false,
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (url.includes("contents/")) {
+        return new Response(
+          JSON.stringify({ content: btoa("yaml"), encoding: "base64" }),
+          { headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (url.includes("repos/public-org/repo")) {
+        return new Response(
+          JSON.stringify({ full_name: "public-org/repo", default_branch: "main" }),
+          { headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      return new Response("Not Found", { status: 404 });
+    };
+
+    const files = await githubScraper.discoverFiles({
+      target: "public-org/repo",
+      pathPattern: ".checkstack/**/*.yaml",
+      logger: mockLogger,
+      fetch: mockFetch,
+    });
+
+    expect(files).toHaveLength(1);
+    // Verify no Authorization header was sent
+    for (const headers of capturedHeaders) {
+      expect(headers.Authorization).toBeUndefined();
+    }
+  });
 });

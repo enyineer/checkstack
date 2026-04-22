@@ -24,7 +24,7 @@ interface ProviderEditorProps {
     target: string;
     pathPattern: string;
     baseUrl?: string;
-    authToken?: string;
+    authToken?: string | null;
     syncInterval?: number;
     deletionPolicy?: "orphan" | "auto";
   }) => void;
@@ -50,6 +50,7 @@ export const ProviderEditor: React.FC<ProviderEditorProps> = ({
   const [pathPattern, setPathPattern] = useState(initialData?.pathPattern ?? ".checkstack/**/*.yaml");
   const [baseUrl, setBaseUrl] = useState(initialData?.baseUrl ?? "");
   const [authToken, setAuthToken] = useState("");
+  const [clearToken, setClearToken] = useState(false);
   const [syncInterval, setSyncInterval] = useState(String(initialData?.syncInterval ?? 300));
   const [deletionPolicy, setDeletionPolicy] = useState<"orphan" | "auto">(
     initialData?.deletionPolicy ?? "orphan",
@@ -62,6 +63,7 @@ export const ProviderEditor: React.FC<ProviderEditorProps> = ({
       setPathPattern(initialData?.pathPattern ?? ".checkstack/**/*.yaml");
       setBaseUrl(initialData?.baseUrl ?? "");
       setAuthToken("");
+      setClearToken(false);
       setSyncInterval(String(initialData?.syncInterval ?? 300));
       setDeletionPolicy(initialData?.deletionPolicy ?? "orphan");
     }
@@ -71,12 +73,24 @@ export const ProviderEditor: React.FC<ProviderEditorProps> = ({
     e.preventDefault();
     if (!target.trim() || !pathPattern.trim()) return;
 
+    // Determine authToken value:
+    // - clearToken=true → null (explicitly remove)
+    // - non-empty string → new token
+    // - empty string → undefined (keep current)
+    let authTokenValue: string | null | undefined;
+    if (clearToken) {
+      // eslint-disable-next-line unicorn/no-null
+      authTokenValue = null;
+    } else if (authToken.trim()) {
+      authTokenValue = authToken.trim();
+    }
+
     onSave({
       type,
       target: target.trim(),
       pathPattern: pathPattern.trim(),
       baseUrl: baseUrl.trim() || undefined,
-      authToken: authToken.trim() || undefined,
+      authToken: authTokenValue,
       syncInterval: Number(syncInterval) || 300,
       deletionPolicy,
     });
@@ -160,13 +174,45 @@ export const ProviderEditor: React.FC<ProviderEditorProps> = ({
               <Label htmlFor="provider-auth-token">
                 Auth Token {initialData ? "(leave empty to keep current)" : "(optional)"}
               </Label>
-              <Input
-                id="provider-auth-token"
-                type="password"
-                placeholder="ghp_xxxx..."
-                value={authToken}
-                onChange={(e) => setAuthToken(e.target.value)}
-              />
+              {clearToken ? (
+                <div className="flex items-center gap-2 p-2 rounded-md border border-border bg-muted/50">
+                  <span className="text-sm text-muted-foreground flex-1">
+                    Token will be removed on save
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setClearToken(false)}
+                  >
+                    Undo
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Input
+                    id="provider-auth-token"
+                    type="password"
+                    placeholder="ghp_xxxx..."
+                    value={authToken}
+                    onChange={(e) => setAuthToken(e.target.value)}
+                    className="flex-1"
+                  />
+                  {initialData && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setAuthToken("");
+                        setClearToken(true);
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
