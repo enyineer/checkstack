@@ -177,7 +177,7 @@ export default createBackendPlugin({
         rpcClient: coreServices.rpcClient,
         queueManager: coreServices.queueManager,
       },
-      init: async ({ logger, database, rpc, signalService }) => {
+      init: async ({ logger, database, rpc, signalService, rpcClient }) => {
         logger.debug("🔧 Initializing SLO Backend...");
 
         const service = new SloService(database as SafeDatabase<typeof schema>);
@@ -190,7 +190,7 @@ export default createBackendPlugin({
         // Store for afterPluginsReady
         sharedEngine = engine;
 
-        const router = createRouter({ service, engine, signalService });
+        const router = createRouter({ service, engine, signalService, rpcClient });
         rpc.registerRouter(router, sloContract);
 
         // Register command palette entries

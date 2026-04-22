@@ -112,8 +112,11 @@ export const createGitOpsRouter = ({
     if (input.data.pathPattern !== undefined)
       updates.pathPattern = input.data.pathPattern;
     if (input.data.baseUrl !== undefined) updates.baseUrl = input.data.baseUrl;
-    if (input.data.authToken !== undefined)
-      updates.authToken = encrypt(input.data.authToken);
+    if (input.data.authToken !== undefined) {
+      // null = explicitly clear token, string = encrypt and store
+      // eslint-disable-next-line unicorn/no-null
+      updates.authToken = input.data.authToken ? encrypt(input.data.authToken) : null;
+    }
     if (input.data.syncInterval !== undefined)
       updates.syncInterval = input.data.syncInterval;
     if (input.data.deletionPolicy !== undefined)

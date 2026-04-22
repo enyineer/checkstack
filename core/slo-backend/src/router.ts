@@ -6,8 +6,10 @@ import {
 import {
   autoAuthMiddleware,
   type RpcContext,
+  type RpcClient,
 } from "@checkstack/backend-api";
 import type { SignalService } from "@checkstack/signal-common";
+import { CatalogApi } from "@checkstack/catalog-common";
 import type { SloService } from "./service";
 import type { SloEngine } from "./slo-engine";
 
@@ -15,10 +17,12 @@ export function createRouter({
   service,
   engine,
   signalService,
+  rpcClient,
 }: {
   service: SloService;
   engine: SloEngine;
   signalService: SignalService;
+  rpcClient: RpcClient;
 }) {
   const os = implement(sloContract)
     .$context<RpcContext>()
@@ -180,9 +184,30 @@ export function createRouter({
       const achievements = await service.getRecentMilestones({
         limit: input.limit ?? 20,
       });
+
+      // Collect unique system IDs for batch lookup
+      const uniqueSystemIds = [...new Set(achievements.map((a) => a.systemId))];
+      const systemNameMap = new Map<string, string>();
+
+      // Resolve system names via catalog RPC
+      const catalogClient = rpcClient.forPlugin(CatalogApi);
+      await Promise.all(
+        uniqueSystemIds.map(async (systemId) => {
+          try {
+            const system = await catalogClient.getSystem({ systemId });
+            if (system?.name) {
+              systemNameMap.set(systemId, system.name);
+            }
+          } catch {
+            // Silently skip — system may have been deleted
+          }
+        }),
+      );
+
       return {
         milestones: achievements.map((a) => ({
           systemId: a.systemId,
+          systemName: systemNameMap.get(a.systemId),
           achievement: a.achievement,
           unlockedAt: a.unlockedAt,
         })),

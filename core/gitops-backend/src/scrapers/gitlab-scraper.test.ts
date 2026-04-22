@@ -293,4 +293,56 @@ describe("gitlabScraper", () => {
       expect(url).toStartWith(selfHostedUrl);
     }
   });
+  it("works without auth token and does not send PRIVATE-TOKEN header", async () => {
+    const capturedHeaders: Record<string, string>[] = [];
+
+    const mockFetch: FetchFn = async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const headers = init?.headers as Record<string, string> | undefined;
+      if (headers) {
+        capturedHeaders.push(headers);
+      }
+
+      if (url.includes("/repository/tree")) {
+        return new Response(
+          JSON.stringify([
+            { id: "a1", name: "sys.yaml", type: "blob", path: ".checkstack/sys.yaml" },
+          ]),
+          { headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (url.includes("/repository/files/") && url.includes("/raw")) {
+        return new Response("yaml-content", {
+          headers: { "Content-Type": "text/plain" },
+        });
+      }
+
+      if (url.includes("/projects/")) {
+        return new Response(
+          JSON.stringify({
+            id: 99,
+            path_with_namespace: "public/repo",
+            default_branch: "main",
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      return new Response("Not Found", { status: 404 });
+    };
+
+    const files = await gitlabScraper.discoverFiles({
+      target: "public/repo",
+      pathPattern: ".checkstack/**/*.yaml",
+      logger: mockLogger,
+      fetch: mockFetch,
+    });
+
+    expect(files).toHaveLength(1);
+    // Verify no PRIVATE-TOKEN header was sent
+    for (const headers of capturedHeaders) {
+      expect(headers["PRIVATE-TOKEN"]).toBeUndefined();
+    }
+  });
 });

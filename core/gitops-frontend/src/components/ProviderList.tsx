@@ -119,7 +119,7 @@ export const ProviderList = () => {
     target: string;
     pathPattern: string;
     baseUrl?: string;
-    authToken?: string;
+    authToken?: string | null;
     syncInterval?: number;
     deletionPolicy?: "orphan" | "auto";
   }) => {
@@ -136,7 +136,11 @@ export const ProviderList = () => {
         },
       });
     } else {
-      createMutation.mutate(data);
+      // On create, authToken is always string|undefined (Remove button not shown)
+      createMutation.mutate({
+        ...data,
+        authToken: data.authToken ?? undefined,
+      });
     }
   };
 

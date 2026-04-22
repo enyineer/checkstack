@@ -1,4 +1,5 @@
 import type { Logger, SafeDatabase } from "@checkstack/backend-api";
+import { decrypt } from "@checkstack/backend-api";
 import type { QueueManager } from "@checkstack/queue-api";
 import type { InternalEntityKindRegistry } from "../kind-registry";
 import type { SecretStore } from "../secret-resolver";
@@ -104,12 +105,25 @@ async function runSyncForProvider(params: {
   const scraper =
     provider.type === "github" ? githubScraper : gitlabScraper;
 
+  // Decrypt authToken from database (stored encrypted via DynamicForm secret field)
+  let authToken: string | undefined;
+  if (provider.authToken) {
+    try {
+      authToken = decrypt(provider.authToken);
+    } catch (error) {
+      logger.error(
+        `GitOps sync: failed to decrypt authToken for provider ${providerId}: ${error}`,
+      );
+      throw new Error(`Failed to decrypt auth token for provider ${providerId}`);
+    }
+  }
+
   return reconcileProvider({
     providerId: provider.id,
     providerType: provider.type,
     target: provider.target,
     pathPattern: provider.pathPattern,
-    authToken: provider.authToken ?? "",
+    authToken,
     baseUrl: provider.baseUrl ?? undefined,
     deletionPolicy: provider.deletionPolicy,
     db,

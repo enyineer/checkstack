@@ -19,7 +19,7 @@ interface ReconcileProviderParams {
   providerType: "github" | "gitlab";
   target: string;
   pathPattern: string;
-  authToken: string;
+  authToken?: string;
   baseUrl?: string;
   deletionPolicy: "orphan" | "auto";
   db: Db;
