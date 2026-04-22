@@ -1,5 +1,13 @@
 # @checkstack/catalog-backend
 
+## 0.4.1
+
+### Patch Changes
+
+- Updated dependencies [86bab6a]
+  - @checkstack/gitops-backend@0.1.1
+  - @checkstack/gitops-common@0.1.1
+
 ## 0.4.0
 
 ### Minor Changes

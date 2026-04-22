@@ -1,5 +1,11 @@
 # @checkstack/dependency-frontend
 
+## 0.2.11
+
+### Patch Changes
+
+- @checkstack/dashboard-frontend@0.3.34
+
 ## 0.2.10
 
 ### Patch Changes
