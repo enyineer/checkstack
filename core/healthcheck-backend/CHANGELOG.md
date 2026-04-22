@@ -1,5 +1,14 @@
 # @checkstack/healthcheck-backend
 
+## 0.14.3
+
+### Patch Changes
+
+- Updated dependencies [79cf5f8]
+  - @checkstack/gitops-backend@0.1.2
+  - @checkstack/catalog-backend@0.4.2
+  - @checkstack/satellite-backend@0.2.5
+
 ## 0.14.2
 
 ### Patch Changes
