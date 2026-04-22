@@ -1,5 +1,12 @@
 # @checkstack/slo-backend
 
+## 0.2.6
+
+### Patch Changes
+
+- @checkstack/catalog-backend@0.4.2
+- @checkstack/healthcheck-backend@0.14.3
+
 ## 0.2.5
 
 ### Patch Changes

@@ -1,5 +1,16 @@
 # @checkstack/gitops-backend
 
+## 0.1.2
+
+### Patch Changes
+
+- 79cf5f8: ### GitOps: Fix sync lifecycle management
+
+  - Schedule recurring sync job immediately when creating a provider (previously required server restart)
+  - Reschedule recurring job when provider's sync interval is updated
+  - Cancel recurring job when provider is deleted
+  - Fix manual sync trigger being silently dropped due to job ID deduplication
+
 ## 0.1.1
 
 ### Patch Changes
