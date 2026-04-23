@@ -230,11 +230,12 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent size="lg">
         <SheetHeader>
-          <div className="flex items-center justify-between pr-8">
+          <div className="flex items-center justify-between pr-8 gap-4">
             <div className="flex items-center gap-3 min-w-0">
               <SheetTitle className="truncate">{item.name}</SheetTitle>
-              <Badge variant="secondary">{item.strategyId}</Badge>
-              <HealthBadge status={item.state} />
+              <Badge variant="secondary" className="hidden sm:inline-flex shrink-0">
+                {item.strategyId}
+              </Badge>
             </div>
             <Link
               to={resolveRoute(healthcheckRoutes.routes.historyDetail, {
@@ -243,7 +244,8 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
               })}
               className="text-sm text-primary hover:underline flex items-center gap-1 shrink-0"
             >
-              Open Full Detail
+              <span className="hidden sm:inline">Open Full Detail</span>
+              <span className="sm:hidden">Details</span>
               <ExternalLink className="h-3.5 w-3.5" />
             </Link>
           </div>
