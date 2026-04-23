@@ -55,3 +55,5 @@ export * from "./components/CodeEditor";
 export * from "./components/AnimatedNumber";
 export * from "./hooks/useAnimatedNumber";
 export * from "./components/IDELayout";
+export * from "./components/MetricTile";
+export * from "./components/Sheet";
