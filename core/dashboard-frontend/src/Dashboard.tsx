@@ -50,6 +50,8 @@ import {
 import { authApiRef } from "@checkstack/auth-frontend/api";
 import { QueueLagAlert } from "@checkstack/queue-frontend";
 import { SystemBadgeDataProvider } from "./components/SystemBadgeDataProvider";
+import { IncidentOverviewSheet } from "./components/IncidentOverviewSheet";
+import { MaintenanceOverviewSheet } from "./components/MaintenanceOverviewSheet";
 
 const CATALOG_PLUGIN_ID = "catalog";
 const MAX_TERMINAL_ENTRIES = 8;
@@ -99,6 +101,9 @@ export const Dashboard: React.FC = () => {
     Record<string, boolean>
   >({});
 
+  const [isIncidentSheetOpen, setIncidentSheetOpen] = useState(false);
+  const [isMaintenanceSheetOpen, setMaintenanceSheetOpen] = useState(false);
+
   // -------------------------------------------------------------------------
   // DATA QUERIES
   // -------------------------------------------------------------------------
@@ -117,12 +122,29 @@ export const Dashboard: React.FC = () => {
   const incidents = incidentsData?.incidents ?? [];
 
   // Fetch active maintenances
-  const { data: maintenancesData, isLoading: maintenancesLoading } =
+  const { data: inProgressMaintenancesData, isLoading: inProgressLoading } =
     maintenanceClient.listMaintenances.useQuery(
       { status: "in_progress" },
       { staleTime: 30_000 },
     );
-  const maintenances = maintenancesData?.maintenances ?? [];
+
+  // Fetch scheduled maintenances
+  const { data: scheduledMaintenancesData, isLoading: scheduledLoading } =
+    maintenanceClient.listMaintenances.useQuery(
+      { status: "scheduled" },
+      { staleTime: 30_000 },
+    );
+
+  const maintenances = useMemo(() => {
+    return [
+      ...(inProgressMaintenancesData?.maintenances ?? []),
+      ...(scheduledMaintenancesData?.maintenances ?? []),
+    ].toSorted(
+      (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
+    );
+  }, [inProgressMaintenancesData, scheduledMaintenancesData]);
+
+  const maintenancesLoading = inProgressLoading || scheduledLoading;
 
   // Fetch subscriptions (only when logged in)
   const { data: subscriptions = [], refetch: refetchSubscriptions } =
@@ -294,7 +316,7 @@ export const Dashboard: React.FC = () => {
                   )}
                 </div>
               </CardHeader>
-              <CardContent className="p-4">
+              <CardContent className="p-0">
                 {group.systems.length === 0 ? (
                   <div className="py-8 text-center">
                     <p className="text-sm text-muted-foreground">
@@ -302,32 +324,26 @@ export const Dashboard: React.FC = () => {
                     </p>
                   </div>
                 ) : (
-                  <div
-                    className={`grid gap-3 ${
-                      group.systems.length === 1
-                        ? "grid-cols-1"
-                        : "grid-cols-1 sm:grid-cols-2"
-                    }`}
-                  >
+                  <div className="flex flex-col divide-y divide-border">
                     {group.systems.map((system) => (
                       <button
                         key={system.id}
                         onClick={() => handleSystemClick(system.id)}
-                        className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 transition-all cursor-pointer hover:border-border/80 hover:shadow-sm text-left"
+                        className="flex items-center gap-4 px-4 py-3 bg-card hover:bg-muted/50 transition-colors text-left w-full group"
                       >
-                        <div className="flex items-center gap-3 min-w-24 flex-shrink-0">
+                        <div className="flex items-center gap-3 min-w-32 flex-shrink-0">
                           <Activity className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                           <p className="text-sm font-medium text-foreground truncate">
                             {system.name}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2 flex-wrap flex-1 justify-end">
+                        <div className="flex items-center gap-2 flex-wrap flex-1 justify-end min-w-0">
                           <ExtensionSlot
                             slot={SystemStateBadgesSlot}
                             context={{ system }}
                           />
                         </div>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <ChevronRight className="h-4 w-4 text-muted-foreground opacity-50 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-2" />
                       </button>
                     ))}
                   </div>
@@ -381,10 +397,21 @@ export const Dashboard: React.FC = () => {
                   : "Unresolved issues requiring attention"
               }
               icon={<AlertTriangle className="w-4 h-4" />}
+              onClick={
+                activeIncidentsCount > 0
+                  ? () => setIncidentSheetOpen(true)
+                  : undefined
+              }
+              className={
+                activeIncidentsCount > 0
+                  ? "cursor-pointer hover:opacity-90 hover:scale-[1.02]"
+                  : ""
+              }
             />
 
             <StatusCard
-              title="Active Maintenances"
+              variant={activeMaintenancesCount > 0 ? "gradient" : "default"}
+              title="Active & Scheduled Maintenances"
               value={
                 loading ? (
                   "..."
@@ -395,9 +422,19 @@ export const Dashboard: React.FC = () => {
               description={
                 activeMaintenancesCount === 0
                   ? "No scheduled maintenance"
-                  : "Ongoing or scheduled maintenance windows"
+                  : "Ongoing or upcoming maintenance windows"
               }
               icon={<Wrench className="w-4 h-4" />}
+              onClick={
+                activeMaintenancesCount > 0
+                  ? () => setMaintenanceSheetOpen(true)
+                  : undefined
+              }
+              className={
+                activeMaintenancesCount > 0
+                  ? "cursor-pointer hover:opacity-90 hover:scale-[1.02]"
+                  : ""
+              }
             />
           </div>
         </section>
@@ -428,6 +465,19 @@ export const Dashboard: React.FC = () => {
           </section>
         </div>
       </div>
+
+      <IncidentOverviewSheet
+        open={isIncidentSheetOpen}
+        onOpenChange={setIncidentSheetOpen}
+        incidents={incidents}
+        systems={systems}
+      />
+      <MaintenanceOverviewSheet
+        open={isMaintenanceSheetOpen}
+        onOpenChange={setMaintenanceSheetOpen}
+        maintenances={maintenances}
+        systems={systems}
+      />
     </>
   );
 };

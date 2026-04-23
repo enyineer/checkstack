@@ -27,7 +27,7 @@ export interface DateRangeFilterProps {
   className?: string;
 }
 
-const PRESETS: Array<{
+export const PRESETS: Array<{
   id: DateRangePreset;
   label: string;
   shortLabel: string;
@@ -56,7 +56,7 @@ export function getPresetRange(preset: DateRangePreset): DateRange {
   }
 }
 
-function detectPreset(range: DateRange): DateRangePreset {
+export function detectPreset(range: DateRange): DateRangePreset {
   const now = new Date();
   const diffMs = now.getTime() - range.startDate.getTime();
   const diffHours = diffMs / (1000 * 60 * 60);

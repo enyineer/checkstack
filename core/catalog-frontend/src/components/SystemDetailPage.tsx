@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import {
   usePluginClient,
   ExtensionSlot,
@@ -14,32 +14,24 @@ import {
 import { NotificationApi } from "@checkstack/notification-common";
 import {
   Card,
-  CardHeader,
-  CardTitle,
   CardContent,
+  Page,
+  PageContent,
   PageLayout,
   SubscribeButton,
   useToast,
-  BackLink,
+  LoadingSpinner,
+  AccessDenied,
 } from "@checkstack/ui";
 import { authApiRef } from "@checkstack/auth-frontend/api";
 
-import {
-  Activity,
-  Info,
-  Users,
-  FileJson,
-  Calendar,
-  Mail,
-  User,
-} from "lucide-react";
+import { Activity, Calendar, Mail, User } from "lucide-react";
 import { extractErrorMessage } from "@checkstack/common";
 
 const CATALOG_PLUGIN_ID = "catalog";
 
 export const SystemDetailPage: React.FC = () => {
   const { systemId } = useParams<{ systemId: string }>();
-  const navigate = useNavigate();
   const catalogClient = usePluginClient(CatalogApi);
   const notificationClient = usePluginClient(NotificationApi);
   const toast = useToast();
@@ -88,9 +80,7 @@ export const SystemDetailPage: React.FC = () => {
       void refetchSubscriptions();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to subscribe"),
-      );
+      toast.error(extractErrorMessage(error, "Failed to subscribe"));
     },
   });
 
@@ -101,9 +91,7 @@ export const SystemDetailPage: React.FC = () => {
       void refetchSubscriptions();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to unsubscribe"),
-      );
+      toast.error(extractErrorMessage(error, "Failed to unsubscribe"));
     },
   });
 
@@ -144,9 +132,38 @@ export const SystemDetailPage: React.FC = () => {
     unsubscribeMutation.mutate({ groupId: getSystemGroupId() });
   };
 
-  // Actions for the page header
+  if (loading) {
+    return (
+      <Page>
+        <PageContent>
+          <div className="flex justify-center py-12">
+            <LoadingSpinner />
+          </div>
+        </PageContent>
+      </Page>
+    );
+  }
+
+  if (notFound) {
+    return (
+      <Page>
+        <PageContent>
+          <div className="max-w-3xl space-y-6">
+            <AccessDenied />
+          </div>
+        </PageContent>
+      </Page>
+    );
+  }
+
+  // Guard for TypeScript
+  if (!system) {
+    return;
+  }
+
   const headerActions = (
-    <div className="flex items-center gap-4 flex-wrap">
+    <div className="flex items-center gap-2">
+      <ExtensionSlot slot={SystemStateBadgesSlot} context={{ system }} />
       {session && (
         <SubscribeButton
           isSubscribed={isSubscribed}
@@ -159,204 +176,146 @@ export const SystemDetailPage: React.FC = () => {
           }
         />
       )}
-      <BackLink onClick={() => navigate("/")}>Back to Dashboard</BackLink>
     </div>
   );
-
-  if (notFound) {
-    return (
-      <PageLayout
-        title="System Not Found"
-        icon={Activity}
-        actions={headerActions}
-      >
-        <Card className="border-destructive/30 bg-destructive/10">
-          <CardContent className="p-12 text-center">
-            <p className="text-destructive">
-              The system you're looking for doesn't exist or has been removed.
-            </p>
-          </CardContent>
-        </Card>
-      </PageLayout>
-    );
-  }
-
-  // Guard for TypeScript - PageLayout already handles loading state
-  if (!system) {
-    return;
-  }
 
   return (
     <PageLayout
       title={system.name}
       icon={Activity}
-      loading={loading}
       actions={headerActions}
+      loading={false}
       maxWidth="full"
     >
-      {/* Top Extension Slot for urgent items like maintenance alerts */}
+      {/* Alert strip — incidents, maintenances, dependency alerts */}
       <ExtensionSlot slot={SystemDetailsTopSlot} context={{ system }} />
 
-      {/* System Status Card - displays plugin-provided state badges */}
-      <Card className="border-border shadow-sm">
-        <CardHeader className="border-b border-border bg-muted/30">
-          <div className="flex items-center gap-2">
-            <Activity className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-lg font-semibold">
-              System Status
-            </CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent className="p-6">
-          <div className="flex flex-wrap items-center gap-2">
-            <ExtensionSlot slot={SystemStateBadgesSlot} context={{ system }} />
-          </div>
-        </CardContent>
-      </Card>
+      {/* Two-Column Layout */}
+      <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+        {/* Left Column — Monitoring */}
+        <div className="space-y-6 min-w-0">
+          <ExtensionSlot slot={SystemDetailsSlot} context={{ system }} />
+        </div>
 
-      {/* System Information Card */}
-      <Card className="border-border shadow-sm">
-        <CardHeader className="border-b border-border bg-muted/30">
-          <div className="flex items-center gap-2">
-            <Info className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-lg font-semibold">
-              System Information
-            </CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent className="p-6 space-y-4">
-          <div>
-            <label className="text-sm font-medium text-muted-foreground">
-              Description
-            </label>
-            <p className="mt-1 text-foreground">
-              {system.description || "No description provided"}
-            </p>
-          </div>
-          <div className="flex gap-6 text-sm">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Calendar className="h-4 w-4" />
-              <span>
-                Created:{" "}
-                {new Date(system.createdAt).toLocaleDateString("en-US", {
-                  year: "numeric",
-                  month: "short",
-                  day: "numeric",
-                })}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Calendar className="h-4 w-4" />
-              <span>
-                Updated:{" "}
-                {new Date(system.updatedAt).toLocaleDateString("en-US", {
-                  year: "numeric",
-                  month: "short",
-                  day: "numeric",
-                })}
-              </span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Contacts Card */}
-      <Card className="border-border shadow-sm">
-        <CardHeader className="border-b border-border bg-muted/30">
-          <div className="flex items-center gap-2">
-            <Mail className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-lg font-semibold">Contacts</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent className="p-6">
-          {!contactsData || contactsData.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              No contacts assigned to this system
-            </p>
-          ) : (
+        {/* Right Column — System Context */}
+        <Card className="h-fit">
+          <CardContent className="p-4 space-y-4">
+            {/* System Information */}
             <div className="space-y-2">
-              {contactsData.map((contact) => (
-                <div
-                  key={contact.id}
-                  className="flex items-center gap-2 text-sm"
-                >
-                  {contact.type === "user" ? (
-                    <User className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <Mail className="h-4 w-4 text-muted-foreground" />
-                  )}
-                  <a
-                    href={`mailto:${contact.type === "user" ? contact.userEmail : contact.email}`}
-                    className="text-primary hover:underline"
-                  >
-                    {contact.type === "user"
-                      ? (contact.userName ?? contact.userId)
-                      : contact.email}
-                  </a>
-                  {contact.label && (
-                    <span className="text-muted-foreground">
-                      ({contact.label})
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Groups Card */}
-      <Card className="border-border shadow-sm">
-        <CardHeader className="border-b border-border bg-muted/30">
-          <div className="flex items-center gap-2">
-            <Users className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-lg font-semibold">
-              Member of Groups
-            </CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent className="p-6">
-          {groups.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              This system is not part of any groups
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {groups.map((group) => (
-                <span
-                  key={group.id}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-sm font-medium text-primary"
-                >
-                  {group.name}
+              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                About
+              </h3>
+              <p className="text-sm text-foreground">
+                {system.description || "No description provided"}
+              </p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <Calendar className="h-3 w-3" />
+                  Created{" "}
+                  {new Date(system.createdAt).toLocaleDateString("en-US", {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  })}
                 </span>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Metadata Card */}
-      {system.metadata &&
-        typeof system.metadata === "object" &&
-        Object.keys(system.metadata).length > 0 && (
-          <Card className="border-border shadow-sm">
-            <CardHeader className="border-b border-border bg-muted/30">
-              <div className="flex items-center gap-2">
-                <FileJson className="h-5 w-5 text-muted-foreground" />
-                <CardTitle className="text-lg font-semibold">
-                  Metadata
-                </CardTitle>
+                <span className="flex items-center gap-1.5">
+                  <Calendar className="h-3 w-3" />
+                  Updated{" "}
+                  {new Date(system.updatedAt).toLocaleDateString("en-US", {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </span>
               </div>
-            </CardHeader>
-            <CardContent className="p-6">
-              <pre className="text-sm text-foreground bg-muted/30 p-4 rounded border border-border overflow-x-auto">
-                {JSON.stringify(system.metadata, undefined, 2)}
-              </pre>
-            </CardContent>
-          </Card>
-        )}
+            </div>
 
-      <ExtensionSlot slot={SystemDetailsSlot} context={{ system }} />
+            <div className="h-px bg-border" />
+
+            {/* Contacts */}
+            <div className="space-y-2">
+              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Contacts
+              </h3>
+              {!contactsData || contactsData.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No contacts assigned
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {contactsData.map((contact) => (
+                    <div
+                      key={contact.id}
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      {contact.type === "user" ? (
+                        <User className="h-3.5 w-3.5 text-muted-foreground" />
+                      ) : (
+                        <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+                      )}
+                      <a
+                        href={`mailto:${contact.type === "user" ? contact.userEmail : contact.email}`}
+                        className="text-primary hover:underline truncate"
+                      >
+                        {contact.type === "user"
+                          ? (contact.userName ?? contact.userId)
+                          : contact.email}
+                      </a>
+                      {contact.label && (
+                        <span className="text-muted-foreground text-xs">
+                          ({contact.label})
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="h-px bg-border" />
+
+            {/* Groups */}
+            <div className="space-y-2">
+              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Groups
+              </h3>
+              {groups.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Not part of any groups
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {groups.map((group) => (
+                    <span
+                      key={group.id}
+                      className="inline-flex items-center rounded-full border border-primary/20 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary"
+                    >
+                      {group.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Metadata (conditional) */}
+            {system.metadata &&
+              typeof system.metadata === "object" &&
+              Object.keys(system.metadata).length > 0 && (
+                <>
+                  <div className="h-px bg-border" />
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      Metadata
+                    </h3>
+                    <pre className="text-xs text-foreground bg-muted/30 p-3 rounded-md border border-border overflow-x-auto">
+                      {JSON.stringify(system.metadata, undefined, 2)}
+                    </pre>
+                  </div>
+                </>
+              )}
+          </CardContent>
+        </Card>
+      </div>
     </PageLayout>
   );
 };

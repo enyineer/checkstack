@@ -1,10 +1,6 @@
-import React, { useState, useCallback, useRef } from "react";
-import { Loader2 } from "lucide-react";
+import React, { useState, useCallback } from "react";
 import {
-  ExtensionSlot,
   usePluginClient,
-  useApi,
-  accessApiRef,
   type SlotContext,
 } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
@@ -12,53 +8,41 @@ import { SystemDetailsSlot } from "@checkstack/catalog-common";
 import {
   HEALTH_CHECK_RUN_COMPLETED,
   HealthCheckApi,
-  healthCheckAccess,
-  healthcheckRoutes,
 } from "@checkstack/healthcheck-common";
-import { SatelliteApi, satelliteAccess } from "@checkstack/satellite-common";
-import { resolveRoute } from "@checkstack/common";
 import {
   HealthBadge,
   LoadingSpinner,
-  Table,
-  TableHeader,
-  TableRow,
-  TableHead,
-  TableBody,
-  TableCell,
-  Tooltip,
-  Pagination,
-  usePagination,
-  usePaginationSync,
-  DateRangeFilter,
-  getPresetRange,
-  DateRangePreset,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@checkstack/ui";
-import { formatDistanceToNow } from "date-fns";
-import {
-  ChevronDown,
-  ChevronRight,
-  Satellite as SatelliteIcon,
-  Server,
-} from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Heart } from "lucide-react";
 import { HealthCheckSparkline } from "./HealthCheckSparkline";
-import { HealthCheckLatencyChart } from "./HealthCheckLatencyChart";
-import { HealthCheckStatusTimeline } from "./HealthCheckStatusTimeline";
-import { useHealthCheckData } from "../hooks/useHealthCheckData";
+import { HealthCheckDrawer } from "./HealthCheckDrawer";
 
 import type {
   StateThresholds,
   HealthCheckStatus,
 } from "@checkstack/healthcheck-common";
-import { AggregatedDataBanner } from "./AggregatedDataBanner";
-import { HealthCheckDiagramSlot } from "../slots";
 
 type SlotProps = SlotContext<typeof SystemDetailsSlot>;
+
+/**
+ * Compact relative time formatter that prevents layout shift.
+ * Returns fixed-width strings like "< 1m", "5m", "2h", "3d".
+ */
+function formatCompactTime(date: Date | undefined): string {
+  if (!date) return "—";
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return "< 1m";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
 
 interface HealthCheckOverviewItem {
   configurationId: string;
@@ -71,386 +55,13 @@ interface HealthCheckOverviewItem {
   recentStatusHistory: HealthCheckStatus[];
 }
 
-interface ExpandedRowProps {
-  item: HealthCheckOverviewItem;
-  systemId: string;
-}
-
-const ExpandedDetails: React.FC<ExpandedRowProps> = ({ item, systemId }) => {
-  const healthCheckClient = usePluginClient(HealthCheckApi);
-  const satelliteClient = usePluginClient(SatelliteApi);
-  const navigate = useNavigate();
-  const accessApi = useApi(accessApiRef);
-  const { allowed: canViewDetails } = accessApi.useAccess(
-    healthCheckAccess.details,
-  );
-  const { allowed: canReadSatellites } = accessApi.useAccess(
-    satelliteAccess.satellite.read,
-  );
-
-  // Fetch satellites for source filter (only if user has access)
-  const { data: satellitesData } = satelliteClient.listSatellites.useQuery(
-    {},
-    { enabled: canReadSatellites },
-  );
-  const satellites = satellitesData?.satellites ?? [];
-
-  // Date range state for filtering - default to last 24 hours
-  const [dateRange, setDateRange] = useState(() =>
-    getPresetRange(DateRangePreset.Last24Hours),
-  );
-  // Track if a rolling preset is active (vs custom range)
-  const [isRollingPreset, setIsRollingPreset] = useState(true);
-  const [sourceFilter, setSourceFilter] = useState<string | undefined>();
-
-  // Callback to handle date range changes from the filter
-  const handleDateRangeChange = useCallback(
-    (newRange: { startDate: Date; endDate: Date }) => {
-      setDateRange(newRange);
-      // Check if this is a rolling preset by comparing endDate to now (within 1 minute)
-      const isNearNow =
-        Math.abs(newRange.endDate.getTime() - Date.now()) < 60_000;
-      setIsRollingPreset(isNearNow);
-      // Clear any pending custom range when preset is selected
-      setPendingCustomRange(undefined);
-    },
-    [],
-  );
-
-  // Local state for custom date picker - only applied when user clicks Apply
-  const [pendingCustomRange, setPendingCustomRange] = useState<
-    | {
-        startDate: Date;
-        endDate: Date;
-      }
-    | undefined
-  >();
-
-  // Handle custom date changes - store locally until Apply
-  const handleCustomDateChange = useCallback(
-    (newRange: { startDate: Date; endDate: Date }) => {
-      setPendingCustomRange(newRange);
-    },
-    [],
-  );
-
-  // Apply pending custom range
-  const handleApplyCustomRange = useCallback(() => {
-    if (pendingCustomRange) {
-      setDateRange(pendingCustomRange);
-      setIsRollingPreset(false);
-      setPendingCustomRange(undefined);
-    }
-  }, [pendingCustomRange]);
-
-  // Use shared hook for chart data - handles both raw and aggregated modes
-  // and includes signal handling for automatic refresh
-  const {
-    context: chartContext,
-    loading: chartLoading,
-    isFetching: chartFetching,
-    bucketIntervalSeconds,
-  } = useHealthCheckData({
-    systemId,
-    configurationId: item.configurationId,
-    strategyId: item.strategyId,
-    dateRange,
-    sourceFilter,
-    isRollingPreset,
-    // Update endDate to current time when new runs are detected (only for rolling presets)
-    onDateRangeRefresh: (newEndDate) => {
-      setDateRange((prev) => ({ ...prev, endDate: newEndDate }));
-    },
-  });
-
-  // Pagination state for history table
-  const pagination = usePagination({ defaultLimit: 10 });
-
-  // Fetch paginated history with useQuery - newest first for table
-  const {
-    data: historyData,
-    isLoading: loading,
-    refetch,
-  } = healthCheckClient.getHistory.useQuery({
-    systemId,
-    configurationId: item.configurationId,
-    limit: pagination.limit,
-    offset: pagination.offset,
-    startDate: dateRange.startDate,
-    // Don't pass endDate - backend defaults to 'now' so new runs are included
-    sourceFilter,
-    sortOrder: "desc",
-  });
-
-  // Sync total from response
-  usePaginationSync(pagination, historyData?.total);
-
-  // Preserve previous runs during loading to prevent layout shift
-  const prevRunsRef = useRef(historyData?.runs ?? []);
-  const rawRuns = historyData?.runs ?? [];
-  const displayRuns =
-    loading && prevRunsRef.current.length > 0 ? prevRunsRef.current : rawRuns;
-  if (!loading && rawRuns.length > 0) {
-    prevRunsRef.current = rawRuns;
-  }
-  const runs = displayRuns;
-
-  // Listen for realtime health check updates to refresh history table
-  // Charts are refreshed automatically by useHealthCheckData
-  useSignal(HEALTH_CHECK_RUN_COMPLETED, ({ systemId: changedId }) => {
-    if (changedId === systemId) {
-      void refetch();
-    }
-  });
-
-  const thresholdDescription = item.stateThresholds
-    ? item.stateThresholds.mode === "consecutive"
-      ? `Consecutive mode: Healthy after ${item.stateThresholds.healthy.minSuccessCount} success(es), Degraded after ${item.stateThresholds.degraded.minFailureCount} failure(s), Unhealthy after ${item.stateThresholds.unhealthy.minFailureCount} failure(s)`
-      : `Window mode (${item.stateThresholds.windowSize} runs): Degraded at ${item.stateThresholds.degraded.minFailureCount}+ failures, Unhealthy at ${item.stateThresholds.unhealthy.minFailureCount}+ failures`
-    : "Using default thresholds";
-
-  // Render charts - charts handle data transformation internally
-  const renderCharts = () => {
-    if (chartLoading) {
-      return <LoadingSpinner />;
-    }
-
-    if (!chartContext) {
-      return;
-    }
-
-    // Check if we have data to show
-    const hasData = chartContext.buckets.length > 0;
-
-    if (!hasData) {
-      return;
-    }
-
-    return (
-      <div className="space-y-4">
-        {bucketIntervalSeconds && (
-          <AggregatedDataBanner
-            bucketIntervalSeconds={bucketIntervalSeconds}
-            checkIntervalSeconds={item.intervalSeconds}
-          />
-        )}
-        {/* Status Timeline */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">
-              Status Timeline
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <HealthCheckStatusTimeline context={chartContext} height={50} />
-          </CardContent>
-        </Card>
-        {/* Execution Duration Chart */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">
-              Average Execution Duration
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <HealthCheckLatencyChart
-              context={chartContext}
-              height={150}
-              showAverage
-            />
-          </CardContent>
-        </Card>
-        {/* Extension Slot for custom strategy-specific diagrams */}
-        <ExtensionSlot slot={HealthCheckDiagramSlot} context={chartContext} />
-      </div>
-    );
-  };
-
-  return (
-    <div className="p-4 bg-muted/30 border-t space-y-4">
-      <div className="flex flex-wrap gap-4 text-sm">
-        <div>
-          <span className="text-muted-foreground">Strategy:</span>{" "}
-          <span className="font-medium">{item.strategyId}</span>
-        </div>
-        <div>
-          <span className="text-muted-foreground">Interval:</span>{" "}
-          <span className="font-medium">{item.intervalSeconds}s</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <span className="text-muted-foreground">Thresholds:</span>{" "}
-          <Tooltip content={thresholdDescription} />
-        </div>
-      </div>
-
-      {/* Date Range Filter with Loading Spinner */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <DateRangeFilter
-          value={pendingCustomRange ?? dateRange}
-          onChange={handleDateRangeChange}
-          onCustomChange={handleCustomDateChange}
-          disabled={chartFetching}
-        />
-        {pendingCustomRange && (
-          <button
-            onClick={handleApplyCustomRange}
-            disabled={
-              chartFetching ||
-              pendingCustomRange.startDate >= pendingCustomRange.endDate
-            }
-            className="px-3 py-1.5 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            Apply
-          </button>
-        )}
-        {chartFetching && (
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        )}
-      </div>
-      {/* Source filter (visible when satellites exist and user has read access) */}
-      {canReadSatellites && satellites.length > 0 && (
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Source:</span>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setSourceFilter(undefined)}
-              className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
-                sourceFilter === undefined
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
-              }`}
-            >
-              All
-            </button>
-            <button
-              onClick={() => setSourceFilter("local")}
-              className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
-                sourceFilter === "local"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
-              }`}
-            >
-              <Server className="h-3 w-3" />
-              Local
-            </button>
-            {satellites.map((sat) => (
-              <button
-                key={sat.id}
-                onClick={() => setSourceFilter(sat.id)}
-                className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
-                  sourceFilter === sat.id
-                    ? "bg-orange-500 text-white"
-                    : "bg-orange-500/10 text-orange-600 hover:bg-orange-500/20"
-                }`}
-              >
-                <SatelliteIcon className="h-3 w-3" />
-                {sat.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Charts Section */}
-      {renderCharts()}
-
-      {loading && prevRunsRef.current.length === 0 ? (
-        <LoadingSpinner />
-      ) : runs.length > 0 ? (
-        <>
-          {/* Divider between charts and table */}
-          <div className="flex items-center gap-4 pt-4">
-            <div className="flex-1 h-px bg-border" />
-            <span className="text-sm text-muted-foreground flex items-center gap-2">
-              Recent Runs
-              {loading && <Loader2 className="h-3 w-3 animate-spin" />}
-            </span>
-            <div className="flex-1 h-px bg-border" />
-          </div>
-
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-24">Status</TableHead>
-                  <TableHead>Time</TableHead>
-                  <TableHead>Source</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {runs.map((run) => (
-                  <TableRow
-                    key={run.id}
-                    className={`${
-                      canViewDetails ? "cursor-pointer hover:bg-muted/50" : ""
-                    } ${loading ? "opacity-50" : ""}`}
-                    onClick={
-                      canViewDetails
-                        ? () =>
-                            navigate(
-                              resolveRoute(
-                                healthcheckRoutes.routes.historyRun,
-                                {
-                                  systemId,
-                                  configurationId: item.configurationId,
-                                  runId: run.id,
-                                },
-                              ),
-                            )
-                        : undefined
-                    }
-                  >
-                    <TableCell>
-                      <HealthBadge status={run.status} />
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatDistanceToNow(new Date(run.timestamp), {
-                        addSuffix: true,
-                      })}
-                    </TableCell>
-                    <TableCell>
-                      {run.sourceId ? (
-                        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-orange-500/10 text-orange-600">
-                          <SatelliteIcon className="h-3 w-3" />
-                          {run.sourceLabel ?? "Remote"}
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
-                          <Server className="h-3 w-3" />
-                          {run.sourceLabel ?? "Local"}
-                        </span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          <Pagination
-            page={pagination.page}
-            totalPages={pagination.totalPages}
-            onPageChange={pagination.setPage}
-            total={pagination.total}
-            limit={pagination.limit}
-            onPageSizeChange={pagination.setLimit}
-            showPageSize
-            showTotal
-          />
-        </>
-      ) : (
-        <div className="text-center text-muted-foreground py-4">
-          No runs recorded yet
-        </div>
-      )}
-    </div>
-  );
-};
-
 export function HealthCheckSystemOverview(props: SlotProps) {
   const systemId = props.system.id;
   const healthCheckClient = usePluginClient(HealthCheckApi);
 
-  const [expandedRow, setExpandedRow] = React.useState<string | undefined>();
+  const [selectedCheck, setSelectedCheck] = useState<
+    HealthCheckOverviewItem | undefined
+  >();
 
   // Fetch health check overview using useQuery
   const {
@@ -496,59 +107,68 @@ export function HealthCheckSystemOverview(props: SlotProps) {
   }
 
   if (overview.length === 0) {
-    return (
-      <div className="text-center text-muted-foreground py-4">
-        No health checks configured
-      </div>
-    );
+    return;
   }
 
   return (
-    <div className="space-y-2">
-      {overview.map((item) => {
-        const isExpanded = expandedRow === item.configurationId;
-
-        return (
-          <div key={item.configurationId} className="rounded-md border bg-card">
-            <button
-              className="w-full p-4 text-left hover:bg-muted/50 transition-colors"
-              onClick={() =>
-                setExpandedRow(isExpanded ? undefined : item.configurationId)
-              }
-            >
-              {/* Header row: chevron, name, badge */}
-              <div className="flex items-center gap-3">
-                {isExpanded ? (
-                  <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
-                ) : (
-                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                )}
-                <div className="flex-1 min-w-0 flex items-center justify-between gap-2">
-                  <span className="font-medium truncate">{item.name}</span>
-                  <HealthBadge status={item.state} />
-                </div>
-              </div>
-              {/* Details row: last run + sparkline */}
-              <div className="ml-7 mt-1 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <span className="text-sm text-muted-foreground">
-                  Last run:{" "}
-                  {item.lastRunAt
-                    ? formatDistanceToNow(item.lastRunAt, { addSuffix: true })
-                    : "never"}
-                </span>
-                {item.recentStatusHistory.length > 0 && (
-                  <HealthCheckSparkline
-                    runs={item.recentStatusHistory.map((status) => ({
-                      status,
-                    }))}
-                  />
-                )}
-              </div>
-            </button>
-            {isExpanded && <ExpandedDetails item={item} systemId={systemId} />}
+    <>
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Heart className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-base font-semibold">
+              Health Checks
+            </CardTitle>
           </div>
-        );
-      })}
-    </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="divide-y divide-border">
+            {overview.map((item) => (
+              <button
+                key={item.configurationId}
+                className="w-full px-4 py-3 text-left hover:bg-muted/50 transition-colors flex items-center gap-3"
+                onClick={() => setSelectedCheck(item)}
+              >
+                {/* Check name */}
+                <span className="font-medium truncate flex-1 min-w-0 text-sm">
+                  {item.name}
+                </span>
+
+                {/* Status badge */}
+                <HealthBadge status={item.state} />
+
+                {/* Sparkline */}
+                {item.recentStatusHistory.length > 0 && (
+                  <div className="hidden sm:block shrink-0">
+                    <HealthCheckSparkline
+                      runs={item.recentStatusHistory.map((status) => ({
+                        status,
+                      }))}
+                    />
+                  </div>
+                )}
+
+                {/* Last run — compact fixed-width to prevent shift */}
+                <span className="hidden md:block text-xs text-muted-foreground w-10 text-right shrink-0 tabular-nums">
+                  {formatCompactTime(item.lastRunAt)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Slide-over Drawer */}
+      {selectedCheck && (
+        <HealthCheckDrawer
+          item={selectedCheck}
+          systemId={systemId}
+          open={!!selectedCheck}
+          onOpenChange={(open) => {
+            if (!open) setSelectedCheck(undefined);
+          }}
+        />
+      )}
+    </>
   );
 }

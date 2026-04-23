@@ -91,3 +91,4 @@ export const SystemStateBadgesSlot = createSlot<{ system: System }>(
 export const SystemEditorSlot = createSlot<{ systemId: string }>(
   "plugin.catalog.system-editor"
 );
+

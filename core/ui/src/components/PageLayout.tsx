@@ -38,7 +38,7 @@ export const PageLayout: React.FC<PageLayoutProps> = ({
   loading,
   allowed,
   children,
-  maxWidth = "3xl",
+  maxWidth = "7xl",
 }) => {
   // If loading is explicitly true, show loading state
   // If loading is undefined and allowed is false, also show loading state
