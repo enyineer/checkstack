@@ -17,12 +17,8 @@ import {
   NotificationApi,
   type EnrichedSubscription,
 } from "@checkstack/notification-common";
-import {
-  IncidentApi,
-} from "@checkstack/incident-common";
-import {
-  MaintenanceApi,
-} from "@checkstack/maintenance-common";
+import { IncidentApi } from "@checkstack/incident-common";
+import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { HEALTH_CHECK_RUN_COMPLETED } from "@checkstack/healthcheck-common";
 import { useSignal } from "@checkstack/signal-frontend";
 import {
@@ -104,7 +100,7 @@ export const Dashboard: React.FC = () => {
   const [subscriptionLoading, setSubscriptionLoading] = useState<
     Record<string, boolean>
   >({});
-  
+
   const [isIncidentSheetOpen, setIncidentSheetOpen] = useState(false);
   const [isMaintenanceSheetOpen, setMaintenanceSheetOpen] = useState(false);
 
@@ -126,12 +122,29 @@ export const Dashboard: React.FC = () => {
   const incidents = incidentsData?.incidents ?? [];
 
   // Fetch active maintenances
-  const { data: maintenancesData, isLoading: maintenancesLoading } =
+  const { data: inProgressMaintenancesData, isLoading: inProgressLoading } =
     maintenanceClient.listMaintenances.useQuery(
       { status: "in_progress" },
       { staleTime: 30_000 },
     );
-  const maintenances = maintenancesData?.maintenances ?? [];
+
+  // Fetch scheduled maintenances
+  const { data: scheduledMaintenancesData, isLoading: scheduledLoading } =
+    maintenanceClient.listMaintenances.useQuery(
+      { status: "scheduled" },
+      { staleTime: 30_000 },
+    );
+
+  const maintenances = useMemo(() => {
+    return [
+      ...(inProgressMaintenancesData?.maintenances ?? []),
+      ...(scheduledMaintenancesData?.maintenances ?? []),
+    ].toSorted(
+      (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
+    );
+  }, [inProgressMaintenancesData, scheduledMaintenancesData]);
+
+  const maintenancesLoading = inProgressLoading || scheduledLoading;
 
   // Fetch subscriptions (only when logged in)
   const { data: subscriptions = [], refetch: refetchSubscriptions } =
@@ -397,7 +410,8 @@ export const Dashboard: React.FC = () => {
             />
 
             <StatusCard
-              title="Active Maintenances"
+              variant={activeMaintenancesCount > 0 ? "gradient" : "default"}
+              title="Active & Scheduled Maintenances"
               value={
                 loading ? (
                   "..."
@@ -408,7 +422,7 @@ export const Dashboard: React.FC = () => {
               description={
                 activeMaintenancesCount === 0
                   ? "No scheduled maintenance"
-                  : "Ongoing or scheduled maintenance windows"
+                  : "Ongoing or upcoming maintenance windows"
               }
               icon={<Wrench className="w-4 h-4" />}
               onClick={
@@ -418,7 +432,7 @@ export const Dashboard: React.FC = () => {
               }
               className={
                 activeMaintenancesCount > 0
-                  ? "cursor-pointer hover:border-border/80 hover:bg-muted/30 transition-colors"
+                  ? "cursor-pointer hover:opacity-90 hover:scale-[1.02]"
                   : ""
               }
             />

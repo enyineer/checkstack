@@ -15,6 +15,7 @@ import {
   incidentAccess,
   type IncidentWithSystems,
 } from "@checkstack/incident-common";
+import { resolveRoute } from "@checkstack/common";
 import type { System } from "@checkstack/catalog-common";
 
 interface Props {
@@ -73,9 +74,11 @@ export const IncidentOverviewSheet: React.FC<Props> = ({
                     : "info";
 
               return (
-                <div
+                <Link
                   key={incident.id}
-                  className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4"
+                  to={resolveRoute(incidentRoutes.routes.detail, { incidentId: incident.id })}
+                  onClick={() => onOpenChange(false)}
+                  className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4 hover:border-primary/50 hover:shadow-sm transition-all text-left"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <h4 className="font-medium text-foreground">
@@ -93,7 +96,7 @@ export const IncidentOverviewSheet: React.FC<Props> = ({
                       {affectedSystemNames || "None"}
                     </span>
                   </div>
-                </div>
+                </Link>
               );
             })
           )}

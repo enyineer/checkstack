@@ -15,6 +15,7 @@ import {
   maintenanceAccess,
   type MaintenanceWithSystems,
 } from "@checkstack/maintenance-common";
+import { resolveRoute } from "@checkstack/common";
 import type { System } from "@checkstack/catalog-common";
 
 interface Props {
@@ -41,7 +42,7 @@ export const MaintenanceOverviewSheet: React.FC<Props> = ({
       <SheetContent>
         <SheetHeader className="flex flex-row items-start justify-between gap-4 pt-6">
           <div className="flex flex-col gap-1 text-left">
-            <SheetTitle>Active Maintenances</SheetTitle>
+            <SheetTitle>Active & Scheduled Maintenances</SheetTitle>
             <p className="text-sm text-muted-foreground">
               Overview of scheduled and ongoing windows
             </p>
@@ -65,9 +66,11 @@ export const MaintenanceOverviewSheet: React.FC<Props> = ({
                 .join(", ");
 
               return (
-                <div
+                <Link
                   key={maintenance.id}
-                  className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4"
+                  to={resolveRoute(maintenanceRoutes.routes.detail, { maintenanceId: maintenance.id })}
+                  onClick={() => onOpenChange(false)}
+                  className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4 hover:border-primary/50 hover:shadow-sm transition-all text-left"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <h4 className="font-medium text-foreground">
@@ -85,7 +88,27 @@ export const MaintenanceOverviewSheet: React.FC<Props> = ({
                       {affectedSystemNames || "None"}
                     </span>
                   </div>
-                </div>
+                  <div className="flex flex-col gap-1 mt-2">
+                    <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                      Schedule
+                    </span>
+                    <span className="text-sm text-foreground">
+                      {new Date(maintenance.startAt).toLocaleString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                      {" - "}
+                      {new Date(maintenance.endAt).toLocaleString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
+                </Link>
               );
             })
           )}
