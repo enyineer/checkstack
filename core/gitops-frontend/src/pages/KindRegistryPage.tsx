@@ -12,6 +12,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  CodeEditor,
 } from "@checkstack/ui";
 import {
   ChevronDown,
@@ -40,6 +41,7 @@ interface JsonSchemaProperty {
 interface KindDescription {
   apiVersion: string;
   kind: string;
+  metadataSchema: JsonSchemaProperty;
   specSchema: JsonSchemaProperty;
   extensions: Array<{
     namespace: string;
@@ -182,12 +184,31 @@ function SchemaBlock({
 // ─── YAML Example Generator ────────────────────────────────────────────────
 
 function generateYamlExample({ kind }: { kind: KindDescription }): string {
-  const lines = [
-    `apiVersion: ${kind.apiVersion}`,
-    `kind: ${kind.kind}`,
-    "metadata:",
-    `  name: my-${kind.kind.toLowerCase()}`,
-  ];
+  const lines = [`apiVersion: ${kind.apiVersion}`, `kind: ${kind.kind}`];
+
+  if (kind.metadataSchema) {
+    lines.push("metadata:");
+    const metadataProps = kind.metadataSchema.properties ?? {};
+    const metadataRequired = new Set(kind.metadataSchema.required);
+
+    for (const [key, prop] of Object.entries(metadataProps)) {
+      // Provide a nice default for name instead of generic "..."
+      const customProp =
+        key === "name"
+          ? { ...prop, default: `my-${kind.kind.toLowerCase()}` }
+          : prop;
+
+      emitProperty({
+        lines,
+        key,
+        prop: customProp,
+        indent: 2,
+        required: metadataRequired.has(key),
+      });
+    }
+  } else {
+    lines.push("metadata:", `  name: my-${kind.kind.toLowerCase()}`);
+  }
 
   const baseProps = kind.specSchema.properties ?? {};
   const hasBaseProps = Object.keys(baseProps).length > 0;
@@ -544,6 +565,7 @@ function SpecSchemaDocumentationField({
 
 function KindCard({ kind }: { kind: KindDescription }) {
   const [isOpen, setIsOpen] = useState(false);
+  const yamlExample = useMemo(() => generateYamlExample({ kind }), [kind]);
 
   return (
     <Card className="mb-3">
@@ -583,6 +605,12 @@ function KindCard({ kind }: { kind: KindDescription }) {
 
       {isOpen && (
         <CardContent className="pt-0 space-y-6">
+          {/* Entity Envelope Fields */}
+          <SchemaBlock
+            schema={kind.metadataSchema}
+            label="Entity Envelope Fields"
+          />
+
           {/* Base Spec Schema */}
           <SchemaBlock schema={kind.specSchema} label="Base Spec Schema" />
 
@@ -624,9 +652,15 @@ function KindCard({ kind }: { kind: KindDescription }) {
             <h4 className="text-sm font-medium mb-2 text-muted-foreground">
               YAML Example
             </h4>
-            <pre className="bg-muted rounded-md p-3 overflow-x-auto text-sm">
-              <code>{generateYamlExample({ kind })}</code>
-            </pre>
+            <div className="rounded-md overflow-hidden border border-input">
+              <CodeEditor
+                value={yamlExample}
+                language="yaml"
+                readOnly
+                onChange={() => {}}
+                minHeight={`${Math.max(100, yamlExample.split("\n").length * 20 + 20)}px`}
+              />
+            </div>
           </div>
         </CardContent>
       )}

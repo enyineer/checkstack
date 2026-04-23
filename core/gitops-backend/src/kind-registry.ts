@@ -6,6 +6,7 @@ import type {
   EntityKindRegistry,
   SpecSchemaDocumentation,
 } from "@checkstack/gitops-common";
+import { entityMetadataSchema } from "@checkstack/gitops-common";
 
 /** Internal storage for a registered kind with its extensions. */
 interface RegisteredKind {
@@ -48,6 +49,7 @@ export function createEntityKindRegistry() {
     describeKinds: () => Array<{
       apiVersion: string;
       kind: string;
+      metadataSchema: Record<string, unknown>;
       specSchema: Record<string, unknown>;
       extensions: Array<{
         namespace: string;
@@ -188,6 +190,7 @@ export function createEntityKindRegistry() {
       const result: Array<{
         apiVersion: string;
         kind: string;
+        metadataSchema: Record<string, unknown>;
         specSchema: Record<string, unknown>;
         extensions: Array<{
           namespace: string;
@@ -210,9 +213,7 @@ export function createEntityKindRegistry() {
         if (!registered.definition) continue;
 
         const def = registered.definition;
-        const baseSchema = toJsonSchema(
-          def.specSchema as z.ZodTypeAny,
-        );
+        const baseSchema = toJsonSchema(def.specSchema as z.ZodTypeAny);
 
         const extensions = [...registered.extensions.entries()].map(
           ([namespace, ext]) => ({
@@ -235,6 +236,7 @@ export function createEntityKindRegistry() {
         result.push({
           apiVersion: def.apiVersion,
           kind: def.kind,
+          metadataSchema: toJsonSchema(entityMetadataSchema),
           specSchema: baseSchema,
           extensions,
           specSchemaDocumentation,

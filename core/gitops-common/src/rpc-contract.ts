@@ -251,6 +251,7 @@ export const gitopsContract = {
       z.object({
         apiVersion: z.string(),
         kind: z.string(),
+        metadataSchema: z.record(z.string(), z.unknown()),
         specSchema: z.record(z.string(), z.unknown()),
         extensions: z.array(
           z.object({

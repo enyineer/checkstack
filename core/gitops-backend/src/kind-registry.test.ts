@@ -207,6 +207,7 @@ describe("EntityKindRegistry", () => {
       const sys = described[0];
       expect(sys.apiVersion).toBe(CHECKSTACK_API_VERSION);
       expect(sys.kind).toBe("System");
+      expect(sys.metadataSchema).toBeDefined();
       expect(sys.specSchema).toBeDefined();
       expect(sys.extensions).toHaveLength(0);
 
