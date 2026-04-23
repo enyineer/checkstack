@@ -92,21 +92,3 @@ export const SystemEditorSlot = createSlot<{ systemId: string }>(
   "plugin.catalog.system-editor"
 );
 
-/**
- * Slot for displaying at-a-glance metric tiles in the system detail hero banner.
- * Plugins contribute compact MetricTile components showing key stats.
- * Extensions receive the full system object.
- *
- * @example
- * import { SystemOverviewMetricsSlot } from "@checkstack/catalog-common";
- *
- * extensions: [{
- *   id: "my-plugin.system-overview-metric",
- *   slotId: SystemOverviewMetricsSlot.id,
- *   component: ({ system }) => <MyMetricTile system={system} />,
- * }]
- */
-export const SystemOverviewMetricsSlot = createSlot<{ system: System }>(
-  "plugin.catalog.system-overview-metrics"
-);
-

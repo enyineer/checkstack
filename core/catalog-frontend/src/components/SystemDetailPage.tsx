@@ -10,7 +10,6 @@ import {
   SystemDetailsSlot,
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
-  SystemOverviewMetricsSlot,
 } from "@checkstack/catalog-common";
 import { NotificationApi } from "@checkstack/notification-common";
 import {
@@ -190,14 +189,6 @@ export const SystemDetailPage: React.FC = () => {
     >
       {/* Alert strip — incidents, maintenances, dependency alerts */}
       <ExtensionSlot slot={SystemDetailsTopSlot} context={{ system }} />
-
-      {/* Metric strip — plugin-contributed at-a-glance tiles */}
-      <div className="flex gap-3 overflow-x-auto pb-1 snap-x snap-mandatory scrollbar-thin">
-        <ExtensionSlot
-          slot={SystemOverviewMetricsSlot}
-          context={{ system }}
-        />
-      </div>
 
       {/* Two-Column Layout */}
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">

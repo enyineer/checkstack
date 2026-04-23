@@ -3,23 +3,17 @@ import {
   createSlotExtension,
   UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
-import {
-  sloRoutes,
-  pluginMetadata,
-  sloAccess,
-} from "@checkstack/slo-common";
-import {
-  SystemDetailsTopSlot,
-  SystemStateBadgesSlot,
-  SystemOverviewMetricsSlot,
-} from "@checkstack/catalog-common";
+import { sloRoutes, pluginMetadata, sloAccess } from "@checkstack/slo-common";
 import { SloOverviewPage } from "./pages/SloOverviewPage";
 import { SloConfigPage } from "./pages/SloConfigPage";
 import { SloDetailPage } from "./pages/SloDetailPage";
 import { SystemSloPanel } from "./components/SystemSloPanel";
 import { SystemSloBadge } from "./components/SystemSloBadge";
-import { SystemSloMetricTile } from "./components/SystemSloMetricTile";
 import { SloMenuItems } from "./components/SloMenuItems";
+import {
+  SystemDetailsTopSlot,
+  SystemStateBadgesSlot,
+} from "@checkstack/catalog-common";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
@@ -54,10 +48,6 @@ export default createFrontendPlugin({
     createSlotExtension(SystemDetailsTopSlot, {
       id: "slo.system-details-top.panel",
       component: SystemSloPanel,
-    }),
-    createSlotExtension(SystemOverviewMetricsSlot, {
-      id: "slo.system-overview-metric",
-      component: SystemSloMetricTile,
     }),
   ],
 });

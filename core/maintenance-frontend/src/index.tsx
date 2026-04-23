@@ -11,14 +11,12 @@ import {
 import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
-  SystemOverviewMetricsSlot,
 } from "@checkstack/catalog-common";
 import { MaintenanceConfigPage } from "./pages/MaintenanceConfigPage";
 import { SystemMaintenanceHistoryPage } from "./pages/SystemMaintenanceHistoryPage";
 import { MaintenanceDetailPage } from "./pages/MaintenanceDetailPage";
 import { SystemMaintenancePanel } from "./components/SystemMaintenancePanel";
 import { SystemMaintenanceBadge } from "./components/SystemMaintenanceBadge";
-import { SystemMaintenanceMetricTile } from "./components/SystemMaintenanceMetricTile";
 import { MaintenanceMenuItems } from "./components/MaintenanceMenuItems";
 
 export default createFrontendPlugin({
@@ -55,10 +53,6 @@ export default createFrontendPlugin({
     createSlotExtension(SystemDetailsTopSlot, {
       id: "maintenance.system-details-top.panel",
       component: SystemMaintenancePanel,
-    }),
-    createSlotExtension(SystemOverviewMetricsSlot, {
-      id: "maintenance.system-overview-metric",
-      component: SystemMaintenanceMetricTile,
     }),
   ],
 });
