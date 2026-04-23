@@ -72,6 +72,9 @@ export default createBackendPlugin({
       ) {
         kindRegistry.registerKindExtension(definition);
       },
+      registerSpecSchemaDocumentation(params) {
+        kindRegistry.registerSpecSchemaDocumentation(params);
+      },
     });
 
     env.registerInit({

@@ -5,13 +5,15 @@ import type {
   EntityKindRegistry,
   ReconcileContext,
 } from "@checkstack/gitops-common";
-import { CHECKSTACK_API_VERSION, entityRefSchema } from "@checkstack/gitops-common";
+import {
+  CHECKSTACK_API_VERSION,
+  entityRefSchema,
+} from "@checkstack/gitops-common";
 import type {
   HealthCheckRegistry,
   CollectorRegistry,
 } from "@checkstack/backend-api";
 import { HealthCheckService } from "./service";
-
 
 /**
  * Lazy accessor functions — populated during init(), consumed during reconcile.
@@ -97,7 +99,10 @@ export function buildHealthcheckKind(
       existingEntityId,
       context,
     }: {
-      entity: { metadata: { name: string; title?: string; description?: string }; spec: HealthcheckSpec };
+      entity: {
+        metadata: { name: string; title?: string; description?: string };
+        spec: HealthcheckSpec;
+      };
       existingEntityId?: string;
       context: ReconcileContext;
     }) => {
@@ -110,16 +115,21 @@ export function buildHealthcheckKind(
       if (!strategy) {
         throw new Error(
           `Unknown health check strategy "${spec.strategy}". ` +
-            `Available: ${healthCheckRegistry.getStrategies().map((s) => s.id).join(", ")}`,
+            `Available: ${healthCheckRegistry
+              .getStrategies()
+              .map((s) => s.id)
+              .join(", ")}`,
         );
       }
 
       // Resolve secrets using the strategy's typed schema.
       // Only fields marked with configString({ "x-secret": true }) get resolved.
-      const { resolved: resolvedConfig } = await context.resolveSecretsBySchema({
-        value: spec.config,
-        schema: strategy.config.schema,
-      });
+      const { resolved: resolvedConfig } = await context.resolveSecretsBySchema(
+        {
+          value: spec.config,
+          schema: strategy.config.schema,
+        },
+      );
 
       // Validate resolved config against strategy's Zod schema
       const configValidation = strategy.config.schema.safeParse(resolvedConfig);
@@ -138,18 +148,24 @@ export function buildHealthcheckKind(
               if (!registered) {
                 throw new Error(
                   `Unknown collector "${c.collectorId}". ` +
-                    `Available: ${collectorReg.getCollectors().map((col) => col.qualifiedId).join(", ")}`,
+                    `Available: ${collectorReg
+                      .getCollectors()
+                      .map((col) => col.qualifiedId)
+                      .join(", ")}`,
                 );
               }
 
               // Resolve secrets using the collector's typed schema
-              const { resolved: resolvedCollectorConfig } = await context.resolveSecretsBySchema({
-                value: c.config,
-                schema: registered.collector.config.schema,
-              });
+              const { resolved: resolvedCollectorConfig } =
+                await context.resolveSecretsBySchema({
+                  value: c.config,
+                  schema: registered.collector.config.schema,
+                });
 
               const collectorConfigValidation =
-                registered.collector.config.schema.safeParse(resolvedCollectorConfig);
+                registered.collector.config.schema.safeParse(
+                  resolvedCollectorConfig,
+                );
               if (!collectorConfigValidation.success) {
                 throw new Error(
                   `Collector "${c.collectorId}" config validation failed: ${collectorConfigValidation.error.message}`,
@@ -270,7 +286,7 @@ export function buildSystemHealthcheckExtension(
         // Build state thresholds from the shorthand
         const stateThresholds =
           entry.degradedThreshold || entry.unhealthyThreshold
-            ? ({
+            ? {
                 mode: "consecutive" as const,
                 healthy: { minSuccessCount: 1 },
                 degraded: {
@@ -279,7 +295,7 @@ export function buildSystemHealthcheckExtension(
                 unhealthy: {
                   minFailureCount: entry.unhealthyThreshold ?? 5,
                 },
-              })
+              }
             : undefined;
 
         await service.associateSystem({
@@ -325,4 +341,51 @@ export function registerHealthcheckGitOpsKinds({
 }): void {
   kindRegistry.registerKind(buildHealthcheckKind(deps));
   kindRegistry.registerKindExtension(buildSystemHealthcheckExtension(deps));
+}
+
+/**
+ * Register spec schema documentation for the Healthcheck kind.
+ * Called from healthcheck-backend's `afterPluginsReady` phase once registries are populated.
+ */
+export function registerHealthcheckGitOpsDocumentation({
+  kindRegistry,
+  healthCheckRegistry,
+  collectorRegistry,
+}: {
+  kindRegistry: EntityKindRegistry;
+  healthCheckRegistry: HealthCheckRegistry;
+  collectorRegistry: CollectorRegistry;
+}): void {
+  // 1. Register documentation for strategy configs (fieldPath: "config")
+  for (const registered of healthCheckRegistry.getStrategiesWithMeta()) {
+    kindRegistry.registerSpecSchemaDocumentation({
+      apiVersion: CHECKSTACK_API_VERSION,
+      kind: "Healthcheck",
+      fieldPath: "config",
+      variantId: registered.ownerPluginId,
+      label: registered.strategy.displayName,
+      description: registered.strategy.description,
+      schema: registered.strategy.config.schema,
+    });
+  }
+
+  // 2. Register documentation for collector configs (fieldPath: "collectors[].config")
+  for (const registered of collectorRegistry.getCollectors()) {
+    kindRegistry.registerSpecSchemaDocumentation({
+      apiVersion: CHECKSTACK_API_VERSION,
+      kind: "Healthcheck",
+      fieldPath: "collectors[].config",
+      label: registered.collector.displayName,
+      description: registered.collector.description,
+      schema: registered.collector.config.schema,
+      conditions: [
+        {
+          fieldPath: "config",
+          variantIds: registered.collector.supportedPlugins.map(
+            (p) => p.pluginId,
+          ),
+        },
+      ],
+    });
+  }
 }

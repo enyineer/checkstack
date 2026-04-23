@@ -258,6 +258,19 @@ export const gitopsContract = {
             specSchema: z.record(z.string(), z.unknown()),
           }),
         ),
+        specSchemaDocumentation: z.array(
+          z.object({
+            fieldPath: z.string(),
+            variantId: z.string().optional(),
+            label: z.string(),
+            description: z.string().optional(),
+            specSchema: z.record(z.string(), z.unknown()),
+            conditions: z.array(z.object({
+              fieldPath: z.string(),
+              variantIds: z.array(z.string()),
+            })).optional(),
+          }),
+        ),
       }),
     ),
   ),

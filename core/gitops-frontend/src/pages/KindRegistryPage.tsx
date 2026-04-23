@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -7,8 +7,19 @@ import {
   CardTitle,
   Badge,
   PageLayout,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@checkstack/ui";
-import { ChevronDown, ChevronRight, Puzzle, Blocks } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Puzzle,
+  Blocks,
+  BookOpen,
+} from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { GitOpsApi } from "@checkstack/gitops-common";
 import { extractErrorMessage } from "@checkstack/common";
@@ -33,6 +44,17 @@ interface KindDescription {
   extensions: Array<{
     namespace: string;
     specSchema: JsonSchemaProperty;
+  }>;
+  specSchemaDocumentation?: Array<{
+    fieldPath: string;
+    variantId?: string;
+    label: string;
+    description?: string;
+    specSchema: JsonSchemaProperty;
+    conditions?: Array<{
+      fieldPath: string;
+      variantIds: string[];
+    }>;
   }>;
 }
 
@@ -380,6 +402,144 @@ function scalarExample({ prop }: { prop: JsonSchemaProperty }): string {
   }
 }
 
+// ─── Spec Schema Documentation ─────────────────────────────────────────────
+
+function SpecSchemaDocumentationSection({
+  docs,
+}: {
+  docs: NonNullable<KindDescription["specSchemaDocumentation"]>;
+}) {
+  const [selections, setSelections] = useState<Record<string, string>>({});
+
+  const handleSelect = useCallback((fieldPath: string, variantId: string) => {
+    setSelections((prev) => {
+      if (prev[fieldPath] === variantId) return prev;
+      return { ...prev, [fieldPath]: variantId };
+    });
+  }, []);
+
+  const groupedDocs: Record<string, typeof docs> = {};
+  for (const doc of docs) {
+    if (!groupedDocs[doc.fieldPath]) {
+      groupedDocs[doc.fieldPath] = [];
+    }
+    groupedDocs[doc.fieldPath].push(doc);
+  }
+
+  return (
+    <div className="space-y-6">
+      <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+        <BookOpen className="h-4 w-4" />
+        Additional Schemas
+      </h4>
+
+      {Object.entries(groupedDocs).map(([fieldPath, fieldDocs]) => {
+        return (
+          <SpecSchemaDocumentationField
+            key={fieldPath}
+            fieldPath={fieldPath}
+            docs={fieldDocs.toSorted((a, b) => a.label.localeCompare(b.label))}
+            selections={selections}
+            onSelect={handleSelect}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function SpecSchemaDocumentationField({
+  fieldPath,
+  docs,
+  selections,
+  onSelect,
+}: {
+  fieldPath: string;
+  docs: NonNullable<KindDescription["specSchemaDocumentation"]>;
+  selections: Record<string, string>;
+  onSelect: (fieldPath: string, variantId: string) => void;
+}) {
+  const availableDocs = useMemo(() => {
+    return docs.filter((doc) => {
+      if (!doc.conditions || doc.conditions.length === 0) return true;
+      return doc.conditions.every((cond) => {
+        const selectedForField = selections[cond.fieldPath];
+        if (!selectedForField) return false;
+        return cond.variantIds.includes(selectedForField);
+      });
+    });
+  }, [docs, selections]);
+
+  const currentSelection = selections[fieldPath] || "";
+  const isValidSelection =
+    currentSelection !== "" &&
+    availableDocs.some((d) => (d.variantId || d.label) === currentSelection);
+
+  useEffect(() => {
+    if (currentSelection !== "" && !isValidSelection) {
+      onSelect(fieldPath, "");
+    }
+  }, [currentSelection, isValidSelection, onSelect, fieldPath]);
+
+  if (availableDocs.length === 0) {
+    return <></>;
+  }
+
+  const selectedDoc = availableDocs.find(
+    (d) => (d.variantId || d.label) === currentSelection,
+  );
+
+  return (
+    <div className="border rounded-lg p-4 space-y-4">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary" className="font-mono">
+            {fieldPath}
+          </Badge>
+          <span className="text-sm text-muted-foreground">
+            {availableDocs.length} variant{availableDocs.length > 1 ? "s" : ""}
+          </span>
+        </div>
+
+        <div className="w-full sm:w-64">
+          <Select
+            value={isValidSelection ? currentSelection : ""}
+            onValueChange={(val) => onSelect(fieldPath, val)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select a schema variant..." />
+            </SelectTrigger>
+            <SelectContent>
+              {availableDocs.map((doc, i) => (
+                <SelectItem key={i} value={doc.variantId || doc.label}>
+                  {doc.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {selectedDoc ? (
+        <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+          {selectedDoc.description && (
+            <div className="text-sm text-muted-foreground italic">
+              {selectedDoc.description}
+            </div>
+          )}
+          <div className="bg-muted rounded-md p-3 overflow-x-auto">
+            <SchemaPropertyDisplay schema={selectedDoc.specSchema} />
+          </div>
+        </div>
+      ) : (
+        <div className="text-sm text-muted-foreground italic bg-muted/50 rounded-md p-4 text-center">
+          Select a variant from the dropdown above to view its schema.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Kind Card ─────────────────────────────────────────────────────────────
 
 function KindCard({ kind }: { kind: KindDescription }) {
@@ -450,6 +610,14 @@ function KindCard({ kind }: { kind: KindDescription }) {
               ))}
             </div>
           )}
+
+          {/* Spec Schema Documentation */}
+          {kind.specSchemaDocumentation &&
+            kind.specSchemaDocumentation.length > 0 && (
+              <SpecSchemaDocumentationSection
+                docs={kind.specSchemaDocumentation}
+              />
+            )}
 
           {/* YAML Example */}
           <div>
