@@ -50,6 +50,6 @@ export const SystemHealthBadge: React.FC<Props> = ({ system }) => {
   // Use provider data if available, otherwise use local state
   const status = providerStatus ?? localStatus;
 
-  if (!status) return <></>;
+  if (!status || status === "healthy") return null;
   return <HealthBadge status={status} />;
 };
