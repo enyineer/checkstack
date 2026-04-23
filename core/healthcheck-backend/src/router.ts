@@ -13,6 +13,8 @@ import { HealthCheckService } from "./service";
 import { healthCheckHooks } from "./hooks";
 import * as schema from "./schema";
 import { toJsonSchemaWithChartMeta } from "./schema-utils";
+import type { InferClient } from "@checkstack/common";
+import { GitOpsApi } from "@checkstack/gitops-common";
 
 /**
  * Creates the healthcheck router using contract-based implementation.
@@ -24,6 +26,7 @@ export const createHealthCheckRouter = (opts: {
   database: SafeDatabase<typeof schema>;
   registry: HealthCheckRegistry;
   collectorRegistry: CollectorRegistry;
+  gitOpsClient: InferClient<typeof GitOpsApi>;
   getEmitHook: () => ((hook: { id: string }, payload: Record<string, unknown>) => Promise<void>) | undefined;
 }) => {
   const { database, registry, collectorRegistry, getEmitHook } = opts;
@@ -34,6 +37,18 @@ export const createHealthCheckRouter = (opts: {
   const os = implement(healthCheckContract)
     .$context<RpcContext>()
     .use(autoAuthMiddleware);
+
+  const enforceNotGitOpsLocked = async (kind: string, entityId: string) => {
+    const provenance = await opts.gitOpsClient.getProvenance({
+      kind,
+      entityId,
+    });
+    if (provenance) {
+      throw new ORPCError("FORBIDDEN", {
+        message: `${kind} is managed by GitOps and cannot be modified manually.`,
+      });
+    }
+  };
 
   return os.router({
     getStrategies: os.getStrategies.handler(async ({ context }) => {
@@ -101,6 +116,7 @@ export const createHealthCheckRouter = (opts: {
     }),
 
     updateConfiguration: os.updateConfiguration.handler(async ({ input }) => {
+      await enforceNotGitOpsLocked("Healthcheck", input.id);
       const config = await service.updateConfiguration(input.id, input.body);
       if (!config) {
         throw new ORPCError("NOT_FOUND", {
@@ -111,14 +127,17 @@ export const createHealthCheckRouter = (opts: {
     }),
 
     deleteConfiguration: os.deleteConfiguration.handler(async ({ input }) => {
+      await enforceNotGitOpsLocked("Healthcheck", input);
       await service.deleteConfiguration(input);
     }),
 
     pauseConfiguration: os.pauseConfiguration.handler(async ({ input }) => {
+      await enforceNotGitOpsLocked("Healthcheck", input);
       await service.pauseConfiguration(input);
     }),
 
     resumeConfiguration: os.resumeConfiguration.handler(async ({ input }) => {
+      await enforceNotGitOpsLocked("Healthcheck", input);
       await service.resumeConfiguration(input);
     }),
 
@@ -135,6 +154,7 @@ export const createHealthCheckRouter = (opts: {
     ),
 
     associateSystem: os.associateSystem.handler(async ({ input, context }) => {
+      await enforceNotGitOpsLocked("System", input.systemId);
       await service.associateSystem({
         systemId: input.systemId,
         configurationId: input.body.configurationId,
@@ -173,6 +193,7 @@ export const createHealthCheckRouter = (opts: {
     }),
 
     disassociateSystem: os.disassociateSystem.handler(async ({ input }) => {
+      await enforceNotGitOpsLocked("System", input.systemId);
       await service.disassociateSystem(input.systemId, input.configId);
 
       // Notify subscribers that assignments changed
@@ -191,6 +212,7 @@ export const createHealthCheckRouter = (opts: {
 
     updateRetentionConfig: os.updateRetentionConfig.handler(
       async ({ input }) => {
+        await enforceNotGitOpsLocked("System", input.systemId);
         await service.updateRetentionConfig(
           input.systemId,
           input.configurationId,

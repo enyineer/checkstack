@@ -12,6 +12,7 @@ import { AuthApi } from "@checkstack/auth-common";
 import type { InferClient } from "@checkstack/common";
 import { catalogHooks } from "./hooks";
 import { eq } from "drizzle-orm";
+import { GitOpsApi } from "@checkstack/gitops-common";
 
 /**
  * Creates the catalog router using contract-based implementation.
@@ -27,6 +28,7 @@ export interface CatalogRouterDeps {
   database: SafeDatabase<typeof schema>;
   notificationClient: InferClient<typeof NotificationApi>;
   authClient: InferClient<typeof AuthApi>;
+  gitOpsClient: InferClient<typeof GitOpsApi>;
   pluginId: string;
 }
 
@@ -34,9 +36,22 @@ export const createCatalogRouter = ({
   database,
   notificationClient,
   authClient,
+  gitOpsClient,
   pluginId,
 }: CatalogRouterDeps) => {
   const entityService = new EntityService(database);
+
+  const enforceNotGitOpsLocked = async (kind: string, entityId: string) => {
+    const provenance = await gitOpsClient.getProvenance({
+      kind,
+      entityId,
+    });
+    if (provenance) {
+      throw new ORPCError("FORBIDDEN", {
+        message: `${kind} is managed by GitOps and cannot be modified manually.`,
+      });
+    }
+  };
 
   // Helper to create notification group for an entity
   const createNotificationGroup = async (
@@ -136,6 +151,7 @@ export const createCatalogRouter = ({
   });
 
   const updateSystem = os.updateSystem.handler(async ({ input }) => {
+    await enforceNotGitOpsLocked("System", input.id);
     // Convert null to undefined and filter out fields
     const cleanData: Partial<{
       name: string;
@@ -160,6 +176,7 @@ export const createCatalogRouter = ({
   });
 
   const deleteSystem = os.deleteSystem.handler(async ({ input, context }) => {
+    await enforceNotGitOpsLocked("System", input);
     await entityService.deleteSystem(input);
 
     // Delete the notification group for this system
@@ -189,6 +206,7 @@ export const createCatalogRouter = ({
   });
 
   const updateGroup = os.updateGroup.handler(async ({ input }) => {
+    await enforceNotGitOpsLocked("Group", input.id);
     // Convert null to undefined for optional fields
     const cleanData = {
       ...input.data,
@@ -214,6 +232,7 @@ export const createCatalogRouter = ({
   });
 
   const deleteGroup = os.deleteGroup.handler(async ({ input, context }) => {
+    await enforceNotGitOpsLocked("Group", input);
     await entityService.deleteGroup(input);
 
     // Delete the notification group for this catalog group
@@ -226,12 +245,20 @@ export const createCatalogRouter = ({
   });
 
   const addSystemToGroup = os.addSystemToGroup.handler(async ({ input }) => {
+    // Note: We only enforce the lock on the System, not the Group.
+    // This is because system-group associations are reconciled as a kindExtension
+    // of the System kind. The Group reconciler does not touch associations.
+    // Thus, it is perfectly safe (and intended) to manually add an unlocked System 
+    // to a GitOps-managed Group.
+    await enforceNotGitOpsLocked("System", input.systemId);
     await entityService.addSystemToGroup(input);
     return { success: true };
   });
 
   const removeSystemFromGroup = os.removeSystemFromGroup.handler(
     async ({ input }) => {
+      // See addSystemToGroup for why we only check the System provenance lock.
+      await enforceNotGitOpsLocked("System", input.systemId);
       await entityService.removeSystemFromGroup(input);
       return { success: true };
     },
@@ -286,6 +313,7 @@ export const createCatalogRouter = ({
   });
 
   const addSystemContact = os.addSystemContact.handler(async ({ input }) => {
+    await enforceNotGitOpsLocked("System", input.systemId);
     // Validate input based on type
     if (input.type === "user" && !input.userId) {
       throw new ORPCError("BAD_REQUEST", {
@@ -333,6 +361,10 @@ export const createCatalogRouter = ({
 
   const removeSystemContact = os.removeSystemContact.handler(
     async ({ input }) => {
+      const contacts = await database.select().from(schema.systemContacts).where(eq(schema.systemContacts.id, input));
+      if (contacts[0]) {
+        await enforceNotGitOpsLocked("System", contacts[0].systemId);
+      }
       await entityService.removeContact(input);
       return { success: true };
     },

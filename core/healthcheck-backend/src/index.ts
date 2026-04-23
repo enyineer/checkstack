@@ -30,6 +30,7 @@ import { satelliteHooks } from "@checkstack/satellite-backend";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { IncidentApi } from "@checkstack/incident-common";
+import { GitOpsApi } from "@checkstack/gitops-common";
 import { healthCheckHooks } from "./hooks";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { resolveRoute } from "@checkstack/common";
@@ -164,6 +165,9 @@ export default createBackendPlugin({
         // Create incident client for notification suppression checks
         const incidentClient = rpcClient.forPlugin(IncidentApi);
 
+        // Create gitops client for provenance lock checks
+        const gitOpsClient = rpcClient.forPlugin(GitOpsApi);
+
         // Setup queue-based health check worker
         await setupHealthCheckWorker({
           db: database,
@@ -189,6 +193,7 @@ export default createBackendPlugin({
           database: database as SafeDatabase<typeof schema>,
           registry: healthCheckRegistry,
           collectorRegistry,
+          gitOpsClient,
           getEmitHook: () => storedEmitHook,
         });
         rpc.registerRouter(healthCheckRouter, healthCheckContract);

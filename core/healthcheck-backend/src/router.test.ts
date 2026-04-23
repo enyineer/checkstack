@@ -50,10 +50,15 @@ describe("HealthCheck Router", () => {
     getCollectorsForPlugin: mock(() => []),
   };
 
+  const mockGitOpsClient = {
+    getProvenance: mock<any>(() => Promise.resolve(null)),
+  };
+
   const router = createHealthCheckRouter({
     database: mockDb as never,
     registry: mockRegistry,
     collectorRegistry: mockCollectorRegistry as never,
+    gitOpsClient: mockGitOpsClient as never,
     getEmitHook: () => undefined,
   });
 
@@ -168,5 +173,64 @@ describe("HealthCheck Router", () => {
       { context },
     );
     expect(result).toHaveLength(0);
+  });
+
+  describe("GitOps Provenance Enforcement", () => {
+    it("allows deleteConfiguration when GitOps lock is not present", async () => {
+      mockGitOpsClient.getProvenance.mockResolvedValueOnce(null);
+      const context = createMockRpcContext({ user: mockUser });
+      
+      try {
+        await call(router.deleteConfiguration, "config-1", { context });
+      } catch (e: any) {
+        // If it throws anything other than FORBIDDEN, it passed the lock check
+        expect(e.code).not.toBe("FORBIDDEN");
+      }
+      
+      expect(mockGitOpsClient.getProvenance).toHaveBeenCalledWith({
+        kind: "Healthcheck",
+        entityId: "config-1"
+      });
+    });
+
+    it("throws FORBIDDEN when deleting a GitOps locked configuration", async () => {
+      mockGitOpsClient.getProvenance.mockResolvedValueOnce({ 
+        id: "prov-1", kind: "Healthcheck", entityId: "config-1", 
+        providerId: "prov", entityName: "c1", status: "synced", 
+        lastSyncedAt: new Date(), createdAt: new Date(), updatedAt: new Date(),
+        repository: "", filePath: "", fileSha: ""
+      });
+      const context = createMockRpcContext({ user: mockUser });
+      
+      let error;
+      try {
+        await call(router.deleteConfiguration, "config-1", { context });
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeDefined();
+      expect((error as any).code).toBe("FORBIDDEN");
+      expect((error as any).message).toContain("managed by GitOps");
+    });
+    
+    it("throws FORBIDDEN when associating a system that is GitOps locked", async () => {
+      mockGitOpsClient.getProvenance.mockResolvedValueOnce({ 
+        id: "prov-1", kind: "System", entityId: "sys-1", 
+        providerId: "prov", entityName: "s1", status: "synced", 
+        lastSyncedAt: new Date(), createdAt: new Date(), updatedAt: new Date(),
+        repository: "", filePath: "", fileSha: ""
+      });
+      const context = createMockRpcContext({ user: mockUser });
+      
+      let error;
+      try {
+        await call(router.associateSystem, { systemId: "sys-1", body: { configurationId: "12345678-1234-4234-8234-123456789012", enabled: true, satelliteIds: [], includeLocal: false } }, { context });
+      } catch (e: any) {
+        error = e;
+        if (e.code !== "FORBIDDEN") console.log(e.issues || e.message);
+      }
+      expect(error).toBeDefined();
+      expect((error as any).code).toBe("FORBIDDEN");
+    });
   });
 });
