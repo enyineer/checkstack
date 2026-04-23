@@ -16,9 +16,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  Badge,
 } from "@checkstack/ui";
-import { formatDistanceToNow } from "date-fns";
 import { Heart } from "lucide-react";
 import { HealthCheckSparkline } from "./HealthCheckSparkline";
 import { HealthCheckDrawer } from "./HealthCheckDrawer";
@@ -29,6 +27,22 @@ import type {
 } from "@checkstack/healthcheck-common";
 
 type SlotProps = SlotContext<typeof SystemDetailsSlot>;
+
+/**
+ * Compact relative time formatter that prevents layout shift.
+ * Returns fixed-width strings like "< 1m", "5m", "2h", "3d".
+ */
+function formatCompactTime(date: Date | undefined): string {
+  if (!date) return "—";
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return "< 1m";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
 
 interface HealthCheckOverviewItem {
   configurationId: string;
@@ -112,21 +126,13 @@ export function HealthCheckSystemOverview(props: SlotProps) {
             {overview.map((item) => (
               <button
                 key={item.configurationId}
-                className="w-full p-4 text-left hover:bg-muted/50 transition-colors flex items-center gap-3"
+                className="w-full px-4 py-3 text-left hover:bg-muted/50 transition-colors flex items-center gap-3"
                 onClick={() => setSelectedCheck(item)}
               >
                 {/* Check name */}
-                <span className="font-medium truncate flex-1 min-w-0">
+                <span className="font-medium truncate flex-1 min-w-0 text-sm">
                   {item.name}
                 </span>
-
-                {/* Strategy badge */}
-                <Badge
-                  variant="secondary"
-                  className="shrink-0 text-xs uppercase"
-                >
-                  {item.strategyId}
-                </Badge>
 
                 {/* Status badge */}
                 <HealthBadge status={item.state} />
@@ -142,11 +148,9 @@ export function HealthCheckSystemOverview(props: SlotProps) {
                   </div>
                 )}
 
-                {/* Last run */}
-                <span className="hidden md:block text-xs text-muted-foreground whitespace-nowrap shrink-0">
-                  {item.lastRunAt
-                    ? formatDistanceToNow(item.lastRunAt, { addSuffix: true })
-                    : "never"}
+                {/* Last run — compact fixed-width to prevent shift */}
+                <span className="hidden md:block text-xs text-muted-foreground w-10 text-right shrink-0 tabular-nums">
+                  {formatCompactTime(item.lastRunAt)}
                 </span>
               </button>
             ))}

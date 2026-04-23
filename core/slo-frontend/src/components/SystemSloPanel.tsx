@@ -7,15 +7,14 @@ import { SLO_STATUS_CHANGED, sloRoutes } from "@checkstack/slo-common";
 import { resolveRoute } from "@checkstack/common";
 import { ErrorBudgetBar } from "./ErrorBudgetBar";
 import { BurnRateIndicator } from "./BurnRateIndicator";
-import { Card, CardContent, CardHeader, CardTitle } from "@checkstack/ui";
 import { Target } from "lucide-react";
 import { Link } from "react-router-dom";
 
 type Props = SlotContext<typeof SystemDetailsTopSlot>;
 
 /**
- * SLO panel embedded in the system detail page.
- * Shows all SLO objectives for the system with error budget bars.
+ * Compact SLO panel embedded in the system detail page alert strip.
+ * Shows SLO objectives with error budget bars in a minimal layout.
  */
 export const SystemSloPanel: React.FC<Props> = ({ system }) => {
   const sloClient = usePluginClient(SloApi);
@@ -35,31 +34,29 @@ export const SystemSloPanel: React.FC<Props> = ({ system }) => {
   if (!objectives || objectives.length === 0) return;
 
   return (
-    <Card className="border-border shadow-sm">
-      <CardHeader className="border-b border-border bg-muted/30">
+    <div className="rounded-md border border-border bg-card">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border/50">
         <div className="flex items-center gap-2">
-          <Target className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-lg font-semibold">
-            Service Level Objectives
-          </CardTitle>
+          <Target className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-sm font-medium">SLO</span>
         </div>
-      </CardHeader>
-      <CardContent className="p-6">
-        <div className="space-y-4">
-          {objectives.map((item) => (
-            <Link
-              key={item.objective.id}
-              to={resolveRoute(sloRoutes.routes.detail, {
-                sloId: item.objective.id,
-              })}
-              className="block space-y-2 rounded-md border border-border p-3 transition-colors hover:border-primary/50 no-underline"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">
-                  {item.objective.target}% / {item.objective.windowDays}d
-                </span>
-                <BurnRateIndicator burnRate={item.status.burnRate} />
-              </div>
+      </div>
+      <div className="divide-y divide-border/50">
+        {objectives.map((item) => (
+          <Link
+            key={item.objective.id}
+            to={resolveRoute(sloRoutes.routes.detail, {
+              sloId: item.objective.id,
+            })}
+            className="flex items-center gap-3 px-3 py-2 hover:bg-muted/50 transition-colors no-underline"
+          >
+            <div className="flex items-center gap-2 min-w-0 shrink-0">
+              <span className="text-xs font-medium whitespace-nowrap">
+                {item.objective.target}% / {item.objective.windowDays}d
+              </span>
+              <BurnRateIndicator burnRate={item.status.burnRate} />
+            </div>
+            <div className="flex-1 min-w-0">
               <ErrorBudgetBar
                 consumedPercent={
                   100 - item.status.errorBudgetRemainingPercent
@@ -71,20 +68,13 @@ export const SystemSloPanel: React.FC<Props> = ({ system }) => {
                   item.objective.burnRateThresholds.criticalPercent
                 }
               />
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>
-                  {item.status.currentAvailability?.toFixed(3) ?? "—"}%
-                  availability
-                </span>
-                <span>
-                  {item.status.errorBudgetRemainingMinutes.toFixed(1)} min
-                  remaining
-                </span>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
+            </div>
+            <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+              {item.status.currentAvailability?.toFixed(3) ?? "—"}%
+            </span>
+          </Link>
+        ))}
+      </div>
+    </div>
   );
 };
