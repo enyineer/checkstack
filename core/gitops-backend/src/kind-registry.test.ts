@@ -207,6 +207,7 @@ describe("EntityKindRegistry", () => {
       const sys = described[0];
       expect(sys.apiVersion).toBe(CHECKSTACK_API_VERSION);
       expect(sys.kind).toBe("System");
+      expect(sys.metadataSchema).toBeDefined();
       expect(sys.specSchema).toBeDefined();
       expect(sys.extensions).toHaveLength(0);
 
@@ -257,6 +258,101 @@ describe("EntityKindRegistry", () => {
 
       const described = registry.describeKinds();
       expect(described).toHaveLength(0);
+    });
+  });
+
+  describe("registerSpecSchemaDocumentation", () => {
+    it("allows registering documentation for different field paths and multiple entries per path", () => {
+      const registry = createEntityKindRegistry();
+
+      registry.registerKind({
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "Healthcheck",
+        specSchema: z.object({ config: z.unknown(), collectors: z.array(z.unknown()) }),
+        reconcile: async () => ({ entityId: "test-id" }),
+      });
+
+      // Register two strategies for the 'config' field
+      registry.registerSpecSchemaDocumentation({
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "Healthcheck",
+        fieldPath: "config",
+        variantId: "http-strat",
+        label: "HTTP Strategy",
+        description: "Configure HTTP health check",
+        schema: z.object({ url: z.string() }),
+      });
+
+      registry.registerSpecSchemaDocumentation({
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "Healthcheck",
+        fieldPath: "config",
+        variantId: "dns-strat",
+        label: "DNS Strategy",
+        schema: z.object({ hostname: z.string() }), // no description
+      });
+
+      // Register a collector for 'collectors[].config'
+      registry.registerSpecSchemaDocumentation({
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "Healthcheck",
+        fieldPath: "collectors[].config",
+        label: "Ping Collector",
+        description: "Ping something",
+        schema: z.object({ count: z.number() }),
+        conditions: [{
+          fieldPath: "config",
+          variantIds: ["http-strat", "dns-strat"],
+        }],
+      });
+
+      const described = registry.describeKinds();
+      expect(described).toHaveLength(1);
+      
+      const docs = described[0].specSchemaDocumentation;
+      expect(docs).toHaveLength(3);
+
+      const configDocs = docs.filter(d => d.fieldPath === "config");
+      expect(configDocs).toHaveLength(2);
+      expect(configDocs[0].label).toBe("HTTP Strategy");
+      expect(configDocs[0].variantId).toBe("http-strat");
+      expect(configDocs[0].description).toBe("Configure HTTP health check");
+      expect(configDocs[1].label).toBe("DNS Strategy");
+      expect(configDocs[1].variantId).toBe("dns-strat");
+      expect(configDocs[1].description).toBeUndefined();
+
+      const collectorDocs = docs.filter(d => d.fieldPath === "collectors[].config");
+      expect(collectorDocs).toHaveLength(1);
+      expect(collectorDocs[0].label).toBe("Ping Collector");
+      expect(collectorDocs[0].conditions).toBeDefined();
+      expect(collectorDocs[0].conditions?.[0].variantIds).toEqual(["http-strat", "dns-strat"]);
+    });
+
+    it("allows registering docs before the kind itself is registered", () => {
+      const registry = createEntityKindRegistry();
+
+      registry.registerSpecSchemaDocumentation({
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "Healthcheck",
+        fieldPath: "config",
+        label: "HTTP Strategy",
+        schema: z.object({ url: z.string() }),
+      });
+
+      // Base kind is missing, so describeKinds should skip it
+      expect(registry.describeKinds()).toHaveLength(0);
+
+      registry.registerKind({
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "Healthcheck",
+        specSchema: z.object({ config: z.unknown() }),
+        reconcile: async () => ({ entityId: "test-id" }),
+      });
+
+      // Now it should be included
+      const described = registry.describeKinds();
+      expect(described).toHaveLength(1);
+      expect(described[0].specSchemaDocumentation).toHaveLength(1);
     });
   });
 });

@@ -251,11 +251,25 @@ export const gitopsContract = {
       z.object({
         apiVersion: z.string(),
         kind: z.string(),
+        metadataSchema: z.record(z.string(), z.unknown()),
         specSchema: z.record(z.string(), z.unknown()),
         extensions: z.array(
           z.object({
             namespace: z.string(),
             specSchema: z.record(z.string(), z.unknown()),
+          }),
+        ),
+        specSchemaDocumentation: z.array(
+          z.object({
+            fieldPath: z.string(),
+            variantId: z.string().optional(),
+            label: z.string(),
+            description: z.string().optional(),
+            specSchema: z.record(z.string(), z.unknown()),
+            conditions: z.array(z.object({
+              fieldPath: z.string(),
+              variantIds: z.array(z.string()),
+            })).optional(),
           }),
         ),
       }),

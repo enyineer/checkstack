@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -7,8 +7,22 @@ import {
   CardTitle,
   Badge,
   PageLayout,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  CodeEditor,
+  Markdown,
+  MarkdownBlock,
 } from "@checkstack/ui";
-import { ChevronDown, ChevronRight, Puzzle, Blocks } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Puzzle,
+  Blocks,
+  BookOpen,
+} from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { GitOpsApi } from "@checkstack/gitops-common";
 import { extractErrorMessage } from "@checkstack/common";
@@ -29,10 +43,22 @@ interface JsonSchemaProperty {
 interface KindDescription {
   apiVersion: string;
   kind: string;
+  metadataSchema: JsonSchemaProperty;
   specSchema: JsonSchemaProperty;
   extensions: Array<{
     namespace: string;
     specSchema: JsonSchemaProperty;
+  }>;
+  specSchemaDocumentation?: Array<{
+    fieldPath: string;
+    variantId?: string;
+    label: string;
+    description?: string;
+    specSchema: JsonSchemaProperty;
+    conditions?: Array<{
+      fieldPath: string;
+      variantIds: string[];
+    }>;
   }>;
 }
 
@@ -87,8 +113,11 @@ function SchemaPropertyDisplay({
             )}
             : <SchemaPropertyDisplay schema={value} depth={depth + 1} />
             {value.description && (
-              <span className="text-muted-foreground ml-2 text-xs">
-                // {value.description}
+              <span className="text-muted-foreground ml-2 text-xs inline-flex items-center gap-1">
+                //{" "}
+                <Markdown size="sm" className="inline">
+                  {value.description}
+                </Markdown>
               </span>
             )}
           </div>
@@ -160,12 +189,31 @@ function SchemaBlock({
 // ─── YAML Example Generator ────────────────────────────────────────────────
 
 function generateYamlExample({ kind }: { kind: KindDescription }): string {
-  const lines = [
-    `apiVersion: ${kind.apiVersion}`,
-    `kind: ${kind.kind}`,
-    "metadata:",
-    `  name: my-${kind.kind.toLowerCase()}`,
-  ];
+  const lines = [`apiVersion: ${kind.apiVersion}`, `kind: ${kind.kind}`];
+
+  if (kind.metadataSchema) {
+    lines.push("metadata:");
+    const metadataProps = kind.metadataSchema.properties ?? {};
+    const metadataRequired = new Set(kind.metadataSchema.required);
+
+    for (const [key, prop] of Object.entries(metadataProps)) {
+      // Provide a nice default for name instead of generic "..."
+      const customProp =
+        key === "name"
+          ? { ...prop, default: `my-${kind.kind.toLowerCase()}` }
+          : prop;
+
+      emitProperty({
+        lines,
+        key,
+        prop: customProp,
+        indent: 2,
+        required: metadataRequired.has(key),
+      });
+    }
+  } else {
+    lines.push("metadata:", `  name: my-${kind.kind.toLowerCase()}`);
+  }
 
   const baseProps = kind.specSchema.properties ?? {};
   const hasBaseProps = Object.keys(baseProps).length > 0;
@@ -380,10 +428,149 @@ function scalarExample({ prop }: { prop: JsonSchemaProperty }): string {
   }
 }
 
+// ─── Spec Schema Documentation ─────────────────────────────────────────────
+
+function SpecSchemaDocumentationSection({
+  docs,
+}: {
+  docs: NonNullable<KindDescription["specSchemaDocumentation"]>;
+}) {
+  const [selections, setSelections] = useState<Record<string, string>>({});
+
+  const handleSelect = useCallback((fieldPath: string, variantId: string) => {
+    setSelections((prev) => {
+      if (prev[fieldPath] === variantId) return prev;
+      return { ...prev, [fieldPath]: variantId };
+    });
+  }, []);
+
+  const groupedDocs: Record<string, typeof docs> = {};
+  for (const doc of docs) {
+    if (!groupedDocs[doc.fieldPath]) {
+      groupedDocs[doc.fieldPath] = [];
+    }
+    groupedDocs[doc.fieldPath].push(doc);
+  }
+
+  return (
+    <div className="space-y-6">
+      <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+        <BookOpen className="h-4 w-4" />
+        Additional Schemas
+      </h4>
+
+      {Object.entries(groupedDocs).map(([fieldPath, fieldDocs]) => {
+        return (
+          <SpecSchemaDocumentationField
+            key={fieldPath}
+            fieldPath={fieldPath}
+            docs={fieldDocs.toSorted((a, b) => a.label.localeCompare(b.label))}
+            selections={selections}
+            onSelect={handleSelect}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function SpecSchemaDocumentationField({
+  fieldPath,
+  docs,
+  selections,
+  onSelect,
+}: {
+  fieldPath: string;
+  docs: NonNullable<KindDescription["specSchemaDocumentation"]>;
+  selections: Record<string, string>;
+  onSelect: (fieldPath: string, variantId: string) => void;
+}) {
+  const availableDocs = useMemo(() => {
+    return docs.filter((doc) => {
+      if (!doc.conditions || doc.conditions.length === 0) return true;
+      return doc.conditions.every((cond) => {
+        const selectedForField = selections[cond.fieldPath];
+        if (!selectedForField) return false;
+        return cond.variantIds.includes(selectedForField);
+      });
+    });
+  }, [docs, selections]);
+
+  const currentSelection = selections[fieldPath] || "";
+  const isValidSelection =
+    currentSelection !== "" &&
+    availableDocs.some((d) => (d.variantId || d.label) === currentSelection);
+
+  useEffect(() => {
+    if (currentSelection !== "" && !isValidSelection) {
+      onSelect(fieldPath, "");
+    }
+  }, [currentSelection, isValidSelection, onSelect, fieldPath]);
+
+  if (availableDocs.length === 0) {
+    return <></>;
+  }
+
+  const selectedDoc = availableDocs.find(
+    (d) => (d.variantId || d.label) === currentSelection,
+  );
+
+  return (
+    <div className="border rounded-lg p-4 space-y-4">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary" className="font-mono">
+            {fieldPath}
+          </Badge>
+          <span className="text-sm text-muted-foreground">
+            {availableDocs.length} variant{availableDocs.length > 1 ? "s" : ""}
+          </span>
+        </div>
+
+        <div className="w-full sm:w-64">
+          <Select
+            value={isValidSelection ? currentSelection : ""}
+            onValueChange={(val) => onSelect(fieldPath, val)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select a schema variant..." />
+            </SelectTrigger>
+            <SelectContent>
+              {availableDocs.map((doc, i) => (
+                <SelectItem key={i} value={doc.variantId || doc.label}>
+                  {doc.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {selectedDoc ? (
+        <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+          {selectedDoc.description && (
+            <div className="text-sm text-muted-foreground">
+              <MarkdownBlock>{selectedDoc.description}</MarkdownBlock>
+            </div>
+          )}
+          <div className="bg-muted rounded-md p-3 overflow-x-auto">
+            <SchemaPropertyDisplay schema={selectedDoc.specSchema} />
+          </div>
+        </div>
+      ) : (
+        <div className="text-sm text-muted-foreground italic bg-muted/50 rounded-md p-4 text-center">
+          Select a variant from the dropdown above to view its schema.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Kind Card ─────────────────────────────────────────────────────────────
 
 function KindCard({ kind }: { kind: KindDescription }) {
   const [isOpen, setIsOpen] = useState(false);
+  const yamlExample = useMemo(() => generateYamlExample({ kind }), [kind]);
 
   return (
     <Card className="mb-3">
@@ -423,6 +610,12 @@ function KindCard({ kind }: { kind: KindDescription }) {
 
       {isOpen && (
         <CardContent className="pt-0 space-y-6">
+          {/* Entity Envelope Fields */}
+          <SchemaBlock
+            schema={kind.metadataSchema}
+            label="Entity Envelope Fields"
+          />
+
           {/* Base Spec Schema */}
           <SchemaBlock schema={kind.specSchema} label="Base Spec Schema" />
 
@@ -451,14 +644,28 @@ function KindCard({ kind }: { kind: KindDescription }) {
             </div>
           )}
 
+          {/* Spec Schema Documentation */}
+          {kind.specSchemaDocumentation &&
+            kind.specSchemaDocumentation.length > 0 && (
+              <SpecSchemaDocumentationSection
+                docs={kind.specSchemaDocumentation}
+              />
+            )}
+
           {/* YAML Example */}
           <div>
             <h4 className="text-sm font-medium mb-2 text-muted-foreground">
               YAML Example
             </h4>
-            <pre className="bg-muted rounded-md p-3 overflow-x-auto text-sm">
-              <code>{generateYamlExample({ kind })}</code>
-            </pre>
+            <div className="rounded-md overflow-hidden border border-input">
+              <CodeEditor
+                value={yamlExample}
+                language="yaml"
+                readOnly
+                onChange={() => {}}
+                minHeight={`${Math.max(100, yamlExample.split("\n").length * 20 + 20)}px`}
+              />
+            </div>
           </div>
         </CardContent>
       )}

@@ -128,6 +128,33 @@ export interface EntityKindExtensionDefinition<TExtensionSpec = unknown> {
 }
 
 /**
+ * Definition for documenting a specific field variant within a kind's spec.
+ */
+export interface SpecSchemaDocumentation {
+  /** Which field this documentation applies to (e.g., "config", "collectors[].config") */
+  fieldPath: string;
+  /** 
+   * Optional unique identifier for this variant.
+   * Useful when other variants depend on this one being selected.
+   */
+  variantId?: string;
+  /** Human-readable label shown in the dropdown (e.g., "HTTP Strategy") */
+  label: string;
+  /** Optional markdown description shown alongside the schema */
+  description?: string;
+  /** The Zod schema for this variant */
+  schema: z.ZodTypeAny;
+  /** 
+   * If specified, this variant will only be shown if the selected variant 
+   * in the target fieldPath matches one of the provided variantIds.
+   */
+  conditions?: Array<{
+    fieldPath: string;
+    variantIds: string[];
+  }>;
+}
+
+/**
  * The registry interface exposed via the Extension Point.
  * Plugins call these methods during their `register()` phase.
  */
@@ -138,5 +165,13 @@ export interface EntityKindRegistry {
   /** Extend an existing kind's spec (e.g., healthcheck extends "System"). */
   registerKindExtension<TExtensionSpec>(
     definition: EntityKindExtensionDefinition<TExtensionSpec>,
+  ): void;
+
+  /** Register documentation for a specific field variant within a kind's spec. */
+  registerSpecSchemaDocumentation(
+    params: {
+      apiVersion: string;
+      kind: string;
+    } & SpecSchemaDocumentation,
   ): void;
 }

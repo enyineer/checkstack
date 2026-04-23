@@ -24,7 +24,7 @@ import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
 import { z } from "zod";
 import { createHealthCheckRouter } from "./router";
 import { HealthCheckService } from "./service";
-import { registerHealthcheckGitOpsKinds } from "./healthcheck-gitops-kinds";
+import { registerHealthcheckGitOpsKinds, registerHealthcheckGitOpsDocumentation } from "./healthcheck-gitops-kinds";
 import { catalogHooks } from "@checkstack/catalog-backend";
 import { satelliteHooks } from "@checkstack/satellite-backend";
 import { CatalogApi } from "@checkstack/catalog-common";
@@ -237,6 +237,13 @@ export default createBackendPlugin({
           db: database,
           queueManager,
           logger,
+        });
+
+        // Register GitOps documentation now that registries are populated
+        registerHealthcheckGitOpsDocumentation({
+          kindRegistry,
+          healthCheckRegistry,
+          collectorRegistry,
         });
 
         // Subscribe to catalog system deletion to clean up associations

@@ -23,6 +23,7 @@ export {
   type EntityKindExtensionDefinition,
   type EntityKindRegistry,
   type ReconcileContext,
+  type SpecSchemaDocumentation,
 } from "./entity-kind-registry";
 export { gitopsAccess, gitopsAccessRules } from "./access";
 export { gitopsRoutes } from "./routes";

@@ -4,12 +4,15 @@ import type {
   EntityKindDefinition,
   EntityKindExtensionDefinition,
   EntityKindRegistry,
+  SpecSchemaDocumentation,
 } from "@checkstack/gitops-common";
+import { entityMetadataSchema } from "@checkstack/gitops-common";
 
 /** Internal storage for a registered kind with its extensions. */
 interface RegisteredKind {
   definition: EntityKindDefinition<unknown> | undefined;
   extensions: Map<string, EntityKindExtensionDefinition<unknown>>;
+  specSchemaDocumentation: SpecSchemaDocumentation[];
 }
 
 /** Composite key for looking up kinds by apiVersion + kind. */
@@ -46,10 +49,22 @@ export function createEntityKindRegistry() {
     describeKinds: () => Array<{
       apiVersion: string;
       kind: string;
+      metadataSchema: Record<string, unknown>;
       specSchema: Record<string, unknown>;
       extensions: Array<{
         namespace: string;
         specSchema: Record<string, unknown>;
+      }>;
+      specSchemaDocumentation: Array<{
+        fieldPath: string;
+        variantId?: string;
+        label: string;
+        description?: string;
+        specSchema: Record<string, unknown>;
+        conditions?: Array<{
+          fieldPath: string;
+          variantIds: string[];
+        }>;
       }>;
     }>;
   } = {
@@ -70,6 +85,7 @@ export function createEntityKindRegistry() {
         kinds.set(key, {
           definition: definition as EntityKindDefinition<unknown>,
           extensions: new Map(),
+          specSchemaDocumentation: [],
         });
       }
     },
@@ -91,6 +107,7 @@ export function createEntityKindRegistry() {
               definition as EntityKindExtensionDefinition<unknown>,
             ],
           ]),
+          specSchemaDocumentation: [],
         });
         return;
       }
@@ -105,6 +122,30 @@ export function createEntityKindRegistry() {
         definition.namespace,
         definition as EntityKindExtensionDefinition<unknown>,
       );
+    },
+
+    registerSpecSchemaDocumentation(params) {
+      const key = kindKey(params);
+      let registered = kinds.get(key);
+
+      if (!registered) {
+        // Allow registering docs before the kind itself
+        registered = {
+          definition: undefined,
+          extensions: new Map(),
+          specSchemaDocumentation: [],
+        };
+        kinds.set(key, registered);
+      }
+
+      registered.specSchemaDocumentation.push({
+        fieldPath: params.fieldPath,
+        variantId: params.variantId,
+        label: params.label,
+        description: params.description,
+        schema: params.schema,
+        conditions: params.conditions,
+      });
     },
 
     getKind(params) {
@@ -149,10 +190,22 @@ export function createEntityKindRegistry() {
       const result: Array<{
         apiVersion: string;
         kind: string;
+        metadataSchema: Record<string, unknown>;
         specSchema: Record<string, unknown>;
         extensions: Array<{
           namespace: string;
           specSchema: Record<string, unknown>;
+        }>;
+        specSchemaDocumentation: Array<{
+          fieldPath: string;
+          variantId?: string;
+          label: string;
+          description?: string;
+          specSchema: Record<string, unknown>;
+          conditions?: Array<{
+            fieldPath: string;
+            variantIds: string[];
+          }>;
         }>;
       }> = [];
 
@@ -160,9 +213,7 @@ export function createEntityKindRegistry() {
         if (!registered.definition) continue;
 
         const def = registered.definition;
-        const baseSchema = toJsonSchema(
-          def.specSchema as z.ZodTypeAny,
-        );
+        const baseSchema = toJsonSchema(def.specSchema as z.ZodTypeAny);
 
         const extensions = [...registered.extensions.entries()].map(
           ([namespace, ext]) => ({
@@ -171,11 +222,24 @@ export function createEntityKindRegistry() {
           }),
         );
 
+        const specSchemaDocumentation = registered.specSchemaDocumentation.map(
+          (doc) => ({
+            fieldPath: doc.fieldPath,
+            variantId: doc.variantId,
+            label: doc.label,
+            description: doc.description,
+            specSchema: toJsonSchema(doc.schema),
+            conditions: doc.conditions,
+          }),
+        );
+
         result.push({
           apiVersion: def.apiVersion,
           kind: def.kind,
+          metadataSchema: toJsonSchema(entityMetadataSchema),
           specSchema: baseSchema,
           extensions,
+          specSchemaDocumentation,
         });
       }
 
