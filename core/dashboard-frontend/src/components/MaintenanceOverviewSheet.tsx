@@ -65,6 +65,15 @@ export const MaintenanceOverviewSheet: React.FC<Props> = ({
                 .map((id) => systemMap.get(id) || id)
                 .join(", ");
 
+              const badgeVariant = 
+                maintenance.status === "in_progress"
+                  ? "warning"
+                  : maintenance.status === "scheduled"
+                    ? "info"
+                    : maintenance.status === "completed"
+                      ? "success"
+                      : "secondary";
+
               return (
                 <Link
                   key={maintenance.id}
@@ -76,7 +85,7 @@ export const MaintenanceOverviewSheet: React.FC<Props> = ({
                     <h4 className="font-medium text-foreground">
                       {maintenance.title}
                     </h4>
-                    <Badge variant="warning" className="capitalize flex-shrink-0">
+                    <Badge variant={badgeVariant} className="capitalize flex-shrink-0">
                       {maintenance.status.replace("_", " ")}
                     </Badge>
                   </div>
