@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/healthcheck-frontend",
-  "version": "0.14.2",
+  "version": "0.15.0",
   "type": "module",
   "main": "src/index.tsx",
   "checkstack": {

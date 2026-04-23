@@ -1,5 +1,13 @@
 # @checkstack/gitops-frontend
 
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [bb1fea0]
+- Updated dependencies [bb1fea0]
+  - @checkstack/ui@1.4.0
+
 ## 0.3.0
 
 ### Minor Changes
