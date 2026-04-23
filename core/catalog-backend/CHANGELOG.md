@@ -1,5 +1,12 @@
 # @checkstack/catalog-backend
 
+## 0.4.4
+
+### Patch Changes
+
+- Updated dependencies [bb1fea0]
+  - @checkstack/catalog-common@1.4.0
+
 ## 0.4.3
 
 ### Patch Changes

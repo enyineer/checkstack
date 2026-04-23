@@ -1,5 +1,26 @@
 # @checkstack/dashboard-frontend
 
+## 0.4.0
+
+### Minor Changes
+
+- bb1fea0: feat: implement active incident and maintenance overview sheets on dashboard
+
+  - Replaces direct routing on status cards with slide-out overview sheets to gracefully degrade for users without manage permissions
+  - Refactors dashboard system groups into a clean table-style list layout for better density
+  - Makes global status cards more compact
+
+### Patch Changes
+
+- Updated dependencies [bb1fea0]
+- Updated dependencies [bb1fea0]
+  - @checkstack/ui@1.4.0
+  - @checkstack/catalog-common@1.4.0
+  - @checkstack/catalog-frontend@0.7.0
+  - @checkstack/auth-frontend@0.5.26
+  - @checkstack/command-frontend@0.2.28
+  - @checkstack/queue-frontend@0.2.28
+
 ## 0.3.35
 
 ### Patch Changes

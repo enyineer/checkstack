@@ -1,5 +1,12 @@
 # @checkstack/maintenance-backend
 
+## 0.5.16
+
+### Patch Changes
+
+- Updated dependencies [bb1fea0]
+  - @checkstack/catalog-common@1.4.0
+
 ## 0.5.15
 
 ### Patch Changes
