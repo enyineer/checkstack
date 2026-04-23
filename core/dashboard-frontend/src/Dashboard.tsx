@@ -17,8 +17,14 @@ import {
   NotificationApi,
   type EnrichedSubscription,
 } from "@checkstack/notification-common";
-import { IncidentApi } from "@checkstack/incident-common";
-import { MaintenanceApi } from "@checkstack/maintenance-common";
+import {
+  IncidentApi,
+  incidentRoutes,
+} from "@checkstack/incident-common";
+import {
+  MaintenanceApi,
+  maintenanceRoutes,
+} from "@checkstack/maintenance-common";
 import { HEALTH_CHECK_RUN_COMPLETED } from "@checkstack/healthcheck-common";
 import { useSignal } from "@checkstack/signal-frontend";
 import {
@@ -375,6 +381,16 @@ export const Dashboard: React.FC = () => {
                   : "Unresolved issues requiring attention"
               }
               icon={<AlertTriangle className="w-4 h-4" />}
+              onClick={
+                activeIncidentsCount > 0
+                  ? () => navigate(resolveRoute(incidentRoutes.routes.config))
+                  : undefined
+              }
+              className={
+                activeIncidentsCount > 0
+                  ? "cursor-pointer hover:opacity-90 hover:scale-[1.02]"
+                  : ""
+              }
             />
 
             <StatusCard
@@ -392,6 +408,16 @@ export const Dashboard: React.FC = () => {
                   : "Ongoing or scheduled maintenance windows"
               }
               icon={<Wrench className="w-4 h-4" />}
+              onClick={
+                activeMaintenancesCount > 0
+                  ? () => navigate(resolveRoute(maintenanceRoutes.routes.config))
+                  : undefined
+              }
+              className={
+                activeMaintenancesCount > 0
+                  ? "cursor-pointer hover:border-border/80 hover:bg-muted/30 transition-colors"
+                  : ""
+              }
             />
           </div>
         </section>

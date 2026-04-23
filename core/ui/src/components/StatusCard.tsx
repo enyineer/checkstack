@@ -32,22 +32,22 @@ export const StatusCard: React.FC<StatusCardProps> = ({
       )}
       {...props}
     >
-      <CardHeader className="pb-2">
+      <CardHeader className="p-4 pb-2">
         <CardTitle
           className={cn(
-            "text-lg font-medium",
+            "text-sm font-medium",
             isGradient ? "opacity-90 text-white" : "text-muted-foreground"
           )}
         >
           {title}
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-4 pt-0">
         <div className="flex items-baseline gap-2">
           <span
             className={cn(
-              "text-2xl font-semibold",
-              isGradient ? "text-3xl font-bold" : "text-foreground"
+              "text-2xl font-bold tracking-tight",
+              isGradient ? "text-white" : "text-foreground"
             )}
           >
             {value}
@@ -65,7 +65,7 @@ export const StatusCard: React.FC<StatusCardProps> = ({
         {description && (
           <p
             className={cn(
-              "mt-1 text-sm",
+              "mt-1 text-xs",
               isGradient ? "opacity-80" : "text-muted-foreground"
             )}
           >
