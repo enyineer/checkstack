@@ -14,6 +14,14 @@ import type {
   CollectorRegistry,
 } from "@checkstack/backend-api";
 import { HealthCheckService } from "./service";
+import {
+  DynamicOperators,
+  numericField,
+  stringField,
+  booleanField,
+  arrayField,
+  enumField,
+} from "@checkstack/backend-api";
 
 /**
  * Lazy accessor functions — populated during init(), consumed during reconcile.
@@ -364,7 +372,7 @@ export function registerHealthcheckGitOpsDocumentation({
       fieldPath: "config",
       variantId: registered.ownerPluginId,
       label: registered.strategy.displayName,
-      description: registered.strategy.description,
+      description: `ID: ${registered.ownerPluginId}\n\n${registered.strategy.description}`,
       schema: registered.strategy.config.schema,
     });
   }
@@ -375,8 +383,9 @@ export function registerHealthcheckGitOpsDocumentation({
       apiVersion: CHECKSTACK_API_VERSION,
       kind: "Healthcheck",
       fieldPath: "collectors[].config",
+      variantId: registered.qualifiedId,
       label: registered.collector.displayName,
-      description: registered.collector.description,
+      description: `ID: ${registered.qualifiedId}\n\n${registered.collector.description}`,
       schema: registered.collector.config.schema,
       conditions: [
         {
@@ -387,5 +396,92 @@ export function registerHealthcheckGitOpsDocumentation({
         },
       ],
     });
+
+    // 3. Register documentation for collector assertions (fieldPath: "collectors[].assertions")
+    const unwrapped = unwrapZodType(registered.collector.result.schema);
+    
+    if (unwrapped instanceof z.ZodObject) {
+      const shape = unwrapped.shape;
+      
+      for (const [key, prop] of Object.entries(shape)) {
+        const propUnwrapped = unwrapZodType(prop as z.ZodTypeAny);
+
+        let fieldSchema: z.ZodTypeAny;
+
+        if (propUnwrapped instanceof z.ZodNumber) {
+          fieldSchema = numericField(key);
+        } else if (propUnwrapped instanceof z.ZodString) {
+          fieldSchema = stringField(key);
+        } else if (propUnwrapped instanceof z.ZodBoolean) {
+          fieldSchema = booleanField(key);
+        } else if (propUnwrapped instanceof z.ZodArray) {
+          fieldSchema = arrayField(key);
+        } else if (propUnwrapped instanceof z.ZodEnum) {
+          const enumValues = propUnwrapped.options;
+          const stringValues = enumValues.filter((v: unknown) => typeof v === "string") as string[];
+          fieldSchema = stringValues.length > 0 ? enumField(key, stringValues) : stringField(key);
+        } else {
+          fieldSchema = stringField(key);
+        }
+
+        kindRegistry.registerSpecSchemaDocumentation({
+          apiVersion: CHECKSTACK_API_VERSION,
+          kind: "Healthcheck",
+          fieldPath: "collectors[].assertions",
+          variantId: `${registered.qualifiedId}.assert.${key}`,
+          label: `Assert: ${key}`,
+          description: `Assertion documentation for the '${key}' field of ${registered.collector.displayName}.`,
+          schema: z.array(fieldSchema).describe(`Assertions array`),
+          conditions: [
+            {
+              fieldPath: "collectors[].config",
+              variantIds: [registered.qualifiedId],
+            },
+          ],
+        });
+      }
+    } else {
+      // Fallback if result schema is not an object
+      kindRegistry.registerSpecSchemaDocumentation({
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "Healthcheck",
+        fieldPath: "collectors[].assertions",
+        variantId: `${registered.qualifiedId}.assert.generic`,
+        label: `${registered.collector.displayName} Assertions`,
+        description: `Define assertions against the result of this collector.`,
+        schema: z.array(
+          z.object({
+            field: z.string(),
+            operator: DynamicOperators,
+            value: z.unknown().optional(),
+          })
+        ).describe(`Assertions array`),
+        conditions: [
+          {
+            fieldPath: "collectors[].config",
+            variantIds: [registered.qualifiedId],
+          },
+        ],
+      });
+    }
   }
 }
+
+function unwrapZodType(type: z.ZodTypeAny): z.ZodTypeAny {
+  let current = type;
+  while (current) {
+    if (current instanceof z.ZodOptional || current instanceof z.ZodNullable) {
+      current = current.unwrap() as z.ZodTypeAny;
+    } else if (current instanceof z.ZodDefault) {
+      current = current._def.innerType as z.ZodTypeAny;
+    } else if ("innerType" in current && typeof current.innerType === "function") {
+      // Handles ZodEffects/ZodBranded generically without relying on removed types
+      current = current.innerType() as z.ZodTypeAny;
+    } else {
+      break;
+    }
+  }
+  return current;
+}
+
+
