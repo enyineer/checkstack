@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.61.0
+
+### Minor Changes
+
+- f8c8625: Added SVG favicon to frontend application
+
 ## 0.60.0
 
 ### Minor Changes
