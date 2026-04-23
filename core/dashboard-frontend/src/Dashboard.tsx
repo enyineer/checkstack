@@ -19,11 +19,9 @@ import {
 } from "@checkstack/notification-common";
 import {
   IncidentApi,
-  incidentRoutes,
 } from "@checkstack/incident-common";
 import {
   MaintenanceApi,
-  maintenanceRoutes,
 } from "@checkstack/maintenance-common";
 import { HEALTH_CHECK_RUN_COMPLETED } from "@checkstack/healthcheck-common";
 import { useSignal } from "@checkstack/signal-frontend";
@@ -56,6 +54,8 @@ import {
 import { authApiRef } from "@checkstack/auth-frontend/api";
 import { QueueLagAlert } from "@checkstack/queue-frontend";
 import { SystemBadgeDataProvider } from "./components/SystemBadgeDataProvider";
+import { IncidentOverviewSheet } from "./components/IncidentOverviewSheet";
+import { MaintenanceOverviewSheet } from "./components/MaintenanceOverviewSheet";
 
 const CATALOG_PLUGIN_ID = "catalog";
 const MAX_TERMINAL_ENTRIES = 8;
@@ -104,6 +104,9 @@ export const Dashboard: React.FC = () => {
   const [subscriptionLoading, setSubscriptionLoading] = useState<
     Record<string, boolean>
   >({});
+  
+  const [isIncidentSheetOpen, setIncidentSheetOpen] = useState(false);
+  const [isMaintenanceSheetOpen, setMaintenanceSheetOpen] = useState(false);
 
   // -------------------------------------------------------------------------
   // DATA QUERIES
@@ -383,7 +386,7 @@ export const Dashboard: React.FC = () => {
               icon={<AlertTriangle className="w-4 h-4" />}
               onClick={
                 activeIncidentsCount > 0
-                  ? () => navigate(resolveRoute(incidentRoutes.routes.config))
+                  ? () => setIncidentSheetOpen(true)
                   : undefined
               }
               className={
@@ -410,7 +413,7 @@ export const Dashboard: React.FC = () => {
               icon={<Wrench className="w-4 h-4" />}
               onClick={
                 activeMaintenancesCount > 0
-                  ? () => navigate(resolveRoute(maintenanceRoutes.routes.config))
+                  ? () => setMaintenanceSheetOpen(true)
                   : undefined
               }
               className={
@@ -448,6 +451,19 @@ export const Dashboard: React.FC = () => {
           </section>
         </div>
       </div>
+
+      <IncidentOverviewSheet
+        open={isIncidentSheetOpen}
+        onOpenChange={setIncidentSheetOpen}
+        incidents={incidents}
+        systems={systems}
+      />
+      <MaintenanceOverviewSheet
+        open={isMaintenanceSheetOpen}
+        onOpenChange={setMaintenanceSheetOpen}
+        maintenances={maintenances}
+        systems={systems}
+      />
     </>
   );
 };
