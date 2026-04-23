@@ -18,6 +18,7 @@ import {
 } from "../components/assignments/AssignmentTree";
 import { GeneralPanel } from "../components/assignments/GeneralPanel";
 import { ThresholdsPanel } from "../components/assignments/ThresholdsPanel";
+import { useProvenanceLock, GitOpsLockBanner } from "@checkstack/gitops-frontend";
 import {
   RetentionPanel,
   type RetentionData,
@@ -60,6 +61,11 @@ const AssignmentIDEPageContent = () => {
       { systemId: systemId ?? "" },
       { enabled: !!systemId },
     );
+
+  const { isLocked, provenance } = useProvenanceLock({
+    kind: "System",
+    entityId: systemId,
+  });
 
   const { data: satellitesData } = satelliteClient.listSatellites.useQuery({});
 
@@ -390,6 +396,7 @@ const AssignmentIDEPageContent = () => {
             onToggleEnabled={() => handleToggleEnabled(configId, assoc.enabled)}
             onUnassign={() => handleToggleAssignment(configId, true)}
             saving={saving}
+            isLocked={isLocked}
           />
         );
       }
@@ -404,6 +411,7 @@ const AssignmentIDEPageContent = () => {
             onChange={(t) => handleThresholdChange(configId, t)}
             onSave={() => handleSaveThresholds(configId)}
             saving={saving}
+            isLocked={isLocked}
           />
         );
       }
@@ -417,6 +425,7 @@ const AssignmentIDEPageContent = () => {
             onSave={() => handleSaveRetention(configId)}
             onReset={() => handleResetRetention(configId)}
             saving={saving}
+            isLocked={isLocked}
           />
         );
       }
@@ -431,6 +440,7 @@ const AssignmentIDEPageContent = () => {
               handleToggleSatellite(configId, satId)
             }
             saving={saving}
+            isLocked={isLocked}
           />
         );
       }
@@ -458,6 +468,11 @@ const AssignmentIDEPageContent = () => {
         </BackLink>
       }
     >
+      {isLocked && provenance && (
+        <div className="mb-4">
+          <GitOpsLockBanner provenance={provenance} />
+        </div>
+      )}
       <IDELayout
         tree={
           <AssignmentTree
@@ -466,6 +481,7 @@ const AssignmentIDEPageContent = () => {
             selectedNode={selectedNode}
             onSelectNode={setSelectedNode}
             onToggleAssignment={handleToggleAssignment}
+            isLocked={isLocked}
           />
         }
         panel={renderPanel()}

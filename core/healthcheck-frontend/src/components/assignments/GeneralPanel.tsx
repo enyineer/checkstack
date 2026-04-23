@@ -13,6 +13,7 @@ interface GeneralPanelProps {
   onToggleEnabled: () => void;
   onUnassign: () => void;
   saving: boolean;
+  isLocked?: boolean;
 }
 
 /**
@@ -26,6 +27,7 @@ export const GeneralPanel: React.FC<GeneralPanelProps> = ({
   onToggleEnabled,
   onUnassign,
   saving,
+  isLocked,
 }) => {
   const editUrl = resolveRoute(healthcheckRoutes.routes.edit, {
     configId: configurationId,
@@ -46,7 +48,7 @@ export const GeneralPanel: React.FC<GeneralPanelProps> = ({
           <Checkbox
             checked={enabled}
             onCheckedChange={onToggleEnabled}
-            disabled={saving}
+            disabled={saving || isLocked}
           />
           <div>
             <Label className="text-sm font-medium">Enabled</Label>
@@ -85,7 +87,8 @@ export const GeneralPanel: React.FC<GeneralPanelProps> = ({
           variant="ghost"
           size="sm"
           onClick={onUnassign}
-          disabled={saving}
+          disabled={saving || isLocked}
+          title={isLocked ? "Managed by GitOps" : undefined}
           className="text-destructive hover:text-destructive hover:bg-destructive/10"
         >
           <Trash2 className="h-3.5 w-3.5 mr-1.5" />

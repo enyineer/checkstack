@@ -14,6 +14,7 @@ interface RetentionPanelProps {
   onSave: () => void;
   onReset: () => void;
   saving: boolean;
+  isLocked?: boolean;
 }
 
 /**
@@ -25,6 +26,7 @@ export const RetentionPanel: React.FC<RetentionPanelProps> = ({
   onSave,
   onReset,
   saving,
+  isLocked,
 }) => {
   if (!data) {
     return (
@@ -68,6 +70,7 @@ export const RetentionPanel: React.FC<RetentionPanelProps> = ({
         min={1}
         max={30}
         onChange={(v) => onFieldChange("rawRetentionDays", v)}
+        disabled={saving || isLocked}
       />
 
       {/* Hourly Aggregates */}
@@ -78,6 +81,7 @@ export const RetentionPanel: React.FC<RetentionPanelProps> = ({
         min={7}
         max={365}
         onChange={(v) => onFieldChange("hourlyRetentionDays", v)}
+        disabled={saving || isLocked}
       />
 
       {/* Daily Aggregates */}
@@ -88,6 +92,7 @@ export const RetentionPanel: React.FC<RetentionPanelProps> = ({
         min={30}
         max={1095}
         onChange={(v) => onFieldChange("dailyRetentionDays", v)}
+        disabled={saving || isLocked}
       />
 
       {/* Actions */}
@@ -96,14 +101,14 @@ export const RetentionPanel: React.FC<RetentionPanelProps> = ({
           variant="ghost"
           size="sm"
           onClick={onReset}
-          disabled={saving || !data.isCustom}
+          disabled={saving || isLocked || !data.isCustom}
         >
           Reset to Defaults
         </Button>
         <Button
           size="sm"
           onClick={onSave}
-          disabled={saving || !isValidHierarchy}
+          disabled={saving || isLocked || !isValidHierarchy}
         >
           {saving ? "Saving..." : "Save Retention"}
         </Button>
@@ -123,6 +128,7 @@ function RetentionTier({
   min,
   max,
   onChange,
+  disabled,
 }: {
   label: string;
   description: string;
@@ -130,6 +136,7 @@ function RetentionTier({
   min: number;
   max: number;
   onChange: (value: number) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="p-3 rounded-lg border bg-muted/30">
@@ -145,6 +152,7 @@ function RetentionTier({
             max={max}
             value={value}
             onChange={(e) => onChange(Number(e.target.value))}
+            disabled={disabled}
             className="h-8 w-20 text-center"
           />
           <span className="text-sm text-muted-foreground w-10">days</span>

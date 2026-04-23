@@ -18,7 +18,7 @@ import { resolveRoute, type InferClient, extractErrorMessage} from "@checkstack/
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { EntityService } from "./services/entity-service";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
-import { CHECKSTACK_API_VERSION, entityRefSchema } from "@checkstack/gitops-common";
+import { CHECKSTACK_API_VERSION, entityRefSchema, GitOpsApi } from "@checkstack/gitops-common";
 import { z } from "zod";
 
 // Database schema is still needed for types in creating the router
@@ -193,12 +193,14 @@ export default createBackendPlugin({
         // Get notification client for group management and sending notifications
         const notificationClient = rpcClient.forPlugin(NotificationApi);
         const authClient = rpcClient.forPlugin(AuthApi);
+        const gitOpsClient = rpcClient.forPlugin(GitOpsApi);
 
         // Register oRPC router with notification client and auth client
         const catalogRouter = createCatalogRouter({
           database: typedDb,
           notificationClient,
           authClient,
+          gitOpsClient,
           pluginId: pluginMetadata.pluginId,
         });
         rpc.registerRouter(catalogRouter, catalogContract);
