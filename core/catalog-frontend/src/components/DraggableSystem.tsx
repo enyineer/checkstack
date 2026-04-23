@@ -111,9 +111,9 @@ export const DraggableSystem = ({
               variant="ghost"
               size="sm"
               className="h-7 w-7 p-0"
-              title={`Add ${system.name} to a group`}
+              title={isLocked ? "Managed by GitOps" : `Add ${system.name} to a group`}
               onClick={() => setIsPickerOpen((v) => !v)}
-              disabled={availableGroups.length === 0}
+              disabled={availableGroups.length === 0 || isLocked}
               aria-expanded={isPickerOpen}
               aria-haspopup="listbox"
               aria-label={`Add ${system.name} to group`}

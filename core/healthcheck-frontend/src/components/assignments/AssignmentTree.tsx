@@ -25,6 +25,7 @@ interface AssignmentTreeProps {
   selectedNode: AssignmentNodeId | undefined;
   onSelectNode: (nodeId: AssignmentNodeId) => void;
   onToggleAssignment: (configId: string, assigned: boolean) => void;
+  isLocked?: boolean;
 }
 
 // =============================================================================
@@ -37,6 +38,7 @@ export const AssignmentTree: React.FC<AssignmentTreeProps> = ({
   selectedNode,
   onSelectNode,
   onToggleAssignment,
+  isLocked,
 }) => {
   return (
     <div className="py-2">
@@ -99,7 +101,7 @@ export const AssignmentTree: React.FC<AssignmentTreeProps> = ({
       ))}
 
       {/* Available (unassigned) health checks */}
-      {available.length > 0 && (
+      {!isLocked && available.length > 0 && (
         <>
           <IDETreeSection label="Available" />
           {available.map((config) => (
