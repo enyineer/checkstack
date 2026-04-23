@@ -1,5 +1,11 @@
 # @checkstack/catalog-backend
 
+## 0.5.0
+
+### Minor Changes
+
+- 80cbc51: Enforce GitOps provenance lock on backend API endpoints to prevent manual configuration drift for synchronized resources.
+
 ## 0.4.4
 
 ### Patch Changes

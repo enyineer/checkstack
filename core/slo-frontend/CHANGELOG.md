@@ -1,5 +1,11 @@
 # @checkstack/slo-frontend
 
+## 0.3.1
+
+### Patch Changes
+
+- @checkstack/dashboard-frontend@0.4.1
+
 ## 0.3.0
 
 ### Minor Changes

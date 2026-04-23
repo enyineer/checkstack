@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.60.0
+
+### Minor Changes
+
+- 80cbc51: Enforce GitOps provenance lock on backend API endpoints to prevent manual configuration drift for synchronized resources.
+
 ## 0.59.0
 
 ### Minor Changes
