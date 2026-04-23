@@ -61,6 +61,9 @@ export const ProvenanceStatus = () => {
   const synced = entries.filter((e) => e.status === "synced");
   const errors = entries.filter((e) => e.status === "error");
   const orphaned = entries.filter((e) => e.status === "orphaned");
+  const withWarnings = entries.filter(
+    (e) => e.warnings.length > 0 && e.status === "synced",
+  );
 
   const statusIcon = (status: Provenance["status"]) => {
     switch (status) {
@@ -107,6 +110,19 @@ export const ProvenanceStatus = () => {
                   {entry.errorMessage}
                 </div>
               )}
+              {entry.warnings.length > 0 && (
+                <div className="mt-1 space-y-0.5">
+                  {entry.warnings.map((warning, index) => (
+                    <div
+                      key={index}
+                      className="text-xs text-amber-500 flex items-start gap-1"
+                    >
+                      <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                      <span className="truncate">{warning}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -148,7 +164,7 @@ export const ProvenanceStatus = () => {
     <>
       <div className="space-y-6">
         {/* Summary */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-4 gap-4">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-2">
@@ -176,6 +192,15 @@ export const ProvenanceStatus = () => {
               </div>
             </CardContent>
           </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-500" />
+                <span className="text-2xl font-bold">{withWarnings.length}</span>
+                <span className="text-sm text-muted-foreground">Warnings</span>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Orphaned entities — shown first if any */}
@@ -193,6 +218,22 @@ export const ProvenanceStatus = () => {
               </p>
             </CardHeader>
             <CardContent>{renderEntryList(orphaned, true)}</CardContent>
+          </Card>
+        )}
+
+        {/* Warnings */}
+        {withWarnings.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-500" />
+                Sync Warnings
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                These entities contain secret templates in non-secret fields. The templates will not be resolved.
+              </p>
+            </CardHeader>
+            <CardContent>{renderEntryList(withWarnings, false)}</CardContent>
           </Card>
         )}
 

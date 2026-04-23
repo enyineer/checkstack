@@ -1,11 +1,13 @@
 import type { Logger, SafeDatabase } from "@checkstack/backend-api";
 import type { EntityEnvelope } from "@checkstack/gitops-common";
+import { collectSecretNames } from "@checkstack/gitops-common";
+import { z } from "zod";
 import type { InternalEntityKindRegistry } from "../kind-registry";
 import type { SecretStore } from "../secret-resolver";
 import type { DiscoveredFile, Scraper, FetchFn } from "../scrapers/types";
 import { parseEntityDocuments } from "./document-parser";
 import { sortEntitiesByDependency, type CollectedEntity } from "./sort-entities";
-import { resolveSecrets } from "../secret-resolver";
+import { resolveSecretsBySchema } from "../secret-resolver";
 import * as schema from "../schema";
 import { eq, and } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
@@ -117,7 +119,8 @@ export async function reconcileProvider(
     for (const { entity, contentHash } of parseResult.entities) {
       const entityKey = `${entity.kind}::${entity.metadata.name}`;
       seenEntityKeys.add(entityKey);
-      collected.push({ entity, contentHash, file });
+      const secretRefs = collectSecretNames({ value: entity.spec });
+      collected.push({ entity, contentHash, file, secretRefs });
     }
   }
 
@@ -125,13 +128,14 @@ export async function reconcileProvider(
   const sorted = sortEntitiesByDependency({ entities: collected });
 
   // 4. Reconcile in dependency order (provenance written immediately per entity)
-  for (const { entity, contentHash, file } of sorted) {
+  for (const { entity, contentHash, file, secretRefs } of sorted) {
     const entityKey = `${entity.kind}::${entity.metadata.name}`;
 
     try {
       await reconcileEntity({
         entity,
         contentHash,
+        secretRefs: secretRefs ?? [],
         file,
         providerId,
         db,
@@ -150,6 +154,7 @@ export async function reconcileProvider(
         entity,
         file,
         contentHash,
+        secretRefs: secretRefs ?? [],
         status: "error",
         errorMessage: String(error),
       });
@@ -179,6 +184,7 @@ export async function reconcileProvider(
 async function reconcileEntity(params: {
   entity: EntityEnvelope;
   contentHash: string;
+  secretRefs: string[];
   file: DiscoveredFile;
   providerId: string;
   db: Db;
@@ -190,6 +196,7 @@ async function reconcileEntity(params: {
   const {
     entity,
     contentHash,
+    secretRefs,
     file,
     providerId,
     db,
@@ -217,7 +224,25 @@ async function reconcileEntity(params: {
     return rows[0]?.entityId;
   };
 
-  const context = { logger, resolveEntityRef };
+  // Accumulates warnings from all resolveSecretsBySchema calls during this reconciliation
+  const reconcileWarnings: string[] = [];
+
+  const context = {
+    logger,
+    resolveEntityRef,
+    resolveSecretsBySchema: async <T>(params: {
+      value: T;
+      schema: z.ZodTypeAny;
+    }): Promise<{ resolved: T; warnings: string[] }> => {
+      const result = await resolveSecretsBySchema({
+        value: params.value as unknown,
+        schema: params.schema,
+        secretStore,
+      });
+      reconcileWarnings.push(...result.warnings);
+      return { resolved: result.resolved as T, warnings: result.warnings };
+    },
+  };
 
   // Look up registered kind
   const kindDef = kindRegistry.getKind({
@@ -244,6 +269,22 @@ async function reconcileEntity(params: {
     );
   }
 
+  // Reject secret templates in metadata (display fields must never contain secrets)
+  const metadataSecrets = collectSecretNames({ value: entity.metadata });
+  if (metadataSecrets.length > 0) {
+    throw new Error(
+      `Secret templates are not allowed in metadata fields (found: ${metadataSecrets.join(", ")}). ` +
+        `Secrets can only be referenced in the spec section.`,
+    );
+  }
+
+  // Validate all referenced secrets exist before reconciliation.
+  // This catches typos / missing secrets early even though resolution is deferred
+  // to when the plugin explicitly calls context.resolveSecretsBySchema().
+  for (const name of secretRefs) {
+    await secretStore.resolve(name);
+  }
+
   // Check provenance for diff
   const existingProvenance = await db
     .select()
@@ -263,15 +304,10 @@ async function reconcileEntity(params: {
     return;
   }
 
-  // Resolve secrets in the spec
-  const resolvedSpec = await resolveSecrets({
-    spec: entity.spec as Record<string, unknown>,
-    secretStore,
-  });
-
-  // Call base kind reconciler
+  // Call base kind reconciler with raw spec (secrets NOT pre-resolved).
+  // Plugins use context.resolveSecretsBySchema() to resolve specific fields.
   const reconcileResult = await kindDef.reconcile({
-    entity: { ...entity, spec: resolvedSpec },
+    entity: entity as typeof entity & { spec: Record<string, unknown> },
     existingEntityId: existing?.entityId ?? undefined,
     context,
   });
@@ -283,12 +319,12 @@ async function reconcileEntity(params: {
   });
 
   for (const ext of extensions) {
-    const extensionSpec = (resolvedSpec as Record<string, unknown>)[
+    const extensionSpec = (entity.spec as Record<string, unknown>)[
       ext.namespace
     ];
     if (extensionSpec !== undefined) {
       await ext.reconcile({
-        entity: { ...entity, spec: resolvedSpec },
+        entity,
         extensionSpec,
         entityId: reconcileResult.entityId,
         context,
@@ -303,8 +339,10 @@ async function reconcileEntity(params: {
     entity,
     file,
     contentHash,
+    secretRefs,
     entityId: reconcileResult.entityId,
     status: "synced",
+    warnings: reconcileWarnings,
   });
 
   if (existing) {
@@ -354,6 +392,8 @@ async function detectOrphans(params: {
                   // eslint-disable-next-line unicorn/no-useless-undefined
                   return undefined;
                 },
+                resolveSecretsBySchema: async <T>(params: { value: T; schema: z.ZodTypeAny }): Promise<{ resolved: T; warnings: string[] }> =>
+                  ({ resolved: params.value, warnings: [] }),
               },
             });
           } catch (deleteError) {
@@ -395,10 +435,13 @@ async function upsertProvenance(params: {
   entity: EntityEnvelope;
   file: DiscoveredFile;
   contentHash: string;
+  secretRefs: string[];
   /** Required for synced status. On error, may be omitted to preserve existing value. */
   entityId?: string;
   status: "synced" | "error";
   errorMessage?: string;
+  /** Warnings about unresolved secret templates in non-secret fields. */
+  warnings?: string[];
 }): Promise<void> {
   const {
     db,
@@ -406,9 +449,11 @@ async function upsertProvenance(params: {
     entity,
     file,
     contentHash,
+    secretRefs,
     entityId,
     status,
     errorMessage,
+    warnings,
   } = params;
   const existing = await db
     .select()
@@ -425,10 +470,12 @@ async function upsertProvenance(params: {
       .update(schema.provenance)
       .set({
         lastSyncHash: contentHash,
+        secretRefs,
         // Preserve existing entityId on error retries; update on successful reconcile
         ...(entityId ? { entityId } : {}),
         status,
         errorMessage: errorMessage ?? null, // eslint-disable-line unicorn/no-null
+        warnings: warnings ?? [],
         repository: file.repository,
         filePath: file.filePath,
         lastSyncedAt: new Date(),
@@ -453,8 +500,10 @@ async function upsertProvenance(params: {
     repository: file.repository,
     filePath: file.filePath,
     lastSyncHash: contentHash,
+    secretRefs,
     status,
     errorMessage: errorMessage ?? null, // eslint-disable-line unicorn/no-null
+    warnings: warnings ?? [],
   });
 }
 

@@ -8,6 +8,8 @@ export interface CollectedEntity {
   entity: EntityEnvelope;
   contentHash: string;
   file: DiscoveredFile;
+  /** Secret names referenced via ${{ secrets.NAME }} in this entity's spec. */
+  secretRefs?: string[];
 }
 
 // ─── Topological Sort ──────────────────────────────────────────────────────

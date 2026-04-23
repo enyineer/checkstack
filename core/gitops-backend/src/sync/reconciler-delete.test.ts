@@ -42,6 +42,8 @@ describe("Kind delete reconciler wiring", () => {
           error: () => {},
         },
         resolveEntityRef: async () => undefined,
+        resolveSecretsBySchema: async <T>(params: { value: T }): Promise<{ resolved: T; warnings: string[] }> =>
+          ({ resolved: params.value, warnings: [] }),
       },
     });
 
@@ -105,6 +107,8 @@ describe("Kind delete reconciler wiring", () => {
             error: () => {},
           },
           resolveEntityRef: async () => undefined,
+          resolveSecretsBySchema: async <T>(params: { value: T }): Promise<{ resolved: T; warnings: string[] }> =>
+            ({ resolved: params.value, warnings: [] }),
         },
       }),
     ).rejects.toThrow("DB connection failed");

@@ -19,6 +19,8 @@ export const provenanceSchema = z.object({
   lastSyncHash: z.string(),
   status: provenanceStatusSchema,
   errorMessage: z.string().nullable(),
+  /** Warnings about unresolved secret templates in non-secret fields. */
+  warnings: z.array(z.string()),
   lastSyncedAt: z.date(),
   createdAt: z.date(),
 });

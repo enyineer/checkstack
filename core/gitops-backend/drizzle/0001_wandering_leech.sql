@@ -1,0 +1,1 @@
+ALTER TABLE "provenance" ADD COLUMN "secret_refs" text[] DEFAULT '{}';

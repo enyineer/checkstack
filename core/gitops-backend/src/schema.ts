@@ -57,16 +57,20 @@ export const provenance = pgTable("provenance", {
   repository: text("repository").notNull(),
   filePath: text("file_path").notNull(),
   lastSyncHash: text("last_sync_hash").notNull(),
+  /** Secret names referenced via ${{ secrets.NAME }} in this entity's spec. */
+  secretRefs: text("secret_refs").array().default([]),
   status: provenanceStatusEnum("status").notNull().default("synced"),
   errorMessage: text("error_message"),
+  /** Warnings about unresolved secret templates in non-secret fields. */
+  warnings: text("warnings").array().default([]),
   lastSyncedAt: timestamp("last_synced_at").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-/** Secret store for secretRef values in YAML descriptors. */
+/** Secret store for ${{ secrets.NAME }} template values in YAML descriptors. */
 export const secrets = pgTable("secrets", {
   id: text("id").primaryKey(),
-  /** Unique name referenced by secretRef in descriptors. */
+  /** Unique name referenced via ${{ secrets.NAME }} in descriptors. */
   name: text("name").notNull().unique(),
   /** AES-256-GCM encrypted value (format: iv:authTag:ciphertext). */
   encryptedValue: text("encrypted_value").notNull(),

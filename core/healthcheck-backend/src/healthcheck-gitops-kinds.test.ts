@@ -191,6 +191,8 @@ const mockContext: ReconcileContext = {
     error: () => {},
   },
   resolveEntityRef: async () => undefined,
+  resolveSecretsBySchema: async <T>(params: { value: T }): Promise<{ resolved: T; warnings: string[] }> =>
+    ({ resolved: params.value, warnings: [] }),
 };
 
 // ─── Tests: kind: Healthcheck ──────────────────────────────────────────────
@@ -592,5 +594,113 @@ describe("Healthcheck GitOps Kind: System Extension", () => {
     });
 
     expect(mockService.associateSystem).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Tests: Secret template resolution in healthcheck configs ──────────────
+
+describe("Healthcheck GitOps: Secret template resolution", () => {
+  it("collectSecretNames extracts secrets from healthcheck config", async () => {
+    const { collectSecretNames } = await import("@checkstack/gitops-common");
+
+    const spec = {
+      strategy: "postgres",
+      intervalSeconds: 30,
+      config: {
+        host: "db.internal",
+        port: 5432,
+        database: "payments",
+        user: "monitor",
+        password: "${{ secrets.DB_PASS }}",
+      },
+    };
+
+    const names = collectSecretNames({ value: spec });
+    expect(names).toEqual(["DB_PASS"]);
+  });
+
+  it("collectSecretNames extracts multiple secrets from config", async () => {
+    const { collectSecretNames } = await import("@checkstack/gitops-common");
+
+    const spec = {
+      strategy: "postgres",
+      intervalSeconds: 30,
+      config: {
+        host: "db.internal",
+        user: "${{ secrets.DB_USER }}",
+        password: "${{ secrets.DB_PASS }}",
+      },
+    };
+
+    const names = collectSecretNames({ value: spec });
+    expect(names).toContain("DB_USER");
+    expect(names).toContain("DB_PASS");
+    expect(names).toHaveLength(2);
+  });
+
+  it("collectSecretNames handles inline interpolation in config values", async () => {
+    const { collectSecretNames } = await import("@checkstack/gitops-common");
+
+    const spec = {
+      strategy: "postgres",
+      intervalSeconds: 30,
+      config: {
+        connectionString:
+          "postgres://${{ secrets.DB_USER }}:${{ secrets.DB_PASS }}@host/db",
+      },
+    };
+
+    const names = collectSecretNames({ value: spec });
+    expect(names).toContain("DB_USER");
+    expect(names).toContain("DB_PASS");
+  });
+
+  it("SECRET_TEMPLATE_REGEX correctly identifies templates in healthcheck config values", async () => {
+    const { SECRET_TEMPLATE_REGEX } = await import("@checkstack/gitops-common");
+
+    const configValues = [
+      { input: "${{ secrets.DB_PASS }}", expectedSecrets: ["DB_PASS"] },
+      { input: "db-${{ secrets.ENV }}.internal", expectedSecrets: ["ENV"] },
+      {
+        input:
+          "postgres://${{ secrets.DB_USER }}:${{ secrets.DB_PASS }}@host/db",
+        expectedSecrets: ["DB_USER", "DB_PASS"],
+      },
+      { input: "plain-value", expectedSecrets: [] },
+    ];
+
+    for (const { input, expectedSecrets } of configValues) {
+      const found: string[] = [];
+      SECRET_TEMPLATE_REGEX.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = SECRET_TEMPLATE_REGEX.exec(input)) !== null) {
+        found.push(match[1]);
+      }
+      expect(found).toEqual(expectedSecrets);
+    }
+  });
+
+  it("template replacement produces expected resolved config", () => {
+    // Simulates what the reconciler does: replace ${{ secrets.X }} with values
+    const secrets: Record<string, string> = {
+      DB_PASS: "production-password-123",
+      ENV: "production",
+    };
+
+    const rawConfig: Record<string, string> = {
+      host: "db-${{ secrets.ENV }}.internal",
+      password: "${{ secrets.DB_PASS }}",
+    };
+
+    const resolvedConfig: Record<string, string> = {};
+    for (const [key, value] of Object.entries(rawConfig)) {
+      resolvedConfig[key] = value.replaceAll(
+        /\$\{\{\s*secrets\.([a-zA-Z0-9_-]+)\s*\}\}/g,
+        (_match, secretName: string) => secrets[secretName] ?? _match,
+      );
+    }
+
+    expect(resolvedConfig.host).toBe("db-production.internal");
+    expect(resolvedConfig.password).toBe("production-password-123");
   });
 });

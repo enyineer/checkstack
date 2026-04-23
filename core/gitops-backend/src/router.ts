@@ -1,4 +1,5 @@
 import { implement, ORPCError } from "@orpc/server";
+import { z } from "zod";
 import { autoAuthMiddleware, type RpcContext } from "@checkstack/backend-api";
 import { encrypt, decrypt } from "@checkstack/backend-api";
 import { gitopsContract } from "@checkstack/gitops-common";
@@ -7,7 +8,7 @@ import type { QueueManager } from "@checkstack/queue-api";
 import type { InternalEntityKindRegistry } from "./kind-registry";
 import { triggerSyncForProvider, scheduleSyncForProvider, cancelSyncForProvider } from "./sync/sync-worker";
 import * as schema from "./schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
 
 /**
@@ -47,12 +48,15 @@ export const createGitOpsRouter = ({
       .select()
       .from(schema.provenance)
       .where(and(...conditions));
+    const row = result[0];
     // eslint-disable-next-line unicorn/no-null
-    return result[0] ?? null;
+    return row ? { ...row, warnings: row.warnings ?? [] } : null;
   });
 
   const listProvenance = os.listProvenance.handler(async ({ input }) => {
-    const rows = await db.select().from(schema.provenance);
+    const rawRows = await db.select().from(schema.provenance);
+    // Normalize: ensure warnings is always a string[] (Drizzle may return null for pre-migration rows)
+    const rows = rawRows.map((row) => ({ ...row, warnings: row.warnings ?? [] }));
     if (!input) return rows;
 
     return rows.filter((row) => {
@@ -236,6 +240,8 @@ export const createGitOpsRouter = ({
                 // eslint-disable-next-line unicorn/no-useless-undefined
                 return undefined;
               },
+              resolveSecretsBySchema: async <T>(params: { value: T; schema: z.ZodTypeAny }): Promise<{ resolved: T; warnings: string[] }> =>
+                ({ resolved: params.value, warnings: [] }),
             },
           });
         } catch (deleteError) {
@@ -327,6 +333,16 @@ export const createGitOpsRouter = ({
       .set({ encryptedValue, updatedAt: new Date() })
       .where(eq(schema.secrets.id, input.id));
 
+    // Invalidate provenance for all entities referencing this secret
+    // so the next sync cycle re-reconciles them with the updated value
+    const secretName = existing[0].name;
+    await db
+      .update(schema.provenance)
+      .set({ lastSyncHash: "" })
+      .where(
+        sql`${secretName} = ANY(${schema.provenance.secretRefs})`,
+      );
+
     return { success: true };
   });
 
@@ -352,6 +368,22 @@ export const createGitOpsRouter = ({
     return { value: decrypt(secret.encryptedValue) };
   });
 
+  const getSecretUsage = os.getSecretUsage.handler(async ({ input }) => {
+    const rows = await db
+      .select({
+        kind: schema.provenance.kind,
+        entityName: schema.provenance.entityName,
+        repository: schema.provenance.repository,
+        filePath: schema.provenance.filePath,
+      })
+      .from(schema.provenance)
+      .where(
+        sql`${input.secretName} = ANY(${schema.provenance.secretRefs})`,
+      );
+
+    return rows;
+  });
+
   // ─── Kind Registry ────────────────────────────────────────────────────
 
   const listKinds = os.listKinds.handler(async () => {
@@ -375,6 +407,7 @@ export const createGitOpsRouter = ({
     rotateSecret,
     deleteSecret,
     resolveSecret,
+    getSecretUsage,
     listKinds,
   });
 };

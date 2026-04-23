@@ -1,47 +1,82 @@
 import { z } from "zod";
 
 /**
- * Schema for a secret reference object.
- * Used in YAML descriptors to reference secrets stored in the Checkstack secret store.
+ * Valid characters for a secret name: letters, digits, underscores, and hyphens.
+ * This must stay in sync with the capture group in {@link SECRET_TEMPLATE_REGEX}.
  */
-export const secretRefSchema = z.object({
-  secretRef: z.string().min(1, "Secret reference name must not be empty"),
-});
-
-export type SecretRef = z.infer<typeof secretRefSchema>;
+export const SECRET_NAME_REGEX = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 
 /**
- * Type guard to check if a value is a SecretRef object.
+ * Zod schema for validating secret names at creation time.
+ * Ensures the name can be referenced via `${{ secrets.NAME }}`.
  */
-export function isSecretRef(value: unknown): value is SecretRef {
-  if (value === null || value === undefined || typeof value !== "object") {
-    return false;
-  }
-  return (
-    "secretRef" in value &&
-    typeof (value as SecretRef).secretRef === "string"
+export const secretNameSchema = z
+  .string()
+  .min(1)
+  .max(63)
+  .regex(
+    SECRET_NAME_REGEX,
+    "Secret names must start with a letter and contain only letters, digits, underscores, or hyphens",
   );
-}
 
 /**
- * Creates a Zod schema for fields that accept either a plain string or a secret reference.
+ * Regex matching ${{ secrets.NAME }} template expressions in strings.
+ * Captures the secret name in group 1.
+ * Supports multiple occurrences within a single string value.
  *
- * In YAML descriptors, users can write either:
- * ```yaml
- * password: "dev-password"              # plain string
- * password:
- *   secretRef: production-db-creds      # reference to secret store
- * ```
- *
- * The GitOps reconciliation engine resolves all secretRef values before calling
- * plugin reconcilers, so plugins always receive plain strings.
+ * @example
+ * "${{ secrets.DB_PASS }}" → captures "DB_PASS"
+ * "postgres://u:${{ secrets.PASS }}@${{ secrets.HOST }}/db" → captures "PASS", "HOST"
  */
-export function secretField() {
-  return z.union([z.string(), secretRefSchema]);
-}
+export const SECRET_TEMPLATE_REGEX =
+  /\$\{\{\s*secrets\.([a-zA-Z0-9_-]+)\s*\}\}/g;
 
 /**
- * The resolved type of a secret field is always a string.
- * After the reconciliation engine resolves secretRefs, all values are plain strings.
+ * Zod schema for validating secret template strings.
+ * Matches strings containing at least one ${{ secrets.NAME }} pattern.
  */
-export type ResolvedSecretField = string;
+export const secretTemplateSchema = z.string().regex(
+  /\$\{\{\s*secrets\.[a-zA-Z0-9_-]+\s*\}\}/,
+  "Must contain a ${{ secrets.NAME }} reference",
+);
+
+/**
+ * Recursively walks a value and collects all unique secret names
+ * referenced via ${{ secrets.NAME }} patterns in string values.
+ *
+ * @returns Deduplicated array of secret names found in the value tree
+ */
+export function collectSecretNames(params: { value: unknown }): string[] {
+  const names = new Set<string>();
+  collectFromValue(params.value, names);
+  return [...names];
+}
+
+function collectFromValue(value: unknown, names: Set<string>): void {
+  if (value === null || value === undefined) {
+    return;
+  }
+
+  if (typeof value === "string") {
+    // Reset regex lastIndex for safe reuse (global flag)
+    SECRET_TEMPLATE_REGEX.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = SECRET_TEMPLATE_REGEX.exec(value)) !== null) {
+      names.add(match[1]);
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectFromValue(item, names);
+    }
+    return;
+  }
+
+  if (typeof value === "object") {
+    for (const val of Object.values(value)) {
+      collectFromValue(val, names);
+    }
+  }
+}

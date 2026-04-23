@@ -15,13 +15,55 @@ import {
   EmptyState,
   ConfirmationModal,
   useToast,
+  Badge,
 } from "@checkstack/ui";
-import { Plus, RotateCw, Trash2, KeyRound } from "lucide-react";
+import { Plus, RotateCw, Trash2, KeyRound, ChevronDown, ChevronRight } from "lucide-react";
 import { extractErrorMessage } from "@checkstack/common";
 import { SecretEditor } from "./SecretEditor";
 import { SecretRotateDialog } from "./SecretRotateDialog";
 
 const formatDate = (date: Date) => new Date(date).toLocaleString();
+
+/** Expandable usage panel for a single secret. */
+const SecretUsagePanel = ({ secretName }: { secretName: string }) => {
+  const client = usePluginClient(GitOpsApi);
+  const { data: usage, isLoading } = client.getSecretUsage.useQuery({
+    secretName,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="text-xs text-muted-foreground py-2 px-4">Loading…</div>
+    );
+  }
+
+  if (!usage || usage.length === 0) {
+    return (
+      <div className="text-xs text-muted-foreground py-2 px-4">
+        Not referenced by any entities.
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-4 pb-3 space-y-1">
+      {usage.map((entry) => (
+        <div
+          key={`${entry.kind}::${entry.entityName}`}
+          className="flex items-center gap-2 text-xs text-muted-foreground"
+        >
+          <Badge variant="outline" className="text-[10px] font-mono px-1.5 py-0">
+            {entry.kind}
+          </Badge>
+          <span className="font-medium text-foreground">{entry.entityName}</span>
+          <span className="hidden sm:inline truncate">
+            {entry.repository}/{entry.filePath}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+};
 
 export const SecretList = () => {
   const client = usePluginClient(GitOpsApi);
@@ -42,6 +84,9 @@ export const SecretList = () => {
     secretId: string;
     secretName: string;
   }>({ isOpen: false, secretId: "", secretName: "" });
+  const [expandedSecrets, setExpandedSecrets] = useState<Set<string>>(
+    new Set(),
+  );
 
   const { data: secrets, isLoading, refetch } = client.listSecrets.useQuery({});
 
@@ -78,6 +123,18 @@ export const SecretList = () => {
     },
   });
 
+  const toggleExpanded = (secretId: string) => {
+    setExpandedSecrets((prev) => {
+      const next = new Set(prev);
+      if (next.has(secretId)) {
+        next.delete(secretId);
+      } else {
+        next.add(secretId);
+      }
+      return next;
+    });
+  };
+
   return (
     <>
       <Card>
@@ -108,64 +165,83 @@ export const SecretList = () => {
             />
           ) : (
             <div className="space-y-3">
-              {secrets.map((secret) => (
-                <div
-                  key={secret.id}
-                  className="flex items-center justify-between p-4 rounded-lg border border-border bg-background/50 hover:bg-background/80 transition-colors"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <KeyRound className="w-4 h-4 text-muted-foreground shrink-0" />
-                    <div className="min-w-0">
-                      <div className="font-medium font-mono text-sm">
-                        {secret.name}
-                      </div>
-                      {secret.description && (
-                        <div className="text-xs text-muted-foreground mt-0.5 truncate">
-                          {secret.description}
+              {secrets.map((secret) => {
+                const isExpanded = expandedSecrets.has(secret.id);
+                return (
+                  <div
+                    key={secret.id}
+                    className="rounded-lg border border-border bg-background/50 hover:bg-background/80 transition-colors"
+                  >
+                    <div className="flex items-center justify-between p-4">
+                      <button
+                        type="button"
+                        className="flex items-center gap-3 min-w-0 cursor-pointer bg-transparent border-none p-0 text-left"
+                        onClick={() => toggleExpanded(secret.id)}
+                        title={isExpanded ? "Hide usage" : "Show usage"}
+                      >
+                        {isExpanded ? (
+                          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                        ) : (
+                          <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                        )}
+                        <KeyRound className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <div className="min-w-0">
+                          <div className="font-medium font-mono text-sm">
+                            {secret.name}
+                          </div>
+                          {secret.description && (
+                            <div className="text-xs text-muted-foreground mt-0.5 truncate">
+                              {secret.description}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  </div>
+                      </button>
 
-                  <div className="flex items-center gap-4 shrink-0">
-                    <div className="text-right text-xs text-muted-foreground hidden md:block">
-                      <div>Updated: {formatDate(secret.updatedAt)}</div>
-                    </div>
+                      <div className="flex items-center gap-4 shrink-0">
+                        <div className="text-right text-xs text-muted-foreground hidden md:block">
+                          <div>Updated: {formatDate(secret.updatedAt)}</div>
+                        </div>
 
-                    {canManage && (
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() =>
-                            setRotatingSecret({
-                              id: secret.id,
-                              name: secret.name,
-                            })
-                          }
-                          title="Rotate secret"
-                        >
-                          <RotateCw className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() =>
-                            setConfirmModal({
-                              isOpen: true,
-                              secretId: secret.id,
-                              secretName: secret.name,
-                            })
-                          }
-                          title="Delete secret"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        {canManage && (
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() =>
+                                setRotatingSecret({
+                                  id: secret.id,
+                                  name: secret.name,
+                                })
+                              }
+                              title="Rotate secret"
+                            >
+                              <RotateCw className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() =>
+                                setConfirmModal({
+                                  isOpen: true,
+                                  secretId: secret.id,
+                                  secretName: secret.name,
+                                })
+                              }
+                              title="Delete secret"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        )}
                       </div>
+                    </div>
+
+                    {isExpanded && (
+                      <SecretUsagePanel secretName={secret.name} />
                     )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>

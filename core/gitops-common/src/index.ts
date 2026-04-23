@@ -7,11 +7,11 @@ export {
   type EntityMetadata,
 } from "./entity-envelope";
 export {
-  secretField,
-  secretRefSchema,
-  isSecretRef,
-  type SecretRef,
-  type ResolvedSecretField,
+  SECRET_NAME_REGEX,
+  SECRET_TEMPLATE_REGEX,
+  secretNameSchema,
+  secretTemplateSchema,
+  collectSecretNames,
 } from "./secret-field";
 export {
   entityRefSchema,

@@ -10,6 +10,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@checkstack/ui";
+import { SECRET_NAME_REGEX } from "@checkstack/gitops-common";
 
 interface SecretEditorProps {
   open: boolean;
@@ -34,9 +35,18 @@ export const SecretEditor: React.FC<SecretEditorProps> = ({
     }
   }, [open]);
 
+  const nameError =
+    name.length > 0 && !SECRET_NAME_REGEX.test(name)
+      ? "Must start with a letter and contain only letters, digits, underscores, or hyphens"
+      : name.length > 63
+        ? "Must be 63 characters or fewer"
+        : undefined;
+
+  const canSubmit = name.trim().length > 0 && !nameError && value.trim().length > 0;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !value.trim()) return;
+    if (!canSubmit) return;
 
     onSave({
       name: name.trim(),
@@ -64,12 +74,16 @@ export const SecretEditor: React.FC<SecretEditorProps> = ({
                 placeholder="e.g. GITHUB_TOKEN"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="font-mono"
+                className={`font-mono ${nameError ? "border-destructive" : ""}`}
                 required
               />
-              <p className="text-xs text-muted-foreground">
-                Referenced as <code className="text-xs">{"${{ secrets.NAME }}"}</code> in descriptors.
-              </p>
+              {nameError ? (
+                <p className="text-xs text-destructive">{nameError}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Referenced as <code className="text-xs">{"${{ secrets.NAME }}"}</code> in descriptors.
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -99,7 +113,7 @@ export const SecretEditor: React.FC<SecretEditorProps> = ({
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!name.trim() || !value.trim()}>
+            <Button type="submit" disabled={!canSubmit}>
               Create Secret
             </Button>
           </DialogFooter>
@@ -108,3 +122,4 @@ export const SecretEditor: React.FC<SecretEditorProps> = ({
     </Dialog>
   );
 };
+
