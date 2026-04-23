@@ -1,5 +1,11 @@
 # @checkstack/frontend
 
+## 0.3.16
+
+### Patch Changes
+
+- f8c8625: Added SVG favicon to frontend application
+
 ## 0.3.15
 
 ### Patch Changes
