@@ -13,6 +13,8 @@ import {
   SelectTrigger,
   SelectValue,
   CodeEditor,
+  Markdown,
+  MarkdownBlock,
 } from "@checkstack/ui";
 import {
   ChevronDown,
@@ -111,8 +113,11 @@ function SchemaPropertyDisplay({
             )}
             : <SchemaPropertyDisplay schema={value} depth={depth + 1} />
             {value.description && (
-              <span className="text-muted-foreground ml-2 text-xs">
-                // {value.description}
+              <span className="text-muted-foreground ml-2 text-xs inline-flex items-center gap-1">
+                //{" "}
+                <Markdown size="sm" className="inline">
+                  {value.description}
+                </Markdown>
               </span>
             )}
           </div>
@@ -544,8 +549,8 @@ function SpecSchemaDocumentationField({
       {selectedDoc ? (
         <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
           {selectedDoc.description && (
-            <div className="text-sm text-muted-foreground italic">
-              {selectedDoc.description}
+            <div className="text-sm text-muted-foreground">
+              <MarkdownBlock>{selectedDoc.description}</MarkdownBlock>
             </div>
           )}
           <div className="bg-muted rounded-md p-3 overflow-x-auto">
