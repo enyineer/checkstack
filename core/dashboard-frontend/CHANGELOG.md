@@ -1,5 +1,12 @@
 # @checkstack/dashboard-frontend
 
+## 0.4.1
+
+### Patch Changes
+
+- Updated dependencies [80cbc51]
+  - @checkstack/catalog-frontend@0.8.0
+
 ## 0.4.0
 
 ### Minor Changes

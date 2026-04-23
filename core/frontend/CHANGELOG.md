@@ -1,5 +1,13 @@
 # @checkstack/frontend
 
+## 0.3.15
+
+### Patch Changes
+
+- Updated dependencies [80cbc51]
+  - @checkstack/catalog-frontend@0.8.0
+  - @checkstack/dependency-frontend@0.2.14
+
 ## 0.3.14
 
 ### Patch Changes
