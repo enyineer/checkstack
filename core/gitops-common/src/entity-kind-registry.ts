@@ -25,6 +25,32 @@ export interface ReconcileContext {
     kind: string;
     entityName: string;
   }) => Promise<string | undefined>;
+  /**
+   * Schema-driven secret resolution.
+   *
+   * Walks the provided Zod schema to find fields annotated with
+   * `configString({ "x-secret": true })`, then resolves `${{ secrets.NAME }}`
+   * templates **only** in those fields. Non-secret fields are returned as-is.
+   *
+   * Returns warnings for any templates found in non-secret fields — these
+   * templates will NOT be resolved and should be surfaced to the user.
+   *
+   * Use the plugin's actual typed schema (e.g., the strategy config schema)
+   * rather than the generic GitOps spec schema — the typed schema carries the
+   * `x-secret` annotations.
+   *
+   * @example
+   * ```typescript
+   * const { resolved, warnings } = await context.resolveSecretsBySchema({
+   *   value: entity.spec.config,
+   *   schema: strategy.config.schema,
+   * });
+   * ```
+   */
+  resolveSecretsBySchema: <T>(params: {
+    value: T;
+    schema: z.ZodTypeAny;
+  }) => Promise<{ resolved: T; warnings: string[] }>;
 }
 
 /**
@@ -43,7 +69,7 @@ export interface EntityKindDefinition<TSpec = unknown> {
 
   /**
    * Called when an entity of this kind is discovered or updated via GitOps.
-   * The entity's spec is fully validated and all secretRef values are resolved.
+   * The entity's spec is fully validated and all `${{ secrets.NAME }}` templates are resolved.
    *
    * Must return the plugin-specific entity ID (e.g., the catalog system UUID).
    * The reconciler engine stores this in provenance for generic frontend lookups.

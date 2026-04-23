@@ -103,6 +103,8 @@ const mockContext: ReconcileContext = {
     error: () => {},
   },
   resolveEntityRef: async () => undefined,
+  resolveSecretsBySchema: async <T>(params: { value: T }): Promise<{ resolved: T; warnings: string[] }> =>
+    ({ resolved: params.value, warnings: [] }),
 };
 
 // ─── Tests ─────────────────────────────────────────────────────────────────

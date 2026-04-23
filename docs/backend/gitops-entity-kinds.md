@@ -257,24 +257,38 @@ This enables:
 
 ### Secret References
 
-Use `secretField()` for sensitive values that should be resolved from the GitOps secret store:
+Use `${{ secrets.NAME }}` template syntax for sensitive values that should be resolved from the GitOps secret store:
 
 ```yaml
 spec:
   config:
-    password:
-      secretRef: my-database-password   # Resolved at reconcile time
+    password: "${{ secrets.my-database-password }}"
+    # Also supports inline interpolation:
+    connectionString: "postgres://user:${{ secrets.DB_PASS }}@host/db"
 ```
+
+Secret resolution is **schema-driven** — only fields marked with `configString({ "x-secret": true })` are resolved. This is the same annotation pattern used by DynamicForm for the admin UI:
 
 ```typescript
-import { secretField } from "@checkstack/gitops-common";
+import { configString } from "@checkstack/backend-api";
 
-const specSchema = z.object({
-  config: z.object({
-    password: z.union([z.string(), secretField()]),
-  }),
+const postgresConfigSchema = z.object({
+  host: configString({}).describe("Hostname"),
+  password: configString({ "x-secret": true }).describe("Database password"),
 });
 ```
+
+#### Security Model
+
+Secrets are **not pre-resolved** in the spec. Instead:
+
+1. **Validation**: All referenced secrets are validated to exist at sync time. Missing secrets cause the entity to error immediately.
+2. **Metadata guard**: Templates in `metadata` fields (`name`, `title`, `description`) are **rejected** to prevent secrets from leaking into display fields.
+3. **Schema-driven resolution**: The plugin reconciler calls `context.resolveSecretsBySchema()` with the **typed schema** (e.g., the strategy config schema). Only fields annotated with `x-secret` are resolved — everything else is returned as-is.
+
+This prevents a malicious actor from exfiltrating secrets via display fields or non-secret config fields.
+
+> **Secret rotation**: When a secret is rotated via the admin UI, all entities referencing that secret are automatically flagged for re-reconciliation on the next sync cycle.
 
 ## ReconcileContext
 
@@ -298,6 +312,33 @@ interface ReconcileContext {
     kind: string;
     entityName: string;
   }) => Promise<string | undefined>;
+
+  /**
+   * Schema-driven secret resolution. Walks the provided Zod schema,
+   * finds fields annotated with configString({ "x-secret": true }),
+   * and resolves ${{ secrets.NAME }} templates only in those fields.
+   */
+  resolveSecretsBySchema: <T>(params: {
+    value: T;
+    schema: z.ZodTypeAny;
+  }) => Promise<T>;
+}
+```
+
+**Usage in a reconciler:**
+
+```typescript
+reconcile: async ({ entity, context }) => {
+  // Look up the strategy to get its typed schema (with x-secret annotations)
+  const strategy = registry.getStrategy(entity.spec.strategy);
+
+  // Resolve secrets using the strategy's schema — only x-secret fields are resolved
+  const resolvedConfig = await context.resolveSecretsBySchema({
+    value: entity.spec.config,
+    schema: strategy.config.schema,
+  });
+
+  await createConfiguration({ config: resolvedConfig });
 }
 ```
 
@@ -350,10 +391,17 @@ kindRegistry.registerKind({
   specSchema: z.object({
     strategy: z.string().min(1),
     intervalSeconds: z.number().int().min(1),
-    config: z.record(z.string(), z.union([z.unknown(), secretField()])),
+    config: z.record(z.string(), z.unknown()),
   }),
-  reconcile: async ({ entity, existingEntityId }) => {
-    // Create or update health check config
+  reconcile: async ({ entity, existingEntityId, context }) => {
+    // Look up strategy — its typed schema carries x-secret annotations
+    const strategy = registry.getStrategy(entity.spec.strategy);
+
+    // Resolve secrets using the strategy's schema
+    const resolvedConfig = await context.resolveSecretsBySchema({
+      value: entity.spec.config,
+      schema: strategy.config.schema,
+    });
     return { entityId: configId };
   },
 });
@@ -412,8 +460,7 @@ spec:
     port: 5432
     database: payments
     user: monitor
-    password:
-      secretRef: payment-db-password
+    password: "${{ secrets.payment-db-password }}"
 ```
 
 ## Troubleshooting

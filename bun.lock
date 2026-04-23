@@ -269,7 +269,7 @@
     },
     "core/catalog-backend": {
       "name": "@checkstack/catalog-backend",
-      "version": "0.4.0",
+      "version": "0.4.2",
       "dependencies": {
         "@checkstack/auth-backend": "workspace:*",
         "@checkstack/auth-common": "workspace:*",
@@ -314,7 +314,7 @@
     },
     "core/catalog-frontend": {
       "name": "@checkstack/catalog-frontend",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "dependencies": {
         "@checkstack/auth-common": "workspace:*",
         "@checkstack/auth-frontend": "workspace:*",
@@ -404,7 +404,7 @@
     },
     "core/dashboard-frontend": {
       "name": "@checkstack/dashboard-frontend",
-      "version": "0.3.33",
+      "version": "0.3.34",
       "dependencies": {
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
@@ -433,7 +433,7 @@
     },
     "core/dependency-backend": {
       "name": "@checkstack/dependency-backend",
-      "version": "0.2.6",
+      "version": "0.2.8",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/catalog-backend": "workspace:*",
@@ -476,7 +476,7 @@
     },
     "core/dependency-frontend": {
       "name": "@checkstack/dependency-frontend",
-      "version": "0.2.10",
+      "version": "0.2.11",
       "dependencies": {
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -507,7 +507,7 @@
     },
     "core/frontend": {
       "name": "@checkstack/frontend",
-      "version": "0.3.11",
+      "version": "0.3.12",
       "dependencies": {
         "@checkstack/about-frontend": "workspace:*",
         "@checkstack/announcement-frontend": "workspace:*",
@@ -568,7 +568,7 @@
     },
     "core/gitops-backend": {
       "name": "@checkstack/gitops-backend",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/command-backend": "workspace:*",
@@ -594,7 +594,7 @@
     },
     "core/gitops-common": {
       "name": "@checkstack/gitops-common",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@orpc/contract": "^1.13.14",
@@ -608,7 +608,7 @@
     },
     "core/gitops-frontend": {
       "name": "@checkstack/gitops-frontend",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
@@ -627,7 +627,7 @@
     },
     "core/healthcheck-backend": {
       "name": "@checkstack/healthcheck-backend",
-      "version": "0.14.1",
+      "version": "0.14.3",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/catalog-backend": "workspace:*",
@@ -677,7 +677,7 @@
     },
     "core/healthcheck-frontend": {
       "name": "@checkstack/healthcheck-frontend",
-      "version": "0.14.0",
+      "version": "0.14.1",
       "dependencies": {
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
@@ -708,7 +708,7 @@
     },
     "core/incident-backend": {
       "name": "@checkstack/incident-backend",
-      "version": "0.4.16",
+      "version": "0.4.18",
       "dependencies": {
         "@checkstack/auth-common": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
@@ -751,7 +751,7 @@
     },
     "core/incident-frontend": {
       "name": "@checkstack/incident-frontend",
-      "version": "0.4.23",
+      "version": "0.4.24",
       "dependencies": {
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
@@ -876,7 +876,7 @@
     },
     "core/maintenance-frontend": {
       "name": "@checkstack/maintenance-frontend",
-      "version": "0.4.27",
+      "version": "0.4.28",
       "dependencies": {
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
@@ -1029,7 +1029,7 @@
     },
     "core/release": {
       "name": "@checkstack/release",
-      "version": "0.55.0",
+      "version": "0.57.0",
     },
     "core/satellite": {
       "name": "@checkstack/satellite",
@@ -1048,7 +1048,7 @@
     },
     "core/satellite-backend": {
       "name": "@checkstack/satellite-backend",
-      "version": "0.2.3",
+      "version": "0.2.5",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -1170,7 +1170,7 @@
     },
     "core/slo-backend": {
       "name": "@checkstack/slo-backend",
-      "version": "0.2.4",
+      "version": "0.2.6",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/catalog-backend": "workspace:*",
@@ -1216,7 +1216,7 @@
     },
     "core/slo-frontend": {
       "name": "@checkstack/slo-frontend",
-      "version": "0.2.7",
+      "version": "0.2.8",
       "dependencies": {
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -3860,17 +3860,23 @@
 
     "@babel/helper-compilation-targets/semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
+    "@checkstack/backend-api/@types/bun": ["@types/bun@1.3.13", "", { "dependencies": { "bun-types": "1.3.13" } }, "sha512-9fqXWk5YIHGGnUau9TEi+qdlTYDAnOj+xLCmSTwXfAIqXr2x4tytJb43E9uCvt09zJURKXwAtkoH4nLQfzeTXw=="],
+
     "@checkstack/command-frontend/lucide-react": ["lucide-react@0.468.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0-rc" } }, "sha512-6koYRhnM2N0GGZIdXzSeiNwguv1gt/FAjZOiPl76roBi3xKEXa4WmfpxgQwTTL4KipXjefrnf3oV4IsYhi4JFA=="],
 
     "@checkstack/command-frontend/react-router-dom": ["react-router-dom@7.14.1", "", { "dependencies": { "react-router": "7.14.1" }, "peerDependencies": { "react": ">=18", "react-dom": ">=18" } }, "sha512-ZkrQuwwhGibjQLqH1eCdyiZyLWglPxzxdl5tgwgKEyCSGC76vmAjleGocRe3J/MLfzMUIKwaFJWpFVJhK3d2xA=="],
 
     "@checkstack/common/lucide-react": ["lucide-react@0.562.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-82hOAu7y0dbVuFfmO4bYF1XEwYk/mEbM5E+b1jgci/udUBEE/R7LF5Ip0CCEmXe8AybRM8L+04eP+LGZeDvkiw=="],
 
+    "@checkstack/frontend-api/@types/bun": ["@types/bun@1.3.13", "", { "dependencies": { "bun-types": "1.3.13" } }, "sha512-9fqXWk5YIHGGnUau9TEi+qdlTYDAnOj+xLCmSTwXfAIqXr2x4tytJb43E9uCvt09zJURKXwAtkoH4nLQfzeTXw=="],
+
     "@checkstack/queue-backend/@hono/zod-validator": ["@hono/zod-validator@0.4.3", "", { "peerDependencies": { "hono": ">=3.9.0", "zod": "^3.19.1" } }, "sha512-xIgMYXDyJ4Hj6ekm9T9Y27s080Nl9NXHcJkOvkXPhubOLj8hZkOL8pDnnXfvCf5xEE8Q4oMFenQUZZREUY2gqQ=="],
 
     "@checkstack/queue-frontend/lucide-react": ["lucide-react@0.468.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0-rc" } }, "sha512-6koYRhnM2N0GGZIdXzSeiNwguv1gt/FAjZOiPl76roBi3xKEXa4WmfpxgQwTTL4KipXjefrnf3oV4IsYhi4JFA=="],
 
     "@checkstack/queue-frontend/react-router-dom": ["react-router-dom@7.14.1", "", { "dependencies": { "react-router": "7.14.1" }, "peerDependencies": { "react": ">=18", "react-dom": ">=18" } }, "sha512-ZkrQuwwhGibjQLqH1eCdyiZyLWglPxzxdl5tgwgKEyCSGC76vmAjleGocRe3J/MLfzMUIKwaFJWpFVJhK3d2xA=="],
+
+    "@checkstack/test-utils-backend/@types/bun": ["@types/bun@1.3.13", "", { "dependencies": { "bun-types": "1.3.13" } }, "sha512-9fqXWk5YIHGGnUau9TEi+qdlTYDAnOj+xLCmSTwXfAIqXr2x4tytJb43E9uCvt09zJURKXwAtkoH4nLQfzeTXw=="],
 
     "@checkstack/ui/@types/react-dom": ["@types/react-dom@19.2.3", "", { "peerDependencies": { "@types/react": "^19.2.0" } }, "sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ=="],
 
@@ -4028,9 +4034,15 @@
 
     "xml-crypto/xpath": ["xpath@0.0.33", "", {}, "sha512-NNXnzrkDrAzalLhIUc01jO2mOzXGXh1JwPgkihcLLzw98c0WgYDmmjSh1Kl3wzaxSVWMuA+fe0WTWOBDWCBmNA=="],
 
+    "@checkstack/backend-api/@types/bun/bun-types": ["bun-types@1.3.13", "", { "dependencies": { "@types/node": "*" } }, "sha512-QXKeHLlOLqQX9LgYaHJfzdBaV21T63HhFJnvuRCcjZiaUDpbs5ED1MgxbMra71CsryN/1dAoXuJJJwIv/2drVA=="],
+
     "@checkstack/command-frontend/react-router-dom/react-router": ["react-router@7.14.1", "", { "dependencies": { "cookie": "^1.0.1", "set-cookie-parser": "^2.6.0" }, "peerDependencies": { "react": ">=18", "react-dom": ">=18" }, "optionalPeers": ["react-dom"] }, "sha512-5BCvFskyAAVumqhEKh/iPhLOIkfxcEUz8WqFIARCkMg8hZZzDYX9CtwxXA0e+qT8zAxmMC0x3Ckb9iMONwc5jg=="],
 
+    "@checkstack/frontend-api/@types/bun/bun-types": ["bun-types@1.3.13", "", { "dependencies": { "@types/node": "*" } }, "sha512-QXKeHLlOLqQX9LgYaHJfzdBaV21T63HhFJnvuRCcjZiaUDpbs5ED1MgxbMra71CsryN/1dAoXuJJJwIv/2drVA=="],
+
     "@checkstack/queue-frontend/react-router-dom/react-router": ["react-router@7.14.1", "", { "dependencies": { "cookie": "^1.0.1", "set-cookie-parser": "^2.6.0" }, "peerDependencies": { "react": ">=18", "react-dom": ">=18" }, "optionalPeers": ["react-dom"] }, "sha512-5BCvFskyAAVumqhEKh/iPhLOIkfxcEUz8WqFIARCkMg8hZZzDYX9CtwxXA0e+qT8zAxmMC0x3Ckb9iMONwc5jg=="],
+
+    "@checkstack/test-utils-backend/@types/bun/bun-types": ["bun-types@1.3.13", "", { "dependencies": { "@types/node": "*" } }, "sha512-QXKeHLlOLqQX9LgYaHJfzdBaV21T63HhFJnvuRCcjZiaUDpbs5ED1MgxbMra71CsryN/1dAoXuJJJwIv/2drVA=="],
 
     "@checkstack/ui/react-dom/scheduler": ["scheduler@0.27.0", "", {}, "sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q=="],
 

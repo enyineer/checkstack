@@ -15,7 +15,7 @@ export const gitopsAccess = {
     },
   }),
 
-  /** Secret management for secretRef values. */
+  /** Secret management for ${{ secrets.NAME }} template values. */
   secret: accessPair("secret", {
     read: {
       description: "View secret names (not values)",

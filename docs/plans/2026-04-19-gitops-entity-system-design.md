@@ -118,8 +118,7 @@ spec:
   system: payment-service          # references a System entity by name
   connection:
     host: db.internal
-    password:
-      secretRef: prod-db-pass
+    password: "${{ secrets.prod-db-pass }}"
 ---
 apiVersion: checkstack.io/v1alpha1
 kind: System
@@ -137,7 +136,7 @@ spec:
 
 ### Secret Store (`secret-backend`)
 
-A simple encrypted key-value store for secrets referenced in YAML descriptors via `secretRef`. Secrets are AES-256-GCM encrypted at rest, with the encryption key provided via environment variable.
+A simple encrypted key-value store for secrets referenced in YAML descriptors via `${{ secrets.NAME }}` template syntax. Secrets are AES-256-GCM encrypted at rest, with the encryption key provided via environment variable.
 
 ```typescript
 // secret-backend schema
@@ -153,53 +152,53 @@ export const secrets = pgTable("secrets", {
 });
 ```
 
-### `secretField()` Utility
+### `${{ secrets.NAME }}` Template Syntax
 
-A Zod utility for plugin authors to mark fields as secret-resolvable:
+Secrets can be referenced in any string field using template expressions:
 
-```typescript
-// gitops-common
-export function secretField() {
-  return z.union([
-    z.string(),
-    z.object({ secretRef: z.string() }),
-  ]);
-}
-```
-
-In YAML descriptors:
 ```yaml
-password: "dev-password"           # plain string (dev/testing)
-password:
-  secretRef: production-db-creds   # reference to secret store
+password: "dev-password"                           # plain string (dev/testing)
+password: "${{ secrets.production-db-creds }}"     # resolved from secret store
+connectionString: "postgres://user:${{ secrets.DB_PASS }}@host/db"  # inline interpolation
 ```
 
 ### Automatic Secret Resolution
 
-The GitOps reconciliation engine resolves all `secretRef` values **before** calling a plugin's reconciler. Plugin authors never handle secret resolution manually:
+The GitOps reconciliation engine resolves all `${{ secrets.NAME }}` templates **before** calling a plugin's reconciler. Plugin authors never handle secret resolution manually — just use `z.string()` or `z.unknown()`:
 
 ```typescript
 registry.registerKind({
   kind: "Healthcheck",
   specSchema: z.object({
-    connection: z.object({
-      host: z.string(),
-      password: secretField(),  // accepts string or { secretRef: "..." }
-    }),
+    strategy: z.string(),
+    config: z.record(z.string(), z.unknown()), // generic record
   }),
-  reconcile: async ({ entity }) => {
-    // entity.spec.connection.password is ALWAYS a plain string here
-    // secretRef was automatically resolved by the engine
+  reconcile: async ({ entity, context }) => {
+    // The generic specSchema doesn't carry x-secret annotations, but the
+    // strategy's typed schema does (e.g., password: configString({ "x-secret": true })).
+    const strategy = registry.getStrategy(entity.spec.strategy);
+    const resolvedConfig = await context.resolveSecretsBySchema({
+      value: entity.spec.config,
+      schema: strategy.config.schema, // typed schema with x-secret annotations
+    });
+    // resolvedConfig.password is now the actual secret value;
+    // non-secret fields are returned as-is
   },
 });
 ```
+
+> **Security**: Resolution is **schema-driven** — only fields annotated with `configString({ "x-secret": true })` are resolved. Templates in `metadata` fields are **rejected** at sync time. Secrets are never pre-resolved into the spec, preventing leaks through display fields like `description`.
+
+### Secret Rotation & Invalidation
+
+When a secret is rotated via the admin UI, all provenance entries referencing that secret are invalidated (their `lastSyncHash` is cleared). The next sync cycle will re-reconcile these entities with the new secret value. Referenced secret names are tracked as a Postgres `text[]` array on the provenance table.
 
 ### Provider Auth vs. Descriptor Secrets
 
 | Secret type | Storage mechanism |
 |---|---|
 | Provider auth tokens (GitHub/GitLab API) | DynamicForm secret fields (encrypted at rest, like notification strategies) |
-| Values referenced via `secretRef` in descriptors | Secret store (`secret-backend`) |
+| Values referenced via `${{ secrets.NAME }}` in descriptors | Secret store (`secret-backend`) |
 
 Provider configuration uses DynamicForm's built-in secret field support, consistent with how auth strategies and notification strategies already work.
 
@@ -237,19 +236,19 @@ Each provider type has a scraper implementation:
 Runs as a recurring queue job (using the existing `queueManager`):
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  Sync Cycle (per provider, on configured interval)  │
-├─────────────────────────────────────────────────────┤
-│ 1. Scrape: Discover YAML files from git provider    │
-│ 2. Parse: YAML → entity envelopes (multi-doc aware) │
-│ 3. Validate: envelope + merged kind spec schema     │
-│ 4. Resolve: secretField() values from secret store  │
-│ 5. Diff: Compare against provenance table           │
-│    • New entity → call kind reconciler (create)     │
-│    • Changed entity → call kind reconciler (update) │
-│    • Missing entity → orphan or delete (per policy) │
-│ 6. Update provenance table with sync state          │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  Sync Cycle (per provider, on configured interval)   │
+├──────────────────────────────────────────────────────┤
+│ 1. Scrape: Discover YAML files from git provider     │
+│ 2. Parse: YAML → entity envelopes (multi-doc aware)  │
+│ 3. Validate: envelope + merged kind spec schema      │
+│ 4. Resolve: ${{ secrets.NAME }} templates from store │
+│ 5. Diff: Compare against provenance table            │
+│    • New entity → call kind reconciler (create)      │
+│    • Changed entity → call kind reconciler (update)  │
+│    • Missing entity → orphan or delete (per policy)  │
+│ 6. Update provenance table with sync state           │
+└──────────────────────────────────────────────────────┘
 ```
 
 **Diffing** uses a content hash of the raw YAML per entity. If the hash matches the provenance table's `lastSyncHash`, reconciliation is skipped.
@@ -300,7 +299,7 @@ Configurable per provider:
 ### GitOps Settings Page (Admin)
 
 - **Providers tab**: Add/edit/remove GitOps providers using DynamicForm (type, target, path pattern, sync interval, deletion policy, auth token)
-- **Secrets tab**: Manage named secrets for `secretRef` usage in descriptors (create, view names, rotate values — values never displayed after creation)
+- **Secrets tab**: Manage named secrets for `${{ secrets.NAME }}` usage in descriptors (create, view names, rotate values — values never displayed after creation, usage lookup shows referencing entities)
 
 ### GitOps Dashboard
 
@@ -316,8 +315,9 @@ Entity detail pages across the platform (catalog system detail, healthcheck conf
 
 ```
 core/
-├── gitops-common/       # Entity envelope schema, secretField(), extension point type,
-│                        # RPC contract, access rules, provenance types
+├── gitops-common/       # Entity envelope schema, secret template utilities,
+│                        # extension point type, RPC contract, access rules,
+│                        # provenance types
 ├── gitops-backend/      # Kind registry, reconciliation engine, provider scrapers,
 │                        # provenance table, sync worker, secret resolution
 ├── gitops-frontend/     # Provider management UI, sync dashboard, orphan management
@@ -329,7 +329,7 @@ core/
 ## Implementation Phases
 
 ### Phase 1: Foundation (no UI, no scrapers)
-1. `gitops-common` — Entity envelope schema, `secretField()` utility, extension point type, RPC contract, access rules
+1. `gitops-common` — Entity envelope schema, `${{ secrets.NAME }}` template utilities, extension point type, RPC contract, access rules
 2. `secret-backend` + `secret-common` — Secret store (encrypted KV), RPC contract for resolving secrets
 3. `gitops-backend` — Kind registry implementation, reconciliation engine (with secret resolution), provenance table, provider DB schema
 

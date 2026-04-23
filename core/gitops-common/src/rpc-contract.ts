@@ -6,6 +6,7 @@ import {
   provenanceStatusSchema,
   deletionPolicySchema,
 } from "./provenance-types";
+import { secretNameSchema } from "./secret-field";
 import { z } from "zod";
 
 export const gitopsContract = {
@@ -175,7 +176,7 @@ export const gitopsContract = {
   })
     .input(
       z.object({
-        name: z.string().min(1).max(63),
+        name: secretNameSchema,
         value: z.string().min(1),
         description: z.string().optional(),
       }),
@@ -217,6 +218,24 @@ export const gitopsContract = {
   })
     .input(z.object({ name: z.string() }))
     .output(z.object({ value: z.string() })),
+
+  /** Look up which entities reference a given secret. */
+  getSecretUsage: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [gitopsAccess.secret.read],
+  })
+    .input(z.object({ secretName: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          kind: z.string(),
+          entityName: z.string(),
+          repository: z.string(),
+          filePath: z.string(),
+        }),
+      ),
+    ),
 
   // ═══════════════════════════════════════════════════════════════════════════
   // KIND REGISTRY (browsing)

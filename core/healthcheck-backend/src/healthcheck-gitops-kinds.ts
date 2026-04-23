@@ -5,7 +5,7 @@ import type {
   EntityKindRegistry,
   ReconcileContext,
 } from "@checkstack/gitops-common";
-import { CHECKSTACK_API_VERSION, secretField, entityRefSchema } from "@checkstack/gitops-common";
+import { CHECKSTACK_API_VERSION, entityRefSchema } from "@checkstack/gitops-common";
 import type {
   HealthCheckRegistry,
   CollectorRegistry,
@@ -29,13 +29,13 @@ interface HealthcheckGitOpsKindsDeps {
 /**
  * GitOps spec schema for kind: Healthcheck.
  *
- * Strategy `config` fields use `secretField()` for sensitive values
- * (passwords, tokens) that are resolved by the reconciliation engine.
+ * Strategy `config` values may contain `${{ secrets.NAME }}` templates
+ * which are automatically resolved by the reconciliation engine.
  */
 const healthcheckSpecSchema = z.object({
   strategy: z.string().min(1),
   intervalSeconds: z.number().int().min(1),
-  config: z.record(z.string(), z.union([z.unknown(), secretField()])),
+  config: z.record(z.string(), z.unknown()),
   collectors: z
     .array(
       z.object({
@@ -104,7 +104,7 @@ export function buildHealthcheckKind(
       const service = deps.createService();
       const spec = entity.spec;
 
-      // Validate strategy exists in registry
+      // Look up strategy first — we need its typed schema for secret resolution
       const healthCheckRegistry = deps.getHealthCheckRegistry();
       const strategy = healthCheckRegistry.getStrategy(spec.strategy);
       if (!strategy) {
@@ -114,36 +114,52 @@ export function buildHealthcheckKind(
         );
       }
 
-      // Validate config against strategy's Zod schema
-      const configValidation = strategy.config.schema.safeParse(spec.config);
+      // Resolve secrets using the strategy's typed schema.
+      // Only fields marked with configString({ "x-secret": true }) get resolved.
+      const { resolved: resolvedConfig } = await context.resolveSecretsBySchema({
+        value: spec.config,
+        schema: strategy.config.schema,
+      });
+
+      // Validate resolved config against strategy's Zod schema
+      const configValidation = strategy.config.schema.safeParse(resolvedConfig);
       if (!configValidation.success) {
         throw new Error(
           `Strategy "${spec.strategy}" config validation failed: ${configValidation.error.message}`,
         );
       }
 
-      // Validate collector configs against their registry schemas
-      if (spec.collectors) {
-        for (const collector of spec.collectors) {
-          const collectorReg = deps.getCollectorRegistry();
-          const registered = collectorReg.getCollector(
-            collector.collectorId,
-          );
-          if (!registered) {
-            throw new Error(
-              `Unknown collector "${collector.collectorId}". ` +
-                `Available: ${collectorReg.getCollectors().map((c) => c.qualifiedId).join(", ")}`,
-            );
-          }
-          const collectorConfigValidation =
-            registered.collector.config.schema.safeParse(collector.config);
-          if (!collectorConfigValidation.success) {
-            throw new Error(
-              `Collector "${collector.collectorId}" config validation failed: ${collectorConfigValidation.error.message}`,
-            );
-          }
-        }
-      }
+      // Resolve and validate collector configs using their registry schemas
+      const resolvedCollectors = spec.collectors
+        ? await Promise.all(
+            spec.collectors.map(async (c) => {
+              const collectorReg = deps.getCollectorRegistry();
+              const registered = collectorReg.getCollector(c.collectorId);
+              if (!registered) {
+                throw new Error(
+                  `Unknown collector "${c.collectorId}". ` +
+                    `Available: ${collectorReg.getCollectors().map((col) => col.qualifiedId).join(", ")}`,
+                );
+              }
+
+              // Resolve secrets using the collector's typed schema
+              const { resolved: resolvedCollectorConfig } = await context.resolveSecretsBySchema({
+                value: c.config,
+                schema: registered.collector.config.schema,
+              });
+
+              const collectorConfigValidation =
+                registered.collector.config.schema.safeParse(resolvedCollectorConfig);
+              if (!collectorConfigValidation.success) {
+                throw new Error(
+                  `Collector "${c.collectorId}" config validation failed: ${collectorConfigValidation.error.message}`,
+                );
+              }
+
+              return { ...c, config: resolvedCollectorConfig };
+            }),
+          )
+        : undefined;
 
       // Create or update configuration
       const displayName = entity.metadata.title ?? entity.metadata.name;
@@ -152,9 +168,9 @@ export function buildHealthcheckKind(
         await service.updateConfiguration(existingEntityId, {
           name: displayName,
           strategyId: spec.strategy,
-          config: spec.config,
+          config: resolvedConfig,
           intervalSeconds: spec.intervalSeconds,
-          collectors: spec.collectors?.map((c) => ({
+          collectors: resolvedCollectors?.map((c) => ({
             id: c.collectorId,
             collectorId: c.collectorId,
             config: c.config,
@@ -170,9 +186,9 @@ export function buildHealthcheckKind(
       const config = await service.createConfiguration({
         name: displayName,
         strategyId: spec.strategy,
-        config: spec.config,
+        config: resolvedConfig,
         intervalSeconds: spec.intervalSeconds,
-        collectors: spec.collectors?.map((c) => ({
+        collectors: resolvedCollectors?.map((c) => ({
           id: c.collectorId,
           collectorId: c.collectorId,
           config: c.config,
