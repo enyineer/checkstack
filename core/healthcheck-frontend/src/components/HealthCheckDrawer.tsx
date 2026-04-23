@@ -232,8 +232,8 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
               <ExternalLink className="h-3.5 w-3.5" />
             </Link>
           </div>
-          <SheetDescription>
-            Strategy: {item.strategyId} · Interval: {item.intervalSeconds}s
+          <SheetDescription className="sr-only">
+            Health check details for {item.name}
           </SheetDescription>
         </SheetHeader>
 
@@ -273,75 +273,80 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
           </div>
 
           {/* Zone 2 — Timeline Charts */}
-          <div className="space-y-3">
-            {/* Date range + source filters */}
-            <div className="flex items-center gap-3 flex-wrap">
-              <DateRangeFilter
-                value={pendingCustomRange ?? dateRange}
-                onChange={handleDateRangeChange}
-                onCustomChange={handleCustomDateChange}
-                disabled={chartFetching}
-              />
-              {pendingCustomRange && (
-                <button
-                  onClick={handleApplyCustomRange}
-                  disabled={
-                    chartFetching ||
-                    pendingCustomRange.startDate >= pendingCustomRange.endDate
-                  }
-                  className="px-3 py-1.5 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                >
-                  Apply
-                </button>
-              )}
-              {chartFetching && (
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              )}
-            </div>
+          <div className="space-y-6">
+            {/* Filters */}
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-3 flex-wrap">
+                <DateRangeFilter
+                  value={pendingCustomRange ?? dateRange}
+                  onChange={handleDateRangeChange}
+                  onCustomChange={handleCustomDateChange}
+                  disabled={chartFetching}
+                />
+                {pendingCustomRange && (
+                  <button
+                    onClick={handleApplyCustomRange}
+                    disabled={
+                      chartFetching ||
+                      pendingCustomRange.startDate >= pendingCustomRange.endDate
+                    }
+                    className="px-3 py-1.5 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                  >
+                    Apply
+                  </button>
+                )}
+                {chartFetching && (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground ml-2" />
+                )}
+              </div>
 
-            {/* Source filter */}
-            {canReadSatellites && satellites.length > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Source:</span>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setSourceFilter(undefined)}
-                    className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
-                      sourceFilter === undefined
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground hover:bg-muted/80"
-                    }`}
-                  >
-                    All
-                  </button>
-                  <button
-                    onClick={() => setSourceFilter("local")}
-                    className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
-                      sourceFilter === "local"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground hover:bg-muted/80"
-                    }`}
-                  >
-                    <Server className="h-3 w-3" />
-                    Local
-                  </button>
-                  {satellites.map((sat) => (
+              {/* Source filter */}
+              {canReadSatellites && satellites.length > 0 && (
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground mr-1">
+                    <Server className="h-4 w-4" />
+                    <span className="font-medium text-foreground">Source:</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
                     <button
-                      key={sat.id}
-                      onClick={() => setSourceFilter(sat.id)}
-                      className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
-                        sourceFilter === sat.id
-                          ? "bg-orange-500 text-white"
-                          : "bg-orange-500/10 text-orange-600 hover:bg-orange-500/20"
+                      onClick={() => setSourceFilter(undefined)}
+                      className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md transition-colors ${
+                        sourceFilter === undefined
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80"
                       }`}
                     >
-                      <SatelliteIcon className="h-3 w-3" />
-                      {sat.name}
+                      All
                     </button>
-                  ))}
+                    <button
+                      onClick={() => setSourceFilter("local")}
+                      className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md transition-colors ${
+                        sourceFilter === "local"
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      }`}
+                    >
+                      <Server className="h-3.5 w-3.5" />
+                      Local
+                    </button>
+                    {satellites.map((sat) => (
+                      <button
+                        key={sat.id}
+                        onClick={() => setSourceFilter(sat.id)}
+                        className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md transition-colors ${
+                          sourceFilter === sat.id
+                            ? "bg-orange-500 text-white"
+                            : "bg-orange-500/10 text-orange-600 hover:bg-orange-500/20"
+                        }`}
+                      >
+                        <SatelliteIcon className="h-3.5 w-3.5" />
+                        {sat.name}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Charts */}
             {chartLoading ? (
