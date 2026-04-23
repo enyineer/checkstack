@@ -1,5 +1,11 @@
 # @checkstack/maintenance-frontend
 
+## 0.5.1
+
+### Patch Changes
+
+- @checkstack/dashboard-frontend@0.4.1
+
 ## 0.5.0
 
 ### Minor Changes

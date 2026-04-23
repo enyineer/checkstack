@@ -18,6 +18,7 @@ interface ThresholdsPanelProps {
   onChange: (thresholds: StateThresholds) => void;
   onSave: () => void;
   saving: boolean;
+  isLocked?: boolean;
 }
 
 /**
@@ -29,6 +30,7 @@ export const ThresholdsPanel: React.FC<ThresholdsPanelProps> = ({
   onChange,
   onSave,
   saving,
+  isLocked,
 }) => {
   return (
     <div className="p-6 space-y-4">
@@ -64,6 +66,7 @@ export const ThresholdsPanel: React.FC<ThresholdsPanelProps> = ({
               });
             }
           }}
+          disabled={saving || isLocked}
         >
           <SelectTrigger className="w-full">
             <SelectValue />
@@ -96,6 +99,7 @@ export const ThresholdsPanel: React.FC<ThresholdsPanelProps> = ({
             onChange={(v) =>
               onChange({ ...thresholds, healthy: { minSuccessCount: v } })
             }
+            disabled={saving || isLocked}
           />
           <ThresholdCard
             status="warning"
@@ -106,6 +110,7 @@ export const ThresholdsPanel: React.FC<ThresholdsPanelProps> = ({
             onChange={(v) =>
               onChange({ ...thresholds, degraded: { minFailureCount: v } })
             }
+            disabled={saving || isLocked}
           />
           <ThresholdCard
             status="destructive"
@@ -116,6 +121,7 @@ export const ThresholdsPanel: React.FC<ThresholdsPanelProps> = ({
             onChange={(v) =>
               onChange({ ...thresholds, unhealthy: { minFailureCount: v } })
             }
+            disabled={saving || isLocked}
           />
         </div>
       ) : (
@@ -139,6 +145,7 @@ export const ThresholdsPanel: React.FC<ThresholdsPanelProps> = ({
                       windowSize: Number.parseInt(e.target.value) || 10,
                     })
                   }
+                  disabled={saving || isLocked}
                   className="h-8 w-16 text-center"
                 />
                 <span className="text-xs text-muted-foreground">runs</span>
@@ -156,6 +163,7 @@ export const ThresholdsPanel: React.FC<ThresholdsPanelProps> = ({
             onChange={(v) =>
               onChange({ ...thresholds, degraded: { minFailureCount: v } })
             }
+            disabled={saving || isLocked}
           />
           <ThresholdCard
             status="destructive"
@@ -167,13 +175,14 @@ export const ThresholdsPanel: React.FC<ThresholdsPanelProps> = ({
             onChange={(v) =>
               onChange({ ...thresholds, unhealthy: { minFailureCount: v } })
             }
+            disabled={saving || isLocked}
           />
         </div>
       )}
 
       {/* Save Button */}
       <div className="flex justify-end pt-2 border-t">
-        <Button size="sm" onClick={onSave} disabled={saving}>
+        <Button size="sm" onClick={onSave} disabled={saving || isLocked}>
           {saving ? "Saving..." : "Save Thresholds"}
         </Button>
       </div>
@@ -214,6 +223,7 @@ function ThresholdCard({
   prefix,
   suffix,
   onChange,
+  disabled,
 }: {
   status: keyof typeof STATUS_STYLES;
   label: string;
@@ -222,6 +232,7 @@ function ThresholdCard({
   prefix?: string;
   suffix: string;
   onChange: (value: number) => void;
+  disabled?: boolean;
 }) {
   const styles = STATUS_STYLES[status];
   return (
@@ -241,6 +252,7 @@ function ThresholdCard({
             min={1}
             value={value}
             onChange={(e) => onChange(Number.parseInt(e.target.value) || 1)}
+            disabled={disabled}
             className="h-8 w-16 text-center"
           />
           <span className="text-xs text-muted-foreground w-20">{suffix}</span>

@@ -372,6 +372,20 @@ API keys are managed via **Settings → External Applications** with full RBAC p
 
 ---
 
+### GitOps Integration
+> *Manage your infrastructure as code with automated synchronization*
+
+Connect Checkstack directly to your source control repositories and manage your Systems, Groups, and Dependencies via YAML specifications.
+
+- **Provider Support** - Native integrations with GitHub and GitLab, including self-hosted enterprise instances
+- **Automated Discovery** - Dynamically discover definitions across individual repositories, whole organizations, or wildcard patterns
+- **Resource Provenance** - Resources synchronized via GitOps are automatically locked from manual editing in the UI to prevent configuration drift
+- **Reconciliation Engine** - Robust lifecycle management that creates, updates, and removes resources as your code changes
+- **Background Synchronization** - Automatic recurring sync jobs keep your Checkstack catalog perfectly aligned with your source of truth
+- **Secret Management** - Securely inject runtime credentials with strict naming standards and validation
+
+---
+
 ### Flexible Authentication & Access Control
 > *Secure access with enterprise-grade granularity*
 

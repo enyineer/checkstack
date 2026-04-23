@@ -1,5 +1,17 @@
 # @checkstack/healthcheck-backend
 
+## 0.16.0
+
+### Minor Changes
+
+- 80cbc51: Enforce GitOps provenance lock on backend API endpoints to prevent manual configuration drift for synchronized resources.
+
+### Patch Changes
+
+- Updated dependencies [80cbc51]
+  - @checkstack/catalog-backend@0.5.0
+  - @checkstack/satellite-backend@0.2.8
+
 ## 0.15.1
 
 ### Patch Changes

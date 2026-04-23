@@ -16,6 +16,7 @@ interface ExecutionPanelProps {
   onToggleLocal: () => void;
   onToggleSatellite: (satelliteId: string) => void;
   saving: boolean;
+  isLocked?: boolean;
 }
 
 /**
@@ -29,6 +30,7 @@ export const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
   onToggleLocal,
   onToggleSatellite,
   saving,
+  isLocked,
 }) => {
   const hasSatellites = satelliteIds.length > 0;
   const willRunAnywhere = includeLocal || hasSatellites;
@@ -49,7 +51,7 @@ export const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
           <Checkbox
             checked={includeLocal}
             onCheckedChange={onToggleLocal}
-            disabled={saving || (!hasSatellites && includeLocal)}
+            disabled={saving || isLocked || (!hasSatellites && includeLocal)}
           />
           <div>
             <Label className="text-sm font-medium">Run Locally</Label>
@@ -87,7 +89,7 @@ export const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
                   <Checkbox
                     checked={isChecked}
                     onCheckedChange={() => onToggleSatellite(sat.id)}
-                    disabled={saving}
+                    disabled={saving || isLocked}
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">

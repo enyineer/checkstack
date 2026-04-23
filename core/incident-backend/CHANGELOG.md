@@ -1,5 +1,12 @@
 # @checkstack/incident-backend
 
+## 0.4.21
+
+### Patch Changes
+
+- Updated dependencies [80cbc51]
+  - @checkstack/catalog-backend@0.5.0
+
 ## 0.4.20
 
 ### Patch Changes
