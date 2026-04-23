@@ -35,7 +35,7 @@ export const SystemHealthBadge: React.FC<Props> = ({ system }) => {
       {
         enabled: !badgeData && !!system?.id,
         staleTime: 30_000, // Prevent unnecessary refetches
-      }
+      },
     );
 
   const localStatus = healthData?.status;
@@ -50,6 +50,6 @@ export const SystemHealthBadge: React.FC<Props> = ({ system }) => {
   // Use provider data if available, otherwise use local state
   const status = providerStatus ?? localStatus;
 
-  if (!status || status === "healthy") return null;
+  if (!status || status === "healthy") return <></>;
   return <HealthBadge status={status} />;
 };

@@ -294,7 +294,7 @@ export const Dashboard: React.FC = () => {
                   )}
                 </div>
               </CardHeader>
-              <CardContent className="p-4">
+              <CardContent className="p-0">
                 {group.systems.length === 0 ? (
                   <div className="py-8 text-center">
                     <p className="text-sm text-muted-foreground">
@@ -302,34 +302,26 @@ export const Dashboard: React.FC = () => {
                     </p>
                   </div>
                 ) : (
-                  <div
-                    className={`grid gap-3 ${
-                      group.systems.length === 1
-                        ? "grid-cols-1"
-                        : "grid-cols-1 sm:grid-cols-2"
-                    }`}
-                  >
+                  <div className="flex flex-col divide-y divide-border">
                     {group.systems.map((system) => (
                       <button
                         key={system.id}
                         onClick={() => handleSystemClick(system.id)}
-                        className="flex flex-col gap-3 rounded-lg border border-border bg-card px-4 py-3 transition-all cursor-pointer hover:border-border/80 hover:shadow-sm text-left"
+                        className="flex items-center gap-4 px-4 py-3 bg-card hover:bg-muted/50 transition-colors text-left w-full group"
                       >
-                        <div className="flex w-full items-center justify-between gap-3">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <Activity className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                            <p className="text-sm font-medium text-foreground truncate">
-                              {system.name}
-                            </p>
-                          </div>
-                          <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <div className="flex items-center gap-3 min-w-32 flex-shrink-0">
+                          <Activity className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                          <p className="text-sm font-medium text-foreground truncate">
+                            {system.name}
+                          </p>
                         </div>
-                        <div className="empty:hidden flex flex-wrap items-center gap-2 w-full">
+                        <div className="flex items-center gap-2 flex-wrap flex-1 justify-end min-w-0">
                           <ExtensionSlot
                             slot={SystemStateBadgesSlot}
                             context={{ system }}
                           />
                         </div>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground opacity-50 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-2" />
                       </button>
                     ))}
                   </div>
