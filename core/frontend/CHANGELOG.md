@@ -1,5 +1,12 @@
 # @checkstack/frontend
 
+## 0.3.13
+
+### Patch Changes
+
+- @checkstack/catalog-frontend@0.6.2
+- @checkstack/dependency-frontend@0.2.12
+
 ## 0.3.12
 
 ### Patch Changes

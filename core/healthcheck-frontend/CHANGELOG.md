@@ -1,5 +1,14 @@
 # @checkstack/healthcheck-frontend
 
+## 0.14.2
+
+### Patch Changes
+
+- Updated dependencies [8ef367a]
+- Updated dependencies [cb65e9d]
+  - @checkstack/gitops-frontend@0.3.0
+  - @checkstack/dashboard-frontend@0.3.35
+
 ## 0.14.1
 
 ### Patch Changes

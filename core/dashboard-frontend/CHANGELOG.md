@@ -1,5 +1,11 @@
 # @checkstack/dashboard-frontend
 
+## 0.3.35
+
+### Patch Changes
+
+- @checkstack/catalog-frontend@0.6.2
+
 ## 0.3.34
 
 ### Patch Changes

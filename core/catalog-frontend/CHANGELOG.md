@@ -1,5 +1,13 @@
 # @checkstack/catalog-frontend
 
+## 0.6.2
+
+### Patch Changes
+
+- Updated dependencies [8ef367a]
+- Updated dependencies [cb65e9d]
+  - @checkstack/gitops-frontend@0.3.0
+
 ## 0.6.1
 
 ### Patch Changes
