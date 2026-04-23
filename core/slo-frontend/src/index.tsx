@@ -11,12 +11,14 @@ import {
 import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
+  SystemOverviewMetricsSlot,
 } from "@checkstack/catalog-common";
 import { SloOverviewPage } from "./pages/SloOverviewPage";
 import { SloConfigPage } from "./pages/SloConfigPage";
 import { SloDetailPage } from "./pages/SloDetailPage";
 import { SystemSloPanel } from "./components/SystemSloPanel";
 import { SystemSloBadge } from "./components/SystemSloBadge";
+import { SystemSloMetricTile } from "./components/SystemSloMetricTile";
 import { SloMenuItems } from "./components/SloMenuItems";
 
 export default createFrontendPlugin({
@@ -52,6 +54,10 @@ export default createFrontendPlugin({
     createSlotExtension(SystemDetailsTopSlot, {
       id: "slo.system-details-top.panel",
       component: SystemSloPanel,
+    }),
+    createSlotExtension(SystemOverviewMetricsSlot, {
+      id: "slo.system-overview-metric",
+      component: SystemSloMetricTile,
     }),
   ],
 });

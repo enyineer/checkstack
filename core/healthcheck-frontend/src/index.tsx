@@ -13,6 +13,7 @@ import { HealthCheckMenuItems } from "./components/HealthCheckMenuItems";
 import { HealthCheckSystemOverview } from "./components/HealthCheckSystemOverview";
 import { SystemHealthCheckAssignment } from "./components/SystemHealthCheckAssignment";
 import { SystemHealthBadge } from "./components/SystemHealthBadge";
+import { SystemHealthMetricTile } from "./components/SystemHealthMetricTile";
 import { healthCheckAccess } from "@checkstack/healthcheck-common";
 import { autoChartExtension } from "./auto-charts";
 
@@ -20,6 +21,7 @@ import {
   SystemDetailsSlot,
   CatalogSystemActionsSlot,
   SystemStateBadgesSlot,
+  SystemOverviewMetricsSlot,
 } from "@checkstack/catalog-common";
 import {
   healthcheckRoutes,
@@ -101,6 +103,10 @@ export default createFrontendPlugin({
     createSlotExtension(CatalogSystemActionsSlot, {
       id: "healthcheck.catalog.system-actions",
       component: SystemHealthCheckAssignment,
+    }),
+    createSlotExtension(SystemOverviewMetricsSlot, {
+      id: "healthcheck.system-overview-metric",
+      component: SystemHealthMetricTile,
     }),
     // Auto-generated charts based on schema metadata
     autoChartExtension,

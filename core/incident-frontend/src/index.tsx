@@ -11,12 +11,14 @@ import {
 import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
+  SystemOverviewMetricsSlot,
 } from "@checkstack/catalog-common";
 import { IncidentConfigPage } from "./pages/IncidentConfigPage";
 import { IncidentDetailPage } from "./pages/IncidentDetailPage";
 import { SystemIncidentHistoryPage } from "./pages/SystemIncidentHistoryPage";
 import { SystemIncidentPanel } from "./components/SystemIncidentPanel";
 import { SystemIncidentBadge } from "./components/SystemIncidentBadge";
+import { SystemIncidentMetricTile } from "./components/SystemIncidentMetricTile";
 import { IncidentMenuItems } from "./components/IncidentMenuItems";
 
 export default createFrontendPlugin({
@@ -53,6 +55,10 @@ export default createFrontendPlugin({
     createSlotExtension(SystemDetailsTopSlot, {
       id: "incident.system-details-top.panel",
       component: SystemIncidentPanel,
+    }),
+    createSlotExtension(SystemOverviewMetricsSlot, {
+      id: "incident.system-overview-metric",
+      component: SystemIncidentMetricTile,
     }),
   ],
 });
