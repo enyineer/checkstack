@@ -4,6 +4,7 @@ export * from "./components/Card";
 export * from "./components/Label";
 export * from "./components/NavItem";
 export * from "./components/AccessDenied";
+export * from "./components/NotFound";
 export * from "./components/AccessGate";
 export * from "./components/SectionHeader";
 export * from "./components/StatusCard";
