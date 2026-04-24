@@ -1,5 +1,13 @@
 # @checkstack/backend
 
+## 0.6.4
+
+### Patch Changes
+
+- a713e0f: Fix static file Content-Length header stripped by Hono middleware
+
+  Hono's CORS middleware wraps raw `Response` objects and strips Bun's auto-generated headers. Switched to using `c.body()` + `c.header()` so Content-Type and Content-Length survive the middleware pipeline. Extracted a shared `serveFile` helper for all static file routes.
+
 ## 0.6.3
 
 ### Patch Changes
