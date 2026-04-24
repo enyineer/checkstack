@@ -1,5 +1,5 @@
 import type { Server } from "bun";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { PluginManager } from "./plugin-manager";
 import { logger } from "hono/logger";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
@@ -174,6 +174,13 @@ app.get("/.well-known/jwks.json", async (c) => {
 const frontendDistPath = process.env.CHECKSTACK_FRONTEND_DIST;
 if (frontendDistPath && fs.existsSync(frontendDistPath)) {
   rootLogger.info(`📦 Serving frontend from: ${frontendDistPath}`);
+  /** Serve a static file via Hono's context to preserve headers through middleware. */
+  const serveFile = async (c: Context, filePath: string) => {
+    const file = Bun.file(filePath);
+    c.header("Content-Type", file.type);
+    c.header("Content-Length", String(file.size));
+    return c.body(file.stream());
+  };
 
   // Serve static assets (JS, CSS, images, etc.)
   app.get("/assets/*", async (c) => {
@@ -181,10 +188,7 @@ if (frontendDistPath && fs.existsSync(frontendDistPath)) {
     const filePath = path.join(frontendDistPath, "assets", assetPath);
 
     if (fs.existsSync(filePath)) {
-      const file = Bun.file(filePath);
-      return new Response(file, {
-        headers: { "Content-Type": file.type },
-      });
+      return serveFile(c, filePath);
     }
     return c.notFound();
   });
@@ -195,10 +199,7 @@ if (frontendDistPath && fs.existsSync(frontendDistPath)) {
     const filePath = path.join(frontendDistPath, "vendor", vendorPath);
 
     if (fs.existsSync(filePath)) {
-      const file = Bun.file(filePath);
-      return new Response(file, {
-        headers: { "Content-Type": file.type },
-      });
+      return serveFile(c, filePath);
     }
     return c.notFound();
   });
@@ -218,20 +219,14 @@ if (frontendDistPath && fs.existsSync(frontendDistPath)) {
       const staticFilePath = path.join(frontendDistPath, reqPath);
       // Only serve if it's a file (not a directory) and exists
       if (fs.existsSync(staticFilePath) && fs.statSync(staticFilePath).isFile()) {
-        const file = Bun.file(staticFilePath);
-        return new Response(file, {
-          headers: { "Content-Type": file.type },
-        });
+        return serveFile(c, staticFilePath);
       }
     }
 
     // SPA fallback: serve index.html for all remaining non-API routes
     const indexPath = path.join(frontendDistPath, "index.html");
     if (fs.existsSync(indexPath)) {
-      const file = Bun.file(indexPath);
-      return new Response(file, {
-        headers: { "Content-Type": "text/html" },
-      });
+      return serveFile(c, indexPath);
     }
     return c.notFound();
   });
