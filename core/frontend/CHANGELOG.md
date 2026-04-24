@@ -1,5 +1,25 @@
 # @checkstack/frontend
 
+## 0.3.17
+
+### Patch Changes
+
+- 3da7582: Fix favicon not loading in production container and add NotFound page
+
+  - **Backend**: Fix static file serving so root-level files like `/favicon.svg` are served from the dist directory before the SPA fallback catches them
+  - **UI**: Add `NotFound` component with stacked-checkmark logo, physics-inspired falling "4" animation, and low-power device fallback
+  - **Frontend**: Add catch-all `*` route to display the NotFound page for unmatched routes, and add the Checkstack logo to the navbar
+  - **Favicon**: Redesign with stacked checkmarks in the brand purple/indigo palette
+
+- Updated dependencies [3da7582]
+  - @checkstack/ui@1.5.0
+  - @checkstack/about-frontend@0.2.10
+  - @checkstack/announcement-frontend@0.2.10
+  - @checkstack/auth-frontend@0.5.27
+  - @checkstack/catalog-frontend@0.8.1
+  - @checkstack/command-frontend@0.2.29
+  - @checkstack/dependency-frontend@0.2.15
+
 ## 0.3.16
 
 ### Patch Changes
