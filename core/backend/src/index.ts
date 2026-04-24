@@ -177,9 +177,9 @@ if (frontendDistPath && fs.existsSync(frontendDistPath)) {
   /** Serve a static file via Hono's context to preserve headers through middleware. */
   const serveFile = async (c: Context, filePath: string) => {
     const file = Bun.file(filePath);
+    const content = await file.arrayBuffer();
     c.header("Content-Type", file.type);
-    c.header("Content-Length", String(file.size));
-    return c.body(file.stream());
+    return c.body(content);
   };
 
   // Serve static assets (JS, CSS, images, etc.)
