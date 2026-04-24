@@ -9,8 +9,10 @@ import path from "node:path";
  * We point directly to node_modules - no custom entry files needed.
  */
 export default defineConfig({
+  // Don't copy public/ contents — the main build handles that
+  publicDir: false,
   build: {
-    outDir: "public/vendor",
+    outDir: "dist/vendor",
     emptyOutDir: true,
     lib: {
       formats: ["es"],

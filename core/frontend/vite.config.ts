@@ -50,6 +50,9 @@ export default defineConfig(() => {
       target: "esnext",
       // Generate sourcemaps for production debugging
       sourcemap: true,
+      // Don't wipe dist/ — the vendor build (build:vendor) writes to dist/vendor/
+      // before this build runs, and we need to preserve those files
+      emptyOutDir: false,
     },
     resolve: {
       // Force all monorepo packages to use the same React copy at build time.
