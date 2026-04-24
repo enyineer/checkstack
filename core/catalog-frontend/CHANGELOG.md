@@ -1,5 +1,14 @@
 # @checkstack/catalog-frontend
 
+## 0.8.1
+
+### Patch Changes
+
+- Updated dependencies [3da7582]
+  - @checkstack/ui@1.5.0
+  - @checkstack/auth-frontend@0.5.27
+  - @checkstack/gitops-frontend@0.3.2
+
 ## 0.8.0
 
 ### Minor Changes

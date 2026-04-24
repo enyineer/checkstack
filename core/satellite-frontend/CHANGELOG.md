@@ -1,5 +1,12 @@
 # @checkstack/satellite-frontend
 
+## 0.2.8
+
+### Patch Changes
+
+- Updated dependencies [3da7582]
+  - @checkstack/ui@1.5.0
+
 ## 0.2.7
 
 ### Patch Changes
