@@ -33,6 +33,7 @@ import { CoreFetchApi } from "./apis/fetch-api";
 import { CoreRpcApi } from "./apis/rpc-api";
 import {
   AccessDenied,
+  NotFound,
   LoadingSpinner,
   ToastProvider,
   AmbientBackground,
@@ -144,7 +145,8 @@ function AppContent() {
           <div className="flex items-center justify-between gap-4">
             {/* Left: Logo and main navigation */}
             <div className="flex items-center gap-8 flex-shrink-0">
-              <Link to="/">
+              <Link to="/" className="flex items-center gap-2">
+                <img src="/favicon.svg" alt="" className="w-7 h-7" />
                 <h1 className="text-xl font-bold text-primary">Checkstack</h1>
               </Link>
               <nav className="hidden md:flex gap-1">
@@ -183,6 +185,8 @@ function AppContent() {
                 }
               />
             ))}
+            {/* Catch-all: show Not Found for unmatched routes */}
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
       </AmbientBackground>

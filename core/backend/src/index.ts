@@ -203,13 +203,29 @@ if (frontendDistPath && fs.existsSync(frontendDistPath)) {
     return c.notFound();
   });
 
-  // Serve index.html for all non-API routes (SPA fallback)
+  // Serve root-level static files (e.g., /favicon.svg) from the dist directory
+  // before the SPA fallback, so they don't get caught by the index.html handler
   app.get("*", async (c, next) => {
     // Skip API and WebSocket routes - let them pass through to actual handlers
     if (c.req.path.startsWith("/api")) {
       return next();
     }
 
+    // Check if the request maps to an actual file in the dist root
+    // (e.g., /favicon.svg -> dist/favicon.svg)
+    const reqPath = c.req.path.slice(1); // Remove leading "/"
+    if (reqPath && reqPath !== "" && !reqPath.includes("..")) {
+      const staticFilePath = path.join(frontendDistPath, reqPath);
+      // Only serve if it's a file (not a directory) and exists
+      if (fs.existsSync(staticFilePath) && fs.statSync(staticFilePath).isFile()) {
+        const file = Bun.file(staticFilePath);
+        return new Response(file, {
+          headers: { "Content-Type": file.type },
+        });
+      }
+    }
+
+    // SPA fallback: serve index.html for all remaining non-API routes
     const indexPath = path.join(frontendDistPath, "index.html");
     if (fs.existsSync(indexPath)) {
       const file = Bun.file(indexPath);
