@@ -22,6 +22,8 @@ import {
   arrayField,
   enumField,
 } from "@checkstack/backend-api";
+import type { QueueManager } from "@checkstack/queue-api";
+import { scheduleHealthCheck } from "./queue-executor";
 
 /**
  * Lazy accessor functions — populated during init(), consumed during reconcile.
@@ -32,6 +34,7 @@ interface HealthcheckGitOpsKindsDeps {
   createService: () => HealthCheckService;
   getHealthCheckRegistry: () => HealthCheckRegistry;
   getCollectorRegistry: () => CollectorRegistry;
+  getQueueManager: () => QueueManager;
 }
 
 // ─── Healthcheck Spec Schema ───────────────────────────────────────────────
@@ -323,8 +326,21 @@ export function buildSystemHealthcheckExtension(
           includeLocal: entry.includeLocal,
         });
 
+        // Retrieve config to get the interval for scheduling
+        const config = await service.getConfiguration(configId);
+        if (config) {
+          await scheduleHealthCheck({
+            queueManager: deps.getQueueManager(),
+            payload: {
+              configId,
+              systemId: systemEntityId,
+            },
+            intervalSeconds: config.intervalSeconds,
+          });
+        }
+
         context.logger.info(
-          `GitOps: associated ${entry.ref.kind} "${entry.ref.name}" (${configId}) with System "${entity.metadata.name}"`,
+          `GitOps: associated ${entry.ref.kind} "${entry.ref.name}" (${configId}) with System "${entity.metadata.name}" and scheduled execution`,
         );
       }
 
