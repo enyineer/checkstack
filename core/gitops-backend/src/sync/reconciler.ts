@@ -381,7 +381,8 @@ async function detectOrphans(params: {
           kind: prov.kind,
         });
 
-        if (kindDef?.delete) {
+        // Do not call delete reconciler if it's a pending error record
+        if (kindDef?.delete && !prov.entityId.startsWith("pending-")) {
           try {
             await kindDef.delete({
               entityName: prov.entityName,
@@ -484,18 +485,17 @@ async function upsertProvenance(params: {
     return;
   }
 
-  // First-time error: no entityId available yet, skip provenance creation.
-  // The entity will be retried on the next sync cycle.
-  if (!entityId) {
-    return;
-  }
+  // First-time error: no entityId available yet because the entity failed to create.
+  // We MUST create a provenance record anyway so the error shows in the UI.
+  // We use a "pending-" prefix so the orphan detector knows not to call the delete reconciler.
+  const resolvedEntityId = entityId ?? `pending-${uuidv4()}`;
 
   await db.insert(schema.provenance).values({
     id: uuidv4(),
     apiVersion: entity.apiVersion,
     kind: entity.kind,
     entityName: entity.metadata.name,
-    entityId,
+    entityId: resolvedEntityId,
     providerId,
     repository: file.repository,
     filePath: file.filePath,

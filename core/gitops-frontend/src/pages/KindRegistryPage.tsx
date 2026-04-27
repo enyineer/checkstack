@@ -13,8 +13,11 @@ import {
   SelectTrigger,
   SelectValue,
   CodeEditor,
-  Markdown,
   MarkdownBlock,
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
 } from "@checkstack/ui";
 import {
   ChevronDown,
@@ -64,131 +67,48 @@ interface KindDescription {
 
 // ─── Schema Display ────────────────────────────────────────────────────────
 
-const TYPE_COLORS: Record<string, string> = {
-  string: "text-green-600 dark:text-green-400",
-  number: "text-amber-600 dark:text-amber-400",
-  integer: "text-amber-600 dark:text-amber-400",
-  boolean: "text-red-600 dark:text-red-400",
-  array: "text-blue-600 dark:text-blue-400",
-  object: "text-purple-600 dark:text-purple-400",
-};
 
-function SchemaPropertyDisplay({
-  schema,
-  depth = 0,
-}: {
-  schema: JsonSchemaProperty;
-  depth?: number;
-}) {
-  if (schema.enum) {
-    return (
-      <span className="text-green-600 dark:text-green-400">
-        {schema.enum.map((e) => `"${e}"`).join(" | ")}
-      </span>
-    );
-  }
 
-  if (schema.anyOf) {
-    return (
-      <span>
-        {schema.anyOf.map((s, i) => (
-          <span key={i}>
-            {i > 0 && <span className="text-muted-foreground"> | </span>}
-            <SchemaPropertyDisplay schema={s} depth={depth} />
-          </span>
-        ))}
-      </span>
-    );
-  }
-
+function generateSchemaYaml(schema: JsonSchemaProperty): string {
+  const lines: string[] = [];
+  
   if (schema.type === "object" && schema.properties) {
-    return (
-      <div className="font-mono text-sm" style={{ marginLeft: depth * 16 }}>
-        {"{"}
-        {Object.entries(schema.properties).map(([key, value]) => (
-          <div key={key} className="ml-4">
-            <span className="text-blue-600 dark:text-blue-400">{key}</span>
-            {schema.required?.includes(key) && (
-              <span className="text-red-500">*</span>
-            )}
-            : <SchemaPropertyDisplay schema={value} depth={depth + 1} />
-            {value.description && (
-              <span className="text-muted-foreground ml-2 text-xs inline-flex items-center gap-1">
-                //{" "}
-                <Markdown size="sm" className="inline">
-                  {value.description}
-                </Markdown>
-              </span>
-            )}
-          </div>
-        ))}
-        {"}"}
-      </div>
-    );
+    const required = new Set(schema.required);
+    for (const [key, prop] of Object.entries(schema.properties)) {
+      emitProperty({
+        lines,
+        key,
+        prop,
+        indent: 0,
+        required: required.has(key),
+      });
+    }
+  } else {
+    emitProperty({
+      lines,
+      key: "value",
+      prop: schema,
+      indent: 0,
+      required: true,
+    });
   }
-
-  if (schema.type === "array" && schema.items) {
-    return (
-      <span>
-        <SchemaPropertyDisplay schema={schema.items} depth={depth} />
-        {"[]"}
-      </span>
-    );
+  
+  if (lines.length === 0) {
+    return "# No properties defined";
   }
-
-  const typeStr = schema.type ?? "unknown";
-  return (
-    <span className={TYPE_COLORS[typeStr] ?? "text-gray-600"}>
-      {typeStr}
-      {schema.default !== undefined && (
-        <span className="text-muted-foreground ml-1">
-          = {JSON.stringify(schema.default)}
-        </span>
-      )}
-    </span>
-  );
-}
-
-function SchemaBlock({
-  schema,
-  label,
-}: {
-  schema: JsonSchemaProperty;
-  label: string;
-}) {
-  const hasProperties =
-    schema.type === "object" &&
-    schema.properties &&
-    Object.keys(schema.properties).length > 0;
-
-  if (!hasProperties) {
-    return (
-      <div>
-        <h4 className="text-sm font-medium mb-2 text-muted-foreground">
-          {label}
-        </h4>
-        <div className="bg-muted rounded-md p-3 text-sm text-muted-foreground italic">
-          No properties defined
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <h4 className="text-sm font-medium mb-2 text-muted-foreground">
-        {label}
-      </h4>
-      <div className="bg-muted rounded-md p-3 overflow-x-auto">
-        <SchemaPropertyDisplay schema={schema} />
-      </div>
-    </div>
-  );
+  
+  return lines.join("\n");
 }
 
 // ─── YAML Example Generator ────────────────────────────────────────────────
 
-function generateYamlExample({ kind }: { kind: KindDescription }): string {
+function generateYamlExample({
+  kind,
+  selections,
+}: {
+  kind: KindDescription;
+  selections?: Record<string, string>;
+}): string {
   const lines = [`apiVersion: ${kind.apiVersion}`, `kind: ${kind.kind}`];
 
   if (kind.metadataSchema) {
@@ -234,6 +154,9 @@ function generateYamlExample({ kind }: { kind: KindDescription }): string {
       prop,
       indent: 2,
       required: baseRequired.has(key),
+      path: key,
+      kind,
+      selections,
     });
   }
 
@@ -260,18 +183,34 @@ function emitProperty({
   prop,
   indent,
   required,
+  path,
+  kind,
+  selections,
 }: {
   lines: string[];
   key: string;
   prop: JsonSchemaProperty;
   indent: number;
   required: boolean;
+  path?: string;
+  kind?: KindDescription;
+  selections?: Record<string, string>;
 }) {
   const pad = " ".repeat(indent);
-  const annotation = buildAnnotation({ prop, required });
 
-  // Resolve the effective schema (unwrap nullable / anyOf wrappers)
-  const effective = resolveEffective({ prop });
+  let effectiveProp = prop;
+  if (path && kind?.specSchemaDocumentation && selections && selections[path]) {
+    const variantId = selections[path];
+    const doc = kind.specSchemaDocumentation.find(
+      (d) => d.fieldPath === path && (d.variantId || d.label) === variantId
+    );
+    if (doc) {
+      effectiveProp = doc.specSchema;
+    }
+  }
+
+  const annotation = buildAnnotation({ prop: effectiveProp, required });
+  const effective = resolveEffective({ prop: effectiveProp });
 
   if (effective.type === "object" && effective.properties) {
     lines.push(`${pad}${key}:${annotation}`);
@@ -283,17 +222,36 @@ function emitProperty({
         prop: p,
         indent: indent + 2,
         required: objRequired.has(k),
+        path: path ? `${path}.${k}` : undefined,
+        kind,
+        selections,
       });
     }
   } else if (effective.type === "array") {
     lines.push(`${pad}${key}:${annotation}`);
     if (effective.items) {
-      emitArrayItem({ lines, itemSchema: effective.items, indent: indent + 2 });
+      emitArrayItem({
+        lines,
+        itemSchema: effective.items,
+        indent: indent + 2,
+        path: path ? `${path}[]` : undefined,
+        kind,
+        selections,
+      });
     } else {
       lines.push(`${pad}  - # ...`);
     }
   } else {
-    lines.push(`${pad}${key}: ${scalarExample({ prop })}${annotation}`);
+    let val = scalarExample({ prop: effective });
+    
+    if (key === "strategy" && path === "strategy" && selections?.["config"]) {
+      val = `"${selections["config"]}"`;
+    }
+    if (key === "collectorId" && path === "collectors[].collectorId" && selections?.["collectors[].config"]) {
+      val = `"${selections["collectors[].config"]}"`;
+    }
+
+    lines.push(`${pad}${key}: ${val}${annotation}`);
   }
 }
 
@@ -305,10 +263,16 @@ function emitArrayItem({
   lines,
   itemSchema,
   indent,
+  path,
+  kind,
+  selections,
 }: {
   lines: string[];
   itemSchema: JsonSchemaProperty;
   indent: number;
+  path?: string;
+  kind?: KindDescription;
+  selections?: Record<string, string>;
 }) {
   const pad = " ".repeat(indent);
   const effective = resolveEffective({ prop: itemSchema });
@@ -318,11 +282,25 @@ function emitArrayItem({
     const entries = Object.entries(effective.properties);
     for (const [i, [k, p]] of entries.entries()) {
       const prefix = i === 0 ? `${pad}- ` : `${pad}  `;
+      
+      const nextPath = path ? (path.endsWith("[]") ? `${path}.${k}` : `${path}[].${k}`) : undefined;
+      
+      let currentProp = p;
+      if (nextPath && kind?.specSchemaDocumentation && selections && selections[nextPath]) {
+        const variantId = selections[nextPath];
+        const doc = kind.specSchemaDocumentation.find(
+          (d) => d.fieldPath === nextPath && (d.variantId || d.label) === variantId
+        );
+        if (doc) {
+          currentProp = doc.specSchema;
+        }
+      }
+
       const itemAnnotation = buildAnnotation({
-        prop: p,
+        prop: currentProp,
         required: itemRequired.has(k),
       });
-      const inner = resolveEffective({ prop: p });
+      const inner = resolveEffective({ prop: currentProp });
 
       if (inner.type === "object" && inner.properties) {
         // Recurse into nested objects
@@ -335,18 +313,32 @@ function emitArrayItem({
             prop: np,
             indent: indent + 4,
             required: nestedRequired.has(nk),
+            path: nextPath ? `${nextPath}.${nk}` : undefined,
+            kind,
+            selections,
           });
         }
       } else if (inner.type === "array") {
         lines.push(`${prefix}${k}:${itemAnnotation}`);
         if (inner.items) {
-          emitArrayItem({ lines, itemSchema: inner.items, indent: indent + 4 });
+          emitArrayItem({
+            lines,
+            itemSchema: inner.items,
+            indent: indent + 4,
+            path: nextPath ? `${nextPath}[]` : undefined,
+            kind,
+            selections,
+          });
         } else {
           lines.push(`${" ".repeat(indent + 4)}- # ...`);
         }
       } else {
+        let val = scalarExample({ prop: currentProp });
+        if (k === "collectorId" && nextPath === "collectors[].collectorId" && selections?.["collectors[].config"]) {
+          val = `"${selections["collectors[].config"]}"`;
+        }
         lines.push(
-          `${prefix}${k}: ${scalarExample({ prop: p })}${itemAnnotation}`,
+          `${prefix}${k}: ${val}${itemAnnotation}`,
         );
       }
     }
@@ -402,7 +394,7 @@ function resolveEffective({
  */
 function scalarExample({ prop }: { prop: JsonSchemaProperty }): string {
   const effective = resolveEffective({ prop });
-  if (effective.enum) return `"${effective.enum[0]}"`;
+  if (effective.enum) return effective.enum.map((e) => `"${e}"`).join(" | ");
   if (effective.default !== undefined) return JSON.stringify(effective.default);
   switch (effective.type) {
     case "string": {
@@ -432,18 +424,13 @@ function scalarExample({ prop }: { prop: JsonSchemaProperty }): string {
 
 function SpecSchemaDocumentationSection({
   docs,
+  selections,
+  onSelect,
 }: {
   docs: NonNullable<KindDescription["specSchemaDocumentation"]>;
+  selections: Record<string, string>;
+  onSelect: (fieldPath: string, variantId: string) => void;
 }) {
-  const [selections, setSelections] = useState<Record<string, string>>({});
-
-  const handleSelect = useCallback((fieldPath: string, variantId: string) => {
-    setSelections((prev) => {
-      if (prev[fieldPath] === variantId) return prev;
-      return { ...prev, [fieldPath]: variantId };
-    });
-  }, []);
-
   const groupedDocs: Record<string, typeof docs> = {};
   for (const doc of docs) {
     if (!groupedDocs[doc.fieldPath]) {
@@ -466,7 +453,7 @@ function SpecSchemaDocumentationSection({
             fieldPath={fieldPath}
             docs={fieldDocs.toSorted((a, b) => a.label.localeCompare(b.label))}
             selections={selections}
-            onSelect={handleSelect}
+            onSelect={onSelect}
           />
         );
       })}
@@ -553,8 +540,14 @@ function SpecSchemaDocumentationField({
               <MarkdownBlock>{selectedDoc.description}</MarkdownBlock>
             </div>
           )}
-          <div className="bg-muted rounded-md p-3 overflow-x-auto">
-            <SchemaPropertyDisplay schema={selectedDoc.specSchema} />
+          <div className="rounded-md overflow-hidden border border-input">
+            <CodeEditor
+              value={generateSchemaYaml(selectedDoc.specSchema)}
+              language="yaml"
+              readOnly
+              onChange={() => {}}
+              minHeight={`${Math.max(100, generateSchemaYaml(selectedDoc.specSchema).split("\n").length * 20 + 20)}px`}
+            />
           </div>
         </div>
       ) : (
@@ -570,7 +563,16 @@ function SpecSchemaDocumentationField({
 
 function KindCard({ kind }: { kind: KindDescription }) {
   const [isOpen, setIsOpen] = useState(false);
-  const yamlExample = useMemo(() => generateYamlExample({ kind }), [kind]);
+  const [selections, setSelections] = useState<Record<string, string>>({});
+
+  const handleSelect = useCallback((fieldPath: string, variantId: string) => {
+    setSelections((prev) => {
+      if (prev[fieldPath] === variantId) return prev;
+      return { ...prev, [fieldPath]: variantId };
+    });
+  }, []);
+
+  const yamlExample = useMemo(() => generateYamlExample({ kind, selections }), [kind, selections]);
 
   return (
     <Card className="mb-3">
@@ -610,14 +612,47 @@ function KindCard({ kind }: { kind: KindDescription }) {
 
       {isOpen && (
         <CardContent className="pt-0 space-y-6">
-          {/* Entity Envelope Fields */}
-          <SchemaBlock
-            schema={kind.metadataSchema}
-            label="Entity Envelope Fields"
-          />
+          <Accordion type="multiple">
+            {/* Entity Envelope Fields */}
+            <AccordionItem value="envelope" className="border-b-0">
+              <AccordionTrigger className="py-2 hover:no-underline">
+                <h4 className="text-sm font-medium text-muted-foreground">
+                  Entity Envelope Fields
+                </h4>
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="rounded-md overflow-hidden border border-input mt-2">
+                  <CodeEditor
+                    value={generateSchemaYaml(kind.metadataSchema)}
+                    language="yaml"
+                    readOnly
+                    onChange={() => {}}
+                    minHeight={`${Math.max(100, generateSchemaYaml(kind.metadataSchema).split("\n").length * 20 + 20)}px`}
+                  />
+                </div>
+              </AccordionContent>
+            </AccordionItem>
 
-          {/* Base Spec Schema */}
-          <SchemaBlock schema={kind.specSchema} label="Base Spec Schema" />
+            {/* Base Spec Schema */}
+            <AccordionItem value="base-spec" className="border-b-0">
+              <AccordionTrigger className="py-2 hover:no-underline">
+                <h4 className="text-sm font-medium text-muted-foreground">
+                  Base Spec Schema
+                </h4>
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="rounded-md overflow-hidden border border-input mt-2">
+                  <CodeEditor
+                    value={generateSchemaYaml(kind.specSchema)}
+                    language="yaml"
+                    readOnly
+                    onChange={() => {}}
+                    minHeight={`${Math.max(100, generateSchemaYaml(kind.specSchema).split("\n").length * 20 + 20)}px`}
+                  />
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
 
           {/* Extensions */}
           {kind.extensions.length > 0 && (
@@ -636,8 +671,14 @@ function KindCard({ kind }: { kind: KindDescription }) {
                       {ext.namespace}
                     </Badge>
                   </div>
-                  <div className="bg-muted rounded-md p-3 overflow-x-auto">
-                    <SchemaPropertyDisplay schema={ext.specSchema} />
+                  <div className="rounded-md overflow-hidden border border-input">
+                    <CodeEditor
+                      value={generateSchemaYaml(ext.specSchema)}
+                      language="yaml"
+                      readOnly
+                      onChange={() => {}}
+                      minHeight={`${Math.max(100, generateSchemaYaml(ext.specSchema).split("\n").length * 20 + 20)}px`}
+                    />
                   </div>
                 </div>
               ))}
@@ -649,6 +690,8 @@ function KindCard({ kind }: { kind: KindDescription }) {
             kind.specSchemaDocumentation.length > 0 && (
               <SpecSchemaDocumentationSection
                 docs={kind.specSchemaDocumentation}
+                selections={selections}
+                onSelect={handleSelect}
               />
             )}
 

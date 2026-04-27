@@ -135,23 +135,31 @@ const cpuCollectorConfigSchema = z.object({
 function createMockHealthCheckRegistry() {
   const strategies = new Map<
     string,
-    { id: string; config: Versioned<unknown> }
+    { strategy: any; ownerPluginId: string; qualifiedId: string }
   >();
 
-  // Register a test strategy
-  strategies.set("postgres", {
+  const strategy = {
     id: "postgres",
+    displayName: "PostgreSQL",
+    description: "test",
     config: new Versioned({
       version: 1,
       schema: postgresConfigSchema,
     }),
+  };
+
+  // Register a test strategy
+  strategies.set("postgres", {
+    strategy,
+    ownerPluginId: "mock",
+    qualifiedId: "postgres",
   });
 
   return {
-    getStrategy: (id: string) => strategies.get(id) as ReturnType<import("@checkstack/backend-api").HealthCheckRegistry["getStrategy"]>,
+    getStrategy: (id: string) => strategies.get(id)?.strategy as ReturnType<import("@checkstack/backend-api").HealthCheckRegistry["getStrategy"]>,
     getStrategies: () =>
-      [...strategies.values()] as ReturnType<import("@checkstack/backend-api").HealthCheckRegistry["getStrategies"]>,
-    getStrategiesWithMeta: () => [],
+      [...strategies.values()].map(s => s.strategy) as ReturnType<import("@checkstack/backend-api").HealthCheckRegistry["getStrategies"]>,
+    getStrategiesWithMeta: () => [...strategies.values()] as any,
     register: () => {},
   };
 }
