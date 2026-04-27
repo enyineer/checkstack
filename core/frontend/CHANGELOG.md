@@ -1,5 +1,12 @@
 # @checkstack/frontend
 
+## 0.3.22
+
+### Patch Changes
+
+- Updated dependencies [35463ef]
+  - @checkstack/dependency-frontend@0.3.0
+
 ## 0.3.21
 
 ### Patch Changes
