@@ -298,8 +298,8 @@ async function reconcileEntity(params: {
 
   const existing = existingProvenance[0];
 
-  if (existing && existing.lastSyncHash === contentHash) {
-    // Unchanged — skip reconciliation
+  if (existing && existing.status === "synced" && existing.lastSyncHash === contentHash) {
+    // Unchanged and synced — skip reconciliation
     result.unchanged++;
     return;
   }
