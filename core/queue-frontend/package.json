@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/queue-frontend",
-  "version": "0.2.29",
+  "version": "0.2.30",
   "type": "module",
   "main": "./dist/index.js",
   "checkstack": {

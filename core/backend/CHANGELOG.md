@@ -1,5 +1,12 @@
 # @checkstack/backend
 
+## 0.6.6
+
+### Patch Changes
+
+- Updated dependencies [889dd8c]
+  - @checkstack/auth-common@0.6.2
+
 ## 0.6.5
 
 ### Patch Changes

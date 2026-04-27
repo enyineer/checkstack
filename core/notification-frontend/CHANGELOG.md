@@ -1,5 +1,11 @@
 # @checkstack/notification-frontend
 
+## 0.2.33
+
+### Patch Changes
+
+- @checkstack/auth-frontend@0.5.28
+
 ## 0.2.32
 
 ### Patch Changes
