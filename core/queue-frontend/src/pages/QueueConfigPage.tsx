@@ -82,7 +82,6 @@ const QueueConfigPageContent = () => {
       icon={Gauge}
       loading={accessLoading}
       allowed={canRead}
-      maxWidth="3xl"
     >
       <QueueLagAlert requireAccess={false} />
       <div className="space-y-6">
