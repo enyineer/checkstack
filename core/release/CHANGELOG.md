@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.70.0
+
+### Minor Changes
+
+- 9a320fe: Fixed an issue where GitOps-provisioned health checks were not added to the background execution queue immediately upon association.
+
 ## 0.69.0
 
 ### Minor Changes

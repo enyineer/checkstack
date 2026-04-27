@@ -1,5 +1,12 @@
 # @checkstack/healthcheck-backend
 
+## 0.16.5
+
+### Patch Changes
+
+- 9a320fe: Fixed an issue where GitOps-provisioned health checks were not added to the background execution queue immediately upon association.
+  - @checkstack/satellite-backend@0.2.13
+
 ## 0.16.4
 
 ### Patch Changes
