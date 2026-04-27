@@ -15,6 +15,7 @@ export async function notifyAffectedSystems(props: {
   maintenanceId: string;
   maintenanceTitle: string;
   systemIds: string[];
+  systemNames?: Map<string, string>;
   action: "created" | "updated" | "started" | "completed";
 }): Promise<void> {
   const {
@@ -23,6 +24,7 @@ export async function notifyAffectedSystems(props: {
     maintenanceId,
     maintenanceTitle,
     systemIds,
+    systemNames,
     action,
   } = props;
 
@@ -38,11 +40,14 @@ export async function notifyAffectedSystems(props: {
   });
 
   for (const systemId of systemIds) {
+    // Resolve system name from provided map, or fall back to systemId
+    const systemName = systemNames?.get(systemId) ?? systemId;
+
     try {
       await catalogClient.notifySystemSubscribers({
         systemId,
-        title: `Maintenance ${actionText}`,
-        body: `A maintenance **"${maintenanceTitle}"** has been ${actionText} for a system you're subscribed to.`,
+        title: `Maintenance ${actionText}: ${systemName}`,
+        body: `Maintenance **"${maintenanceTitle}"** has been ${actionText} for **${systemName}**.`,
         importance: "info",
         action: { label: "View Maintenance", url: maintenanceDetailPath },
         includeGroupSubscribers: true,
@@ -56,3 +61,4 @@ export async function notifyAffectedSystems(props: {
     }
   }
 }
+

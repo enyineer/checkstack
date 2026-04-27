@@ -5,6 +5,7 @@ import type { CatalogApi } from "@checkstack/catalog-common";
 import { catalogRoutes } from "@checkstack/catalog-common";
 import type { MaintenanceApi } from "@checkstack/maintenance-common";
 import type { IncidentApi } from "@checkstack/incident-common";
+import type { NotificationApi } from "@checkstack/notification-common";
 import type { DerivedState } from "@checkstack/dependency-common";
 import { DEPENDENCY_WARNINGS_CHANGED } from "@checkstack/dependency-common";
 import type { DependencyService } from "./services/dependency-service";
@@ -45,26 +46,30 @@ function derivedStateToImportance(
 export function buildNotificationTitle({
   derivedState,
   isRecovery,
+  systemName,
 }: {
   derivedState?: DerivedState;
   isRecovery: boolean;
+  systemName?: string;
 }): string {
+  const prefix = systemName ? `${systemName}: ` : "";
+
   if (isRecovery) {
-    return "Dependency impact resolved";
+    return `${prefix}Dependency impact resolved`;
   }
 
   switch (derivedState) {
     case "info": {
-      return "Upstream dependency issue (informational)";
+      return `${prefix}Upstream dependency issue (informational)`;
     }
     case "degraded": {
-      return "Availability impacted by upstream dependency";
+      return `${prefix}Availability impacted by upstream dependency`;
     }
     case "down": {
-      return "Availability critically impacted by upstream dependency";
+      return `${prefix}Availability critically impacted by upstream dependency`;
     }
     default: {
-      return "Dependency impact changed";
+      return `${prefix}Dependency impact changed`;
     }
   }
 }
@@ -76,29 +81,83 @@ export function buildNotificationBody({
   upstreamNames,
   derivedState,
   isRecovery,
+  systemName,
 }: {
   upstreamNames: string[];
   derivedState?: DerivedState;
   isRecovery: boolean;
+  systemName?: string;
 }): string {
   const upstreamList = upstreamNames.join(", ");
+  const systemRef = systemName ? `**${systemName}**` : "This system";
 
   if (isRecovery) {
-    return "All upstream dependencies have recovered. This system is no longer affected by dependency failures.";
+    return `All upstream dependencies have recovered. ${systemRef} is no longer affected by dependency failures.`;
   }
 
   switch (derivedState) {
     case "info": {
-      return `An upstream dependency (${upstreamList}) is experiencing issues. This is informational — no direct impact expected.`;
+      return `An upstream dependency (${upstreamList}) is experiencing issues. ${systemRef} — this is informational, no direct impact expected.`;
     }
     case "degraded": {
-      return `An upstream dependency (${upstreamList}) is experiencing issues. This system's availability may be degraded.`;
+      return `An upstream dependency (${upstreamList}) is experiencing issues. ${systemRef}'s availability may be degraded.`;
     }
     case "down": {
-      return `A critical upstream dependency (${upstreamList}) is down. This system is expected to be unavailable.`;
+      return `A critical upstream dependency (${upstreamList}) is down. ${systemRef} is expected to be unavailable.`;
     }
     default: {
       return `Upstream dependency status has changed (${upstreamList}).`;
+    }
+  }
+}
+
+/**
+ * Represents a downstream system that needs notification due to a state change.
+ */
+export interface SystemNotificationEntry {
+  systemId: string;
+  systemName: string;
+  derivedState?: DerivedState;
+  isRecovery: boolean;
+  importance: "info" | "warning" | "critical";
+  upstreamNames: string[];
+}
+
+/**
+ * Resolve the worst importance level from a list of notification entries.
+ */
+function resolveWorstImportance(
+  entries: SystemNotificationEntry[],
+): "info" | "warning" | "critical" {
+  let worst: "info" | "warning" | "critical" = "info";
+  for (const entry of entries) {
+    if (entry.importance === "critical") return "critical";
+    if (entry.importance === "warning") worst = "warning";
+  }
+  return worst;
+}
+
+/**
+ * Format a per-system impact line with criticality indicator for multi-system
+ * notification bodies.
+ */
+export function formatSystemImpactLine(entry: SystemNotificationEntry): string {
+  if (entry.isRecovery) {
+    return `- ✅ **${entry.systemName}** — recovered`;
+  }
+
+  switch (entry.derivedState) {
+    case "down": {
+      return `- 🔴 **${entry.systemName}** — critically impacted`;
+    }
+    case "degraded": {
+      return `- 🟡 **${entry.systemName}** — degraded`;
+    }
+    case "info": {
+      return `- ℹ️ **${entry.systemName}** — informational`;
+    }
+    default: {
+      return `- **${entry.systemName}** — impact changed`;
     }
   }
 }
@@ -109,6 +168,11 @@ export function buildNotificationBody({
  *
  * This is the Sidecar Notification Orchestration function.
  * It runs when an upstream system's health status changes.
+ *
+ * Notification deduplication: Instead of sending one notification per
+ * downstream system (which floods users subscribed to groups), we resolve
+ * all affected subscribers and send one personalized notification per user
+ * listing only the systems they are subscribed to.
  */
 export async function evaluateAndNotifyDownstream({
   changedSystemId,
@@ -117,6 +181,7 @@ export async function evaluateAndNotifyDownstream({
   warningService,
   fetchSystemStatuses,
   catalogClient,
+  notificationClient,
   maintenanceClient,
   incidentClient,
   signalService,
@@ -130,6 +195,7 @@ export async function evaluateAndNotifyDownstream({
     systemIds: string[],
   ) => Promise<Map<string, SystemStatus>>;
   catalogClient: InferClient<typeof CatalogApi>;
+  notificationClient: InferClient<typeof NotificationApi>;
   maintenanceClient: InferClient<typeof MaintenanceApi>;
   incidentClient: InferClient<typeof IncidentApi>;
   signalService: SignalService;
@@ -236,8 +302,10 @@ export async function evaluateAndNotifyDownstream({
       }
     }
 
-    // 6. Compare and notify for each downstream system
+    // 6. Evaluate state changes and collect systems that need notification
     const changedSystemIds: string[] = [];
+    const systemsToNotify: SystemNotificationEntry[] = [];
+
     for (const systemId of downstreamIds) {
       const currentWarning = warningMap.get(systemId);
       const currentState = currentWarning?.derivedState;
@@ -278,52 +346,40 @@ export async function evaluateAndNotifyDownstream({
         continue;
       }
 
-      // Build notification
+      // Collect notification entry instead of sending immediately
       const isRecovery = !currentState && !!previousState;
       const upstreamNames =
         currentWarning?.affectedUpstreams.map(
           (u) => u.systemName ?? u.systemId,
         ) ?? [];
+      const systemName =
+        statuses.get(systemId)?.systemName ?? systemId;
 
-      const title = buildNotificationTitle({
-        derivedState: currentState,
-        isRecovery,
-      });
-      const body = buildNotificationBody({
-        upstreamNames,
-        derivedState: currentState,
-        isRecovery,
-      });
-      const importance = isRecovery
-        ? ("info" as const)
-        : derivedStateToImportance(currentState!);
-
-      const systemDetailPath = resolveRoute(catalogRoutes.routes.systemDetail, {
+      systemsToNotify.push({
         systemId,
+        systemName,
+        derivedState: currentState,
+        isRecovery,
+        importance: isRecovery
+          ? "info"
+          : derivedStateToImportance(currentState!),
+        upstreamNames,
       });
-
-      try {
-        await catalogClient.notifySystemSubscribers({
-          systemId,
-          title,
-          body,
-          importance,
-          action: { label: "View System", url: systemDetailPath },
-          includeGroupSubscribers: true,
-        });
-        logger.debug(
-          `Dependency notification sent: ${systemId} ${previousState ?? "none"} → ${currentState ?? "none"}`,
-        );
-      } catch (error) {
-        // Notifications are best-effort
-        logger.warn(
-          `Failed to send dependency notification for ${systemId}:`,
-          error,
-        );
-      }
     }
 
-    // 7. Broadcast signal so frontends can react
+    // 7. Send batched per-user notifications (deduplication)
+    if (systemsToNotify.length > 0) {
+      await sendBatchedNotifications({
+        systemsToNotify,
+        changedSystemId,
+        statuses,
+        catalogClient,
+        notificationClient,
+        logger,
+      });
+    }
+
+    // 8. Broadcast signal so frontends can react
     if (changedSystemIds.length > 0) {
       await signalService.broadcast(DEPENDENCY_WARNINGS_CHANGED, {
         affectedSystemIds: changedSystemIds,
@@ -337,3 +393,148 @@ export async function evaluateAndNotifyDownstream({
     );
   }
 }
+
+/**
+ * Send batched, per-user personalized notifications.
+ *
+ * Instead of sending one notification per affected system (which causes
+ * floods for group subscribers), this function:
+ * 1. Resolves all notification group IDs for each affected system
+ * 2. Resolves subscribers per group and builds a user → systems reverse map
+ * 3. Sends one personalized notification per user with only their relevant systems
+ */
+async function sendBatchedNotifications({
+  systemsToNotify,
+  changedSystemId,
+  statuses,
+  catalogClient,
+  notificationClient,
+  logger,
+}: {
+  systemsToNotify: SystemNotificationEntry[];
+  changedSystemId: string;
+  statuses: Map<string, SystemStatus>;
+  catalogClient: InferClient<typeof CatalogApi>;
+  notificationClient: InferClient<typeof NotificationApi>;
+  logger: Logger;
+}): Promise<void> {
+  // Phase 1: Resolve all notification group IDs for affected systems
+  const systemToGroupIds = new Map<string, string[]>();
+  for (const system of systemsToNotify) {
+    const groupIds = [`catalog.system.${system.systemId}`];
+
+    try {
+      const { groupIds: catalogGroupIds } =
+        await catalogClient.getSystemGroupIds({
+          systemId: system.systemId,
+        });
+      groupIds.push(
+        ...catalogGroupIds.map((gid) => `catalog.group.${gid}`),
+      );
+    } catch (error) {
+      logger.warn(
+        `Failed to resolve group IDs for system ${system.systemId}:`,
+        error,
+      );
+    }
+
+    systemToGroupIds.set(system.systemId, groupIds);
+  }
+
+  // Phase 2: Resolve subscribers per group → build user → systems reverse map
+  const userSystems = new Map<string, Set<string>>();
+  for (const system of systemsToNotify) {
+    const groupIds = systemToGroupIds.get(system.systemId) ?? [];
+    for (const groupId of groupIds) {
+      try {
+        const { userIds } =
+          await notificationClient.getGroupSubscribers({ groupId });
+        for (const userId of userIds) {
+          if (!userSystems.has(userId)) {
+            userSystems.set(userId, new Set());
+          }
+          userSystems.get(userId)!.add(system.systemId);
+        }
+      } catch (error) {
+        logger.warn(
+          `Failed to resolve subscribers for group ${groupId}:`,
+          error,
+        );
+      }
+    }
+  }
+
+  if (userSystems.size === 0) {
+    return;
+  }
+
+  // Phase 3: Send one personalized notification per user
+  const upstreamName =
+    statuses.get(changedSystemId)?.systemName ?? changedSystemId;
+  const upstreamSystemDetailPath = resolveRoute(
+    catalogRoutes.routes.systemDetail,
+    { systemId: changedSystemId },
+  );
+
+  for (const [userId, subscribedSystemIds] of userSystems) {
+    const relevantSystems = systemsToNotify.filter((s) =>
+      subscribedSystemIds.has(s.systemId),
+    );
+    if (relevantSystems.length === 0) continue;
+
+    const allRecovery = relevantSystems.every((s) => s.isRecovery);
+    const systemNames = relevantSystems.map((s) => s.systemName);
+
+    let title: string;
+    let body: string;
+
+    if (relevantSystems.length === 1) {
+      // Single system — use detailed title/body
+      const entry = relevantSystems[0];
+      title = buildNotificationTitle({
+        derivedState: entry.derivedState,
+        isRecovery: entry.isRecovery,
+        systemName: entry.systemName,
+      });
+      body = buildNotificationBody({
+        upstreamNames: entry.upstreamNames,
+        derivedState: entry.derivedState,
+        isRecovery: entry.isRecovery,
+        systemName: entry.systemName,
+      });
+    } else if (allRecovery) {
+      title = `Dependency impact resolved: ${upstreamName}`;
+      body = `All upstream dependencies of **${systemNames.join("**, **")}** have recovered.`;
+    } else {
+      title = `Upstream dependency issue: ${upstreamName} — ${relevantSystems.length} systems affected`;
+      const systemLines = relevantSystems
+        .map((entry) => formatSystemImpactLine(entry))
+        .join("\n");
+      body = `An upstream dependency (**${upstreamName}**) is affecting:\n\n${systemLines}`;
+    }
+
+    const importance = allRecovery
+      ? ("info" as const)
+      : resolveWorstImportance(relevantSystems);
+
+    try {
+      await notificationClient.notifyUsers({
+        userIds: [userId],
+        title,
+        body,
+        importance,
+        action: { label: "View Root Cause", url: upstreamSystemDetailPath },
+      });
+      logger.debug(
+        `Dependency notification sent to user ${userId}: ${relevantSystems.length} system(s)`,
+      );
+    } catch (error) {
+      // Notifications are best-effort
+      logger.warn(
+        `Failed to send dependency notification to user ${userId}:`,
+        error,
+      );
+    }
+  }
+}
+

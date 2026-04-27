@@ -115,7 +115,7 @@ describe("notifyAffectedSystems", () => {
 
       expect(mockCatalogClient.notifySystemSubscribers).toHaveBeenCalledWith(
         expect.objectContaining({
-          title: "Incident reported",
+          title: "Incident reported: sys-1",
           body: expect.stringContaining("reported"),
         }),
       );
@@ -134,7 +134,7 @@ describe("notifyAffectedSystems", () => {
 
       expect(mockCatalogClient.notifySystemSubscribers).toHaveBeenCalledWith(
         expect.objectContaining({
-          title: "Incident reopened",
+          title: "Incident reopened: sys-1",
           body: expect.stringContaining("reopened"),
         }),
       );
@@ -180,4 +180,50 @@ describe("notifyAffectedSystems", () => {
       expect(mockLogger.warn).toHaveBeenCalled();
     });
   });
+
+  describe("system name inclusion", () => {
+    it("should include system name in title and body when systemNames map is provided", async () => {
+      const systemNames = new Map([
+        ["sys-1", "Production Database"],
+      ]);
+
+      await notifyAffectedSystems({
+        catalogClient: mockCatalogClient as never,
+        logger: mockLogger as never,
+        incidentId: "inc-1",
+        incidentTitle: "DB Outage",
+        systemIds: ["sys-1"],
+        systemNames,
+        action: "created",
+        severity: "critical",
+      });
+
+      expect(mockCatalogClient.notifySystemSubscribers).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Incident reported: Production Database",
+          body: expect.stringContaining("**Production Database**"),
+        }),
+      );
+    });
+
+    it("should fall back to systemId when systemNames map is not provided", async () => {
+      await notifyAffectedSystems({
+        catalogClient: mockCatalogClient as never,
+        logger: mockLogger as never,
+        incidentId: "inc-1",
+        incidentTitle: "Test Incident",
+        systemIds: ["sys-1"],
+        action: "resolved",
+        severity: "minor",
+      });
+
+      expect(mockCatalogClient.notifySystemSubscribers).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Incident resolved: sys-1",
+          body: expect.stringContaining("**sys-1**"),
+        }),
+      );
+    });
+  });
 });
+

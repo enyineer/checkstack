@@ -39,6 +39,7 @@ export async function notifyAffectedSystems(props: {
   incidentId: string;
   incidentTitle: string;
   systemIds: string[];
+  systemNames?: Map<string, string>;
   action: "created" | "updated" | "resolved" | "reopened";
   severity: string;
 }): Promise<void> {
@@ -48,6 +49,7 @@ export async function notifyAffectedSystems(props: {
     incidentId,
     incidentTitle,
     systemIds,
+    systemNames,
     action,
     severity,
   } = props;
@@ -69,11 +71,14 @@ export async function notifyAffectedSystems(props: {
   const uniqueSystemIds = [...new Set(systemIds)];
 
   for (const systemId of uniqueSystemIds) {
+    // Resolve system name from provided map, or fall back to systemId
+    const systemName = systemNames?.get(systemId) ?? systemId;
+
     try {
       await catalogClient.notifySystemSubscribers({
         systemId,
-        title: `Incident ${actionText}`,
-        body: `Incident **"${incidentTitle}"** has been ${actionText} for a system you're subscribed to.`,
+        title: `Incident ${actionText}: ${systemName}`,
+        body: `Incident **"${incidentTitle}"** has been ${actionText} affecting **${systemName}**.`,
         importance,
         action: { label: "View Incident", url: incidentDetailPath },
         includeGroupSubscribers: true,
@@ -87,3 +92,4 @@ export async function notifyAffectedSystems(props: {
     }
   }
 }
+
