@@ -1,5 +1,12 @@
 # @checkstack/catalog-backend
 
+## 0.5.4
+
+### Patch Changes
+
+- Updated dependencies [adc89a8]
+  - @checkstack/gitops-backend@0.2.3
+
 ## 0.5.3
 
 ### Patch Changes

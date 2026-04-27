@@ -1,5 +1,11 @@
 # @checkstack/incident-backend
 
+## 0.4.25
+
+### Patch Changes
+
+- @checkstack/catalog-backend@0.5.4
+
 ## 0.4.24
 
 ### Patch Changes
