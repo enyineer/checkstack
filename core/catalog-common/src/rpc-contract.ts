@@ -266,6 +266,19 @@ export const catalogContract = {
       }),
     )
     .output(z.object({ notifiedCount: z.number() })),
+
+  /**
+   * Get the catalog group IDs that contain a specific system.
+   * Returns raw group IDs (not namespaced with notification prefix).
+   * Used by the dependency plugin for batched notification deduplication.
+   */
+  getSystemGroupIds: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .input(z.object({ systemId: z.string() }))
+    .output(z.object({ groupIds: z.array(z.string()) })),
 };
 
 // Export contract type

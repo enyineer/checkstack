@@ -101,6 +101,7 @@ export async function scheduleHealthCheck(props: {
  */
 async function notifyStateChange(props: {
   systemId: string;
+  systemName: string;
   previousStatus: HealthCheckStatus;
   newStatus: HealthCheckStatus;
   catalogClient: CatalogClient;
@@ -110,6 +111,7 @@ async function notifyStateChange(props: {
 }): Promise<void> {
   const {
     systemId,
+    systemName,
     previousStatus,
     newStatus,
     catalogClient,
@@ -168,18 +170,18 @@ async function notifyStateChange(props: {
   let importance: "info" | "warning" | "critical";
 
   if (isRecovery) {
-    title = "System health restored";
+    title = `System health restored: ${systemName}`;
     body =
-      "All health checks are now passing. The system has returned to normal operation.";
+      `All health checks for **${systemName}** are now passing. The system has returned to normal operation.`;
     importance = "info";
   } else if (isUnhealthy) {
-    title = "System health critical";
-    body = "Health checks indicate the system is unhealthy and may be down.";
+    title = `System health critical: ${systemName}`;
+    body = `Health checks indicate **${systemName}** is unhealthy and may be down.`;
     importance = "critical";
   } else if (isDegraded) {
-    title = "System health degraded";
+    title = `System health degraded: ${systemName}`;
     body =
-      "Some health checks are failing. The system may be experiencing issues.";
+      `Some health checks for **${systemName}** are failing. The system may be experiencing issues.`;
     importance = "warning";
   } else {
     // No notification for healthy → healthy (if somehow missed above)
@@ -535,6 +537,7 @@ async function executeHealthCheckJob(props: {
       if (newState.status !== previousStatus) {
         await notifyStateChange({
           systemId,
+          systemName,
           previousStatus,
           newStatus: newState.status,
           catalogClient,
@@ -615,6 +618,7 @@ async function executeHealthCheckJob(props: {
     if (newState.status !== previousStatus) {
       await notifyStateChange({
         systemId,
+        systemName,
         previousStatus,
         newStatus: newState.status,
         catalogClient,
@@ -732,6 +736,7 @@ async function executeHealthCheckJob(props: {
     if (newState.status !== previousStatus) {
       await notifyStateChange({
         systemId,
+        systemName,
         previousStatus,
         newStatus: newState.status,
         catalogClient,

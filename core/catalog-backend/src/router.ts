@@ -415,6 +415,21 @@ export const createCatalogRouter = ({
     },
   );
 
+  /**
+   * Get the catalog group IDs that contain a specific system.
+   * Used by the dependency plugin for batched notification deduplication.
+   */
+  const getSystemGroupIds = os.getSystemGroupIds.handler(
+    async ({ input }) => {
+      const systemGroups = await database
+        .select({ groupId: schema.systemsGroups.groupId })
+        .from(schema.systemsGroups)
+        .where(eq(schema.systemsGroups.systemId, input.systemId));
+
+      return { groupIds: systemGroups.map((sg) => sg.groupId) };
+    },
+  );
+
   // Build and return the router
   return os.router({
     getEntities,
@@ -435,7 +450,9 @@ export const createCatalogRouter = ({
     getViews,
     createView,
     notifySystemSubscribers,
+    getSystemGroupIds,
   });
 };
+
 
 export type CatalogRouter = ReturnType<typeof createCatalogRouter>;

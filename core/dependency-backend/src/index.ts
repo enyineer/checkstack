@@ -14,6 +14,7 @@ import { CatalogApi } from "@checkstack/catalog-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { IncidentApi } from "@checkstack/incident-common";
+import { NotificationApi } from "@checkstack/notification-common";
 import { catalogHooks } from "@checkstack/catalog-backend";
 import { healthCheckHooks } from "@checkstack/healthcheck-backend";
 import { evaluateAndNotifyDownstream } from "./notifications";
@@ -73,6 +74,7 @@ export default createBackendPlugin({
         const healthCheckClient = rpcClient.forPlugin(HealthCheckApi);
         const maintenanceClient = rpcClient.forPlugin(MaintenanceApi);
         const incidentClient = rpcClient.forPlugin(IncidentApi);
+        const notificationClient = rpcClient.forPlugin(NotificationApi);
 
         /**
          * Build system statuses for warning evaluation.
@@ -161,6 +163,7 @@ export default createBackendPlugin({
               warningService,
               fetchSystemStatuses,
               catalogClient,
+              notificationClient,
               maintenanceClient,
               incidentClient,
               signalService,
@@ -186,6 +189,7 @@ export default createBackendPlugin({
               warningService,
               fetchSystemStatuses,
               catalogClient,
+              notificationClient,
               maintenanceClient,
               incidentClient,
               signalService,
