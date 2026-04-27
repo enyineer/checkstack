@@ -115,6 +115,10 @@ function createMockService() {
         })
         .filter(Boolean);
     }),
+    getConfiguration: mock(async (id: string) => {
+      const config = configs.find((c) => c.id === id);
+      return config as unknown as HealthCheckConfiguration | undefined;
+    }),
   };
 }
 
@@ -217,16 +221,13 @@ describe("Healthcheck GitOps Kind: Healthcheck", () => {
   });
 
   function buildKind() {
-    return buildHealthcheckKind({
-      createService: () =>
-        ({
-          createConfiguration: mockService.createConfiguration,
-          updateConfiguration: mockService.updateConfiguration,
-          deleteConfiguration: mockService.deleteConfiguration,
-        }) as never,
-      getHealthCheckRegistry: () => mockHCRegistry as never,
-      getCollectorRegistry: () => mockCollectorRegistry as never,
-    });
+    const mockDeps = {
+      createService: () => mockService as any,
+      getHealthCheckRegistry: () => mockHCRegistry as any,
+      getCollectorRegistry: () => mockCollectorRegistry as any,
+      getQueueManager: () => ({ getQueue: () => ({ scheduleRecurring: async () => "job-123" }) } as any),
+    };
+    return buildHealthcheckKind(mockDeps);
   }
 
   it("creates a new healthcheck configuration and returns entityId", async () => {
@@ -488,9 +489,11 @@ describe("Healthcheck GitOps Kind: System Extension", () => {
           associateSystem: mockService.associateSystem,
           disassociateSystem: mockService.disassociateSystem,
           getSystemConfigurations: mockService.getSystemConfigurations,
+          getConfiguration: mockService.getConfiguration,
         }) as never,
       getHealthCheckRegistry: () => createMockHealthCheckRegistry() as never,
       getCollectorRegistry: () => createMockCollectorRegistry() as never,
+      getQueueManager: () => ({ getQueue: () => ({ scheduleRecurring: async () => "job-123" }) } as any),
     });
   }
 

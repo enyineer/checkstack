@@ -19,6 +19,7 @@ import {
   type HealthCheckRegistry,
   type CollectorRegistry,
 } from "@checkstack/backend-api";
+import type { QueueManager } from "@checkstack/queue-api";
 import { integrationEventExtensionPoint } from "@checkstack/integration-backend";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
 import { z } from "zod";
@@ -99,6 +100,7 @@ export default createBackendPlugin({
     let gitopsDb: SafeDatabase<typeof schema> | undefined;
     let gitopsHealthCheckRegistry: HealthCheckRegistry | undefined;
     let gitopsCollectorRegistry: CollectorRegistry | undefined;
+    let gitopsQueueManager: QueueManager | undefined;
 
     const kindRegistry = env.getExtensionPoint(entityKindExtensionPoint);
     registerHealthcheckGitOpsKinds({
@@ -124,6 +126,11 @@ export default createBackendPlugin({
         if (!gitopsCollectorRegistry)
           throw new Error("CollectorRegistry not initialized");
         return gitopsCollectorRegistry;
+      },
+      getQueueManager: () => {
+        if (!gitopsQueueManager)
+          throw new Error("QueueManager not initialized");
+        return gitopsQueueManager;
       },
     });
 
@@ -155,6 +162,7 @@ export default createBackendPlugin({
         gitopsDb = database;
         gitopsHealthCheckRegistry = healthCheckRegistry;
         gitopsCollectorRegistry = collectorRegistry;
+        gitopsQueueManager = queueManager;
 
         // Create catalog client for notification delegation
         const catalogClient = rpcClient.forPlugin(CatalogApi);
