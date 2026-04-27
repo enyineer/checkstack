@@ -548,7 +548,7 @@ export default createBackendPlugin({
             const ipAddress = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || undefined;
             const userAgent = req.headers.get("user-agent") || undefined;
 
-            const { setCookie } = await authClient.createSession({
+            const { setCookies } = await authClient.createSession({
               userId,
               ipAddress,
               userAgent,
@@ -556,13 +556,16 @@ export default createBackendPlugin({
 
             logger.info(`Created bridged session for SAML user: ${email} (IP: ${ipAddress ?? "unknown"})`);
 
-            // Redirect to home with the signed session cookie from better-auth
+            // Redirect to home with the signed session cookies from better-auth
+            // Each cookie must be set as a separate Set-Cookie header
+            const headers = new Headers({ Location: "/" });
+            for (const cookie of setCookies) {
+              headers.append("Set-Cookie", cookie);
+            }
+
             return new Response(undefined, {
               status: 302,
-              headers: {
-                Location: "/",
-                "Set-Cookie": setCookie,
-              },
+              headers,
             });
           } catch (error) {
             logger.error("SAML ACS error:", error);
