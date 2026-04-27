@@ -117,18 +117,21 @@ export function buildHealthcheckKind(
       const service = deps.createService();
       const spec = entity.spec;
 
-      // Look up strategy first — we need its typed schema for secret resolution
+      // Look up strategy using strictly the fully qualified ID
       const healthCheckRegistry = deps.getHealthCheckRegistry();
-      const strategy = healthCheckRegistry.getStrategy(spec.strategy);
-      if (!strategy) {
+      const allStrategies = healthCheckRegistry.getStrategiesWithMeta();
+      const matchStrategy = allStrategies.find((s) => s.qualifiedId === spec.strategy);
+
+      if (!matchStrategy) {
         throw new Error(
           `Unknown health check strategy "${spec.strategy}". ` +
-            `Available: ${healthCheckRegistry
-              .getStrategies()
-              .map((s) => s.id)
+            `Available: ${allStrategies
+              .map((s) => s.qualifiedId)
               .join(", ")}`,
         );
       }
+      
+      const strategy = matchStrategy.strategy;
 
       // Resolve secrets using the strategy's typed schema.
       // Only fields marked with configString({ "x-secret": true }) get resolved.
@@ -151,17 +154,22 @@ export function buildHealthcheckKind(
       const resolvedCollectors = spec.collectors
         ? await Promise.all(
             spec.collectors.map(async (c) => {
+              // Look up collector using strictly the fully qualified ID
               const collectorReg = deps.getCollectorRegistry();
-              const registered = collectorReg.getCollector(c.collectorId);
-              if (!registered) {
+              const allCollectors = collectorReg.getCollectors();
+              const matchCollector = allCollectors.find(
+                (col) => col.qualifiedId === c.collectorId
+              );
+
+              if (!matchCollector) {
                 throw new Error(
                   `Unknown collector "${c.collectorId}". ` +
-                    `Available: ${collectorReg
-                      .getCollectors()
+                    `Available: ${allCollectors
                       .map((col) => col.qualifiedId)
                       .join(", ")}`,
                 );
               }
+              const registered = matchCollector;
 
               // Resolve secrets using the collector's typed schema
               const { resolved: resolvedCollectorConfig } =
@@ -370,15 +378,24 @@ export function registerHealthcheckGitOpsDocumentation({
       apiVersion: CHECKSTACK_API_VERSION,
       kind: "Healthcheck",
       fieldPath: "config",
-      variantId: registered.ownerPluginId,
+      variantId: registered.qualifiedId,
       label: registered.strategy.displayName,
-      description: `ID: ${registered.ownerPluginId}\n\n${registered.strategy.description}`,
+      description: `ID: ${registered.qualifiedId}\n\n${registered.strategy.description}`,
       schema: registered.strategy.config.schema,
     });
   }
 
   // 2. Register documentation for collector configs (fieldPath: "collectors[].config")
   for (const registered of collectorRegistry.getCollectors()) {
+    const supportedStrategyIds = healthCheckRegistry
+      .getStrategiesWithMeta()
+      .filter((s) =>
+        registered.collector.supportedPlugins.some(
+          (p) => p.pluginId === s.ownerPluginId,
+        ),
+      )
+      .map((s) => s.qualifiedId);
+
     kindRegistry.registerSpecSchemaDocumentation({
       apiVersion: CHECKSTACK_API_VERSION,
       kind: "Healthcheck",
@@ -390,9 +407,7 @@ export function registerHealthcheckGitOpsDocumentation({
       conditions: [
         {
           fieldPath: "config",
-          variantIds: registered.collector.supportedPlugins.map(
-            (p) => p.pluginId,
-          ),
+          variantIds: supportedStrategyIds,
         },
       ],
     });
