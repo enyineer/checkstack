@@ -359,11 +359,12 @@ describe("Auth Router", () => {
 
     const mockResponse = { sessionId: "session-123" };
     const mockHandler = mock(async (_req: Request) => {
+      const headers = new Headers();
+      headers.append("Set-Cookie", "better-auth.session_token=test-token; Path=/; HttpOnly; Max-Age=604800");
+      headers.append("Set-Cookie", "better-auth.session_data=test-data; Path=/; HttpOnly; Max-Age=300");
       return new Response(JSON.stringify(mockResponse), {
         status: 200,
-        headers: {
-          "Set-Cookie": "better-auth.session_token=test-token; Path=/; HttpOnly",
-        },
+        headers,
       });
     });
 
@@ -386,7 +387,9 @@ describe("Auth Router", () => {
     );
 
     expect(result.sessionId).toBe("session-123");
-    expect(result.setCookie).toContain("better-auth.session_token=test-token");
+    expect(result.setCookies).toBeArrayOfSize(2);
+    expect(result.setCookies[0]).toContain("better-auth.session_token=test-token");
+    expect(result.setCookies[1]).toContain("better-auth.session_data=test-data");
     expect(mockHandler).toHaveBeenCalled();
 
     // Verify the virtual request headers

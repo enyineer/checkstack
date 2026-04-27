@@ -1106,14 +1106,12 @@ export const createAuthRouter = (
       });
     }
 
-    // Extract Set-Cookie. Use getSetCookie() if available (Bun/Node 20+), otherwise fallback to get()
-    // get() usually joins multiple cookies with a comma, which is often correct but sometimes brittle
-    const setCookie =
-      typeof res.headers.getSetCookie === "function"
-        ? res.headers.getSetCookie().join(", ")
-        : res.headers.get("set-cookie");
+    // Extract Set-Cookie headers as individual strings (one per cookie)
+    // Using getSetCookie() preserves each cookie separately — joining with commas
+    // corrupts cookie attributes that contain commas (e.g. Expires dates)
+    const setCookies = res.headers.getSetCookie();
 
-    if (!setCookie) {
+    if (setCookies.length === 0) {
       const headers: Record<string, string> = {};
       // eslint-disable-next-line unicorn/no-array-for-each
       res.headers.forEach((value, key) => {
@@ -1133,7 +1131,7 @@ export const createAuthRouter = (
 
     return {
       sessionId: body.sessionId,
-      setCookie,
+      setCookies,
     };
   });
 

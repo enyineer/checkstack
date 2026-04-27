@@ -356,7 +356,7 @@ export const authContract = {
     access: [],
   })
     .input(CreateSessionInputSchema)
-    .output(z.object({ sessionId: z.string(), setCookie: z.string() })),
+    .output(z.object({ sessionId: z.string(), setCookies: z.array(z.string()) })),
 
   getUserById: proc({
     operationType: "query",
