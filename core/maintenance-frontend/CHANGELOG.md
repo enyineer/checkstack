@@ -1,5 +1,13 @@
 # @checkstack/maintenance-frontend
 
+## 0.5.5
+
+### Patch Changes
+
+- Updated dependencies [298bf42]
+  - @checkstack/catalog-common@1.5.0
+  - @checkstack/dashboard-frontend@0.4.5
+
 ## 0.5.4
 
 ### Patch Changes
