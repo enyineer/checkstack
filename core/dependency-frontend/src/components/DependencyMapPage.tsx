@@ -10,7 +10,6 @@ import {
   ReactFlowProvider,
   type NodeChange,
   type Connection,
-  MarkerType,
   Panel,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -247,6 +246,21 @@ function DependencyMapContent() {
     const savedPositions = posData?.positions ?? [];
     const warnings = warningsData?.warnings ?? {};
     const healthStatuses = healthData?.statuses ?? {};
+    const deps = depsData?.dependencies ?? [];
+
+    // Compute per-system dependency counts
+    const upstreamCountMap = new Map<string, number>();
+    const downstreamCountMap = new Map<string, number>();
+    for (const dep of deps) {
+      upstreamCountMap.set(
+        dep.sourceSystemId,
+        (upstreamCountMap.get(dep.sourceSystemId) ?? 0) + 1,
+      );
+      downstreamCountMap.set(
+        dep.targetSystemId,
+        (downstreamCountMap.get(dep.targetSystemId) ?? 0) + 1,
+      );
+    }
 
     // Lookup maps for position resolution
     const savedPositionMap = new Map(
@@ -287,6 +301,8 @@ function DependencyMapContent() {
         systemId: system.id,
         status: selfStatus,
         derivedState: warning?.derivedState,
+        upstreamCount: upstreamCountMap.get(system.id) ?? 0,
+        downstreamCount: downstreamCountMap.get(system.id) ?? 0,
       };
 
       return {
@@ -298,7 +314,7 @@ function DependencyMapContent() {
     });
 
     setNodes(newNodes);
-  }, [systemsData, posData, warningsData, healthData, setNodes]);
+  }, [systemsData, posData, warningsData, healthData, depsData, setNodes]);
 
   // Build edges separately — only depends on dependency data
   useEffect(() => {
@@ -318,11 +334,6 @@ function DependencyMapContent() {
           target: dep.targetSystemId,
           type: "dependency" as const,
           animated: dep.transitive,
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            width: 16,
-            height: 16,
-          },
           data: edgeData,
         };
       },
@@ -502,7 +513,28 @@ function DependencyMapContent() {
         <Panel position="bottom-left">
           <div className="bg-card/90 backdrop-blur-sm border border-border rounded-lg p-3 shadow-lg max-w-64">
             <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider">
-              Impact Legend
+              Legend
+            </p>
+
+            {/* Direction legend */}
+            <div className="space-y-1.5 mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-teal-400/60 border-2 border-background shrink-0" />
+                <span className="text-xs text-muted-foreground">
+                  Used by (incoming)
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-violet-400/60 border-2 border-background shrink-0" />
+                <span className="text-xs text-muted-foreground">
+                  Depends on (outgoing)
+                </span>
+              </div>
+            </div>
+
+            {/* Impact legend */}
+            <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider">
+              Impact
             </p>
             <div className="space-y-1.5">
               <div className="flex items-center gap-2">

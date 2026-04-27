@@ -27,9 +27,17 @@ const impactStrokeWidths: Record<ImpactType, number> = {
   critical: 2.5,
 };
 
+/** Hex colors for SVG marker fills — must match the Tailwind stroke classes. */
+const impactHexColors: Record<ImpactType, string> = {
+  informational: "#38bdf8", // sky-400
+  degraded: "#fbbf24", // amber-400
+  critical: "#f87171", // red-400
+};
+
 /**
  * Custom React Flow edge displaying dependency impact type via color + thickness.
- * Transitive edges use dashed stroke.
+ * Transitive edges use dashed stroke. Renders a visible arrowhead marker
+ * colored to match the impact type.
  */
 export function DependencyEdgeComponent({
   id,
@@ -55,9 +63,32 @@ export function DependencyEdgeComponent({
   const isTransitive = data?.transitive ?? false;
   const colorClass = impactColors[impactType];
   const strokeWidth = impactStrokeWidths[impactType];
+  const hexColor = selected ? "hsl(var(--primary))" : impactHexColors[impactType];
+
+  // Unique marker ID per edge to avoid color clashes between different impact types
+  const markerId = `arrow-${id}`;
 
   return (
     <>
+      {/* SVG marker definition for the arrowhead */}
+      <defs>
+        <marker
+          id={markerId}
+          markerWidth="12"
+          markerHeight="12"
+          refX="10"
+          refY="6"
+          orient="auto"
+          markerUnits="userSpaceOnUse"
+        >
+          <path
+            d="M2,2 L10,6 L2,10 L4,6 Z"
+            fill={hexColor}
+            opacity={selected ? 1 : 0.8}
+          />
+        </marker>
+      </defs>
+
       <BaseEdge
         id={id}
         path={edgePath}
@@ -65,6 +96,7 @@ export function DependencyEdgeComponent({
         style={{
           strokeWidth: selected ? strokeWidth + 1 : strokeWidth,
           strokeDasharray: isTransitive ? "6 4" : undefined,
+          markerEnd: `url(#${markerId})`,
         }}
       />
 
