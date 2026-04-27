@@ -308,7 +308,7 @@ async function reconcileEntity(params: {
   // Plugins use context.resolveSecretsBySchema() to resolve specific fields.
   const reconcileResult = await kindDef.reconcile({
     entity: entity as typeof entity & { spec: Record<string, unknown> },
-    existingEntityId: existing?.entityId ?? undefined,
+    existingEntityId: existing && !existing.entityId.startsWith("pending-") ? existing.entityId : undefined,
     context,
   });
 
