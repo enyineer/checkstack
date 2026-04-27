@@ -120,8 +120,11 @@ function DependencyMapContent() {
   } = depClient.getAllDependencies.useQuery();
 
   // Fetch saved positions
-  const { data: posData, refetch: refetchPositions } =
-    depClient.getNodePositions.useQuery();
+  const {
+    data: posData,
+    isLoading: posLoading,
+    refetch: refetchPositions,
+  } = depClient.getNodePositions.useQuery();
 
   // Fetch warnings for all systems
   const systemIds = useMemo(
@@ -239,7 +242,7 @@ function DependencyMapContent() {
   //   3. Auto-layout fallback for brand-new systems with no position at all
 
   useEffect(() => {
-    if (!systemsData?.systems) return;
+    if (!systemsData?.systems || !posData) return;
 
     const savedPositions = posData?.positions ?? [];
     const warnings = warningsData?.warnings ?? {};
@@ -390,7 +393,7 @@ function DependencyMapContent() {
     };
   }, []);
 
-  const loading = systemsLoading || depsLoading;
+  const loading = systemsLoading || depsLoading || posLoading;
 
   if (loading) {
     return (
