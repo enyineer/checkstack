@@ -259,6 +259,36 @@ describe("Healthcheck GitOps Kind: Healthcheck", () => {
     expect(mockService.configs[0].strategyId).toBe("postgres");
   });
 
+  it("creates a new configuration when existingEntityId is a pending error record", async () => {
+    const kind = buildKind();
+
+    const result = await kind.reconcile({
+      entity: {
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "Healthcheck",
+        metadata: { name: "payment-db-check" },
+        spec: {
+          strategy: "postgres",
+          intervalSeconds: 30,
+          config: {
+            host: "db.internal",
+            port: 5432,
+            database: "payments",
+            user: "monitor",
+            password: "secret",
+          },
+        },
+      },
+      existingEntityId: "pending-12345",
+      context: mockContext,
+    });
+
+    expect(result.entityId).toBe("hc-1");
+    expect(mockService.createConfiguration).toHaveBeenCalledTimes(1);
+    expect(mockService.updateConfiguration).not.toHaveBeenCalled();
+    expect(mockService.configs).toHaveLength(1);
+  });
+
   it("updates an existing configuration using existingEntityId", async () => {
     const kind = buildKind();
 

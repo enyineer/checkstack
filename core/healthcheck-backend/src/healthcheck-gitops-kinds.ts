@@ -196,7 +196,7 @@ export function buildHealthcheckKind(
       // Create or update configuration
       const displayName = entity.metadata.title ?? entity.metadata.name;
 
-      if (existingEntityId) {
+      if (existingEntityId && !existingEntityId.startsWith("pending-")) {
         await service.updateConfiguration(existingEntityId, {
           name: displayName,
           strategyId: spec.strategy,
