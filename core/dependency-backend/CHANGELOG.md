@@ -1,5 +1,13 @@
 # @checkstack/dependency-backend
 
+## 0.2.14
+
+### Patch Changes
+
+- Updated dependencies [b53a40e]
+  - @checkstack/healthcheck-backend@0.16.3
+  - @checkstack/catalog-backend@0.5.3
+
 ## 0.2.13
 
 ### Patch Changes
