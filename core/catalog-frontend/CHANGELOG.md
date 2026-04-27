@@ -1,5 +1,14 @@
 # @checkstack/catalog-frontend
 
+## 0.8.2
+
+### Patch Changes
+
+- Updated dependencies [889dd8c]
+  - @checkstack/auth-common@0.6.2
+  - @checkstack/auth-frontend@0.5.28
+  - @checkstack/catalog-common@1.4.1
+
 ## 0.8.1
 
 ### Patch Changes

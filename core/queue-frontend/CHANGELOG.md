@@ -1,5 +1,11 @@
 # @checkstack/queue-frontend
 
+## 0.2.30
+
+### Patch Changes
+
+- 019e659: Fix layout issue on the Queue Config page by removing maxWidth constraint
+
 ## 0.2.29
 
 ### Patch Changes

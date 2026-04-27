@@ -1,5 +1,14 @@
 # @checkstack/catalog-backend
 
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [889dd8c]
+  - @checkstack/auth-common@0.6.2
+  - @checkstack/auth-backend@0.4.19
+  - @checkstack/catalog-common@1.4.1
+
 ## 0.5.0
 
 ### Minor Changes

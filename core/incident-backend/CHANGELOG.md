@@ -1,5 +1,14 @@
 # @checkstack/incident-backend
 
+## 0.4.22
+
+### Patch Changes
+
+- Updated dependencies [889dd8c]
+  - @checkstack/auth-common@0.6.2
+  - @checkstack/catalog-backend@0.5.1
+  - @checkstack/catalog-common@1.4.1
+
 ## 0.4.21
 
 ### Patch Changes

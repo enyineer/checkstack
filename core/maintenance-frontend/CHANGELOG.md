@@ -1,5 +1,13 @@
 # @checkstack/maintenance-frontend
 
+## 0.5.3
+
+### Patch Changes
+
+- @checkstack/dashboard-frontend@0.4.3
+- @checkstack/auth-frontend@0.5.28
+- @checkstack/catalog-common@1.4.1
+
 ## 0.5.2
 
 ### Patch Changes

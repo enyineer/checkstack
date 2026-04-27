@@ -1,5 +1,13 @@
 # @checkstack/healthcheck-frontend
 
+## 0.16.2
+
+### Patch Changes
+
+- @checkstack/dashboard-frontend@0.4.3
+- @checkstack/auth-frontend@0.5.28
+- @checkstack/catalog-common@1.4.1
+
 ## 0.16.1
 
 ### Patch Changes

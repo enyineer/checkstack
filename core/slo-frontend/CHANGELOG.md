@@ -1,5 +1,13 @@
 # @checkstack/slo-frontend
 
+## 0.3.3
+
+### Patch Changes
+
+- edc9ee0: Refactored SloTrendChart to use Recharts, fixing responsive layout issues and preventing visual distortion. The new implementation correctly scales and preserves SVG aspect ratios.
+  - @checkstack/dashboard-frontend@0.4.3
+  - @checkstack/catalog-common@1.4.1
+
 ## 0.3.2
 
 ### Patch Changes

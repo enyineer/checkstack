@@ -1,5 +1,13 @@
 # @checkstack/maintenance-backend
 
+## 0.5.17
+
+### Patch Changes
+
+- Updated dependencies [889dd8c]
+  - @checkstack/auth-common@0.6.2
+  - @checkstack/catalog-common@1.4.1
+
 ## 0.5.16
 
 ### Patch Changes

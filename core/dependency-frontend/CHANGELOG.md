@@ -1,5 +1,13 @@
 # @checkstack/dependency-frontend
 
+## 0.2.16
+
+### Patch Changes
+
+- a7b7081: Fixed a race condition in the Dependency Map where an auto-layout calculation could permanently override saved user locations when system data loaded faster than position data.
+  - @checkstack/dashboard-frontend@0.4.3
+  - @checkstack/catalog-common@1.4.1
+
 ## 0.2.15
 
 ### Patch Changes
