@@ -1,5 +1,14 @@
 # @checkstack/announcement-frontend
 
+## 0.2.12
+
+### Patch Changes
+
+- Updated dependencies [c4e7560]
+  - @checkstack/frontend-api@0.3.10
+  - @checkstack/ui@1.5.1
+  - @checkstack/auth-frontend@0.5.29
+
 ## 0.2.11
 
 ### Patch Changes
