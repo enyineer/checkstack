@@ -1,5 +1,17 @@
 # @checkstack/slo-frontend
 
+## 0.3.6
+
+### Patch Changes
+
+- Updated dependencies [c4e7560]
+  - @checkstack/frontend-api@0.3.10
+  - @checkstack/dashboard-frontend@0.4.6
+  - @checkstack/ui@1.5.1
+  - @checkstack/catalog-common@1.5.1
+  - @checkstack/dependency-common@0.2.2
+  - @checkstack/slo-common@0.2.1
+
 ## 0.3.5
 
 ### Patch Changes

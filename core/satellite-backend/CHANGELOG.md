@@ -1,5 +1,12 @@
 # @checkstack/satellite-backend
 
+## 0.2.15
+
+### Patch Changes
+
+- Updated dependencies [c4e7560]
+  - @checkstack/healthcheck-backend@0.17.1
+
 ## 0.2.14
 
 ### Patch Changes

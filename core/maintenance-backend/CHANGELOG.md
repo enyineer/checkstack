@@ -1,5 +1,12 @@
 # @checkstack/maintenance-backend
 
+## 0.6.1
+
+### Patch Changes
+
+- @checkstack/catalog-common@1.5.1
+- @checkstack/maintenance-common@0.4.10
+
 ## 0.6.0
 
 ### Minor Changes

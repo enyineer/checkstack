@@ -1,5 +1,12 @@
 # @checkstack/dependency-common
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [c4e7560]
+  - @checkstack/frontend-api@0.3.10
+
 ## 0.2.1
 
 ### Patch Changes

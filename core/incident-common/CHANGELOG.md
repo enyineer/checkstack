@@ -1,5 +1,12 @@
 # @checkstack/incident-common
 
+## 0.4.8
+
+### Patch Changes
+
+- Updated dependencies [c4e7560]
+  - @checkstack/frontend-api@0.3.10
+
 ## 0.4.7
 
 ### Patch Changes

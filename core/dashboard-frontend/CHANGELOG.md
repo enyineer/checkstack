@@ -1,5 +1,27 @@
 # @checkstack/dashboard-frontend
 
+## 0.4.6
+
+### Patch Changes
+
+- c4e7560: Fix data integrity, cache invalidation, and mobile UI issues
+
+  - **Centralized mutation cache invalidation**: Every mutation now automatically invalidates its plugin's query cache on success via the shared `createProcedureHook` in `orpc-query.tsx`. This ensures all views stay in sync without requiring individual components to remember manual `invalidateQueries` calls.
+  - **Fixed oRPC query key matching**: Query keys use nested arrays (`[["pluginId"]]`) to correctly match oRPC's `[pathArray, options]` key structure. Fixed the broken flat-string pattern in `SystemBadgeDataProvider`.
+  - **Fixed hourly aggregation duplication**: Added `NULLS NOT DISTINCT` to the `health_check_aggregates` unique constraint so local runs (`source_id = NULL`) correctly conflict-match instead of creating duplicate hourly buckets. Includes a migration to clean up existing duplicates.
+  - **Fixed modal scrolling on mobile**: Added `max-height` + `overflow-y-auto` to `ConfirmationModal`, and refactored `Dialog` from translate-centering to flex-centering with `dvh` units for reliable mobile scroll containment.
+
+- Updated dependencies [c4e7560]
+  - @checkstack/frontend-api@0.3.10
+  - @checkstack/ui@1.5.1
+  - @checkstack/auth-frontend@0.5.29
+  - @checkstack/catalog-common@1.5.1
+  - @checkstack/catalog-frontend@0.8.5
+  - @checkstack/command-frontend@0.2.30
+  - @checkstack/incident-common@0.4.8
+  - @checkstack/maintenance-common@0.4.10
+  - @checkstack/queue-frontend@0.2.31
+
 ## 0.4.5
 
 ### Patch Changes
