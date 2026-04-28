@@ -78,6 +78,13 @@
       "when": 1776599270689,
       "tag": "0010_colorful_shinobi_shaw",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1777354405576,
+      "tag": "0011_fluffy_sphinx",
+      "breakpoints": true
     }
   ]
 }
