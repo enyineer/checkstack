@@ -18,6 +18,7 @@
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/drizzle-helper": "workspace:*",
+    "@checkstack/cache-api": "workspace:*",
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/signal-backend": "workspace:*",
     "@checkstack/signal-common": "workspace:*",

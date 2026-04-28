@@ -4,6 +4,10 @@ import { SafeDatabase } from "./plugin-system";
 import { HealthCheckRegistry } from "./health-check";
 import { CollectorRegistry } from "./collector-registry";
 import { QueuePluginRegistry, QueueManager } from "@checkstack/queue-api";
+import {
+  CachePluginRegistry,
+  CacheManager,
+} from "@checkstack/cache-api";
 
 /**
  * Creates a mocked oRPC context for testing.
@@ -69,6 +73,18 @@ export function createMockRpcContext(
       startPolling: mock(),
       shutdown: mock(),
     } as unknown as QueueManager,
+    cachePluginRegistry: {
+      register: mock(),
+      getPlugin: mock(),
+      getPlugins: mock().mockReturnValue([]),
+    } as unknown as CachePluginRegistry,
+    cacheManager: {
+      getProvider: mock(),
+      getActivePlugin: mock().mockReturnValue("memory"),
+      getActiveConfig: mock(),
+      setActiveBackend: mock(),
+      shutdown: mock(),
+    } as unknown as CacheManager,
     // Default: authenticated user with wildcard access for testing
     user: { type: "user" as const, id: "test-user", accessRules: ["*"] },
     emitHook: mock() as unknown as EmitHookFn,

@@ -1,0 +1,29 @@
+{
+  "name": "@checkstack/infrastructure-common",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@checkstack/common": "workspace:*",
+    "@checkstack/frontend-api": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/scripts": "workspace:*",
+    "@types/react": "^18.3.18",
+    "react": "^18.3.1"
+  },
+  "checkstack": {
+    "type": "common"
+  }
+}

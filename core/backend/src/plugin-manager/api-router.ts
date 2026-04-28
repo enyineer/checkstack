@@ -13,6 +13,10 @@ import {
   type Hook,
 } from "@checkstack/backend-api";
 import type { QueuePluginRegistry, QueueManager } from "@checkstack/queue-api";
+import type {
+  CachePluginRegistry,
+  CacheManager,
+} from "@checkstack/cache-api";
 import type { ServiceRegistry } from "../services/service-registry";
 import type { EventBus } from "@checkstack/backend-api";
 import type { PluginMetadata } from "@checkstack/common";
@@ -98,6 +102,10 @@ export function createApiRouteHandler({
       coreServices.queuePluginRegistry,
     );
     const queueManager = await getService(coreServices.queueManager);
+    const cachePluginRegistry = await getService(
+      coreServices.cachePluginRegistry,
+    );
+    const cacheManager = await getService(coreServices.cacheManager);
     const eventBus = await getService(coreServices.eventBus);
 
     if (
@@ -109,6 +117,8 @@ export function createApiRouteHandler({
       !collectorRegistry ||
       !queuePluginRegistry ||
       !queueManager ||
+      !cachePluginRegistry ||
+      !cacheManager ||
       !eventBus
     ) {
       return c.json({ error: "Core services not initialized" }, 500);
@@ -139,6 +149,8 @@ export function createApiRouteHandler({
       collectorRegistry: collectorRegistry as CollectorRegistry,
       queuePluginRegistry: queuePluginRegistry as QueuePluginRegistry,
       queueManager: queueManager as QueueManager,
+      cachePluginRegistry: cachePluginRegistry as CachePluginRegistry,
+      cacheManager: cacheManager as CacheManager,
       user,
       emitHook,
     };
