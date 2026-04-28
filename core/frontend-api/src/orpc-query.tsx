@@ -14,9 +14,8 @@ import {
   type UseMutationOptions,
 } from "@tanstack/react-query";
 
-// Re-export useQueryClient for cache invalidation in consuming packages
-// This ensures all packages use the same React Query instance
 export { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useApi } from "./api-context";
 import { rpcApiRef } from "./core-apis";
 import type { ClientDefinition, InferClient } from "@checkstack/common";
@@ -71,7 +70,7 @@ function useOrpcUtils(): OrpcUtils {
   if (!context) {
     throw new Error(
       "usePluginClient must be used within OrpcQueryProvider. " +
-        "Wrap your app with <OrpcQueryProvider>."
+        "Wrap your app with <OrpcQueryProvider>.",
     );
   }
   return context;
@@ -88,7 +87,7 @@ function useOrpcUtils(): OrpcUtils {
 interface QueryProcedure<TInput, TOutput> {
   useQuery: (
     input?: TInput,
-    options?: Omit<UseQueryOptions<TOutput, Error>, "queryKey" | "queryFn">
+    options?: Omit<UseQueryOptions<TOutput, Error>, "queryKey" | "queryFn">,
   ) => UseQueryResult<TOutput, Error>;
 }
 
@@ -101,7 +100,7 @@ interface MutationProcedure<TInput, TOutput> {
     options?: Omit<
       UseMutationOptions<TOutput, Error, TInput>,
       "mutationFn" | "mutationKey"
-    >
+    >,
   ) => UseMutationResult<TOutput, Error, TInput>;
 }
 
@@ -148,14 +147,15 @@ type InferSchemaOutputType<T> = T extends { _output: infer O } ? O : unknown;
 /**
  * Check if a contract type is a procedure (not a nested router).
  */
-type IsContractProcedure<T> = T extends ContractProcedure<
-  infer _TInput,
-  infer _TOutput,
-  infer _TErrors,
-  infer _TMeta
->
-  ? true
-  : false;
+type IsContractProcedure<T> =
+  T extends ContractProcedure<
+    infer _TInput,
+    infer _TOutput,
+    infer _TErrors,
+    infer _TMeta
+  >
+    ? true
+    : false;
 
 /**
  * Maps a contract router to wrapped procedures based on operationType.
@@ -167,10 +167,10 @@ type WrappedClient<TContract extends AnyContractRouter, TClient> = {
   > extends true
     ? WrappedProcedure<TContract[K], TClient[K]>
     : TClient[K] extends object
-    ? TContract[K] extends AnyContractRouter
-      ? WrappedClient<TContract[K], TClient[K]>
-      : never
-    : never;
+      ? TContract[K] extends AnyContractRouter
+        ? WrappedClient<TContract[K], TClient[K]>
+        : never
+      : never;
 };
 
 // =============================================================================
@@ -202,7 +202,7 @@ type WrappedClient<TContract extends AnyContractRouter, TClient> = {
  * ```
  */
 export function usePluginClient<T extends ClientDefinition>(
-  definition: T
+  definition: T,
 ): WrappedClient<NonNullable<T["__contractType"]>, InferClient<T>> {
   const orpcUtils = useOrpcUtils();
 
@@ -213,7 +213,7 @@ export function usePluginClient<T extends ClientDefinition>(
   if (!pluginUtils) {
     throw new Error(
       `Plugin "${definition.pluginId}" not found. ` +
-        `Ensure the plugin is registered and the backend is running.`
+        `Ensure the plugin is registered and the backend is running.`,
     );
   }
 
@@ -221,8 +221,8 @@ export function usePluginClient<T extends ClientDefinition>(
   const contract = definition.contract as Record<string, unknown>;
 
   return useMemo(() => {
-    return wrapPluginUtils(pluginUtils, contract);
-  }, [pluginUtils, contract]) as WrappedClient<
+    return wrapPluginUtils(pluginUtils, contract, definition.pluginId);
+  }, [pluginUtils, contract, definition.pluginId]) as WrappedClient<
     NonNullable<T["__contractType"]>,
     InferClient<T>
   >;
@@ -234,7 +234,8 @@ export function usePluginClient<T extends ClientDefinition>(
 
 function wrapPluginUtils(
   utils: Record<string, unknown>,
-  contract: Record<string, unknown>
+  contract: Record<string, unknown>,
+  pluginId: string,
 ): Record<string, unknown> {
   const wrapped: Record<string, unknown> = {};
 
@@ -276,13 +277,15 @@ function wrapPluginUtils(
           unknown,
           Error
         >,
-        operationType
+        operationType,
+        pluginId,
       );
     } else {
       // Nested namespace - recurse
       wrapped[key] = wrapPluginUtils(
         procedureUtils as Record<string, unknown>,
-        (contractProcedure || {}) as Record<string, unknown>
+        (contractProcedure || {}) as Record<string, unknown>,
+        pluginId,
       );
     }
   }
@@ -296,7 +299,7 @@ function wrapPluginUtils(
  */
 function getOperationType(
   contractProcedure: Record<string, unknown> | undefined,
-  procedureName?: string
+  procedureName?: string,
 ): "query" | "mutation" {
   const orpcMeta = contractProcedure?.["~orpc"] as
     | { meta?: { operationType?: "query" | "mutation" } }
@@ -309,7 +312,7 @@ function getOperationType(
       `Procedure ${
         procedureName ? `"${procedureName}" ` : ""
       }is missing required "operationType" in contract metadata. ` +
-        `Add operationType: "query" or operationType: "mutation" to the procedure's .meta() call.`
+        `Add operationType: "query" or operationType: "mutation" to the procedure's .meta() call.`,
     );
   }
 
@@ -321,13 +324,31 @@ function getOperationType(
  */
 function createProcedureHook<TInput, TOutput>(
   proc: ProcedureUtils<ClientContext, TInput, TOutput, Error>,
-  operationType: "query" | "mutation"
+  operationType: "query" | "mutation",
+  pluginId: string,
 ): QueryProcedure<TInput, TOutput> | MutationProcedure<TInput, TOutput> {
   if (operationType === "mutation") {
     return {
       useMutation: (options) => {
-        const mutationOpts = proc.mutationOptions(options);
-        return useMutation(mutationOpts);
+        const queryClient = useQueryClient();
+        const mutationOpts = proc.mutationOptions({
+          ...options,
+          onSuccess: (...args) => {
+            // Automatically invalidate all queries for this plugin
+            // so every view showing this plugin's data stays fresh.
+            // oRPC query keys are [pathArray, options] where pathArray
+            // starts with the pluginId, e.g. ["healthcheck", "getConfigurations"].
+            void queryClient.invalidateQueries({
+              queryKey: [[pluginId]],
+            });
+            // Call the user-provided onSuccess handler if present
+            options?.onSuccess?.(...args);
+          },
+        });
+        // Remove the duplicate onSuccess from the outer options to avoid
+        // double-invocation — it's already integrated above.
+        const { onSuccess: _, ...restOptions } = options ?? {};
+        return useMutation({ ...mutationOpts, ...restOptions });
       },
     };
   }

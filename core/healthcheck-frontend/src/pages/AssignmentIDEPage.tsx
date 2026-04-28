@@ -144,7 +144,9 @@ const AssignmentIDEPageContent = () => {
   // --- Mutations ---
 
   const associateMutation = healthCheckClient.associateSystem.useMutation({
-    onSuccess: () => void refetchAssociations(),
+    onSuccess: () => {
+      void refetchAssociations();
+    },
     onError: (error) =>
       toast.error(extractErrorMessage(error, "Failed to update")),
   });
@@ -152,7 +154,7 @@ const AssignmentIDEPageContent = () => {
   const disassociateMutation = healthCheckClient.disassociateSystem.useMutation(
     {
       onSuccess: () => {
-        toast.success("Health check unassigned");
+          toast.success("Health check unassigned");
         void refetchAssociations();
       },
       onError: (error) =>
@@ -162,7 +164,9 @@ const AssignmentIDEPageContent = () => {
 
   const updateRetentionMutation =
     healthCheckClient.updateRetentionConfig.useMutation({
-      onSuccess: () => toast.success("Retention settings saved"),
+      onSuccess: () => {
+        toast.success("Retention settings saved");
+      },
       onError: (error) =>
         toast.error(extractErrorMessage(error, "Failed to save")),
     });

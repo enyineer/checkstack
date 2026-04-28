@@ -90,7 +90,7 @@ export const SystemBadgeDataProvider: React.FC<
     (systemId: string) => {
       if (systemIds.includes(systemId)) {
         // Invalidate the bulk query to refetch
-        queryClient.invalidateQueries({ queryKey: ["healthcheck"] });
+        queryClient.invalidateQueries({ queryKey: [["healthcheck"]] });
       }
     },
     [systemIds, queryClient]
@@ -106,7 +106,7 @@ export const SystemBadgeDataProvider: React.FC<
         systemIds.includes(id)
       );
       if (hasAffected) {
-        queryClient.invalidateQueries({ queryKey: ["incident"] });
+        queryClient.invalidateQueries({ queryKey: [["incident"]] });
       }
     },
     [systemIds, queryClient]
@@ -122,7 +122,7 @@ export const SystemBadgeDataProvider: React.FC<
         systemIds.includes(id)
       );
       if (hasAffected) {
-        queryClient.invalidateQueries({ queryKey: ["maintenance"] });
+        queryClient.invalidateQueries({ queryKey: [["maintenance"]] });
       }
     },
     [systemIds, queryClient]

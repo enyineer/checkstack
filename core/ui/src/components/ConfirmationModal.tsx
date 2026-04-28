@@ -65,7 +65,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
       onClick={handleBackdropClick}
     >
       <div
-        className="bg-background rounded-lg shadow-xl max-w-md w-full mx-4 animate-in fade-in zoom-in duration-200 pointer-events-auto"
+        className="bg-background rounded-lg shadow-xl max-w-md w-full mx-4 my-4 max-h-[calc(100dvh-2rem)] overflow-y-auto animate-in fade-in zoom-in duration-200 pointer-events-auto"
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"

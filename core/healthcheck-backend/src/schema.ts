@@ -8,7 +8,7 @@ import {
   uuid,
   timestamp,
   primaryKey,
-  uniqueIndex,
+  unique,
 } from "drizzle-orm/pg-core";
 import type {
   StateThresholds,
@@ -182,13 +182,15 @@ export const healthCheckAggregates = pgTable(
     sourceLabel: text("source_label"),
   },
   (t) => ({
-    // Unique constraint includes sourceId for per-region aggregation
-    bucketUnique: uniqueIndex("health_check_aggregates_bucket_unique").on(
+    // Unique constraint includes sourceId for per-region aggregation.
+    // NULLS NOT DISTINCT ensures local runs (sourceId=NULL) correctly
+    // conflict-match instead of creating duplicate rows per hour.
+    bucketUnique: unique("health_check_aggregates_bucket_unique").on(
       t.configurationId,
       t.systemId,
       t.bucketStart,
       t.bucketSize,
       t.sourceId,
-    ),
+    ).nullsNotDistinct(),
   }),
 );
