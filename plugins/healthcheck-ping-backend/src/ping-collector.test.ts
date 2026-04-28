@@ -12,7 +12,7 @@ describe("PingCollector", () => {
       avgLatency?: number;
       maxLatency?: number;
       error?: string;
-    } = {}
+    } = {},
   ): PingTransportClient => ({
     exec: mock(() =>
       Promise.resolve({
@@ -23,7 +23,7 @@ describe("PingCollector", () => {
         avgLatency: response.avgLatency ?? 15,
         maxLatency: response.maxLatency ?? 20,
         error: response.error,
-      })
+      }),
     ),
   });
 

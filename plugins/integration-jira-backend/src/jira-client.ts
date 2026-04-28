@@ -108,7 +108,7 @@ export function createJiraClient(options: JiraClientOptions) {
       const errorText = await response.text();
       logger.error(
         `Jira API error: ${response.status} ${response.statusText}`,
-        { url, error: errorText }
+        { url, error: errorText },
       );
       throw new Error(`Jira API error: ${response.status} - ${errorText}`);
     }
@@ -174,13 +174,13 @@ export function createJiraClient(options: JiraClientOptions) {
       logger.debug(`Fetching issue types for project: ${projectKey}`);
 
       const result = await request<ProjectWithIssueTypes>(
-        `/project/${encodeURIComponent(projectKey)}?expand=issueTypes`
+        `/project/${encodeURIComponent(projectKey)}?expand=issueTypes`,
       );
 
       logger.debug(
         `Found ${
           result.issueTypes?.length ?? 0
-        } issue types for project ${projectKey}`
+        } issue types for project ${projectKey}`,
       );
 
       // Filter out subtasks for simpler UX
@@ -201,7 +201,7 @@ export function createJiraClient(options: JiraClientOptions) {
      */
     async getFields(
       projectKey: string,
-      issueTypeId: string
+      issueTypeId: string,
     ): Promise<JiraField[]> {
       interface FieldsResponse {
         startAt: number;
@@ -227,19 +227,19 @@ export function createJiraClient(options: JiraClientOptions) {
       }
 
       logger.debug(
-        `Fetching fields for project: ${projectKey}, issueType: ${issueTypeId}`
+        `Fetching fields for project: ${projectKey}, issueType: ${issueTypeId}`,
       );
 
       const result = await request<FieldsResponse>(
         `/issue/createmeta/${encodeURIComponent(
-          projectKey
-        )}/issuetypes/${encodeURIComponent(issueTypeId)}`
+          projectKey,
+        )}/issuetypes/${encodeURIComponent(issueTypeId)}`,
       );
 
       logger.debug(
         `Found ${
           result.fields?.length ?? 0
-        } fields for project ${projectKey}, issueType ${issueTypeId}`
+        } fields for project ${projectKey}, issueType ${issueTypeId}`,
       );
 
       return (result.fields || []).map((field) => ({
@@ -342,7 +342,7 @@ export function createJiraClientFromConfig(
  */
 export function createJiraClientFromConnection(
   connection: JiraConnection,
-  logger: Logger
+  logger: Logger,
 ) {
   return createJiraClient({
     baseUrl: connection.baseUrl,

@@ -7,13 +7,13 @@ import type {
 
 describe("HealthCollector", () => {
   const createMockClient = (
-    response: Partial<GrpcHealthResponse> = {}
+    response: Partial<GrpcHealthResponse> = {},
   ): GrpcTransportClient => ({
     exec: mock(() =>
       Promise.resolve({
         status: response.status ?? "SERVING",
         error: response.error,
-      })
+      }),
     ),
   });
 

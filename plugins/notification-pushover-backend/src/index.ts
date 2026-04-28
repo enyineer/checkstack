@@ -216,8 +216,7 @@ const pushoverStrategy: NotificationStrategy<
         externalId: result.receipt ?? result.request,
       };
     } catch (error) {
-      const message =
-        extractErrorMessage(error, "Unknown Pushover API error");
+      const message = extractErrorMessage(error, "Unknown Pushover API error");
       logger.error("Pushover notification error", { error: message });
       return {
         success: false,

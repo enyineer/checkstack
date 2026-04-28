@@ -62,6 +62,8 @@ const jenkinsResultSchema = healthResultSchema({
     "x-chart-type": "line",
     "x-chart-label": "Response Time",
     "x-chart-unit": "ms",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
   }).optional(),
   error: healthResultString({
     "x-chart-type": "status",
@@ -86,6 +88,7 @@ const jenkinsAggregatedFields = {
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
+    "x-anomaly-direction": "lower-is-better",
   }),
 };
 
@@ -188,8 +191,7 @@ export class JenkinsHealthCheckStrategy implements HealthCheckStrategy<
         } catch (error) {
           clearTimeout(timeoutId);
 
-          const errorMessage =
-            extractErrorMessage(error);
+          const errorMessage = extractErrorMessage(error);
           return {
             statusCode: 0,
             data: undefined,

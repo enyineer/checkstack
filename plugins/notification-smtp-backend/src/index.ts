@@ -186,7 +186,7 @@ export default createBackendPlugin({
   register(env) {
     // Get the notification strategy extension point
     const extensionPoint = env.getExtensionPoint(
-      notificationStrategyExtensionPoint
+      notificationStrategyExtensionPoint,
     );
 
     // Register the SMTP strategy with our plugin metadata

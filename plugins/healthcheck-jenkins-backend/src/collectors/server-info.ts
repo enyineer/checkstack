@@ -32,10 +32,12 @@ const serverInfoResultSchema = z.object({
   jenkinsVersion: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Jenkins Version",
+    "x-anomaly-enabled": false,
   }),
   mode: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Server Mode",
+    "x-anomaly-enabled": false,
   }),
   numExecutors: healthResultNumber({
     "x-chart-type": "counter",
@@ -53,6 +55,7 @@ const serverInfoResultSchema = z.object({
     "x-chart-type": "line",
     "x-chart-label": "Uptime",
     "x-chart-unit": "hours",
+    "x-anomaly-enabled": false,
   }).optional(),
 });
 

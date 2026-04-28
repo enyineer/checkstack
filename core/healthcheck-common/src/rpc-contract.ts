@@ -443,6 +443,31 @@ export const healthCheckContract = {
       }),
     )
     .output(z.void()),
+
+  getRunsForAnalysis: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .input(
+      z.object({
+        startDate: z.date(),
+        limitPerAssignment: z.number().optional().default(200),
+      }),
+    )
+    .output(
+      z.array(
+        z.object({
+          systemId: z.string(),
+          configurationId: z.string(),
+          runs: z.array(
+            z.object({
+              result: z.record(z.string(), z.unknown()).nullable().optional(),
+            }),
+          ),
+        }),
+      ),
+    ),
 };
 // Export contract type
 export type HealthCheckContract = typeof healthCheckContract;

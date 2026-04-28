@@ -11,7 +11,7 @@ describe("MinecraftPlayersCollector", () => {
     it("should parse player list with players online", async () => {
       const collector = new MinecraftPlayersCollector();
       const client = createMockClient(
-        "There are 3 of a max of 20 players online: Player1, Player2, Player3"
+        "There are 3 of a max of 20 players online: Player1, Player2, Player3",
       );
 
       const result = await collector.execute({
@@ -32,7 +32,7 @@ describe("MinecraftPlayersCollector", () => {
     it("should parse empty player list", async () => {
       const collector = new MinecraftPlayersCollector();
       const client = createMockClient(
-        "There are 0 of a max of 20 players online:"
+        "There are 0 of a max of 20 players online:",
       );
 
       const result = await collector.execute({
@@ -49,7 +49,7 @@ describe("MinecraftPlayersCollector", () => {
     it("should handle single player", async () => {
       const collector = new MinecraftPlayersCollector();
       const client = createMockClient(
-        "There are 1 of a max of 100 players online: Steve"
+        "There are 1 of a max of 100 players online: Steve",
       );
 
       const result = await collector.execute({
@@ -66,7 +66,7 @@ describe("MinecraftPlayersCollector", () => {
     it("should call list command", async () => {
       const collector = new MinecraftPlayersCollector();
       const client = createMockClient(
-        "There are 0 of a max of 20 players online:"
+        "There are 0 of a max of 20 players online:",
       );
 
       await collector.execute({

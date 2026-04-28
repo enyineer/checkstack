@@ -42,7 +42,7 @@ describe("Webex Notification Strategy", () => {
 
       const webexConfigSchemaV1 = z.object({
         botToken: configString({ "x-secret": true }).describe(
-          "Webex Bot Access Token"
+          "Webex Bot Access Token",
         ),
       });
 
@@ -95,7 +95,7 @@ describe("Webex Notification Strategy", () => {
 
       const mockFetch = spyOn(globalThis, "fetch").mockImplementation((async (
         url: RequestInfo | URL,
-        options?: RequestInit
+        options?: RequestInit,
       ) => {
         capturedUrl = url.toString();
         capturedBody = options?.body as string;
@@ -164,9 +164,9 @@ describe("Webex Notification Strategy", () => {
         (async () => {
           return new Response(
             JSON.stringify({ message: "Invalid personId", trackingId: "123" }),
-            { status: 400 }
+            { status: 400 },
           );
-        }) as unknown as typeof fetch
+        }) as unknown as typeof fetch,
       );
 
       try {
@@ -193,7 +193,7 @@ describe("Webex Notification Strategy", () => {
       const mockFetch = spyOn(globalThis, "fetch").mockImplementation(
         (async () => {
           throw new Error("Network error: ECONNREFUSED");
-        }) as unknown as typeof fetch
+        }) as unknown as typeof fetch,
       );
 
       try {
@@ -208,7 +208,7 @@ describe("Webex Notification Strategy", () => {
               toPersonId: "test-person",
               markdown: "Test",
             }),
-          })
+          }),
         ).rejects.toThrow("ECONNREFUSED");
       } finally {
         mockFetch.mockRestore();
@@ -219,7 +219,7 @@ describe("Webex Notification Strategy", () => {
       const mockFetch = spyOn(globalThis, "fetch").mockImplementation(
         (async () => {
           throw new Error("The operation was aborted due to timeout");
-        }) as unknown as typeof fetch
+        }) as unknown as typeof fetch,
       );
 
       try {
@@ -235,7 +235,7 @@ describe("Webex Notification Strategy", () => {
               toPersonId: "test-person",
               markdown: "Test",
             }),
-          })
+          }),
         ).rejects.toThrow("timeout");
       } finally {
         mockFetch.mockRestore();
@@ -287,7 +287,7 @@ describe("Webex Notification Strategy", () => {
       expect(markdown).toContain("🚨 **Incident Created**");
       expect(markdown).toContain("A new incident has been reported.");
       expect(markdown).toContain(
-        "[View Incident](https://example.com/incident/123)"
+        "[View Incident](https://example.com/incident/123)",
       );
     });
   });

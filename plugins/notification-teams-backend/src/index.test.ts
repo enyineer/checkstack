@@ -59,7 +59,7 @@ describe("Microsoft Teams Notification Strategy", () => {
       expect(card.type).toBe("AdaptiveCard");
       expect(card.version).toBe("1.4");
       expect(card.$schema).toBe(
-        "http://adaptivecards.io/schemas/adaptive-card.json"
+        "http://adaptivecards.io/schemas/adaptive-card.json",
       );
 
       const body = card.body as Array<Record<string, unknown>>;
@@ -138,7 +138,7 @@ describe("Microsoft Teams Notification Strategy", () => {
 
       const mockFetch = spyOn(globalThis, "fetch").mockImplementation((async (
         url: RequestInfo | URL,
-        options?: RequestInit
+        options?: RequestInit,
       ) => {
         capturedUrl = url.toString();
         capturedBody = options?.body as string;
@@ -186,7 +186,7 @@ describe("Microsoft Teams Notification Strategy", () => {
 
       const mockFetch = spyOn(globalThis, "fetch").mockImplementation((async (
         _url: RequestInfo | URL,
-        options?: RequestInit
+        options?: RequestInit,
       ) => {
         capturedBody = options?.body as string;
         return new Response(JSON.stringify({ id: "msg-789" }), {
@@ -222,14 +222,14 @@ describe("Microsoft Teams Notification Strategy", () => {
                 },
               ],
             }),
-          }
+          },
         );
 
         const parsedBody = JSON.parse(capturedBody!);
         expect(parsedBody.body.contentType).toBe("html");
         expect(parsedBody.attachments).toHaveLength(1);
         expect(parsedBody.attachments[0].contentType).toBe(
-          "application/vnd.microsoft.card.adaptive"
+          "application/vnd.microsoft.card.adaptive",
         );
 
         const cardContent = JSON.parse(parsedBody.attachments[0].content);
@@ -246,9 +246,9 @@ describe("Microsoft Teams Notification Strategy", () => {
             JSON.stringify({
               error: { code: "Forbidden", message: "Access denied" },
             }),
-            { status: 403 }
+            { status: 403 },
           );
-        }) as unknown as typeof fetch
+        }) as unknown as typeof fetch,
       );
 
       try {

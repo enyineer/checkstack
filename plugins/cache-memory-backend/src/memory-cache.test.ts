@@ -29,7 +29,9 @@ describe("InMemoryCache", () => {
     it("stores and retrieves values", async () => {
       const cache = createCache();
       await cache.set("key1", { data: "hello" });
-      expect(await cache.get<{ data: string }>("key1")).toEqual({ data: "hello" });
+      expect(await cache.get<{ data: string }>("key1")).toEqual({
+        data: "hello",
+      });
     });
 
     it("stores and retrieves primitive values", async () => {

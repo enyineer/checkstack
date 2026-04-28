@@ -122,7 +122,7 @@ export const JiraFieldSchema = z.object({
         id: z.string(),
         name: z.string().optional(),
         value: z.string().optional(),
-      })
+      }),
     )
     .optional(),
 });

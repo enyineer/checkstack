@@ -52,6 +52,7 @@ const jobStatusResultSchema = z.object({
   lastBuildNumber: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Last Build #",
+    "x-anomaly-enabled": false,
   }).optional(),
   lastBuildResult: healthResultString({
     "x-chart-type": "text",
@@ -69,6 +70,7 @@ const jobStatusResultSchema = z.object({
   timeSinceLastBuildMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Time Since Last Build",
+    "x-anomaly-enabled": false,
     "x-chart-unit": "ms",
   }).optional(),
   inQueue: healthResultBoolean({

@@ -48,6 +48,7 @@ const nodeHealthResultSchema = z.object({
   offlineNodes: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Offline Nodes",
+    "x-anomaly-direction": "lower-is-better",
   }),
   busyExecutors: healthResultNumber({
     "x-chart-type": "counter",

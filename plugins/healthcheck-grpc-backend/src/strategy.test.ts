@@ -11,12 +11,12 @@ describe("GrpcHealthCheckStrategy", () => {
     config: {
       status?: GrpcHealthStatusType;
       error?: Error;
-    } = {}
+    } = {},
   ): GrpcHealthClient => ({
     check: mock(() =>
       config.error
         ? Promise.reject(config.error)
-        : Promise.resolve({ status: config.status ?? "SERVING" })
+        : Promise.resolve({ status: config.status ?? "SERVING" }),
     ),
   });
 
@@ -57,7 +57,7 @@ describe("GrpcHealthCheckStrategy", () => {
 
     it("should return NOT_SERVING status for unhealthy service", async () => {
       const strategy = new GrpcHealthCheckStrategy(
-        createMockClient({ status: "NOT_SERVING" })
+        createMockClient({ status: "NOT_SERVING" }),
       );
 
       const connectedClient = await strategy.createClient({
@@ -75,7 +75,7 @@ describe("GrpcHealthCheckStrategy", () => {
 
     it("should return error for connection failure", async () => {
       const strategy = new GrpcHealthCheckStrategy(
-        createMockClient({ error: new Error("Connection refused") })
+        createMockClient({ error: new Error("Connection refused") }),
       );
 
       const connectedClient = await strategy.createClient({
@@ -104,7 +104,7 @@ describe("GrpcHealthCheckStrategy", () => {
       await connectedClient.client.exec({ service: "my.custom.Service" });
 
       expect(mockClient.check).toHaveBeenCalledWith(
-        expect.objectContaining({ service: "my.custom.Service" })
+        expect.objectContaining({ service: "my.custom.Service" }),
       );
 
       connectedClient.close();

@@ -43,6 +43,7 @@ const memoryResultSchema = z.object({
     "x-chart-type": "counter",
     "x-chart-label": "Total Memory",
     "x-chart-unit": "MB",
+    "x-anomaly-enabled": false,
   }),
   usedMb: healthResultNumber({
     "x-chart-type": "line",
@@ -58,6 +59,8 @@ const memoryResultSchema = z.object({
     "x-chart-type": "gauge",
     "x-chart-label": "Memory Usage",
     "x-chart-unit": "%",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
   }),
   swapUsedMb: healthResultNumber({
     "x-chart-type": "line",

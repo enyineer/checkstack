@@ -19,6 +19,7 @@ import {
 } from "@checkstack/notification-common";
 import { IncidentApi } from "@checkstack/incident-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
+import { AnomalyApi } from "@checkstack/anomaly-common";
 import { HEALTH_CHECK_RUN_COMPLETED } from "@checkstack/healthcheck-common";
 import { useSignal } from "@checkstack/signal-frontend";
 import {
@@ -46,12 +47,14 @@ import {
   AlertTriangle,
   Wrench,
   Terminal,
+  ActivitySquare,
 } from "lucide-react";
 import { authApiRef } from "@checkstack/auth-frontend/api";
 import { QueueLagAlert } from "@checkstack/queue-frontend";
 import { SystemBadgeDataProvider } from "./components/SystemBadgeDataProvider";
 import { IncidentOverviewSheet } from "./components/IncidentOverviewSheet";
 import { MaintenanceOverviewSheet } from "./components/MaintenanceOverviewSheet";
+import { AnomalyOverviewSheet } from "./components/AnomalyOverviewSheet";
 
 const CATALOG_PLUGIN_ID = "catalog";
 const MAX_TERMINAL_ENTRIES = 8;
@@ -87,6 +90,7 @@ export const Dashboard: React.FC = () => {
   const notificationClient = usePluginClient(NotificationApi);
   const incidentClient = usePluginClient(IncidentApi);
   const maintenanceClient = usePluginClient(MaintenanceApi);
+  const anomalyClient = usePluginClient(AnomalyApi);
 
   const navigate = useNavigate();
   const toast = useToast();
@@ -103,6 +107,7 @@ export const Dashboard: React.FC = () => {
 
   const [isIncidentSheetOpen, setIncidentSheetOpen] = useState(false);
   const [isMaintenanceSheetOpen, setMaintenanceSheetOpen] = useState(false);
+  const [isAnomalySheetOpen, setAnomalySheetOpen] = useState(false);
 
   // -------------------------------------------------------------------------
   // DATA QUERIES
@@ -146,6 +151,13 @@ export const Dashboard: React.FC = () => {
 
   const maintenancesLoading = inProgressLoading || scheduledLoading;
 
+  // Fetch active anomalies
+  const { data: anomalies = [], isLoading: anomaliesLoading } = 
+    anomalyClient.getAnomalies.useQuery(
+      { limit: 100, state: "anomaly" },
+      { staleTime: 30_000 }
+    );
+
   // Fetch subscriptions (only when logged in)
   const { data: subscriptions = [], refetch: refetchSubscriptions } =
     notificationClient.getSubscriptions.useQuery(
@@ -154,7 +166,7 @@ export const Dashboard: React.FC = () => {
     );
 
   // Combined loading state
-  const loading = entitiesLoading || incidentsLoading || maintenancesLoading;
+  const loading = entitiesLoading || incidentsLoading || maintenancesLoading || anomaliesLoading;
 
   // -------------------------------------------------------------------------
   // MUTATIONS
@@ -188,6 +200,7 @@ export const Dashboard: React.FC = () => {
   const systemsCount = systems.length;
   const activeIncidentsCount = incidents.length;
   const activeMaintenancesCount = maintenances.length;
+  const activeAnomaliesCount = anomalies.length;
 
   // Map groups to include their systems
   const groupsWithSystems = useMemo<GroupWithSystems[]>(() => {
@@ -373,7 +386,7 @@ export const Dashboard: React.FC = () => {
             title="Overview"
             icon={<Activity className="w-5 h-5" />}
           />
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
             <StatusCard
               title="Total Systems"
               value={loading ? "..." : <AnimatedCounter value={systemsCount} />}
@@ -436,6 +449,24 @@ export const Dashboard: React.FC = () => {
                   : ""
               }
             />
+
+            {activeAnomaliesCount > 0 && (
+              <StatusCard
+                variant="gradient"
+                title="Active Anomalies"
+                value={
+                  loading ? (
+                    "..."
+                  ) : (
+                    <AnimatedCounter value={activeAnomaliesCount} />
+                  )
+                }
+                description="Unusual behavior detected"
+                icon={<ActivitySquare className="w-4 h-4" />}
+                onClick={() => setAnomalySheetOpen(true)}
+                className="cursor-pointer hover:opacity-90 hover:scale-[1.02] bg-gradient-to-br from-warning/20 to-warning/5 border-warning/30"
+              />
+            )}
           </div>
         </section>
 
@@ -476,6 +507,12 @@ export const Dashboard: React.FC = () => {
         open={isMaintenanceSheetOpen}
         onOpenChange={setMaintenanceSheetOpen}
         maintenances={maintenances}
+        systems={systems}
+      />
+      <AnomalyOverviewSheet
+        open={isAnomalySheetOpen}
+        onOpenChange={setAnomalySheetOpen}
+        anomalies={anomalies}
         systems={systems}
       />
     </>

@@ -15,7 +15,7 @@ describe("LDAP Authentication Integration Tests", () => {
           sn: ["User"],
         },
       ],
-    })
+    }),
   );
   const mockLdapUnbind = mock(() => Promise.resolve());
 

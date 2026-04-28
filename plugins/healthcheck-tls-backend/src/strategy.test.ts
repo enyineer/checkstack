@@ -15,7 +15,7 @@ describe("TlsHealthCheckStrategy", () => {
       issuerOrg: string | undefined;
       validFrom: Date;
       validTo: Date;
-    }> = {}
+    }> = {},
   ): CertificateInfo => {
     const validFrom =
       overrides.validFrom ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -45,7 +45,7 @@ describe("TlsHealthCheckStrategy", () => {
       protocol?: string;
       cipher?: string;
       error?: Error;
-    } = {}
+    } = {},
   ): TlsClient => ({
     connect: mock(() =>
       config.error
@@ -56,7 +56,7 @@ describe("TlsHealthCheckStrategy", () => {
             getProtocol: () => config.protocol ?? "TLSv1.3",
             getCipher: () => (config.cipher ? { name: config.cipher } : null),
             end: mock(() => {}),
-          } as TlsConnection)
+          } as TlsConnection),
     ),
   });
 
@@ -81,7 +81,7 @@ describe("TlsHealthCheckStrategy", () => {
 
     it("should throw for connection error during client creation", async () => {
       const strategy = new TlsHealthCheckStrategy(
-        createMockClient({ error: new Error("Connection refused") })
+        createMockClient({ error: new Error("Connection refused") }),
       );
 
       await expect(
@@ -91,7 +91,7 @@ describe("TlsHealthCheckStrategy", () => {
           timeout: 5000,
           minDaysUntilExpiry: 7,
           rejectUnauthorized: true,
-        })
+        }),
       ).rejects.toThrow("Connection refused");
     });
   });
@@ -119,7 +119,7 @@ describe("TlsHealthCheckStrategy", () => {
 
     it("should return invalid for unauthorized certificate", async () => {
       const strategy = new TlsHealthCheckStrategy(
-        createMockClient({ authorized: false })
+        createMockClient({ authorized: false }),
       );
 
       const connectedClient = await strategy.createClient({
@@ -145,7 +145,7 @@ describe("TlsHealthCheckStrategy", () => {
       });
 
       const strategy = new TlsHealthCheckStrategy(
-        createMockClient({ cert: selfSignedCert, authorized: false })
+        createMockClient({ cert: selfSignedCert, authorized: false }),
       );
 
       const connectedClient = await strategy.createClient({

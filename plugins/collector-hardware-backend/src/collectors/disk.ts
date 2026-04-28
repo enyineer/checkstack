@@ -47,6 +47,7 @@ const diskResultSchema = z.object({
     "x-chart-type": "counter",
     "x-chart-label": "Total Disk",
     "x-chart-unit": "GB",
+    "x-anomaly-enabled": false,
   }),
   usedGb: healthResultNumber({
     "x-chart-type": "line",
@@ -62,6 +63,8 @@ const diskResultSchema = z.object({
     "x-chart-type": "gauge",
     "x-chart-label": "Disk Usage",
     "x-chart-unit": "%",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
   }),
   mountPoint: healthResultString({
     "x-chart-type": "text",
@@ -139,8 +142,13 @@ export class DiskCollector implements CollectorStrategy<
 
     // Use df with specific mount point, output in 1G blocks
     // SECURITY: Use shell-escaped single quotes to prevent injection
-    const escapedMountPoint = config.mountPoint.replaceAll('\'', String.raw`'\''`);
-    const dfResult = await client.exec(`df -BG '${escapedMountPoint}' | tail -1`);
+    const escapedMountPoint = config.mountPoint.replaceAll(
+      "'",
+      String.raw`'\''`,
+    );
+    const dfResult = await client.exec(
+      `df -BG '${escapedMountPoint}' | tail -1`,
+    );
     const parsed = this.parseDfOutput(dfResult.stdout, config.mountPoint);
 
     return { result: parsed };

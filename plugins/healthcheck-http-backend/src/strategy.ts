@@ -60,6 +60,7 @@ const httpAggregatedFields = {
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
+    "x-anomaly-direction": "lower-is-better",
   }),
 };
 

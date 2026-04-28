@@ -37,7 +37,7 @@ export class BullMQPlugin implements QueuePlugin<BullMQConfig> {
   createQueue<T>(
     name: string,
     config: BullMQConfig,
-    _logger: Logger
+    _logger: Logger,
   ): Queue<T> {
     // Note: BullMQ has its own logging via Redis events
     return new BullMQQueue<T>(name, config);

@@ -73,6 +73,8 @@ const grpcResultSchema = healthResultSchema({
     "x-chart-type": "line",
     "x-chart-label": "Response Time",
     "x-chart-unit": "ms",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
   }),
   status: healthResultString({
     "x-chart-type": "text",
@@ -101,6 +103,7 @@ const grpcAggregatedFields = {
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
+    "x-anomaly-direction": "lower-is-better",
   }),
   servingCount: aggregatedCounter({
     "x-chart-type": "counter",
@@ -278,8 +281,7 @@ export class GrpcHealthCheckStrategy implements HealthCheckStrategy<
           });
           return { status: result.status };
         } catch (error_) {
-          const error =
-            extractErrorMessage(error_);
+          const error = extractErrorMessage(error_);
           return { status: "UNKNOWN", error };
         }
       },

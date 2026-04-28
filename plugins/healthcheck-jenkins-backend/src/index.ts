@@ -33,7 +33,7 @@ export default createBackendPlugin({
         collectorRegistry.register(new NodeHealthCollector());
 
         logger.info(
-          "✅ Jenkins health check registered (strategy + 5 collectors)"
+          "✅ Jenkins health check registered (strategy + 5 collectors)",
         );
       },
     });

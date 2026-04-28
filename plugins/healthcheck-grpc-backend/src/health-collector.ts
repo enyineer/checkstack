@@ -50,6 +50,8 @@ const grpcHealthResultSchema = healthResultSchema({
     "x-chart-type": "line",
     "x-chart-label": "Response Time",
     "x-chart-unit": "ms",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
   }),
 });
 

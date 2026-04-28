@@ -613,6 +613,18 @@ async function executeHealthCheckJob(props: {
       latencyMs: result.latencyMs,
     });
 
+    const emitHook = getEmitHook();
+    if (emitHook) {
+      await emitHook(healthCheckHooks.checkCompleted, {
+        systemId,
+        configurationId: configId,
+        status: result.status,
+        latencyMs: result.latencyMs,
+        result: (result.metadata?.collectors as Record<string, unknown>) ?? undefined,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     // Check if aggregated state changed and notify subscribers
     const newState = await service.getSystemHealthStatus(systemId);
     if (newState.status !== previousStatus) {
@@ -730,6 +742,18 @@ async function executeHealthCheckJob(props: {
       configurationName: configName,
       status: "unhealthy",
     });
+
+    const emitHook = getEmitHook();
+    if (emitHook) {
+      await emitHook(healthCheckHooks.checkCompleted, {
+        systemId,
+        configurationId: configId,
+        status: "unhealthy",
+        latencyMs: undefined,
+        result: undefined,
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     // Check if aggregated state changed and notify subscribers
     const newState = await service.getSystemHealthStatus(systemId);

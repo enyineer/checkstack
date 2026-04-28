@@ -44,6 +44,47 @@ export const HealthCheckDiagramSlot = createSlot<HealthCheckDiagramSlotContext>(
   "healthcheck.diagram",
 );
 
+export interface AssignmentIDEContext {
+  systemId: string;
+  configurationId: string;
+  selectedNode: string | undefined;
+  onSelectNode: (nodeId: string) => void;
+  isLocked?: boolean;
+}
+
+/**
+ * Extension slot for adding items to the Assignment IDE tree
+ */
+export const AssignmentIDENodeSlot = createSlot<AssignmentIDEContext>(
+  "healthcheck.assignment.ide.node"
+);
+
+export const AssignmentIDEPanelSlot = createSlot<AssignmentIDEContext>(
+  "healthcheck.assignment.ide.panel"
+);
+
+export interface HealthCheckConfigIDEContext {
+  configurationId: string;
+  strategyId: string;
+  selectedNode: string | undefined;
+  onSelectNode: (nodeId: string) => void;
+  isLocked?: boolean;
+}
+
+/**
+ * Extension slot for adding items to the Health Check Configuration IDE tree
+ */
+export const HealthCheckConfigIDENodeSlot = createSlot<HealthCheckConfigIDEContext>(
+  "healthcheck.config.ide.node"
+);
+
+/**
+ * Extension slot for rendering the panel of a Health Check Configuration IDE item
+ */
+export const HealthCheckConfigIDEPanelSlot = createSlot<HealthCheckConfigIDEContext>(
+  "healthcheck.config.ide.panel"
+);
+
 // =============================================================================
 // DIAGRAM EXTENSION FACTORY
 // =============================================================================

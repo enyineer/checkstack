@@ -217,8 +217,7 @@ const slackStrategy: NotificationStrategy<SlackConfig, SlackUserConfig> = {
         success: true,
       };
     } catch (error) {
-      const message =
-        extractErrorMessage(error, "Unknown Slack API error");
+      const message = extractErrorMessage(error, "Unknown Slack API error");
       logger.error("Slack notification error", { error: message });
       return {
         success: false,

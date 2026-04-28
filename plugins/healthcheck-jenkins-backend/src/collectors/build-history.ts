@@ -49,6 +49,7 @@ const buildHistoryResultSchema = z.object({
   failureCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Failed",
+    "x-anomaly-direction": "lower-is-better",
   }),
   unstableCount: healthResultNumber({
     "x-chart-type": "counter",
@@ -81,10 +82,12 @@ const buildHistoryResultSchema = z.object({
   lastSuccessBuildNumber: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Last Success #",
+    "x-anomaly-enabled": false,
   }).optional(),
   lastFailureBuildNumber: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Last Failure #",
+    "x-anomaly-enabled": false,
   }).optional(),
 });
 

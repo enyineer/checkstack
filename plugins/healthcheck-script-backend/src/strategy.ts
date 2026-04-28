@@ -63,6 +63,8 @@ const scriptResultSchema = healthResultSchema({
     "x-chart-type": "line",
     "x-chart-label": "Execution Time",
     "x-chart-unit": "ms",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
   }),
   exitCode: healthResultNumber({
     "x-chart-type": "counter",
@@ -99,10 +101,12 @@ const scriptAggregatedFields = {
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
+    "x-anomaly-direction": "lower-is-better",
   }),
   timeoutCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Timeouts",
+    "x-anomaly-direction": "lower-is-better",
   }),
 };
 

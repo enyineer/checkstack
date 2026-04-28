@@ -29,13 +29,20 @@ import {
 // Export slot definitions for other plugins to use
 export {
   HealthCheckDiagramSlot,
-  createDiagramExtensionFactory,
+  AssignmentIDENodeSlot,
+  AssignmentIDEPanelSlot,
+  HealthCheckConfigIDENodeSlot,
+  HealthCheckConfigIDEPanelSlot,
   type HealthCheckDiagramSlotContext,
+  type AssignmentIDEContext,
+  type HealthCheckConfigIDEContext,
+  createDiagramExtensionFactory,
   type TypedAggregatedBucket,
 } from "./slots";
 
 // Export hooks for reusable data fetching
 export { useHealthCheckData } from "./hooks";
+export { useStrategySchemas } from "./auto-charts/useStrategySchemas";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,

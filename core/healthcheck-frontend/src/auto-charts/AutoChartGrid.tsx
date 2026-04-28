@@ -25,7 +25,10 @@ import {
   Area,
   RadialBarChart,
   RadialBar,
+  ReferenceArea,
 } from "recharts";
+import { AnomalyApi, type AnomalyBaselineDto } from "@checkstack/anomaly-common";
+import { usePluginClient } from "@checkstack/frontend-api";
 import { format } from "date-fns";
 import { MAX_SPARKLINE_BARS } from "../utils/sparkline-downsampling";
 
@@ -41,6 +44,11 @@ interface AutoChartGridProps {
  */
 export function AutoChartGrid({ context }: AutoChartGridProps) {
   const { schemas, loading } = useStrategySchemas(context.strategyId);
+  const anomalyClient = usePluginClient(AnomalyApi);
+  const { data: baselines = [] } = anomalyClient.getAnomalyBaselines.useQuery({
+    systemId: context.systemId,
+    configurationId: context.configurationId,
+  });
 
   if (loading) {
     return; // Don't show loading state, let custom charts render first
@@ -77,7 +85,7 @@ export function AutoChartGrid({ context }: AutoChartGridProps) {
       {strategyFields.length > 0 && (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {strategyFields.map((field) => (
-            <AutoChartCard key={field.name} field={field} context={context} />
+            <AutoChartCard key={field.name} field={field} context={context} baselines={baselines} />
           ))}
         </div>
       )}
@@ -88,6 +96,7 @@ export function AutoChartGrid({ context }: AutoChartGridProps) {
           key={group.instanceKey}
           group={group}
           context={context}
+          baselines={baselines}
         />
       ))}
     </div>
@@ -151,9 +160,11 @@ function buildCollectorGroups(
 function CollectorGroup({
   group,
   context,
+  baselines,
 }: {
   group: CollectorGroupData;
   context: HealthCheckDiagramSlotContext;
+  baselines: AnomalyBaselineDto[];
 }) {
   // Separate fields into narrow (grid) and wide (full-width) categories
   const narrowFields = group.fields.filter(
@@ -177,6 +188,7 @@ function CollectorGroup({
               key={`${field.instanceKey}-${field.name}`}
               field={field}
               context={context}
+              baselines={baselines}
             />
           ))}
         </div>
@@ -194,6 +206,7 @@ function CollectorGroup({
             key={`${field.instanceKey}-${field.name}`}
             field={field}
             context={context}
+            baselines={baselines}
           />
         ))}
       </div>
@@ -383,6 +396,7 @@ interface ExpandedChartField extends ChartField {
 interface AutoChartCardProps {
   field: ExpandedChartField;
   context: HealthCheckDiagramSlotContext;
+  baselines?: AnomalyBaselineDto[];
 }
 
 /**
@@ -393,14 +407,16 @@ const WIDE_CHART_TYPES = new Set(["line", "boolean", "text"]);
 /**
  * Individual chart card that renders based on field type.
  */
-function AutoChartCard({ field, context }: AutoChartCardProps) {
+function AutoChartCard({ field, context, baselines }: AutoChartCardProps) {
+  const baseline = baselines?.find((b) => b.fieldPath === field.name);
+
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium">{field.label}</CardTitle>
       </CardHeader>
       <CardContent>
-        <ChartRenderer field={field} context={context} />
+        <ChartRenderer field={field} context={context} baseline={baseline} />
       </CardContent>
     </Card>
   );
@@ -409,36 +425,37 @@ function AutoChartCard({ field, context }: AutoChartCardProps) {
 interface ChartRendererProps {
   field: ExpandedChartField;
   context: HealthCheckDiagramSlotContext;
+  baseline?: AnomalyBaselineDto;
 }
 
 /**
  * Dispatches to appropriate chart renderer based on chart type.
  */
-function ChartRenderer({ field, context }: ChartRendererProps) {
+function ChartRenderer({ field, context, baseline }: ChartRendererProps) {
   switch (field.chartType) {
     case "line": {
-      return <LineChartRenderer field={field} context={context} />;
+      return <LineChartRenderer field={field} context={context} baseline={baseline} />;
     }
     case "gauge": {
-      return <GaugeRenderer field={field} context={context} />;
+      return <GaugeRenderer field={field} context={context} baseline={baseline} />;
     }
     case "counter": {
-      return <CounterRenderer field={field} context={context} />;
+      return <CounterRenderer field={field} context={context} baseline={baseline} />;
     }
     case "bar": {
-      return <BarChartRenderer field={field} context={context} />;
+      return <BarChartRenderer field={field} context={context} baseline={baseline} />;
     }
     case "pie": {
-      return <PieChartRenderer field={field} context={context} />;
+      return <PieChartRenderer field={field} context={context} baseline={baseline} />;
     }
     case "boolean": {
-      return <BooleanRenderer field={field} context={context} />;
+      return <BooleanRenderer field={field} context={context} baseline={baseline} />;
     }
     case "text": {
-      return <TextRenderer field={field} context={context} />;
+      return <TextRenderer field={field} context={context} baseline={baseline} />;
     }
     case "status": {
-      return <StatusRenderer field={field} context={context} />;
+      return <StatusRenderer field={field} context={context} baseline={baseline} />;
     }
     default: {
       return;
@@ -502,7 +519,7 @@ function CounterRenderer({ field, context }: ChartRendererProps) {
 /**
  * Renders a percentage gauge visualization using Recharts RadialBarChart.
  */
-function GaugeRenderer({ field, context }: ChartRendererProps) {
+function GaugeRenderer({ field, context, baseline }: ChartRendererProps) {
   const value = getLatestValue(field.name, context, field.instanceKey);
   const numValue =
     typeof value === "number" ? Math.min(100, Math.max(0, value)) : 0;
@@ -519,29 +536,36 @@ function GaugeRenderer({ field, context }: ChartRendererProps) {
   const data = [{ name: field.label, value: numValue, fill: fillColor }];
 
   return (
-    <div className="flex items-center gap-3">
-      <ResponsiveContainer width={80} height={80}>
-        <RadialBarChart
-          cx="50%"
-          cy="50%"
-          innerRadius="60%"
-          outerRadius="100%"
-          barSize={8}
-          data={data}
-          startAngle={90}
-          endAngle={-270}
-        >
-          <RadialBar
-            dataKey="value"
-            cornerRadius={4}
-            background={{ fill: "hsl(var(--muted))" }}
-          />
-        </RadialBarChart>
-      </ResponsiveContainer>
-      <div className="text-2xl font-bold" style={{ color: fillColor }}>
-        {numValue.toFixed(1)}
-        {unit}
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-3">
+        <ResponsiveContainer width={80} height={80}>
+          <RadialBarChart
+            cx="50%"
+            cy="50%"
+            innerRadius="60%"
+            outerRadius="100%"
+            barSize={8}
+            data={data}
+            startAngle={90}
+            endAngle={-270}
+          >
+            <RadialBar
+              dataKey="value"
+              cornerRadius={4}
+              background={{ fill: "hsl(var(--muted))" }}
+            />
+          </RadialBarChart>
+        </ResponsiveContainer>
+        <div className="text-2xl font-bold" style={{ color: fillColor }}>
+          {numValue.toFixed(1)}
+          {unit}
+        </div>
       </div>
+      {baseline && typeof baseline.mean === "number" && (
+        <div className="text-xs text-muted-foreground mt-1">
+          Expected: {baseline.mean.toFixed(1)}{unit} (±{(baseline.stdDev * 3).toFixed(1)})
+        </div>
+      )}
     </div>
   );
 }
@@ -549,7 +573,7 @@ function GaugeRenderer({ field, context }: ChartRendererProps) {
 /**
  * Renders a boolean indicator with historical sparkline.
  */
-function BooleanRenderer({ field, context }: ChartRendererProps) {
+function BooleanRenderer({ field, context, baseline }: ChartRendererProps) {
   const valuesWithTime = getAllBooleanValuesWithTime(
     field.name,
     context,
@@ -587,6 +611,13 @@ function BooleanRenderer({ field, context }: ChartRendererProps) {
         )}
       </div>
 
+      {baseline && baseline.dominantValue !== undefined && baseline.dominantValue !== null && (
+        <div className="text-xs text-muted-foreground">
+          Expected: {String(baseline.dominantValue)} 
+          {baseline.dominantRatio ? ` (${(baseline.dominantRatio * 100).toFixed(0)}%)` : ""}
+        </div>
+      )}
+
       {/* Sparkline timeline - render each value as a bar */}
       <div className="flex h-2 gap-px rounded">
         {valuesWithTime.map((item, index) => {
@@ -611,7 +642,7 @@ function BooleanRenderer({ field, context }: ChartRendererProps) {
 /**
  * Renders text value with historical sparkline for status-type fields.
  */
-function TextRenderer({ field, context }: ChartRendererProps) {
+function TextRenderer({ field, context, baseline }: ChartRendererProps) {
   const valuesWithTime = getAllStringValuesWithTime(
     field.name,
     context,
@@ -640,6 +671,13 @@ function TextRenderer({ field, context }: ChartRendererProps) {
           </span>
         )}
       </div>
+
+      {baseline && baseline.dominantValue !== undefined && baseline.dominantValue !== null && (
+        <div className="text-xs text-muted-foreground">
+          Expected: {String(baseline.dominantValue)}
+          {baseline.dominantRatio ? ` (${(baseline.dominantRatio * 100).toFixed(0)}%)` : ""}
+        </div>
+      )}
 
       {/* Sparkline timeline - always show for historical context */}
       {(() => {
@@ -733,7 +771,7 @@ function StatusRenderer({ field, context }: ChartRendererProps) {
 /**
  * Renders an area chart for time series data using Recharts AreaChart.
  */
-function LineChartRenderer({ field, context }: ChartRendererProps) {
+function LineChartRenderer({ field, context, baseline }: ChartRendererProps) {
   const valuesWithTime = getAllValuesWithTime(
     field.name,
     context,
@@ -787,6 +825,15 @@ function LineChartRenderer({ field, context }: ChartRendererProps) {
               />
             </linearGradient>
           </defs>
+          {baseline && (
+            <ReferenceArea
+              y1={Math.max(0, baseline.mean - baseline.stdDev * 3)}
+              y2={baseline.mean + baseline.stdDev * 3}
+              fill="hsl(var(--warning))"
+              fillOpacity={0.1}
+              strokeOpacity={0}
+            />
+          )}
           <Area
             type="monotone"
             dataKey="value"

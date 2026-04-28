@@ -44,7 +44,7 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
  */
 export function expandTemplate(
   template: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
 ): string {
   // Match {{payload.path.to.value}} patterns
   const pattern = /\{\{payload\.([^}]+)\}\}/g;

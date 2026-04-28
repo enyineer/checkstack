@@ -74,7 +74,7 @@ export const jiraContract = {
       z.object({
         success: z.boolean(),
         message: z.string().optional(),
-      })
+      }),
     ),
 
   // ==========================================================================
@@ -100,7 +100,7 @@ export const jiraContract = {
       z.object({
         connectionId: z.string(),
         projectKey: z.string(),
-      })
+      }),
     )
     .output(z.array(JiraIssueTypeSchema)),
 
@@ -115,7 +115,7 @@ export const jiraContract = {
         connectionId: z.string(),
         projectKey: z.string(),
         issueTypeId: z.string(),
-      })
+      }),
     )
     .output(z.array(JiraFieldSchema)),
 
@@ -132,8 +132,8 @@ export const jiraContract = {
           id: z.string(),
           name: z.string(),
           iconUrl: z.string().optional(),
-        })
-      )
+        }),
+      ),
     ),
 };
 

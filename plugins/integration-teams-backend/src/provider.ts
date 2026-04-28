@@ -30,7 +30,7 @@ export const TeamsConnectionSchema = z.object({
   tenantId: configString({}).describe("Azure AD Tenant ID"),
   clientId: configString({}).describe("Azure AD Application (Client) ID"),
   clientSecret: configString({ "x-secret": true }).describe(
-    "Azure AD Client Secret"
+    "Azure AD Client Secret",
   ),
 });
 
@@ -90,7 +90,7 @@ interface TokenResponse {
  * Get an app-only access token using client credentials flow.
  */
 async function getAppToken(
-  config: TeamsConnectionConfig
+  config: TeamsConnectionConfig,
 ): Promise<
   { success: true; token: string } | { success: false; error: string }
 > {
@@ -117,7 +117,7 @@ async function getAppToken(
         success: false,
         error: `Token request failed (${response.status}): ${errorText.slice(
           0,
-          200
+          200,
         )}`,
       };
     }
@@ -131,7 +131,7 @@ async function getAppToken(
 }
 
 async function fetchTeams(
-  token: string
+  token: string,
 ): Promise<
   { success: true; teams: GraphTeam[] } | { success: false; error: string }
 > {
@@ -157,7 +157,7 @@ async function fetchTeams(
 
 async function fetchChannels(
   token: string,
-  teamId: string
+  teamId: string,
 ): Promise<
   | { success: true; channels: GraphChannel[] }
   | { success: false; error: string }
@@ -289,7 +289,7 @@ For the app to send messages, it must be installed in the target Team:
   },
 
   async getConnectionOptions(
-    params: GetConnectionOptionsParams
+    params: GetConnectionOptionsParams,
   ): Promise<ConnectionOption[]> {
     const {
       resolverName,
@@ -298,14 +298,12 @@ For the app to send messages, it must be installed in the target Team:
       getConnectionWithCredentials,
     } = params;
 
-
     const connection = await getConnectionWithCredentials(connectionId);
     if (!connection) {
       return [];
     }
 
     const config = connection.config as TeamsConnectionConfig;
-
 
     const tokenResult = await getAppToken(config);
     if (!tokenResult.success) {
@@ -368,8 +366,7 @@ For the app to send messages, it must be installed in the target Team:
         message: `Connected successfully. Found ${teamsResult.teams.length} team(s).`,
       };
     } catch (error) {
-      const message =
-        extractErrorMessage(error, "Invalid configuration");
+      const message = extractErrorMessage(error, "Invalid configuration");
       return {
         success: false,
         message: `Validation failed: ${message}`,
@@ -378,7 +375,7 @@ For the app to send messages, it must be installed in the target Team:
   },
 
   async deliver(
-    context: IntegrationDeliveryContext<TeamsSubscriptionConfig>
+    context: IntegrationDeliveryContext<TeamsSubscriptionConfig>,
   ): Promise<IntegrationDeliveryResult> {
     const { event, subscription, providerConfig, logger } = context;
 
@@ -392,7 +389,7 @@ For the app to send messages, it must be installed in the target Team:
     }
 
     const connection = await context.getConnectionWithCredentials(
-      config.connectionId
+      config.connectionId,
     );
 
     if (!connection) {
@@ -403,7 +400,6 @@ For the app to send messages, it must be installed in the target Team:
     }
 
     const connectionConfig = connection.config as TeamsConnectionConfig;
-
 
     const tokenResult = await getAppToken(connectionConfig);
     if (!tokenResult.success) {
@@ -416,14 +412,12 @@ For the app to send messages, it must be installed in the target Team:
       };
     }
 
-
     const adaptiveCard = buildAdaptiveCard({
       eventId: event.eventId,
       payload: event.payload as Record<string, unknown>,
       subscriptionName: subscription.name,
       timestamp: event.timestamp,
     });
-
 
     try {
       const response = await fetch(
@@ -448,7 +442,7 @@ For the app to send messages, it must be installed in the target Team:
             ],
           }),
           signal: AbortSignal.timeout(10_000),
-        }
+        },
       );
 
       if (!response.ok) {
@@ -461,7 +455,7 @@ For the app to send messages, it must be installed in the target Team:
           success: false,
           error: `Graph API error (${response.status}): ${errorText.slice(
             0,
-            100
+            100,
           )}`,
         };
       }
@@ -474,8 +468,7 @@ For the app to send messages, it must be installed in the target Team:
         externalId: messageData.id,
       };
     } catch (error) {
-      const message =
-        extractErrorMessage(error, "Unknown Graph API error");
+      const message = extractErrorMessage(error, "Unknown Graph API error");
       logger.error("Teams delivery error", { error: message });
       return {
         success: false,

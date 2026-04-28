@@ -1,0 +1,9 @@
+{
+  "extends": "@checkstack/tsconfig/frontend.json",
+  "compilerOptions": {
+    "jsx": "react-jsx"
+  },
+  "include": [
+    "src"
+  ]
+}

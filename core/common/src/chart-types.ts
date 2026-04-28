@@ -40,4 +40,28 @@ export interface HealthResultMeta {
    * Ephemeral fields are stripped before storing results in the database.
    */
   "x-ephemeral"?: boolean;
+  /**
+   * Override the anomaly detection direction for this field.
+   * - "higher-is-better": Alert when value drops (e.g., success rate, availability)
+   * - "lower-is-better": Alert when value rises (e.g., latency, error count)
+   * - "deviation": Alert on any significant change in either direction (e.g., player count)
+   */
+  "x-anomaly-direction"?: "higher-is-better" | "lower-is-better" | "deviation";
+  /**
+   * Whether to enable anomaly detection for this field by default.
+   * Set to false for high-variance fields where anomalies are not actionable (e.g., body length).
+   */
+  "x-anomaly-enabled"?: boolean;
+  /**
+   * Sensitivity multiplier for this field (default: 1.0).
+   * Higher values = fewer alerts (wider threshold).
+   * Lower values = more alerts (tighter threshold).
+   * Applied as: threshold = μ ± (3σ × sensitivity)
+   */
+  "x-anomaly-sensitivity"?: number;
+  /**
+   * Override the default confirmation window for this field.
+   * Number of consecutive anomalous data points required before an alert is raised.
+   */
+  "x-anomaly-confirmation-window"?: number;
 }

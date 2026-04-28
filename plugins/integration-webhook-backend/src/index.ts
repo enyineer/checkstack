@@ -1,7 +1,4 @@
-import {
-  createBackendPlugin,
-  coreServices,
-} from "@checkstack/backend-api";
+import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
 import { integrationProviderExtensionPoint } from "@checkstack/integration-backend";
 import { pluginMetadata } from "./plugin-metadata";
 import { webhookProvider } from "./provider";
@@ -19,7 +16,7 @@ export default createBackendPlugin({
 
         // Get the integration provider extension point
         const extensionPoint = env.getExtensionPoint(
-          integrationProviderExtensionPoint
+          integrationProviderExtensionPoint,
         );
 
         // Register the webhook provider

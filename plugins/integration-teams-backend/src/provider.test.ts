@@ -177,7 +177,7 @@ describe("Microsoft Teams Integration Provider", () => {
     it("returns success when Graph API is accessible", async () => {
       let requestCount = 0;
       const mockFetch = spyOn(globalThis, "fetch").mockImplementation((async (
-        url: RequestInfo | URL
+        url: RequestInfo | URL,
       ) => {
         requestCount++;
         const urlStr = url.toString();
@@ -186,7 +186,7 @@ describe("Microsoft Teams Integration Provider", () => {
         if (urlStr.includes("oauth2/v2.0/token")) {
           return new Response(
             JSON.stringify({ access_token: "test-token", expires_in: 3600 }),
-            { status: 200 }
+            { status: 200 },
           );
         }
 
@@ -199,7 +199,7 @@ describe("Microsoft Teams Integration Provider", () => {
                 { id: "team-2", displayName: "DevOps" },
               ],
             }),
-            { status: 200 }
+            { status: 200 },
           );
         }
 
@@ -224,7 +224,7 @@ describe("Microsoft Teams Integration Provider", () => {
       const mockFetch = spyOn(globalThis, "fetch").mockImplementation(
         (async () => {
           return new Response("Unauthorized", { status: 401 });
-        }) as unknown as typeof fetch
+        }) as unknown as typeof fetch,
       );
 
       try {
@@ -249,14 +249,14 @@ describe("Microsoft Teams Integration Provider", () => {
   describe("getConnectionOptions", () => {
     it("returns team options", async () => {
       const mockFetch = spyOn(globalThis, "fetch").mockImplementation((async (
-        url: RequestInfo | URL
+        url: RequestInfo | URL,
       ) => {
         const urlStr = url.toString();
 
         if (urlStr.includes("oauth2/v2.0/token")) {
           return new Response(
             JSON.stringify({ access_token: "test-token", expires_in: 3600 }),
-            { status: 200 }
+            { status: 200 },
           );
         }
 
@@ -268,7 +268,7 @@ describe("Microsoft Teams Integration Provider", () => {
                 { id: "team-2", displayName: "DevOps" },
               ],
             }),
-            { status: 200 }
+            { status: 200 },
           );
         }
 
@@ -300,14 +300,14 @@ describe("Microsoft Teams Integration Provider", () => {
 
     it("returns channel options when teamId is provided", async () => {
       const mockFetch = spyOn(globalThis, "fetch").mockImplementation((async (
-        url: RequestInfo | URL
+        url: RequestInfo | URL,
       ) => {
         const urlStr = url.toString();
 
         if (urlStr.includes("oauth2/v2.0/token")) {
           return new Response(
             JSON.stringify({ access_token: "test-token", expires_in: 3600 }),
-            { status: 200 }
+            { status: 200 },
           );
         }
 
@@ -319,7 +319,7 @@ describe("Microsoft Teams Integration Provider", () => {
                 { id: "ch-2", displayName: "Alerts" },
               ],
             }),
-            { status: 200 }
+            { status: 200 },
           );
         }
 
@@ -351,13 +351,13 @@ describe("Microsoft Teams Integration Provider", () => {
 
     it("returns empty array when teamId is missing for channel options", async () => {
       const mockFetch = spyOn(globalThis, "fetch").mockImplementation((async (
-        url: RequestInfo | URL
+        url: RequestInfo | URL,
       ) => {
         const urlStr = url.toString();
         if (urlStr.includes("oauth2/v2.0/token")) {
           return new Response(
             JSON.stringify({ access_token: "test-token", expires_in: 3600 }),
-            { status: 200 }
+            { status: 200 },
           );
         }
         return new Response("Not Found", { status: 404 });
@@ -396,14 +396,14 @@ describe("Microsoft Teams Integration Provider", () => {
 
       const mockFetch = spyOn(globalThis, "fetch").mockImplementation((async (
         url: RequestInfo | URL,
-        options?: RequestInit
+        options?: RequestInit,
       ) => {
         const urlStr = url.toString();
 
         if (urlStr.includes("oauth2/v2.0/token")) {
           return new Response(
             JSON.stringify({ access_token: "test-token", expires_in: 3600 }),
-            { status: 200 }
+            { status: 200 },
           );
         }
 
@@ -454,7 +454,7 @@ describe("Microsoft Teams Integration Provider", () => {
         const parsedBody = JSON.parse(capturedBody!);
         expect(parsedBody.attachments).toHaveLength(1);
         expect(parsedBody.attachments[0].contentType).toBe(
-          "application/vnd.microsoft.card.adaptive"
+          "application/vnd.microsoft.card.adaptive",
         );
       } finally {
         mockFetch.mockRestore();

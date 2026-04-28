@@ -106,10 +106,14 @@ async function executeInlineScript({
     const worker = new Worker(workerUrl);
 
     const workerResult = await Promise.race([
-      new Promise<{ result?: unknown; error?: string; logs: string[] }>((resolve) => {
-        worker.addEventListener("message", (event: MessageEvent) => resolve(event.data));
-        worker.postMessage({ script, config: context.config });
-      }),
+      new Promise<{ result?: unknown; error?: string; logs: string[] }>(
+        (resolve) => {
+          worker.addEventListener("message", (event: MessageEvent) =>
+            resolve(event.data),
+          );
+          worker.postMessage({ script, config: context.config });
+        },
+      ),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("__TIMEOUT__")), timeoutMs),
       ),
@@ -153,8 +157,12 @@ async function executeInlineScript({
       return {
         result: {
           success: Boolean(resultObj.success ?? true),
-          message: typeof resultObj.message === "string" ? resultObj.message : undefined,
-          value: typeof resultObj.value === "number" ? resultObj.value : undefined,
+          message:
+            typeof resultObj.message === "string"
+              ? resultObj.message
+              : undefined,
+          value:
+            typeof resultObj.value === "number" ? resultObj.value : undefined,
         },
         timedOut: false,
       };
@@ -217,6 +225,8 @@ const inlineScriptResultSchema = healthResultSchema({
     "x-chart-type": "line",
     "x-chart-label": "Execution Time",
     "x-chart-unit": "ms",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
   }),
   timedOut: healthResultBoolean({
     "x-chart-type": "boolean",

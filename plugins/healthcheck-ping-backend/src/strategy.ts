@@ -61,6 +61,7 @@ const pingResultSchema = healthResultSchema({
   packetLoss: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Packet Loss",
+    "x-anomaly-direction": "lower-is-better",
     "x-chart-unit": "%",
   }),
   minLatency: healthResultNumber({
@@ -106,6 +107,7 @@ const pingAggregatedFields = {
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
+    "x-anomaly-direction": "lower-is-better",
   }),
 };
 

@@ -64,7 +64,7 @@ async function runLoadTest(props: {
       delayMultiplier: 1,
       heartbeatIntervalMs: 0,
     },
-    testLogger
+    testLogger,
   );
 
   const latencies: number[] = [];
@@ -79,7 +79,7 @@ async function runLoadTest(props: {
       latencies.push(latency);
       completed++;
     },
-    { consumerGroup: "load-test-group", maxRetries: 0 }
+    { consumerGroup: "load-test-group", maxRetries: 0 },
   );
 
   const testStart = Date.now();
@@ -166,8 +166,8 @@ async function main() {
   const parallel = results.find((r) => r.concurrency === 25)!;
   console.log(
     `\n✨ Speedup: ${(sequential.durationMs / parallel.durationMs).toFixed(
-      1
-    )}x faster with concurrency=25`
+      1,
+    )}x faster with concurrency=25`,
   );
 
   // Test 4: Burst load
@@ -188,7 +188,7 @@ async function main() {
   });
   console.log(formatResult(maxResult));
   console.log(
-    `\n✨ Max throughput: ${maxResult.jobsPerSecond.toFixed(0)} jobs/sec`
+    `\n✨ Max throughput: ${maxResult.jobsPerSecond.toFixed(0)} jobs/sec`,
   );
 
   // Capacity planning guidance

@@ -9,7 +9,7 @@ describe("QueueInfoCollector", () => {
   const collector = new QueueInfoCollector();
 
   const createMockClient = (
-    response: JenkinsResponse
+    response: JenkinsResponse,
   ): JenkinsTransportClient => ({
     exec: async () => response,
   });
@@ -105,7 +105,7 @@ describe("QueueInfoCollector", () => {
     ];
 
     let aggregated = collector.mergeResult(undefined, runs[0]);
-      aggregated = collector.mergeResult(aggregated, runs[1]);
+    aggregated = collector.mergeResult(aggregated, runs[1]);
 
     expect(aggregated.avgQueueLength.avg).toBe(4);
     expect(aggregated.maxQueueLength.max).toBe(5);

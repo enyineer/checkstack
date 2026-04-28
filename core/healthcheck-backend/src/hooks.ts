@@ -42,4 +42,17 @@ export const healthCheckHooks = {
     systemId: string;
     configurationId: string;
   }>("healthcheck.assignment.changed"),
+
+  /**
+   * Emitted when a single health check execution finishes.
+   * This is used by the anomaly detection engine to run the inline fast detector.
+   */
+  checkCompleted: createHook<{
+    systemId: string;
+    configurationId: string;
+    status: string;
+    latencyMs: number | undefined;
+    result: Record<string, unknown> | undefined;
+    timestamp: string;
+  }>("healthcheck.check.completed"),
 } as const;

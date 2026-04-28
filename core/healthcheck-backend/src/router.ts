@@ -291,6 +291,12 @@ export const createHealthCheckRouter = (opts: {
         await service.ingestSatelliteResult(input);
       },
     ),
+
+    getRunsForAnalysis: os.getRunsForAnalysis.handler(
+      async ({ input }) => {
+        return service.getRunsForAnalysis(input);
+      },
+    ),
   });
 };
 

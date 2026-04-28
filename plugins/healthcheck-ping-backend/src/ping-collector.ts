@@ -54,6 +54,7 @@ const pingResultSchema = healthResultSchema({
   packetLoss: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Packet Loss",
+    "x-anomaly-direction": "lower-is-better",
     "x-chart-unit": "%",
   }),
   minLatency: healthResultNumber({

@@ -7,18 +7,18 @@ describe("TcpHealthCheckStrategy", () => {
     config: {
       connectError?: Error;
       banner?: string;
-    } = {}
+    } = {},
   ): SocketFactory => {
     return () =>
       ({
         connect: mock(() =>
           config.connectError
             ? Promise.reject(config.connectError)
-            : Promise.resolve()
+            : Promise.resolve(),
         ),
         read: mock(() => Promise.resolve(config.banner ?? null)),
         close: mock(() => {}),
-      } as TcpSocket);
+      }) as TcpSocket;
   };
 
   describe("createClient", () => {
@@ -40,7 +40,7 @@ describe("TcpHealthCheckStrategy", () => {
 
     it("should throw for connection error", async () => {
       const strategy = new TcpHealthCheckStrategy(
-        createMockSocket({ connectError: new Error("Connection refused") })
+        createMockSocket({ connectError: new Error("Connection refused") }),
       );
 
       await expect(
@@ -48,7 +48,7 @@ describe("TcpHealthCheckStrategy", () => {
           host: "localhost",
           port: 12345,
           timeout: 5000,
-        })
+        }),
       ).rejects.toThrow("Connection refused");
     });
   });
@@ -71,7 +71,7 @@ describe("TcpHealthCheckStrategy", () => {
 
     it("should read banner with read action", async () => {
       const strategy = new TcpHealthCheckStrategy(
-        createMockSocket({ banner: "SSH-2.0-OpenSSH" })
+        createMockSocket({ banner: "SSH-2.0-OpenSSH" }),
       );
       const connectedClient = await strategy.createClient({
         host: "localhost",

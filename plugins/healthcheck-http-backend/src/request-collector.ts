@@ -67,11 +67,14 @@ const requestResultSchema = healthResultSchema({
     "x-chart-type": "line",
     "x-chart-label": "Response Time",
     "x-chart-unit": "ms",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
   }),
   body: healthResultJSONPath({ "x-ephemeral": true }),
   bodyLength: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Body Length",
+    "x-anomaly-enabled": false,
     "x-chart-unit": "bytes",
   }),
   success: healthResultBoolean({

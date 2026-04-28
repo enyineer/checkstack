@@ -20,9 +20,7 @@ const configSchema = z.object({
 
 export type InMemoryCacheConfig = z.infer<typeof configSchema>;
 
-export class InMemoryCachePlugin
-  implements CachePlugin<InMemoryCacheConfig>
-{
+export class InMemoryCachePlugin implements CachePlugin<InMemoryCacheConfig> {
   id = "memory";
   displayName = "In-Memory Cache";
   description =

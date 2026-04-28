@@ -23,7 +23,7 @@ describe("InMemoryQueue Consumer Groups", () => {
         delayMultiplier: 0.01, // 100x faster delays for testing
         heartbeatIntervalMs: 0, // Disable heartbeat during tests
       },
-      testLogger
+      testLogger,
     );
   });
 
@@ -40,14 +40,14 @@ describe("InMemoryQueue Consumer Groups", () => {
         async (job) => {
           received.push(`consumer-1:${job.data}`);
         },
-        { consumerGroup: "group-1", maxRetries: 0 }
+        { consumerGroup: "group-1", maxRetries: 0 },
       );
 
       await queue.consume(
         async (job) => {
           received.push(`consumer-2:${job.data}`);
         },
-        { consumerGroup: "group-2", maxRetries: 0 }
+        { consumerGroup: "group-2", maxRetries: 0 },
       );
 
       // Enqueue a message
@@ -72,14 +72,14 @@ describe("InMemoryQueue Consumer Groups", () => {
         async (job) => {
           received["group-1"].push(job.data);
         },
-        { consumerGroup: "group-1", maxRetries: 0 }
+        { consumerGroup: "group-1", maxRetries: 0 },
       );
 
       await queue.consume(
         async (job) => {
           received["group-2"].push(job.data);
         },
-        { consumerGroup: "group-2", maxRetries: 0 }
+        { consumerGroup: "group-2", maxRetries: 0 },
       );
 
       // Enqueue multiple messages
@@ -108,14 +108,14 @@ describe("InMemoryQueue Consumer Groups", () => {
         async (job) => {
           received["consumer-1"].push(job.data);
         },
-        { consumerGroup: "shared-group", maxRetries: 0 }
+        { consumerGroup: "shared-group", maxRetries: 0 },
       );
 
       await queue.consume(
         async (job) => {
           received["consumer-2"].push(job.data);
         },
-        { consumerGroup: "shared-group", maxRetries: 0 }
+        { consumerGroup: "shared-group", maxRetries: 0 },
       );
 
       // Enqueue multiple messages
@@ -152,14 +152,14 @@ describe("InMemoryQueue Consumer Groups", () => {
         async () => {
           consumer1Count++;
         },
-        { consumerGroup: "work-group", maxRetries: 0 }
+        { consumerGroup: "work-group", maxRetries: 0 },
       );
 
       await queue.consume(
         async () => {
           consumer2Count++;
         },
-        { consumerGroup: "work-group", maxRetries: 0 }
+        { consumerGroup: "work-group", maxRetries: 0 },
       );
 
       // Single message
@@ -186,7 +186,7 @@ describe("InMemoryQueue Consumer Groups", () => {
             throw new Error("Simulated failure");
           }
         },
-        { consumerGroup: "retry-group", maxRetries: 3 }
+        { consumerGroup: "retry-group", maxRetries: 3 },
       );
 
       await queue.enqueue("test");
@@ -223,7 +223,7 @@ describe("InMemoryQueue Consumer Groups", () => {
           attempts++;
           throw new Error("Always fails");
         },
-        { consumerGroup: "fail-group", maxRetries: 2 }
+        { consumerGroup: "fail-group", maxRetries: 2 },
       );
 
       await queue.enqueue("test");
@@ -246,14 +246,14 @@ describe("InMemoryQueue Consumer Groups", () => {
         async (job) => {
           broadcastReceived.push(`broadcast-1:${job.data}`);
         },
-        { consumerGroup: "broadcast-1", maxRetries: 0 }
+        { consumerGroup: "broadcast-1", maxRetries: 0 },
       );
 
       await queue.consume(
         async (job) => {
           broadcastReceived.push(`broadcast-2:${job.data}`);
         },
-        { consumerGroup: "broadcast-2", maxRetries: 0 }
+        { consumerGroup: "broadcast-2", maxRetries: 0 },
       );
 
       // Work-queue consumers (same group)
@@ -261,14 +261,14 @@ describe("InMemoryQueue Consumer Groups", () => {
         async (job) => {
           workQueueReceived.push(`work-1:${job.data}`);
         },
-        { consumerGroup: "work-group", maxRetries: 0 }
+        { consumerGroup: "work-group", maxRetries: 0 },
       );
 
       await queue.consume(
         async (job) => {
           workQueueReceived.push(`work-2:${job.data}`);
         },
-        { consumerGroup: "work-group", maxRetries: 0 }
+        { consumerGroup: "work-group", maxRetries: 0 },
       );
 
       await queue.enqueue("test-msg");
@@ -285,7 +285,7 @@ describe("InMemoryQueue Consumer Groups", () => {
       expect(workQueueReceived.length).toBe(1);
       expect(
         workQueueReceived[0] === "work-1:test-msg" ||
-          workQueueReceived[0] === "work-2:test-msg"
+          workQueueReceived[0] === "work-2:test-msg",
       ).toBe(true);
     });
   });
@@ -321,7 +321,7 @@ describe("InMemoryQueue Consumer Groups", () => {
           // Simulate some processing time
           await new Promise((resolve) => setTimeout(resolve, 50));
         },
-        { consumerGroup: "stats-group", maxRetries: 0 }
+        { consumerGroup: "stats-group", maxRetries: 0 },
       );
 
       await queue.enqueue("msg-1");
@@ -354,7 +354,7 @@ describe("InMemoryQueue Consumer Groups", () => {
         async () => {
           processed = true;
         },
-        { consumerGroup: "delay-group", maxRetries: 0 }
+        { consumerGroup: "delay-group", maxRetries: 0 },
       );
 
       // Enqueue with 2-second delay (becomes 20ms with delayMultiplier=0.01)
@@ -383,7 +383,7 @@ describe("InMemoryQueue Consumer Groups", () => {
         async (job) => {
           processed.push(job.data);
         },
-        { consumerGroup: "mixed-delay-group", maxRetries: 0 }
+        { consumerGroup: "mixed-delay-group", maxRetries: 0 },
       );
 
       // Enqueue delayed job first (10s delay = 100ms with 0.01 multiplier)
@@ -419,7 +419,7 @@ describe("InMemoryQueue Consumer Groups", () => {
         async (job) => {
           processed.push(job.data);
         },
-        { consumerGroup: "priority-delay-group", maxRetries: 0 }
+        { consumerGroup: "priority-delay-group", maxRetries: 0 },
       );
 
       // Enqueue multiple delayed jobs with same delay but different priorities
@@ -460,7 +460,7 @@ describe("InMemoryQueue Consumer Groups", () => {
         async (job) => {
           processed.push(job.data);
         },
-        { consumerGroup: "dedup-group", maxRetries: 0 }
+        { consumerGroup: "dedup-group", maxRetries: 0 },
       );
 
       // Enqueue job with custom jobId
@@ -488,7 +488,7 @@ describe("InMemoryQueue Consumer Groups", () => {
         async (job) => {
           processed.push(job.data);
         },
-        { consumerGroup: "different-group", maxRetries: 0 }
+        { consumerGroup: "different-group", maxRetries: 0 },
       );
 
       await queue.enqueue("job1", { jobId: "job-1" });

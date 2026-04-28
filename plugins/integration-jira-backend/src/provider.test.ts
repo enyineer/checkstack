@@ -172,11 +172,11 @@ describe("connectionSchema migration v1 → v2", () => {
   });
 
   it("reports needsMigration correctly", () => {
-    expect(
-      connectionSchema.needsMigration({ version: 1, data: {} }),
-    ).toBe(true);
-    expect(
-      connectionSchema.needsMigration({ version: 2, data: {} }),
-    ).toBe(false);
+    expect(connectionSchema.needsMigration({ version: 1, data: {} })).toBe(
+      true,
+    );
+    expect(connectionSchema.needsMigration({ version: 2, data: {} })).toBe(
+      false,
+    );
   });
 });

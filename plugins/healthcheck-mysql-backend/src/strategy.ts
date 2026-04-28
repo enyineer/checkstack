@@ -68,6 +68,8 @@ const mysqlResultSchema = healthResultSchema({
     "x-chart-type": "line",
     "x-chart-label": "Connection Time",
     "x-chart-unit": "ms",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
   }),
   error: healthResultString({
     "x-chart-type": "status",
@@ -97,6 +99,7 @@ const mysqlAggregatedFields = {
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
+    "x-anomaly-direction": "lower-is-better",
   }),
 };
 
