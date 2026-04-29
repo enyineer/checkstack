@@ -11,6 +11,7 @@ import {
   catalogRoutes,
 } from "@checkstack/catalog-common";
 import { createCatalogRouter } from "./router";
+import { createCatalogCache } from "./cache";
 import { NotificationApi } from "@checkstack/notification-common";
 import { AuthApi } from "@checkstack/auth-common";
 import { authHooks } from "@checkstack/auth-backend";
@@ -180,9 +181,10 @@ export default createBackendPlugin({
         rpc: coreServices.rpc,
         rpcClient: coreServices.rpcClient,
         logger: coreServices.logger,
+        cacheManager: coreServices.cacheManager,
       },
       // Phase 2: Register router only - no RPC calls to other plugins
-      init: async ({ database, rpc, rpcClient, logger }) => {
+      init: async ({ database, rpc, rpcClient, logger, cacheManager }) => {
         logger.debug("Initializing Catalog Backend...");
 
         // Populate the mutable DB reference for GitOps reconcile closures
@@ -195,6 +197,8 @@ export default createBackendPlugin({
         const authClient = rpcClient.forPlugin(AuthApi);
         const gitOpsClient = rpcClient.forPlugin(GitOpsApi);
 
+        const cache = createCatalogCache({ cacheManager, logger });
+
         // Register oRPC router with notification client and auth client
         const catalogRouter = createCatalogRouter({
           database: typedDb,
@@ -202,6 +206,7 @@ export default createBackendPlugin({
           authClient,
           gitOpsClient,
           pluginId: pluginMetadata.pluginId,
+          cache,
         });
         rpc.registerRouter(catalogRouter, catalogContract);
 

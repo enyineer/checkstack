@@ -16,6 +16,7 @@ import type { InferClient } from "@checkstack/common";
 import { maintenanceHooks } from "./hooks";
 import { notifyAffectedSystems } from "./notifications";
 import type { MaintenanceUpdate } from "@checkstack/maintenance-common";
+import type { MaintenanceCache } from "./cache";
 
 export function createRouter(
   service: MaintenanceService,
@@ -23,6 +24,7 @@ export function createRouter(
   catalogClient: InferClient<typeof CatalogApi>,
   authClient: InferClient<typeof AuthApi>,
   logger: Logger,
+  cache: MaintenanceCache,
 ) {
   /**
    * Resolve user IDs to profile names for a list of updates.
@@ -88,41 +90,49 @@ export function createRouter(
 
   return os.router({
     listMaintenances: os.listMaintenances.handler(async ({ input }) => {
-      return { maintenances: await service.listMaintenances(input ?? {}) };
+      return {
+        maintenances: await cache.wrapList(input ?? {}, () =>
+          service.listMaintenances(input ?? {}),
+        ),
+      };
     }),
 
     getMaintenance: os.getMaintenance.handler(async ({ input }) => {
-      const result = await service.getMaintenance(input.id);
+      const result = await cache.wrapMaintenance(input.id, () =>
+        service.getMaintenance(input.id),
+      );
       if (!result) {
         // eslint-disable-next-line unicorn/no-null -- oRPC contract requires null for missing values
         return null;
       }
-      // Resolve user names for updates
+      // User-name resolution stays outside the cache: it's a foreign-system
+      // lookup with its own freshness needs.
       const updatesWithNames = await resolveUserNames(result.updates);
       return { ...result, updates: updatesWithNames };
     }),
 
     getMaintenancesForSystem: os.getMaintenancesForSystem.handler(
       async ({ input }) => {
-        return service.getMaintenancesForSystem(input.systemId);
+        return cache.wrapSystem(input.systemId, () =>
+          service.getMaintenancesForSystem(input.systemId),
+        );
       },
     ),
 
     getBulkMaintenancesForSystems: os.getBulkMaintenancesForSystems.handler(
       async ({ input }) => {
+        // Per-entity caching: see ./cache.ts for the invalidation contract.
         const maintenances: Record<
           string,
           Awaited<ReturnType<typeof service.getMaintenancesForSystem>>
         > = {};
-
-        // Fetch maintenances for each system in parallel
         await Promise.all(
           input.systemIds.map(async (systemId) => {
-            maintenances[systemId] =
-              await service.getMaintenancesForSystem(systemId);
+            maintenances[systemId] = await cache.wrapSystem(systemId, () =>
+              service.getMaintenancesForSystem(systemId),
+            );
           }),
         );
-
         return { maintenances };
       },
     ),
@@ -130,6 +140,14 @@ export function createRouter(
     createMaintenance: os.createMaintenance.handler(
       async ({ input, context }) => {
         const result = await service.createMaintenance(input);
+
+        // Invalidate before signal so any frontend that refetches in
+        // response sees fresh data. Mutation invariant in this file:
+        // db.write → cache.invalidate (await) → signals.emit.
+        await cache.invalidateForMutation({
+          maintenanceId: result.id,
+          systemIds: result.systemIds,
+        });
 
         // Broadcast signal for realtime updates
         await signalService.broadcast(MAINTENANCE_UPDATED, {
@@ -174,6 +192,11 @@ export function createRouter(
           });
         }
 
+        await cache.invalidateForMutation({
+          maintenanceId: result.id,
+          systemIds: result.systemIds,
+        });
+
         // Broadcast signal for realtime updates
         await signalService.broadcast(MAINTENANCE_UPDATED, {
           maintenanceId: result.id,
@@ -208,9 +231,15 @@ export function createRouter(
       const previousStatus = previousMaintenance?.status;
 
       const result = await service.addUpdate(input, userId);
-      // Get maintenance to broadcast with correct systemIds
+      // Read post-write state directly from the service so the broadcast
+      // payload is fresh; the cache is invalidated below before the signal.
       const maintenance = await service.getMaintenance(input.maintenanceId);
       if (maintenance) {
+        await cache.invalidateForMutation({
+          maintenanceId: input.maintenanceId,
+          systemIds: maintenance.systemIds,
+        });
+
         // Determine action based on status change
         const action =
           input.statusChange === "completed" ? "closed" : "updated";
@@ -277,6 +306,10 @@ export function createRouter(
             message: "Maintenance not found",
           });
         }
+        await cache.invalidateForMutation({
+          maintenanceId: result.id,
+          systemIds: result.systemIds,
+        });
         // Broadcast signal for realtime updates
         await signalService.broadcast(MAINTENANCE_UPDATED, {
           maintenanceId: result.id,
@@ -317,6 +350,11 @@ export function createRouter(
       const maintenance = await service.getMaintenance(input.id);
       const success = await service.deleteMaintenance(input.id);
       if (success && maintenance) {
+        await cache.invalidateForMutation({
+          maintenanceId: input.id,
+          systemIds: maintenance.systemIds,
+        });
+
         await signalService.broadcast(MAINTENANCE_UPDATED, {
           maintenanceId: input.id,
           systemIds: maintenance.systemIds,

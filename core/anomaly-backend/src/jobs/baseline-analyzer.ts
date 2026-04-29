@@ -63,15 +63,16 @@ export async function setupBaselineAnalyzerJob({
         let templateConfig;
         let assignmentConfig;
         try {
-          templateConfig = (
-            await anomalyService.getAnomalyConfig(assignment.configurationId)
-          ).data;
-          assignmentConfig = (
+          const templateRecord = await anomalyService.getAnomalyConfig(
+            assignment.configurationId,
+          );
+          templateConfig = templateRecord.data;
+          const assignmentRecord =
             await anomalyService.getAnomalyAssignmentConfig(
               assignment.systemId,
               assignment.configurationId,
-            )
-          )?.data;
+            );
+          assignmentConfig = assignmentRecord?.data;
         } catch (error) {
           logger.warn(
             `Failed to fetch anomaly config for ${assignment.configurationId}; skipping drift evaluation`,

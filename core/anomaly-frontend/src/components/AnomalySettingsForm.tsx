@@ -72,7 +72,7 @@ export function AnomalySettingsForm({
     value: number | boolean | AnomalyDirection | undefined,
   ) => {
     const next = { ...fieldOverrides };
-    next[field] = { ...(next[field] ?? {}), [key]: value };
+    next[field] = { ...next[field], [key]: value };
     onChange("fieldOverrides", next);
   };
 

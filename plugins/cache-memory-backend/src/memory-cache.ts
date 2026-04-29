@@ -70,6 +70,17 @@ export class InMemoryCache implements CacheProvider {
     this.store.delete(key);
   }
 
+  async deleteByPrefix(prefix: string): Promise<number> {
+    let removed = 0;
+    for (const key of this.store.keys()) {
+      if (key.startsWith(prefix)) {
+        this.store.delete(key);
+        removed++;
+      }
+    }
+    return removed;
+  }
+
   async has(key: string): Promise<boolean> {
     const entry = this.store.get(key);
     if (!entry) return false;

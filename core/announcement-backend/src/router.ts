@@ -13,6 +13,7 @@ import {
 import type { SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import { eq, and, or, lte, gte, isNull } from "drizzle-orm";
+import type { AnnouncementCache } from "./cache";
 
 type AnnouncementDb = SafeDatabase<typeof schema>;
 
@@ -44,6 +45,7 @@ function toAnnouncement(
 export function createAnnouncementRouter(
   db: AnnouncementDb,
   signalService: SignalService,
+  cache: AnnouncementCache,
 ) {
   const os = implement(announcementContract)
     .$context<RpcContext>()
@@ -55,51 +57,59 @@ export function createAnnouncementRouter(
     // -------------------------------------------------------------------------
     getActiveAnnouncements: os.getActiveAnnouncements.handler(
       async ({ input, context }) => {
-        const now = new Date();
         const includeDismissed = input?.includeDismissed ?? false;
-
-        // Base query: active announcements within their time window
-        const rows = await db
-          .select()
-          .from(schema.announcements)
-          .where(
-            and(
-              eq(schema.announcements.active, true),
-              or(
-                isNull(schema.announcements.startsAt),
-                lte(schema.announcements.startsAt, now),
-              ),
-              or(
-                isNull(schema.announcements.expiresAt),
-                gte(schema.announcements.expiresAt, now),
-              ),
-            ),
-          );
-
-        let announcements = rows.map((row) => toAnnouncement(row));
-
-        // If the caller is authenticated, filter out their dismissed announcements
-        // (unless includeDismissed is explicitly requested, e.g. for dashboard)
         const user = context.user;
-        if (!includeDismissed && user && "id" in user) {
-          const userId = (user as RealUser).id;
-          const dismissals = await db
-            .select({ announcementId: schema.announcementDismissals.announcementId })
-            .from(schema.announcementDismissals)
-            .where(eq(schema.announcementDismissals.userId, userId));
+        const userId =
+          user && "id" in user ? (user as RealUser).id : undefined;
 
-          const dismissedIds = new Set(dismissals.map((d) => d.announcementId));
-          announcements = announcements.filter((a) => !dismissedIds.has(a.id));
-        }
+        return cache.wrapActive({ userId, includeDismissed }, async () => {
+          const now = new Date();
 
-        // Filter visibility for unauthenticated users
-        if (!user) {
-          announcements = announcements.filter(
-            (a) => a.visibility === "all",
-          );
-        }
+          // Base query: active announcements within their time window
+          const rows = await db
+            .select()
+            .from(schema.announcements)
+            .where(
+              and(
+                eq(schema.announcements.active, true),
+                or(
+                  isNull(schema.announcements.startsAt),
+                  lte(schema.announcements.startsAt, now),
+                ),
+                or(
+                  isNull(schema.announcements.expiresAt),
+                  gte(schema.announcements.expiresAt, now),
+                ),
+              ),
+            );
 
-        return { announcements };
+          let announcements = rows.map((row) => toAnnouncement(row));
+
+          // If the caller is authenticated, filter out their dismissed announcements
+          // (unless includeDismissed is explicitly requested, e.g. for dashboard)
+          if (!includeDismissed && userId !== undefined) {
+            const dismissals = await db
+              .select({ announcementId: schema.announcementDismissals.announcementId })
+              .from(schema.announcementDismissals)
+              .where(eq(schema.announcementDismissals.userId, userId));
+
+            const dismissedIds = new Set(
+              dismissals.map((d) => d.announcementId),
+            );
+            announcements = announcements.filter(
+              (a) => !dismissedIds.has(a.id),
+            );
+          }
+
+          // Filter visibility for unauthenticated users
+          if (userId === undefined) {
+            announcements = announcements.filter(
+              (a) => a.visibility === "all",
+            );
+          }
+
+          return { announcements };
+        });
       },
     ),
 
@@ -132,20 +142,25 @@ export function createAnnouncementRouter(
             dismissedAt: new Date(),
           })
           .onConflictDoNothing();
+
+        // Drop only this user's cache — other users' dismissals are unaffected.
+        await cache.invalidateUserActive(userId);
       },
     ),
 
     // -------------------------------------------------------------------------
     // Admin: List all announcements
     // -------------------------------------------------------------------------
-    listAllAnnouncements: os.listAllAnnouncements.handler(async () => {
-      const rows = await db
-        .select()
-        .from(schema.announcements)
-        .orderBy(schema.announcements.createdAt);
+    listAllAnnouncements: os.listAllAnnouncements.handler(async () =>
+      cache.wrapListAll(async () => {
+        const rows = await db
+          .select()
+          .from(schema.announcements)
+          .orderBy(schema.announcements.createdAt);
 
-      return { announcements: rows.map((row) => toAnnouncement(row)) };
-    }),
+        return { announcements: rows.map((row) => toAnnouncement(row)) };
+      }),
+    ),
 
     // -------------------------------------------------------------------------
     // Admin: Create announcement
@@ -176,6 +191,11 @@ export function createAnnouncementRouter(
           .returning();
 
         const announcement = toAnnouncement(row);
+
+        await Promise.all([
+          cache.invalidateAllActive(),
+          cache.invalidateListAll(),
+        ]);
 
         await signalService.broadcast(ANNOUNCEMENT_UPDATED, {
           announcementId: announcement.id,
@@ -241,6 +261,11 @@ export function createAnnouncementRouter(
         .returning({ id: schema.announcements.id });
 
       if (result.length > 0) {
+        await Promise.all([
+          cache.invalidateAllActive(),
+          cache.invalidateListAll(),
+        ]);
+
         await signalService.broadcast(ANNOUNCEMENT_UPDATED, {
           announcementId: input.id,
           action: "deleted",

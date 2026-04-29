@@ -17,6 +17,16 @@ function createTestProvider(): CacheProvider & {
     delete: async (key: string) => {
       store.delete(key);
     },
+    deleteByPrefix: async (prefix: string) => {
+      let removed = 0;
+      for (const key of [...store.keys()]) {
+        if (key.startsWith(prefix)) {
+          store.delete(key);
+          removed++;
+        }
+      }
+      return removed;
+    },
     has: async (key: string) => store.has(key),
   };
 }
@@ -74,6 +84,25 @@ describe("createScopedCache", () => {
     // Underlying provider should have both prefixed keys
     expect(provider.store.has("plugin-a:shared-key")).toBe(true);
     expect(provider.store.has("plugin-b:shared-key")).toBe(true);
+  });
+
+  it("deleteByPrefix only removes keys under the scope's prefix", async () => {
+    const provider = createTestProvider();
+    const scopeA = createScopedCache({ pluginId: "a", provider });
+    const scopeB = createScopedCache({ pluginId: "b", provider });
+
+    await scopeA.set("bulk:1", "x");
+    await scopeA.set("bulk:2", "y");
+    await scopeA.set("other", "z");
+    await scopeB.set("bulk:1", "keep");
+
+    const removed = await scopeA.deleteByPrefix("bulk:");
+
+    expect(removed).toBe(2);
+    expect(await scopeA.has("bulk:1")).toBe(false);
+    expect(await scopeA.has("bulk:2")).toBe(false);
+    expect(await scopeA.has("other")).toBe(true);
+    expect(await scopeB.has("bulk:1")).toBe(true);
   });
 
   it("deleting from one scope does not affect the other", async () => {

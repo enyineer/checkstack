@@ -31,6 +31,7 @@ function createMockCache(baselineMap: Map<string, FieldBaseline> = new Map()): C
     get: mock(async (key: string) => baselineMap.get(key)) as CacheProvider["get"],
     set: mock(async () => {}),
     delete: mock(async () => {}),
+    deleteByPrefix: mock(async () => 0),
     has: mock(async () => false),
   };
 }

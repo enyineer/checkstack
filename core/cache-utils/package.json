@@ -1,0 +1,23 @@
+{
+  "name": "@checkstack/cache-utils",
+  "version": "0.1.0",
+  "checkstack": {
+    "type": "tooling"
+  },
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@checkstack/cache-api": "workspace:*"
+  },
+  "devDependencies": {
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/scripts": "workspace:*",
+    "@types/bun": "^1.0.0",
+    "typescript": "^5.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
+  }
+}

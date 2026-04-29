@@ -24,6 +24,7 @@ const nullProvider: CacheProvider = {
   get: async () => undefined,
   set: async () => {},
   delete: async () => {},
+  deleteByPrefix: async () => 0,
   has: async () => false,
 };
 

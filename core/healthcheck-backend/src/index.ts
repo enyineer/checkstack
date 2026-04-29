@@ -35,6 +35,7 @@ import { GitOpsApi } from "@checkstack/gitops-common";
 import { healthCheckHooks } from "./hooks";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { resolveRoute } from "@checkstack/common";
+import { createHealthCheckCache } from "./cache";
 
 // =============================================================================
 // Integration Event Payload Schemas
@@ -101,6 +102,9 @@ export default createBackendPlugin({
     let gitopsHealthCheckRegistry: HealthCheckRegistry | undefined;
     let gitopsCollectorRegistry: CollectorRegistry | undefined;
     let gitopsQueueManager: QueueManager | undefined;
+    let healthCheckCache:
+      | ReturnType<typeof createHealthCheckCache>
+      | undefined;
 
     const kindRegistry = env.getExtensionPoint(entityKindExtensionPoint);
     registerHealthcheckGitOpsKinds({
@@ -144,6 +148,7 @@ export default createBackendPlugin({
         rpcClient: coreServices.rpcClient,
         queueManager: coreServices.queueManager,
         signalService: coreServices.signalService,
+        cacheManager: coreServices.cacheManager,
       },
       // Phase 2: Register router and setup worker
       init: async ({
@@ -155,6 +160,7 @@ export default createBackendPlugin({
         rpcClient,
         queueManager,
         signalService,
+        cacheManager,
       }) => {
         logger.debug("🏥 Initializing Health Check Backend...");
 
@@ -176,6 +182,13 @@ export default createBackendPlugin({
         // Create gitops client for provenance lock checks
         const gitOpsClient = rpcClient.forPlugin(GitOpsApi);
 
+        // Per-entity status cache shared between the router, queue executor,
+        // and afterPluginsReady cleanup hooks. Mutations / new check results
+        // invalidate by systemId BEFORE emitting signals so frontend
+        // refetches see fresh data.
+        const cache = createHealthCheckCache({ cacheManager, logger });
+        healthCheckCache = cache;
+
         // Setup queue-based health check worker
         await setupHealthCheckWorker({
           db: database,
@@ -188,6 +201,7 @@ export default createBackendPlugin({
           maintenanceClient,
           incidentClient,
           getEmitHook: () => storedEmitHook,
+          cache,
         });
 
         // Setup retention job for tiered storage (daily aggregation)
@@ -203,6 +217,7 @@ export default createBackendPlugin({
           collectorRegistry,
           gitOpsClient,
           getEmitHook: () => storedEmitHook,
+          cache,
         });
         rpc.registerRouter(healthCheckRouter, healthCheckContract);
 
@@ -272,6 +287,7 @@ export default createBackendPlugin({
               `Cleaning up health check associations for deleted system: ${payload.systemId}`,
             );
             await service.removeAllSystemAssociations(payload.systemId);
+            await healthCheckCache?.invalidateSystem(payload.systemId);
           },
           { mode: "work-queue", workerGroup: "system-cleanup" },
         );
@@ -284,6 +300,9 @@ export default createBackendPlugin({
               `Scrubbing satellite ${payload.satelliteId} from health check associations`,
             );
             await service.scrubSatelliteFromAssociations(payload.satelliteId);
+            // Satellite removal can change the includedness of many systems'
+            // checks; invalidate everything since we don't know which.
+            await healthCheckCache?.invalidateAllSystems();
           },
           { mode: "work-queue", workerGroup: "satellite-cleanup" },
         );

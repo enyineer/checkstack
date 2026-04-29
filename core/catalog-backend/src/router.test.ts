@@ -2,6 +2,21 @@ import { describe, it, expect, mock } from "bun:test";
 import { createCatalogRouter } from "./router";
 import { createMockRpcContext } from "@checkstack/backend-api";
 import { call } from "@orpc/server";
+import type { CatalogCache } from "./cache";
+
+const passthroughCache: CatalogCache = {
+  wrapEntities: (loader) => loader(),
+  wrapSystems: (loader) => loader(),
+  wrapGroups: (loader) => loader(),
+  wrapSystem: (_systemId, loader) => loader(),
+  wrapGroupsForSystem: (_systemId, loader) => loader(),
+  wrapViews: (loader) => loader(),
+  wrapContacts: (_systemId, loader) => loader(),
+  invalidateTopology: async () => 0,
+  invalidateViews: async () => 0,
+  invalidateContacts: async () => {},
+  scope: {} as CatalogCache["scope"],
+};
 
 describe("Catalog Router - GitOps Provenance Enforcement", () => {
   const mockUser = {
@@ -39,6 +54,7 @@ describe("Catalog Router - GitOps Provenance Enforcement", () => {
     authClient: mockAuthClient as never,
     gitOpsClient: mockGitOpsClient as never,
     pluginId: "test-catalog",
+    cache: passthroughCache,
   });
 
   it("allows deleteSystem when GitOps lock is not present", async () => {

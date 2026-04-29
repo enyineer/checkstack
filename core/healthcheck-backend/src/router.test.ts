@@ -3,6 +3,14 @@ import { createHealthCheckRouter } from "./router";
 import { createMockRpcContext } from "@checkstack/backend-api";
 import { call } from "@orpc/server";
 import { z } from "zod";
+import type { HealthCheckCache } from "./cache";
+
+const passthroughCache: HealthCheckCache = {
+  wrapSystemHealthStatus: (_systemId, loader) => loader(),
+  invalidateSystem: async () => {},
+  invalidateAllSystems: async () => 0,
+  scope: {} as HealthCheckCache["scope"],
+};
 
 describe("HealthCheck Router", () => {
   const mockUser = {
@@ -60,6 +68,7 @@ describe("HealthCheck Router", () => {
     collectorRegistry: mockCollectorRegistry as never,
     gitOpsClient: mockGitOpsClient as never,
     getEmitHook: () => undefined,
+    cache: passthroughCache,
   });
 
   it("getStrategies returns strategies from registry", async () => {

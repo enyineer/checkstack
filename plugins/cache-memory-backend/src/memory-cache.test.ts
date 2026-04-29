@@ -152,6 +152,44 @@ describe("InMemoryCache", () => {
     });
   });
 
+  describe("deleteByPrefix", () => {
+    it("removes only keys starting with the prefix", async () => {
+      const cache = createCache();
+      await cache.set("incident:list:active", "a");
+      await cache.set("incident:get:1", "b");
+      await cache.set("incident:get:2", "c");
+      await cache.set("healthcheck:status:s1", "d");
+
+      const removed = await cache.deleteByPrefix("incident:get:");
+
+      expect(removed).toBe(2);
+      expect(await cache.has("incident:list:active")).toBe(true);
+      expect(await cache.has("incident:get:1")).toBe(false);
+      expect(await cache.has("incident:get:2")).toBe(false);
+      expect(await cache.has("healthcheck:status:s1")).toBe(true);
+    });
+
+    it("returns 0 when no keys match", async () => {
+      const cache = createCache();
+      await cache.set("foo", "bar");
+      expect(await cache.deleteByPrefix("nope:")).toBe(0);
+      expect(await cache.has("foo")).toBe(true);
+    });
+
+    it("treats expired entries as deletable", async () => {
+      const cache = createCache();
+      await cache.set("scope:a", "x", 1);
+      await cache.set("scope:b", "y");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Both keys are still in the underlying map (passive eviction);
+      // deleteByPrefix sweeps both regardless.
+      const removed = await cache.deleteByPrefix("scope:");
+      expect(removed).toBe(2);
+      expect(cache.size).toBe(0);
+    });
+  });
+
   describe("sweep", () => {
     it("periodic sweep removes expired entries", async () => {
       // Sweep every 10ms

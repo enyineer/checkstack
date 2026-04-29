@@ -35,6 +35,7 @@ export async function processCheckCompleted({
   timestamp: _timestamp,
   db,
   cache,
+  routerCache,
   logger,
   catalogClient,
   signalService,
@@ -48,6 +49,9 @@ export async function processCheckCompleted({
   timestamp: string;
   db: SafeDatabase<typeof schema>;
   cache: CacheProvider;
+  routerCache?: {
+    invalidateAnomalies: () => Promise<number>;
+  };
   logger: Logger;
   catalogClient: InferClient<typeof CatalogApi>;
   signalService?: SignalService;
@@ -244,6 +248,12 @@ export async function processCheckCompleted({
           })
           .returning({ id: schema.anomalies.id });
 
+        // Invalidate router-level cache before signal so dashboards that
+        // refetch in response see the new "suspicious" entry.
+        if (inserted) {
+          await routerCache?.invalidateAnomalies();
+        }
+
         // F8: Emit signal for state transition
         if (signalService && inserted) {
           await signalService.broadcast(ANOMALY_STATE_CHANGED, {
@@ -265,6 +275,8 @@ export async function processCheckCompleted({
             })
             .where(eq(schema.anomalies.id, existingAnomaly.id));
           logger.warn(`Anomaly confirmed for ${systemId} on ${path}`);
+
+          await routerCache?.invalidateAnomalies();
 
           // F8: Emit signal for state transition
           if (signalService) {
@@ -320,6 +332,8 @@ export async function processCheckCompleted({
             })
             .where(eq(schema.anomalies.id, existingAnomaly.id));
           logger.info(`Anomaly recovered for ${systemId} on ${path}`);
+
+          await routerCache?.invalidateAnomalies();
 
           // F8: Emit signal for state transition
           if (signalService) {

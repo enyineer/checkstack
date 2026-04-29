@@ -4,6 +4,16 @@ import { createMockRpcContext } from "@checkstack/backend-api";
 import { createMockDb } from "@checkstack/test-utils-backend";
 import { ANNOUNCEMENT_UPDATED } from "@checkstack/announcement-common";
 import { call } from "@orpc/server";
+import type { AnnouncementCache } from "./cache";
+
+const passthroughCache: AnnouncementCache = {
+  wrapActive: (_props, loader) => loader(),
+  wrapListAll: (loader) => loader(),
+  invalidateAllActive: async () => 0,
+  invalidateUserActive: async () => 0,
+  invalidateListAll: async () => {},
+  scope: {} as AnnouncementCache["scope"],
+};
 
 describe("Announcement Router", () => {
   const adminUser = {
@@ -48,7 +58,11 @@ describe("Announcement Router", () => {
   beforeEach(() => {
     mockDb = createMockDb();
     mockSignalService.broadcast.mockClear();
-    router = createAnnouncementRouter(mockDb as never, mockSignalService);
+    router = createAnnouncementRouter(
+      mockDb as never,
+      mockSignalService,
+      passthroughCache,
+    );
   });
 
   // ---------------------------------------------------------------------------

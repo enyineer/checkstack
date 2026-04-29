@@ -4,10 +4,12 @@ import type { AnomalyService } from "./service";
 import type { Logger } from "@checkstack/backend-api";
 import type { VersionedRecord } from "@checkstack/backend-api";
 import type { AnomalySettings } from "@checkstack/anomaly-common";
+import type { AnomalyRouterCache } from "./router-cache";
 
 export function createRouter(
   service: AnomalyService,
-  logger: Logger
+  logger: Logger,
+  cache: AnomalyRouterCache,
 ) {
   const os = implement(anomalyContract);
 
@@ -15,14 +17,18 @@ export function createRouter(
     getAnomalies: os.getAnomalies.handler(
       async ({ input }) => {
         logger.debug("Fetching anomalies", { input });
-        return await service.getAnomalies(input ?? {});
+        return cache.wrapAnomalies(input ?? {}, () =>
+          service.getAnomalies(input ?? {}),
+        );
       }
     ),
 
     getAnomalyBaselines: os.getAnomalyBaselines.handler(
       async ({ input }) => {
         logger.debug("Fetching anomaly baselines", { input });
-        return await service.getAnomalyBaselines(input);
+        return cache.wrapBaselines(input, () =>
+          service.getAnomalyBaselines(input),
+        );
       }
     ),
 
@@ -35,6 +41,13 @@ export function createRouter(
     updateAnomalyConfig: os.updateAnomalyConfig.handler(
       async ({ input }) => {
         const result = await service.updateAnomalyConfig(input.configurationId, input.config);
+        // Config updates can change which fields are flagged; drop both
+        // anomaly-list and baseline-list caches before returning so any
+        // immediate refetch by the admin UI sees fresh state.
+        await Promise.all([
+          cache.invalidateAnomalies(),
+          cache.invalidateBaselines(),
+        ]);
         return result as VersionedRecord<AnomalySettings>;
       }
     ),
@@ -50,6 +63,10 @@ export function createRouter(
     updateAnomalyAssignmentConfig: os.updateAnomalyAssignmentConfig.handler(
       async ({ input }) => {
         const result = await service.updateAnomalyAssignmentConfig(input.systemId, input.configurationId, input.config);
+        await Promise.all([
+          cache.invalidateAnomalies(),
+          cache.invalidateBaselines(),
+        ]);
         return result as VersionedRecord<Partial<AnomalySettings>>;
       }
     ),

@@ -10,6 +10,7 @@ import { resolveRoute } from "@checkstack/common";
 import { eq } from "drizzle-orm";
 import * as schema from "./schema";
 import { createAnnouncementRouter } from "./router";
+import { createAnnouncementCache, type AnnouncementCache } from "./cache";
 import { authHooks } from "@checkstack/auth-backend";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import type { SafeDatabase } from "@checkstack/backend-api";
@@ -21,18 +22,24 @@ export default createBackendPlugin({
     // Register access rules
     env.registerAccessRules(announcementAccessRules);
 
+    let announcementCache: AnnouncementCache | undefined;
+
     env.registerInit({
       schema,
       deps: {
         rpc: coreServices.rpc,
         logger: coreServices.logger,
         signalService: coreServices.signalService,
+        cacheManager: coreServices.cacheManager,
       },
-      init: async ({ database, rpc, signalService }) => {
+      init: async ({ database, rpc, signalService, logger, cacheManager }) => {
         const db = database as SafeDatabase<typeof schema>;
 
+        const cache = createAnnouncementCache({ cacheManager, logger });
+        announcementCache = cache;
+
         // Create and register the announcement router
-        const router = createAnnouncementRouter(db, signalService);
+        const router = createAnnouncementRouter(db, signalService, cache);
         rpc.registerRouter(router, announcementContract);
 
         // Register commands in the command palette
@@ -74,6 +81,7 @@ export default createBackendPlugin({
             await db
               .delete(schema.announcementDismissals)
               .where(eq(schema.announcementDismissals.userId, userId));
+            await announcementCache?.invalidateUserActive(userId);
             logger.debug(
               `Cleaned up announcement dismissals for user: ${userId}`,
             );

@@ -6,6 +6,7 @@ import * as schema from "./schema";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { AnomalyService } from "./service";
 import { createRouter } from "./router";
+import { createAnomalyRouterCache, type AnomalyRouterCache } from "./router-cache";
 import { anomalyContract, anomalyAccessRules } from "@checkstack/anomaly-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 
@@ -17,6 +18,11 @@ export const plugin = createBackendPlugin({
   }),
   register(env) {
     env.registerAccessRules(anomalyAccessRules);
+
+    // Shared between init (router) and afterPluginsReady (detector hook),
+    // so the detector can drop the router cache before broadcasting state
+    // change signals.
+    let routerCache: AnomalyRouterCache | undefined;
 
     env.registerInit({
       schema,
@@ -50,12 +56,13 @@ export const plugin = createBackendPlugin({
         });
 
         const service = new AnomalyService(typedDb);
-        const router = createRouter(service, logger);
+        routerCache = createAnomalyRouterCache({ cacheManager, logger });
+        const router = createRouter(service, logger, routerCache);
         rpc.registerRouter(router, anomalyContract);
 
         logger.debug("Anomaly Detection Backend initialized.");
       },
-      afterPluginsReady: async ({ onHook, db, logger, cacheManager, rpcClient, collectorRegistry }) => {
+      afterPluginsReady: async ({ onHook, db, logger, cacheManager, rpcClient, collectorRegistry, signalService }) => {
         const cache = cacheManager.getProvider();
         const typedDb = db as SafeDatabase<typeof schema>;
         const catalogClient = rpcClient.forPlugin(CatalogApi);
@@ -65,8 +72,10 @@ export const plugin = createBackendPlugin({
             ...payload,
             db: typedDb,
             cache,
+            routerCache,
             logger,
             catalogClient,
+            signalService,
             collectorRegistry,
           });
         });

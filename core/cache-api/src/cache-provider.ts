@@ -25,6 +25,14 @@ export interface CacheProvider {
   delete(key: string): Promise<void>;
 
   /**
+   * Delete every key starting with the given prefix.
+   * Used to invalidate a whole family of keys at once (e.g. all bulk results
+   * for a plugin). Returns the number of keys actually removed so callers
+   * can emit metrics.
+   */
+  deleteByPrefix(prefix: string): Promise<number>;
+
+  /**
    * Check if a key exists and has not expired.
    */
   has(key: string): Promise<boolean>;
@@ -53,6 +61,8 @@ export function createScopedCache({
     set: <T>(key: string, value: T, ttlMs?: number) =>
       provider.set<T>(`${prefix}${key}`, value, ttlMs),
     delete: (key: string) => provider.delete(`${prefix}${key}`),
+    deleteByPrefix: (innerPrefix: string) =>
+      provider.deleteByPrefix(`${prefix}${innerPrefix}`),
     has: (key: string) => provider.has(`${prefix}${key}`),
   };
 }

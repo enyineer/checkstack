@@ -13,6 +13,7 @@ import type { InferClient } from "@checkstack/common";
 import { catalogHooks } from "./hooks";
 import { eq } from "drizzle-orm";
 import { GitOpsApi } from "@checkstack/gitops-common";
+import type { CatalogCache } from "./cache";
 
 /**
  * Creates the catalog router using contract-based implementation.
@@ -30,6 +31,7 @@ export interface CatalogRouterDeps {
   authClient: InferClient<typeof AuthApi>;
   gitOpsClient: InferClient<typeof GitOpsApi>;
   pluginId: string;
+  cache: CatalogCache;
 }
 
 export const createCatalogRouter = ({
@@ -38,6 +40,7 @@ export const createCatalogRouter = ({
   authClient,
   gitOpsClient,
   pluginId,
+  cache,
 }: CatalogRouterDeps) => {
   const entityService = new EntityService(database);
 
@@ -95,55 +98,72 @@ export const createCatalogRouter = ({
   };
 
   // Implement each contract method
-  const getEntities = os.getEntities.handler(async () => {
-    const systems = await entityService.getSystems();
-    const groups = await entityService.getGroups();
-    // Cast to match contract - Drizzle json() returns unknown, but we expect Record | null
-    return {
-      systems: systems as unknown as Array<
-        (typeof systems)[number] & {
-          metadata: Record<string, unknown> | null;
-        }
-      >,
-      groups: groups as unknown as Array<
+  const getEntities = os.getEntities.handler(async () =>
+    cache.wrapEntities(async () => {
+      const systems = await entityService.getSystems();
+      const groups = await entityService.getGroups();
+      // Cast to match contract - Drizzle json() returns unknown, but we expect Record | null
+      return {
+        systems: systems as unknown as Array<
+          (typeof systems)[number] & {
+            metadata: Record<string, unknown> | null;
+          }
+        >,
+        groups: groups as unknown as Array<
+          (typeof groups)[number] & {
+            metadata: Record<string, unknown> | null;
+          }
+        >,
+      };
+    }),
+  );
+
+  const getSystems = os.getSystems.handler(async () =>
+    cache.wrapSystems(async () => {
+      const systems = await entityService.getSystems();
+      return {
+        systems: systems as unknown as Array<
+          (typeof systems)[number] & {
+            metadata: Record<string, unknown> | null;
+          }
+        >,
+      };
+    }),
+  );
+
+  const getSystem = os.getSystem.handler(async ({ input }) =>
+    cache.wrapSystem(input.systemId, async () => {
+      const system = await entityService.getSystem(input.systemId);
+      if (!system) {
+        // oRPC contract uses .nullable() which requires null
+        // eslint-disable-next-line unicorn/no-null
+        return null;
+      }
+      return system as typeof system & {
+        metadata: Record<string, unknown> | null;
+      };
+    }),
+  );
+
+  const getGroups = os.getGroups.handler(async () =>
+    cache.wrapGroups(async () => {
+      const groups = await entityService.getGroups();
+      return groups as unknown as Array<
         (typeof groups)[number] & { metadata: Record<string, unknown> | null }
-      >,
-    };
-  });
-
-  const getSystems = os.getSystems.handler(async () => {
-    const systems = await entityService.getSystems();
-    return {
-      systems: systems as unknown as Array<
-        (typeof systems)[number] & { metadata: Record<string, unknown> | null }
-      >,
-    };
-  });
-
-  const getSystem = os.getSystem.handler(async ({ input }) => {
-    const system = await entityService.getSystem(input.systemId);
-    if (!system) {
-      // oRPC contract uses .nullable() which requires null
-      // eslint-disable-next-line unicorn/no-null
-      return null;
-    }
-    return system as typeof system & {
-      metadata: Record<string, unknown> | null;
-    };
-  });
-
-  const getGroups = os.getGroups.handler(async () => {
-    const groups = await entityService.getGroups();
-    return groups as unknown as Array<
-      (typeof groups)[number] & { metadata: Record<string, unknown> | null }
-    >;
-  });
+      >;
+    }),
+  );
 
   const createSystem = os.createSystem.handler(async ({ input }) => {
     const result = await entityService.createSystem(input);
 
     // Create a notification group for this system
     await createNotificationGroup("system", result.id, result.name);
+
+    // Drop the topology cache before any downstream side-effect that might
+    // observe it (notification group creation already happened, but the
+    // hook chain in deleteSystem/etc. relies on this ordering).
+    await cache.invalidateTopology();
 
     return result as typeof result & {
       metadata: Record<string, unknown> | null;
@@ -170,6 +190,7 @@ export const createCatalogRouter = ({
         message: "System not found",
       });
     }
+    await cache.invalidateTopology();
     return result as typeof result & {
       metadata: Record<string, unknown> | null;
     };
@@ -181,6 +202,14 @@ export const createCatalogRouter = ({
 
     // Delete the notification group for this system
     await deleteNotificationGroup("system", input);
+
+    // Drop catalog topology + this system's contacts BEFORE the hook fires,
+    // so downstream plugins (e.g. healthcheck) and any frontend that
+    // refetches in response see fresh data.
+    await Promise.all([
+      cache.invalidateTopology(),
+      cache.invalidateContacts(input),
+    ]);
 
     // Emit hook for other plugins to clean up related data
     await context.emitHook(catalogHooks.systemDeleted, { systemId: input });
@@ -196,6 +225,8 @@ export const createCatalogRouter = ({
 
     // Create a notification group for this catalog group
     await createNotificationGroup("group", result.id, result.name);
+
+    await cache.invalidateTopology();
 
     // New groups have no systems yet
     return {
@@ -226,6 +257,7 @@ export const createCatalogRouter = ({
         message: "Group not found after update",
       });
     }
+    await cache.invalidateTopology();
     return fullGroup as unknown as typeof fullGroup & {
       metadata: Record<string, unknown> | null;
     };
@@ -238,6 +270,8 @@ export const createCatalogRouter = ({
     // Delete the notification group for this catalog group
     await deleteNotificationGroup("group", input);
 
+    await cache.invalidateTopology();
+
     // Emit hook for other plugins to clean up related data
     await context.emitHook(catalogHooks.groupDeleted, { groupId: input });
 
@@ -248,10 +282,11 @@ export const createCatalogRouter = ({
     // Note: We only enforce the lock on the System, not the Group.
     // This is because system-group associations are reconciled as a kindExtension
     // of the System kind. The Group reconciler does not touch associations.
-    // Thus, it is perfectly safe (and intended) to manually add an unlocked System 
+    // Thus, it is perfectly safe (and intended) to manually add an unlocked System
     // to a GitOps-managed Group.
     await enforceNotGitOpsLocked("System", input.systemId);
     await entityService.addSystemToGroup(input);
+    await cache.invalidateTopology();
     return { success: true };
   });
 
@@ -260,28 +295,34 @@ export const createCatalogRouter = ({
       // See addSystemToGroup for why we only check the System provenance lock.
       await enforceNotGitOpsLocked("System", input.systemId);
       await entityService.removeSystemFromGroup(input);
+      await cache.invalidateTopology();
       return { success: true };
     },
   );
 
-  const getViews = os.getViews.handler(async () => entityService.getViews());
+  const getViews = os.getViews.handler(async () =>
+    cache.wrapViews(() => entityService.getViews()),
+  );
 
   const createView = os.createView.handler(async ({ input }) => {
-    return entityService.createView({
+    const result = await entityService.createView({
       name: input.name,
       type: "custom",
       config: input.configuration as Record<string, unknown>,
     });
+    await cache.invalidateViews();
+    return result;
   });
 
   // System Contacts handlers
-  const getSystemContacts = os.getSystemContacts.handler(async ({ input }) => {
-    const rawContacts = await entityService.getContactsForSystem(
-      input.systemId,
-    );
+  const getSystemContacts = os.getSystemContacts.handler(async ({ input }) =>
+    cache.wrapContacts(input.systemId, async () => {
+      const rawContacts = await entityService.getContactsForSystem(
+        input.systemId,
+      );
 
-    // Resolve user profiles for user-type contacts
-    const enrichedContacts: SystemContact[] = await Promise.all(
+      // Resolve user profiles for user-type contacts
+      const enrichedContacts: SystemContact[] = await Promise.all(
       rawContacts.map(async (contact) => {
         if (contact.type === "user" && contact.userId) {
           // Resolve user profile via auth service
@@ -309,8 +350,9 @@ export const createCatalogRouter = ({
       }),
     );
 
-    return enrichedContacts;
-  });
+      return enrichedContacts;
+    }),
+  );
 
   const addSystemContact = os.addSystemContact.handler(async ({ input }) => {
     await enforceNotGitOpsLocked("System", input.systemId);
@@ -333,6 +375,8 @@ export const createCatalogRouter = ({
       email: input.type === "mailbox" ? input.email : undefined,
       label: input.label,
     });
+
+    await cache.invalidateContacts(input.systemId);
 
     // Return the enriched contact
     if (result.type === "user" && result.userId) {
@@ -366,6 +410,9 @@ export const createCatalogRouter = ({
         await enforceNotGitOpsLocked("System", contacts[0].systemId);
       }
       await entityService.removeContact(input);
+      if (contacts[0]) {
+        await cache.invalidateContacts(contacts[0].systemId);
+      }
       return { success: true };
     },
   );
@@ -420,14 +467,15 @@ export const createCatalogRouter = ({
    * Used by the dependency plugin for batched notification deduplication.
    */
   const getSystemGroupIds = os.getSystemGroupIds.handler(
-    async ({ input }) => {
-      const systemGroups = await database
-        .select({ groupId: schema.systemsGroups.groupId })
-        .from(schema.systemsGroups)
-        .where(eq(schema.systemsGroups.systemId, input.systemId));
+    async ({ input }) =>
+      cache.wrapGroupsForSystem(input.systemId, async () => {
+        const systemGroups = await database
+          .select({ groupId: schema.systemsGroups.groupId })
+          .from(schema.systemsGroups)
+          .where(eq(schema.systemsGroups.systemId, input.systemId));
 
-      return { groupIds: systemGroups.map((sg) => sg.groupId) };
-    },
+        return { groupIds: systemGroups.map((sg) => sg.groupId) };
+      }),
   );
 
   // Build and return the router
