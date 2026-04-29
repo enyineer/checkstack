@@ -10,7 +10,9 @@ import { HealthCheckConfigIDEPanelSlot } from "../slots";
 import {
   healthcheckRoutes,
   type CollectorConfigEntry,
+  DEFAULT_STATE_THRESHOLDS,
 } from "@checkstack/healthcheck-common";
+import { CatalogApi } from "@checkstack/catalog-common";
 import { PageLayout, Button, useToast, IDELayout, type ValidationIssue } from "@checkstack/ui";
 import { Save, Settings } from "lucide-react";
 import { resolveRoute, extractErrorMessage} from "@checkstack/common";
@@ -44,6 +46,8 @@ const HealthCheckIDEPageContent = () => {
 
   const isEditMode = !!configId && configId !== "new";
   const strategyIdFromUrl = searchParams.get("strategy") ?? undefined;
+  const systemIdFromUrl = searchParams.get("systemId") ?? undefined;
+  const catalogClient = usePluginClient(CatalogApi);
 
   // --- GitOps Provenance Lock ---
   const { isLocked, provenance } = useProvenanceLock({
@@ -79,6 +83,19 @@ const HealthCheckIDEPageContent = () => {
   const { collectors: availableCollectors, loading: collectorsLoading } =
     useCollectors(activeStrategyId ?? "");
 
+  // Fetch systems for assignment (only in create mode)
+  const { data: systemsData, isLoading: systemsLoading } =
+    catalogClient.getSystems.useQuery({}, { enabled: !isEditMode });
+  const systems = useMemo(
+    () =>
+      (systemsData?.systems ?? []).map((s) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+      })),
+    [systemsData],
+  );
+
   // --- Form State ---
 
   const [formState, setFormState] = useState<EditorFormState>({
@@ -94,6 +111,9 @@ const HealthCheckIDEPageContent = () => {
     Record<string, boolean>
   >({});
   const [isDirty, setIsDirty] = useState(false);
+  const [selectedSystemIds, setSelectedSystemIds] = useState<string[]>(
+    systemIdFromUrl ? [systemIdFromUrl] : [],
+  );
 
   // Initialize form from existing configuration (edit mode)
   useEffect(() => {
@@ -250,11 +270,55 @@ const HealthCheckIDEPageContent = () => {
 
   // --- Save ---
 
+  const associateMutation = healthCheckClient.associateSystem.useMutation();
+
   const createMutation = healthCheckClient.createConfiguration.useMutation({
-    onSuccess: () => {
+    onSuccess: async (created) => {
       setIsDirty(false);
-      toast.success("Health check created");
-      navigate(resolveRoute(healthcheckRoutes.routes.config));
+
+      // Fan-out: assign the new config to each selected system.
+      if (selectedSystemIds.length > 0 && created?.id) {
+        const results = await Promise.allSettled(
+          selectedSystemIds.map((systemId) =>
+            associateMutation.mutateAsync({
+              systemId,
+              body: {
+                configurationId: created.id,
+                enabled: true,
+                stateThresholds: DEFAULT_STATE_THRESHOLDS,
+                includeLocal: true,
+              },
+            }),
+          ),
+        );
+        const failed = results.filter((r) => r.status === "rejected").length;
+        if (failed > 0) {
+          toast.error(
+            `Health check created, but ${failed} of ${selectedSystemIds.length} system assignment${selectedSystemIds.length === 1 ? "" : "s"} failed.`,
+          );
+        } else {
+          toast.success(
+            `Health check created and assigned to ${selectedSystemIds.length} system${selectedSystemIds.length === 1 ? "" : "s"}`,
+          );
+        }
+      } else {
+        toast.success("Health check created");
+      }
+
+      // Where to land: prefer back to the originating system's assignment IDE
+      // when the user came from there, otherwise the config list.
+      if (
+        systemIdFromUrl &&
+        selectedSystemIds.includes(systemIdFromUrl)
+      ) {
+        navigate(
+          resolveRoute(healthcheckRoutes.routes.assignments, {
+            systemId: systemIdFromUrl,
+          }),
+        );
+      } else {
+        navigate(resolveRoute(healthcheckRoutes.routes.config));
+      }
     },
     onError: (error) => {
       toast.error(extractErrorMessage(error, "Failed to create"));
@@ -352,6 +416,8 @@ const HealthCheckIDEPageContent = () => {
             validationIssues={validationIssues}
             strategyId={activeStrategyId ?? ""}
             configId={configId}
+            showSystemsNode={!isEditMode}
+            selectedSystemCount={selectedSystemIds.length}
           />
         }
         panel={
@@ -378,6 +444,14 @@ const HealthCheckIDEPageContent = () => {
               onCollectorRemove={handleCollectorRemove}
               onCollectorAdd={handleCollectorAdd}
               strategyId={activeStrategyId ?? ""}
+              showSystemsSection={!isEditMode}
+              systems={systems}
+              systemsLoading={systemsLoading}
+              selectedSystemIds={selectedSystemIds}
+              onSystemsChange={(ids) => {
+                setSelectedSystemIds(ids);
+                setIsDirty(true);
+              }}
             />
             {configId && (
               <ExtensionSlot

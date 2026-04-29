@@ -3,7 +3,7 @@ import type {
   CollectorConfigEntry,
   CollectorDto,
 } from "@checkstack/healthcheck-common";
-import { Plus, Settings, Shield, ChevronRight } from "lucide-react";
+import { Plus, Settings, Shield, ChevronRight, Server } from "lucide-react";
 import { isBuiltInCollector } from "../../hooks/useCollectors";
 import {
   IDETreeNode,
@@ -20,6 +20,7 @@ import { HealthCheckConfigIDENodeSlot } from "../../slots";
 export type TreeNodeId =
   | "general"
   | "access"
+  | "systems"
   | "collector-picker"
   | `collector:${string}`
   | (string & {});
@@ -33,6 +34,8 @@ interface EditorTreeProps {
   validationIssues: ValidationIssue[];
   strategyId: string;
   configId?: string;
+  showSystemsNode?: boolean;
+  selectedSystemCount?: number;
 }
 
 // =============================================================================
@@ -47,6 +50,8 @@ export const EditorTree: React.FC<EditorTreeProps> = ({
   validationIssues,
   strategyId,
   configId,
+  showSystemsNode = false,
+  selectedSystemCount = 0,
 }) => {
   // Check if there are addable collectors remaining
   const hasAddableCollectors = useMemo(() => {
@@ -107,6 +112,23 @@ export const EditorTree: React.FC<EditorTreeProps> = ({
           <Plus className="h-4 w-4 shrink-0" />
           <span className="truncate">Add check item...</span>
         </button>
+      )}
+
+      {showSystemsNode && (
+        <>
+          <IDETreeSection label="Assignment" />
+          <IDETreeNode
+            nodeId="systems"
+            label="Systems"
+            icon={Server}
+            selected={selectedNode === "systems"}
+            onClick={() => onSelectNode("systems")}
+            issues={validationIssues}
+            badge={
+              selectedSystemCount > 0 ? String(selectedSystemCount) : undefined
+            }
+          />
+        </>
       )}
 
       {/* Access Control */}
