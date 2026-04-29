@@ -10,7 +10,14 @@ import { extractChartFields, getFieldValue } from "./schema-parser";
 import { useStrategySchemas } from "./useStrategySchemas";
 import type { HealthCheckDiagramSlotContext } from "../slots";
 import { SparklineTooltip } from "../components/SparklineTooltip";
-import { Badge, Card, CardContent, CardHeader, CardTitle } from "@checkstack/ui";
+import {
+  Badge,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  usePerformance,
+} from "@checkstack/ui";
 import {
   PieChart,
   Pie,
@@ -83,7 +90,7 @@ export function AutoChartGrid({ context }: AutoChartGridProps) {
   const collectorGroups = buildCollectorGroups(schemaFields, instanceMap);
 
   return (
-    <div className="space-y-6 mt-4">
+    <div className="mt-4 space-y-6">
       {/* Strategy-level fields */}
       {strategyFields.length > 0 && (
         <div className="space-y-4">
@@ -186,7 +193,7 @@ function CollectorGroup({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2 flex-wrap border-b pb-2">
+      <div className="flex flex-wrap items-center gap-2 pb-2 border-b">
         <h3 className="text-lg font-semibold capitalize">
           {group.displayName}
         </h3>
@@ -233,20 +240,28 @@ function CollectorGroup({
  * Returns array of results with timestamps/time spans in chronological order.
  * Uses bucket counts with time span from aggregated data.
  */
+interface AssertionResult {
+  passedCount: number;
+  failedCount: number;
+  errorMessage?: string;
+  timeLabel: string;
+  bucketStart: number;
+  bucketIntervalSeconds: number;
+}
+
 function getAllAssertionResults(
   context: HealthCheckDiagramSlotContext,
   _instanceKey: string,
-): { passed: boolean; errorMessage?: string; timeLabel?: string }[] {
+): AssertionResult[] {
   return context.buckets.map((bucket) => {
     const failedCount = bucket.degradedCount + bucket.unhealthyCount;
-    const passed = failedCount === 0;
+    const passedCount = bucket.healthyCount;
     const bucketStart = new Date(bucket.bucketStart);
     const bucketEnd = new Date(bucket.bucketEnd);
     const timeSpan = `${format(bucketStart, "MMM d, HH:mm")} - ${format(bucketEnd, "HH:mm")}`;
 
-    // Build detailed error message showing breakdown by type
     let errorMessage: string | undefined;
-    if (!passed) {
+    if (failedCount > 0) {
       const parts: string[] = [];
       if (bucket.unhealthyCount > 0) {
         parts.push(`${bucket.unhealthyCount} unhealthy`);
@@ -258,11 +273,181 @@ function getAllAssertionResults(
     }
 
     return {
-      passed,
+      passedCount,
+      failedCount,
       errorMessage,
       timeLabel: timeSpan,
+      bucketStart: bucketStart.getTime(),
+      bucketIntervalSeconds: bucket.bucketIntervalSeconds,
     };
   });
+}
+
+interface AssertionDatum {
+  bucketStart: number;
+  passed: number;
+  failed: number;
+  total: number;
+  timeLabel: string;
+  errorMessage?: string;
+}
+
+const MAX_ASSERTION_BARS = 50;
+
+function downsampleAssertion(results: AssertionResult[]): AssertionDatum[] {
+  if (results.length === 0) return [];
+
+  const groupSize = Math.max(1, Math.ceil(results.length / MAX_ASSERTION_BARS));
+  const out: AssertionDatum[] = [];
+
+  for (let i = 0; i < results.length; i += groupSize) {
+    const slice = results.slice(i, i + groupSize);
+    const first = slice[0];
+    let passed = 0;
+    let failed = 0;
+    const failureMessages: string[] = [];
+    for (const r of slice) {
+      passed += r.passedCount;
+      failed += r.failedCount;
+      if (r.errorMessage) failureMessages.push(r.errorMessage);
+    }
+    const startLabel = first.timeLabel.split(" - ")[0];
+    const endLabel = slice.at(-1)?.timeLabel.split(" - ").pop() ?? startLabel;
+    const timeLabel =
+      slice.length === 1 ? first.timeLabel : `${startLabel} – ${endLabel}`;
+
+    out.push({
+      bucketStart: first.bucketStart,
+      passed,
+      failed,
+      total: passed + failed,
+      timeLabel,
+      errorMessage:
+        failed > 0
+          ? failureMessages.length === 1
+            ? failureMessages[0]
+            : `${failed} of ${passed + failed} runs failed`
+          : undefined,
+    });
+  }
+
+  return out;
+}
+
+function AssertionSparkline({
+  results,
+  isLowPower,
+}: {
+  results: AssertionResult[];
+  isLowPower: boolean;
+}) {
+  const data = downsampleAssertion(results);
+  if (data.length === 0) return <></>;
+
+  const intervalSeconds = results[0]?.bucketIntervalSeconds ?? 3600;
+  const effectiveInterval =
+    intervalSeconds *
+    Math.max(1, Math.ceil(results.length / MAX_ASSERTION_BARS));
+  const tickFmt =
+    effectiveInterval >= 86_400
+      ? "MMM d"
+      : effectiveInterval >= 3600
+        ? "MMM d HH:mm"
+        : "HH:mm";
+
+  return (
+    <div className="w-full h-12">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart
+          data={data}
+          margin={{ top: 2, right: 2, left: 2, bottom: 0 }}
+          barCategoryGap={2}
+        >
+          <XAxis
+            dataKey="bucketStart"
+            tickFormatter={(value: number) => format(new Date(value), tickFmt)}
+            stroke="hsl(var(--muted-foreground))"
+            fontSize={10}
+            minTickGap={48}
+            tickLine={false}
+            axisLine={false}
+            interval="preserveStartEnd"
+          />
+          <YAxis hide domain={[0, "dataMax"]} />
+          <Tooltip
+            cursor={{ fill: "hsl(var(--muted))", fillOpacity: 0.3 }}
+            content={(props) => (
+              <AssertionTooltip
+                active={props.active}
+                payload={
+                  props.payload as unknown as
+                    | { payload: AssertionDatum }[]
+                    | undefined
+                }
+              />
+            )}
+          />
+          <Bar
+            dataKey="passed"
+            stackId="assertion"
+            fill="hsl(var(--success))"
+            isAnimationActive={!isLowPower}
+          />
+          <Bar
+            dataKey="failed"
+            stackId="assertion"
+            fill="hsl(var(--destructive))"
+            isAnimationActive={!isLowPower}
+          />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function AssertionTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: { payload: AssertionDatum }[];
+}) {
+  if (!active || !payload?.length) return <></>;
+  const datum = payload[0].payload;
+  const passRate =
+    datum.total > 0 ? Math.round((datum.passed / datum.total) * 100) : 0;
+  return (
+    <div
+      className="p-2 text-xs rounded-md shadow-md"
+      style={{
+        backgroundColor: "hsl(var(--popover))",
+        border: "1px solid hsl(var(--border))",
+        color: "hsl(var(--popover-foreground))",
+      }}
+    >
+      <p className="mb-1 text-muted-foreground">{datum.timeLabel}</p>
+      <div className="space-y-0.5">
+        <p>
+          <span style={{ color: "hsl(var(--success))" }}>●</span> Passed:{" "}
+          {datum.passed}
+        </p>
+        {datum.failed > 0 && (
+          <p>
+            <span style={{ color: "hsl(var(--destructive))" }}>●</span> Failed:{" "}
+            {datum.failed}
+          </p>
+        )}
+        {datum.total > 0 && (
+          <p className="pt-0.5 text-muted-foreground">{passRate}% passed</p>
+        )}
+        {datum.errorMessage && (
+          <p className="italic text-muted-foreground max-w-[240px] truncate">
+            {datum.errorMessage}
+          </p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -275,6 +460,7 @@ function AssertionStatusCard({
   context: HealthCheckDiagramSlotContext;
   instanceKey: string;
 }) {
+  const { isLowPower } = usePerformance();
   const results = getAllAssertionResults(context, instanceKey);
 
   if (results.length === 0) {
@@ -293,22 +479,28 @@ function AssertionStatusCard({
   }
 
   const latestResult = results.at(-1)!;
-  const passCount = results.filter((r) => r.passed).length;
-  const passRate = Math.round((passCount / results.length) * 100);
-  const allPassed = results.every((r) => r.passed);
-  const allFailed = results.every((r) => !r.passed);
+  const latestPassed = latestResult.failedCount === 0;
+  let totalPassed = 0;
+  let totalFailed = 0;
+  for (const r of results) {
+    totalPassed += r.passedCount;
+    totalFailed += r.failedCount;
+  }
+  const totalRuns = totalPassed + totalFailed;
+  const passRate =
+    totalRuns > 0 ? Math.round((totalPassed / totalRuns) * 100) : 100;
+  const allPassed = totalFailed === 0;
+  const allFailed = totalPassed === 0 && totalFailed > 0;
 
   return (
     <Card
-      className={
-        latestResult.passed ? "" : "border-red-200 dark:border-red-900"
-      }
+      className={latestPassed ? "" : "border-red-200 dark:border-red-900"}
     >
       <CardHeader className="pb-2">
         <CardTitle
-          className={`text-sm font-medium text-center ${latestResult.passed ? "" : "text-red-600"}`}
+          className={`text-sm font-medium text-center ${latestPassed ? "" : "text-red-600"}`}
         >
-          {latestResult.passed ? "Assertion" : "Assertion Failed"}
+          {latestPassed ? "Assertion" : "Assertion Failed"}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2 text-center">
@@ -316,13 +508,11 @@ function AssertionStatusCard({
         <div className="flex items-center justify-center gap-2">
           <div
             className={`w-3 h-3 rounded-full ${
-              latestResult.passed ? "bg-green-500" : "bg-red-500"
+              latestPassed ? "bg-green-500" : "bg-red-500"
             }`}
           />
-          <span
-            className={latestResult.passed ? "text-green-600" : "text-red-600"}
-          >
-            {latestResult.passed ? "Passed" : "Failed"}
+          <span className={latestPassed ? "text-green-600" : "text-red-600"}>
+            {latestPassed ? "Passed" : "Failed"}
           </span>
           {!allPassed && !allFailed && (
             <span className="text-xs text-muted-foreground">
@@ -332,29 +522,14 @@ function AssertionStatusCard({
         </div>
 
         {/* Error message if failed */}
-        {!latestResult.passed && latestResult.errorMessage && (
-          <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950 px-2 py-1 rounded truncate">
+        {!latestPassed && latestResult.errorMessage && (
+          <div className="px-2 py-1 text-sm text-red-600 truncate rounded bg-red-50 dark:bg-red-950">
             {latestResult.errorMessage}
           </div>
         )}
 
-        {/* Sparkline timeline - render each bucket as a bar */}
-        <div className="flex h-2 gap-px rounded">
-          {results.map((result, index) => {
-            const tooltip = result.timeLabel
-              ? `${result.timeLabel}\n${result.passed ? "Passed" : result.errorMessage || "Failed"}`
-              : result.passed
-                ? "Passed"
-                : "Failed";
-            return (
-              <SparklineTooltip key={index} content={tooltip}>
-                <div
-                  className={`flex-1 h-full ${result.passed ? "bg-green-500" : "bg-red-500"} hover:opacity-80`}
-                />
-              </SparklineTooltip>
-            );
-          })}
-        </div>
+        {/* Sparkline timeline - one bar per bucket, with cursor-tracking tooltip */}
+        <AssertionSparkline results={results} isLowPower={isLowPower} />
       </CardContent>
     </Card>
   );
@@ -556,7 +731,7 @@ function CounterRenderer({ field, context }: ChartRendererProps) {
       <div className="text-2xl font-bold">
         {value}
         {count > 1 && (
-          <span className="text-sm font-normal text-muted-foreground ml-2">
+          <span className="ml-2 text-sm font-normal text-muted-foreground">
             ({count}×)
           </span>
         )}
@@ -570,7 +745,7 @@ function CounterRenderer({ field, context }: ChartRendererProps) {
       {entries.slice(0, 5).map(([value, count]) => (
         <div key={value} className="flex items-center justify-between">
           <span className="font-mono text-sm">{value}</span>
-          <span className="text-muted-foreground text-sm">{count}×</span>
+          <span className="text-sm text-muted-foreground">{count}×</span>
         </div>
       ))}
       {entries.length > 5 && (
@@ -602,7 +777,7 @@ function GaugeRenderer({ field, context, baseline }: ChartRendererProps) {
   const data = [{ name: field.label, value: numValue, fill: fillColor }];
 
   return (
-    <div className="flex flex-col gap-2 items-center">
+    <div className="flex flex-col items-center gap-2">
       <div className="flex items-center justify-center gap-3">
         <ResponsiveContainer width={80} height={80}>
           <RadialBarChart
@@ -634,13 +809,21 @@ function GaugeRenderer({ field, context, baseline }: ChartRendererProps) {
             baseline.dominantValue !== null
           ) {
             let expectedNum = Number(baseline.dominantValue);
-            if (baseline.dominantValue === "true" || baseline.dominantValue === "false") {
-              const ratio = baseline.dominantRatio ?? (baseline.dominantValue === "true" ? 1 : 0);
-              expectedNum = baseline.dominantValue === "true" ? (ratio * 100) : ((1 - ratio) * 100);
+            if (
+              baseline.dominantValue === "true" ||
+              baseline.dominantValue === "false"
+            ) {
+              const ratio =
+                baseline.dominantRatio ??
+                (baseline.dominantValue === "true" ? 1 : 0);
+              expectedNum =
+                baseline.dominantValue === "true"
+                  ? ratio * 100
+                  : (1 - ratio) * 100;
             }
             if (!Number.isNaN(expectedNum)) {
               return (
-                <div className="text-xs text-muted-foreground mt-1">
+                <div className="mt-1 text-xs text-muted-foreground">
                   Expected: {expectedNum.toFixed(1)}
                   {unit}
                 </div>
@@ -652,7 +835,7 @@ function GaugeRenderer({ field, context, baseline }: ChartRendererProps) {
             const min = Math.max(0, baseline.mean - baseline.stdDev * 3);
             const max = baseline.mean + baseline.stdDev * 3;
             return (
-              <div className="text-xs text-muted-foreground mt-1">
+              <div className="mt-1 text-xs text-muted-foreground">
                 Expected: {baseline.mean.toFixed(1)}
                 {unit} (±{(baseline.stdDev * 3).toFixed(1)}) [{min.toFixed(1)} -{" "}
                 {max.toFixed(1)}]
@@ -764,7 +947,7 @@ function TextRenderer({ field, context, baseline }: ChartRendererProps) {
     <div className="space-y-2">
       {/* Current value with count */}
       <div className="flex items-center justify-center gap-2">
-        <span className="text-sm font-mono">{latestValue || "—"}</span>
+        <span className="font-mono text-sm">{latestValue || "—"}</span>
         {!allSame && (
           <span className="text-xs text-muted-foreground">
             ({latestCount}/{valuesWithTime.length}×)
@@ -866,7 +1049,7 @@ function StatusRenderer({ field, context }: ChartRendererProps) {
   }
 
   return (
-    <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950 px-2 py-1 rounded truncate">
+    <div className="px-2 py-1 text-sm text-red-600 truncate rounded bg-red-50 dark:bg-red-950">
       {String(value)}
     </div>
   );
@@ -907,11 +1090,14 @@ function LineChartRenderer({ field, context, baseline }: ChartRendererProps) {
   // — the same scalar the drift evaluator uses. Surfaced as a header chip rather
   // than a diagonal line because it's a rate, not an absolute value, and shares
   // no natural axis with the data series.
-  const projectedChange = baseline ? baseline.trendSlope * baseline.sampleCount : 0;
-  const showTrend = !!baseline && Math.abs(projectedChange) > 0.01;
-  const driftSigmas = baseline && baseline.stdDev > 0
-    ? Math.abs(projectedChange) / baseline.stdDev
+  const projectedChange = baseline
+    ? baseline.trendSlope * baseline.sampleCount
     : 0;
+  const showTrend = !!baseline && Math.abs(projectedChange) > 0.01;
+  const driftSigmas =
+    baseline && baseline.stdDev > 0
+      ? Math.abs(projectedChange) / baseline.stdDev
+      : 0;
   const isDrifting = driftSigmas >= 2;
 
   const chartData = valuesWithTime.map((item, index) => ({
@@ -923,25 +1109,37 @@ function LineChartRenderer({ field, context, baseline }: ChartRendererProps) {
   return (
     <div className="space-y-2">
       {baseline ? (
-        <div className="flex items-center justify-between text-xs px-1 gap-3">
-          <span className="text-warning font-medium">
-            Expected: {baseline.mean.toFixed(1)}{unit} (±{((baseline.stdDev / Math.sqrt(avgRunCount)) * 3).toFixed(1)})
+        <div className="flex items-center justify-between gap-3 px-1 text-xs">
+          <span className="font-medium text-warning">
+            Expected: {baseline.mean.toFixed(1)}
+            {unit} (±
+            {((baseline.stdDev / Math.sqrt(avgRunCount)) * 3).toFixed(1)})
           </span>
           <div className="flex items-center gap-3">
             {showTrend && (
-              <span className={isDrifting ? "text-warning font-medium" : "text-muted-foreground"}>
-                Trend: {projectedChange >= 0 ? "↑ +" : "↓ "}{projectedChange.toFixed(1)}{unit}
+              <span
+                className={
+                  isDrifting
+                    ? "text-warning font-medium"
+                    : "text-muted-foreground"
+                }
+              >
+                Trend: {projectedChange >= 0 ? "↑ +" : "↓ "}
+                {projectedChange.toFixed(1)}
+                {unit}
               </span>
             )}
             <span className="text-muted-foreground">
-              Avg: {avg.toFixed(1)}{unit}
+              Avg: {avg.toFixed(1)}
+              {unit}
             </span>
           </div>
         </div>
       ) : (
-        <div className="flex items-center justify-end text-xs px-1">
+        <div className="flex items-center justify-end px-1 text-xs">
           <span className="text-muted-foreground">
-            Avg: {avg.toFixed(1)}{unit}
+            Avg: {avg.toFixed(1)}
+            {unit}
           </span>
         </div>
       )}
@@ -992,8 +1190,7 @@ function LineChartRenderer({ field, context, baseline }: ChartRendererProps) {
             <ReferenceArea
               y1={Math.max(
                 0,
-                baseline.mean -
-                  (baseline.stdDev / Math.sqrt(avgRunCount)) * 3,
+                baseline.mean - (baseline.stdDev / Math.sqrt(avgRunCount)) * 3,
               )}
               y2={
                 baseline.mean + (baseline.stdDev / Math.sqrt(avgRunCount)) * 3
@@ -1021,13 +1218,13 @@ function LineChartRenderer({ field, context, baseline }: ChartRendererProps) {
               };
               return (
                 <div
-                  className="rounded-md border bg-popover p-2 text-sm shadow-md"
+                  className="p-2 text-sm border rounded-md shadow-md bg-popover"
                   style={{
                     backgroundColor: "hsl(var(--popover))",
                     border: "1px solid hsl(var(--border))",
                   }}
                 >
-                  <p className="text-xs text-muted-foreground mb-1">
+                  <p className="mb-1 text-xs text-muted-foreground">
                     {data.timeLabel}
                   </p>
                   <p className="font-medium">
@@ -1082,7 +1279,7 @@ function BarChartRenderer({ field, context }: ChartRendererProps) {
             const data = payload[0].payload as { name: string; value: number };
             return (
               <div
-                className="rounded-md border bg-popover p-2 text-sm shadow-md"
+                className="p-2 text-sm border rounded-md shadow-md bg-popover"
                 style={{
                   backgroundColor: "hsl(var(--popover))",
                   border: "1px solid hsl(var(--border))",
@@ -1172,7 +1369,7 @@ function PieChartRenderer({ field, context }: ChartRendererProps) {
               };
               return (
                 <div
-                  className="rounded-md border bg-popover p-2 text-sm shadow-md"
+                  className="p-2 text-sm border rounded-md shadow-md bg-popover"
                   style={{
                     backgroundColor: "hsl(var(--popover))",
                     border: "1px solid hsl(var(--border))",
