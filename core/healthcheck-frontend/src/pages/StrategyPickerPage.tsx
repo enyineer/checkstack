@@ -16,7 +16,7 @@ import {
   Badge,
 } from "@checkstack/ui";
 import { Search, Zap } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { resolveRoute } from "@checkstack/common";
 
 /**
@@ -61,6 +61,8 @@ function StrategyCard({
 const StrategyPickerPageContent = () => {
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const navigate = useNavigate();
+  const [urlParams] = useSearchParams();
+  const systemIdFromUrl = urlParams.get("systemId");
   const [searchQuery, setSearchQuery] = useState("");
 
   const { data: strategies = [] } = healthCheckClient.getStrategies.useQuery(
@@ -96,8 +98,13 @@ const StrategyPickerPageContent = () => {
   }, [strategies, searchQuery]);
 
   const handleSelectStrategy = (strategy: HealthCheckStrategyDto) => {
+    const params = new URLSearchParams();
+    params.set("strategy", strategy.id);
+    if (systemIdFromUrl) {
+      params.set("systemId", systemIdFromUrl);
+    }
     navigate(
-      `${resolveRoute(healthcheckRoutes.routes.edit, { configId: "new" })}?strategy=${encodeURIComponent(strategy.id)}`,
+      `${resolveRoute(healthcheckRoutes.routes.edit, { configId: "new" })}?${params.toString()}`,
     );
   };
 

@@ -8,6 +8,7 @@ import type { TreeNodeId } from "./EditorTree";
 import { GeneralSection } from "./GeneralSection";
 import { CollectorSection } from "./CollectorSection";
 import { CollectorPicker } from "./CollectorPicker";
+import { SystemsSection } from "./SystemsSection";
 import { TeamAccessEditor } from "@checkstack/auth-frontend";
 
 // =============================================================================
@@ -43,6 +44,11 @@ interface EditorPanelProps {
   onCollectorRemove: (entryId: string) => void;
   onCollectorAdd: (collectorId: string) => void;
   strategyId: string;
+  showSystemsSection?: boolean;
+  systems?: Array<{ id: string; name: string; description?: string | null }>;
+  systemsLoading?: boolean;
+  selectedSystemIds?: string[];
+  onSystemsChange?: (systemIds: string[]) => void;
 }
 
 // =============================================================================
@@ -67,6 +73,11 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   onCollectorRemove,
   onCollectorAdd,
   strategyId,
+  showSystemsSection = false,
+  systems = [],
+  systemsLoading = false,
+  selectedSystemIds = [],
+  onSystemsChange,
 }) => {
   // --- General Section ---
   if (selectedNode === "general") {
@@ -96,6 +107,20 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
           loading={collectorsLoading}
           onAdd={onCollectorAdd}
           strategyId={strategyId}
+        />
+      </div>
+    );
+  }
+
+  // --- Systems Section ---
+  if (selectedNode === "systems" && showSystemsSection) {
+    return (
+      <div className="p-6">
+        <SystemsSection
+          systems={systems}
+          selectedSystemIds={selectedSystemIds}
+          loading={systemsLoading}
+          onChange={(ids) => onSystemsChange?.(ids)}
         />
       </div>
     );

@@ -8,10 +8,11 @@ import {
   DEFAULT_RETENTION_CONFIG,
 } from "@checkstack/healthcheck-common";
 import type { StateThresholds } from "@checkstack/healthcheck-common";
-import { PageLayout, IDELayout, useToast, BackLink } from "@checkstack/ui";
-import { Settings } from "lucide-react";
+import { PageLayout, IDELayout, useToast, BackLink, Button } from "@checkstack/ui";
+import { Settings, Plus } from "lucide-react";
 import { extractErrorMessage, resolveRoute } from "@checkstack/common";
 import { catalogRoutes } from "@checkstack/catalog-common";
+import { healthcheckRoutes } from "@checkstack/healthcheck-common";
 import {
   AssignmentTree,
   type AssignmentNodeId,
@@ -480,11 +481,26 @@ const AssignmentIDEPageContent = () => {
       icon={Settings}
       maxWidth="full"
       actions={
-        <BackLink
-          onClick={() => navigate(resolveRoute(catalogRoutes.routes.config))}
-        >
-          Back to Systems
-        </BackLink>
+        <div className="flex items-center gap-2">
+          {!isLocked && systemId && (
+            <Button
+              size="sm"
+              onClick={() =>
+                navigate(
+                  `${resolveRoute(healthcheckRoutes.routes.create)}?systemId=${encodeURIComponent(systemId)}`,
+                )
+              }
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Create new check
+            </Button>
+          )}
+          <BackLink
+            onClick={() => navigate(resolveRoute(catalogRoutes.routes.config))}
+          >
+            Back to Systems
+          </BackLink>
+        </div>
       }
     >
       {isLocked && provenance && (
