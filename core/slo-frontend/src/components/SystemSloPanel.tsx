@@ -1,9 +1,8 @@
 import React from "react";
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
-import { useSignal } from "@checkstack/signal-frontend";
 import { SystemDetailsTopSlot } from "@checkstack/catalog-common";
 import { SloApi } from "../api";
-import { SLO_STATUS_CHANGED, sloRoutes } from "@checkstack/slo-common";
+import { sloRoutes } from "@checkstack/slo-common";
 import { resolveRoute } from "@checkstack/common";
 import { ErrorBudgetBar } from "./ErrorBudgetBar";
 import { BurnRateIndicator } from "./BurnRateIndicator";
@@ -19,17 +18,10 @@ type Props = SlotContext<typeof SystemDetailsTopSlot>;
 export const SystemSloPanel: React.FC<Props> = ({ system }) => {
   const sloClient = usePluginClient(SloApi);
 
-  const { data: objectives, refetch } =
-    sloClient.getObjectivesForSystem.useQuery(
-      { systemId: system?.id ?? "" },
-      { enabled: !!system?.id },
-    );
-
-  useSignal(SLO_STATUS_CHANGED, ({ systemId }) => {
-    if (system?.id && systemId === system.id) {
-      void refetch();
-    }
-  });
+  const { data: objectives } = sloClient.getObjectivesForSystem.useQuery(
+    { systemId: system?.id ?? "" },
+    { enabled: !!system?.id },
+  );
 
   if (!objectives || objectives.length === 0) return;
 

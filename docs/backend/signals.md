@@ -4,6 +4,8 @@
 
 The Signal Service provides realtime backend-to-frontend communication via WebSockets. It enables plugins to push typed events to connected clients, replacing polling mechanisms with instant updates.
 
+Every signal is owned by a single plugin (its `pluginId`). The pluginId travels alongside the signal id end-to-end — from `createSignal()` on the backend, through the WebSocket envelope, to the frontend `SignalAutoInvalidator` — so React Query caches keyed `[[pluginId]]` are invalidated automatically when a signal arrives. Components no longer need their own `useSignal(...)` calls just to refetch a query.
+
 ## Overview
 
 ```mermaid
@@ -13,18 +15,23 @@ graph LR
         SS --> EB[EventBus]
         EB --> WSH[WebSocket Handler]
     end
-    
+
     subgraph Frontend
         WSH --- WS((WebSocket))
         WS --- SP[SignalProvider]
+        SP --> AI[SignalAutoInvalidator]
+        AI --> QC[QueryClient<br/>invalidates &#91;&#91;pluginId&#93;&#93;]
         SP --> US[useSignal Hook]
-        US --> C[Component]
+        US --> C[Component<br/>local UI state]
     end
 ```
 
 ### Key Features
 
 - **Type-safe signals** with Zod schema validation
+- **Plugin-owned signals** — id, pluginId, and ownership encoded by the factory
+- **Automatic cache invalidation** — react-query `[[pluginId]]` keys are invalidated for every incoming signal, no per-component wiring required
+- **Cross-plugin opt-in** via `foreignSignals` for the rare case where one plugin's data depends on another plugin's signal
 - **Multi-instance coordination** via EventBus (works across backend replicas)
 - **Broadcast channels** for all clients (anonymous allowed)
 - **User-specific channels** for private messages (authentication required)
@@ -38,38 +45,48 @@ graph LR
 |---------|---------|
 | `@checkstack/signal-common` | Shared types, `Signal` interface, `createSignal()` factory |
 | `@checkstack/signal-backend` | `SignalServiceImpl`, WebSocket handler for Bun |
-| `@checkstack/signal-frontend` | React `SignalProvider` and `useSignal()` hook |
+| `@checkstack/signal-frontend` | React `SignalProvider`, `useSignal()`, `useSubscribeAllSignals()` |
+| `@checkstack/frontend` | `SignalAutoInvalidator` (mounted once near `QueryClientProvider`) |
 
 ---
 
 ## Defining Signals
 
-Signals are defined in `-common` packages using `createSignal()`:
+Signals are defined in `-common` packages using `createSignal()`. The factory takes a single object: the plugin's `pluginMetadata`, an `event` name, and the Zod `payloadSchema`. The signal id is constructed automatically as `${pluginMetadata.pluginId}.${event}`, and the resulting `Signal` carries a `pluginId` field.
 
 ```typescript
 import { createSignal } from "@checkstack/signal-common";
 import { z } from "zod";
+import { pluginMetadata } from "./plugin-metadata"; // pluginId: "notification"
 
-export const NOTIFICATION_RECEIVED = createSignal(
-  "notification.received",
-  z.object({
+export const NOTIFICATION_RECEIVED = createSignal({
+  pluginMetadata,
+  event: "received",
+  payloadSchema: z.object({
     id: z.string(),
     title: z.string(),
-    description: z.string(),
+    body: z.string(),
     importance: z.enum(["info", "warning", "critical"]),
-  })
-);
+  }),
+});
+// → { id: "notification.received", pluginId: "notification", payloadSchema: ... }
 ```
 
 ### Signal ID Naming Convention
 
-Use dot-notation: `{domain}.{action}`
+The id is always `${pluginId}.${event}`, enforced by the factory. Use lower-snake / lower-dot for the event part:
 
-Examples:
 - `notification.received`
-- `notification.countChanged`
-- `healthcheck.statusChanged`
-- `system.maintenanceScheduled`
+- `notification.count_changed`
+- `healthcheck.run.completed`
+- `healthcheck.system.status_changed`
+- `dependency.warnings.changed`
+
+> **Don't hand-roll signal ids.** Always use `createSignal({...})`. The id and `pluginId` field are what the auto-invalidator routes on; off-convention ids would break invalidation silently.
+
+### Framework-Level Signals
+
+`@checkstack/signal-common` itself defines `PLUGIN_INSTALLED` and `PLUGIN_DEREGISTERED` under the synthetic pluginId `"core"`. No plugin may register itself with the `core` pluginId.
 
 ---
 
@@ -87,6 +104,8 @@ const signalService = await services.get(coreServices.signalService);
 ```
 
 ### Emitting Signals
+
+The broadcast / sendToUser / sendToUsers / sendToAuthorizedUsers methods all read `signal.pluginId` and put it on the wire envelope automatically. Plugin code does not need to think about it.
 
 #### Broadcast (All Clients)
 
@@ -109,7 +128,7 @@ import { NOTIFICATION_RECEIVED } from "@checkstack/notification-common";
 await signalService.sendToUser(NOTIFICATION_RECEIVED, userId, {
   id: notificationId,
   title: "New message",
-  description: "You have a new notification",
+  body: "You have a new notification",
   importance: "info",
 });
 ```
@@ -120,7 +139,7 @@ await signalService.sendToUser(NOTIFICATION_RECEIVED, userId, {
 await signalService.sendToUsers(NOTIFICATION_RECEIVED, [user1, user2], {
   id: notificationId,
   title: "Team alert",
-  description: "Important update for the team",
+  body: "Important update for the team",
   importance: "warning",
 });
 ```
@@ -150,7 +169,7 @@ await signalService.sendToAuthorizedUsers(
   HEALTH_STATE_CHANGED,
   subscriberUserIds,
   { systemId, newState: "degraded" },
-  pluginMetadata,  // Typed PluginMetadata from common package
+  pluginMetadata,
   access.healthcheckStatusRead
 );
 ```
@@ -161,49 +180,91 @@ await signalService.sendToAuthorizedUsers(
 
 ## Frontend Usage
 
-### SignalProvider
+### SignalProvider + SignalAutoInvalidator
 
-The `SignalProvider` wraps the application and manages the WebSocket connection:
+`SignalProvider` opens a single shared WebSocket; `SignalAutoInvalidator` is mounted once inside it (and inside `QueryClientProvider`). The auto-invalidator subscribes to **every** incoming signal and invalidates `[[pluginId]]` on the React Query client. Both are wired in `core/frontend/src/App.tsx` and you should not need to change them.
 
 ```tsx
-// App.tsx
-import { SignalProvider } from "@checkstack/signal-frontend";
-
-function App() {
-  return (
-    <SignalProvider backendUrl={import.meta.env.VITE_API_BASE_URL}>
-      <YourApp />
-    </SignalProvider>
-  );
-}
+// core/frontend/src/App.tsx (excerpt)
+<QueryClientProvider client={queryClient}>
+  <ApiProvider registry={apiRegistry}>
+    <OrpcQueryProvider>
+      <SessionProvider>
+        <SignalProvider backendUrl={baseUrl}>
+          <SignalAutoInvalidator />
+          {/* ...rest of app */}
+        </SignalProvider>
+      </SessionProvider>
+    </OrpcQueryProvider>
+  </ApiProvider>
+</QueryClientProvider>
 ```
 
-### useSignal Hook
+### Default behaviour: do nothing
 
-Subscribe to signals in any component:
+For typical "I want my data to update when something changes" cases, plugin code does **not** need to subscribe to signals. Just write a normal `useQuery`:
+
+```tsx
+const { data } = anomalyClient.getAnomalies.useQuery({ systemId });
+```
+
+When the backend broadcasts `anomaly.state_changed`, the auto-invalidator will invalidate every query keyed `[["anomaly"]]`, and React Query refetches whatever is currently mounted. No `useSignal` call needed.
+
+### Cross-plugin reactivity: `foreignSignals`
+
+Sometimes one plugin's data depends on another plugin's signal. The classic example is the dependency map: dependency queries embed system health, so they must refetch when `healthcheck.system.status_changed` fires. Declare this on the plugin:
+
+```tsx
+// core/dependency-frontend/src/index.tsx
+import { createFrontendPlugin } from "@checkstack/frontend-api";
+import { pluginMetadata } from "@checkstack/dependency-common";
+import { SYSTEM_STATUS_CHANGED } from "@checkstack/healthcheck-common";
+
+export default createFrontendPlugin({
+  metadata: pluginMetadata, // pluginId: "dependency"
+
+  // SYSTEM_STATUS_CHANGED is owned by `healthcheck`. Listing it here means
+  // [["dependency"]] queries will ALSO be invalidated when it fires.
+  // Same-plugin signals (DEPENDENCY_*) must NOT be listed — they are
+  // auto-invalidated already.
+  foreignSignals: [SYSTEM_STATUS_CHANGED],
+
+  // ...routes, extensions, apis
+});
+```
+
+Rules:
+- **Pass actual `Signal` objects, not strings.** This stays type-safe through refactors.
+- **Do not list your own signals.** They are auto-invalidated; listing them here would no-op (still gets invalidated once) but adds noise.
+- **Use only when needed.** If your plugin's queries don't embed another plugin's data, you don't need `foreignSignals`.
+
+`foreignSignals` declarations are picked up immediately when a plugin is registered — including dynamically-loaded plugins via `PLUGIN_INSTALLED`.
+
+### `useSignal` — for genuine UI state, not for refetching
+
+`useSignal` still exists, but use it only when you need to do **something other than invalidate a query**. Concretely:
+- Append to an in-memory event log (e.g. dashboard activity terminal).
+- Update transient UI state that is not derivable from a query.
+- Trigger a side effect (toast, animation, scroll).
 
 ```tsx
 import { useSignal } from "@checkstack/signal-frontend";
-import { NOTIFICATION_RECEIVED } from "@checkstack/notification-common";
-import { useCallback } from "react";
+import { HEALTH_CHECK_RUN_COMPLETED } from "@checkstack/healthcheck-common";
 
-function NotificationBell() {
-  const [count, setCount] = useState(0);
-
-  useSignal(
-    NOTIFICATION_RECEIVED,
-    useCallback((payload) => {
-      // payload is fully typed!
-      console.log("New notification:", payload.title);
-      setCount((prev) => prev + 1);
-    }, [])
-  );
-
-  return <Badge count={count} />;
-}
+useSignal(HEALTH_CHECK_RUN_COMPLETED, ({ systemName, status, latencyMs }) => {
+  // Append to local terminal feed — not derivable from cache
+  setTerminalEntries((prev) => [
+    { systemName, status, latencyMs, timestamp: new Date() },
+    ...prev,
+  ].slice(0, MAX_ENTRIES));
+});
 ```
 
-> **Important**: Wrap the callback in `useCallback` to avoid unnecessary re-subscriptions.
+> **If your handler body is just `refetch()` or `queryClient.invalidateQueries(...)`, delete the handler.** The auto-invalidator already does it.
+
+### `useSubscribeAllSignals` — for advanced wildcard subscriptions
+
+`useSubscribeAllSignals` fires for every incoming signal with `{ signalId, pluginId, payload }`. It's used by `SignalAutoInvalidator` itself and is exported for niche cases (e.g. an admin debug page that prints every signal). Avoid it in normal plugin code.
 
 ### useSignalConnection Hook
 
@@ -214,7 +275,6 @@ import { useSignalConnection } from "@checkstack/signal-frontend";
 
 function ConnectionIndicator() {
   const { isConnected } = useSignalConnection();
-
   return (
     <div className={isConnected ? "text-green-500" : "text-red-500"}>
       {isConnected ? "Connected" : "Disconnected"}
@@ -235,8 +295,8 @@ ws://{backend-url}/api/signals/ws
 
 ### Authentication
 
-- **Anonymous connections allowed** - receive broadcast signals
-- **Authenticated connections** - receive broadcasts + private user channel
+- **Anonymous connections allowed** — receive broadcast signals
+- **Authenticated connections** — receive broadcasts + private user channel
 - Authentication uses the session cookie (same as HTTP requests)
 
 ### Message Types
@@ -246,7 +306,7 @@ ws://{backend-url}/api/signals/ws
 | Type | Description |
 |------|-------------|
 | `connected` | Connection confirmed, includes `userId` if authenticated |
-| `signal` | Signal payload with `signalId`, `payload`, `timestamp` |
+| `signal` | Signal payload — `signalId`, `pluginId`, `payload`, `timestamp` |
 | `pong` | Response to client ping |
 | `error` | Error message |
 
@@ -262,10 +322,11 @@ ws://{backend-url}/api/signals/ws
 // Server: Connection confirmed
 { "type": "connected", "userId": "user-123" }
 
-// Server: Signal received
+// Server: Signal received — note the explicit pluginId field
 {
   "type": "signal",
   "signalId": "notification.received",
+  "pluginId": "notification",
   "payload": { "id": "n-1", "title": "Hello" },
   "timestamp": "2024-01-15T12:00:00Z"
 }
@@ -284,12 +345,12 @@ graph TB
         SS1 --> EB1[EventBus]
         WSH1[WebSocket Handler] --> C1[Clients]
     end
-    
+
     subgraph "Backend Instance 2"
         WSH2[WebSocket Handler] --> C2[Clients]
         EB2[EventBus]
     end
-    
+
     EB1 <--> Q[(Queue/Redis)]
     Q <--> EB2
     EB2 --> WSH2
@@ -321,50 +382,41 @@ Bun's native pub/sub is used for efficient routing:
 Keep signal definitions in the `-common` package so both backend and frontend can import them:
 
 ```
-plugins/notification-common/src/signals.ts  # Define here
-plugins/notification-backend/src/service.ts # Emit here
-plugins/notification-frontend/src/...       # Consume here
+core/notification-common/src/signals.ts   # Define here
+core/notification-backend/src/service.ts  # Emit here
+core/notification-frontend/src/...        # Consume only if you need UI side-effects
 ```
 
-### 2. Use Specific Signal Types
+### 2. Trust the auto-invalidator
+
+For "data should refresh when X changes" cases, just keep the relevant signals firing on the backend and write normal queries on the frontend. Do not add `useSignal` handlers that only call `refetch()` or `queryClient.invalidateQueries(...)` — they are noise that the auto-invalidator covers automatically.
+
+### 3. Use Specific Signal Types
 
 Prefer multiple specific signals over one generic signal:
 
 ```typescript
 // ✅ Good
-const NOTIFICATION_RECEIVED = createSignal("notification.received", ...);
-const NOTIFICATION_READ = createSignal("notification.read", ...);
+const NOTIFICATION_RECEIVED = createSignal({ pluginMetadata, event: "received", payloadSchema: ... });
+const NOTIFICATION_READ     = createSignal({ pluginMetadata, event: "read",     payloadSchema: ... });
 
 // ❌ Avoid
-const NOTIFICATION_EVENT = createSignal("notification.event", z.object({
-  type: z.enum(["received", "read", ...]),
-  ...
-}));
+const NOTIFICATION_EVENT = createSignal({
+  pluginMetadata,
+  event: "event",
+  payloadSchema: z.object({ type: z.enum(["received", "read"]), ... }),
+});
 ```
 
-### 3. Handle Reconnection Gracefully
+### 4. Use `foreignSignals` sparingly
 
-The SignalProvider auto-reconnects, but components should handle the gap:
+If your plugin's `[[pluginId]]` queries truly embed data owned by another plugin (e.g. dependency map embedding system health), declare a `foreignSignals` entry. Don't use it as a hammer — most of the time, each plugin's data is independent.
 
-```tsx
-function NotificationBell() {
-  const { isConnected } = useSignalConnection();
-  
-  // Refetch on reconnection to catch missed signals
-  useEffect(() => {
-    if (isConnected) {
-      refetchNotifications();
-    }
-  }, [isConnected]);
-}
-```
-
-### 4. Emit Signals Asynchronously
+### 5. Emit Signals Asynchronously
 
 Use `void` to emit signals without blocking:
 
 ```typescript
-// Don't await if the caller doesn't need to wait
 if (signalService) {
   void signalService.sendToUser(NOTIFICATION_RECEIVED, userId, payload);
 }
@@ -401,36 +453,29 @@ DEBUG Relayed signal notification.received to user user-123
 
 ### Frontend Console
 
-Check WebSocket connection in browser DevTools:
-- Network tab → WS filter
-- Look for `/api/signals/ws`
+- Network tab → WS filter → `/api/signals/ws` to inspect the WebSocket frames (each `signal` message includes `signalId` and `pluginId`).
+- React Query Devtools → watch the `[[pluginId]]` queries flip to "fetching" the moment a signal arrives.
 
 ---
 
-## Migration from Polling
+## Migration: Removing Per-Component Signal Handlers
 
-To migrate an existing polling-based component:
-
-1. **Define signals** in the common package
-2. **Emit signals** from the backend where state changes
-3. **Replace polling** with `useSignal` in the frontend
-
-### Before (Polling)
+Before this architecture, components manually subscribed to signals just to invalidate their cache:
 
 ```tsx
-useEffect(() => {
-  const interval = setInterval(fetchCount, 60000);
-  return () => clearInterval(interval);
-}, []);
+// ❌ Before — pure cache invalidation, redundant
+const { data, refetch } = client.getThing.useQuery({ systemId });
+useSignal(THING_CHANGED, ({ systemIds }) => {
+  if (systemIds.includes(systemId)) void refetch();
+});
 ```
-
-### After (Signals)
 
 ```tsx
-useSignal(NOTIFICATION_COUNT_CHANGED, useCallback((payload) => {
-  setCount(payload.unreadCount);
-}, []));
+// ✅ After — auto-invalidator handles it
+const { data } = client.getThing.useQuery({ systemId });
 ```
+
+If you find a `useSignal` handler whose body is only a `refetch()` or `queryClient.invalidateQueries(...)`, delete it. If the signal is owned by a different plugin than the query you want to refresh, add it to `foreignSignals` on your plugin instead.
 
 ---
 
@@ -439,13 +484,26 @@ useSignal(NOTIFICATION_COUNT_CHANGED, useCallback((payload) => {
 ### signal-common
 
 ```typescript
-// Create a typed signal
-function createSignal<T>(id: string, payloadSchema: z.ZodType<T>): Signal<T>
+// Create a typed signal — id is always `${pluginId}.${event}`
+function createSignal<T>(props: {
+  pluginMetadata: PluginMetadata;
+  event: string;
+  payloadSchema: z.ZodType<T>;
+}): Signal<T>
 
 // Signal interface
 interface Signal<T> {
   id: string;
+  pluginId: string;
   payloadSchema: z.ZodType<T>;
+}
+
+// Wire envelope
+interface SignalMessage<T> {
+  signalId: string;
+  pluginId: string;
+  payload: T;
+  timestamp: string;
 }
 
 // SignalService interface
@@ -458,7 +516,7 @@ interface SignalService {
     userIds: string[],
     payload: T,
     pluginMetadata: PluginMetadata,
-    accessRule: AccessRule
+    accessRule: AccessRule,
   ): Promise<void>;
 }
 ```
@@ -466,20 +524,48 @@ interface SignalService {
 ### signal-frontend
 
 ```typescript
-// Provider component
+// Provider component (mounts the WebSocket)
 function SignalProvider(props: {
   children: React.ReactNode;
   backendUrl?: string;
 }): JSX.Element;
 
-// Subscribe to a signal
+// Subscribe to a single typed signal — use ONLY for non-cache UI side-effects.
 function useSignal<T>(
   signal: Signal<T>,
-  callback: (payload: T) => void
+  callback: (payload: T) => void,
 ): void;
 
-// Get connection status
+// Subscribe to ALL incoming signals (advanced; used by the auto-invalidator).
+type SignalAllCallback = (props: {
+  signalId: string;
+  pluginId: string;
+  payload: unknown;
+}) => void;
+
+function useSubscribeAllSignals(callback: SignalAllCallback): void;
+
+// Connection status
 function useSignalConnection(): { isConnected: boolean };
+```
+
+### frontend-api
+
+```typescript
+// Plugin definition gains a foreignSignals field
+interface FrontendPlugin {
+  metadata: PluginMetadata;
+  apis?: ApiFactory<unknown>[];
+  extensions?: Extension[];
+  routes?: PluginRoute[];
+
+  /**
+   * Foreign signals that should ALSO invalidate this plugin's [[pluginId]]
+   * cache when received. Same-plugin signals are auto-invalidated and must
+   * NOT be listed here.
+   */
+  foreignSignals?: Signal<unknown>[];
+}
 ```
 
 ---

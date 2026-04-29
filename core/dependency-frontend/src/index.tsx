@@ -8,6 +8,7 @@ import {
   dependencyRoutes,
   dependencyAccess,
 } from "@checkstack/dependency-common";
+import { SYSTEM_STATUS_CHANGED } from "@checkstack/healthcheck-common";
 import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
@@ -21,6 +22,10 @@ import { DependencyMenuItems } from "./components/DependencyMenuItems";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
+  // Dependency queries embed system health, so a system status change must
+  // also invalidate this plugin's cache. Same-plugin signals (DEPENDENCY_*)
+  // are auto-invalidated and must NOT be listed here.
+  foreignSignals: [SYSTEM_STATUS_CHANGED],
   routes: [
     {
       route: dependencyRoutes.routes.map,

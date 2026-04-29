@@ -4,11 +4,9 @@ import {
   usePluginClient,
   type SlotContext,
 } from "@checkstack/frontend-api";
-import { useSignal } from "@checkstack/signal-frontend";
 import { SystemEditorSlot } from "@checkstack/catalog-common";
 import {
   DependencyApi,
-  DEPENDENCY_CHANGED,
   dependencyRoutes,
   type Dependency,
   type ImpactType,
@@ -90,11 +88,6 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
     }
     return map;
   }, [systemsData]);
-
-  // Listen for realtime changes
-  useSignal(DEPENDENCY_CHANGED, () => {
-    void refetchDeps();
-  });
 
   const createMutation = depClient.createDependency.useMutation({
     onSuccess: () => {

@@ -201,6 +201,22 @@ extensions: [
 ]
 ```
 
+#### `foreignSignals` (optional)
+
+Cross-plugin realtime invalidation. The frontend `SignalAutoInvalidator` already invalidates `[[pluginId]]` for **every** signal owned by your plugin — you do not register your own signals here. Use `foreignSignals` only when your plugin's queries embed data owned by **another** plugin and must refetch when that plugin's signals fire.
+
+```typescript
+import { SYSTEM_STATUS_CHANGED } from "@checkstack/healthcheck-common";
+
+// dependency-frontend embeds system health status in its queries, so it
+// must refetch when healthcheck.system.status_changed fires.
+foreignSignals: [SYSTEM_STATUS_CHANGED],
+```
+
+Pass actual `Signal` objects, not strings. Same-plugin signals must NOT be listed.
+
+See [Signals](../backend/signals.md) for the full signal architecture.
+
 ## Using Plugin APIs in Components
 
 Components access plugin APIs using the `usePluginClient` hook with TanStack Query integration.

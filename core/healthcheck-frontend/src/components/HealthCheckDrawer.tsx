@@ -7,9 +7,7 @@ import {
   useApi,
   accessApiRef,
 } from "@checkstack/frontend-api";
-import { useSignal } from "@checkstack/signal-frontend";
 import {
-  HEALTH_CHECK_RUN_COMPLETED,
   HealthCheckApi,
   healthCheckAccess,
   healthcheckRoutes,
@@ -199,11 +197,8 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
   // Pagination for history table
   const pagination = usePagination({ defaultLimit: 5 });
 
-  const {
-    data: historyData,
-    isLoading: historyLoading,
-    refetch,
-  } = healthCheckClient.getHistory.useQuery({
+  const { data: historyData, isLoading: historyLoading } =
+    healthCheckClient.getHistory.useQuery({
     systemId,
     configurationId: item.configurationId,
     limit: pagination.limit,
@@ -225,13 +220,6 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
     prevRunsRef.current = rawRuns;
   }
   const runs = displayRuns;
-
-  // Realtime updates
-  useSignal(HEALTH_CHECK_RUN_COMPLETED, ({ systemId: changedId }) => {
-    if (changedId === systemId) {
-      void refetch();
-    }
-  });
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>

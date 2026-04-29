@@ -34,28 +34,31 @@ export { dependencyRoutes } from "./routes";
 
 import { createSignal } from "@checkstack/signal-common";
 import { z } from "zod";
+import { pluginMetadata } from "./plugin-metadata";
 
 /**
  * Broadcast when dependency definitions change (created, updated, deleted).
  * Frontend components can refetch the dependency graph.
  */
-export const DEPENDENCY_CHANGED = createSignal(
-  "dependency.changed",
-  z.object({
+export const DEPENDENCY_CHANGED = createSignal({
+  pluginMetadata,
+  event: "changed",
+  payloadSchema: z.object({
     dependencyId: z.string(),
     sourceSystemId: z.string(),
     targetSystemId: z.string(),
     action: z.enum(["created", "updated", "deleted"]),
   }),
-);
+});
 
 /**
  * Broadcast when computed dependency warnings change for one or more systems.
  * Badge components listen to this to refresh without polling.
  */
-export const DEPENDENCY_WARNINGS_CHANGED = createSignal(
-  "dependency.warnings.changed",
-  z.object({
+export const DEPENDENCY_WARNINGS_CHANGED = createSignal({
+  pluginMetadata,
+  event: "warnings.changed",
+  payloadSchema: z.object({
     affectedSystemIds: z.array(z.string()),
   }),
-);
+});

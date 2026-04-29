@@ -86,6 +86,7 @@ export function createWebSocketHandler(
         const payload: ServerToClientMessage = {
           type: "signal",
           signalId: message.signalId,
+          pluginId: message.pluginId,
           payload: message.payload,
           timestamp: message.timestamp,
         };
@@ -103,6 +104,7 @@ export function createWebSocketHandler(
         const payload: ServerToClientMessage = {
           type: "signal",
           signalId: message.signalId,
+          pluginId: message.pluginId,
           payload: message.payload,
           timestamp: message.timestamp,
         };

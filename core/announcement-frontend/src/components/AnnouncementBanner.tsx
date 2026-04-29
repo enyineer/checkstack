@@ -2,10 +2,8 @@ import React, { useState, useCallback } from "react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import {
   AnnouncementApi,
-  ANNOUNCEMENT_UPDATED,
   type Announcement,
 } from "@checkstack/announcement-common";
-import { useSignal } from "@checkstack/signal-frontend";
 import { MarkdownBlock } from "@checkstack/ui";
 import {
   Info,
@@ -183,15 +181,7 @@ export const AnnouncementBanner: React.FC = () => {
     getLocalDismissedIds(),
   );
 
-  const { data, isLoading, refetch } =
-    announcementClient.getActiveAnnouncements.useQuery();
-
-  // Refetch own query immediately + invalidate all announcement queries
-  // (including the dashboard's includeDismissed variant) for cross-component freshness.
-  // oRPC query keys are structured as [[...path], { type, input }].
-  useSignal(ANNOUNCEMENT_UPDATED, () => {
-    void refetch();
-  });
+  const { data, isLoading } = announcementClient.getActiveAnnouncements.useQuery();
 
   // Server-side dismiss — extract stable mutate function to avoid re-renders
   const { mutate: dismissOnServer } =

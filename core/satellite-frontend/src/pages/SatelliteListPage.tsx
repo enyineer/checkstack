@@ -5,11 +5,9 @@ import {
   useApi,
   wrapInSuspense,
 } from "@checkstack/frontend-api";
-import { useSignal } from "@checkstack/signal-frontend";
 import {
   SatelliteApi,
   satelliteAccess,
-  SATELLITE_STATUS_CHANGED,
 } from "@checkstack/satellite-common";
 import type { SatelliteWithStatus } from "@checkstack/satellite-common";
 import {
@@ -54,11 +52,6 @@ const SatelliteListPageContent: React.FC = () => {
     isLoading,
     refetch,
   } = satelliteClient.listSatellites.useQuery();
-
-  // Real-time status updates
-  useSignal(SATELLITE_STATUS_CHANGED, () => {
-    void refetch();
-  });
 
   const deleteMutation = satelliteClient.deleteSatellite.useMutation({
     onSuccess: () => {

@@ -1,8 +1,6 @@
 import React from "react";
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
-import { useSignal } from "@checkstack/signal-frontend";
 import { SystemStateBadgesSlot } from "@checkstack/catalog-common";
-import { SYSTEM_STATUS_CHANGED } from "@checkstack/healthcheck-common";
 import { HealthCheckApi } from "../api";
 import { HealthBadge } from "@checkstack/ui";
 import { useSystemBadgeDataOptional } from "@checkstack/dashboard-frontend";
@@ -17,37 +15,25 @@ type Props = SlotContext<typeof SystemStateBadgesSlot>;
  * When rendered within SystemBadgeDataProvider, uses bulk-fetched data.
  * Otherwise, falls back to individual fetch.
  *
- * Listens for realtime updates via signals.
+ * Realtime updates arrive via the SignalAutoInvalidator (auto-invalidates
+ * `[["healthcheck"]]` queries when SYSTEM_STATUS_CHANGED fires).
  */
 export const SystemHealthBadge: React.FC<Props> = ({ system }) => {
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const badgeData = useSystemBadgeDataOptional();
 
-  // Try to get data from provider first
   const providerData = badgeData?.getSystemBadgeData(system?.id ?? "");
   const providerStatus = providerData?.health?.status;
 
-  // Query for health status if not using provider
-  // When badgeData exists (inside provider), this query is disabled
-  const { data: healthData, refetch } =
-    healthCheckClient.getSystemHealthStatus.useQuery(
-      { systemId: system?.id ?? "" },
-      {
-        enabled: !badgeData && !!system?.id,
-        staleTime: 30_000, // Prevent unnecessary refetches
-      },
-    );
+  const { data: healthData } = healthCheckClient.getSystemHealthStatus.useQuery(
+    { systemId: system?.id ?? "" },
+    {
+      enabled: !badgeData && !!system?.id,
+      staleTime: 30_000,
+    },
+  );
 
   const localStatus = healthData?.status;
-
-  // Listen for realtime system status changes (only in fallback mode)
-  useSignal(SYSTEM_STATUS_CHANGED, ({ systemId: changedId }) => {
-    if (!badgeData && changedId === system?.id) {
-      void refetch();
-    }
-  });
-
-  // Use provider data if available, otherwise use local state
   const status = providerStatus ?? localStatus;
 
   if (!status || status === "healthy") return <></>;

@@ -74,35 +74,38 @@ export function useHealthCheckData({
     healthCheckAccess.details,
   );
 
-  // Always use aggregated data with fixed target points
-  const {
-    data: aggregatedData,
-    isLoading,
-    refetch,
-  } = healthCheckClient.getDetailedAggregatedHistory.useQuery(
-    {
-      systemId,
-      configurationId,
-      startDate: dateRange.startDate,
-      endDate: dateRange.endDate,
-      sourceFilter,
-      targetPoints: 500,
-    },
-    {
-      enabled: !!systemId && !!configurationId && hasAccess && !accessLoading,
-      // Keep previous data visible during refetch to prevent layout shift
-      placeholderData: (prev) => prev,
-    },
-  );
+  // Always use aggregated data with fixed target points.
+  // Realtime refetches happen via SignalAutoInvalidator (auto-invalidates
+  // `[["healthcheck"]]` on HEALTH_CHECK_RUN_COMPLETED).
+  const { data: aggregatedData, isLoading } =
+    healthCheckClient.getDetailedAggregatedHistory.useQuery(
+      {
+        systemId,
+        configurationId,
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
+        sourceFilter,
+        targetPoints: 500,
+      },
+      {
+        enabled: !!systemId && !!configurationId && hasAccess && !accessLoading,
+        // Keep previous data visible during refetch to prevent layout shift
+        placeholderData: (prev) => prev,
+      },
+    );
 
-  // Listen for realtime health check updates to refresh data silently
+  // For rolling presets, we still need an explicit signal handler to advance
+  // the endDate alongside cache invalidation — this is UI state (date range),
+  // not cache, so auto-invalidation is not enough.
   useSignal(HEALTH_CHECK_RUN_COMPLETED, ({ systemId: changedId }) => {
-    if (changedId === systemId && hasAccess && !accessLoading) {
-      // Update endDate to current time only for rolling presets (not custom ranges)
-      if (isRollingPreset && onDateRangeRefresh) {
-        onDateRangeRefresh(new Date());
-      }
-      void refetch();
+    if (
+      changedId === systemId &&
+      hasAccess &&
+      !accessLoading &&
+      isRollingPreset &&
+      onDateRangeRefresh
+    ) {
+      onDateRangeRefresh(new Date());
     }
   });
 

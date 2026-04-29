@@ -6,6 +6,7 @@ import type {
   PluginMetadata,
   AccessRule,
 } from "@checkstack/common";
+import type { Signal } from "@checkstack/signal-common";
 
 /**
  * Extract the context type from a SlotDefinition
@@ -68,6 +69,18 @@ export interface FrontendPlugin {
     factory: (deps: { get: <T>(ref: ApiRef<T>) => T }) => unknown;
   }[];
   routes?: PluginRoute[];
+
+  /**
+   * Foreign signals that should also invalidate this plugin's react-query
+   * cache (`[[pluginId]]`) when received. The signal's own plugin will already
+   * be auto-invalidated; this opts the current plugin in as well.
+   *
+   * Use ONLY for genuine cross-plugin reactivity (e.g. dependency-frontend
+   * needs to refetch when healthcheck status changes because dependency
+   * payloads embed system status). Same-plugin signals are handled
+   * automatically and must not be listed here.
+   */
+  foreignSignals?: Signal<unknown>[];
 }
 
 export function createFrontendPlugin(plugin: FrontendPlugin): FrontendPlugin {

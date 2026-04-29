@@ -34,16 +34,18 @@ export { incidentRoutes } from "./routes";
 
 import { createSignal } from "@checkstack/signal-common";
 import { z } from "zod";
+import { pluginMetadata } from "./plugin-metadata";
 
 /**
  * Broadcast when an incident is created, updated, or resolved.
  * Frontend components listening to this signal can refetch state for affected systems.
  */
-export const INCIDENT_UPDATED = createSignal(
-  "incident.updated",
-  z.object({
+export const INCIDENT_UPDATED = createSignal({
+  pluginMetadata,
+  event: "updated",
+  payloadSchema: z.object({
     incidentId: z.string(),
     systemIds: z.array(z.string()),
     action: z.enum(["created", "updated", "resolved", "deleted"]),
-  })
-);
+  }),
+});

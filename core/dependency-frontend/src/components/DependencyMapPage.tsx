@@ -15,13 +15,10 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { usePluginClient, wrapInSuspense } from "@checkstack/frontend-api";
-import { useSignal } from "@checkstack/signal-frontend";
 import { CatalogApi } from "@checkstack/catalog-common";
-import { HealthCheckApi, SYSTEM_STATUS_CHANGED } from "@checkstack/healthcheck-common";
+import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import {
   DependencyApi,
-  DEPENDENCY_CHANGED,
-  DEPENDENCY_WARNINGS_CHANGED,
   type Dependency,
   type NodePosition,
 } from "@checkstack/dependency-common";
@@ -137,12 +134,12 @@ function DependencyMapContent() {
       { enabled: systemIds.length > 0 },
     );
 
-  // Fetch real health statuses for all systems
-  const { data: healthData, refetch: refetchHealth } =
-    healthCheckClient.getBulkSystemHealthStatus.useQuery(
-      { systemIds },
-      { enabled: systemIds.length > 0 },
-    );
+  // Fetch real health statuses for all systems — kept fresh via SignalAutoInvalidator
+  // (foreignSignals declares SYSTEM_STATUS_CHANGED on the dependency plugin).
+  const { data: healthData } = healthCheckClient.getBulkSystemHealthStatus.useQuery(
+    { systemIds },
+    { enabled: systemIds.length > 0 },
+  );
 
   // Save positions mutation
   const saveMutation = depClient.saveNodePositions.useMutation({
@@ -380,20 +377,6 @@ function DependencyMapContent() {
 
     savePositions({ positions });
   }, [savePositions]);
-
-  // Listen for realtime dependency changes
-  useSignal(DEPENDENCY_CHANGED, () => {
-    void refetchDeps();
-  });
-
-  useSignal(DEPENDENCY_WARNINGS_CHANGED, () => {
-    void refetchWarnings();
-  });
-
-  useSignal(SYSTEM_STATUS_CHANGED, () => {
-    void refetchHealth();
-    void refetchWarnings();
-  });
 
   // Cleanup timeout on unmount
   useEffect(() => {

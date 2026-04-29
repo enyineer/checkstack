@@ -42,6 +42,7 @@ import {
   cn,
 } from "@checkstack/ui";
 import { SignalProvider } from "@checkstack/signal-frontend";
+import { SignalAutoInvalidator } from "./components/SignalAutoInvalidator";
 import { SessionProvider } from "@checkstack/auth-frontend";
 import { usePluginLifecycle } from "./hooks/usePluginLifecycle";
 import { useCommands, useGlobalShortcuts } from "@checkstack/command-frontend";
@@ -293,6 +294,7 @@ function AppWithApis() {
         <OrpcQueryProvider>
           <SessionProvider>
             <SignalProvider backendUrl={baseUrl}>
+              <SignalAutoInvalidator />
               <ToastProvider>
                 <PerformanceProvider>
                   <AppContent />

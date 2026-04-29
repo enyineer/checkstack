@@ -1,12 +1,10 @@
 import React from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { usePluginClient, wrapInSuspense } from "@checkstack/frontend-api";
-import { useSignal } from "@checkstack/signal-frontend";
 import { resolveRoute } from "@checkstack/common";
 import { IncidentApi } from "../api";
 import {
   incidentRoutes,
-  INCIDENT_UPDATED,
   type IncidentStatus,
 } from "@checkstack/incident-common";
 import { CatalogApi, catalogRoutes } from "@checkstack/catalog-common";
@@ -27,15 +25,12 @@ const SystemIncidentHistoryPageContent: React.FC = () => {
   const incidentClient = usePluginClient(IncidentApi);
   const catalogClient = usePluginClient(CatalogApi);
 
-  // Fetch incidents with useQuery
-  const {
-    data: incidentsData,
-    isLoading: incidentsLoading,
-    refetch: refetchIncidents,
-  } = incidentClient.listIncidents.useQuery(
-    { systemId, includeResolved: true },
-    { enabled: !!systemId },
-  );
+  // Fetch incidents with useQuery — kept fresh via SignalAutoInvalidator.
+  const { data: incidentsData, isLoading: incidentsLoading } =
+    incidentClient.listIncidents.useQuery(
+      { systemId, includeResolved: true },
+      { enabled: !!systemId },
+    );
 
   // Fetch systems with useQuery
   const { data: systemsData, isLoading: systemsLoading } =
@@ -45,13 +40,6 @@ const SystemIncidentHistoryPageContent: React.FC = () => {
   const systems = systemsData?.systems ?? [];
   const system = systems.find((s) => s.id === systemId);
   const loading = incidentsLoading || systemsLoading;
-
-  // Listen for realtime updates
-  useSignal(INCIDENT_UPDATED, ({ systemIds }) => {
-    if (systemId && systemIds.includes(systemId)) {
-      void refetchIncidents();
-    }
-  });
 
   const getStatusBadge = (status: IncidentStatus) => {
     switch (status) {

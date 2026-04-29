@@ -1,11 +1,8 @@
 import React from "react";
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
-import { useSignal } from "@checkstack/signal-frontend";
 import { SystemDetailsTopSlot } from "@checkstack/catalog-common";
 import {
   DependencyApi,
-  DEPENDENCY_CHANGED,
-  DEPENDENCY_WARNINGS_CHANGED,
   type DerivedState,
   type AffectedUpstream,
 } from "@checkstack/dependency-common";
@@ -79,22 +76,10 @@ function getImpactBadge(impactType: string): React.ReactNode {
 export const DependencyAlert: React.FC<Props> = ({ system }) => {
   const depClient = usePluginClient(DependencyApi);
 
-  const { data, refetch } = depClient.getWarningsForSystem.useQuery(
+  const { data } = depClient.getWarningsForSystem.useQuery(
     { systemId: system?.id ?? "" },
     { enabled: !!system?.id },
   );
-
-  // Listen for dependency graph changes
-  useSignal(DEPENDENCY_CHANGED, () => {
-    void refetch();
-  });
-
-  // Listen for warning re-evaluations
-  useSignal(DEPENDENCY_WARNINGS_CHANGED, ({ affectedSystemIds }) => {
-    if (system?.id && affectedSystemIds.includes(system.id)) {
-      void refetch();
-    }
-  });
 
   if (!data || data.affectedUpstreams.length === 0) return;
 

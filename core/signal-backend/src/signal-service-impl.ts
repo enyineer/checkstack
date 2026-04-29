@@ -40,6 +40,7 @@ export class SignalServiceImpl implements SignalService {
   async broadcast<T>(signal: Signal<T>, payload: T): Promise<void> {
     const message: SignalMessage<T> = {
       signalId: signal.id,
+      pluginId: signal.pluginId,
       payload,
       timestamp: new Date().toISOString(),
     };
@@ -57,6 +58,7 @@ export class SignalServiceImpl implements SignalService {
   ): Promise<void> {
     const message: SignalMessage<T> = {
       signalId: signal.id,
+      pluginId: signal.pluginId,
       payload,
       timestamp: new Date().toISOString(),
     };

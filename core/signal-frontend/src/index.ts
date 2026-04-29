@@ -1,5 +1,13 @@
 // Provider component
-export { SignalProvider, useSignalContext } from "./SignalProvider";
+export {
+  SignalProvider,
+  useSignalContext,
+  type SignalAllCallback,
+} from "./SignalProvider";
 
 // Hooks
-export { useSignal, useSignalConnection } from "./useSignal";
+export {
+  useSignal,
+  useSignalConnection,
+  useSubscribeAllSignals,
+} from "./useSignal";
