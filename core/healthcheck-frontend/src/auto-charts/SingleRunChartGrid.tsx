@@ -8,7 +8,7 @@
 import type { ChartField } from "./schema-parser";
 import { extractChartFields, getFieldValue } from "./schema-parser";
 import { useStrategySchemas } from "./useStrategySchemas";
-import { Card, CardContent, CardHeader, CardTitle } from "@checkstack/ui";
+import { Badge, Card, CardContent, CardHeader, CardTitle } from "@checkstack/ui";
 import { RadialBarChart, RadialBar, ResponsiveContainer } from "recharts";
 
 interface SingleRunChartGridProps {
@@ -62,7 +62,7 @@ export function SingleRunChartGrid({
     <div className="space-y-6">
       {/* Strategy-level fields */}
       {strategyFields.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="space-y-4">
           {strategyFields.map((field) => (
             <SingleValueCard
               key={field.name}
@@ -124,12 +124,13 @@ function CollectorSection({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-          {displayName}
-        </h4>
-        <span className="text-xs text-muted-foreground">
-          ({instanceId.slice(0, 8)})
+      <div className="flex items-center gap-2 flex-wrap border-b pb-2">
+        <h3 className="text-lg font-semibold capitalize">{displayName}</h3>
+        <Badge variant="outline" className="font-mono">
+          {collectorId}
+        </Badge>
+        <span className="text-xs text-muted-foreground font-mono">
+          {instanceId.slice(0, 8)}
         </span>
       </div>
 
@@ -165,7 +166,7 @@ function CollectorSection({
         </Card>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="space-y-4">
         {fields.map((field) => (
           <SingleValueCard
             key={field.name}
@@ -190,9 +191,11 @@ function SingleValueCard({ field, value }: SingleValueCardProps) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">{field.label}</CardTitle>
+        <CardTitle className="text-sm font-medium text-center">
+          {field.label}
+        </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-col items-center text-center [&>*]:w-full">
         <SingleValueRenderer field={field} value={value} />
       </CardContent>
     </Card>
@@ -292,7 +295,7 @@ function GaugeRenderer({ value, unit }: { value: unknown; unit?: string }) {
   const data = [{ name: "value", value: clampedValue, fill: fillColor }];
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center justify-center gap-3">
       <ResponsiveContainer width={80} height={80}>
         <RadialBarChart
           cx="50%"
@@ -330,7 +333,7 @@ function BooleanRenderer({ value }: { value: unknown }) {
   const boolValue = Boolean(value);
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center justify-center gap-2">
       <div
         className={`w-3 h-3 rounded-full ${
           boolValue ? "bg-green-500" : "bg-red-500"

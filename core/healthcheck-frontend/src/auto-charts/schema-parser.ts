@@ -108,12 +108,9 @@ function extractFieldsFromProperties(
     if (!chartType) continue;
 
     // Use just field name - collectorId is stored separately for data lookup
+    // and surfaced via a separate badge in the group header
     const field = extractSingleField(fieldName, prop);
     field.collectorId = collectorId;
-    // Prefix label with collector ID for clarity
-    if (!prop["x-chart-label"]?.includes(collectorId)) {
-      field.label = `${collectorId}: ${field.label}`;
-    }
     fields.push(field);
   }
 
