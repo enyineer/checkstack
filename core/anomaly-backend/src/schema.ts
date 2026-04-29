@@ -26,6 +26,9 @@ export const anomalyDirectionEnum = pgEnum("anomaly_direction", [
 
 export type AnomalyDirection = (typeof anomalyDirectionEnum.enumValues)[number];
 
+export const anomalyKindEnum = pgEnum("anomaly_kind", ["spike", "drift"]);
+export type AnomalyKind = (typeof anomalyKindEnum.enumValues)[number];
+
 export const anomalies = pgTable("anomalies", {
   id: uuid("id").primaryKey().defaultRandom(),
   systemId: text("system_id").notNull(),
@@ -35,6 +38,7 @@ export const anomalies = pgTable("anomalies", {
    */
   configurationId: uuid("configuration_id").notNull(),
   fieldPath: text("field_path").notNull(),
+  kind: anomalyKindEnum("kind").default("spike").notNull(),
   state: anomalyStateEnum("state").notNull(),
   direction: anomalyDirectionEnum("direction").notNull(),
   baselineValue: doublePrecision("baseline_value"),

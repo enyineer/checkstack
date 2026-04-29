@@ -1,172 +1,140 @@
 # Anomaly Detection for Health Check Results
 
-> **Status**: Design — Pending Implementation  
-> **Date**: 2026-04-28  
-> **Scope**: Phase 1 (Spike/Drop Detection) + Prerequisites  
-> **Future**: Phase 2 (Trend Drift) · Phase 3 (Cross-Metric Correlation)
+> **Status**: Phase 1 + Pre-req shipped · Phase 2 implemented · Phase 4 in progress  
+> **Date**: 2026-04-28 (initial design) · 2026-04-29 (Phase 2 + as-built reconciliation, Phase 3 dropped, Phase 4 promoted)  
+> **Scope**: Pre-req (Cache abstraction · Infrastructure UI) · Phase 1 (Spike/Drop) · Phase 2 (Trend Drift) · Phase 4 (Developer Documentation)  
+> **Dropped**: Phase 3 (Cross-Metric Correlation) — see §10 for rationale
 
 ## Overview
 
 Add adaptive, baseline-learning anomaly detection to Checkstack's health check system. Rather than relying on static thresholds, the engine continuously learns what "normal" looks like for each metric by analyzing historical data, computing statistical baselines, and tracking natural variance. It alerts only when behavior genuinely deviates beyond the learned noise floor — eliminating the alert fatigue caused by fixed threshold configurations.
 
-The system is **schema-driven**: it auto-infers anomaly detection behavior from existing `x-chart-*` metadata on result fields, with explicit overrides available for plugin authors and end-user operators.
+The system is **schema-driven**: detection behaviour is declared on each result field via `x-anomaly-*` metadata, with explicit overrides available to end-user operators. Plugin authors must explicitly opt fields in or out — the engine deliberately does *not* auto-infer behaviour from chart metadata, because misinference produces silent surprises that are hard to debug.
 
 ## Design Principles
 
-1. **Zero-config for 80% of metrics** — Auto-inference from existing chart metadata means most collectors get anomaly detection without any code changes.
-2. **Three-layer override model** — Engine defaults → Developer annotations → User UI configuration.
+1. **Explicit over implicit** — Plugin authors annotate every chartable field with explicit anomaly behaviour. The type system forces the choice; missing annotations are a compile error, not a silent default.
+2. **Three-layer override model** — Engine defaults → Schema annotations → User UI configuration.
 3. **No false positives over missed detections** — Adaptive noise floor + confirmation window ensures only real anomalies generate notifications.
 4. **Pure statistical core** — The detection engine is a stateless, side-effect-free module with deterministic inputs/outputs, enabling exhaustive unit testing.
-5. **Schema-driven extensibility** — All detection behavior is derived from schema metadata, ensuring new strategies and collectors automatically participate.
+5. **Schema-driven extensibility** — All detection behaviour is derived from schema metadata, so new strategies and collectors automatically participate.
 
 ---
 
 ## 1. Schema Extensions — The `x-anomaly-*` Metadata Family
 
-### 1.1 HealthResultMeta Additions
+### 1.1 HealthResultMeta — Discriminated Union
 
-Extend the existing `HealthResultMeta` interface in `core/common/src/chart-types.ts`:
+`HealthResultMeta` in [core/common/src/chart-types.ts](../../core/common/src/chart-types.ts) is a **discriminated union** rather than a flat interface. This forces plugin authors to make an explicit choice and lets the type system reject ambiguous schemas:
 
 ```typescript
-export interface HealthResultMeta {
-  // ... existing keys ...
-
-  /**
-   * Override the anomaly detection direction for this field.
-   * - "higher-is-better": Alert when value drops (e.g., success rate, availability)
-   * - "lower-is-better": Alert when value rises (e.g., latency, error count)
-   * - "deviation": Alert on any significant change in either direction (e.g., player count)
-   */
-  "x-anomaly-direction"?: "higher-is-better" | "lower-is-better" | "deviation";
-
-  /**
-   * Disable anomaly detection for this field entirely.
-   * Use for fields where value changes are expected (e.g., server version strings).
-   */
-  "x-anomaly-ignore"?: boolean;
-
-  /**
-   * Sensitivity multiplier for this field (default: 1.0).
-   * Higher values = fewer alerts (wider threshold).
-   * Lower values = more alerts (tighter threshold).
-   * Applied as: threshold = μ ± (3σ × sensitivity)
-   */
-  "x-anomaly-sensitivity"?: number;
-}
+type HealthResultMeta =
+  | ChartMetaAnomalyEnabled       // x-chart-type + x-anomaly-enabled: true (+ direction)
+  | ChartMetaAnomalyDisabled      // x-chart-type + x-anomaly-enabled: false
+  | NonChartMeta;                 // No x-chart-type — anomaly detection N/A
 ```
 
-### 1.2 Auto-Inference Rules
+When a field carries `x-chart-type`, it **must** also carry `x-anomaly-enabled`. When `x-anomaly-enabled: true`, it **must** also carry `x-anomaly-direction`.
 
-When no explicit `x-anomaly-*` metadata is present, the engine infers detection behavior from existing chart metadata:
+Available `x-anomaly-*` keys:
 
-| Chart Type | Unit Match | Inferred Direction | Rationale |
-|:-----------|:-----------|:-------------------|:----------|
-| `line` | Time units (`ms`, `s`, `sec`, `μs`, `ns`, `min`, `minutes`, `h`, `hours`, `d`, `days`, `w`, `weeks`) | `lower-is-better` | Duration/latency metrics |
-| `line` | `%` | `higher-is-better` | Percentage metrics (availability) |
-| `line` | Other / none | `deviation` | Unknown semantics, detect any change |
-| `gauge` | `%` | `higher-is-better` | Success rates, availability |
-| `gauge` | Other | `deviation` | Ambiguous direction |
-| `counter` | Any | `deviation` | Could be errors (lower) or pods (higher) |
-| `boolean` | — | Dominant state tracking | Alert on flip from dominant value |
-| `text` | — | Dominant state tracking | Alert on shift from stable value |
-| `status` | — | Dominant state tracking | Alert on shift from stable value |
+| Key | Type | Purpose |
+|:----|:-----|:--------|
+| `x-anomaly-enabled` | `true \| false` | Required when `x-chart-type` is present. `false` opts a chartable field out of anomaly detection. |
+| `x-anomaly-direction` | `"higher-is-better" \| "lower-is-better" \| "deviation" \| "dominance"` | Required when `enabled: true`. See §1.2. |
+| `x-anomaly-sensitivity` | `number` | Optional. Multiplier on threshold width (default `1.0`). Higher = fewer alerts. |
+| `x-anomaly-confirmation-window` | `number` | Optional. Consecutive runs required to escalate suspicious → anomaly (default `3`). |
+| `x-anomaly-drift-enabled` | `boolean` | Optional. Enable/disable trend drift detection for this specific field (default `true`). |
+| `x-anomaly-drift-threshold` | `number` | Optional. Drift trigger sigma multiplier (default `2`). See §5.3. |
 
-**Time unit detection set**:
-```typescript
-const TIME_UNITS = new Set(["ms", "s", "sec", "μs", "ns", "min", "minutes", "h", "hours", "d", "days", "w", "weeks"]);
-```
+### 1.2 Direction Semantics
 
-**Dominance-based detection** (boolean/text/status): These fields track a "dominance ratio" — the percentage of recent runs with the most common value. An anomaly fires when:
-1. The current value differs from the dominant value, AND
-2. The dominance ratio exceeds 90% (configurable)
+The four `x-anomaly-direction` values specify *what counts as an anomaly* for the field:
 
-This prevents false positives on fields that naturally alternate between states.
+| Direction | Numeric trigger | Use for |
+|:----------|:----------------|:--------|
+| `higher-is-better` | Value drops below `μ − Nσ` | Success rate, availability, signal strength |
+| `lower-is-better` | Value rises above `μ + Nσ` | Latency, error count, queue depth |
+| `deviation` | Value crosses `μ ± Nσ` in either direction | Player count, request rate (where either direction is meaningful) |
+| `dominance` | Categorical value differs from the dominant value when the baseline dominance ratio is high | `boolean`, `text`, `status` fields — alerts on a flip from the stable state |
+
+**Dominance details**: For categorical fields, the analyzer tracks the most common value across the baseline window and the ratio at which it occurs. An anomaly fires when the current value differs from `dominantValue` *and* `dominantRatio` exceeds a sensitivity-scaled floor (base 0.9, scaled by sensitivity — see [core/anomaly-common/src/engine/thresholds.ts](../../core/anomaly-common/src/engine/thresholds.ts):54). This prevents false positives on fields that naturally alternate between states.
 
 ### 1.3 Three-Layer Override Model
 
 | Layer | Who | How | Scope |
 |:------|:----|:----|:------|
-| **Layer 1** | Engine | Auto-infers from `x-chart-type` + `x-chart-unit` | All fields |
-| **Layer 2** | Plugin Developer | Annotates via `x-anomaly-*` on schema factories | Per field |
-| **Layer 3** | User/Operator | Configures via assignment-level UI settings | Per assignment + per field |
+| **Layer 1** | Engine | Defaults defined in `AnomalySettingsSchema` (sensitivity 1.0, confirmation window 3, baseline window 7d, etc.) | All fields |
+| **Layer 2** | Plugin Developer | Annotates via `x-anomaly-*` on schema factories | Per field, per chart type |
+| **Layer 3** | User/Operator | Configures via assignment-level UI settings (template config + per-assignment overrides + per-field overrides) | Per assignment + per field |
 
-Each layer overrides the previous. Layer 3 (user) always wins.
+Each layer overrides the previous. Field-level overrides always win over global overrides because they represent more specific intent — `resolveEffectiveConfig` in [core/anomaly-common/src/engine/config.ts](../../core/anomaly-common/src/engine/config.ts) implements the precedence order.
+
+> **Note**: An earlier design draft proposed *auto-inferring* direction from `x-chart-type` + `x-chart-unit`. This was deliberately removed during Phase 1 implementation (the `core/anomaly-common/src/engine/inference.ts` module was deleted) because misinference produced silent, hard-to-debug surprises. Plugin authors now declare intent explicitly.
 
 ---
 
-## 2. Prerequisites — CacheProvider Abstraction
+## 2. Prerequisites — CacheProvider Abstraction (shipped)
 
 ### 2.1 CacheProvider Interface
 
-Create a generic cache abstraction in `core/cache-api`:
+Defined in [core/cache-api/src/cache-provider.ts](../../core/cache-api/src/cache-provider.ts):
 
 ```typescript
 export interface CacheProvider {
   get<T>(key: string): Promise<T | undefined>;
   set<T>(key: string, value: T, ttlMs?: number): Promise<void>;
   delete(key: string): Promise<void>;
+  has(key: string): Promise<boolean>;
 }
 ```
 
-### 2.2 Scoped Cache Factory (Plugin Isolation)
+`has` was added during implementation so callers can distinguish "missing" from "stored as `undefined`" without paying for full deserialization.
 
-Plugins never receive the raw `CacheProvider` directly. Instead, the backend provides a **scoped factory function** during plugin initialization (following the existing Scoped Registry Pattern used by `HealthCheckRegistry`):
+### 2.2 CacheManager + Scoped Cache Factory
+
+Two concerns split:
+
+- **`CacheManager`** ([core/cache-api/src/cache-manager.ts](../../core/cache-api/src/cache-manager.ts)) — owns lifecycle and backend switching. Plugins call `cacheManager.getProvider()` to get the active provider; the platform replaces the underlying provider atomically when the operator changes the cache backend in the Infrastructure Configuration UI.
+- **`createScopedCache`** — namespacing layer. Each plugin receives a provider whose keys are automatically prefixed with the plugin id. Object-destructured signature per the project's argument-style rules:
 
 ```typescript
-// Platform provides this to plugins during init
-function createScopedCache(pluginId: string, provider: CacheProvider): CacheProvider {
-  return {
-    get: (key) => provider.get(`${pluginId}:${key}`),
-    set: (key, value, ttlMs) => provider.set(`${pluginId}:${key}`, value, ttlMs),
-    delete: (key) => provider.delete(`${pluginId}:${key}`),
-  };
-}
+export function createScopedCache({
+  pluginId,
+  provider,
+}: {
+  pluginId: string;
+  provider: CacheProvider;
+}): CacheProvider;
 ```
 
-**Plugin usage**:
+Plugin usage:
+
 ```typescript
-// In plugin init — receives a pre-scoped cache
-export default function init({ cache }: PluginContext) {
-  // Keys are automatically namespaced: "my-plugin:baseline:abc123"
-  await cache.set("baseline:abc123", baselineData, 3600_000);
+// In plugin init — receives a pre-scoped cache via cacheManager.getProvider()
+init: async ({ cacheManager }) => {
+  const cache = cacheManager.getProvider();
+  // Keys are automatically namespaced: "anomaly:baseline:abc123"
+  await cache.set("baseline:abc123", baselineData, 3_600_000);
   const data = await cache.get("baseline:abc123");
 }
 ```
 
-This ensures:
-- **Key isolation**: No collisions between plugins using the same key names
-- **Zero boilerplate**: Plugin authors don't need to remember to prefix keys
-- **Consistent with existing patterns**: Mirrors the scoped registry factory for strategy IDs
+Benefits: key isolation between plugins, zero boilerplate, consistent with the scoped registry pattern used by `HealthCheckRegistry`.
 
 ### 2.3 InMemoryCachePlugin (`plugins/cache-memory-backend`)
 
-Following the same pattern as `plugins/queue-memory-backend`, the in-memory cache implementation lives in a **plugin**, not in core. The `core/cache-api` package only defines the `CacheProvider` interface and `CachePlugin` contract — the actual implementation is pluggable.
+Mirrors `plugins/queue-memory-backend`: the in-memory implementation lives in a plugin, not in core. `core/cache-api` only defines the `CacheProvider` interface, the `CachePlugin` contract, and the `CacheManager`. The default implementation uses a `Map` with TTL-based eviction ([plugins/cache-memory-backend/src/memory-cache.ts](../../plugins/cache-memory-backend/src/memory-cache.ts)) and is suitable for single-instance deployments. A future `plugins/cache-redis-backend` can reuse the queue's Redis connection.
 
-Initial implementation uses a `Map` with TTL-based eviction. Suitable for single-instance deployments. A future `plugins/cache-redis-backend` can reuse the queue's Redis connection.
+### 2.4 Infrastructure Configuration UI
 
-### 2.4 Infrastructure Configuration UI (IDE Editor Pattern)
-
-The existing "Queue Configuration" page is redesigned into an **"Infrastructure Configuration"** page using the platform's **IDE Editor** UI pattern with tabs. Each infrastructure concern gets its own tab, and plugins can register additional tabs via extension slots.
+Implemented as a dedicated package, [core/infrastructure-frontend](../../core/infrastructure-frontend/), exposing `InfrastructureConfigPage` ([pages/InfrastructureConfigPage.tsx](../../core/infrastructure-frontend/src/pages/InfrastructureConfigPage.tsx)) — the IDE-Editor-style tabbed page that replaces the legacy Queue Configuration page.
 
 **Built-in tabs**:
-- **Queue** — Queue backend selection (BullMQ/Redis, In-Memory), concurrency, retry settings (migrated from the current Queue Config page)
-- **Cache** — Cache backend selection (In-Memory, future: Redis), TTL defaults, eviction policy
+- **Queue** — Queue backend selection (BullMQ/Redis, In-Memory), concurrency, retry settings.
+- **Cache** — Cache backend selection (In-Memory, future: Redis), TTL defaults.
 
-**Plugin extension**:
-The Infrastructure Configuration page and its slot definition live in a **core package** — either the existing `core/frontend` or a new dedicated `core/infrastructure-frontend` plugin. This makes it a platform-level extension point that feature plugins extend *into*, rather than being owned by any specific feature.
-
-Plugins register additional tabs via the slot (e.g., a future "Storage" tab for blob storage, or "Telemetry" for external metrics export):
-
-```typescript
-// Defined in core — the shell page and slot
-export const infrastructureConfigSlot = createSlotDefinition<{
-  label: string;
-  icon: React.ComponentType;
-  component: React.ComponentType;
-}>("infrastructure-config");
-```
-
-The built-in Queue and Cache tabs themselves are registered *through this same slot mechanism* — they are not hardcoded into the page. This ensures the pattern is dogfooded from day one.
+**Plugin extension**: tabs are registered through a slot (`createSlotDefinition`) so feature plugins can contribute additional tabs (e.g., a future "Storage" tab) without touching the core page. The Queue and Cache tabs themselves are registered through the same slot mechanism — the pattern is dogfooded from day one.
 
 **Auto-linking**: When Redis is configured for the queue, the cache tab auto-defaults to Redis (same connection) but can be configured independently.
 
@@ -178,6 +146,14 @@ The built-in Queue and Cache tabs themselves are registered *through this same s
 
 A pure, stateless module with zero dependencies on database, cache, or framework. All functions take explicit inputs and return deterministic outputs. **This is where 90% of unit tests live.**
 
+As-built modules:
+
+- [engine/baseline.ts](../../core/anomaly-common/src/engine/baseline.ts) — `computeMean`, `computeStdDev`, `computeLinearRegressionSlope`, `computeDominance`.
+- [engine/thresholds.ts](../../core/anomaly-common/src/engine/thresholds.ts) — `computeThresholds`, `isAnomalous`, `isCategoricalAnomalous`.
+- [engine/config.ts](../../core/anomaly-common/src/engine/config.ts) — `resolveEffectiveConfig`.
+- [engine/drift.ts](../../core/anomaly-common/src/engine/drift.ts) — `detectDrift` (Phase 2).
+- [schema.ts](../../core/anomaly-common/src/schema.ts) — Zod schemas for `AnomalyDirection`, `AnomalyState`, `AnomalyKind`, `FieldBaseline`, `AnomalyFieldConfig`, `AnomalySettings`.
+
 ### 3.2 Baseline Computation
 
 Runs in the background job. Uses a sliding window of hourly aggregated data (default: 7 days, configurable per assignment).
@@ -187,10 +163,12 @@ For each monitored numeric field, computes:
 | Metric | Formula | Purpose |
 |:-------|:--------|:--------|
 | **Mean (μ)** | `Σ values / n` | Expected value |
-| **Standard Deviation (σ)** | `√(Σ(value - μ)² / n)` | Natural noise floor |
-| **Trend coefficient** | Linear regression slope | Phase 2: drift detection |
+| **Standard Deviation (σ)** | `√(Σ(value − μ)² / n)` | Natural noise floor |
+| **Trend slope** | Linear regression slope on chronologically ordered values | Phase 2: drift detection |
 
-**Stored as a lightweight JSON baseline object**:
+For categorical fields (`x-anomaly-direction: "dominance"`), also computes `dominantValue` and `dominantRatio` via `computeDominance`.
+
+**Stored as `FieldBaseline`**:
 
 ```typescript
 interface FieldBaseline {
@@ -198,19 +176,19 @@ interface FieldBaseline {
   mean: number;
   /** The natural variance */
   stdDev: number;
-  /** Linear regression slope (for Phase 2) */
+  /** Linear regression slope (Phase 2 drift detection) */
   trendSlope: number;
   /** Number of data points used */
   sampleCount: number;
   /** When this baseline was last computed */
   computedAt: string; // ISO timestamp
   /** Dominance tracking for boolean/text/status fields */
-  dominantValue?: string | boolean;
+  dominantValue?: string | boolean | number;
   dominantRatio?: number;
 }
 ```
 
-Baselines are persisted to the database and cached via the `CacheProvider` for fast inline lookups.
+Baselines are persisted to the `anomaly_baselines` table and cached via the `CacheProvider` (key `baseline:${configurationId}:${systemId}:${fieldPath}`) for fast inline lookups.
 
 ### 3.3 Detection Thresholds
 
@@ -249,26 +227,29 @@ The anomaly engine is the most test-critical module. Required test coverage:
 
 ### 4.1 Data Model
 
-New database table `anomalies`:
+`anomalies` table ([core/anomaly-backend/src/schema.ts](../../core/anomaly-backend/src/schema.ts)):
 
 | Column | Type | Description |
 |:-------|:-----|:------------|
 | `id` | UUID | Primary key |
-| `systemId` | UUID (FK) | Affected system |
-| `assignmentId` | UUID (FK) | Health check assignment that detected it |
-| `fieldPath` | String | Specific metric path (e.g., `collectors.request-abc.responseTimeMs`) |
-| `state` | Enum | `suspicious`, `anomaly`, `recovered` |
-| `direction` | Enum | `above`, `below`, `changed` |
-| `baselineValue` | Number | Expected value (μ) at detection time |
-| `baselineStdDev` | Number | Noise floor (σ) at detection time |
-| `observedValue` | Number/String | Actual value that triggered detection |
-| `deviation` | Number | How many σ from baseline |
-| `suspiciousRunCount` | Number | Consecutive anomalous runs while suspicious |
-| `confirmationThreshold` | Number | Runs required for confirmation (snapshot at creation) |
-| `startedAt` | Timestamp | When the metric first deviated |
-| `confirmedAt` | Timestamp | When it escalated to anomaly (nullable) |
-| `recoveredAt` | Timestamp | When it returned to normal (nullable) |
-| `metadata` | JSONB | Additional context (trend data, related anomalies) |
+| `systemId` | text | Affected system |
+| `configurationId` | UUID | Health check configuration that detected it |
+| `fieldPath` | text | Specific metric path (e.g., `collectors.request-abc.responseTimeMs`) |
+| `kind` | Enum (`spike` \| `drift`) | Phase 1 spikes vs Phase 2 drifts. Default `spike` for backward compatibility. |
+| `state` | Enum (`suspicious` \| `anomaly` \| `recovered`) | Lifecycle state |
+| `direction` | Enum (`above` \| `below` \| `changed`) | Which side of the baseline triggered |
+| `baselineValue` | double | Expected value (μ) at detection time (nullable) |
+| `baselineStdDev` | double | Noise floor (σ) at detection time (nullable) |
+| `observedValue` | text | Actual value that triggered detection (stringified) |
+| `deviation` | double | How many σ from baseline (or σ-of-projected-change for drift) |
+| `suspiciousRunCount` | integer | Consecutive anomalous observations while suspicious |
+| `confirmationThreshold` | integer | Runs required for confirmation (snapshot at creation) |
+| `startedAt` | timestamp | When the metric first deviated |
+| `confirmedAt` | timestamp | When it escalated to anomaly (nullable) |
+| `recoveredAt` | timestamp | When it returned to normal (nullable) |
+| `metadata` | jsonb | Additional context (trend data, related anomalies) |
+
+Uniqueness: at most one open anomaly row per `(systemId, configurationId, fieldPath, kind)` — spikes and drifts on the same metric are tracked independently.
 
 ### 4.2 State Machine
 
@@ -330,24 +311,53 @@ Runs on the health check execution path, immediately after assertion evaluation:
 Runs as a scheduled background job (default: every hour):
 
 1. For each active health check assignment with anomaly detection enabled:
-   - Query hourly aggregated data for the sliding window
-   - Compute baselines (mean, σ, trend slope) for each monitored field
-   - Persist baselines to database and update cache
-2. Detect slow drifts (Phase 2): If trend slope exceeds threshold over the window
-3. Cross-metric correlation (Phase 3): Identify correlated anomaly patterns across systems
+   - Query hourly aggregated data for the sliding window via `getRunsForAnalysis` ([core/healthcheck-backend/src/service.ts](../../core/healthcheck-backend/src/service.ts)).
+   - Reverse to chronological order.
+   - Compute baselines (mean, σ, trend slope, dominance) for each monitored field.
+   - Persist baselines to `anomaly_baselines` and update the cache.
+   - Run `evaluateDrift` per field (see §5.3) to advance the drift state machine.
+2. Cross-metric correlation (Phase 3, future): Identify correlated anomaly patterns across systems.
+
+### 5.3 Drift Evaluator (Phase 2)
+
+Drift is a property of the *windowed baseline*, not of any single observation, so detection runs in the analyzer rather than the inline path.
+
+For each numeric field with a freshly computed baseline:
+
+1. Look up the schema-declared `direction` and the user-effective config (`enabled`, `sensitivity`, `driftEnabled`, `driftThreshold`) via `resolveEffectiveConfig`.
+2. Skip when `driftEnabled` is false, `direction === "dominance"`, or `sampleCount < 24` (cold start).
+3. Call `detectDrift({ slope, stdDev, sampleCount, direction, sensitivity, threshold })`. The trigger is:
+
+   ```
+   |slope × sampleCount| > driftThreshold × σ × sensitivity
+   ```
+
+   Direction filtering: `lower-is-better` only counts positive slope (metric getting worse); `higher-is-better` only counts negative slope; `deviation` counts either.
+
+4. Reconcile against the existing `kind = 'drift'` row for `(systemId, configurationId, fieldPath)`:
+
+| Current state | Drifting now? | Action |
+|:--------------|:--------------|:-------|
+| no row | yes | Insert `state='suspicious'`, `kind='drift'`, `suspiciousRunCount=1`, `confirmationThreshold=2` |
+| `suspicious` | yes | Increment count; on threshold reach → `state='anomaly'`, set `confirmedAt`, broadcast `ANOMALY_STATE_CHANGED` + `ANOMALY_TREND_DETECTED`, dispatch drift-confirmed notification |
+| `anomaly` | yes | Refresh `observedValue` (current mean) and `deviation` (sigmas of projected change) |
+| `suspicious` | no | Delete row (transient drift absorbed) |
+| `anomaly` | no | Transition to `recovered`, broadcast signal, dispatch drift-recovered notification |
+
+The state machine is identical in shape to the spike detector but ticks at the analyzer's cadence (default: hourly) rather than per check execution. Confirmation window for drift defaults to **2 analyzer runs** so a confirmed drift represents at least ~2 hours of sustained trend — significantly more conservative than the 3 consecutive checks used for spikes.
 
 ---
 
 ## 6. Visualization
 
-### 6.1 Expected Range Bands (Auto-Chart Integration)
+### 6.1 Expected Range Bands + Trend Lines (Auto-Chart Integration)
 
-On existing `AutoChartGrid` line charts:
-- Render a translucent **shaded band** between `μ - 3σ` and `μ + 3σ` (the "expected range")
-- Data points outside the band are highlighted:
-  - **Orange dots**: `suspicious` state
-  - **Red dots**: Confirmed `anomaly`
-- The band adapts live as baselines update — users see the engine "learning"
+On existing `AutoChartGrid` line charts ([core/healthcheck-frontend/src/auto-charts/AutoChartGrid.tsx](../../core/healthcheck-frontend/src/auto-charts/AutoChartGrid.tsx)):
+
+- **Phase 1**: a translucent shaded band between `μ - 3σ` and `μ + 3σ` (the "expected range"); a dashed reference line at `μ` itself. Data points outside the band are highlighted (orange = `suspicious`, red = confirmed `anomaly`).
+- **Phase 2**: when `baseline.trendSlope` is non-zero, a dashed regression line is rendered through the chart's index domain so the operator can see the direction and magnitude of the drift the analyzer detected. Color: `hsl(var(--muted-foreground))` to keep it subordinate to the data series.
+
+The band and the trend line both adapt live as baselines update — `ANOMALY_BASELINE_UPDATED` triggers a query refetch.
 
 On `gauge` charts:
 - Expected range shown as a colored arc segment (green = expected, red = anomalous zone)
@@ -401,21 +411,25 @@ Uses the existing **Sidecar Notification Orchestration** pattern:
 
 ## 8. Assignment-Level User Configuration
 
-On the existing health check assignment editor, a new "Anomaly Detection" section:
+On the existing health check assignment editor, an "Anomaly Detection" section:
 
 | Setting | Type | Default | Description |
 |:--------|:-----|:--------|:------------|
-| **Enabled** | Toggle | `true` | Global enable/disable for this assignment |
+| **Enabled** | Toggle | `true` | Global enable/disable for spike detection on this assignment |
 | **Sensitivity** | Slider (0.5 – 3.0) | `1.0` | Threshold multiplier. Higher = fewer alerts |
-| **Confirmation Window** | Number input | `3` | Consecutive anomalous runs before escalation |
+| **Confirmation Window** | Number input | `3` | Consecutive anomalous checks before escalation (spikes) |
 | **Baseline Window** | Duration selector | `7d` | How much history to use for baseline computation |
 | **Notify** | Toggle | `true` | Generate notifications (disable for silent monitoring) |
+| **Drift Enabled** | Toggle | `true` | Enable trend drift detection for this assignment (Phase 2) |
+| **Drift Threshold** | Slider (1.0 – 4.0) | `2.0` | Sigma multiplier on the drift trigger `\|slope×n\| > N×σ` (Phase 2) |
 
-**Per-field overrides table**: Auto-populated from the strategy/collector schemas. Each row shows:
-- Field name and inferred direction
+**Per-field overrides table**: populated from the strategy/collector schemas. Each row shows:
+- Field name and schema-declared direction
 - Toggle to enable/disable detection
 - Direction override dropdown
 - Sensitivity override slider
+- Confirmation window override
+- Drift override (toggle + threshold slider)
 
 ---
 
@@ -423,25 +437,27 @@ On the existing health check assignment editor, a new "Anomaly Detection" sectio
 
 | Package | Purpose |
 |:--------|:--------|
-| `core/cache-api` | `CacheProvider` interface, `CachePlugin` contract, scoped cache factory (mirrors `core/queue-api`) |
+| `core/cache-api` | `CacheProvider` interface, `CachePlugin` contract, `CacheManager`, scoped cache factory (mirrors `core/queue-api`) |
 | `plugins/cache-memory-backend` | `InMemoryCachePlugin` — Map-based implementation with TTL eviction (mirrors `plugins/queue-memory-backend`) |
-| `core/anomaly-common` | Shared types, anomaly entity schema, inference rules, direction constants **+ pure statistical core** (baseline computation, detection algorithms, state machine). Zero frontend/backend dependencies. **90% of test coverage lives here.** |
-| `core/anomaly-backend` | Backend plugin — DB schema, migrations, background job, cache integration, notification sidecar, RPC endpoints, inline detector hook |
-| `core/anomaly-frontend` | UI — range band overlays, anomaly markers, feed component, assignment config section, status badge integration |
+| `core/infrastructure-frontend` | Infrastructure Configuration page (Queue + Cache tabs, slot for plugin-contributed tabs) |
+| `core/anomaly-common` | Shared Zod schemas, RPC contract, signals, direction constants **+ pure statistical core** (baseline computation, detection algorithms, drift detection, config resolution). Zero frontend/backend dependencies. **90% of test coverage lives here.** |
+| `core/anomaly-backend` | Backend plugin — DB schema, migrations, background baseline analyzer, drift evaluator, cache integration, notification sidecar, RPC endpoints, inline spike detector hook |
+| `core/anomaly-frontend` | UI — assignment config panel, per-field overrides editor, anomaly feed widget, status badge |
+| `core/healthcheck-frontend` | Owns chart rendering — Phase 1 added expected-range bands and Phase 2 added trend-line overlays in `AutoChartGrid` |
 
 ---
 
 ## 10. Phasing
 
-| Phase | Scope | What Ships |
-|:------|:------|:-----------|
-| **Pre-req** | CacheProvider abstraction | `core/cache-api` (interface + scoped factory), `plugins/cache-memory-backend` (InMemoryCachePlugin), Infrastructure Configuration page (IDE Editor pattern) with Queue + Cache tabs |
-| **Phase 1** | Spike/Drop Detection | Baseline engine, fast inline detector, anomaly entity + lifecycle, confirmation window, adaptive noise floor, UI range bands, anomaly feed, notifications, assignment-level configuration |
-| **Phase 2** | Trend Drift Detection | Background trend analyzer using linear regression slope, "creeping degradation" alerts, trend visualization overlays |
-| **Phase 3** | Cross-Metric Correlation | Correlation engine across systems/metrics, blast radius hints, "When A degrades, B follows" detection |
-| **Phase 4** | Developer Documentation | `docs/backend/anomaly-detection.md` — auto-inference rules, `x-anomaly-*` override reference, best practices for annotating strategy/collector result fields, worked examples for common patterns (latency, error rate, player count, boolean state), troubleshooting false positives |
+| Phase | Status | Scope | What Ships |
+|:------|:-------|:------|:-----------|
+| **Pre-req** | ✅ Shipped | CacheProvider abstraction | `core/cache-api` (interface + `CacheManager` + scoped factory), `plugins/cache-memory-backend` (InMemoryCachePlugin), `core/infrastructure-frontend` Infrastructure Configuration page with Queue + Cache tabs registered through a shared slot |
+| **Phase 1** | ✅ Shipped | Spike/Drop Detection | Baseline engine, fast inline detector, `anomalies` entity + lifecycle, confirmation window, adaptive noise floor (3σ), UI range bands, `SystemAnomalyWidget` feed, sidecar notifications, assignment-level configuration with per-field overrides |
+| **Phase 2** | ✅ Shipped | Trend Drift Detection | Linear regression slope on chronologically-ordered baseline window, drift detection in the background analyzer (`kind = 'drift'` rows), drift confirmation across consecutive analyzer runs, "creeping degradation" notifications, trend-line overlay on `AutoChartGrid` line charts, drift toggle/threshold in template + per-field UI |
+| **Phase 3** | ❌ Dropped | Cross-Metric Correlation | Investigated 2026-04-29 and dropped from the roadmap. Cost/value did not justify the work: useful within-system correlation requires N² field-pair computation per analyzer tick plus careful sparse-data handling, lag-window search, and false-positive control, while the UX value (a "blast radius" hint panel) is largely served by operators reading the existing `SystemAnomalyWidget` feed. The schema and entity model are forward-compatible, so this can be revived later without breaking changes. |
+| **Phase 4** | 🚧 In progress | Developer Documentation | [docs/backend/anomaly-detection.md](../backend/anomaly-detection.md) — `x-anomaly-*` reference, three-layer override, lifecycle, signals, plugin integration. Plus expansion of [docs/backend/cache-system.md](../backend/cache-system.md) for plugin authors. |
 
-Each phase builds on the previous. The schema extensions, entity model, and engine interfaces from Phase 1 are designed to support all phases without breaking changes.
+Each phase builds on the previous. The schema extensions, entity model, and engine interfaces are designed to support all phases without breaking changes.
 
 ---
 
@@ -458,10 +474,12 @@ Each phase builds on the previous. The schema extensions, entity model, and engi
 
 ## 12. Signals & Real-time
 
-New signals for real-time UI updates:
-- `ANOMALY_STATE_CHANGED` — Fires on any state transition. Dashboard feed and status badges listen for this.
-- `ANOMALY_BASELINE_UPDATED` — Fires when a baseline is recomputed. Chart range bands update live.
+Signals broadcast on the platform signal bus ([core/anomaly-common/src/index.ts](../../core/anomaly-common/src/index.ts)):
+
+- `ANOMALY_STATE_CHANGED` — Fires on any anomaly lifecycle transition. Carries `{ systemId, anomalyId, newState }`. Dashboard feed and status badges listen for this.
+- `ANOMALY_BASELINE_UPDATED` — Fires when a baseline is recomputed by the background analyzer. Carries `{ systemId, configurationId, fieldPath, mean, stdDev, sampleCount }`. Chart range bands and trend lines re-render live.
+- `ANOMALY_TREND_DETECTED` — Phase 2. Fires when a new drift transitions to confirmed `anomaly`. Carries `{ systemId, anomalyId, fieldPath }`.
 
 ---
 
-*Design authored 2026-04-28. Ready for implementation planning.*
+*Design authored 2026-04-28. Phase 2 + as-built reconciliation 2026-04-29.*

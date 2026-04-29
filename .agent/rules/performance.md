@@ -1,11 +1,6 @@
----
-trigger: model_decision
-description: Use when creating or modifying UI components that implement animations, blurs, transitions, or heavy visual effects
----
-
 # Performance & Accessibility
 
-Use when creating or modifying UI components that implement animations, blurs, transitions, or heavy visual effects to ensure they degrade gracefully on low-power devices and respect user accessibility preferences.
+Apply this rule when creating or modifying UI components that implement animations, blurs, transitions, or heavy visual effects, to ensure they degrade gracefully on low-power devices and respect user accessibility preferences.
 
 ## The `isLowPower` Flag
 

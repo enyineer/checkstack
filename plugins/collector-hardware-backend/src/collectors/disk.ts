@@ -42,6 +42,7 @@ const diskResultSchema = z.object({
   filesystem: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Filesystem",
+    "x-anomaly-enabled": false,
   }),
   totalGb: healthResultNumber({
     "x-chart-type": "counter",
@@ -53,22 +54,29 @@ const diskResultSchema = z.object({
     "x-chart-type": "line",
     "x-chart-label": "Used Disk",
     "x-chart-unit": "GB",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   availableGb: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Available Disk",
     "x-chart-unit": "GB",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   usedPercent: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Disk Usage",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 1.5,
     "x-anomaly-confirmation-window": 3,
   }),
   mountPoint: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Mount Point",
+    "x-anomaly-enabled": false,
   }),
 });
 
@@ -80,11 +88,15 @@ const diskAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Disk Usage",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   maxUsedPercent: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Disk Usage",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
 };
 

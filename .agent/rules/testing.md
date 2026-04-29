@@ -1,7 +1,3 @@
----
-trigger: always_on
----
-
 # Testing
 
 We want to use test-driven development for all code which is written in this project.

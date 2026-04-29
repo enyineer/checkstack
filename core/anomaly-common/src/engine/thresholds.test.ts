@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { computeThresholds, isAnomalous } from "./thresholds";
+import { computeThresholds, isAnomalous, isCategoricalAnomalous } from "./thresholds";
 
 describe("Anomaly Engine - Thresholds", () => {
   describe("computeThresholds", () => {
@@ -68,6 +68,41 @@ describe("Anomaly Engine - Thresholds", () => {
       const thresholds = {};
       expect(isAnomalous(1000, thresholds)).toBe(false);
       expect(isAnomalous(-1000, thresholds)).toBe(false);
+    });
+  });
+
+  describe("isCategoricalAnomalous", () => {
+    test("handles undefined baselines safely", () => {
+      expect(isCategoricalAnomalous(200, undefined, undefined, 1)).toBe(false);
+      expect(isCategoricalAnomalous(200, 200, undefined, 1)).toBe(false);
+      expect(isCategoricalAnomalous(200, undefined, 0.9, 1)).toBe(false);
+    });
+
+    test("triggers if value deviates and ratio is sufficiently high (sensitivity = 1)", () => {
+      // ratio 0.95 > 0.9, deviates
+      expect(isCategoricalAnomalous(500, 200, 0.95, 1)).toBe(true);
+      // ratio 0.95 > 0.9, no deviation
+      expect(isCategoricalAnomalous(200, 200, 0.95, 1)).toBe(false);
+    });
+
+    test("ignores deviation if baseline ratio is too noisy (sensitivity = 1)", () => {
+      // ratio 0.85 < 0.9
+      expect(isCategoricalAnomalous(500, 200, 0.85, 1)).toBe(false);
+    });
+
+    test("scales dominance threshold with sensitivity", () => {
+      // High sensitivity (0.5) -> tighter bounds, more alerts.
+      // Required ratio = 0.9 * 0.5 = 0.45.
+      // Even if baseline ratio is 0.50 (very noisy), it still triggers an alert!
+      expect(isCategoricalAnomalous(500, 200, 0.50, 0.5)).toBe(true);
+      
+      // Low sensitivity (2.0) -> looser bounds, fewer alerts.
+      // Required ratio = 0.9 * 2.0 = 1.8 -> clamped to 0.99.
+      // If baseline ratio is 0.95 (pretty stable but not 99%), it does NOT alert.
+      expect(isCategoricalAnomalous(500, 200, 0.95, 2.0)).toBe(false);
+
+      // If baseline ratio is 0.995 (extremely stable), it WILL alert even at sensitivity 2.0.
+      expect(isCategoricalAnomalous(500, 200, 0.995, 2.0)).toBe(true);
     });
   });
 });

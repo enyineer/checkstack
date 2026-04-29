@@ -38,6 +38,38 @@ type MaintenanceClient = InferClient<typeof MaintenanceApi>;
 type IncidentClient = InferClient<typeof IncidentApi>;
 
 /**
+ * Emit the checkCompleted hook if available.
+ * Extracted to avoid duplicating the hook emission pattern across success/error paths.
+ */
+async function emitCheckCompletedHook({
+  getEmitHook,
+  systemId,
+  configurationId,
+  status,
+  latencyMs,
+  result,
+}: {
+  getEmitHook: () => EmitHookFn | undefined;
+  systemId: string;
+  configurationId: string;
+  status: string;
+  latencyMs: number | undefined;
+  result: Record<string, unknown> | undefined;
+}): Promise<void> {
+  const emitHook = getEmitHook();
+  if (emitHook) {
+    await emitHook(healthCheckHooks.checkCompleted, {
+      systemId,
+      configurationId,
+      status,
+      latencyMs,
+      result,
+      timestamp: new Date().toISOString(),
+    });
+  }
+}
+
+/**
  * Payload for health check queue jobs
  */
 export interface HealthCheckJobPayload {
@@ -613,17 +645,14 @@ async function executeHealthCheckJob(props: {
       latencyMs: result.latencyMs,
     });
 
-    const emitHook = getEmitHook();
-    if (emitHook) {
-      await emitHook(healthCheckHooks.checkCompleted, {
-        systemId,
-        configurationId: configId,
-        status: result.status,
-        latencyMs: result.latencyMs,
-        result: (result.metadata?.collectors as Record<string, unknown>) ?? undefined,
-        timestamp: new Date().toISOString(),
-      });
-    }
+    await emitCheckCompletedHook({
+      getEmitHook,
+      systemId,
+      configurationId: configId,
+      status: result.status,
+      latencyMs: result.latencyMs,
+      result: (result.metadata?.collectors as Record<string, unknown>) ?? undefined,
+    });
 
     // Check if aggregated state changed and notify subscribers
     const newState = await service.getSystemHealthStatus(systemId);
@@ -743,17 +772,14 @@ async function executeHealthCheckJob(props: {
       status: "unhealthy",
     });
 
-    const emitHook = getEmitHook();
-    if (emitHook) {
-      await emitHook(healthCheckHooks.checkCompleted, {
-        systemId,
-        configurationId: configId,
-        status: "unhealthy",
-        latencyMs: undefined,
-        result: undefined,
-        timestamp: new Date().toISOString(),
-      });
-    }
+    await emitCheckCompletedHook({
+      getEmitHook,
+      systemId,
+      configurationId: configId,
+      status: "unhealthy",
+      latencyMs: undefined,
+      result: undefined,
+    });
 
     // Check if aggregated state changed and notify subscribers
     const newState = await service.getSystemHealthStatus(systemId);

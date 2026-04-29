@@ -1,7 +1,7 @@
 import { createClientDefinition, proc } from "@checkstack/common";
 import { z } from "zod";
 import { pluginMetadata } from "./plugin-metadata";
-import { AnomalyStateSchema } from "./schema";
+import { AnomalyStateSchema, AnomalySettingsSchema, AnomalyFieldConfigSchema, AnomalyKindSchema } from "./schema";
 import { anomalyAccess } from "./access";
 
 export const AnomalyDtoSchema = z.object({
@@ -9,6 +9,7 @@ export const AnomalyDtoSchema = z.object({
   systemId: z.string(),
   configurationId: z.string(),
   fieldPath: z.string(),
+  kind: AnomalyKindSchema,
   state: AnomalyStateSchema,
   direction: z.enum(["above", "below", "changed"]),
   baselineValue: z.number().nullable(),
@@ -41,6 +42,39 @@ export const AnomalyBaselineDtoSchema = z.object({
 
 export type AnomalyBaselineDto = z.infer<typeof AnomalyBaselineDtoSchema>;
 
+/**
+ * Schema for a VersionedRecord wrapper used in RPC transport.
+ * Wraps the data with version metadata for backward-compatible schema evolution.
+ */
+const VersionedAnomalySettingsSchema = z.object({
+  version: z.number(),
+  data: AnomalySettingsSchema,
+  migratedAt: z.date().optional(),
+  originalVersion: z.number().optional(),
+});
+
+/**
+ * Partial settings schema for assignment-level overrides.
+ * Only includes fields that the user explicitly sets.
+ */
+const PartialAnomalySettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  sensitivity: z.number().optional(),
+  confirmationWindow: z.number().int().optional(),
+  baselineWindow: z.string().optional(),
+  notify: z.boolean().optional(),
+  driftEnabled: z.boolean().optional(),
+  driftThreshold: z.number().optional(),
+  fieldOverrides: z.record(z.string(), AnomalyFieldConfigSchema).optional(),
+});
+
+const VersionedPartialAnomalySettingsSchema = z.object({
+  version: z.number(),
+  data: PartialAnomalySettingsSchema,
+  migratedAt: z.date().optional(),
+  originalVersion: z.number().optional(),
+});
+
 export const anomalyContract = {
   getAnomalies: proc({
     operationType: "query",
@@ -52,6 +86,7 @@ export const anomalyContract = {
       systemId: z.string().optional(),
       configurationId: z.string().optional(),
       state: AnomalyStateSchema.optional(),
+      kind: AnomalyKindSchema.optional(),
       limit: z.number().optional().default(50),
     }))
     .output(z.array(AnomalyDtoSchema)),
@@ -76,7 +111,7 @@ export const anomalyContract = {
     .input(z.object({
       configurationId: z.string(),
     }))
-    .output(z.any()), // Output is a VersionedRecord<AnomalySettings>
+    .output(VersionedAnomalySettingsSchema),
 
   updateAnomalyConfig: proc({
     operationType: "mutation",
@@ -85,9 +120,9 @@ export const anomalyContract = {
   })
     .input(z.object({
       configurationId: z.string(),
-      config: z.any(), // Input is a AnomalySettings
+      config: AnomalySettingsSchema,
     }))
-    .output(z.any()), // Returns updated VersionedRecord
+    .output(VersionedAnomalySettingsSchema),
 
   getAnomalyAssignmentConfig: proc({
     operationType: "query",
@@ -99,7 +134,7 @@ export const anomalyContract = {
       systemId: z.string(),
       configurationId: z.string(),
     }))
-    .output(z.any().nullable()), // Returns VersionedRecord<Partial<AnomalySettings>> or null
+    .output(VersionedPartialAnomalySettingsSchema.nullable()),
 
   updateAnomalyAssignmentConfig: proc({
     operationType: "mutation",
@@ -110,9 +145,9 @@ export const anomalyContract = {
     .input(z.object({
       systemId: z.string(),
       configurationId: z.string(),
-      config: z.any(), // Input is Partial<AnomalySettings>
+      config: PartialAnomalySettingsSchema,
     }))
-    .output(z.any()),
+    .output(VersionedPartialAnomalySettingsSchema),
 };
 
 export type AnomalyContract = typeof anomalyContract;

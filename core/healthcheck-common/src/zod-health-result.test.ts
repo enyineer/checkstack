@@ -12,7 +12,7 @@ import {
 describe("stripEphemeralFields", () => {
   it("should strip fields marked with x-ephemeral", () => {
     const schema = healthResultSchema({
-      statusCode: healthResultNumber({ "x-chart-type": "counter" }),
+      statusCode: healthResultNumber({ "x-chart-type": "counter", "x-anomaly-enabled": false }),
       body: healthResultJSONPath({ "x-ephemeral": true }), // Explicitly marked ephemeral
     });
 
@@ -29,8 +29,8 @@ describe("stripEphemeralFields", () => {
 
   it("should preserve non-ephemeral fields", () => {
     const schema = healthResultSchema({
-      responseTimeMs: healthResultNumber({ "x-chart-type": "line" }),
-      statusText: healthResultString({ "x-chart-type": "text" }),
+      responseTimeMs: healthResultNumber({ "x-chart-type": "line", "x-anomaly-enabled": false }),
+      statusText: healthResultString({ "x-chart-type": "text", "x-anomaly-enabled": false }),
     });
 
     const result = {
@@ -45,7 +45,7 @@ describe("stripEphemeralFields", () => {
 
   it("should preserve unknown fields like _collectorId", () => {
     const schema = healthResultSchema({
-      value: healthResultNumber({ "x-chart-type": "counter" }),
+      value: healthResultNumber({ "x-chart-type": "counter", "x-anomaly-enabled": false }),
       body: healthResultJSONPath({ "x-ephemeral": true }),
     });
 

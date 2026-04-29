@@ -1,5 +1,5 @@
 import React from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { usePluginClient, wrapInSuspense } from "@checkstack/frontend-api";
 import { useSignal } from "@checkstack/signal-frontend";
 import { resolveRoute } from "@checkstack/common";
@@ -23,6 +23,7 @@ import { formatDistanceToNow } from "date-fns";
 
 const SystemIncidentHistoryPageContent: React.FC = () => {
   const { systemId } = useParams<{ systemId: string }>();
+  const navigate = useNavigate();
   const incidentClient = usePluginClient(IncidentApi);
   const catalogClient = usePluginClient(CatalogApi);
 
@@ -92,9 +93,13 @@ const SystemIncidentHistoryPageContent: React.FC = () => {
   // Actions for the page header
   const headerActions = system && (
     <BackLink
-      to={resolveRoute(catalogRoutes.routes.systemDetail, {
-        systemId: system.id,
-      })}
+      onClick={() =>
+        navigate(
+          resolveRoute(catalogRoutes.routes.systemDetail, {
+            systemId: system.id,
+          }),
+        )
+      }
     >
       Back to {system.name}
     </BackLink>

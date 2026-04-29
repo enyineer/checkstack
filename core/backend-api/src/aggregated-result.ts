@@ -40,7 +40,8 @@ export type AggregationType = "average" | "rate" | "counter" | "minmax";
 // =============================================================================
 
 /** Base metadata for chart annotations (excludes x-jsonpath) */
-type ChartMeta = Omit<HealthResultMeta, "x-jsonpath">;
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+type ChartMeta = DistributiveOmit<HealthResultMeta, "x-jsonpath">;
 
 /**
  * Base interface for aggregated field definitions.

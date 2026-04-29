@@ -72,6 +72,12 @@ describe("Anomaly Engine - Baseline Mathematics", () => {
       expect(result.dominantRatio).toBeCloseTo(0.6667, 4);
     });
 
+    test("handles numeric values", () => {
+      const result = computeDominance([200, 200, 404, 500, 200]);
+      expect(result.dominantValue).toBe(200);
+      expect(result.dominantRatio).toBe(0.6);
+    });
+
     test("returns empty object for empty array", () => {
       const result = computeDominance([]);
       expect(result.dominantValue).toBeUndefined();

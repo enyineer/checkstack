@@ -27,13 +27,16 @@ export const plugin = createBackendPlugin({
         cacheManager: coreServices.cacheManager, // Pre-req
         rpcClient: coreServices.rpcClient,
         rpc: coreServices.rpc,
+        signalService: coreServices.signalService,
+        collectorRegistry: coreServices.collectorRegistry,
       },
-      init: async ({ db, logger, queueManager, cacheManager, rpc, rpcClient }) => {
+      init: async ({ db, logger, queueManager, cacheManager, rpc, rpcClient, signalService, collectorRegistry }) => {
         logger.debug("Initializing Anomaly Detection Backend...");
 
-        const cache = cacheManager.getProvider(); // Scoped cache for anomaly detection
+        const cache = cacheManager.getProvider();
         const typedDb = db as SafeDatabase<typeof schema>;
         const healthCheckClient = rpcClient.forPlugin(HealthCheckApi);
+        const catalogClient = rpcClient.forPlugin(CatalogApi);
 
         await setupBaselineAnalyzerJob({
           db: typedDb,
@@ -41,6 +44,9 @@ export const plugin = createBackendPlugin({
           logger,
           queueManager,
           healthCheckClient,
+          signalService,
+          catalogClient,
+          collectorRegistry,
         });
 
         const service = new AnomalyService(typedDb);
@@ -49,7 +55,7 @@ export const plugin = createBackendPlugin({
 
         logger.debug("Anomaly Detection Backend initialized.");
       },
-      afterPluginsReady: async ({ onHook, db, logger, cacheManager, rpcClient }) => {
+      afterPluginsReady: async ({ onHook, db, logger, cacheManager, rpcClient, collectorRegistry }) => {
         const cache = cacheManager.getProvider();
         const typedDb = db as SafeDatabase<typeof schema>;
         const catalogClient = rpcClient.forPlugin(CatalogApi);
@@ -61,6 +67,7 @@ export const plugin = createBackendPlugin({
             cache,
             logger,
             catalogClient,
+            collectorRegistry,
           });
         });
       },

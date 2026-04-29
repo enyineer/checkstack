@@ -42,15 +42,20 @@ const lookupResultSchema = healthResultSchema({
   values: healthResultArray({
     "x-chart-type": "text",
     "x-chart-label": "Resolved Values",
+    "x-anomaly-enabled": false,
   }),
   recordCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Record Count",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   resolutionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Resolution Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
 });
 
@@ -62,11 +67,15 @@ const lookupAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Resolution Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
 };
 

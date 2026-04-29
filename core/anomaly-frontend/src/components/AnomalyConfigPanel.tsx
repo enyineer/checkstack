@@ -1,101 +1,110 @@
 import { useState, useEffect } from "react";
-import { 
-  Card, 
-  CardHeader, 
-  CardTitle, 
-  CardDescription, 
-  CardContent, 
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
   CardFooter,
   Button,
-  Label,
-  Input,
-  Toggle,
-  useToast
+  useToast,
 } from "@checkstack/ui";
 import { Activity, Save } from "lucide-react";
 import type { AssignmentIDEContext } from "@checkstack/healthcheck-frontend";
 import { usePluginClient } from "@checkstack/frontend-api";
-import { AnomalyApi, type AnomalyFieldConfig, type AnomalyDirection } from "@checkstack/anomaly-common";
+import {
+  AnomalyApi,
+  type AnomalyFieldConfig,
+} from "@checkstack/anomaly-common";
 import { useAnomalyFields } from "./useAnomalyFields";
-import { AnomalyFieldOverridesEditor } from "./AnomalyFieldOverridesEditor";
+import {
+  AnomalySettingsForm,
+  type AnomalySettingsFormValues,
+} from "./AnomalySettingsForm";
+
+const DEFAULT_VALUES: AnomalySettingsFormValues = {
+  enabled: true,
+  sensitivity: 1,
+  confirmationWindow: 3,
+  driftEnabled: true,
+  driftThreshold: 2,
+  fieldOverrides: {},
+};
 
 export function AnomalyConfigPanel({ context }: { context: AssignmentIDEContext }) {
   const toast = useToast();
   const anomalyClient = usePluginClient(AnomalyApi);
-  
-  const [enabled, setEnabled] = useState(true);
-  const [sensitivity, setSensitivity] = useState(1);
-  const [confirmationWindow, setConfirmationWindow] = useState(3);
-  const [fieldOverrides, setFieldOverrides] = useState<Record<string, AnomalyFieldConfig>>({});
 
-  // Fetch Assignment Config
-  const { data: configRecord, isLoading: isLoadingConfig } = anomalyClient.getAnomalyAssignmentConfig.useQuery(
-    { systemId: context.systemId, configurationId: context.configurationId },
-    { enabled: !!context.systemId && !!context.configurationId }
-  );
+  const [values, setValues] = useState<AnomalySettingsFormValues>(DEFAULT_VALUES);
 
-  // Fetch Template Config (Global Defaults)
-  const { data: templateRecord, isLoading: isLoadingTemplate } = anomalyClient.getAnomalyConfig.useQuery(
-    { configurationId: context.configurationId },
-    { enabled: !!context.configurationId }
-  );
+  const { data: configRecord, isLoading: isLoadingConfig } =
+    anomalyClient.getAnomalyAssignmentConfig.useQuery(
+      { systemId: context.systemId, configurationId: context.configurationId },
+      { enabled: !!context.systemId && !!context.configurationId },
+    );
+
+  const { data: templateRecord, isLoading: isLoadingTemplate } =
+    anomalyClient.getAnomalyConfig.useQuery(
+      { configurationId: context.configurationId },
+      { enabled: !!context.configurationId },
+    );
 
   const baseAvailableFields = useAnomalyFields(context.configurationId);
 
-  // Merge the template config defaults into the available fields
-  const availableFields = baseAvailableFields.map(field => {
+  // Cascade template-level field overrides into the available-fields metadata so
+  // each row's "default" reflects the template, not the engine fallback.
+  const availableFields = baseAvailableFields.map((field) => {
     const templateOverride = templateRecord?.data?.fieldOverrides?.[field.path];
     return {
       ...field,
       defaultEnabled: templateOverride?.enabled ?? field.defaultEnabled,
       defaultSensitivity: templateOverride?.sensitivity ?? field.defaultSensitivity,
-      defaultConfirmationWindow: templateOverride?.confirmationWindow ?? field.defaultConfirmationWindow,
+      defaultConfirmationWindow:
+        templateOverride?.confirmationWindow ?? field.defaultConfirmationWindow,
       defaultDirection: templateOverride?.direction ?? field.defaultDirection,
+      defaultDriftEnabled:
+        templateOverride?.driftEnabled ?? field.defaultDriftEnabled,
+      defaultDriftThreshold:
+        templateOverride?.driftThreshold ?? field.defaultDriftThreshold,
     };
   });
 
   useEffect(() => {
     if (configRecord?.data) {
-      setEnabled(configRecord.data.enabled ?? true);
-      setSensitivity(configRecord.data.sensitivity ?? templateRecord?.data?.sensitivity ?? 1);
-      setConfirmationWindow(configRecord.data.confirmationWindow ?? templateRecord?.data?.confirmationWindow ?? 3);
-      setFieldOverrides(configRecord.data.fieldOverrides ?? {});
+      const tpl = templateRecord?.data;
+      setValues({
+        enabled: configRecord.data.enabled ?? true,
+        sensitivity: configRecord.data.sensitivity ?? tpl?.sensitivity ?? 1,
+        confirmationWindow:
+          configRecord.data.confirmationWindow ?? tpl?.confirmationWindow ?? 3,
+        driftEnabled:
+          configRecord.data.driftEnabled ?? tpl?.driftEnabled ?? true,
+        driftThreshold:
+          configRecord.data.driftThreshold ?? tpl?.driftThreshold ?? 2,
+        fieldOverrides:
+          (configRecord.data.fieldOverrides as Record<string, AnomalyFieldConfig>) ??
+          {},
+      });
     }
   }, [configRecord, templateRecord]);
 
   const updateMutation = anomalyClient.updateAnomalyAssignmentConfig.useMutation({
-    onSuccess: () => {
-      toast.success("Assignment exceptions saved");
-    },
-    onError: () => {
-      toast.error("Failed to save assignment exceptions");
-    }
+    onSuccess: () => toast.success("Assignment exceptions saved"),
+    onError: () => toast.error("Failed to save assignment exceptions"),
   });
+
+  const handleChange = <K extends keyof AnomalySettingsFormValues>(
+    key: K,
+    value: AnomalySettingsFormValues[K],
+  ) => {
+    setValues((prev) => ({ ...prev, [key]: value }));
+  };
 
   const handleSave = () => {
     updateMutation.mutate({
       systemId: context.systemId,
       configurationId: context.configurationId,
-      config: {
-        enabled,
-        sensitivity,
-        confirmationWindow,
-        fieldOverrides
-      }
-    });
-  };
-
-  const handleFieldOverrideChange = (
-    field: string, 
-    key: keyof AnomalyFieldConfig, 
-    value: number | boolean | AnomalyDirection | undefined
-  ) => {
-    setFieldOverrides(prev => {
-      const fieldConfig = prev[field] ?? {};
-      return {
-        ...prev,
-        [field]: { ...fieldConfig, [key]: value }
-      };
+      config: values,
     });
   };
 
@@ -118,75 +127,18 @@ export function AnomalyConfigPanel({ context }: { context: AssignmentIDEContext 
       </CardHeader>
 
       <CardContent className="flex-1 space-y-6 overflow-y-auto">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between p-4 border rounded-md">
-            <div className="space-y-0.5">
-              <Label className="text-base font-medium">Enable Assignment Exceptions</Label>
-              <div className="text-sm text-muted-foreground">
-                Run background analysis for this specific system
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium">{enabled ? "Enabled" : "Disabled"}</span>
-              <Toggle 
-                checked={enabled} 
-                onCheckedChange={setEnabled}
-                disabled={context.isLocked}
-              />
-            </div>
-          </div>
-
-          <div className="grid gap-6 md:grid-cols-2 p-4 border rounded-md">
-            <div className="space-y-2">
-              <Label htmlFor="sensitivity">Sensitivity Multiplier Override</Label>
-              <div className="flex items-center gap-4">
-                <Input 
-                  id="sensitivity"
-                  type="number" 
-                  min={0.5} 
-                  max={3} 
-                  step={0.1}
-                  value={sensitivity}
-                  onChange={(e) => setSensitivity(Number.parseFloat(e.target.value))}
-                  disabled={!enabled || context.isLocked}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="confirmationWindow">Confirmation Window Override</Label>
-              <div className="flex items-center gap-4">
-                <Input 
-                  id="confirmationWindow"
-                  type="number" 
-                  min={1} 
-                  max={10} 
-                  step={1}
-                  value={confirmationWindow}
-                  onChange={(e) => setConfirmationWindow(Number.parseInt(e.target.value, 10))}
-                  disabled={!enabled || context.isLocked}
-                />
-              </div>
-            </div>
-          </div>
-
-          <AnomalyFieldOverridesEditor
-            title="Field-Level Overrides"
-            description="Override anomaly settings for specific metrics collected by this health check."
-            availableFields={availableFields}
-            fieldOverrides={fieldOverrides}
-            onChange={handleFieldOverrideChange}
-            parentEnabled={enabled}
-            isLocked={context.isLocked}
-            defaultSensitivity={sensitivity}
-            defaultConfirmationWindow={confirmationWindow}
-          />
-        </div>
+        <AnomalySettingsForm
+          values={values}
+          onChange={handleChange}
+          availableFields={availableFields}
+          isLocked={context.isLocked}
+          variant="assignment"
+        />
       </CardContent>
 
       <CardFooter className="justify-end border-t pt-4">
-        <Button 
-          onClick={handleSave} 
+        <Button
+          onClick={handleSave}
           disabled={updateMutation.isPending || context.isLocked}
         >
           {updateMutation.isPending ? "Saving..." : (

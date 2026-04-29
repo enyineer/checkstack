@@ -12,6 +12,7 @@ export class AnomalyService {
     systemId?: string;
     configurationId?: string;
     state?: schema.AnomalyState;
+    kind?: schema.AnomalyKind;
     limit?: number;
   }) {
     const conditions = [];
@@ -26,6 +27,9 @@ export class AnomalyService {
     }
     if (params.state) {
       conditions.push(eq(schema.anomalies.state, params.state));
+    }
+    if (params.kind) {
+      conditions.push(eq(schema.anomalies.kind, params.kind));
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -67,7 +71,9 @@ export class AnomalyService {
     }));
   }
 
-  async getAnomalyConfig(configurationId: string) {
+  async getAnomalyConfig(
+    configurationId: string,
+  ): Promise<VersionedRecord<AnomalySettings>> {
     const [result] = await this.db
       .select()
       .from(schema.anomalyConfigurations)
@@ -81,14 +87,19 @@ export class AnomalyService {
         confirmationWindow: 3,
         baselineWindow: "7d",
         notify: true,
-      }) as VersionedRecord<AnomalySettings>;
+        driftEnabled: true,
+        driftThreshold: 2,
+      });
     }
 
     return result.config as VersionedRecord<AnomalySettings>;
   }
 
-  async updateAnomalyConfig(configurationId: string, configData: unknown) {
-    const newConfigRecord = anomalySettingsConfig.create(configData as AnomalySettings);
+  async updateAnomalyConfig(
+    configurationId: string,
+    configData: AnomalySettings,
+  ) {
+    const newConfigRecord = anomalySettingsConfig.create(configData);
 
     const [result] = await this.db
       .insert(schema.anomalyConfigurations)
@@ -116,13 +127,16 @@ export class AnomalyService {
         ),
       );
 
-    return result ? (result.config as VersionedRecord<Partial<AnomalySettings>>) : undefined;
+    return result
+      ? (result.config as VersionedRecord<Partial<AnomalySettings>>)
+      : undefined;
   }
 
-  async updateAnomalyAssignmentConfig(systemId: string, configurationId: string, configData: unknown) {
-    // For assignments, we only store overrides, so we can mock a versioned record with partial data
-    // Actually, Versioned<T> requires the full schema unless we define a Versioned<Partial<AnomalySettings>>
-    // For now, we will cast it as the data is just JSONB in the DB
+  async updateAnomalyAssignmentConfig(
+    systemId: string,
+    configurationId: string,
+    configData: Partial<AnomalySettings>,
+  ) {
     const newConfigRecord = {
       version: anomalySettingsConfig.version,
       data: configData,
@@ -136,11 +150,14 @@ export class AnomalyService {
         config: newConfigRecord,
       })
       .onConflictDoUpdate({
-        target: [schema.anomalyAssignments.systemId, schema.anomalyAssignments.configurationId],
+        target: [
+          schema.anomalyAssignments.systemId,
+          schema.anomalyAssignments.configurationId,
+        ],
         set: { config: newConfigRecord },
       })
       .returning();
 
-    return result!.config;
+    return result.config;
   }
 }

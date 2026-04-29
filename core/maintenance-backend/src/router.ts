@@ -58,6 +58,30 @@ export function createRouter(
     }));
   }
 
+  /**
+   * Fetch system names for a list of system IDs.
+   */
+  async function resolveSystemNames(
+    systemIds: string[],
+  ): Promise<Map<string, string>> {
+    const systemNames = new Map<string, string>();
+    if (systemIds.length === 0) return systemNames;
+
+    await Promise.all(
+      [...new Set(systemIds)].map(async (systemId) => {
+        try {
+          const system = await catalogClient.getSystem({ systemId });
+          if (system?.name) {
+            systemNames.set(systemId, system.name);
+          }
+        } catch {
+          // System not found, skip
+        }
+      }),
+    );
+    return systemNames;
+  }
+
   const os = implement(maintenanceContract)
     .$context<RpcContext>()
     .use(autoAuthMiddleware);
@@ -126,12 +150,14 @@ export function createRouter(
         });
 
         // Send notifications to system subscribers
+        const systemNames = await resolveSystemNames(result.systemIds);
         await notifyAffectedSystems({
           catalogClient,
           logger,
           maintenanceId: result.id,
           maintenanceTitle: result.title,
           systemIds: result.systemIds,
+          systemNames,
           action: "created",
         });
 
@@ -222,12 +248,14 @@ export function createRouter(
             notificationAction = "updated";
           }
 
+          const systemNames = await resolveSystemNames(maintenance.systemIds);
           await notifyAffectedSystems({
             catalogClient,
             logger,
             maintenanceId: input.maintenanceId,
             maintenanceTitle: maintenance.title,
             systemIds: maintenance.systemIds,
+            systemNames,
             action: notificationAction,
           });
         }
@@ -269,12 +297,14 @@ export function createRouter(
         });
 
         // Send notifications to system subscribers
+        const systemNames = await resolveSystemNames(result.systemIds);
         await notifyAffectedSystems({
           catalogClient,
           logger,
           maintenanceId: result.id,
           maintenanceTitle: result.title,
           systemIds: result.systemIds,
+          systemNames,
           action: "completed",
         });
 

@@ -44,10 +44,13 @@ const jobStatusResultSchema = z.object({
   jobName: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Job Name",
+    "x-anomaly-enabled": false,
   }),
   buildable: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Buildable",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
   lastBuildNumber: healthResultNumber({
     "x-chart-type": "counter",
@@ -57,29 +60,36 @@ const jobStatusResultSchema = z.object({
   lastBuildResult: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Last Build Result",
+    "x-anomaly-enabled": false,
   }).optional(),
   lastBuildDurationMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Build Duration",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }).optional(),
   lastBuildTimestamp: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Last Build Time",
+    "x-anomaly-enabled": false,
   }).optional(),
   timeSinceLastBuildMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Time Since Last Build",
-    "x-anomaly-enabled": false,
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": false,
   }).optional(),
   inQueue: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "In Queue",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
   color: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Status Color",
+    "x-anomaly-enabled": false,
   }),
 });
 
@@ -91,16 +101,22 @@ const jobStatusAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Build Duration",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   buildableRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Enabled Rate",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
 };
 

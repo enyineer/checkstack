@@ -41,43 +41,60 @@ const buildHistoryResultSchema = z.object({
   totalBuilds: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Total Builds",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   successCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Successful",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   failureCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Failed",
+    "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
   }),
   unstableCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Unstable",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   abortedCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Aborted",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   successRate: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   avgDurationMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Duration",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   minDurationMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Min Duration",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   maxDurationMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Max Duration",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   lastSuccessBuildNumber: healthResultNumber({
     "x-chart-type": "counter",
@@ -99,11 +116,15 @@ const buildHistoryAggregatedFields = {
     "x-chart-type": "gauge",
     "x-chart-label": "Avg Success Rate",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   avgBuildDuration: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Build Duration",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
 };
 

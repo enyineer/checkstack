@@ -63,17 +63,22 @@ const mysqlResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
   connectionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Connection Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 2,
     "x-anomaly-confirmation-window": 3,
   }),
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
+    "x-anomaly-enabled": false,
   }).optional(),
 });
 
@@ -85,20 +90,27 @@ const mysqlAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Connection Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   maxConnectionTime: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Connection Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
+    "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
   }),
 };

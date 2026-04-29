@@ -13,6 +13,7 @@ describe("aggregatedAverage", () => {
     const field = aggregatedAverage({
       "x-chart-type": "line",
       "x-chart-label": "Avg Response Time",
+      "x-anomaly-enabled": false,
     });
 
     expect(field.type).toBe("average");
@@ -39,6 +40,7 @@ describe("aggregatedRate", () => {
     const field = aggregatedRate({
       "x-chart-type": "gauge",
       "x-chart-label": "Success Rate",
+      "x-anomaly-enabled": false,
     });
 
     expect(field.type).toBe("rate");
@@ -65,6 +67,7 @@ describe("aggregatedCounter", () => {
   it("creates field with correct type", () => {
     const field = aggregatedCounter({
       "x-chart-type": "counter",
+      "x-anomaly-enabled": false,
     });
 
     expect(field.type).toBe("counter");
@@ -81,6 +84,7 @@ describe("aggregatedMinMax", () => {
   it("creates field with correct type", () => {
     const field = aggregatedMinMax({
       "x-chart-type": "line",
+      "x-anomaly-enabled": false,
     });
 
     expect(field.type).toBe("minmax");
@@ -202,6 +206,7 @@ describe("chart metadata registration", () => {
       "x-chart-type": "line",
       "x-chart-label": "Avg Response Time",
       "x-chart-unit": "ms",
+      "x-anomaly-enabled": false,
     });
 
     // The stateSchema should have metadata registered via healthResultRegistry
@@ -219,6 +224,7 @@ describe("chart metadata registration", () => {
       "x-chart-type": "gauge",
       "x-chart-label": "Success Rate",
       "x-chart-unit": "%",
+      "x-anomaly-enabled": false,
     });
 
     const meta = getHealthResultMeta(field.stateSchema);
@@ -232,6 +238,7 @@ describe("chart metadata registration", () => {
     const field = aggregatedCounter({
       "x-chart-type": "counter",
       "x-chart-label": "Error Count",
+      "x-anomaly-enabled": false,
     });
 
     const meta = getHealthResultMeta(field.stateSchema);
@@ -245,6 +252,7 @@ describe("chart metadata registration", () => {
     const field = aggregatedMinMax({
       "x-chart-type": "line",
       "x-chart-label": "Latency Range",
+      "x-anomaly-enabled": false,
     });
 
     const meta = getHealthResultMeta(field.stateSchema);
@@ -258,11 +266,13 @@ describe("chart metadata registration", () => {
     const field1 = aggregatedAverage({
       "x-chart-type": "line",
       "x-chart-label": "First Field",
+      "x-anomaly-enabled": false,
     });
 
     const field2 = aggregatedAverage({
       "x-chart-type": "gauge",
       "x-chart-label": "Second Field",
+      "x-anomaly-enabled": false,
     });
 
     const meta1 = getHealthResultMeta(field1.stateSchema);

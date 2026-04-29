@@ -5,15 +5,18 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  ReferenceLine,
+  ReferenceArea,
 } from "recharts";
 import { format } from "date-fns";
 import type { HealthCheckDiagramSlotContext } from "../slots";
+
+import type { AnomalyBaselineDto } from "@checkstack/anomaly-common";
 
 interface HealthCheckLatencyChartProps {
   context: HealthCheckDiagramSlotContext;
   height?: number;
   showAverage?: boolean;
+  baselines?: AnomalyBaselineDto[];
 }
 
 /**
@@ -23,7 +26,7 @@ interface HealthCheckLatencyChartProps {
  */
 export const HealthCheckLatencyChart: React.FC<
   HealthCheckLatencyChartProps
-> = ({ context, height = 200, showAverage = true }) => {
+> = ({ context, height = 200, showAverage = true, baselines }) => {
   const buckets = context.buckets.filter((b) => b.avgLatencyMs !== undefined);
 
   if (buckets.length === 0) {
@@ -36,6 +39,20 @@ export const HealthCheckLatencyChart: React.FC<
       </div>
     );
   }
+
+  const baseline = baselines?.find((b) => b.fieldPath === "latencyMs");
+  const totalRuns = context.buckets.reduce((sum, b) => sum + (b.runCount || 1), 0);
+  const avgRunCount = Math.max(1, totalRuns / Math.max(1, context.buckets.length));
+
+  // Trend is the slope projected over the baseline window — a rate, surfaced in
+  // the header chip rather than as a chart line so it doesn't share a y-axis
+  // with absolute latency values.
+  const projectedChange = baseline ? baseline.trendSlope * baseline.sampleCount : 0;
+  const showTrend = !!baseline && Math.abs(projectedChange) > 0.01;
+  const driftSigmas = baseline && baseline.stdDev > 0
+    ? Math.abs(projectedChange) / baseline.stdDev
+    : 0;
+  const isDrifting = driftSigmas >= 2;
 
   const chartData = buckets.map((d) => ({
     timestamp: new Date(d.bucketStart).getTime(),
@@ -57,8 +74,34 @@ export const HealthCheckLatencyChart: React.FC<
       : "MMM d, HH:mm";
 
   return (
-    <ResponsiveContainer width="100%" height={height}>
-      <AreaChart data={chartData}>
+    <div className="space-y-2">
+      {showAverage && (
+        baseline ? (
+          <div className="flex items-center justify-between text-xs px-1 gap-3">
+            <span className="text-warning font-medium">
+              Expected: {baseline.mean.toFixed(0)}ms (±{((baseline.stdDev / Math.sqrt(avgRunCount)) * 3).toFixed(0)})
+            </span>
+            <div className="flex items-center gap-3">
+              {showTrend && (
+                <span className={isDrifting ? "text-warning font-medium" : "text-muted-foreground"}>
+                  Trend: {projectedChange >= 0 ? "↑ +" : "↓ "}{projectedChange.toFixed(0)}ms
+                </span>
+              )}
+              <span className="text-muted-foreground">
+                Avg: {avgLatency.toFixed(0)}ms
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-end text-xs px-1">
+            <span className="text-muted-foreground">
+              Avg: {avgLatency.toFixed(0)}ms
+            </span>
+          </div>
+        )
+      )}
+      <ResponsiveContainer width="100%" height={height}>
+        <AreaChart data={chartData}>
         <defs>
           <linearGradient id="latencyGradient" x1="0" y1="0" x2="0" y2="1">
             <stop
@@ -109,17 +152,15 @@ export const HealthCheckLatencyChart: React.FC<
             );
           }}
         />
-        {showAverage && (
-          <ReferenceLine
-            y={avgLatency}
-            stroke="hsl(var(--muted-foreground))"
-            strokeDasharray="3 3"
-            label={{
-              value: `Avg: ${avgLatency.toFixed(0)}ms`,
-              position: "right",
-              fill: "hsl(var(--muted-foreground))",
-              fontSize: 12,
-            }}
+        {baseline && (
+          <ReferenceArea
+            y1={Math.max(0, baseline.mean - (baseline.stdDev / Math.sqrt(avgRunCount)) * 3)}
+            y2={baseline.mean + (baseline.stdDev / Math.sqrt(avgRunCount)) * 3}
+            fill="hsl(var(--warning))"
+            fillOpacity={0.08}
+            stroke="hsl(var(--warning))"
+            strokeOpacity={0.4}
+            strokeWidth={1}
           />
         )}
         <Area
@@ -131,5 +172,6 @@ export const HealthCheckLatencyChart: React.FC<
         />
       </AreaChart>
     </ResponsiveContainer>
+    </div>
   );
 };

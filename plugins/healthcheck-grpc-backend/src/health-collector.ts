@@ -41,15 +41,21 @@ const grpcHealthResultSchema = healthResultSchema({
   status: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Status",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
   serving: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Serving",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
   responseTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Response Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 2,
     "x-anomaly-confirmation-window": 3,
   }),
@@ -63,11 +69,15 @@ const healthAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Response Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   servingRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Serving Rate",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
 };
 

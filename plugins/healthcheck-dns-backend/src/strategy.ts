@@ -56,19 +56,25 @@ const dnsResultSchema = healthResultSchema({
   resolvedValues: healthResultArray({
     "x-chart-type": "text",
     "x-chart-label": "Resolved Values",
+    "x-anomaly-enabled": false,
   }),
   recordCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Record Count",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   resolutionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Resolution Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
+    "x-anomaly-enabled": false,
   }).optional(),
 });
 
@@ -80,14 +86,19 @@ const dnsAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Resolution Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   failureCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Failures",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
+    "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
   }),
 };

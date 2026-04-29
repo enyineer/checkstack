@@ -58,6 +58,30 @@ export function createRouter(
     }));
   }
 
+  /**
+   * Fetch system names for a list of system IDs.
+   */
+  async function resolveSystemNames(
+    systemIds: string[],
+  ): Promise<Map<string, string>> {
+    const systemNames = new Map<string, string>();
+    if (systemIds.length === 0) return systemNames;
+
+    await Promise.all(
+      [...new Set(systemIds)].map(async (systemId) => {
+        try {
+          const system = await catalogClient.getSystem({ systemId });
+          if (system?.name) {
+            systemNames.set(systemId, system.name);
+          }
+        } catch {
+          // System not found, skip
+        }
+      }),
+    );
+    return systemNames;
+  }
+
   const os = implement(incidentContract)
     .$context<RpcContext>()
     .use(autoAuthMiddleware);
@@ -126,12 +150,14 @@ export function createRouter(
       });
 
       // Send notifications to system subscribers
+      const systemNames = await resolveSystemNames(result.systemIds);
       await notifyAffectedSystems({
         catalogClient,
         logger,
         incidentId: result.id,
         incidentTitle: result.title,
         systemIds: result.systemIds,
+        systemNames,
         action: "created",
         severity: result.severity,
       });
@@ -163,12 +189,14 @@ export function createRouter(
       });
 
       // Send notifications to system subscribers
+      const systemNames = await resolveSystemNames(result.systemIds);
       await notifyAffectedSystems({
         catalogClient,
         logger,
         incidentId: result.id,
         incidentTitle: result.title,
         systemIds: result.systemIds,
+        systemNames,
         action: "updated",
         severity: result.severity,
       });
@@ -232,12 +260,14 @@ export function createRouter(
             notificationAction = "updated";
           }
 
+          const systemNames = await resolveSystemNames(incident.systemIds);
           await notifyAffectedSystems({
             catalogClient,
             logger,
             incidentId: input.incidentId,
             incidentTitle: incident.title,
             systemIds: incident.systemIds,
+            systemNames,
             action: notificationAction,
             severity: incident.severity,
           });
@@ -276,12 +306,14 @@ export function createRouter(
       });
 
       // Send notifications to system subscribers
+      const systemNames = await resolveSystemNames(result.systemIds);
       await notifyAffectedSystems({
         catalogClient,
         logger,
         incidentId: result.id,
         incidentTitle: result.title,
         systemIds: result.systemIds,
+        systemNames,
         action: "resolved",
         severity: result.severity,
       });

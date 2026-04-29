@@ -9,6 +9,8 @@ describe("Anomaly Engine - Config Override Mechanism", () => {
     confirmationWindow: 3,
     baselineWindow: "7d",
     notify: true,
+    driftEnabled: true,
+    driftThreshold: 2,
     fieldOverrides: {},
   };
 
@@ -18,6 +20,8 @@ describe("Anomaly Engine - Config Override Mechanism", () => {
     expect(result.sensitivity).toBe(1);
     expect(result.confirmationWindow).toBe(3);
     expect(result.direction).toBeUndefined();
+    expect(result.driftEnabled).toBe(true);
+    expect(result.driftThreshold).toBe(2);
   });
 
   test("uses template configuration as base", () => {
@@ -85,7 +89,10 @@ describe("Anomaly Engine - Config Override Mechanism", () => {
     expect(result.sensitivity).toBe(10);
   });
 
-  test("assignment global overrides template field", () => {
+  test("template field override is not overridden by assignment global", () => {
+    // This is intentional: field-level overrides (from any layer) represent
+    // more specific intent and take precedence over global overrides.
+    // See resolveEffectiveConfig JSDoc for the full resolution order.
     const template: AnomalySettings = {
       ...defaultTemplate,
       fieldOverrides: {
@@ -94,20 +101,48 @@ describe("Anomaly Engine - Config Override Mechanism", () => {
         },
       },
     };
-    // Wait, assignment global does NOT override template field!
-    // The resolution order is:
-    // fieldConfig (assignment field ?? template field)
-    // ?? assignment global
-    // ?? template global
-    // Let's verify this behavior
     const assignment: Partial<AnomalySettings> = {
       enabled: true,
     };
     const result = resolveEffectiveConfig("some.field", template, assignment);
     
     // fieldConfig exists (template field: { enabled: false })
-    // So fieldConfig.enabled is false.
+    // So fieldConfig.enabled is false — field-level is more specific than assignment global.
     expect(result.enabled).toBe(false);
+  });
+
+  test("template field override sets direction", () => {
+    const template: AnomalySettings = {
+      ...defaultTemplate,
+      fieldOverrides: {
+        "some.field": {
+          direction: "higher-is-better",
+        },
+      },
+    };
+    const result = resolveEffectiveConfig("some.field", template);
+    expect(result.direction).toBe("higher-is-better");
+  });
+
+  test("assignment field override direction beats template field direction", () => {
+    const template: AnomalySettings = {
+      ...defaultTemplate,
+      fieldOverrides: {
+        "some.field": { direction: "lower-is-better" },
+      },
+    };
+    const assignment: Partial<AnomalySettings> = {
+      fieldOverrides: {
+        "some.field": { direction: "deviation" },
+      },
+    };
+    const result = resolveEffectiveConfig("some.field", template, assignment);
+    expect(result.direction).toBe("deviation");
+  });
+
+  test("direction is undefined when no override sets it (caller falls back to schema)", () => {
+    const result = resolveEffectiveConfig("some.field", defaultTemplate);
+    expect(result.direction).toBeUndefined();
   });
 
   test("preserves explicit falsy values", () => {
@@ -120,5 +155,57 @@ describe("Anomaly Engine - Config Override Mechanism", () => {
     };
     const result = resolveEffectiveConfig("some.field", template, assignment);
     expect(result.sensitivity).toBe(0);
+  });
+
+  describe("drift settings", () => {
+    test("template driftEnabled is honored", () => {
+      const template: AnomalySettings = {
+        ...defaultTemplate,
+        driftEnabled: false,
+      };
+      const result = resolveEffectiveConfig("some.field", template);
+      expect(result.driftEnabled).toBe(false);
+    });
+
+    test("assignment driftEnabled overrides template", () => {
+      const template: AnomalySettings = {
+        ...defaultTemplate,
+        driftEnabled: true,
+      };
+      const assignment: Partial<AnomalySettings> = { driftEnabled: false };
+      const result = resolveEffectiveConfig("some.field", template, assignment);
+      expect(result.driftEnabled).toBe(false);
+    });
+
+    test("field-level driftEnabled wins over assignment global", () => {
+      const template: AnomalySettings = {
+        ...defaultTemplate,
+        fieldOverrides: {
+          "some.field": { driftEnabled: false },
+        },
+      };
+      const assignment: Partial<AnomalySettings> = { driftEnabled: true };
+      const result = resolveEffectiveConfig("some.field", template, assignment);
+      expect(result.driftEnabled).toBe(false);
+    });
+
+    test("driftThreshold cascades through layers", () => {
+      const template: AnomalySettings = { ...defaultTemplate, driftThreshold: 3 };
+      const assignment: Partial<AnomalySettings> = { driftThreshold: 1.5 };
+      const result = resolveEffectiveConfig("some.field", template, assignment);
+      expect(result.driftThreshold).toBe(1.5);
+    });
+
+    test("field-level driftThreshold wins over assignment global", () => {
+      const template: AnomalySettings = {
+        ...defaultTemplate,
+        fieldOverrides: {
+          "some.field": { driftThreshold: 4 },
+        },
+      };
+      const assignment: Partial<AnomalySettings> = { driftThreshold: 1.5 };
+      const result = resolveEffectiveConfig("some.field", template, assignment);
+      expect(result.driftThreshold).toBe(4);
+    });
   });
 });

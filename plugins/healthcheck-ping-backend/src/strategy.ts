@@ -53,35 +53,47 @@ const pingResultSchema = healthResultSchema({
   packetsSent: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Packets Sent",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   packetsReceived: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Packets Received",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   packetLoss: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Packet Loss",
-    "x-anomaly-direction": "lower-is-better",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   minLatency: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Min Latency",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }).optional(),
   avgLatency: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Latency",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }).optional(),
   maxLatency: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Max Latency",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }).optional(),
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
+    "x-anomaly-enabled": false,
   }).optional(),
 });
 
@@ -93,20 +105,27 @@ const pingAggregatedFields = {
     "x-chart-type": "gauge",
     "x-chart-label": "Avg Packet Loss",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   avgLatency: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Latency",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   maxLatency: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Latency",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
+    "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
   }),
 };

@@ -5,7 +5,7 @@
  * Uses the provider's connectionSchema with DynamicForm for the configuration UI.
  */
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import {
   Plus,
   Settings2,
@@ -54,6 +54,7 @@ import {
 
 export const ProviderConnectionsPage = () => {
   const { providerId } = useParams<{ providerId: string }>();
+  const navigate = useNavigate();
 
   const client = usePluginClient(IntegrationApi);
   const toast = useToast();
@@ -254,7 +255,7 @@ export const ProviderConnectionsPage = () => {
       loading={loading}
       actions={
         <div className="flex items-center gap-2">
-          <BackLink to={resolveRoute(integrationRoutes.routes.list)}>
+          <BackLink onClick={() => navigate(resolveRoute(integrationRoutes.routes.list))}>
             Back to Integrations
           </BackLink>
           <Button onClick={openCreateDialog}>

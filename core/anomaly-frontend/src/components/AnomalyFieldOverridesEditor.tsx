@@ -1,7 +1,6 @@
 import React from "react";
 import {
   Label,
-  Input,
   Toggle,
   Badge,
   Select,
@@ -13,6 +12,7 @@ import {
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
+  Slider,
 } from "@checkstack/ui";
 import type {
   AnomalyFieldConfig,
@@ -34,6 +34,8 @@ interface AnomalyFieldOverridesEditorProps {
   isLocked?: boolean;
   defaultSensitivity: number;
   defaultConfirmationWindow: number;
+  defaultDriftEnabled?: boolean;
+  defaultDriftThreshold?: number;
 }
 
 export function AnomalyFieldOverridesEditor({
@@ -46,6 +48,8 @@ export function AnomalyFieldOverridesEditor({
   isLocked,
   defaultSensitivity,
   defaultConfirmationWindow,
+  defaultDriftEnabled = true,
+  defaultDriftThreshold = 2,
 }: AnomalyFieldOverridesEditorProps) {
   if (availableFields.length === 0) {
     return <></>;
@@ -69,6 +73,16 @@ export function AnomalyFieldOverridesEditor({
     )
       return true;
     if (override.direction !== undefined) return true;
+    if (
+      override.driftEnabled !== undefined &&
+      override.driftEnabled !== (fieldMeta.defaultDriftEnabled ?? defaultDriftEnabled)
+    )
+      return true;
+    if (
+      override.driftThreshold !== undefined &&
+      override.driftThreshold !== (fieldMeta.defaultDriftThreshold ?? defaultDriftThreshold)
+    )
+      return true;
 
     return false;
   };
@@ -100,6 +114,13 @@ export function AnomalyFieldOverridesEditor({
           const parts = field.split(".");
           const fieldName = parts.pop() || field;
           const pathParts = parts;
+
+          const isCategorical = 
+            override?.direction === "dominance" || 
+            fieldMeta.defaultDirection === "dominance" || 
+            ((!override?.direction) && 
+             (!fieldMeta.defaultDirection) && 
+             (fieldMeta.type === "string" || fieldMeta.type === "boolean"));
 
           return (
             <AccordionItem
@@ -172,56 +193,63 @@ export function AnomalyFieldOverridesEditor({
                     <div className="grid gap-6 lg:grid-cols-3">
                       <div className="space-y-2 flex flex-col">
                         <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Sensitivity Multiplier
+                          {isCategorical ? "Dominance Threshold" : "Sensitivity Multiplier"}
                         </Label>
-                        <Input
-                          type="number"
-                          min={0.5}
-                          max={3}
-                          step={0.1}
-                          className="h-10 font-mono bg-background/50 focus:bg-background transition-colors"
-                          value={override?.sensitivity ?? fieldMeta.defaultSensitivity ?? defaultSensitivity}
-                          onChange={(e) =>
-                            onChange(
-                              field,
-                              "sensitivity",
-                              Number.parseFloat(e.target.value),
-                            )
-                          }
-                          disabled={!parentEnabled || isLocked}
-                        />
+                        <div className="pt-2 pb-1 px-1">
+                          <Slider
+                            value={[override?.sensitivity ?? fieldMeta.defaultSensitivity ?? defaultSensitivity]}
+                            min={0.5}
+                            max={3}
+                            step={0.1}
+                            onValueChange={(val) =>
+                              onChange(
+                                field,
+                                "sensitivity",
+                                val[0],
+                              )
+                            }
+                            disabled={!parentEnabled || isLocked}
+                          />
+                        </div>
+                        <div className="flex justify-between items-center text-[10px] font-mono text-muted-foreground pt-1">
+                          <span>0.5 (More)</span>
+                          <span className="font-semibold text-foreground bg-muted px-1.5 py-0.5 rounded">
+                            {(override?.sensitivity ?? fieldMeta.defaultSensitivity ?? defaultSensitivity).toFixed(1)}x
+                          </span>
+                          <span>3.0 (Fewer)</span>
+                        </div>
                         <p className="text-[10.5px] text-muted-foreground leading-relaxed pt-1">
-                          Controls the strictness of the baseline boundaries. A higher multiplier widens the acceptable range, resulting in fewer alerts (lower sensitivity).
+                          {isCategorical 
+                            ? "Controls the strictness for categorical drift. A lower threshold requires absolute stability (e.g., 99%) before trusting a deviation, while a higher threshold allows drifting even if the baseline is noisy (e.g., 45%)."
+                            : "Controls the strictness of the baseline boundaries. A higher multiplier widens the acceptable range, resulting in fewer alerts (lower sensitivity)."}
                         </p>
                       </div>
                       <div className="space-y-2 flex flex-col">
                         <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                           Confirmation Window
                         </Label>
-                        <div className="relative">
-                          <Input
-                            type="number"
+                        <div className="pt-2 pb-1 px-1">
+                          <Slider
+                            value={[override?.confirmationWindow ?? fieldMeta.defaultConfirmationWindow ?? defaultConfirmationWindow]}
                             min={1}
                             max={10}
                             step={1}
-                            className="h-10 font-mono bg-background/50 focus:bg-background transition-colors pr-12"
-                            value={
-                              override?.confirmationWindow ??
-                              fieldMeta.defaultConfirmationWindow ??
-                              defaultConfirmationWindow
-                            }
-                            onChange={(e) =>
+                            onValueChange={(val) =>
                               onChange(
                                 field,
                                 "confirmationWindow",
-                                Number.parseInt(e.target.value, 10),
+                                val[0],
                               )
                             }
                             disabled={!parentEnabled || isLocked}
                           />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-medium select-none pointer-events-none">
-                            runs
+                        </div>
+                        <div className="flex justify-between items-center text-[10px] font-mono text-muted-foreground pt-1">
+                          <span>1 Run</span>
+                          <span className="font-semibold text-foreground bg-muted px-1.5 py-0.5 rounded">
+                            {override?.confirmationWindow ?? fieldMeta.defaultConfirmationWindow ?? defaultConfirmationWindow} Runs
                           </span>
+                          <span>10 Runs</span>
                         </div>
                         <p className="text-[10.5px] text-muted-foreground leading-relaxed pt-1">
                           Consecutive anomalous data points required before an alert is officially raised, preventing alert fatigue from isolated network spikes.
@@ -258,10 +286,67 @@ export function AnomalyFieldOverridesEditor({
                             <SelectItem value="lower-is-better">
                               Lower is Better
                             </SelectItem>
+                            <SelectItem value="dominance">
+                              Dominance Drift
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                         <p className="text-[10.5px] text-muted-foreground leading-relaxed pt-1">
                           Override the auto-inferred behavior logic. "Higher is Better" ignores positive spikes, while "Lower is Better" ignores sudden drops.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {fieldEnabled && !isCategorical && (
+                    <div className="grid gap-6 lg:grid-cols-3 border-t border-border/30 pt-4">
+                      <div className="space-y-2 flex flex-col">
+                        <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                          Trend Drift
+                        </Label>
+                        <div className="flex items-center justify-between bg-muted/30 p-2 rounded-md border">
+                          <span className="text-xs text-muted-foreground">
+                            {(override?.driftEnabled ?? fieldMeta.defaultDriftEnabled ?? defaultDriftEnabled)
+                              ? "Detecting drift"
+                              : "Drift muted"}
+                          </span>
+                          <Toggle
+                            checked={override?.driftEnabled ?? fieldMeta.defaultDriftEnabled ?? defaultDriftEnabled}
+                            onCheckedChange={(val) => onChange(field, "driftEnabled", val)}
+                            disabled={!parentEnabled || isLocked}
+                          />
+                        </div>
+                        <p className="text-[10.5px] text-muted-foreground leading-relaxed pt-1">
+                          Trend drift catches gradual degradation that never triggers a spike alert.
+                        </p>
+                      </div>
+                      <div className="space-y-2 flex flex-col lg:col-span-2">
+                        <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                          Drift Threshold (σ)
+                        </Label>
+                        <div className="pt-2 pb-1 px-1">
+                          <Slider
+                            value={[override?.driftThreshold ?? fieldMeta.defaultDriftThreshold ?? defaultDriftThreshold]}
+                            min={1}
+                            max={4}
+                            step={0.1}
+                            onValueChange={(val) => onChange(field, "driftThreshold", val[0])}
+                            disabled={
+                              !parentEnabled ||
+                              isLocked ||
+                              !(override?.driftEnabled ?? fieldMeta.defaultDriftEnabled ?? defaultDriftEnabled)
+                            }
+                          />
+                        </div>
+                        <div className="flex justify-between items-center text-[10px] font-mono text-muted-foreground pt-1">
+                          <span>1.0σ (More)</span>
+                          <span className="font-semibold text-foreground bg-muted px-1.5 py-0.5 rounded">
+                            {(override?.driftThreshold ?? fieldMeta.defaultDriftThreshold ?? defaultDriftThreshold).toFixed(1)}σ
+                          </span>
+                          <span>4.0σ (Fewer)</span>
+                        </div>
+                        <p className="text-[10.5px] text-muted-foreground leading-relaxed pt-1">
+                          Drift fires when |slope × n| exceeds this many standard deviations across the baseline window.
                         </p>
                       </div>
                     </div>

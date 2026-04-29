@@ -27,7 +27,10 @@ import {
   RadialBar,
   ReferenceArea,
 } from "recharts";
-import { AnomalyApi, type AnomalyBaselineDto } from "@checkstack/anomaly-common";
+import {
+  AnomalyApi,
+  type AnomalyBaselineDto,
+} from "@checkstack/anomaly-common";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { format } from "date-fns";
 import { MAX_SPARKLINE_BARS } from "../utils/sparkline-downsampling";
@@ -85,7 +88,12 @@ export function AutoChartGrid({ context }: AutoChartGridProps) {
       {strategyFields.length > 0 && (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {strategyFields.map((field) => (
-            <AutoChartCard key={field.name} field={field} context={context} baselines={baselines} />
+            <AutoChartCard
+              key={field.name}
+              field={field}
+              context={context}
+              baselines={baselines}
+            />
           ))}
         </div>
       )}
@@ -408,7 +416,35 @@ const WIDE_CHART_TYPES = new Set(["line", "boolean", "text"]);
  * Individual chart card that renders based on field type.
  */
 function AutoChartCard({ field, context, baselines }: AutoChartCardProps) {
-  const baseline = baselines?.find((b) => b.fieldPath === field.name);
+  const fullFieldPath = field.collectorId
+    ? `collectors.${field.collectorId}.${field.name}`
+    : field.name;
+
+  let baseline = baselines?.find((b) => b.fieldPath === fullFieldPath);
+
+  // If no exact match, try mapping aggregated field names back to raw field names
+  if (!baseline) {
+    let rawFieldName = field.name;
+    if (rawFieldName.startsWith("avg")) {
+      rawFieldName =
+        rawFieldName.charAt(3).toLowerCase() + rawFieldName.slice(4);
+    } else if (rawFieldName.startsWith("min")) {
+      rawFieldName =
+        rawFieldName.charAt(3).toLowerCase() + rawFieldName.slice(4);
+    } else if (rawFieldName.startsWith("max")) {
+      rawFieldName =
+        rawFieldName.charAt(3).toLowerCase() + rawFieldName.slice(4);
+    } else if (rawFieldName === "successRate") {
+      rawFieldName = "success";
+    }
+
+    if (rawFieldName !== field.name) {
+      const rawFullFieldPath = field.collectorId
+        ? `collectors.${field.collectorId}.${rawFieldName}`
+        : rawFieldName;
+      baseline = baselines?.find((b) => b.fieldPath === rawFullFieldPath);
+    }
+  }
 
   return (
     <Card>
@@ -434,28 +470,48 @@ interface ChartRendererProps {
 function ChartRenderer({ field, context, baseline }: ChartRendererProps) {
   switch (field.chartType) {
     case "line": {
-      return <LineChartRenderer field={field} context={context} baseline={baseline} />;
+      return (
+        <LineChartRenderer
+          field={field}
+          context={context}
+          baseline={baseline}
+        />
+      );
     }
     case "gauge": {
-      return <GaugeRenderer field={field} context={context} baseline={baseline} />;
+      return (
+        <GaugeRenderer field={field} context={context} baseline={baseline} />
+      );
     }
     case "counter": {
-      return <CounterRenderer field={field} context={context} baseline={baseline} />;
+      return (
+        <CounterRenderer field={field} context={context} baseline={baseline} />
+      );
     }
     case "bar": {
-      return <BarChartRenderer field={field} context={context} baseline={baseline} />;
+      return (
+        <BarChartRenderer field={field} context={context} baseline={baseline} />
+      );
     }
     case "pie": {
-      return <PieChartRenderer field={field} context={context} baseline={baseline} />;
+      return (
+        <PieChartRenderer field={field} context={context} baseline={baseline} />
+      );
     }
     case "boolean": {
-      return <BooleanRenderer field={field} context={context} baseline={baseline} />;
+      return (
+        <BooleanRenderer field={field} context={context} baseline={baseline} />
+      );
     }
     case "text": {
-      return <TextRenderer field={field} context={context} baseline={baseline} />;
+      return (
+        <TextRenderer field={field} context={context} baseline={baseline} />
+      );
     }
     case "status": {
-      return <StatusRenderer field={field} context={context} baseline={baseline} />;
+      return (
+        <StatusRenderer field={field} context={context} baseline={baseline} />
+      );
     }
     default: {
       return;
@@ -561,11 +617,41 @@ function GaugeRenderer({ field, context, baseline }: ChartRendererProps) {
           {unit}
         </div>
       </div>
-      {baseline && typeof baseline.mean === "number" && (
-        <div className="text-xs text-muted-foreground mt-1">
-          Expected: {baseline.mean.toFixed(1)}{unit} (±{(baseline.stdDev * 3).toFixed(1)})
-        </div>
-      )}
+      {baseline &&
+        (() => {
+          if (
+            baseline.dominantValue !== undefined &&
+            baseline.dominantValue !== null
+          ) {
+            let expectedNum = Number(baseline.dominantValue);
+            if (baseline.dominantValue === "true" || baseline.dominantValue === "false") {
+              const ratio = baseline.dominantRatio ?? (baseline.dominantValue === "true" ? 1 : 0);
+              expectedNum = baseline.dominantValue === "true" ? (ratio * 100) : ((1 - ratio) * 100);
+            }
+            if (!Number.isNaN(expectedNum)) {
+              return (
+                <div className="text-xs text-muted-foreground mt-1">
+                  Expected: {expectedNum.toFixed(1)}
+                  {unit}
+                </div>
+              );
+            }
+          }
+
+          if (typeof baseline.mean === "number") {
+            const min = Math.max(0, baseline.mean - baseline.stdDev * 3);
+            const max = baseline.mean + baseline.stdDev * 3;
+            return (
+              <div className="text-xs text-muted-foreground mt-1">
+                Expected: {baseline.mean.toFixed(1)}
+                {unit} (±{(baseline.stdDev * 3).toFixed(1)}) [{min.toFixed(1)} -{" "}
+                {max.toFixed(1)}]
+              </div>
+            );
+          }
+
+          return <></>;
+        })()}
     </div>
   );
 }
@@ -611,12 +697,16 @@ function BooleanRenderer({ field, context, baseline }: ChartRendererProps) {
         )}
       </div>
 
-      {baseline && baseline.dominantValue !== undefined && baseline.dominantValue !== null && (
-        <div className="text-xs text-muted-foreground">
-          Expected: {String(baseline.dominantValue)} 
-          {baseline.dominantRatio ? ` (${(baseline.dominantRatio * 100).toFixed(0)}%)` : ""}
-        </div>
-      )}
+      {baseline &&
+        baseline.dominantValue !== undefined &&
+        baseline.dominantValue !== null && (
+          <div className="text-xs text-muted-foreground">
+            Expected: {String(baseline.dominantValue)}
+            {baseline.dominantRatio
+              ? ` (${(baseline.dominantRatio * 100).toFixed(0)}%)`
+              : ""}
+          </div>
+        )}
 
       {/* Sparkline timeline - render each value as a bar */}
       <div className="flex h-2 gap-px rounded">
@@ -672,12 +762,16 @@ function TextRenderer({ field, context, baseline }: ChartRendererProps) {
         )}
       </div>
 
-      {baseline && baseline.dominantValue !== undefined && baseline.dominantValue !== null && (
-        <div className="text-xs text-muted-foreground">
-          Expected: {String(baseline.dominantValue)}
-          {baseline.dominantRatio ? ` (${(baseline.dominantRatio * 100).toFixed(0)}%)` : ""}
-        </div>
-      )}
+      {baseline &&
+        baseline.dominantValue !== undefined &&
+        baseline.dominantValue !== null && (
+          <div className="text-xs text-muted-foreground">
+            Expected: {String(baseline.dominantValue)}
+            {baseline.dominantRatio
+              ? ` (${(baseline.dominantRatio * 100).toFixed(0)}%)`
+              : ""}
+          </div>
+        )}
 
       {/* Sparkline timeline - always show for historical context */}
       {(() => {
@@ -783,28 +877,69 @@ function LineChartRenderer({ field, context, baseline }: ChartRendererProps) {
     return <div className="text-muted-foreground">No data</div>;
   }
 
-  // Transform values to recharts data format with time labels
+  const avg =
+    valuesWithTime.reduce((a, b) => a + b.value, 0) / valuesWithTime.length;
+
+  // Calculate average runs per bucket to adjust the visual standard deviation.
+  // Since the chart plots the *average* of the bucket, the standard deviation
+  // of that average is sigma / sqrt(n). This makes the baseline band visually
+  // correct for the aggregated data being displayed.
+  const totalRuns = context.buckets.reduce(
+    (sum, b) => sum + (b.runCount || 1),
+    0,
+  );
+  const avgRunCount = Math.max(
+    1,
+    totalRuns / Math.max(1, context.buckets.length),
+  );
+
+  // Trend is the slope projected over the baseline window: slope × sampleCount
+  // — the same scalar the drift evaluator uses. Surfaced as a header chip rather
+  // than a diagonal line because it's a rate, not an absolute value, and shares
+  // no natural axis with the data series.
+  const projectedChange = baseline ? baseline.trendSlope * baseline.sampleCount : 0;
+  const showTrend = !!baseline && Math.abs(projectedChange) > 0.01;
+  const driftSigmas = baseline && baseline.stdDev > 0
+    ? Math.abs(projectedChange) / baseline.stdDev
+    : 0;
+  const isDrifting = driftSigmas >= 2;
+
   const chartData = valuesWithTime.map((item, index) => ({
     index,
     value: item.value,
     timeLabel: item.timeLabel,
   }));
 
-  const avg =
-    valuesWithTime.reduce((a, b) => a + b.value, 0) / valuesWithTime.length;
-
   return (
     <div className="space-y-2">
-      <div className="text-lg font-medium">
-        Avg: {avg.toFixed(1)}
-        {unit && (
-          <span className="text-sm font-normal text-muted-foreground ml-1">
-            {unit}
+      {baseline ? (
+        <div className="flex items-center justify-between text-xs px-1 gap-3">
+          <span className="text-warning font-medium">
+            Expected: {baseline.mean.toFixed(1)}{unit} (±{((baseline.stdDev / Math.sqrt(avgRunCount)) * 3).toFixed(1)})
           </span>
-        )}
-      </div>
-      <ResponsiveContainer width="100%" height={60}>
-        <AreaChart data={chartData}>
+          <div className="flex items-center gap-3">
+            {showTrend && (
+              <span className={isDrifting ? "text-warning font-medium" : "text-muted-foreground"}>
+                Trend: {projectedChange >= 0 ? "↑ +" : "↓ "}{projectedChange.toFixed(1)}{unit}
+              </span>
+            )}
+            <span className="text-muted-foreground">
+              Avg: {avg.toFixed(1)}{unit}
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-end text-xs px-1">
+          <span className="text-muted-foreground">
+            Avg: {avg.toFixed(1)}{unit}
+          </span>
+        </div>
+      )}
+      <ResponsiveContainer width="100%" height={120}>
+        <AreaChart
+          data={chartData}
+          margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+        >
           <defs>
             <linearGradient
               id={`gradient-${field.name}`}
@@ -825,13 +960,39 @@ function LineChartRenderer({ field, context, baseline }: ChartRendererProps) {
               />
             </linearGradient>
           </defs>
+          <XAxis
+            dataKey="index"
+            type="number"
+            domain={["dataMin", "dataMax"]}
+            tickFormatter={(index: number) => {
+              const label = chartData[index]?.timeLabel;
+              return label ? label.split(" - ")[0] : "";
+            }}
+            stroke="hsl(var(--muted-foreground))"
+            fontSize={12}
+            minTickGap={30}
+          />
+          <YAxis
+            stroke="hsl(var(--muted-foreground))"
+            fontSize={12}
+            tickFormatter={(v: number) => `${v}${unit}`}
+            width={60}
+          />
           {baseline && (
             <ReferenceArea
-              y1={Math.max(0, baseline.mean - baseline.stdDev * 3)}
-              y2={baseline.mean + baseline.stdDev * 3}
+              y1={Math.max(
+                0,
+                baseline.mean -
+                  (baseline.stdDev / Math.sqrt(avgRunCount)) * 3,
+              )}
+              y2={
+                baseline.mean + (baseline.stdDev / Math.sqrt(avgRunCount)) * 3
+              }
               fill="hsl(var(--warning))"
-              fillOpacity={0.1}
-              strokeOpacity={0}
+              fillOpacity={0.08}
+              stroke="hsl(var(--warning))"
+              strokeOpacity={0.4}
+              strokeWidth={1}
             />
           )}
           <Area

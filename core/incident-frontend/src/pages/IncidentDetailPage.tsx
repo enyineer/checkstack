@@ -122,7 +122,7 @@ const IncidentDetailPageContent: React.FC = () => {
       <div className="p-12 text-center">
         <p className="text-muted-foreground">Incident not found</p>
         <BackLink
-          to={resolveRoute(incidentRoutes.routes.config, {})}
+          onClick={() => navigate(resolveRoute(incidentRoutes.routes.config, {}))}
           className="mt-4"
         >
           Back to Incidents

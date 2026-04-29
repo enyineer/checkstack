@@ -50,6 +50,7 @@ const httpResultMetadataSchema = healthResultSchema({
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
+    "x-anomaly-enabled": false,
   }).optional(),
 });
 
@@ -60,6 +61,7 @@ const httpAggregatedFields = {
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
+    "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
   }),
 };

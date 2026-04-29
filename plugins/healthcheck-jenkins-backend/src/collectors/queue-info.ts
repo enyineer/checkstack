@@ -31,6 +31,7 @@ const queueInfoResultSchema = z.object({
   queueLength: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Queue Length",
+    "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 2,
     "x-anomaly-confirmation-window": 4,
@@ -38,28 +39,34 @@ const queueInfoResultSchema = z.object({
   blockedCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Blocked Items",
+    "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
   }),
   buildableCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Buildable Items",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   stuckCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Stuck Items",
+    "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
   }),
   oldestWaitingMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Oldest Wait Time",
-    "x-anomaly-direction": "lower-is-better",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   avgWaitingMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Wait Time",
-    "x-anomaly-direction": "lower-is-better",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
 });
 
@@ -70,18 +77,21 @@ const queueInfoAggregatedFields = {
   avgQueueLength: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Queue Length",
+    "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
   }),
   maxQueueLength: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Queue Length",
+    "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
   }),
   avgWaitTime: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Wait Time",
-    "x-anomaly-direction": "lower-is-better",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
 };
 

@@ -33,12 +33,12 @@ export function computeLinearRegressionSlope(values: number[]): number {
   return (n * sumXY - sumX * sumY) / denominator;
 }
 
-export function computeDominance(values: (string | boolean)[]): { dominantValue?: string | boolean, dominantRatio?: number } {
+export function computeDominance(values: (string | boolean | number)[]): { dominantValue?: string | boolean | number, dominantRatio?: number } {
   if (values.length === 0) return {};
   
-  const counts = new Map<string | boolean, number>();
+  const counts = new Map<string | boolean | number, number>();
   let maxCount = 0;
-  let dominantValue: string | boolean | undefined = undefined;
+  let dominantValue: string | boolean | number | undefined = undefined;
 
   for (const v of values) {
     const count = (counts.get(v) || 0) + 1;

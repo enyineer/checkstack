@@ -7,10 +7,13 @@ import type { AnomalyDirection } from "@checkstack/anomaly-common";
 
 export type AnomalyFieldMeta = {
   path: string;
+  type: string;
   defaultEnabled: boolean;
   defaultDirection?: AnomalyDirection;
   defaultSensitivity?: number;
   defaultConfirmationWindow?: number;
+  defaultDriftEnabled?: boolean;
+  defaultDriftThreshold?: number;
 };
 
 export function useAnomalyFields(configurationId: string | undefined) {
@@ -44,12 +47,15 @@ export function useAnomalyFields(configurationId: string | undefined) {
           } else {
             // Default to true unless explicitly disabled in schema
             const defaultEnabled = value["x-anomaly-enabled"] !== false;
-            keys.push({ 
-              path, 
+            keys.push({
+              path,
+              type: value.type || "string",
               defaultEnabled,
               defaultDirection: value["x-anomaly-direction"] as AnomalyDirection | undefined,
               defaultSensitivity: typeof value["x-anomaly-sensitivity"] === "number" ? value["x-anomaly-sensitivity"] : undefined,
               defaultConfirmationWindow: typeof value["x-anomaly-confirmation-window"] === "number" ? value["x-anomaly-confirmation-window"] : undefined,
+              defaultDriftEnabled: typeof value["x-anomaly-drift-enabled"] === "boolean" ? value["x-anomaly-drift-enabled"] : undefined,
+              defaultDriftThreshold: typeof value["x-anomaly-drift-threshold"] === "number" ? value["x-anomaly-drift-threshold"] : undefined,
             });
           }
         }

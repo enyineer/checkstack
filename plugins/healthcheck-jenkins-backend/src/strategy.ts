@@ -57,17 +57,22 @@ const jenkinsResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
   responseTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Response Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 2,
     "x-anomaly-confirmation-window": 3,
   }).optional(),
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
+    "x-anomaly-enabled": false,
   }).optional(),
 });
 
@@ -79,15 +84,20 @@ const jenkinsAggregatedFields = {
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   avgResponseTimeMs: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Response Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
+    "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
   }),
 };

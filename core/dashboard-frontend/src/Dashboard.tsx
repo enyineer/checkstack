@@ -152,10 +152,10 @@ export const Dashboard: React.FC = () => {
   const maintenancesLoading = inProgressLoading || scheduledLoading;
 
   // Fetch active anomalies
-  const { data: anomalies = [], isLoading: anomaliesLoading } = 
+  const { data: anomalies = [], isLoading: anomaliesLoading } =
     anomalyClient.getAnomalies.useQuery(
       { limit: 100, state: "anomaly" },
-      { staleTime: 30_000 }
+      { staleTime: 30_000 },
     );
 
   // Fetch subscriptions (only when logged in)
@@ -166,7 +166,11 @@ export const Dashboard: React.FC = () => {
     );
 
   // Combined loading state
-  const loading = entitiesLoading || incidentsLoading || maintenancesLoading || anomaliesLoading;
+  const loading =
+    entitiesLoading ||
+    incidentsLoading ||
+    maintenancesLoading ||
+    anomaliesLoading;
 
   // -------------------------------------------------------------------------
   // MUTATIONS
@@ -450,23 +454,29 @@ export const Dashboard: React.FC = () => {
               }
             />
 
-            {activeAnomaliesCount > 0 && (
-              <StatusCard
-                variant="gradient"
-                title="Active Anomalies"
-                value={
-                  loading ? (
-                    "..."
-                  ) : (
-                    <AnimatedCounter value={activeAnomaliesCount} />
-                  )
-                }
-                description="Unusual behavior detected"
-                icon={<ActivitySquare className="w-4 h-4" />}
-                onClick={() => setAnomalySheetOpen(true)}
-                className="cursor-pointer hover:opacity-90 hover:scale-[1.02] bg-gradient-to-br from-warning/20 to-warning/5 border-warning/30"
-              />
-            )}
+            <StatusCard
+              variant={activeAnomaliesCount > 0 ? "gradient" : "default"}
+              title="Active Anomalies"
+              value={
+                loading ? (
+                  "..."
+                ) : (
+                  <AnimatedCounter value={activeAnomaliesCount} />
+                )
+              }
+              description="Unusual behavior detected"
+              icon={<ActivitySquare className="w-4 h-4" />}
+              onClick={
+                activeAnomaliesCount > 0
+                  ? () => setAnomalySheetOpen(true)
+                  : undefined
+              }
+              className={
+                activeAnomaliesCount > 0
+                  ? "cursor-pointer hover:opacity-90 hover:scale-[1.02] bg-gradient-to-br from-warning/20 to-warning/5 border-warning/30"
+                  : ""
+              }
+            />
           </div>
         </section>
 

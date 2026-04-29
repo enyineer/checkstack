@@ -42,14 +42,20 @@ const serverInfoResultSchema = z.object({
   numExecutors: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Executors",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   usableWorkers: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Usable Workers",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   totalJobs: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Total Jobs",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   uptime: healthResultNumber({
     "x-chart-type": "line",
@@ -66,10 +72,14 @@ const serverInfoAggregatedFields = {
   avgExecutors: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Executors",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   avgTotalJobs: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Jobs",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
 };
 

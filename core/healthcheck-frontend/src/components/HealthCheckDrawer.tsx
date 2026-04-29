@@ -15,6 +15,7 @@ import {
   healthcheckRoutes,
 } from "@checkstack/healthcheck-common";
 import { SatelliteApi, satelliteAccess } from "@checkstack/satellite-common";
+import { AnomalyApi } from "@checkstack/anomaly-common";
 import { resolveRoute } from "@checkstack/common";
 import {
   HealthBadge,
@@ -188,6 +189,12 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
       setDateRange((prev) => ({ ...prev, endDate: newEndDate }));
     },
   });
+
+  const anomalyClient = usePluginClient(AnomalyApi);
+  const { data: baselines = [] } = anomalyClient.getAnomalyBaselines.useQuery(
+    { systemId, configurationId: item.configurationId },
+    { enabled: !!systemId && !!item.configurationId }
+  );
 
   // Pagination for history table
   const pagination = usePagination({ defaultLimit: 5 });
@@ -425,6 +432,7 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                       context={chartContext}
                       height={120}
                       showAverage
+                      baselines={baselines}
                     />
                   </CardContent>
                 </Card>
