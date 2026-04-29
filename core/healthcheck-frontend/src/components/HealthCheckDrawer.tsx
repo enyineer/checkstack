@@ -417,7 +417,7 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                   <CardContent>
                     <HealthCheckStatusTimeline
                       context={chartContext}
-                      height={40}
+                      height={96}
                     />
                   </CardContent>
                 </Card>
