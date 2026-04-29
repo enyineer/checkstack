@@ -1,5 +1,17 @@
 # @checkstack/ui
 
+## 1.6.0
+
+### Minor Changes
+
+- 8d1ef12: Added Categorical Anomaly Detection (Dominance Drift) support for non-numeric healthcheck values, and introduced Slider UI components for sensitivity and confirmation window anomaly settings.
+
+### Patch Changes
+
+- Updated dependencies [8d1ef12]
+  - @checkstack/common@0.7.0
+  - @checkstack/frontend-api@0.3.11
+
 ## 1.5.1
 
 ### Patch Changes

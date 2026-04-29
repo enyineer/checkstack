@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/catalog-frontend",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "type": "module",
   "main": "src/index.tsx",
   "checkstack": {
