@@ -1,5 +1,16 @@
 # @checkstack/backend
 
+## 0.7.1
+
+### Patch Changes
+
+- Updated dependencies [208ad71]
+  - @checkstack/signal-common@0.2.0
+  - @checkstack/signal-backend@0.2.0
+  - @checkstack/backend-api@0.13.1
+  - @checkstack/cache-api@0.2.1
+  - @checkstack/queue-api@0.2.15
+
 ## 0.7.0
 
 ### Minor Changes

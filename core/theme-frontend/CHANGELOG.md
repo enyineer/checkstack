@@ -1,5 +1,14 @@
 # @checkstack/theme-frontend
 
+## 0.1.35
+
+### Patch Changes
+
+- Updated dependencies [208ad71]
+  - @checkstack/frontend-api@0.4.0
+  - @checkstack/auth-frontend@0.5.31
+  - @checkstack/ui@1.6.1
+
 ## 0.1.34
 
 ### Patch Changes

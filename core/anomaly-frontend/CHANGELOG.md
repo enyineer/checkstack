@@ -1,5 +1,20 @@
 # @checkstack/anomaly-frontend
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [a914b31]
+- Updated dependencies [ac1e5d4]
+- Updated dependencies [208ad71]
+  - @checkstack/healthcheck-frontend@0.18.0
+  - @checkstack/signal-frontend@0.1.0
+  - @checkstack/frontend-api@0.4.0
+  - @checkstack/anomaly-common@0.3.0
+  - @checkstack/healthcheck-common@0.13.0
+  - @checkstack/catalog-common@1.5.3
+  - @checkstack/ui@1.6.1
+
 ## 0.2.1
 
 ### Patch Changes

@@ -1,5 +1,64 @@
 # @checkstack/healthcheck-frontend
 
+## 0.18.0
+
+### Minor Changes
+
+- a914b31: Streamline system → healthcheck assignment flow by allowing in-context creation in both directions.
+
+  - Adds an "Assign to systems" multi-select section to the healthcheck create flow (new "Systems" tree node), so a fresh check can be wired to one or more systems in a single save.
+  - Adds a "+ Create new check" button on the system assignment IDE that opens the create flow pre-targeted at that system; on save, the new check is auto-assigned and the user is returned to the assignment IDE.
+  - Pre-selects the originating system when the create flow is entered with a `?systemId=` query param, and forwards that param through the strategy picker.
+  - Includes an info banner noting that health checks are reusable templates and can be assigned to additional systems at any time, to preserve the "configs are reusable" mental model.
+
+- ac1e5d4: Refactor Status Timeline and Assertion charts to use Recharts with cursor-tracking tooltips, downsampling, and proportional pass/fail stacking.
+
+  - Replaces div-based bar strips with Recharts `BarChart`, so hovering anywhere over the chart resolves the closest bucket.
+  - Adds a lightweight time x-axis with smart tick formatting based on the bucket interval.
+  - Caps bar count (60 for Status Timeline, 50 for Assertion) by aggregating adjacent buckets, so individual bars stay clickable on dense ranges.
+  - Each downsampled Assertion bar is now stacked proportionally — green height shows passed runs and red height shows failed runs across the aggregated window, instead of a worst-case binary color.
+
+### Patch Changes
+
+- 208ad71: Centralize realtime cache invalidation: signals now carry their owning `pluginId` end-to-end, and a single `SignalAutoInvalidator` mounted near the React Query client invalidates `[[pluginId]]` for every incoming signal automatically.
+
+  **Breaking change to `createSignal`** (`@checkstack/signal-common`): the factory now takes a single object argument with `pluginMetadata`, `event`, and `payloadSchema`. The signal id is constructed as `${pluginMetadata.pluginId}.${event}` and the resulting `Signal` carries a `pluginId` field. The `SignalMessage` wire envelope and `ServerToClientMessage` `signal` variant gained a `pluginId` field so the frontend can route invalidations without parsing the id.
+
+  ```ts
+  // Before
+  export const ANOMALY_STATE_CHANGED = createSignal(
+    "anomaly.state_changed",
+    z.object({ ... }),
+  );
+
+  // After
+  export const ANOMALY_STATE_CHANGED = createSignal({
+    pluginMetadata,
+    event: "state_changed",
+    payloadSchema: z.object({ ... }),
+  });
+  ```
+
+  **New plugin field**: `FrontendPlugin.foreignSignals?: Signal<unknown>[]` lets a plugin opt its `[[pluginId]]` cache into invalidation when another plugin's signal fires (e.g. `dependency-frontend` declares `[SYSTEM_STATUS_CHANGED]` because dependency payloads embed system status). Same-plugin signals must NOT be listed — they are always auto-invalidated.
+
+  **Removed boilerplate**: per-component `useSignal(X, () => refetch())` and `useSignal(X, () => queryClient.invalidateQueries(...))` calls have been removed across `incident-frontend`, `maintenance-frontend`, `healthcheck-frontend`, `slo-frontend`, `dependency-frontend`, `satellite-frontend`, `announcement-frontend`, `notification-frontend`, and `dashboard-frontend`. The `NotificationBell` unread count is now derived directly from the `getUnreadCount` query (auto-invalidated) instead of a local state mirror.
+
+  **User-visible bug fix**: the system detail page anomaly widget (`SystemAnomalyWidget`) now updates in real-time when anomalies change, with no per-widget signal subscription required. The dashboard status page also stays fresh on `ANOMALY_STATE_CHANGED`, `ANOMALY_BASELINE_UPDATED`, and `ANOMALY_TREND_DETECTED`.
+
+  UI-state consumers that legitimately need a `useSignal` (the dashboard activity terminal, the queue lag alert, and the rolling-preset date refresh in `useHealthCheckData`) keep their handlers; the auto-invalidator runs alongside them.
+
+- Updated dependencies [208ad71]
+  - @checkstack/signal-frontend@0.1.0
+  - @checkstack/frontend-api@0.4.0
+  - @checkstack/anomaly-common@0.3.0
+  - @checkstack/healthcheck-common@0.13.0
+  - @checkstack/satellite-common@0.3.0
+  - @checkstack/dashboard-frontend@0.5.1
+  - @checkstack/auth-frontend@0.5.31
+  - @checkstack/catalog-common@1.5.3
+  - @checkstack/gitops-frontend@0.3.6
+  - @checkstack/ui@1.6.1
+
 ## 0.17.1
 
 ### Patch Changes
