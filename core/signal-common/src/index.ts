@@ -7,29 +7,44 @@ import type { AccessRule, PluginMetadata } from "@checkstack/common";
 
 /**
  * A Signal is a typed event that can be broadcast from backend to frontend.
- * Similar to the Hook pattern but for realtime WebSocket communication.
+ * The `pluginId` field lets the realtime layer auto-invalidate
+ * react-query caches keyed `[[pluginId]]` without per-consumer wiring.
  */
 export interface Signal<T = unknown> {
   id: string;
+  pluginId: string;
   payloadSchema: z.ZodType<T>;
 }
 
 /**
  * Factory function for creating type-safe signals.
  *
+ * The signal id is constructed as `${pluginMetadata.pluginId}.${event}`
+ * so the owning plugin is encoded into the wire format and the frontend
+ * can route invalidations to `[[pluginId]]` automatically.
+ *
  * @example
  * ```typescript
- * const NOTIFICATION_RECEIVED = createSignal(
- *   "notification.received",
- *   z.object({ id: z.string(), title: z.string() })
- * );
+ * import { pluginMetadata } from "./plugin-metadata";
+ *
+ * export const NOTIFICATION_RECEIVED = createSignal({
+ *   pluginMetadata,
+ *   event: "received",
+ *   payloadSchema: z.object({ id: z.string(), title: z.string() }),
+ * });
  * ```
  */
-export function createSignal<T>(
-  id: string,
-  payloadSchema: z.ZodType<T>
-): Signal<T> {
-  return { id, payloadSchema };
+export function createSignal<T>(props: {
+  pluginMetadata: PluginMetadata;
+  event: string;
+  payloadSchema: z.ZodType<T>;
+}): Signal<T> {
+  const { pluginMetadata, event, payloadSchema } = props;
+  return {
+    id: `${pluginMetadata.pluginId}.${event}`,
+    pluginId: pluginMetadata.pluginId,
+    payloadSchema,
+  };
 }
 
 // =============================================================================
@@ -38,9 +53,13 @@ export function createSignal<T>(
 
 /**
  * The message envelope sent over WebSocket containing a signal payload.
+ *
+ * `pluginId` is carried alongside `signalId` so the frontend can route
+ * cache invalidations to `[[pluginId]]` without parsing the id.
  */
 export interface SignalMessage<T = unknown> {
   signalId: string;
+  pluginId: string;
   payload: T;
   timestamp: string;
 }
@@ -71,7 +90,13 @@ export type ClientToServerMessage = { type: "ping" };
 export type ServerToClientMessage =
   | { type: "pong" }
   | { type: "connected"; userId: string }
-  | { type: "signal"; signalId: string; payload: unknown; timestamp: string }
+  | {
+      type: "signal";
+      signalId: string;
+      pluginId: string;
+      payload: unknown;
+      timestamp: string;
+    }
   | { type: "error"; message: string };
 
 // =============================================================================
@@ -157,23 +182,32 @@ export interface SignalService {
 // =============================================================================
 
 /**
+ * Synthetic metadata for framework-level signals that are not owned by any plugin.
+ * The "core" pluginId reserves a top-level namespace; no plugin may register itself
+ * with that id.
+ */
+const coreSignalsPluginMetadata: PluginMetadata = { pluginId: "core" };
+
+/**
  * Broadcast to all frontends when a plugin has been fully installed on the backend.
  * Frontends should dynamically load the plugin's UI assets.
  */
-export const PLUGIN_INSTALLED = createSignal(
-  "core.plugin.installed",
-  z.object({
+export const PLUGIN_INSTALLED = createSignal({
+  pluginMetadata: coreSignalsPluginMetadata,
+  event: "plugin.installed",
+  payloadSchema: z.object({
     pluginId: z.string(),
-  })
-);
+  }),
+});
 
 /**
  * Broadcast to all frontends when a plugin has been deregistered from the backend.
  * Frontends should remove the plugin's extensions and routes.
  */
-export const PLUGIN_DEREGISTERED = createSignal(
-  "core.plugin.deregistered",
-  z.object({
+export const PLUGIN_DEREGISTERED = createSignal({
+  pluginMetadata: coreSignalsPluginMetadata,
+  event: "plugin.deregistered",
+  payloadSchema: z.object({
     pluginId: z.string(),
-  })
-);
+  }),
+});

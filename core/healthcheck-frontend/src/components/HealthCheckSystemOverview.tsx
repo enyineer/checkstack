@@ -1,14 +1,10 @@
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
 import {
   usePluginClient,
   type SlotContext,
 } from "@checkstack/frontend-api";
-import { useSignal } from "@checkstack/signal-frontend";
 import { SystemDetailsSlot } from "@checkstack/catalog-common";
-import {
-  HEALTH_CHECK_RUN_COMPLETED,
-  HealthCheckApi,
-} from "@checkstack/healthcheck-common";
+import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import {
   HealthBadge,
   LoadingSpinner,
@@ -63,14 +59,11 @@ export function HealthCheckSystemOverview(props: SlotProps) {
     HealthCheckOverviewItem | undefined
   >();
 
-  // Fetch health check overview using useQuery
-  const {
-    data: overviewData,
-    isLoading: initialLoading,
-    refetch,
-  } = healthCheckClient.getSystemHealthOverview.useQuery({
-    systemId,
-  });
+  // Fetch health check overview using useQuery — kept fresh via SignalAutoInvalidator.
+  const { data: overviewData, isLoading: initialLoading } =
+    healthCheckClient.getSystemHealthOverview.useQuery({
+      systemId,
+    });
 
   // Transform API response to component format
   const overview: HealthCheckOverviewItem[] = React.useMemo(() => {
@@ -88,19 +81,6 @@ export function HealthCheckSystemOverview(props: SlotProps) {
       recentStatusHistory: check.recentRuns.map((r) => r.status),
     }));
   }, [overviewData]);
-
-  // Listen for realtime health check updates to refresh overview
-  useSignal(
-    HEALTH_CHECK_RUN_COMPLETED,
-    useCallback(
-      ({ systemId: changedId }) => {
-        if (changedId === systemId) {
-          void refetch();
-        }
-      },
-      [systemId, refetch],
-    ),
-  );
 
   if (initialLoading) {
     return <LoadingSpinner />;

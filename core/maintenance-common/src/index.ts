@@ -32,16 +32,18 @@ export { maintenanceRoutes } from "./routes";
 
 import { createSignal } from "@checkstack/signal-common";
 import { z } from "zod";
+import { pluginMetadata } from "./plugin-metadata";
 
 /**
  * Broadcast when a maintenance is created, updated, or closed.
  * Frontend components listening to this signal can refetch state for affected systems.
  */
-export const MAINTENANCE_UPDATED = createSignal(
-  "maintenance.updated",
-  z.object({
+export const MAINTENANCE_UPDATED = createSignal({
+  pluginMetadata,
+  event: "updated",
+  payloadSchema: z.object({
     maintenanceId: z.string(),
     systemIds: z.array(z.string()),
     action: z.enum(["created", "updated", "closed"]),
-  })
-);
+  }),
+});

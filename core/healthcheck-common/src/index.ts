@@ -49,14 +49,16 @@ export { healthcheckRoutes } from "./routes";
 
 import { createSignal } from "@checkstack/signal-common";
 import { z } from "zod";
+import { pluginMetadata } from "./plugin-metadata";
 
 /**
  * Broadcast when a health check run completes.
  * Frontend components listening to this signal can update live activity feeds.
  */
-export const HEALTH_CHECK_RUN_COMPLETED = createSignal(
-  "healthcheck.run.completed",
-  z.object({
+export const HEALTH_CHECK_RUN_COMPLETED = createSignal({
+  pluginMetadata,
+  event: "run.completed",
+  payloadSchema: z.object({
     systemId: z.string(),
     systemName: z.string(),
     configurationId: z.string(),
@@ -64,7 +66,7 @@ export const HEALTH_CHECK_RUN_COMPLETED = createSignal(
     status: z.enum(["healthy", "degraded", "unhealthy"]),
     latencyMs: z.number().optional(),
   }),
-);
+});
 
 /**
  * Broadcast when a system's overall health status transitions.
@@ -72,11 +74,12 @@ export const HEALTH_CHECK_RUN_COMPLETED = createSignal(
  * NOT on every individual health check run. Use this for coarse-grained reactivity
  * like dashboard badges and dependency map node statuses.
  */
-export const SYSTEM_STATUS_CHANGED = createSignal(
-  "healthcheck.system.status-changed",
-  z.object({
+export const SYSTEM_STATUS_CHANGED = createSignal({
+  pluginMetadata,
+  event: "system.status_changed",
+  payloadSchema: z.object({
     systemId: z.string(),
     previousStatus: z.enum(["healthy", "degraded", "unhealthy"]),
     newStatus: z.enum(["healthy", "degraded", "unhealthy"]),
   }),
-);
+});

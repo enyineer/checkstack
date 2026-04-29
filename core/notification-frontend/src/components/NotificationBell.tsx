@@ -13,14 +13,9 @@ import {
   useToast,
 } from "@checkstack/ui";
 import { useApi, usePluginClient } from "@checkstack/frontend-api";
-import { useSignal } from "@checkstack/signal-frontend";
 import { resolveRoute } from "@checkstack/common";
-import type { Notification } from "@checkstack/notification-common";
 import {
   NotificationApi,
-  NOTIFICATION_RECEIVED,
-  NOTIFICATION_COUNT_CHANGED,
-  NOTIFICATION_READ,
   notificationRoutes,
 } from "@checkstack/notification-common";
 import { authApiRef } from "@checkstack/auth-frontend/api";
@@ -33,22 +28,14 @@ export const NotificationBell = () => {
 
   const [isOpen, setIsOpen] = useState(false);
 
-  // State for real-time updates
-  const [signalUnreadCount, setSignalUnreadCount] = useState<
-    number | undefined
-  >();
-  const [signalNotifications, setSignalNotifications] = useState<
-    Notification[] | undefined
-  >();
-
-  // Fetch unread count via useQuery
+  // Realtime updates arrive via SignalAutoInvalidator on `[["notification"]]`,
+  // so both queries stay fresh without per-component signal handlers.
   const { data: unreadData, isLoading: unreadLoading } =
     notificationClient.getUnreadCount.useQuery(undefined, {
       enabled: !!session,
       staleTime: 30_000,
     });
 
-  // Fetch recent notifications via useQuery
   const { data: notificationsData, isLoading: notificationsLoading } =
     notificationClient.getNotifications.useQuery(
       { limit: 5, offset: 0, unreadOnly: true },
@@ -58,80 +45,14 @@ export const NotificationBell = () => {
       },
     );
 
-  // Mark all as read mutation
   const markAsReadMutation = notificationClient.markAsRead.useMutation();
 
-  // Use signal data if available, otherwise use query data
-  const unreadCount = signalUnreadCount ?? unreadData?.count ?? 0;
-  const recentNotifications =
-    signalNotifications ?? notificationsData?.notifications ?? [];
-
-  // ==========================================================================
-  // REALTIME SIGNAL SUBSCRIPTIONS (replaces polling)
-  // ==========================================================================
-
-  // Handle new notification received
-  useSignal(
-    NOTIFICATION_RECEIVED,
-    useCallback((payload) => {
-      // Increment unread count
-      setSignalUnreadCount((prev) => (prev ?? 0) + 1);
-
-      // Add to recent notifications if dropdown is open
-      setSignalNotifications((prev) => [
-        {
-          id: payload.id,
-          title: payload.title,
-          body: payload.body,
-          importance: payload.importance,
-          userId: "", // Not needed for display
-          isRead: false,
-          createdAt: new Date(),
-        },
-        ...(prev ?? []).slice(0, 4), // Keep only 5 items
-      ]);
-    }, []),
-  );
-
-  // Handle count changes from other sources
-  useSignal(
-    NOTIFICATION_COUNT_CHANGED,
-    useCallback((payload) => {
-      setSignalUnreadCount(payload.unreadCount);
-    }, []),
-  );
-
-  // Handle notification marked as read
-  useSignal(
-    NOTIFICATION_READ,
-    useCallback(
-      (payload) => {
-        if (payload.notificationId) {
-          // Single notification marked as read - remove from list
-          setSignalNotifications((prev) =>
-            (prev ?? []).filter((n) => n.id !== payload.notificationId),
-          );
-          // Use unreadData?.count as fallback when signalUnreadCount hasn't been set yet
-          setSignalUnreadCount((prev) =>
-            Math.max(0, (prev ?? unreadData?.count ?? 1) - 1),
-          );
-        } else {
-          // All marked as read - clear the list
-          setSignalNotifications([]);
-          setSignalUnreadCount(0);
-        }
-      },
-      [unreadData?.count],
-    ),
-  );
-
-  // ==========================================================================
+  const unreadCount = unreadData?.count ?? 0;
+  const recentNotifications = notificationsData?.notifications ?? [];
 
   const handleMarkAllAsRead = async () => {
     try {
       await markAsReadMutation.mutateAsync({});
-      setSignalUnreadCount(0);
-      setSignalNotifications([]);
     } catch {
       toast.error("Failed to mark all as read");
     }

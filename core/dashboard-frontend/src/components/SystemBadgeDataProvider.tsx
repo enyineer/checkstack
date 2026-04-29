@@ -1,19 +1,15 @@
 import React, { createContext, useContext, useCallback, useMemo } from "react";
-import { usePluginClient, useQueryClient } from "@checkstack/frontend-api";
-import { useSignal } from "@checkstack/signal-frontend";
+import { usePluginClient } from "@checkstack/frontend-api";
 import {
   HealthCheckApi,
-  SYSTEM_STATUS_CHANGED,
   type SystemHealthStatusResponse,
 } from "@checkstack/healthcheck-common";
 import {
   IncidentApi,
-  INCIDENT_UPDATED,
   type IncidentWithSystems,
 } from "@checkstack/incident-common";
 import {
   MaintenanceApi,
-  MAINTENANCE_UPDATED,
   type MaintenanceWithSystems,
 } from "@checkstack/maintenance-common";
 
@@ -46,11 +42,14 @@ interface SystemBadgeDataProviderProps {
 /**
  * Provider that bulk-fetches badge data (health, incidents, maintenances)
  * for multiple systems using TanStack Query and provides it via context.
+ *
+ * Realtime invalidation of `[["healthcheck"]]`, `[["incident"]]`, and
+ * `[["maintenance"]]` is handled centrally by SignalAutoInvalidator — no
+ * per-component signal handlers needed here.
  */
 export const SystemBadgeDataProvider: React.FC<
   SystemBadgeDataProviderProps
 > = ({ systemIds, children }) => {
-  const queryClient = useQueryClient();
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const incidentClient = usePluginClient(IncidentApi);
   const maintenanceClient = usePluginClient(MaintenanceApi);
@@ -81,56 +80,6 @@ export const SystemBadgeDataProvider: React.FC<
     );
 
   const loading = healthLoading || incidentLoading || maintenanceLoading;
-
-  // -------------------------------------------------------------------------
-  // SIGNAL HANDLERS - Invalidate queries on updates
-  // -------------------------------------------------------------------------
-
-  const refetchHealth = useCallback(
-    (systemId: string) => {
-      if (systemIds.includes(systemId)) {
-        // Invalidate the bulk query to refetch
-        queryClient.invalidateQueries({ queryKey: [["healthcheck"]] });
-      }
-    },
-    [systemIds, queryClient]
-  );
-
-  useSignal(SYSTEM_STATUS_CHANGED, ({ systemId }) => {
-    refetchHealth(systemId);
-  });
-
-  const refetchIncidents = useCallback(
-    (affectedSystemIds: string[]) => {
-      const hasAffected = affectedSystemIds.some((id) =>
-        systemIds.includes(id)
-      );
-      if (hasAffected) {
-        queryClient.invalidateQueries({ queryKey: [["incident"]] });
-      }
-    },
-    [systemIds, queryClient]
-  );
-
-  useSignal(INCIDENT_UPDATED, ({ systemIds: affectedIds }) => {
-    refetchIncidents(affectedIds);
-  });
-
-  const refetchMaintenances = useCallback(
-    (affectedSystemIds: string[]) => {
-      const hasAffected = affectedSystemIds.some((id) =>
-        systemIds.includes(id)
-      );
-      if (hasAffected) {
-        queryClient.invalidateQueries({ queryKey: [["maintenance"]] });
-      }
-    },
-    [systemIds, queryClient]
-  );
-
-  useSignal(MAINTENANCE_UPDATED, ({ systemIds: affectedIds }) => {
-    refetchMaintenances(affectedIds);
-  });
 
   // -------------------------------------------------------------------------
   // CONTEXT VALUE

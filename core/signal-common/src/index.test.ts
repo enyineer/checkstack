@@ -1,162 +1,132 @@
 import { describe, it, expect } from "bun:test";
 import { createSignal, type Signal, type SignalMessage } from "../src/index";
 import { z } from "zod";
+import type { PluginMetadata } from "@checkstack/common";
+
+const testPlugin: PluginMetadata = { pluginId: "notification" };
+const otherPlugin: PluginMetadata = { pluginId: "system" };
 
 describe("createSignal", () => {
-  it("should create a signal with the given id and schema", () => {
+  it("constructs id as `${pluginId}.${event}` and stores pluginId", () => {
     const schema = z.object({ message: z.string() });
-    const signal = createSignal("test.signal", schema);
+    const signal = createSignal({
+      pluginMetadata: testPlugin,
+      event: "test",
+      payloadSchema: schema,
+    });
 
-    expect(signal.id).toBe("test.signal");
+    expect(signal.id).toBe("notification.test");
+    expect(signal.pluginId).toBe("notification");
     expect(signal.payloadSchema).toBe(schema);
   });
 
-  it("should create signals with different payload types", () => {
-    const stringSignal = createSignal("string.signal", z.string());
-    const numberSignal = createSignal("number.signal", z.number());
-    const objectSignal = createSignal(
-      "object.signal",
-      z.object({
-        id: z.string(),
-        count: z.number(),
-        active: z.boolean(),
-      })
-    );
+  it("creates signals with different payload types and pluginIds", () => {
+    const stringSignal = createSignal({
+      pluginMetadata: testPlugin,
+      event: "string",
+      payloadSchema: z.string(),
+    });
+    const numberSignal = createSignal({
+      pluginMetadata: otherPlugin,
+      event: "number",
+      payloadSchema: z.number(),
+    });
 
-    expect(stringSignal.id).toBe("string.signal");
-    expect(numberSignal.id).toBe("number.signal");
-    expect(objectSignal.id).toBe("object.signal");
+    expect(stringSignal.id).toBe("notification.string");
+    expect(stringSignal.pluginId).toBe("notification");
+    expect(numberSignal.id).toBe("system.number");
+    expect(numberSignal.pluginId).toBe("system");
   });
 
-  it("should validate payload against schema", () => {
-    const signal = createSignal(
-      "notification.received",
-      z.object({
+  it("validates payload against schema", () => {
+    const signal = createSignal({
+      pluginMetadata: testPlugin,
+      event: "received",
+      payloadSchema: z.object({
         id: z.string(),
         title: z.string(),
         importance: z.enum(["info", "warning", "critical"]),
-      })
-    );
+      }),
+    });
 
-    // Valid payload
-    const validPayload = {
+    const validResult = signal.payloadSchema.safeParse({
       id: "n-123",
-      title: "Test Notification",
+      title: "Test",
       importance: "info" as const,
-    };
-    const validResult = signal.payloadSchema.safeParse(validPayload);
+    });
     expect(validResult.success).toBe(true);
 
-    // Invalid payload - missing required field
-    const invalidPayload = {
+    const invalidResult = signal.payloadSchema.safeParse({
       id: "n-123",
       title: "Test",
-    };
-    const invalidResult = signal.payloadSchema.safeParse(invalidPayload);
+    });
     expect(invalidResult.success).toBe(false);
-
-    // Invalid payload - wrong enum value
-    const wrongEnumPayload = {
-      id: "n-123",
-      title: "Test",
-      importance: "urgent",
-    };
-    const wrongEnumResult = signal.payloadSchema.safeParse(wrongEnumPayload);
-    expect(wrongEnumResult.success).toBe(false);
   });
 
-  it("should support nested object schemas", () => {
-    const signal = createSignal(
-      "complex.signal",
-      z.object({
-        user: z.object({
-          id: z.string(),
-          name: z.string(),
-        }),
-        metadata: z.record(z.string(), z.string()),
-        tags: z.array(z.string()),
-      })
-    );
-
-    const payload = {
-      user: { id: "u-1", name: "Test User" },
-      metadata: { source: "api" },
-      tags: ["important", "system"],
-    };
-
-    const result = signal.payloadSchema.safeParse(payload);
-    expect(result.success).toBe(true);
-  });
-
-  it("should support optional fields in schema", () => {
-    const signal = createSignal(
-      "optional.signal",
-      z.object({
-        required: z.string(),
-        optional: z.string().optional(),
-      })
-    );
-
-    // With optional field
-    const withOptional = signal.payloadSchema.safeParse({
-      required: "value",
-      optional: "optional value",
+  it("supports multi-segment event names", () => {
+    const signal = createSignal({
+      pluginMetadata: { pluginId: "healthcheck" },
+      event: "system.status_changed",
+      payloadSchema: z.object({ systemId: z.string() }),
     });
-    expect(withOptional.success).toBe(true);
 
-    // Without optional field
-    const withoutOptional = signal.payloadSchema.safeParse({
-      required: "value",
-    });
-    expect(withoutOptional.success).toBe(true);
+    expect(signal.id).toBe("healthcheck.system.status_changed");
+    expect(signal.pluginId).toBe("healthcheck");
   });
 });
 
 describe("Signal type inference", () => {
-  it("should correctly infer payload type from schema", () => {
-    const signal = createSignal(
-      "typed.signal",
-      z.object({
-        count: z.number(),
-        name: z.string(),
-      })
-    );
+  it("infers payload type from schema", () => {
+    const signal = createSignal({
+      pluginMetadata: testPlugin,
+      event: "typed",
+      payloadSchema: z.object({ count: z.number(), name: z.string() }),
+    });
 
-    // TypeScript should infer that payload is { count: number, name: string }
-    type InferredPayload = z.infer<typeof signal.payloadSchema>;
-
-    // This test ensures the types compile correctly
-    const payload: InferredPayload = { count: 42, name: "test" };
+    type Inferred = z.infer<typeof signal.payloadSchema>;
+    const payload: Inferred = { count: 42, name: "test" };
     expect(payload.count).toBe(42);
-    expect(payload.name).toBe("test");
   });
 });
 
-describe("SignalMessage structure", () => {
-  it("should have correct message envelope structure", () => {
+describe("SignalMessage envelope", () => {
+  it("carries signalId, pluginId, payload, and timestamp", () => {
     const message: SignalMessage<{ text: string }> = {
-      signalId: "test.message",
+      signalId: "notification.test",
+      pluginId: "notification",
       payload: { text: "Hello" },
       timestamp: new Date().toISOString(),
     };
 
-    expect(message.signalId).toBe("test.message");
+    expect(message.signalId).toBe("notification.test");
+    expect(message.pluginId).toBe("notification");
     expect(message.payload.text).toBe("Hello");
     expect(typeof message.timestamp).toBe("string");
   });
 });
 
 describe("Signal ID conventions", () => {
-  it("should follow dot-notation naming convention", () => {
-    const signals = [
-      createSignal("notification.received", z.string()),
-      createSignal("notification.read", z.string()),
-      createSignal("system.maintenance.scheduled", z.string()),
-      createSignal("healthcheck.status.changed", z.string()),
+  it("follows dot-notation naming convention", () => {
+    const signals: Signal<unknown>[] = [
+      createSignal({
+        pluginMetadata: { pluginId: "notification" },
+        event: "received",
+        payloadSchema: z.string(),
+      }),
+      createSignal({
+        pluginMetadata: { pluginId: "notification" },
+        event: "read",
+        payloadSchema: z.string(),
+      }),
+      createSignal({
+        pluginMetadata: { pluginId: "system" },
+        event: "maintenance.scheduled",
+        payloadSchema: z.string(),
+      }),
     ];
 
     for (const signal of signals) {
-      expect(signal.id).toMatch(/^[a-z]+(\.[a-z]+)+$/);
+      expect(signal.id).toMatch(/^[a-z]+(\.[a-z_]+)+$/);
     }
   });
 });

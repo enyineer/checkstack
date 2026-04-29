@@ -6,14 +6,9 @@ import {
   useApi,
   wrapInSuspense,
 } from "@checkstack/frontend-api";
-import { useSignal } from "@checkstack/signal-frontend";
 import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 import { IncidentApi } from "../api";
-import {
-  incidentRoutes,
-  INCIDENT_UPDATED,
-  incidentAccess,
-} from "@checkstack/incident-common";
+import { incidentRoutes, incidentAccess } from "@checkstack/incident-common";
 import { CatalogApi } from "@checkstack/catalog-common";
 import {
   Card,
@@ -76,13 +71,6 @@ const IncidentDetailPageContent: React.FC = () => {
 
   const systems = systemsData?.systems ?? [];
   const loading = incidentLoading || systemsLoading;
-
-  // Listen for realtime updates
-  useSignal(INCIDENT_UPDATED, ({ incidentId: updatedId }) => {
-    if (incidentId === updatedId) {
-      void refetchIncident();
-    }
-  });
 
   // Resolve mutation
   const resolveMutation = incidentClient.resolveIncident.useMutation({

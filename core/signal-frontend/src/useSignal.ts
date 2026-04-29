@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { Signal } from "@checkstack/signal-common";
-import { useSignalContext } from "./SignalProvider";
+import { useSignalContext, type SignalAllCallback } from "./SignalProvider";
 
 /**
  * Subscribe to a signal and receive typed payloads.
@@ -64,4 +64,28 @@ export function useSignal<T>(
 export function useSignalConnection(): { isConnected: boolean } {
   const { isConnected } = useSignalContext();
   return { isConnected };
+}
+
+/**
+ * Subscribe to ALL incoming signals. Used by the auto-invalidation layer.
+ *
+ * The callback receives `signalId`, `pluginId`, and the raw payload for every
+ * signal message that arrives over the WebSocket. Subscriptions are automatically
+ * cleaned up on unmount; the latest callback is always used (no stale closures).
+ *
+ * Component code should prefer the typed `useSignal(signal, ...)` hook over this.
+ */
+export function useSubscribeAllSignals(callback: SignalAllCallback): void {
+  const { subscribeAll } = useSignalContext();
+
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+
+  useEffect(() => {
+    const stableCallback: SignalAllCallback = (props) => {
+      callbackRef.current(props);
+    };
+
+    return subscribeAll(stableCallback);
+  }, [subscribeAll]);
 }

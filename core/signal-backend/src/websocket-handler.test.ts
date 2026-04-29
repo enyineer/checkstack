@@ -296,6 +296,7 @@ describe("createWebSocketHandler", () => {
 
       await broadcastSubscription!.handler({
         signalId: "test.signal",
+        pluginId: "test",
         payload: { data: "test" },
         timestamp: new Date().toISOString(),
       });
@@ -306,6 +307,7 @@ describe("createWebSocketHandler", () => {
       const parsed = JSON.parse(publishedMessage!);
       expect(parsed.type).toBe("signal");
       expect(parsed.signalId).toBe("test.signal");
+      expect(parsed.pluginId).toBe("test");
     });
 
     it("should publish user signals to user-specific channel", async () => {
@@ -336,6 +338,7 @@ describe("createWebSocketHandler", () => {
         userId: "target-user",
         message: {
           signalId: "notification.received",
+          pluginId: "notification",
           payload: { id: "n-1" },
           timestamp: new Date().toISOString(),
         },
@@ -347,6 +350,7 @@ describe("createWebSocketHandler", () => {
       const parsed = JSON.parse(publishedMessage!);
       expect(parsed.type).toBe("signal");
       expect(parsed.signalId).toBe("notification.received");
+      expect(parsed.pluginId).toBe("notification");
     });
   });
 });

@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { usePluginClient } from "@checkstack/frontend-api";
-import { AnnouncementApi, ANNOUNCEMENT_UPDATED, type Announcement } from "@checkstack/announcement-common";
-import { useSignal } from "@checkstack/signal-frontend";
+import { AnnouncementApi, type Announcement } from "@checkstack/announcement-common";
 import { MarkdownBlock } from "@checkstack/ui";
 import {
   Info,
@@ -103,16 +102,11 @@ export const DashboardAnnouncements: React.FC = () => {
   const announcementClient = usePluginClient(AnnouncementApi);
 
   // Always refetch on mount so the dashboard shows fresh data when navigated to.
-  // Also subscribe to signals for instant updates while actively viewing.
-  const { data, isLoading, refetch } =
-    announcementClient.getActiveAnnouncements.useQuery(
-      { includeDismissed: true },
-      { refetchOnMount: "always" },
-    );
-
-  useSignal(ANNOUNCEMENT_UPDATED, () => {
-    void refetch();
-  });
+  // Realtime updates arrive via SignalAutoInvalidator on `[["announcement"]]`.
+  const { data, isLoading } = announcementClient.getActiveAnnouncements.useQuery(
+    { includeDismissed: true },
+    { refetchOnMount: "always" },
+  );
 
   const dashboardAnnouncements = React.useMemo(() => {
     if (!data?.announcements) return [];

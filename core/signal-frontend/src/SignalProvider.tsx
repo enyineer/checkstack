@@ -15,11 +15,27 @@ import type {
 // CONTEXT TYPES
 // =============================================================================
 
+/**
+ * Wildcard subscription callback. Fires for every incoming signal message
+ * regardless of signalId, with the pluginId already extracted from the wire envelope.
+ * Used by the auto-invalidation layer; not intended for component-level use.
+ */
+export type SignalAllCallback = (props: {
+  signalId: string;
+  pluginId: string;
+  payload: unknown;
+}) => void;
+
 interface SignalContextValue {
   /** Whether the WebSocket connection is established */
   isConnected: boolean;
-  /** Subscribe to a signal. Returns an unsubscribe function. */
+  /** Subscribe to a specific signal. Returns an unsubscribe function. */
   subscribe<T>(signal: Signal<T>, callback: (payload: T) => void): () => void;
+  /**
+   * Subscribe to ALL incoming signals. Returns an unsubscribe function.
+   * Used by the auto-invalidation layer to receive every message.
+   */
+  subscribeAll(callback: SignalAllCallback): () => void;
 }
 
 const SignalContext = createContext<SignalContextValue | undefined>(undefined);
@@ -58,6 +74,7 @@ export const SignalProvider: React.FC<SignalProviderProps> = ({
   const listenersRef = useRef<Map<string, Set<(payload: unknown) => void>>>(
     new Map()
   );
+  const allListenersRef = useRef<Set<SignalAllCallback>>(new Set());
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined
   );
@@ -115,6 +132,14 @@ export const SignalProvider: React.FC<SignalProviderProps> = ({
                 callback(message.payload);
               }
             }
+            // Notify wildcard listeners (auto-invalidator etc.)
+            for (const callback of allListenersRef.current) {
+              callback({
+                signalId: message.signalId,
+                pluginId: message.pluginId,
+                payload: message.payload,
+              });
+            }
           }
           // Ignore "connected" and "pong" messages
         } catch (error) {
@@ -154,9 +179,17 @@ export const SignalProvider: React.FC<SignalProviderProps> = ({
     []
   );
 
+  const subscribeAll = useCallback((callback: SignalAllCallback) => {
+    allListenersRef.current.add(callback);
+    return () => {
+      allListenersRef.current.delete(callback);
+    };
+  }, []);
+
   const value: SignalContextValue = {
     isConnected,
     subscribe,
+    subscribeAll,
   };
 
   return (

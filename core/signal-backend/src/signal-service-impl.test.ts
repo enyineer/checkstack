@@ -6,15 +6,19 @@ import { z } from "zod";
 import type { EventBus, Logger } from "@checkstack/backend-api";
 
 // Test signals
-const TEST_BROADCAST_SIGNAL = createSignal(
-  "test.broadcast",
-  z.object({ message: z.string() })
-);
+const testPluginMetadata = { pluginId: "test" };
 
-const TEST_USER_SIGNAL = createSignal(
-  "test.user",
-  z.object({ notification: z.string(), count: z.number() })
-);
+const TEST_BROADCAST_SIGNAL = createSignal({
+  pluginMetadata: testPluginMetadata,
+  event: "broadcast",
+  payloadSchema: z.object({ message: z.string() }),
+});
+
+const TEST_USER_SIGNAL = createSignal({
+  pluginMetadata: testPluginMetadata,
+  event: "user",
+  payloadSchema: z.object({ notification: z.string(), count: z.number() }),
+});
 
 describe("SignalServiceImpl", () => {
   let signalService: SignalServiceImpl;
@@ -55,10 +59,12 @@ describe("SignalServiceImpl", () => {
 
       const message = emittedEvents[0].payload as {
         signalId: string;
+        pluginId: string;
         payload: typeof payload;
         timestamp: string;
       };
       expect(message.signalId).toBe("test.broadcast");
+      expect(message.pluginId).toBe("test");
       expect(message.payload).toEqual(payload);
       expect(typeof message.timestamp).toBe("string");
     });
@@ -96,10 +102,15 @@ describe("SignalServiceImpl", () => {
 
       const emitted = emittedEvents[0].payload as {
         userId: string;
-        message: { signalId: string; payload: typeof payload };
+        message: {
+          signalId: string;
+          pluginId: string;
+          payload: typeof payload;
+        };
       };
       expect(emitted.userId).toBe(userId);
       expect(emitted.message.signalId).toBe("test.user");
+      expect(emitted.message.pluginId).toBe("test");
       expect(emitted.message.payload).toEqual(payload);
     });
 

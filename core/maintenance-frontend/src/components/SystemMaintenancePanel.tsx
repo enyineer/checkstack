@@ -1,14 +1,10 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
-import { useSignal } from "@checkstack/signal-frontend";
 import { resolveRoute } from "@checkstack/common";
 import { SystemDetailsSlot } from "@checkstack/catalog-common";
 import { MaintenanceApi } from "../api";
-import {
-  maintenanceRoutes,
-  MAINTENANCE_UPDATED,
-} from "@checkstack/maintenance-common";
+import { maintenanceRoutes } from "@checkstack/maintenance-common";
 import { LoadingSpinner, Button } from "@checkstack/ui";
 import { Wrench, History } from "lucide-react";
 
@@ -21,22 +17,12 @@ type Props = SlotContext<typeof SystemDetailsSlot>;
 export const SystemMaintenancePanel: React.FC<Props> = ({ system }) => {
   const maintenanceClient = usePluginClient(MaintenanceApi);
 
-  // Fetch maintenances with useQuery
-  const {
-    data: maintenances = [],
-    isLoading: loading,
-    refetch,
-  } = maintenanceClient.getMaintenancesForSystem.useQuery(
-    { systemId: system?.id ?? "" },
-    { enabled: !!system?.id }
-  );
-
-  // Listen for realtime maintenance updates
-  useSignal(MAINTENANCE_UPDATED, ({ systemIds }) => {
-    if (system?.id && systemIds.includes(system.id)) {
-      void refetch();
-    }
-  });
+  // Fetch maintenances with useQuery — kept fresh via SignalAutoInvalidator.
+  const { data: maintenances = [], isLoading: loading } =
+    maintenanceClient.getMaintenancesForSystem.useQuery(
+      { systemId: system?.id ?? "" },
+      { enabled: !!system?.id }
+    );
 
   if (loading) {
     return (

@@ -1,9 +1,7 @@
 import React, { useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { usePluginClient, wrapInSuspense } from "@checkstack/frontend-api";
-import { useSignal } from "@checkstack/signal-frontend";
 import { SloApi } from "../api";
-import { SLO_STATUS_CHANGED } from "@checkstack/slo-common";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { ErrorBudgetBar } from "../components/ErrorBudgetBar";
 import { BurnRateIndicator } from "../components/BurnRateIndicator";
@@ -41,16 +39,15 @@ const SloDetailPageContent: React.FC = () => {
   const sloClient = usePluginClient(SloApi);
   const catalogClient = usePluginClient(CatalogApi);
 
-  const { data, isLoading, refetch } = sloClient.getObjective.useQuery(
+  const { data, isLoading } = sloClient.getObjective.useQuery(
     { id: sloId ?? "" },
     { enabled: !!sloId },
   );
 
-  const { data: eventsData, refetch: refetchEvents } =
-    sloClient.getDowntimeEvents.useQuery(
-      { objectiveId: sloId ?? "", limit: 20 },
-      { enabled: !!sloId },
-    );
+  const { data: eventsData } = sloClient.getDowntimeEvents.useQuery(
+    { objectiveId: sloId ?? "", limit: 20 },
+    { enabled: !!sloId },
+  );
 
   const { data: streaksData } = sloClient.getStreaks.useQuery({});
 
@@ -79,13 +76,6 @@ const SloDetailPageContent: React.FC = () => {
   );
 
   const events = eventsData?.events;
-
-  useSignal(SLO_STATUS_CHANGED, ({ objectiveId }) => {
-    if (objectiveId === sloId) {
-      void refetch();
-      void refetchEvents();
-    }
-  });
 
   if (isLoading || !data) {
     return (

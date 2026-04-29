@@ -1,13 +1,11 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
-import { useSignal } from "@checkstack/signal-frontend";
 import { resolveRoute } from "@checkstack/common";
 import { SystemDetailsTopSlot } from "@checkstack/catalog-common";
 import { IncidentApi } from "../api";
 import {
   incidentRoutes,
-  INCIDENT_UPDATED,
   type IncidentWithSystems,
 } from "@checkstack/incident-common";
 import { Badge, LoadingSpinner, Button } from "@checkstack/ui";
@@ -43,21 +41,11 @@ export const SystemIncidentPanel: React.FC<Props> = ({ system }) => {
   const incidentClient = usePluginClient(IncidentApi);
 
   // Fetch incidents with useQuery
-  const {
-    data: incidents = [],
-    isLoading: loading,
-    refetch,
-  } = incidentClient.getIncidentsForSystem.useQuery(
-    { systemId: system?.id ?? "" },
-    { enabled: !!system?.id }
-  );
-
-  // Listen for realtime incident updates
-  useSignal(INCIDENT_UPDATED, ({ systemIds }) => {
-    if (system?.id && systemIds.includes(system.id)) {
-      void refetch();
-    }
-  });
+  const { data: incidents = [], isLoading: loading } =
+    incidentClient.getIncidentsForSystem.useQuery(
+      { systemId: system?.id ?? "" },
+      { enabled: !!system?.id }
+    );
 
   if (loading) {
     return (

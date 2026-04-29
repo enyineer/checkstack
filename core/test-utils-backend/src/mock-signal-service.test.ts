@@ -7,15 +7,19 @@ import { createSignal } from "@checkstack/signal-common";
 import { z } from "zod";
 
 // Test signals
-const TEST_SIGNAL_A = createSignal(
-  "test.signalA",
-  z.object({ value: z.string() })
-);
+const testPluginMetadata = { pluginId: "test" };
 
-const TEST_SIGNAL_B = createSignal(
-  "test.signalB",
-  z.object({ count: z.number() })
-);
+const TEST_SIGNAL_A = createSignal({
+  pluginMetadata: testPluginMetadata,
+  event: "signalA",
+  payloadSchema: z.object({ value: z.string() }),
+});
+
+const TEST_SIGNAL_B = createSignal({
+  pluginMetadata: testPluginMetadata,
+  event: "signalB",
+  payloadSchema: z.object({ count: z.number() }),
+});
 
 describe("createMockSignalService", () => {
   let mockService: MockSignalService;

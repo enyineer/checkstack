@@ -1,8 +1,7 @@
 import React, { useMemo } from "react";
 import { usePluginClient, wrapInSuspense } from "@checkstack/frontend-api";
-import { useSignal } from "@checkstack/signal-frontend";
 import { SloApi } from "../api";
-import { SLO_STATUS_CHANGED, sloRoutes } from "@checkstack/slo-common";
+import { sloRoutes } from "@checkstack/slo-common";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { ErrorBudgetBar } from "../components/ErrorBudgetBar";
 import { BurnRateIndicator } from "../components/BurnRateIndicator";
@@ -25,18 +24,11 @@ const SloOverviewPageContent: React.FC = () => {
   const sloClient = usePluginClient(SloApi);
   const catalogClient = usePluginClient(CatalogApi);
 
-  const {
-    data: objectivesData,
-    isLoading: objectivesLoading,
-    refetch,
-  } = sloClient.listObjectives.useQuery({});
+  const { data: objectivesData, isLoading: objectivesLoading } =
+    sloClient.listObjectives.useQuery({});
 
   const { data: systemsData, isLoading: systemsLoading } =
     catalogClient.getSystems.useQuery({});
-
-  useSignal(SLO_STATUS_CHANGED, () => {
-    void refetch();
-  });
 
   const objectives = objectivesData?.objectives ?? [];
   const isLoading = objectivesLoading || systemsLoading;
