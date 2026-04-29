@@ -10,7 +10,7 @@ import { extractChartFields, getFieldValue } from "./schema-parser";
 import { useStrategySchemas } from "./useStrategySchemas";
 import type { HealthCheckDiagramSlotContext } from "../slots";
 import { SparklineTooltip } from "../components/SparklineTooltip";
-import { Card, CardContent, CardHeader, CardTitle } from "@checkstack/ui";
+import { Badge, Card, CardContent, CardHeader, CardTitle } from "@checkstack/ui";
 import {
   PieChart,
   Pie,
@@ -86,7 +86,7 @@ export function AutoChartGrid({ context }: AutoChartGridProps) {
     <div className="space-y-6 mt-4">
       {/* Strategy-level fields */}
       {strategyFields.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="space-y-4">
           {strategyFields.map((field) => (
             <AutoChartCard
               key={field.name}
@@ -118,6 +118,7 @@ interface CollectorGroupData {
   instanceKey: string;
   collectorId: string;
   displayName: string;
+  instanceLabel?: string;
   fields: ExpandedChartField[];
 }
 
@@ -140,15 +141,15 @@ function buildCollectorGroups(
 
     // Create a group for each instance
     for (const [index, instanceKey] of instanceKeys.entries()) {
-      const displayName =
-        instanceKeys.length === 1
-          ? collectorId.split(".").pop() || collectorId
-          : `${collectorId.split(".").pop() || collectorId} #${index + 1}`;
+      const displayName = collectorId.split(".").pop() || collectorId;
+      const instanceLabel =
+        instanceKeys.length > 1 ? `#${index + 1}` : undefined;
 
       groups.push({
         instanceKey,
         collectorId,
         displayName,
+        instanceLabel,
         fields: collectorFields.map((field) => ({
           ...field,
           instanceKey,
@@ -174,7 +175,8 @@ function CollectorGroup({
   context: HealthCheckDiagramSlotContext;
   baselines: AnomalyBaselineDto[];
 }) {
-  // Separate fields into narrow (grid) and wide (full-width) categories
+  // Order: narrow (summary) cards first, then wide timeline cards.
+  // Layout is now fully stacked at 100% width.
   const narrowFields = group.fields.filter(
     (f) => !WIDE_CHART_TYPES.has(f.chartType),
   );
@@ -184,26 +186,30 @@ function CollectorGroup({
 
   return (
     <div className="space-y-4">
-      <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-        {group.displayName}
-      </h4>
+      <div className="flex items-center gap-2 flex-wrap border-b pb-2">
+        <h3 className="text-lg font-semibold capitalize">
+          {group.displayName}
+        </h3>
+        {group.instanceLabel && (
+          <span className="text-sm font-medium text-muted-foreground">
+            {group.instanceLabel}
+          </span>
+        )}
+        <Badge variant="outline" className="font-mono">
+          {group.collectorId}
+        </Badge>
+      </div>
 
-      {/* Narrow cards grid - these pack together nicely */}
-      {narrowFields.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {narrowFields.map((field) => (
-            <AutoChartCard
-              key={`${field.instanceKey}-${field.name}`}
-              field={field}
-              context={context}
-              baselines={baselines}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Wide timeline cards - assertion plus timeline fields */}
       <div className="space-y-4">
+        {narrowFields.map((field) => (
+          <AutoChartCard
+            key={`${field.instanceKey}-${field.name}`}
+            field={field}
+            context={context}
+            baselines={baselines}
+          />
+        ))}
+
         <AssertionStatusCard
           context={context}
           instanceKey={group.instanceKey}
@@ -275,9 +281,11 @@ function AssertionStatusCard({
     return (
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Assertion</CardTitle>
+          <CardTitle className="text-sm font-medium text-center">
+            Assertion
+          </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="text-center">
           <div className="text-sm text-muted-foreground">No data</div>
         </CardContent>
       </Card>
@@ -298,14 +306,14 @@ function AssertionStatusCard({
     >
       <CardHeader className="pb-2">
         <CardTitle
-          className={`text-sm font-medium ${latestResult.passed ? "" : "text-red-600"}`}
+          className={`text-sm font-medium text-center ${latestResult.passed ? "" : "text-red-600"}`}
         >
           {latestResult.passed ? "Assertion" : "Assertion Failed"}
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent className="space-y-2 text-center">
         {/* Current status with rate */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-center gap-2">
           <div
             className={`w-3 h-3 rounded-full ${
               latestResult.passed ? "bg-green-500" : "bg-red-500"
@@ -449,9 +457,11 @@ function AutoChartCard({ field, context, baselines }: AutoChartCardProps) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">{field.label}</CardTitle>
+        <CardTitle className="text-sm font-medium text-center">
+          {field.label}
+        </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-col items-center text-center [&>*]:w-full">
         <ChartRenderer field={field} context={context} baseline={baseline} />
       </CardContent>
     </Card>
@@ -592,8 +602,8 @@ function GaugeRenderer({ field, context, baseline }: ChartRendererProps) {
   const data = [{ name: field.label, value: numValue, fill: fillColor }];
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-3">
+    <div className="flex flex-col gap-2 items-center">
+      <div className="flex items-center justify-center gap-3">
         <ResponsiveContainer width={80} height={80}>
           <RadialBarChart
             cx="50%"
@@ -681,7 +691,7 @@ function BooleanRenderer({ field, context, baseline }: ChartRendererProps) {
   return (
     <div className="space-y-2">
       {/* Current status with rate */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center justify-center gap-2">
         <div
           className={`w-3 h-3 rounded-full ${
             latestValue ? "bg-green-500" : "bg-red-500"
@@ -753,7 +763,7 @@ function TextRenderer({ field, context, baseline }: ChartRendererProps) {
   return (
     <div className="space-y-2">
       {/* Current value with count */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center justify-center gap-2">
         <span className="text-sm font-mono">{latestValue || "—"}</span>
         {!allSame && (
           <span className="text-xs text-muted-foreground">
