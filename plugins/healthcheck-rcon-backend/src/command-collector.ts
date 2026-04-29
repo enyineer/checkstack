@@ -35,11 +35,16 @@ const commandResultSchema = healthResultSchema({
   response: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Response",
+    "x-anomaly-enabled": false,
   }),
   executionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Execution Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
   }),
 });
 
@@ -51,6 +56,8 @@ const commandAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Execution Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
 };
 

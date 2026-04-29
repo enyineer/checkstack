@@ -121,7 +121,7 @@ const HealthCheckHistoryDetailPageContent = () => {
       loading={accessLoading}
       allowed={canManage}
       actions={
-        <BackLink to={resolveRoute(healthcheckRoutes.routes.history)}>
+        <BackLink onClick={() => navigate(resolveRoute(healthcheckRoutes.routes.history))}>
           Back to All History
         </BackLink>
       }

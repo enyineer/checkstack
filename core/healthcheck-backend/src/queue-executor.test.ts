@@ -5,6 +5,14 @@ import {
   bootstrapHealthChecks,
   type HealthCheckJobPayload,
 } from "./queue-executor";
+import type { HealthCheckCache } from "./cache";
+
+const passthroughCache: HealthCheckCache = {
+  wrapSystemHealthStatus: (_systemId, loader) => loader(),
+  invalidateSystem: async () => {},
+  invalidateAllSystems: async () => 0,
+  scope: {} as HealthCheckCache["scope"],
+};
 import {
   createMockLogger,
   createMockQueueManager,
@@ -188,6 +196,7 @@ describe("Queue-Based Health Check Executor", () => {
           typeof setupHealthCheckWorker
         >[0]["incidentClient"],
         getEmitHook: () => undefined,
+        cache: passthroughCache,
       });
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
@@ -381,6 +390,7 @@ describe("Queue-Based Health Check Executor", () => {
           typeof setupHealthCheckWorker
         >[0]["incidentClient"],
         getEmitHook: () => undefined,
+        cache: passthroughCache,
       });
 
       // Execute a paused health check

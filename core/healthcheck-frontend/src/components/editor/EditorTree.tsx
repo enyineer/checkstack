@@ -10,6 +10,8 @@ import {
   IDETreeSection,
   type ValidationIssue,
 } from "@checkstack/ui";
+import { ExtensionSlot } from "@checkstack/frontend-api";
+import { HealthCheckConfigIDENodeSlot } from "../../slots";
 
 // =============================================================================
 // TYPES
@@ -19,7 +21,8 @@ export type TreeNodeId =
   | "general"
   | "access"
   | "collector-picker"
-  | `collector:${string}`;
+  | `collector:${string}`
+  | (string & {});
 
 interface EditorTreeProps {
   collectors: CollectorConfigEntry[];
@@ -29,6 +32,7 @@ interface EditorTreeProps {
   onAddCollector: (collectorId: string) => void;
   validationIssues: ValidationIssue[];
   strategyId: string;
+  configId?: string;
 }
 
 // =============================================================================
@@ -42,6 +46,7 @@ export const EditorTree: React.FC<EditorTreeProps> = ({
   onSelectNode,
   validationIssues,
   strategyId,
+  configId,
 }) => {
   // Check if there are addable collectors remaining
   const hasAddableCollectors = useMemo(() => {
@@ -115,6 +120,19 @@ export const EditorTree: React.FC<EditorTreeProps> = ({
         onClick={() => onSelectNode("access")}
         issues={validationIssues}
       />
+
+      {/* Plugin Configuration Slots */}
+      {configId && (
+        <ExtensionSlot
+          slot={HealthCheckConfigIDENodeSlot}
+          context={{
+            configurationId: configId,
+            strategyId,
+            selectedNode,
+            onSelectNode,
+          }}
+        />
+      )}
     </div>
   );
 };

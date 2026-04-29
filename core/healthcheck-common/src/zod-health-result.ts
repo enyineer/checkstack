@@ -96,7 +96,8 @@ export function healthResultSchema<T extends HealthResultShape>(
 // ============================================================================
 
 /** Chart metadata (excludes x-jsonpath, use healthResultJSONPath for that) */
-type ChartMeta = Omit<HealthResultMeta, "x-jsonpath">;
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+type ChartMeta = DistributiveOmit<HealthResultMeta, "x-jsonpath">;
 
 /**
  * Create a health result string field with typed chart metadata.
@@ -114,7 +115,8 @@ export function healthResultString(
   meta: ChartMeta,
 ): HealthResultField<z.ZodString> {
   const schema = z.string();
-  schema.register(healthResultRegistry, meta);
+  const finalMeta = (meta["x-ephemeral"] ? { ...meta, "x-anomaly-enabled": false as const } : meta) as HealthResultMeta;
+  schema.register(healthResultRegistry, finalMeta);
   return schema as HealthResultField<z.ZodString>;
 }
 
@@ -125,7 +127,8 @@ export function healthResultNumber(
   meta: ChartMeta,
 ): HealthResultField<z.ZodNumber> {
   const schema = z.number();
-  schema.register(healthResultRegistry, meta);
+  const finalMeta = (meta["x-ephemeral"] ? { ...meta, "x-anomaly-enabled": false as const } : meta) as HealthResultMeta;
+  schema.register(healthResultRegistry, finalMeta);
   return schema as HealthResultField<z.ZodNumber>;
 }
 
@@ -136,7 +139,8 @@ export function healthResultBoolean(
   meta: ChartMeta,
 ): HealthResultField<z.ZodBoolean> {
   const schema = z.boolean();
-  schema.register(healthResultRegistry, meta);
+  const finalMeta = (meta["x-ephemeral"] ? { ...meta, "x-anomaly-enabled": false as const } : meta) as HealthResultMeta;
+  schema.register(healthResultRegistry, finalMeta);
   return schema as HealthResultField<z.ZodBoolean>;
 }
 
@@ -155,7 +159,8 @@ export function healthResultArray(
   meta: ChartMeta,
 ): HealthResultField<z.ZodArray<z.ZodString>> {
   const schema = z.array(z.string());
-  schema.register(healthResultRegistry, meta);
+  const finalMeta = (meta["x-ephemeral"] ? { ...meta, "x-anomaly-enabled": false as const } : meta) as HealthResultMeta;
+  schema.register(healthResultRegistry, finalMeta);
   return schema as HealthResultField<z.ZodArray<z.ZodString>>;
 }
 
@@ -176,7 +181,11 @@ export function healthResultJSONPath(
   meta: ChartMeta,
 ): HealthResultField<z.ZodString> {
   const schema = z.string();
-  schema.register(healthResultRegistry, { ...meta, "x-jsonpath": true });
+  schema.register(healthResultRegistry, { 
+    ...meta, 
+    "x-jsonpath": true,
+    "x-anomaly-enabled": false as const // Always disable anomaly detection for raw body payloads
+  } as HealthResultMeta);
   return schema as HealthResultField<z.ZodString>;
 }
 

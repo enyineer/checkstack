@@ -7,13 +7,13 @@ describe("QueryCollector", () => {
     response: {
       rowCount?: number;
       error?: string;
-    } = {}
+    } = {},
   ): MysqlTransportClient => ({
     exec: mock(() =>
       Promise.resolve({
         rowCount: response.rowCount ?? 1,
         error: response.error,
-      })
+      }),
     ),
   });
 

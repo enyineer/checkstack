@@ -27,7 +27,7 @@ const WEBEX_RESOLVERS = {
  */
 export const WebexConnectionSchema = z.object({
   botToken: configString({ "x-secret": true }).describe(
-    "Webex Bot Access Token from developer.webex.com"
+    "Webex Bot Access Token from developer.webex.com",
   ),
 });
 
@@ -46,7 +46,7 @@ export const WebexSubscriptionSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Message template (supports {{event.payload.*}} placeholders). Leave empty for default format."
+      "Message template (supports {{event.payload.*}} placeholders). Leave empty for default format.",
     ),
 });
 
@@ -78,7 +78,7 @@ interface WebexMessageResponse {
 }
 
 async function fetchWebexRooms(
-  botToken: string
+  botToken: string,
 ): Promise<
   { success: true; rooms: WebexRoom[] } | { success: false; error: string }
 > {
@@ -129,7 +129,7 @@ async function sendWebexMessage(params: {
         success: false,
         error: `Webex API error (${response.status}): ${errorText.slice(
           0,
-          200
+          200,
         )}`,
       };
     }
@@ -143,7 +143,7 @@ async function sendWebexMessage(params: {
 }
 
 async function testWebexConnection(
-  botToken: string
+  botToken: string,
 ): Promise<
   { success: true; botName: string } | { success: false; error: string }
 > {
@@ -173,7 +173,7 @@ async function testWebexConnection(
 
 function expandTemplate(
   template: string,
-  context: Record<string, unknown>
+  context: Record<string, unknown>,
 ): string {
   return template.replaceAll(/\{\{([^}]+)\}\}/g, (_match, path: string) => {
     const trimmedPath = path.trim();
@@ -198,7 +198,7 @@ function expandTemplate(
 function buildDefaultMessage(
   eventId: string,
   payload: Record<string, unknown>,
-  subscriptionName: string
+  subscriptionName: string,
 ): string {
   const lines: string[] = [
     `📢 **Integration Event**`,
@@ -256,7 +256,7 @@ export const webexProvider: IntegrationProvider<
   },
 
   async getConnectionOptions(
-    params: GetConnectionOptionsParams
+    params: GetConnectionOptionsParams,
   ): Promise<ConnectionOption[]> {
     const { resolverName, connectionId, getConnectionWithCredentials } = params;
 
@@ -298,8 +298,7 @@ export const webexProvider: IntegrationProvider<
             message: `Connection failed: ${result.error}`,
           };
     } catch (error) {
-      const message =
-        extractErrorMessage(error, "Invalid configuration");
+      const message = extractErrorMessage(error, "Invalid configuration");
       return {
         success: false,
         message: `Validation failed: ${message}`,
@@ -308,7 +307,7 @@ export const webexProvider: IntegrationProvider<
   },
 
   async deliver(
-    context: IntegrationDeliveryContext<WebexSubscriptionConfig>
+    context: IntegrationDeliveryContext<WebexSubscriptionConfig>,
   ): Promise<IntegrationDeliveryResult> {
     const { event, subscription, providerConfig, logger } = context;
 
@@ -324,7 +323,7 @@ export const webexProvider: IntegrationProvider<
     }
 
     const connection = await context.getConnectionWithCredentials(
-      config.connectionId
+      config.connectionId,
     );
 
     if (!connection) {
@@ -356,7 +355,7 @@ export const webexProvider: IntegrationProvider<
       markdown = buildDefaultMessage(
         event.eventId,
         event.payload as Record<string, unknown>,
-        subscription.name
+        subscription.name,
       );
     }
 

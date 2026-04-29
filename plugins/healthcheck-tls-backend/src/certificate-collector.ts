@@ -38,27 +38,35 @@ const certificateResultSchema = healthResultSchema({
   subject: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Subject",
+    "x-anomaly-enabled": false,
   }),
   issuer: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Issuer",
+    "x-anomaly-enabled": false,
   }),
   validFrom: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Valid From",
+    "x-anomaly-enabled": false,
   }),
   validTo: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Valid To",
+    "x-anomaly-enabled": false,
   }),
   daysRemaining: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Days Remaining",
     "x-chart-unit": "days",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   valid: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Valid",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
 });
 
@@ -70,11 +78,15 @@ const certificateAggregatedFields = {
     "x-chart-type": "gauge",
     "x-chart-label": "Avg Days Remaining",
     "x-chart-unit": "days",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   validRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Valid Rate",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
 };
 

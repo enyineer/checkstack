@@ -34,26 +34,35 @@ const sourceStatusResultSchema = z.object({
   hostname: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Hostname",
+    "x-anomaly-enabled": false,
   }).optional(),
   version: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Version",
+    "x-anomaly-enabled": false,
   }).optional(),
   map: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Map",
+    "x-anomaly-enabled": false,
   }).optional(),
   humanPlayers: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Human Players",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   botPlayers: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Bot Players",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   maxPlayers: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Max Players",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
 });
 
@@ -64,10 +73,14 @@ const sourceStatusAggregatedFields = {
   avgHumanPlayers: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Human Players",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   maxHumanPlayers: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Human Players",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
 };
 

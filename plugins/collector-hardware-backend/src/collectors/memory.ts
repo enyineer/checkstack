@@ -43,31 +43,43 @@ const memoryResultSchema = z.object({
     "x-chart-type": "counter",
     "x-chart-label": "Total Memory",
     "x-chart-unit": "MB",
+    "x-anomaly-enabled": false,
   }),
   usedMb: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Used Memory",
     "x-chart-unit": "MB",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   freeMb: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Free Memory",
     "x-chart-unit": "MB",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   usedPercent: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Memory Usage",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
   }),
   swapUsedMb: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Swap Used",
     "x-chart-unit": "MB",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }).optional(),
   swapTotalMb: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Swap Total",
     "x-chart-unit": "MB",
+    "x-anomaly-enabled": false,
   }).optional(),
 });
 
@@ -79,16 +91,22 @@ const memoryAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Memory Usage",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   maxUsedPercent: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Memory Usage",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   avgUsedMb: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Memory Used",
     "x-chart-unit": "MB",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
 };
 

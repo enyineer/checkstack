@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   FileText,
   RefreshCw,
@@ -61,6 +62,7 @@ const statusConfig: Record<
 export const DeliveryLogsPage = () => {
   const integrationClient = usePluginClient(IntegrationApi);
   const toast = useToast();
+  const navigate = useNavigate();
 
   const [retrying, setRetrying] = useState<string>();
 
@@ -110,7 +112,7 @@ export const DeliveryLogsPage = () => {
       icon={FileText}
       loading={isLoading}
       actions={
-        <BackLink to={resolveRoute(integrationRoutes.routes.list)}>
+        <BackLink onClick={() => navigate(resolveRoute(integrationRoutes.routes.list))}>
           Back to Subscriptions
         </BackLink>
       }

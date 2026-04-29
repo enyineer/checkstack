@@ -16,6 +16,8 @@
   "dependencies": {
     "@checkstack/notification-common": "workspace:*",
     "@checkstack/backend-api": "workspace:*",
+    "@checkstack/cache-api": "workspace:*",
+    "@checkstack/cache-utils": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/auth-backend": "workspace:*",

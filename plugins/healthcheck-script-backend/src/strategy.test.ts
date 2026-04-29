@@ -10,7 +10,7 @@ describe("ScriptHealthCheckStrategy", () => {
       stderr?: string;
       timedOut?: boolean;
       error?: Error;
-    } = {}
+    } = {},
   ): ScriptExecutor => ({
     execute: mock(() =>
       config.error
@@ -20,7 +20,7 @@ describe("ScriptHealthCheckStrategy", () => {
             stdout: config.stdout ?? "",
             stderr: config.stderr ?? "",
             timedOut: config.timedOut ?? false,
-          })
+          }),
     ),
   });
 
@@ -45,7 +45,7 @@ describe("ScriptHealthCheckStrategy", () => {
   describe("client.exec", () => {
     it("should return successful result for successful script execution", async () => {
       const strategy = new ScriptHealthCheckStrategy(
-        createMockExecutor({ exitCode: 0, stdout: "OK" })
+        createMockExecutor({ exitCode: 0, stdout: "OK" }),
       );
       const connectedClient = await strategy.createClient({ timeout: 5000 });
 
@@ -63,7 +63,7 @@ describe("ScriptHealthCheckStrategy", () => {
 
     it("should return non-zero exit code for failed script", async () => {
       const strategy = new ScriptHealthCheckStrategy(
-        createMockExecutor({ exitCode: 1, stderr: "Error" })
+        createMockExecutor({ exitCode: 1, stderr: "Error" }),
       );
       const connectedClient = await strategy.createClient({ timeout: 5000 });
 
@@ -80,7 +80,7 @@ describe("ScriptHealthCheckStrategy", () => {
 
     it("should indicate timeout for timed out script", async () => {
       const strategy = new ScriptHealthCheckStrategy(
-        createMockExecutor({ timedOut: true, exitCode: -1 })
+        createMockExecutor({ timedOut: true, exitCode: -1 }),
       );
       const connectedClient = await strategy.createClient({ timeout: 5000 });
 
@@ -97,7 +97,7 @@ describe("ScriptHealthCheckStrategy", () => {
 
     it("should return error for execution error", async () => {
       const strategy = new ScriptHealthCheckStrategy(
-        createMockExecutor({ error: new Error("Command not found") })
+        createMockExecutor({ error: new Error("Command not found") }),
       );
       const connectedClient = await strategy.createClient({ timeout: 5000 });
 
@@ -131,7 +131,7 @@ describe("ScriptHealthCheckStrategy", () => {
           args: ["--verbose", "--env=prod"],
           cwd: "/opt/scripts",
           env: { API_KEY: "secret" },
-        })
+        }),
       );
 
       connectedClient.close();

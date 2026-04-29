@@ -13,6 +13,8 @@ import { eq, and } from "drizzle-orm";
 import { PluginLocalInstaller } from "./services/plugin-installer";
 import { QueuePluginRegistryImpl } from "./services/queue-plugin-registry";
 import { QueueManagerImpl } from "./services/queue-manager";
+import { CachePluginRegistryImpl } from "./services/cache-plugin-registry";
+import { CacheManagerImpl } from "./services/cache-manager";
 import {
   createWebSocketHandler,
   SignalServiceImpl,
@@ -278,6 +280,20 @@ const init = async () => {
   );
   pluginManager.registerService(coreServices.queueManager, queueManager);
 
+  // 1.8. Register Cache Services
+  rootLogger.debug("Registering cache services...");
+  const cacheRegistry = new CachePluginRegistryImpl();
+  const cacheManager = new CacheManagerImpl(
+    cacheRegistry,
+    configService,
+    rootLogger
+  );
+  pluginManager.registerService(
+    coreServices.cachePluginRegistry,
+    cacheRegistry
+  );
+  pluginManager.registerService(coreServices.cacheManager, cacheManager);
+
   // Serve static assets for runtime frontend plugins only
   // Backend plugins don't need public assets - only frontend plugins do
   // e.g. /assets/plugins/my-plugin-frontend/index.js -> runtime_plugins/node_modules/my-plugin-frontend/dist/index.js
@@ -377,6 +393,10 @@ const init = async () => {
 
   // 7. Start config polling for multi-instance coordination
   queueManager.startPolling(5000);
+
+  // 8. Load Cache Configuration AFTER plugins (cache plugins register first)
+  rootLogger.info("📦 Loading cache configuration...");
+  await cacheManager.loadConfiguration();
 
   // 9. Setup plugin lifecycle signal broadcasting to frontend
   // Only broadcast for frontend plugins (plugins ending with -frontend)

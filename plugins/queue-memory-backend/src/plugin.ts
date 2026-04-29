@@ -25,7 +25,7 @@ const configSchema = z.object({
     .max(1)
     .default(1)
     .describe(
-      "Delay multiplier (default: 1). Only change for testing purposes - set to 0.01 for 100x faster test execution."
+      "Delay multiplier (default: 1). Only change for testing purposes - set to 0.01 for 100x faster test execution.",
     ),
   /**
    * Interval in milliseconds for the heartbeat that checks for ready jobs.
@@ -37,7 +37,7 @@ const configSchema = z.object({
     .min(0)
     .default(5000)
     .describe(
-      "Heartbeat interval in ms to check for ready jobs (default: 5000). Set to 0 to disable."
+      "Heartbeat interval in ms to check for ready jobs (default: 5000). Set to 0 to disable.",
     ),
 });
 
@@ -54,7 +54,7 @@ export class InMemoryQueuePlugin implements QueuePlugin<InMemoryQueueConfig> {
   createQueue<T>(
     name: string,
     config: InMemoryQueueConfig,
-    logger: Logger
+    logger: Logger,
   ): Queue<T> {
     return new InMemoryQueue<T>(name, config, logger);
   }

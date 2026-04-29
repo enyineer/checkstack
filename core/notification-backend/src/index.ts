@@ -21,6 +21,7 @@ import { eq } from "drizzle-orm";
 
 import * as schema from "./schema";
 import { createNotificationRouter } from "./router";
+import { createNotificationCache } from "./cache";
 import { authHooks } from "@checkstack/auth-backend";
 import { createOAuthCallbackHandler } from "./oauth-callback-handler";
 import { createStrategyService } from "./strategy-service";
@@ -157,6 +158,7 @@ export default createBackendPlugin({
         rpcClient: coreServices.rpcClient,
         config: coreServices.config,
         signalService: coreServices.signalService,
+        cacheManager: coreServices.cacheManager,
       },
       init: async ({
         logger,
@@ -165,6 +167,7 @@ export default createBackendPlugin({
         rpcClient,
         config,
         signalService,
+        cacheManager,
       }) => {
         logger.debug("🔔 Initializing Notification Backend...");
 
@@ -184,6 +187,8 @@ export default createBackendPlugin({
           env as unknown as { strategyService: typeof strategyService }
         ).strategyService = strategyService;
 
+        const cache = createNotificationCache({ cacheManager, logger });
+
         // Create and register the notification router with strategy registry
         const router = createNotificationRouter(
           db,
@@ -191,7 +196,8 @@ export default createBackendPlugin({
           signalService,
           strategyRegistry,
           rpcClient,
-          logger
+          logger,
+          cache,
         );
         rpc.registerRouter(router, notificationContract);
 

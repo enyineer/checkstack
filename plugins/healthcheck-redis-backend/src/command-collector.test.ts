@@ -7,13 +7,13 @@ describe("CommandCollector", () => {
     response: {
       value?: string;
       error?: string;
-    } = {}
+    } = {},
   ): RedisTransportClient => ({
     exec: mock(() =>
       Promise.resolve({
         value: response.value ?? "PONG",
         error: response.error,
-      })
+      }),
     ),
   });
 

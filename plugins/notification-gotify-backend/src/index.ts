@@ -184,8 +184,7 @@ const gotifyStrategy: NotificationStrategy<GotifyConfig, GotifyUserConfig> = {
         externalId: result.id ? String(result.id) : undefined,
       };
     } catch (error) {
-      const message =
-        extractErrorMessage(error, "Unknown Gotify API error");
+      const message = extractErrorMessage(error, "Unknown Gotify API error");
       logger.error("Gotify notification error", { error: message });
       return {
         success: false,

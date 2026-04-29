@@ -35,7 +35,7 @@ export default createBackendPlugin({
         collectorRegistry.register(new SourcePlayersCollector());
 
         logger.info(
-          "✅ RCON health check registered (strategy + 5 collectors)"
+          "✅ RCON health check registered (strategy + 5 collectors)",
         );
       },
     });

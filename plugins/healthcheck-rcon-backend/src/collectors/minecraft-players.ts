@@ -36,15 +36,20 @@ const minecraftPlayersResultSchema = z.object({
   onlinePlayers: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Online Players",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   maxPlayers: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Max Players",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   playerNames: z.array(
     healthResultString({
       "x-chart-type": "text",
       "x-chart-label": "Player",
+      "x-anomaly-enabled": false,
     }),
   ),
 });
@@ -58,10 +63,14 @@ const minecraftPlayersAggregatedFields = {
   avgOnlinePlayers: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Online Players",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   maxOnlinePlayers: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Online Players",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
 };
 

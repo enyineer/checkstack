@@ -58,27 +58,40 @@ const scriptResultSchema = healthResultSchema({
   executed: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Executed",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
   executionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Execution Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
   }),
   exitCode: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Exit Code",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }).optional(),
   success: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Success",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
   timedOut: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Timed Out",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
+    "x-anomaly-enabled": false,
   }).optional(),
 });
 
@@ -90,19 +103,27 @@ const scriptAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Execution Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   timeoutCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Timeouts",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
 };
 

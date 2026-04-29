@@ -42,15 +42,22 @@ const bannerResultSchema = healthResultSchema({
   banner: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Banner",
+    "x-anomaly-enabled": false,
   }).optional(),
   hasBanner: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Has Banner",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
   readTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Read Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
   }),
 });
 
@@ -62,11 +69,15 @@ const bannerAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Read Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   bannerRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Banner Rate",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
 };
 

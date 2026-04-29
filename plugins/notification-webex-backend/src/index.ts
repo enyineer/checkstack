@@ -21,7 +21,7 @@ import { extractErrorMessage } from "@checkstack/common";
  */
 const webexConfigSchemaV1 = z.object({
   botToken: configString({ "x-secret": true }).describe(
-    "Webex Bot Access Token from developer.webex.com"
+    "Webex Bot Access Token from developer.webex.com",
   ),
 });
 
@@ -108,7 +108,7 @@ const webexStrategy: NotificationStrategy<WebexConfig, WebexUserConfig> = {
   userInstructions,
 
   async send(
-    context: NotificationSendContext<WebexConfig, WebexUserConfig>
+    context: NotificationSendContext<WebexConfig, WebexUserConfig>,
   ): Promise<NotificationDeliveryResult> {
     const { userConfig, notification, strategyConfig } = context;
 
@@ -166,7 +166,7 @@ const webexStrategy: NotificationStrategy<WebexConfig, WebexUserConfig> = {
           success: false,
           error: `Webex API error (${response.status}): ${errorText.slice(
             0,
-            200
+            200,
           )}`,
         };
       }
@@ -178,8 +178,7 @@ const webexStrategy: NotificationStrategy<WebexConfig, WebexUserConfig> = {
         externalId: result.id,
       };
     } catch (error) {
-      const message =
-        extractErrorMessage(error, "Unknown Webex API error");
+      const message = extractErrorMessage(error, "Unknown Webex API error");
       return {
         success: false,
         error: `Failed to send Webex message: ${message}`,
@@ -198,7 +197,7 @@ export default createBackendPlugin({
   register(env) {
     // Get the notification strategy extension point
     const extensionPoint = env.getExtensionPoint(
-      notificationStrategyExtensionPoint
+      notificationStrategyExtensionPoint,
     );
 
     // Register the Webex strategy with our plugin metadata

@@ -18,6 +18,7 @@ import { catalogHooks } from "@checkstack/catalog-backend";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { resolveRoute } from "@checkstack/common";
 import { incidentHooks } from "./hooks";
+import { createIncidentCache } from "./cache";
 
 // =============================================================================
 // Integration Event Payload Schemas
@@ -99,6 +100,10 @@ export default createBackendPlugin({
       pluginMetadata,
     );
 
+    let incidentCache:
+      | ReturnType<typeof createIncidentCache>
+      | undefined;
+
     env.registerInit({
       schema,
       deps: {
@@ -106,8 +111,16 @@ export default createBackendPlugin({
         rpc: coreServices.rpc,
         rpcClient: coreServices.rpcClient,
         signalService: coreServices.signalService,
+        cacheManager: coreServices.cacheManager,
       },
-      init: async ({ logger, database, rpc, rpcClient, signalService }) => {
+      init: async ({
+        logger,
+        database,
+        rpc,
+        rpcClient,
+        signalService,
+        cacheManager,
+      }) => {
         logger.debug("🔧 Initializing Incident Backend...");
 
         const catalogClient = rpcClient.forPlugin(CatalogApi);
@@ -116,12 +129,15 @@ export default createBackendPlugin({
         const service = new IncidentService(
           database as SafeDatabase<typeof schema>,
         );
+        const cache = createIncidentCache({ cacheManager, logger });
+        incidentCache = cache;
         const router = createRouter(
           service,
           signalService,
           catalogClient,
           authClient,
           logger,
+          cache,
         );
         rpc.registerRouter(router, incidentContract);
 
@@ -165,6 +181,7 @@ export default createBackendPlugin({
               `Cleaning up incident associations for deleted system: ${payload.systemId}`,
             );
             await service.removeSystemAssociations(payload.systemId);
+            await incidentCache?.invalidateSystem(payload.systemId);
           },
           { mode: "work-queue", workerGroup: "incident-system-cleanup" },
         );

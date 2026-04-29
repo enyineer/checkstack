@@ -22,6 +22,7 @@
   "dependencies": {
     "@checkstack/common": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",
+    "@checkstack/infrastructure-common": "workspace:*",
     "@checkstack/queue-common": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",

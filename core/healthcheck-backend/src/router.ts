@@ -15,6 +15,7 @@ import * as schema from "./schema";
 import { toJsonSchemaWithChartMeta } from "./schema-utils";
 import type { InferClient } from "@checkstack/common";
 import { GitOpsApi } from "@checkstack/gitops-common";
+import type { HealthCheckCache } from "./cache";
 
 /**
  * Creates the healthcheck router using contract-based implementation.
@@ -28,8 +29,9 @@ export const createHealthCheckRouter = (opts: {
   collectorRegistry: CollectorRegistry;
   gitOpsClient: InferClient<typeof GitOpsApi>;
   getEmitHook: () => ((hook: { id: string }, payload: Record<string, unknown>) => Promise<void>) | undefined;
+  cache: HealthCheckCache;
 }) => {
-  const { database, registry, collectorRegistry, getEmitHook } = opts;
+  const { database, registry, collectorRegistry, getEmitHook, cache } = opts;
   // Create service instance once - shared across all handlers
   const service = new HealthCheckService(database, registry, collectorRegistry);
 
@@ -112,7 +114,12 @@ export const createHealthCheckRouter = (opts: {
     }),
 
     createConfiguration: os.createConfiguration.handler(async ({ input }) => {
-      return service.createConfiguration(input);
+      const created = await service.createConfiguration(input);
+      // A new configuration could be associated with any system later; the
+      // safe move is to drop every per-system status cache so the next read
+      // recomputes from fresh DB state.
+      await cache.invalidateAllSystems();
+      return created;
     }),
 
     updateConfiguration: os.updateConfiguration.handler(async ({ input }) => {
@@ -123,22 +130,27 @@ export const createHealthCheckRouter = (opts: {
           message: "Configuration not found",
         });
       }
+      // Configuration update affects every system that has it associated.
+      await cache.invalidateAllSystems();
       return config;
     }),
 
     deleteConfiguration: os.deleteConfiguration.handler(async ({ input }) => {
       await enforceNotGitOpsLocked("Healthcheck", input);
       await service.deleteConfiguration(input);
+      await cache.invalidateAllSystems();
     }),
 
     pauseConfiguration: os.pauseConfiguration.handler(async ({ input }) => {
       await enforceNotGitOpsLocked("Healthcheck", input);
       await service.pauseConfiguration(input);
+      await cache.invalidateAllSystems();
     }),
 
     resumeConfiguration: os.resumeConfiguration.handler(async ({ input }) => {
       await enforceNotGitOpsLocked("Healthcheck", input);
       await service.resumeConfiguration(input);
+      await cache.invalidateAllSystems();
     }),
 
     getSystemConfigurations: os.getSystemConfigurations.handler(
@@ -163,6 +175,7 @@ export const createHealthCheckRouter = (opts: {
         satelliteIds: input.body.satelliteIds,
         includeLocal: input.body.includeLocal,
       });
+      await cache.invalidateSystem(input.systemId);
 
       // If enabling the health check, schedule it immediately
       if (input.body.enabled) {
@@ -195,6 +208,7 @@ export const createHealthCheckRouter = (opts: {
     disassociateSystem: os.disassociateSystem.handler(async ({ input }) => {
       await enforceNotGitOpsLocked("System", input.systemId);
       await service.disassociateSystem(input.systemId, input.configId);
+      await cache.invalidateSystem(input.systemId);
 
       // Notify subscribers that assignments changed
       const emitHook = getEmitHook();
@@ -248,24 +262,30 @@ export const createHealthCheckRouter = (opts: {
     ),
     getSystemHealthStatus: os.getSystemHealthStatus.handler(
       async ({ input }) => {
-        return service.getSystemHealthStatus(input.systemId);
+        return cache.wrapSystemHealthStatus(input.systemId, () =>
+          service.getSystemHealthStatus(input.systemId),
+        );
       },
     ),
 
     getBulkSystemHealthStatus: os.getBulkSystemHealthStatus.handler(
       async ({ input }) => {
+        // Per-entity caching: each system's status is cached individually
+        // and invalidated by id on mutations, so dashboards with overlapping
+        // (but non-identical) system sets share cache entries. See
+        // ./cache.ts for the key/TTL/invalidation contract.
         const statuses: Record<
           string,
           Awaited<ReturnType<typeof service.getSystemHealthStatus>>
         > = {};
-
-        // Fetch health status for each system in parallel
         await Promise.all(
           input.systemIds.map(async (systemId) => {
-            statuses[systemId] = await service.getSystemHealthStatus(systemId);
+            statuses[systemId] = await cache.wrapSystemHealthStatus(
+              systemId,
+              () => service.getSystemHealthStatus(systemId),
+            );
           }),
         );
-
         return { statuses };
       },
     ),
@@ -289,6 +309,15 @@ export const createHealthCheckRouter = (opts: {
     ingestSatelliteResult: os.ingestSatelliteResult.handler(
       async ({ input }) => {
         await service.ingestSatelliteResult(input);
+        // A satellite result writes a new run for this system, so the
+        // cached aggregate status is now stale.
+        await cache.invalidateSystem(input.systemId);
+      },
+    ),
+
+    getRunsForAnalysis: os.getRunsForAnalysis.handler(
+      async ({ input }) => {
+        return service.getRunsForAnalysis(input);
       },
     ),
   });

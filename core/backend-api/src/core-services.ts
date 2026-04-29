@@ -3,6 +3,10 @@ import type { RpcService } from "./rpc";
 import type { HealthCheckRegistry } from "./health-check";
 import type { CollectorRegistry } from "./collector-registry";
 import type { QueuePluginRegistry, QueueManager } from "@checkstack/queue-api";
+import type {
+  CachePluginRegistry,
+  CacheManager,
+} from "@checkstack/cache-api";
 import type { ConfigService } from "./config-service";
 import type { SignalService } from "@checkstack/signal-common";
 import { SafeDatabase } from "./plugin-system";
@@ -45,4 +49,8 @@ export const coreServices = {
   eventBus: createServiceRef<EventBus>("core.eventBus"),
   signalService: createServiceRef<SignalService>("core.signalService"),
   wsRegistry: createServiceRef<WebSocketRouteRegistry>("core.wsRegistry"),
+  cachePluginRegistry: createServiceRef<CachePluginRegistry>(
+    "core.cachePluginRegistry",
+  ),
+  cacheManager: createServiceRef<CacheManager>("core.cacheManager"),
 };

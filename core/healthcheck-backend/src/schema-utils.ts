@@ -60,6 +60,14 @@ function addHealthResultMeta(
         jsonField["x-chart-unit"] = healthMeta["x-chart-unit"];
       if (healthMeta["x-jsonpath"])
         jsonField["x-jsonpath"] = healthMeta["x-jsonpath"];
+      if (healthMeta["x-anomaly-enabled"] !== undefined)
+        jsonField["x-anomaly-enabled"] = healthMeta["x-anomaly-enabled"];
+      if (healthMeta["x-anomaly-direction"])
+        jsonField["x-anomaly-direction"] = healthMeta["x-anomaly-direction"];
+      if (healthMeta["x-anomaly-sensitivity"] !== undefined)
+        jsonField["x-anomaly-sensitivity"] = healthMeta["x-anomaly-sensitivity"];
+      if (healthMeta["x-anomaly-confirmation-window"] !== undefined)
+        jsonField["x-anomaly-confirmation-window"] = healthMeta["x-anomaly-confirmation-window"];
     }
 
     // Recurse into nested objects and arrays

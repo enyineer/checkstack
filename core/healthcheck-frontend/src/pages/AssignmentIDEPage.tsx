@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { usePluginClient, wrapInSuspense } from "@checkstack/frontend-api";
+import { usePluginClient, wrapInSuspense, ExtensionSlot } from "@checkstack/frontend-api";
 import { HealthCheckApi } from "../api";
 import { SatelliteApi } from "@checkstack/satellite-common";
 import {
@@ -24,6 +24,7 @@ import {
   type RetentionData,
 } from "../components/assignments/RetentionPanel";
 import { ExecutionPanel } from "../components/assignments/ExecutionPanel";
+import { AssignmentIDEPanelSlot } from "../slots";
 
 // =============================================================================
 // HELPERS
@@ -448,6 +449,20 @@ const AssignmentIDEPageContent = () => {
           />
         );
       }
+      default: {
+        return (
+          <ExtensionSlot 
+            slot={AssignmentIDEPanelSlot} 
+            context={{
+              systemId: systemId ?? "",
+              configurationId: configId,
+              selectedNode,
+              onSelectNode: setSelectedNode,
+              isLocked
+            }} 
+          />
+        );
+      }
     }
   };
 
@@ -480,6 +495,7 @@ const AssignmentIDEPageContent = () => {
       <IDELayout
         tree={
           <AssignmentTree
+            systemId={systemId ?? ""}
             assigned={assignedConfigs}
             available={availableConfigs}
             selectedNode={selectedNode}

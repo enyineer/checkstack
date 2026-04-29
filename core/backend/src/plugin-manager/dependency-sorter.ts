@@ -30,10 +30,15 @@ export function sortPlugins({
 
   // Track queue plugin providers (plugins that depend on queuePluginRegistry)
   const queuePluginProviders = new Set<string>();
+  // Track cache plugin providers (plugins that depend on cachePluginRegistry)
+  const cachePluginProviders = new Set<string>();
   for (const p of pendingInits) {
     for (const [, ref] of Object.entries(p.deps)) {
       if (ref.id === coreServices.queuePluginRegistry.id) {
         queuePluginProviders.add(p.metadata.pluginId);
+      }
+      if (ref.id === coreServices.cachePluginRegistry.id) {
+        cachePluginProviders.add(p.metadata.pluginId);
       }
     }
   }
@@ -67,6 +72,25 @@ export function sortPlugins({
           // Add edge: queue plugin provider -> queue consumer
           if (!graph.get(qpp)!.includes(consumerId)) {
             graph.get(qpp)!.push(consumerId);
+            inDegree.set(consumerId, (inDegree.get(consumerId) || 0) + 1);
+          }
+        }
+      }
+    }
+
+    // Special handling: if this plugin uses cacheManager, it must wait for all cache plugin providers
+    const usesCacheManager = Object.values(p.deps).some(
+      (ref) => ref.id === coreServices.cacheManager.id
+    );
+    if (usesCacheManager) {
+      for (const cpp of cachePluginProviders) {
+        if (cpp !== consumerId) {
+          if (!graph.has(cpp)) {
+            graph.set(cpp, []);
+          }
+          // Add edge: cache plugin provider -> cache consumer
+          if (!graph.get(cpp)!.includes(consumerId)) {
+            graph.get(cpp)!.push(consumerId);
             inDegree.set(consumerId, (inDegree.get(consumerId) || 0) + 1);
           }
         }

@@ -407,8 +407,13 @@ export default createBackendPlugin({
               // Request all user attributes (*) plus the memberOf operational attribute
               // memberOf is not returned by default in most LDAP servers
               const searchAttributes = ["*"];
-              if (ldapConfig.groupMapping?.enabled && ldapConfig.groupMapping.memberOfAttribute) {
-                searchAttributes.push(ldapConfig.groupMapping.memberOfAttribute);
+              if (
+                ldapConfig.groupMapping?.enabled &&
+                ldapConfig.groupMapping.memberOfAttribute
+              ) {
+                searchAttributes.push(
+                  ldapConfig.groupMapping.memberOfAttribute,
+                );
               }
 
               const searchResult = await client.search(ldapConfig.baseDN, {
@@ -473,9 +478,11 @@ export default createBackendPlugin({
                   if (
                     ldapConfig.groupMapping?.enabled &&
                     ldapConfig.groupMapping.memberOfAttribute &&
-                    key.toLowerCase() === ldapConfig.groupMapping.memberOfAttribute.toLowerCase()
+                    key.toLowerCase() ===
+                      ldapConfig.groupMapping.memberOfAttribute.toLowerCase()
                   ) {
-                    attributes[ldapConfig.groupMapping.memberOfAttribute] = value;
+                    attributes[ldapConfig.groupMapping.memberOfAttribute] =
+                      value;
                   } else {
                     // Take first value for standard attributes like name/email
                     attributes[key] = value[0];
@@ -553,7 +560,9 @@ export default createBackendPlugin({
             // Map groups to roles (case-insensitive comparison for DN matching)
             const mappedRoles = ldapConfig.groupMapping.mappings
               .filter((m) =>
-                groups.some(g => g.toLowerCase() === m.directoryGroup.toLowerCase()),
+                groups.some(
+                  (g) => g.toLowerCase() === m.directoryGroup.toLowerCase(),
+                ),
               )
               .map((m) => m.checkstackRole);
 
@@ -633,7 +642,9 @@ export default createBackendPlugin({
 
             // Create session via RPC
             // This delegates cookie signing to the auth-backend (Better-Auth)
-            const ipAddress = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || undefined;
+            const ipAddress =
+              req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
+              undefined;
             const userAgent = req.headers.get("user-agent") || undefined;
 
             const { setCookies } = await authClient.createSession({
@@ -642,7 +653,9 @@ export default createBackendPlugin({
               userAgent,
             });
 
-            logger.info(`Created bridged session for LDAP user: ${email} (IP: ${ipAddress ?? "unknown"})`);
+            logger.info(
+              `Created bridged session for LDAP user: ${email} (IP: ${ipAddress ?? "unknown"})`,
+            );
 
             // Return user info and include the signed session cookies from better-auth
             // Each cookie must be set as a separate Set-Cookie header
@@ -664,8 +677,10 @@ export default createBackendPlugin({
             );
           } catch (error) {
             logger.error("LDAP login error:", error);
-            const message =
-              extractErrorMessage(error, "Authentication failed. Please try again.");
+            const message = extractErrorMessage(
+              error,
+              "Authentication failed. Please try again.",
+            );
             return redirectToAuthError(message);
           }
         }, "/ldap/login");

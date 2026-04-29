@@ -1091,6 +1091,53 @@ export class HealthCheckService {
     return assignments;
   }
 
+  async getRunsForAnalysis(props: {
+    startDate: Date;
+    limitPerAssignment?: number;
+  }) {
+    const { startDate, limitPerAssignment = 200 } = props;
+
+    // Fetch all active associations
+    const activeAssignments = await this.db
+      .select({
+        systemId: systemHealthChecks.systemId,
+        configurationId: systemHealthChecks.configurationId,
+      })
+      .from(systemHealthChecks)
+      .where(eq(systemHealthChecks.enabled, true));
+
+    const results = [];
+
+    // For each assignment, fetch the recent runs
+    // This endpoint is used specifically for cross-plugin background jobs
+    for (const assignment of activeAssignments) {
+      const runs = await this.db
+        .select({
+          result: healthCheckRuns.result,
+        })
+        .from(healthCheckRuns)
+        .where(
+          and(
+            eq(healthCheckRuns.systemId, assignment.systemId),
+            eq(healthCheckRuns.configurationId, assignment.configurationId),
+            gte(healthCheckRuns.timestamp, startDate),
+          ),
+        )
+        .orderBy(desc(healthCheckRuns.timestamp))
+        .limit(limitPerAssignment);
+
+      results.push({
+        systemId: assignment.systemId,
+        configurationId: assignment.configurationId,
+        runs: runs.map((r) => ({
+          result: r.result,
+        })),
+      });
+    }
+
+    return results;
+  }
+
   /**
    * Ingest a health check result from a satellite.
    * Stores the run with source attribution (sourceId + sourceLabel)
@@ -1116,7 +1163,9 @@ export class HealthCheckService {
       sourceLabel,
     } = props;
 
-    const resultRecord = result ? { ...result } as Record<string, unknown> : {};
+    const resultRecord = result
+      ? ({ ...result } as Record<string, unknown>)
+      : {};
 
     await this.db.insert(healthCheckRuns).values({
       configurationId: configId,

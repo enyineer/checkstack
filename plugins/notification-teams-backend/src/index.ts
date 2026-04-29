@@ -24,7 +24,7 @@ const teamsConfigSchemaV1 = z.object({
   tenantId: configString({}).describe("Azure AD Tenant ID"),
   clientId: configString({}).describe("Azure AD Application (Client) ID"),
   clientSecret: configString({ "x-secret": true }).describe(
-    "Azure AD Client Secret"
+    "Azure AD Client Secret",
   ),
 });
 
@@ -203,7 +203,7 @@ const teamsStrategy: NotificationStrategy<TeamsConfig> = {
           const parts = idTokenClaims.split(".");
           if (parts.length === 3) {
             const payload = JSON.parse(
-              Buffer.from(parts[1], "base64url").toString()
+              Buffer.from(parts[1], "base64url").toString(),
             ) as { oid?: string };
             if (payload.oid) {
               return payload.oid;
@@ -226,7 +226,7 @@ const teamsStrategy: NotificationStrategy<TeamsConfig> = {
   } satisfies StrategyOAuthConfig<TeamsConfig>,
 
   async send(
-    context: NotificationSendContext<TeamsConfig>
+    context: NotificationSendContext<TeamsConfig>,
   ): Promise<NotificationDeliveryResult> {
     const { notification, strategyConfig, logger } = context;
 
@@ -324,7 +324,7 @@ const teamsStrategy: NotificationStrategy<TeamsConfig> = {
             ],
           }),
           signal: AbortSignal.timeout(10_000),
-        }
+        },
       );
 
       if (!messageResponse.ok) {
@@ -346,8 +346,7 @@ const teamsStrategy: NotificationStrategy<TeamsConfig> = {
         externalId: messageData.id,
       };
     } catch (error) {
-      const message =
-        extractErrorMessage(error, "Unknown Graph API error");
+      const message = extractErrorMessage(error, "Unknown Graph API error");
       logger.error("Teams notification error", { error: message });
       return {
         success: false,
@@ -367,7 +366,7 @@ export default createBackendPlugin({
   register(env) {
     // Get the notification strategy extension point
     const extensionPoint = env.getExtensionPoint(
-      notificationStrategyExtensionPoint
+      notificationStrategyExtensionPoint,
     );
 
     // Register the Teams strategy with our plugin metadata

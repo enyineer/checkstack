@@ -1,7 +1,3 @@
----
-trigger: always_on
----
-
 # Documentation
 
 For documentation regarding the architecture, always check the markdown files in the docs/ folder.

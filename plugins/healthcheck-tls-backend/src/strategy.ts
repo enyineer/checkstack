@@ -63,23 +63,32 @@ const tlsResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
   isValid: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Valid",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
   isSelfSigned: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Self-Signed",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
   daysUntilExpiry: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Days Until Expiry",
     "x-chart-unit": "days",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   error: healthResultString({
     "x-chart-type": "status",
     "x-chart-label": "Error",
+    "x-anomaly-enabled": false,
   }).optional(),
 });
 
@@ -91,19 +100,27 @@ const tlsAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Days Until Expiry",
     "x-chart-unit": "days",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   minDaysUntilExpiry: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Min Days Until Expiry",
     "x-chart-unit": "days",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   invalidCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Invalid Certificates",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
 };
 

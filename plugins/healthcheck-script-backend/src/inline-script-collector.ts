@@ -106,10 +106,14 @@ async function executeInlineScript({
     const worker = new Worker(workerUrl);
 
     const workerResult = await Promise.race([
-      new Promise<{ result?: unknown; error?: string; logs: string[] }>((resolve) => {
-        worker.addEventListener("message", (event: MessageEvent) => resolve(event.data));
-        worker.postMessage({ script, config: context.config });
-      }),
+      new Promise<{ result?: unknown; error?: string; logs: string[] }>(
+        (resolve) => {
+          worker.addEventListener("message", (event: MessageEvent) =>
+            resolve(event.data),
+          );
+          worker.postMessage({ script, config: context.config });
+        },
+      ),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("__TIMEOUT__")), timeoutMs),
       ),
@@ -153,8 +157,12 @@ async function executeInlineScript({
       return {
         result: {
           success: Boolean(resultObj.success ?? true),
-          message: typeof resultObj.message === "string" ? resultObj.message : undefined,
-          value: typeof resultObj.value === "number" ? resultObj.value : undefined,
+          message:
+            typeof resultObj.message === "string"
+              ? resultObj.message
+              : undefined,
+          value:
+            typeof resultObj.value === "number" ? resultObj.value : undefined,
         },
         timedOut: false,
       };
@@ -204,23 +212,34 @@ const inlineScriptResultSchema = healthResultSchema({
   success: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Success",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
   message: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Message",
+    "x-anomaly-enabled": false,
   }).optional(),
   value: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Value",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }).optional(),
   executionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Execution Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
   }),
   timedOut: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Timed Out",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
 });
 
@@ -232,11 +251,15 @@ const inlineScriptAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Execution Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
 };
 

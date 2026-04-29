@@ -4,14 +4,14 @@ import type { SshTransportClient } from "@checkstack/healthcheck-ssh-common";
 
 describe("DiskCollector", () => {
   const createMockClient = (
-    dfOutput: string = "/dev/sda1 100G 45G 55G 45% /"
+    dfOutput: string = "/dev/sda1 100G 45G 55G 45% /",
   ): SshTransportClient => ({
     exec: mock(() =>
       Promise.resolve({
         exitCode: 0,
         stdout: dfOutput,
         stderr: "",
-      })
+      }),
     ),
   });
 
@@ -37,7 +37,7 @@ describe("DiskCollector", () => {
     it("should handle different mount points", async () => {
       const collector = new DiskCollector();
       const client = createMockClient(
-        "/dev/sdb1     500G   200G   300G  40% /data"
+        "/dev/sdb1     500G   200G   300G  40% /data",
       );
 
       const result = await collector.execute({

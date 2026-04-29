@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { Versioned, configString, type Migration } from "@checkstack/backend-api";
+import {
+  Versioned,
+  configString,
+  type Migration,
+} from "@checkstack/backend-api";
 import type {
   IntegrationProvider,
   IntegrationDeliveryContext,
@@ -112,7 +116,7 @@ export const DynamicJiraFieldMappingSchema = z.object({
 export const JiraSubscriptionConfigSchema = z.object({
   /** ID of the site-wide Jira connection to use (auto-populated) */
   connectionId: configString({ "x-hidden": true }).describe(
-    "Jira connection to use"
+    "Jira connection to use",
   ),
   /** Jira project key to create issues in */
   projectKey: configString({
@@ -214,7 +218,7 @@ If a property is missing, the placeholder will be preserved in the output for de
           },
         },
         undefined,
-        2
+        2,
       ),
     },
 
@@ -223,7 +227,7 @@ If a property is missing, the placeholder will be preserved in the output for de
      * Provides cascading dropdowns: connection -> projects -> issueTypes -> priorities
      */
     async getConnectionOptions(
-      params: GetConnectionOptionsParams
+      params: GetConnectionOptionsParams,
     ): Promise<ConnectionOption[]> {
       const {
         connectionId,
@@ -314,7 +318,7 @@ If a property is missing, the placeholder will be preserved in the output for de
      * Test the connection configuration.
      */
     async testConnection(
-      config: JiraConnectionConfig
+      config: JiraConnectionConfig,
     ): Promise<TestConnectionResult> {
       const minimalLogger = {
         debug: () => {},
@@ -331,7 +335,7 @@ If a property is missing, the placeholder will be preserved in the output for de
      * Deliver an event by creating a Jira issue.
      */
     async deliver(
-      context: IntegrationDeliveryContext<JiraProviderConfig>
+      context: IntegrationDeliveryContext<JiraProviderConfig>,
     ): Promise<IntegrationDeliveryResult> {
       const { providerConfig, event, logger } = context;
       const {
@@ -351,9 +355,8 @@ If a property is missing, the placeholder will be preserved in the output for de
           error: "Connection access not available in delivery context",
         };
       }
-      const connection = await context.getConnectionWithCredentials(
-        connectionId
-      );
+      const connection =
+        await context.getConnectionWithCredentials(connectionId);
       if (!connection) {
         return {
           success: false,
@@ -408,8 +411,7 @@ If a property is missing, the placeholder will be preserved in the output for de
           externalId: result.key,
         };
       } catch (error) {
-        const message =
-          extractErrorMessage(error, "Unknown error");
+        const message = extractErrorMessage(error, "Unknown error");
         logger.error(`Failed to create Jira issue: ${message}`, { error });
 
         // Check if it's a rate limit error

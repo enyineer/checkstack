@@ -11,6 +11,7 @@
   "dependencies": {
     "@checkstack/common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
+    "@checkstack/cache-api": "workspace:*",
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
     "@orpc/client": "^1.13.14",

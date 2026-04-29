@@ -1,0 +1,21 @@
+{
+  "name": "@checkstack/cache-memory-common",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "checkstack": {
+    "type": "common"
+  },
+  "dependencies": {
+    "@checkstack/common": "workspace:*"
+  },
+  "devDependencies": {
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/scripts": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
+  }
+}

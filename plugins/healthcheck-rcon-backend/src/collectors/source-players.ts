@@ -34,11 +34,14 @@ const sourcePlayersResultSchema = z.object({
   playerCount: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Player Count",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   playerNames: z.array(
     healthResultString({
       "x-chart-type": "text",
       "x-chart-label": "Player",
+      "x-anomaly-enabled": false,
     }),
   ),
 });
@@ -50,10 +53,14 @@ const sourcePlayersAggregatedFields = {
   avgPlayerCount: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Player Count",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   maxPlayerCount: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Player Count",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
 };
 

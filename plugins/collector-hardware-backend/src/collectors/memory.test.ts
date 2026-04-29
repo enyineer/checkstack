@@ -6,14 +6,14 @@ describe("MemoryCollector", () => {
   const createMockClient = (
     freeOutput: string = `              total        used        free      shared  buff/cache   available
 Mem:          16000        4000        8000         500        4000       12000
-Swap:          4096         512        3584`
+Swap:          4096         512        3584`,
   ): SshTransportClient => ({
     exec: mock(() =>
       Promise.resolve({
         exitCode: 0,
         stdout: freeOutput,
         stderr: "",
-      })
+      }),
     ),
   });
 

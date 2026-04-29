@@ -46,30 +46,42 @@ const pingResultSchema = healthResultSchema({
   packetsSent: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Packets Sent",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   packetsReceived: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Packets Received",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   packetLoss: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Packet Loss",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   minLatency: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Min Latency",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }).optional(),
   avgLatency: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Latency",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }).optional(),
   maxLatency: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Max Latency",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }).optional(),
 });
 
@@ -81,11 +93,15 @@ const pingAggregatedFields = {
     "x-chart-type": "gauge",
     "x-chart-label": "Avg Packet Loss",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   avgLatency: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Latency",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
 };
 

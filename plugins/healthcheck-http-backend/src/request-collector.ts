@@ -58,25 +58,35 @@ const requestResultSchema = healthResultSchema({
   statusCode: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Status Code",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
   statusText: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Status",
+    "x-anomaly-enabled": false,
   }),
   responseTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Response Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
   }),
   body: healthResultJSONPath({ "x-ephemeral": true }),
   bodyLength: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Body Length",
     "x-chart-unit": "bytes",
+    "x-anomaly-enabled": false,
   }),
   success: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "HTTP Success",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
 });
 
@@ -88,11 +98,15 @@ const requestAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Response Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
 };
 

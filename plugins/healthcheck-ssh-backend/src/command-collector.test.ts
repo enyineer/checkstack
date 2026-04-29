@@ -8,14 +8,14 @@ describe("CommandCollector", () => {
       exitCode?: number;
       stdout?: string;
       stderr?: string;
-    } = {}
+    } = {},
   ): SshTransportClient => ({
     exec: mock(() =>
       Promise.resolve({
         exitCode: response.exitCode ?? 0,
         stdout: response.stdout ?? "",
         stderr: response.stderr ?? "",
-      })
+      }),
     ),
   });
 

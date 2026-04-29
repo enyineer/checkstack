@@ -1,6 +1,4 @@
----
-trigger: always_on
----
+# Changesets
 
 Create a changeset when you make changes that affect the functionality of packages or plugins:
 - Bug fixes

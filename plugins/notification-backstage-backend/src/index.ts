@@ -23,7 +23,7 @@ const backstageConfigSchemaV1 = z.object({
     .url()
     .optional()
     .describe(
-      "Backstage instance base URL (e.g., https://backstage.example.com)"
+      "Backstage instance base URL (e.g., https://backstage.example.com)",
     ),
   token: configString({ "x-secret": true })
     .optional()
@@ -100,7 +100,7 @@ You can find this in your Backstage profile or catalog.
  * Maps Checkstack importance levels to Backstage severity levels.
  */
 function mapImportanceToSeverity(
-  importance: "info" | "warning" | "critical"
+  importance: "info" | "warning" | "critical",
 ): "low" | "normal" | "high" | "critical" {
   switch (importance) {
     case "info": {
@@ -209,7 +209,7 @@ const backstageStrategy: NotificationStrategy<
     // Send to Backstage
     const url = `${strategyConfig.baseUrl.replace(
       /\/$/,
-      ""
+      "",
     )}/api/notifications/notifications`;
 
     try {
@@ -280,7 +280,7 @@ export default createBackendPlugin({
   register(env) {
     // Get the notification strategy extension point
     const extensionPoint = env.getExtensionPoint(
-      notificationStrategyExtensionPoint
+      notificationStrategyExtensionPoint,
     );
 
     // Register the Backstage strategy with our plugin metadata

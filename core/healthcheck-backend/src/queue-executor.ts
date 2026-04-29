@@ -31,11 +31,44 @@ import { resolveRoute, type InferClient, extractErrorMessage} from "@checkstack/
 import { HealthCheckService } from "./service";
 import { healthCheckHooks } from "./hooks";
 import { incrementHourlyAggregate } from "./realtime-aggregation";
+import type { HealthCheckCache } from "./cache";
 
 type Db = SafeDatabase<typeof schema>;
 type CatalogClient = InferClient<typeof CatalogApi>;
 type MaintenanceClient = InferClient<typeof MaintenanceApi>;
 type IncidentClient = InferClient<typeof IncidentApi>;
+
+/**
+ * Emit the checkCompleted hook if available.
+ * Extracted to avoid duplicating the hook emission pattern across success/error paths.
+ */
+async function emitCheckCompletedHook({
+  getEmitHook,
+  systemId,
+  configurationId,
+  status,
+  latencyMs,
+  result,
+}: {
+  getEmitHook: () => EmitHookFn | undefined;
+  systemId: string;
+  configurationId: string;
+  status: string;
+  latencyMs: number | undefined;
+  result: Record<string, unknown> | undefined;
+}): Promise<void> {
+  const emitHook = getEmitHook();
+  if (emitHook) {
+    await emitHook(healthCheckHooks.checkCompleted, {
+      systemId,
+      configurationId,
+      status,
+      latencyMs,
+      result,
+      timestamp: new Date().toISOString(),
+    });
+  }
+}
 
 /**
  * Payload for health check queue jobs
@@ -227,6 +260,7 @@ async function executeHealthCheckJob(props: {
   maintenanceClient: MaintenanceClient;
   incidentClient: IncidentClient;
   getEmitHook: () => EmitHookFn | undefined;
+  cache: HealthCheckCache;
 }): Promise<void> {
   const {
     payload,
@@ -239,6 +273,7 @@ async function executeHealthCheckJob(props: {
     maintenanceClient,
     incidentClient,
     getEmitHook,
+    cache,
   } = props;
   const { configId, systemId } = payload;
 
@@ -524,6 +559,10 @@ async function executeHealthCheckJob(props: {
         `Health check ${configId} for system ${systemId} failed: ${finalError}`,
       );
 
+      // Invalidate the per-system status cache before broadcasting so any
+      // frontend that refetches in response to the signal gets fresh data.
+      await cache.invalidateSystem(systemId);
+
       await signalService.broadcast(HEALTH_CHECK_RUN_COMPLETED, {
         systemId,
         systemName,
@@ -603,6 +642,10 @@ async function executeHealthCheckJob(props: {
       `Ran health check ${configId} for system ${systemId}: ${result.status}`,
     );
 
+    // Invalidate the per-system status cache before broadcasting so any
+    // frontend that refetches in response to the signal gets fresh data.
+    await cache.invalidateSystem(systemId);
+
     // Broadcast enriched signal for realtime frontend updates (e.g., terminal feed)
     await signalService.broadcast(HEALTH_CHECK_RUN_COMPLETED, {
       systemId,
@@ -611,6 +654,15 @@ async function executeHealthCheckJob(props: {
       configurationName: configRow.configName,
       status: result.status,
       latencyMs: result.latencyMs,
+    });
+
+    await emitCheckCompletedHook({
+      getEmitHook,
+      systemId,
+      configurationId: configId,
+      status: result.status,
+      latencyMs: result.latencyMs,
+      result: (result.metadata?.collectors as Record<string, unknown>) ?? undefined,
     });
 
     // Check if aggregated state changed and notify subscribers
@@ -722,6 +774,10 @@ async function executeHealthCheckJob(props: {
       // Use IDs as fallback
     }
 
+    // Invalidate the per-system status cache before broadcasting so any
+    // frontend that refetches in response to the signal gets fresh data.
+    await cache.invalidateSystem(systemId);
+
     // Broadcast enriched failure signal for realtime frontend updates
     await signalService.broadcast(HEALTH_CHECK_RUN_COMPLETED, {
       systemId,
@@ -729,6 +785,15 @@ async function executeHealthCheckJob(props: {
       configurationId: configId,
       configurationName: configName,
       status: "unhealthy",
+    });
+
+    await emitCheckCompletedHook({
+      getEmitHook,
+      systemId,
+      configurationId: configId,
+      status: "unhealthy",
+      latencyMs: undefined,
+      result: undefined,
     });
 
     // Check if aggregated state changed and notify subscribers
@@ -806,6 +871,7 @@ export async function setupHealthCheckWorker(props: {
   maintenanceClient: MaintenanceClient;
   incidentClient: IncidentClient;
   getEmitHook: () => EmitHookFn | undefined;
+  cache: HealthCheckCache;
 }): Promise<void> {
   const {
     db,
@@ -818,6 +884,7 @@ export async function setupHealthCheckWorker(props: {
     maintenanceClient,
     incidentClient,
     getEmitHook,
+    cache,
   } = props;
 
   const queue =
@@ -837,6 +904,7 @@ export async function setupHealthCheckWorker(props: {
         maintenanceClient,
         incidentClient,
         getEmitHook,
+        cache,
       });
     },
     {

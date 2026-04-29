@@ -116,9 +116,9 @@ describe("Webex Integration Provider", () => {
         (async () => {
           return new Response(
             JSON.stringify({ id: "bot-123", displayName: "Test Bot" }),
-            { status: 200 }
+            { status: 200 },
           );
-        }) as unknown as typeof fetch
+        }) as unknown as typeof fetch,
       );
 
       try {
@@ -137,7 +137,7 @@ describe("Webex Integration Provider", () => {
       const mockFetch = spyOn(globalThis, "fetch").mockImplementation(
         (async () => {
           return new Response("Unauthorized", { status: 401 });
-        }) as unknown as typeof fetch
+        }) as unknown as typeof fetch,
       );
 
       try {
@@ -157,7 +157,7 @@ describe("Webex Integration Provider", () => {
       const mockFetch = spyOn(globalThis, "fetch").mockImplementation(
         (async () => {
           throw new TypeError("fetch failed");
-        }) as unknown as typeof fetch
+        }) as unknown as typeof fetch,
       );
 
       try {
@@ -188,9 +188,9 @@ describe("Webex Integration Provider", () => {
                 { id: "room-2", title: "DevOps", type: "group" },
               ],
             }),
-            { status: 200 }
+            { status: 200 },
           );
-        }) as unknown as typeof fetch
+        }) as unknown as typeof fetch,
       );
 
       try {
@@ -249,7 +249,7 @@ describe("Webex Integration Provider", () => {
 
       const mockFetch = spyOn(globalThis, "fetch").mockImplementation((async (
         _url: RequestInfo | URL,
-        options?: RequestInit
+        options?: RequestInit,
       ) => {
         capturedBody = options?.body as string;
         return new Response(JSON.stringify({ id: "msg-456" }), {
@@ -296,7 +296,7 @@ describe("Webex Integration Provider", () => {
 
       const mockFetch = spyOn(globalThis, "fetch").mockImplementation((async (
         _url: RequestInfo | URL,
-        options?: RequestInit
+        options?: RequestInit,
       ) => {
         capturedBody = options?.body as string;
         return new Response(JSON.stringify({ id: "msg-456" }), {
@@ -331,7 +331,7 @@ describe("Webex Integration Provider", () => {
 
         const parsedBody = JSON.parse(capturedBody!);
         expect(parsedBody.markdown).toBe(
-          "🚨 **Server Down** - Incident inc-123"
+          "🚨 **Server Down** - Incident inc-123",
         );
       } finally {
         mockFetch.mockRestore();

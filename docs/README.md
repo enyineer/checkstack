@@ -28,6 +28,8 @@ Building backend plugins and services:
 - **[Signals](./backend/signals.md)** - Realtime server-to-client communication
 - **[Versioned Configs](./backend/versioned-configs.md)** - Schema evolution and migrations
 - **[Drizzle Schema](./backend/drizzle-schema.md)** - Database schema isolation
+- **[Cache System](./backend/cache-system.md)** - Pluggable key-value cache with scoped providers
+- **[Anomaly Detection](./backend/anomaly-detection.md)** - Schema-driven baseline learning, spike/drift detection, plugin integration
 - **[Health Check Data Management](./backend/healthcheck-data-management.md)** - Tiered storage, aggregation, and retention
 - **[Health Check Strategies](./backend/healthcheck-strategies.md)** - Building health check providers with assertions
 - **[Notification Strategies](./backend/notification-strategies.md)** - Building notification delivery channels
@@ -44,6 +46,7 @@ Building frontend plugins and UI:
 - **[Theming](./frontend/theming.md)** - Design tokens and theme customization
 - **[Config Schemas](./frontend/config-schemas.md)** - Sending configuration schemas to frontend
 - **[Health Check Custom Charts](./frontend/healthcheck-charts.md)** - Strategy-specific visualizations
+- **[Infrastructure Configuration](./frontend/infrastructure-config.md)** - Tabbed Queue/Cache settings page with plugin-contributed tabs
 - **[Routing](./frontend/routing.md)** - Frontend route management and navigation
 
 ## Common Packages

@@ -58,6 +58,13 @@ describe("RPC REST Compatibility", () => {
       getActivePlugin: () => "none",
       getQueue: () => ({}),
     } as any);
+    pluginManager.registerService(coreServices.cachePluginRegistry, {
+      getPlugins: () => [],
+    } as any);
+    pluginManager.registerService(coreServices.cacheManager, {
+      getActivePlugin: () => "memory",
+      getProvider: () => ({}),
+    } as any);
 
     // 4. Mount the plugins
     await pluginManager.loadPlugins(app);

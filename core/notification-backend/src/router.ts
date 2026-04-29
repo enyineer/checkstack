@@ -18,6 +18,7 @@ import {
 } from "@checkstack/notification-common";
 import { AuthApi } from "@checkstack/auth-common";
 import type { SignalService } from "@checkstack/signal-common";
+import type { NotificationCache } from "./cache";
 import { SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import {
@@ -95,7 +96,8 @@ export const createNotificationRouter = (
   signalService: SignalService,
   strategyRegistry: NotificationStrategyRegistry,
   rpcApi: RpcClient,
-  logger: Logger
+  logger: Logger,
+  cache: NotificationCache,
 ) => {
   // Create strategy service for config management
   const strategyService: StrategyService = createStrategyService({
@@ -269,38 +271,45 @@ export const createNotificationRouter = (
         // context.user is guaranteed to be RealUser by contract meta + autoAuthMiddleware
         const userId = (context.user as RealUser).id;
 
-        const result = await getUserNotifications(database, userId, {
-          limit: input.limit,
-          offset: input.offset,
-          unreadOnly: input.unreadOnly,
-        });
+        return cache.wrapNotifications(userId, input, async () => {
+          const result = await getUserNotifications(database, userId, {
+            limit: input.limit,
+            offset: input.offset,
+            unreadOnly: input.unreadOnly,
+          });
 
-        return {
-          notifications: result.notifications.map((n) => ({
-            id: n.id,
-            userId: n.userId,
-            title: n.title,
-            body: n.body,
-            action: n.action ?? undefined,
-            importance: n.importance as "info" | "warning" | "critical",
-            isRead: n.isRead,
-            groupId: n.groupId ?? undefined,
-            createdAt: n.createdAt,
-          })),
-          total: result.total,
-        };
+          return {
+            notifications: result.notifications.map((n) => ({
+              id: n.id,
+              userId: n.userId,
+              title: n.title,
+              body: n.body,
+              action: n.action ?? undefined,
+              importance: n.importance as "info" | "warning" | "critical",
+              isRead: n.isRead,
+              groupId: n.groupId ?? undefined,
+              createdAt: n.createdAt,
+            })),
+            total: result.total,
+          };
+        });
       }
     ),
 
     getUnreadCount: os.getUnreadCount.handler(async ({ context }) => {
       const userId = (context.user as RealUser).id;
-      const count = await getUnreadCount(database, userId);
-      return { count };
+      return cache.wrapUnread(userId, async () => {
+        const count = await getUnreadCount(database, userId);
+        return { count };
+      });
     }),
 
     markAsRead: os.markAsRead.handler(async ({ input, context }) => {
       const userId = (context.user as RealUser).id;
       await markAsRead(database, userId, input.notificationId);
+
+      // Mutation invariant: db.write → cache.invalidate (await) → signal.
+      await cache.invalidateForUser(userId);
 
       // Send signal to update NotificationBell in realtime
       void signalService.sendToUser(NOTIFICATION_READ, userId, {
@@ -312,6 +321,7 @@ export const createNotificationRouter = (
       async ({ input, context }) => {
         const userId = (context.user as RealUser).id;
         await deleteNotification(database, userId, input.notificationId);
+        await cache.invalidateForUser(userId);
       }
     ),
 
@@ -333,11 +343,9 @@ export const createNotificationRouter = (
 
     getSubscriptions: os.getSubscriptions.handler(async ({ context }) => {
       const userId = (context.user as RealUser).id;
-      const subscriptions = await getEnrichedUserSubscriptions(
-        database,
-        userId
+      return cache.wrapSubscriptions(userId, () =>
+        getEnrichedUserSubscriptions(database, userId),
       );
-      return subscriptions;
     }),
 
     subscribe: os.subscribe.handler(async ({ input, context }) => {
@@ -354,11 +362,13 @@ export const createNotificationRouter = (
         }
         throw error;
       }
+      await cache.invalidateSubscriptions(userId);
     }),
 
     unsubscribe: os.unsubscribe.handler(async ({ input, context }) => {
       const userId = (context.user as RealUser).id;
       await unsubscribeFromGroup(database, userId, input.groupId);
+      await cache.invalidateSubscriptions(userId);
     }),
 
     // ==========================================================================
@@ -465,6 +475,12 @@ export const createNotificationRouter = (
           userId: schema.notifications.userId,
         });
 
+      // Drop each affected user's cache before signaling, so the
+      // NotificationBell's refetch sees the new unread count.
+      await Promise.all(
+        userIds.map((userId) => cache.invalidateForUser(userId)),
+      );
+
       // Send realtime signals to each user
       for (const notification of inserted) {
         void signalService.sendToUser(
@@ -526,6 +542,10 @@ export const createNotificationRouter = (
           id: schema.notifications.id,
           userId: schema.notifications.userId,
         });
+
+      await Promise.all(
+        subscribers.map((sub) => cache.invalidateForUser(sub.userId)),
+      );
 
       // Send realtime signals to each subscriber
       for (const notification of inserted) {

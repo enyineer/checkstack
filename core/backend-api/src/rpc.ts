@@ -4,6 +4,10 @@ import { HealthCheckRegistry } from "./health-check";
 import { CollectorRegistry } from "./collector-registry";
 import { QueuePluginRegistry, QueueManager } from "@checkstack/queue-api";
 import {
+  CachePluginRegistry,
+  CacheManager,
+} from "@checkstack/cache-api";
+import {
   ProcedureMetadata,
   qualifyAccessRuleId,
   qualifyResourceType,
@@ -45,6 +49,8 @@ export interface RpcContext {
   collectorRegistry: CollectorRegistry;
   queuePluginRegistry: QueuePluginRegistry;
   queueManager: QueueManager;
+  cachePluginRegistry: CachePluginRegistry;
+  cacheManager: CacheManager;
   /** Emit a hook event for cross-plugin communication */
   emitHook: EmitHookFn;
 }

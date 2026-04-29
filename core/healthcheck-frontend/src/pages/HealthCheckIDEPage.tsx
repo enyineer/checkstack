@@ -3,8 +3,10 @@ import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import {
   usePluginClient,
   wrapInSuspense,
+  ExtensionSlot,
 } from "@checkstack/frontend-api";
 import { HealthCheckApi } from "../api";
+import { HealthCheckConfigIDEPanelSlot } from "../slots";
 import {
   healthcheckRoutes,
   type CollectorConfigEntry,
@@ -349,32 +351,47 @@ const HealthCheckIDEPageContent = () => {
             onAddCollector={handleCollectorAdd}
             validationIssues={validationIssues}
             strategyId={activeStrategyId ?? ""}
+            configId={configId}
           />
         }
         panel={
-          <EditorPanel
-            selectedNode={selectedNode}
-            formState={formState}
-            strategy={activeStrategy}
-            availableCollectors={availableCollectors}
-            collectorsLoading={collectorsLoading}
-            isEditMode={isEditMode}
-            configId={configId}
-            onNameChange={(name) => updateField("name", name)}
-            onIntervalChange={(interval) =>
-              updateField("intervalSeconds", interval)
-            }
-            onStrategyConfigChange={(config) =>
-              updateField("strategyConfig", config)
-            }
-            onStrategyConfigValidChange={setStrategyConfigValid}
-            onCollectorConfigChange={handleCollectorConfigChange}
-            onCollectorAssertionsChange={handleCollectorAssertionsChange}
-            onCollectorValidChange={handleCollectorValidChange}
-            onCollectorRemove={handleCollectorRemove}
-            onCollectorAdd={handleCollectorAdd}
-            strategyId={activeStrategyId ?? ""}
-          />
+          <>
+            <EditorPanel
+              selectedNode={selectedNode}
+              formState={formState}
+              strategy={activeStrategy}
+              availableCollectors={availableCollectors}
+              collectorsLoading={collectorsLoading}
+              isEditMode={isEditMode}
+              configId={configId}
+              onNameChange={(name) => updateField("name", name)}
+              onIntervalChange={(interval) =>
+                updateField("intervalSeconds", interval)
+              }
+              onStrategyConfigChange={(config) =>
+                updateField("strategyConfig", config)
+              }
+              onStrategyConfigValidChange={setStrategyConfigValid}
+              onCollectorConfigChange={handleCollectorConfigChange}
+              onCollectorAssertionsChange={handleCollectorAssertionsChange}
+              onCollectorValidChange={handleCollectorValidChange}
+              onCollectorRemove={handleCollectorRemove}
+              onCollectorAdd={handleCollectorAdd}
+              strategyId={activeStrategyId ?? ""}
+            />
+            {configId && (
+              <ExtensionSlot
+                slot={HealthCheckConfigIDEPanelSlot}
+                context={{
+                  configurationId: configId,
+                  strategyId: activeStrategyId ?? "",
+                  selectedNode,
+                  onSelectNode: setSelectedNode,
+                  isLocked,
+                }}
+              />
+            )}
+          </>
         }
         issues={validationIssues}
         onIssueClick={(nodeId) => setSelectedNode(nodeId as TreeNodeId)}

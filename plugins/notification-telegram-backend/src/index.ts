@@ -21,7 +21,7 @@ import { extractErrorMessage } from "@checkstack/common";
  */
 const telegramConfigSchemaV1 = z.object({
   botToken: configString({ "x-secret": true }).describe(
-    "Telegram Bot API Token from @BotFather"
+    "Telegram Bot API Token from @BotFather",
   ),
 });
 
@@ -69,7 +69,7 @@ const userInstructions = `
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const telegramifyMarkdown = require("telegramify-markdown") as (
   markdown: string,
-  unsupportedTagsStrategy?: "escape" | "remove" | "keep"
+  unsupportedTagsStrategy?: "escape" | "remove" | "keep",
 ) => string;
 
 /**
@@ -101,7 +101,7 @@ const telegramStrategy: NotificationStrategy<
   userInstructions,
 
   async send(
-    context: NotificationSendContext<TelegramConfig, TelegramUserConfig>
+    context: NotificationSendContext<TelegramConfig, TelegramUserConfig>,
   ): Promise<NotificationDeliveryResult> {
     const { userConfig, notification, strategyConfig } = context;
 
@@ -132,7 +132,7 @@ const telegramStrategy: NotificationStrategy<
       // Build title (bold) with proper escaping
       const messageTitle = telegramifyMarkdown(
         `**${notification.title}**`,
-        "escape"
+        "escape",
       );
 
       // Add importance indicator
@@ -188,8 +188,7 @@ const telegramStrategy: NotificationStrategy<
         externalId: String(result.message_id),
       };
     } catch (error) {
-      const message =
-        extractErrorMessage(error, "Unknown Telegram API error");
+      const message = extractErrorMessage(error, "Unknown Telegram API error");
       return {
         success: false,
         error: `Failed to send Telegram message: ${message}`,
@@ -208,7 +207,7 @@ export default createBackendPlugin({
   register(env) {
     // Get the notification strategy extension point
     const extensionPoint = env.getExtensionPoint(
-      notificationStrategyExtensionPoint
+      notificationStrategyExtensionPoint,
     );
 
     // Register the Telegram strategy with our plugin metadata

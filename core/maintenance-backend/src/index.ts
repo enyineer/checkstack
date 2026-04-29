@@ -19,6 +19,7 @@ import { AuthApi } from "@checkstack/auth-common";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { resolveRoute, type InferClient } from "@checkstack/common";
 import { maintenanceHooks } from "./hooks";
+import { createMaintenanceCache } from "./cache";
 
 // =============================================================================
 // Integration Event Payload Schemas
@@ -100,8 +101,16 @@ export default createBackendPlugin({
         rpcClient: coreServices.rpcClient,
         signalService: coreServices.signalService,
         queueManager: coreServices.queueManager,
+        cacheManager: coreServices.cacheManager,
       },
-      init: async ({ logger, database, rpc, rpcClient, signalService }) => {
+      init: async ({
+        logger,
+        database,
+        rpc,
+        rpcClient,
+        signalService,
+        cacheManager,
+      }) => {
         logger.debug("🔧 Initializing Maintenance Backend...");
 
         catalogClient = rpcClient.forPlugin(CatalogApi);
@@ -111,12 +120,14 @@ export default createBackendPlugin({
         maintenanceService = new MaintenanceService(
           database as SafeDatabase<typeof schema>,
         );
+        const cache = createMaintenanceCache({ cacheManager, logger });
         const router = createRouter(
           maintenanceService,
           signalService,
           catalogClient,
           authClient,
           logger,
+          cache,
         );
         rpc.registerRouter(router, maintenanceContract);
 

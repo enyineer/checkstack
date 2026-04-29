@@ -10,7 +10,7 @@ describe("ExecuteCollector", () => {
       stderr?: string;
       timedOut?: boolean;
       error?: string;
-    } = {}
+    } = {},
   ): ScriptTransportClient => ({
     exec: mock(() =>
       Promise.resolve({
@@ -19,7 +19,7 @@ describe("ExecuteCollector", () => {
         stderr: response.stderr ?? "",
         timedOut: response.timedOut ?? false,
         error: response.error,
-      })
+      }),
     ),
   });
 

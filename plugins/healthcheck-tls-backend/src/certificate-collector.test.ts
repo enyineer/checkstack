@@ -7,7 +7,7 @@ import type {
 
 describe("CertificateCollector", () => {
   const createMockClient = (
-    response: Partial<TlsCertificateInfo> = {}
+    response: Partial<TlsCertificateInfo> = {},
   ): TlsTransportClient => ({
     exec: mock(() =>
       Promise.resolve({
@@ -20,7 +20,7 @@ describe("CertificateCollector", () => {
         daysUntilExpiry: response.daysUntilExpiry ?? 365,
         daysRemaining: response.daysRemaining ?? 365,
         error: response.error,
-      })
+      }),
     ),
   });
 

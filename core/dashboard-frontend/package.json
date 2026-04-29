@@ -13,6 +13,7 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
+    "@checkstack/anomaly-common": "workspace:*",
     "@checkstack/auth-frontend": "workspace:*",
     "@checkstack/catalog-common": "workspace:*",
     "@checkstack/catalog-frontend": "workspace:*",
@@ -27,6 +28,7 @@
     "@checkstack/queue-frontend": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
+    "date-fns": "^4.1.0",
     "lucide-react": "^0.344.0",
     "react": "^18.2.0",
     "react-router-dom": "^6.22.0"

@@ -37,19 +37,27 @@ const commandResultSchema = healthResultSchema({
   exitCode: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Exit Code",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }),
   stdout: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Standard Output",
+    "x-anomaly-enabled": false,
   }),
   stderr: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Standard Error",
+    "x-anomaly-enabled": false,
   }),
   executionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Execution Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
   }),
 });
 
@@ -61,11 +69,15 @@ const commandAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Execution Time",
     "x-chart-unit": "ms",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
 };
 

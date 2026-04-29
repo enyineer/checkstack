@@ -8,14 +8,14 @@ describe("BannerCollector", () => {
       banner?: string;
       connected?: boolean;
       error?: string;
-    } = {}
+    } = {},
   ): TcpTransportClient => ({
     exec: mock(() =>
       Promise.resolve({
         banner: response.banner,
         connected: response.connected ?? true,
         error: response.error,
-      })
+      }),
     ),
   });
 

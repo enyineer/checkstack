@@ -22,7 +22,7 @@ function createTestQueue(name: string) {
       delayMultiplier: 0.01, // Speed up delays for testing
       heartbeatIntervalMs: 5,
     },
-    testLogger
+    testLogger,
   );
 }
 
@@ -44,7 +44,7 @@ describe("InMemoryQueue Recurring Jobs", () => {
       async () => {
         executionCount++;
       },
-      { consumerGroup: "test", maxRetries: 0 }
+      { consumerGroup: "test", maxRetries: 0 },
     );
 
     await queue.scheduleRecurring("payload", {
@@ -67,7 +67,7 @@ describe("InMemoryQueue Recurring Jobs", () => {
         executionCount++;
         throw new Error("Handler failed");
       },
-      { consumerGroup: "test", maxRetries: 0 }
+      { consumerGroup: "test", maxRetries: 0 },
     );
 
     await queue.scheduleRecurring("payload", {
@@ -95,7 +95,7 @@ describe("InMemoryQueue Recurring Jobs", () => {
         }
         completed = true;
       },
-      { consumerGroup: "test", maxRetries: 5 }
+      { consumerGroup: "test", maxRetries: 5 },
     );
 
     await queue.scheduleRecurring("payload", {
@@ -118,7 +118,7 @@ describe("InMemoryQueue Recurring Jobs", () => {
       async () => {
         executionCount++;
       },
-      { consumerGroup: "test", maxRetries: 0 }
+      { consumerGroup: "test", maxRetries: 0 },
     );
 
     await queue.scheduleRecurring("payload", {
@@ -145,7 +145,7 @@ describe("InMemoryQueue Recurring Jobs", () => {
       async (job) => {
         payloads.push(job.data);
       },
-      { consumerGroup: "test", maxRetries: 0 }
+      { consumerGroup: "test", maxRetries: 0 },
     );
 
     // Schedule with original payload
@@ -177,7 +177,7 @@ describe("InMemoryQueue Recurring Jobs", () => {
       async () => {
         executionCount++;
       },
-      { consumerGroup: "test", maxRetries: 0 }
+      { consumerGroup: "test", maxRetries: 0 },
     );
 
     // Schedule with a long interval (won't fire again during test)

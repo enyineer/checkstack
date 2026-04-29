@@ -1,16 +1,14 @@
 import React from "react";
 import { Settings, Gauge, Database, Radio, Plus, Check } from "lucide-react";
 import { IDETreeNode, IDETreeSection } from "@checkstack/ui";
+import { ExtensionSlot } from "@checkstack/frontend-api";
+import { AssignmentIDENodeSlot } from "../../slots";
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
-export type AssignmentNodeId =
-  | `general:${string}`
-  | `thresholds:${string}`
-  | `retention:${string}`
-  | `execution:${string}`;
+export type AssignmentNodeId = string;
 
 interface AssignmentConfig {
   configurationId: string;
@@ -20,6 +18,7 @@ interface AssignmentConfig {
 }
 
 interface AssignmentTreeProps {
+  systemId: string;
   assigned: AssignmentConfig[];
   available: Array<{ id: string; name: string; strategyId: string }>;
   selectedNode: AssignmentNodeId | undefined;
@@ -33,6 +32,7 @@ interface AssignmentTreeProps {
 // =============================================================================
 
 export const AssignmentTree: React.FC<AssignmentTreeProps> = ({
+  systemId,
   assigned,
   available,
   selectedNode,
@@ -96,6 +96,16 @@ export const AssignmentTree: React.FC<AssignmentTreeProps> = ({
             onClick={() => onSelectNode(`execution:${assoc.configurationId}`)}
             indent
             badge={assoc.satelliteCount > 0 ? `${assoc.satelliteCount}` : undefined}
+          />
+          <ExtensionSlot 
+            slot={AssignmentIDENodeSlot} 
+            context={{
+              systemId,
+              configurationId: assoc.configurationId,
+              selectedNode,
+              onSelectNode,
+              isLocked
+            }} 
           />
         </div>
       ))}

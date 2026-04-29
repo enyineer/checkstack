@@ -43,22 +43,39 @@ const cpuResultSchema = z.object({
     "x-chart-type": "line",
     "x-chart-label": "CPU Usage",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
   }),
   loadAvg1m: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Load (1m)",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
   }).optional(),
   loadAvg5m: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Load (5m)",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
   }).optional(),
   loadAvg15m: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Load (15m)",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
   }).optional(),
   coreCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "CPU Cores",
+    "x-anomaly-enabled": false,
   }).optional(),
 });
 
@@ -70,15 +87,21 @@ const cpuAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg CPU Usage",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   maxUsagePercent: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max CPU Usage",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   avgLoadAvg1m: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Load (1m)",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
 };
 

@@ -12,17 +12,20 @@ import type { SignalService } from "@checkstack/signal-common";
 import { CatalogApi } from "@checkstack/catalog-common";
 import type { SloService } from "./service";
 import type { SloEngine } from "./slo-engine";
+import type { SloCache } from "./cache";
 
 export function createRouter({
   service,
   engine,
   signalService,
   rpcClient,
+  cache,
 }: {
   service: SloService;
   engine: SloEngine;
   signalService: SignalService;
   rpcClient: RpcClient;
+  cache: SloCache;
 }) {
   const os = implement(sloContract)
     .$context<RpcContext>()
@@ -33,43 +36,49 @@ export function createRouter({
     // OBJECTIVES
     // =========================================================================
 
-    listObjectives: os.listObjectives.handler(async () => {
-      const objectives = await service.listObjectives();
-      const results = await Promise.all(
-        objectives.map(async (objective) => ({
-          objective,
-          status: await engine.computeStatus({ objective }),
-        })),
-      );
-      return { objectives: results };
-    }),
-
-    getObjective: os.getObjective.handler(async ({ input }) => {
-      const objective = await service.getObjective({ id: input.id });
-      if (!objective) {
-        // eslint-disable-next-line unicorn/no-null -- oRPC contract requires null for missing values
-        return null;
-      }
-      const status = await engine.computeStatus({ objective });
-      return { objective, status };
-    }),
-
-    getObjectivesForSystem: os.getObjectivesForSystem.handler(
-      async ({ input }) => {
-        const objectives = await service.getObjectivesForSystem({
-          systemId: input.systemId,
-        });
-        return Promise.all(
+    listObjectives: os.listObjectives.handler(async () =>
+      cache.wrapList(async () => {
+        const objectives = await service.listObjectives();
+        const results = await Promise.all(
           objectives.map(async (objective) => ({
             objective,
             status: await engine.computeStatus({ objective }),
           })),
         );
-      },
+        return { objectives: results };
+      }),
+    ),
+
+    getObjective: os.getObjective.handler(async ({ input }) =>
+      cache.wrapObjective(input.id, async () => {
+        const objective = await service.getObjective({ id: input.id });
+        if (!objective) {
+          // eslint-disable-next-line unicorn/no-null -- oRPC contract requires null for missing values
+          return null;
+        }
+        const status = await engine.computeStatus({ objective });
+        return { objective, status };
+      }),
+    ),
+
+    getObjectivesForSystem: os.getObjectivesForSystem.handler(
+      async ({ input }) =>
+        cache.wrapSystem(input.systemId, async () => {
+          const objectives = await service.getObjectivesForSystem({
+            systemId: input.systemId,
+          });
+          return Promise.all(
+            objectives.map(async (objective) => ({
+              objective,
+              status: await engine.computeStatus({ objective }),
+            })),
+          );
+        }),
     ),
 
     getBulkObjectivesForSystems: os.getBulkObjectivesForSystems.handler(
       async ({ input }) => {
+        // Per-entity caching: see ./cache.ts for the invalidation contract.
         const systems: Record<
           string,
           Array<{
@@ -80,15 +89,17 @@ export function createRouter({
 
         await Promise.all(
           input.systemIds.map(async (systemId) => {
-            const objectives = await service.getObjectivesForSystem({
-              systemId,
+            systems[systemId] = await cache.wrapSystem(systemId, async () => {
+              const objectives = await service.getObjectivesForSystem({
+                systemId,
+              });
+              return Promise.all(
+                objectives.map(async (objective) => ({
+                  objective,
+                  status: await engine.computeStatus({ objective }),
+                })),
+              );
             });
-            systems[systemId] = await Promise.all(
-              objectives.map(async (objective) => ({
-                objective,
-                status: await engine.computeStatus({ objective }),
-              })),
-            );
           }),
         );
 
@@ -105,6 +116,11 @@ export function createRouter({
         await engine.reconcileObjective({ objective });
 
         const status = await engine.computeStatus({ objective });
+        // Mutation invariant: db.write → cache.invalidate (await) → signals.emit.
+        await cache.invalidateForMutation({
+          objectiveId: objective.id,
+          systemId: objective.systemId,
+        });
         await signalService.broadcast(SLO_STATUS_CHANGED, {
           systemId: objective.systemId,
           objectiveId: objective.id,
@@ -128,6 +144,10 @@ export function createRouter({
       await engine.reconcileObjective({ objective });
 
       const status = await engine.computeStatus({ objective });
+      await cache.invalidateForMutation({
+        objectiveId: objective.id,
+        systemId: objective.systemId,
+      });
       await signalService.broadcast(SLO_STATUS_CHANGED, {
         systemId: objective.systemId,
         objectiveId: objective.id,
@@ -139,7 +159,16 @@ export function createRouter({
     }),
 
     deleteObjective: os.deleteObjective.handler(async ({ input }) => {
+      // Look up the objective first so we can target the per-system cache
+      // entry; otherwise we'd have no way to know which system to drop.
+      const existing = await service.getObjective({ id: input.id });
       const success = await service.deleteObjective({ id: input.id });
+      if (success && existing) {
+        await cache.invalidateForMutation({
+          objectiveId: existing.id,
+          systemId: existing.systemId,
+        });
+      }
       return { success };
     }),
 

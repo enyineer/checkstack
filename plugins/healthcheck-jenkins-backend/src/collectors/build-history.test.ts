@@ -9,7 +9,7 @@ describe("BuildHistoryCollector", () => {
   const collector = new BuildHistoryCollector();
 
   const createMockClient = (
-    response: JenkinsResponse
+    response: JenkinsResponse,
   ): JenkinsTransportClient => ({
     exec: async () => response,
   });
@@ -99,7 +99,7 @@ describe("BuildHistoryCollector", () => {
     ];
 
     let aggregated = collector.mergeResult(undefined, runs[0]);
-      aggregated = collector.mergeResult(aggregated, runs[1]);
+    aggregated = collector.mergeResult(aggregated, runs[1]);
 
     expect(aggregated.avgSuccessRate.avg).toBe(70);
     expect(aggregated.avgBuildDuration.avg).toBe(70000);

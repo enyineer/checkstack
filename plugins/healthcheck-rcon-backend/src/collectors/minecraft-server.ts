@@ -39,10 +39,13 @@ const minecraftServerResultSchema = z.object({
   motd: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "MOTD",
+    "x-anomaly-enabled": false,
   }).optional(),
   tps: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "TPS",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }).optional(),
 });
 
@@ -53,10 +56,14 @@ const minecraftServerAggregatedFields = {
   avgTps: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg TPS",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   minTps: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Min TPS",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
 };
 

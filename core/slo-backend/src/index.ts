@@ -13,6 +13,7 @@ import { integrationEventExtensionPoint } from "@checkstack/integration-backend"
 import { SloService } from "./service";
 import { SloEngine } from "./slo-engine";
 import { createRouter } from "./router";
+import { createSloCache } from "./cache";
 import { DependencyApi } from "@checkstack/dependency-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import { catalogHooks } from "@checkstack/catalog-backend";
@@ -176,8 +177,16 @@ export default createBackendPlugin({
         signalService: coreServices.signalService,
         rpcClient: coreServices.rpcClient,
         queueManager: coreServices.queueManager,
+        cacheManager: coreServices.cacheManager,
       },
-      init: async ({ logger, database, rpc, signalService, rpcClient }) => {
+      init: async ({
+        logger,
+        database,
+        rpc,
+        signalService,
+        rpcClient,
+        cacheManager,
+      }) => {
         logger.debug("🔧 Initializing SLO Backend...");
 
         const service = new SloService(database as SafeDatabase<typeof schema>);
@@ -190,7 +199,14 @@ export default createBackendPlugin({
         // Store for afterPluginsReady
         sharedEngine = engine;
 
-        const router = createRouter({ service, engine, signalService, rpcClient });
+        const cache = createSloCache({ cacheManager, logger });
+        const router = createRouter({
+          service,
+          engine,
+          signalService,
+          rpcClient,
+          cache,
+        });
         rpc.registerRouter(router, sloContract);
 
         // Register command palette entries

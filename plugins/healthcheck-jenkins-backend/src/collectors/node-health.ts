@@ -40,44 +40,62 @@ const nodeHealthResultSchema = z.object({
   totalNodes: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Total Nodes",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   onlineNodes: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Online Nodes",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   offlineNodes: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Offline Nodes",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   busyExecutors: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Busy Executors",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   idleExecutors: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Idle Executors",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   totalExecutors: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Total Executors",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "deviation",
   }),
   executorUtilization: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Executor Utilization",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   // For single node mode
   nodeDisplayName: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Node Name",
+    "x-anomaly-enabled": false,
   }).optional(),
   nodeOffline: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Node Offline",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "dominance",
   }).optional(),
   nodeOfflineReason: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Offline Reason",
+    "x-anomaly-enabled": false,
   }).optional(),
 });
 
@@ -88,15 +106,21 @@ const nodeHealthAggregatedFields = {
   avgOnlineNodes: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Online Nodes",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
   avgUtilization: aggregatedAverage({
     "x-chart-type": "gauge",
     "x-chart-label": "Avg Utilization",
     "x-chart-unit": "%",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "lower-is-better",
   }),
   minOnlineNodes: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Min Online Nodes",
+    "x-anomaly-enabled": true,
+    "x-anomaly-direction": "higher-is-better",
   }),
 };
 

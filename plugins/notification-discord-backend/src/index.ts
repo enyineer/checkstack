@@ -197,8 +197,7 @@ const discordStrategy: NotificationStrategy<DiscordConfig, DiscordUserConfig> =
           success: true,
         };
       } catch (error) {
-        const message =
-          extractErrorMessage(error, "Unknown Discord API error");
+        const message = extractErrorMessage(error, "Unknown Discord API error");
         logger.error("Discord notification error", { error: message });
         return {
           success: false,
