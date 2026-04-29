@@ -1,5 +1,11 @@
 # @checkstack/release
 
+## 0.75.0
+
+### Minor Changes
+
+- 42b0832: Refactor auto-chart layout to make collector grouping more dominant. Chart titles now show only the metric label (e.g. "Avg Response Time") instead of the prefixed "{collectorId}: Metric" form. Collector groups display the collector name as a heading with a badge containing the full collector id. Cards now stack at full width and their contents are center-aligned.
+
 ## 0.74.0
 
 ### Minor Changes
