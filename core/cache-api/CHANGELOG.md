@@ -1,5 +1,11 @@
 # @checkstack/cache-api
 
+## 0.2.1
+
+### Patch Changes
+
+- @checkstack/backend-api@0.13.1
+
 ## 0.2.0
 
 ### Minor Changes

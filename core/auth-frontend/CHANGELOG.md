@@ -1,5 +1,13 @@
 # @checkstack/auth-frontend
 
+## 0.5.31
+
+### Patch Changes
+
+- Updated dependencies [208ad71]
+  - @checkstack/frontend-api@0.4.0
+  - @checkstack/ui@1.6.1
+
 ## 0.5.30
 
 ### Patch Changes
