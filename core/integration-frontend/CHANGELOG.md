@@ -1,5 +1,41 @@
 # @checkstack/integration-frontend
 
+## 0.3.0
+
+### Minor Changes
+
+- 8d1ef12: ## Anomaly Detection & UI Improvements
+
+  ### Anomaly Detection Enhancements (Phase 2)
+
+  - **`@checkstack/anomaly-backend`**: Implemented background baseline analyzer jobs and anomaly trend deviation detection mechanics.
+  - **`@checkstack/anomaly-common`**: Added new baseline statistical logic and inference rules.
+  - **`@checkstack/anomaly-frontend`**: Added new Anomaly Widget and refactored system detail rendering to be more human-readable.
+  - **`@checkstack/dashboard-frontend`**: Refined the global anomaly widget and fixed hardcoded access gating to render appropriately.
+  - **`@checkstack/healthcheck-backend`**: Connected executor telemetry to the anomaly pipeline.
+  - **`@checkstack/healthcheck-frontend`**: Reconciled baseline display consistency in Drawer and charts.
+
+  ### Notification Identifiers
+
+  - **`@checkstack/incident-backend`**: Resolved system IDs to human-readable System Names within Incident notifications to eliminate ID-only alert content.
+  - **`@checkstack/maintenance-backend`**: Adopted the same resolution strategy for Maintenance notifications to keep parity.
+
+  ### UI Experience
+
+  - **`@checkstack/incident-frontend`**: Fixed the "Back to X" BackLink to properly use `react-router` hook `useNavigate` instead of doing a full application reload.
+  - **`@checkstack/healthcheck-frontend`**: Implemented `useNavigate` for seamless SPA back-linking.
+  - **`@checkstack/integration-frontend`**: Updated connections and delivery logs links to navigate without hard reloads.
+
+### Patch Changes
+
+- Updated dependencies [8d1ef12]
+- Updated dependencies [8d1ef12]
+  - @checkstack/common@0.7.0
+  - @checkstack/ui@1.6.0
+  - @checkstack/frontend-api@0.3.11
+  - @checkstack/integration-common@0.2.9
+  - @checkstack/signal-frontend@0.0.16
+
 ## 0.2.30
 
 ### Patch Changes

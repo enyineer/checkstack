@@ -1,5 +1,22 @@
 # @checkstack/satellite-backend
 
+## 0.2.16
+
+### Patch Changes
+
+- Updated dependencies [8d1ef12]
+- Updated dependencies [8d1ef12]
+- Updated dependencies [8d1ef12]
+- Updated dependencies [8d1ef12]
+- Updated dependencies [8d1ef12]
+  - @checkstack/healthcheck-common@0.12.0
+  - @checkstack/healthcheck-backend@0.18.0
+  - @checkstack/common@0.7.0
+  - @checkstack/backend-api@0.13.0
+  - @checkstack/satellite-common@0.2.1
+  - @checkstack/signal-common@0.1.10
+  - @checkstack/queue-api@0.2.14
+
 ## 0.2.15
 
 ### Patch Changes
