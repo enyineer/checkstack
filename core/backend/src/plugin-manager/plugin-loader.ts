@@ -515,7 +515,15 @@ export async function loadPlugins({
       );
     }
   }
-  for (const p of pendingInits) {
+  // Run afterPluginsReady in topologically-sorted order, matching Phase
+  // 2 init order. Iterating `pendingInits` directly would use registration
+  // order, which races dependency chains: e.g. catalog's
+  // afterPluginsReady registers `catalog.group` as a notification target,
+  // and emitting plugins' afterPluginsReady call `registerSubscriptionSpec`
+  // against it — so the emitters MUST run after catalog. Topo order
+  // already encodes this dependency (via spec.target.ownerPlugin).
+  for (const id of sortedIds) {
+    const p = pendingInits.find((x) => x.metadata.pluginId === id)!;
     if (p.afterPluginsReady) {
       try {
         const resolvedDeps: Record<string, unknown> = {};
