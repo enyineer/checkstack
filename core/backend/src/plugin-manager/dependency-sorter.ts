@@ -14,6 +14,15 @@ export function sortPlugins({
   pendingInits: {
     metadata: PluginMetadata;
     deps: Record<string, ServiceRef<unknown>>;
+    /**
+     * Optional plugin-id-level dependencies. Each id adds an edge
+     * `dep -> consumer`, ensuring the consumer's init and
+     * afterPluginsReady run after the dep's. Used by the notification
+     * subscription pattern: emitter plugins automatically depend on
+     * the plugins that own the targets they emit subscriptions for,
+     * derived at register time from `spec.target.ownerPlugin`.
+     */
+    pluginDependencies?: Set<string>;
   }[];
   providedBy: Map<string, string>;
   logger: Logger;
@@ -56,6 +65,26 @@ export function sortPlugins({
         }
         graph.get(providerId)!.push(consumerId);
         inDegree.set(consumerId, (inDegree.get(consumerId) || 0) + 1);
+      }
+    }
+
+    // Plugin-id-level deps (currently sourced from declared
+    // notification subscription specs). Each entry forces the consumer
+    // to load after the named plugin even when there's no shared
+    // ServiceRef between them.
+    if (p.pluginDependencies) {
+      for (const depPluginId of p.pluginDependencies) {
+        if (depPluginId === consumerId) continue;
+        if (!graph.has(depPluginId)) {
+          // Dep plugin isn't loaded — skip silently. The runtime RPC
+          // layer (notification-backend) will produce a clearer error
+          // if the dep was actually required.
+          continue;
+        }
+        if (!graph.get(depPluginId)!.includes(consumerId)) {
+          graph.get(depPluginId)!.push(consumerId);
+          inDegree.set(consumerId, (inDegree.get(consumerId) || 0) + 1);
+        }
       }
     }
 

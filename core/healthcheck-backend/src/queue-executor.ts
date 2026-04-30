@@ -24,9 +24,16 @@ import {
   type HealthCheckStatus,
   stripEphemeralFields,
 } from "@checkstack/healthcheck-common";
-import { CatalogApi, catalogRoutes } from "@checkstack/catalog-common";
+import {
+  CatalogApi,
+  catalogRoutes,
+  createSystemSubject,
+} from "@checkstack/catalog-common";
+import { systemHealthCollapseKey } from "@checkstack/healthcheck-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { IncidentApi } from "@checkstack/incident-common";
+import { NotificationApi } from "@checkstack/notification-common";
+import { healthcheckSystemSubscription } from "@checkstack/healthcheck-common";
 import { resolveRoute, type InferClient, extractErrorMessage} from "@checkstack/common";
 import { HealthCheckService } from "./service";
 import { healthCheckHooks } from "./hooks";
@@ -37,6 +44,7 @@ type Db = SafeDatabase<typeof schema>;
 type CatalogClient = InferClient<typeof CatalogApi>;
 type MaintenanceClient = InferClient<typeof MaintenanceApi>;
 type IncidentClient = InferClient<typeof IncidentApi>;
+type NotificationClient = InferClient<typeof NotificationApi>;
 
 /**
  * Emit the checkCompleted hook if available.
@@ -138,6 +146,7 @@ async function notifyStateChange(props: {
   previousStatus: HealthCheckStatus;
   newStatus: HealthCheckStatus;
   catalogClient: CatalogClient;
+  notificationClient: NotificationClient;
   maintenanceClient: MaintenanceClient;
   incidentClient: IncidentClient;
   logger: Logger;
@@ -148,6 +157,7 @@ async function notifyStateChange(props: {
     previousStatus,
     newStatus,
     catalogClient,
+    notificationClient,
     maintenanceClient,
     incidentClient,
     logger,
@@ -225,14 +235,25 @@ async function notifyStateChange(props: {
     systemId,
   });
 
+  void catalogClient; // parents are resolved server-side via stored target edges
+
   try {
-    await catalogClient.notifySystemSubscribers({
-      systemId,
+    await notificationClient.notifyForSubscription({
+      specId: healthcheckSystemSubscription.specId,
+      resourceKeys: [systemId],
       title,
       body,
       importance,
       action: { label: "View System", url: systemDetailPath },
-      includeGroupSubscribers: true,
+      collapseKey: systemHealthCollapseKey(systemId),
+      subjects: [
+        createSystemSubject({
+          id: systemId,
+          name: systemName,
+          url: systemDetailPath,
+          status: newStatus,
+        }),
+      ],
     });
     logger.debug(
       `Notified subscribers: ${previousStatus} → ${newStatus} for system ${systemId}`,
@@ -257,6 +278,7 @@ async function executeHealthCheckJob(props: {
   logger: Logger;
   signalService: SignalService;
   catalogClient: CatalogClient;
+  notificationClient: NotificationClient;
   maintenanceClient: MaintenanceClient;
   incidentClient: IncidentClient;
   getEmitHook: () => EmitHookFn | undefined;
@@ -270,6 +292,7 @@ async function executeHealthCheckJob(props: {
     logger,
     signalService,
     catalogClient,
+    notificationClient,
     maintenanceClient,
     incidentClient,
     getEmitHook,
@@ -575,6 +598,7 @@ async function executeHealthCheckJob(props: {
       const newState = await service.getSystemHealthStatus(systemId);
       if (newState.status !== previousStatus) {
         await notifyStateChange({
+        notificationClient,
           systemId,
           systemName,
           previousStatus,
@@ -669,6 +693,7 @@ async function executeHealthCheckJob(props: {
     const newState = await service.getSystemHealthStatus(systemId);
     if (newState.status !== previousStatus) {
       await notifyStateChange({
+        notificationClient,
         systemId,
         systemName,
         previousStatus,
@@ -800,6 +825,7 @@ async function executeHealthCheckJob(props: {
     const newState = await service.getSystemHealthStatus(systemId);
     if (newState.status !== previousStatus) {
       await notifyStateChange({
+        notificationClient,
         systemId,
         systemName,
         previousStatus,
@@ -868,6 +894,7 @@ export async function setupHealthCheckWorker(props: {
   queueManager: QueueManager;
   signalService: SignalService;
   catalogClient: CatalogClient;
+  notificationClient: NotificationClient;
   maintenanceClient: MaintenanceClient;
   incidentClient: IncidentClient;
   getEmitHook: () => EmitHookFn | undefined;
@@ -881,6 +908,7 @@ export async function setupHealthCheckWorker(props: {
     queueManager,
     signalService,
     catalogClient,
+    notificationClient,
     maintenanceClient,
     incidentClient,
     getEmitHook,
@@ -901,6 +929,7 @@ export async function setupHealthCheckWorker(props: {
         logger,
         signalService,
         catalogClient,
+        notificationClient,
         maintenanceClient,
         incidentClient,
         getEmitHook,

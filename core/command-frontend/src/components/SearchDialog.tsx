@@ -168,6 +168,7 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
       <DialogContent
         size="lg"
         className="p-0 gap-0 overflow-hidden"
+        hideCloseButton
         onKeyDown={handleKeyDown}
       >
         {/* Visually hidden but accessible title and description */}

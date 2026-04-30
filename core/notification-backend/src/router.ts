@@ -1,4 +1,5 @@
 import { implement, ORPCError } from "@orpc/server";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   autoAuthMiddleware,
   type RpcContext,
@@ -31,6 +32,13 @@ import {
   subscribeToGroup,
   unsubscribeFromGroup,
 } from "./service";
+import {
+  deriveGroupId,
+  provisionGroupsForResource,
+  provisionGroupsForSpec,
+  resolveInheritedGroupIds,
+  teardownGroupsForResource,
+} from "./subscription-engine";
 import {
   retentionConfigV1,
   RETENTION_CONFIG_VERSION,
@@ -85,6 +93,42 @@ function resolveContact({
 }
 
 /**
+ * Substitute `{resourceKey}` in a stored legacy template to get the
+ * actual legacy groupId to seed from.
+ */
+function makeLegacyResolver(template: string): (resourceKey: string) => string {
+  return (resourceKey: string) =>
+    template.replaceAll('{resourceKey}', resourceKey);
+}
+
+/**
+ * Look up a target type and ensure the calling plugin owns it.
+ * Centralizes the ownership check used by every target-mutating RPC.
+ */
+async function assertTargetOwnedBy(opts: {
+  db: SafeDatabase<typeof schema>;
+  targetTypeId: string;
+  callerPluginId: string;
+}): Promise<typeof schema.notificationTargets.$inferSelect> {
+  const [target] = await opts.db
+    .select()
+    .from(schema.notificationTargets)
+    .where(eq(schema.notificationTargets.targetTypeId, opts.targetTypeId))
+    .limit(1);
+  if (!target) {
+    throw new ORPCError("NOT_FOUND", {
+      message: `Notification target ${opts.targetTypeId} is not registered`,
+    });
+  }
+  if (target.ownerPlugin !== opts.callerPluginId) {
+    throw new ORPCError("FORBIDDEN", {
+      message: `Plugin ${opts.callerPluginId} cannot mutate target ${opts.targetTypeId} (owned by ${target.ownerPlugin})`,
+    });
+  }
+  return target;
+}
+
+/**
  * Creates the notification router using contract-based implementation.
  *
  * Auth and access rules are automatically enforced via autoAuthMiddleware
@@ -117,6 +161,7 @@ export const createNotificationRouter = (
       body?: string;
       importance: string;
       action?: { label: string; url: string };
+      subjects?: NotificationPayload["subjects"];
     }
   ): Promise<void> => {
     const authClient = rpcApi.forPlugin(AuthApi);
@@ -217,6 +262,7 @@ export const createNotificationRouter = (
             | "warning"
             | "critical",
           action: notification.action,
+          subjects: notification.subjects,
           type: "notification",
         };
 
@@ -287,7 +333,8 @@ export const createNotificationRouter = (
               action: n.action ?? undefined,
               importance: n.importance as "info" | "warning" | "critical",
               isRead: n.isRead,
-              groupId: n.groupId ?? undefined,
+              collapseKey: n.collapseKey ?? undefined,
+              subjects: n.subjects ?? undefined,
               createdAt: n.createdAt,
             })),
             total: result.total,
@@ -371,6 +418,32 @@ export const createNotificationRouter = (
       await cache.invalidateSubscriptions(userId);
     }),
 
+    getMySubscriptionStatus: os.getMySubscriptionStatus.handler(
+      async ({ input, context }) => {
+        const userId = (context.user as RealUser).id;
+        if (input.groupIds.length === 0) return {};
+
+        const { eq, and, inArray } = await import("drizzle-orm");
+        const rows = await database
+          .select({ groupId: schema.notificationSubscriptions.groupId })
+          .from(schema.notificationSubscriptions)
+          .where(
+            and(
+              eq(schema.notificationSubscriptions.userId, userId),
+              inArray(
+                schema.notificationSubscriptions.groupId,
+                input.groupIds,
+              ),
+            ),
+          );
+
+        const subscribed = new Set(rows.map((r) => r.groupId));
+        return Object.fromEntries(
+          input.groupIds.map((id) => [id, subscribed.has(id)]),
+        );
+      },
+    ),
+
     // ==========================================================================
     // ADMIN SETTINGS ENDPOINTS
     // Contract meta: userType: "user", accessRules: [notificationAdmin]
@@ -452,127 +525,562 @@ export const createNotificationRouter = (
       return { userIds: subscribers.map((s) => s.userId) };
     }),
 
-    notifyUsers: os.notifyUsers.handler(async ({ input }) => {
-      const { userIds, title, body, importance, action } = input;
-
-      if (userIds.length === 0) {
-        return { notifiedCount: 0 };
+    bulkSubscribe: os.bulkSubscribe.handler(async ({ input }) => {
+      if (input.userIds.length === 0) {
+        return { subscribedCount: 0 };
       }
 
-      const notificationValues = userIds.map((userId) => ({
-        userId,
-        title,
-        body,
-        action,
-        importance: importance ?? "info",
-      }));
-
       const inserted = await database
-        .insert(schema.notifications)
-        .values(notificationValues)
-        .returning({
-          id: schema.notifications.id,
-          userId: schema.notifications.userId,
+        .insert(schema.notificationSubscriptions)
+        .values(
+          input.userIds.map((userId) => ({
+            userId,
+            groupId: input.groupId,
+          })),
+        )
+        .onConflictDoNothing()
+        .returning({ userId: schema.notificationSubscriptions.userId });
+
+      return { subscribedCount: inserted.length };
+    }),
+
+    registerNotificationTarget: os.registerNotificationTarget.handler(
+      async ({ input, context }) => {
+        const caller = context.user as { type: string; pluginId?: string };
+        if (caller.type !== "service" || !caller.pluginId) {
+          throw new ORPCError("FORBIDDEN", {
+            message:
+              "registerNotificationTarget is only callable from a service",
+          });
+        }
+        if (caller.pluginId !== input.ownerPlugin) {
+          throw new ORPCError("FORBIDDEN", {
+            message: `Plugin ${caller.pluginId} cannot register a target owned by ${input.ownerPlugin}`,
+          });
+        }
+        await database
+          .insert(schema.notificationTargets)
+          .values({
+            targetTypeId: input.targetTypeId,
+            ownerPlugin: input.ownerPlugin,
+            resourceKind: input.resourceKind,
+            parentTargetTypeId: input.parentTargetTypeId,
+            legacyGroupIdTemplate: input.legacyGroupIdTemplate,
+          })
+          .onConflictDoUpdate({
+            target: [schema.notificationTargets.targetTypeId],
+            set: {
+              ownerPlugin: input.ownerPlugin,
+              resourceKind: input.resourceKind,
+              parentTargetTypeId: input.parentTargetTypeId,
+              legacyGroupIdTemplate: input.legacyGroupIdTemplate,
+            },
+          });
+        return { success: true };
+      },
+    ),
+
+    listNotificationTargets: os.listNotificationTargets.handler(async () => {
+      const rows = await database.select().from(schema.notificationTargets);
+      return rows.map((row) => ({
+        targetTypeId: row.targetTypeId,
+        ownerPlugin: row.ownerPlugin,
+        resourceKind: row.resourceKind,
+        parentTargetTypeId: row.parentTargetTypeId ?? undefined,
+        legacyGroupIdTemplate: row.legacyGroupIdTemplate ?? undefined,
+      }));
+    }),
+
+    upsertNotificationResource: os.upsertNotificationResource.handler(
+      async ({ input, context }) => {
+        const caller = context.user as { type: string; pluginId?: string };
+        if (caller.type !== "service" || !caller.pluginId) {
+          throw new ORPCError("FORBIDDEN", {
+            message:
+              "upsertNotificationResource is only callable from a service",
+          });
+        }
+        const target = await assertTargetOwnedBy({
+          db: database,
+          targetTypeId: input.targetTypeId,
+          callerPluginId: caller.pluginId,
         });
 
-      // Drop each affected user's cache before signaling, so the
-      // NotificationBell's refetch sees the new unread count.
-      await Promise.all(
-        userIds.map((userId) => cache.invalidateForUser(userId)),
-      );
+        await database
+          .insert(schema.notificationResources)
+          .values({
+            targetTypeId: input.targetTypeId,
+            resourceKey: input.resource.resourceKey,
+            displayLabel: input.resource.displayLabel,
+          })
+          .onConflictDoUpdate({
+            target: [
+              schema.notificationResources.targetTypeId,
+              schema.notificationResources.resourceKey,
+            ],
+            set: {
+              displayLabel: input.resource.displayLabel,
+              upsertedAt: new Date(),
+            },
+          });
 
-      // Send realtime signals to each user
-      for (const notification of inserted) {
-        void signalService.sendToUser(
-          NOTIFICATION_RECEIVED,
-          notification.userId,
-          {
-            id: notification.id,
+        const [refreshed] = await database
+          .select()
+          .from(schema.notificationResources)
+          .where(
+            and(
+              eq(schema.notificationResources.targetTypeId, input.targetTypeId),
+              eq(
+                schema.notificationResources.resourceKey,
+                input.resource.resourceKey,
+              ),
+            ),
+          )
+          .limit(1);
+        if (refreshed) {
+          await provisionGroupsForResource({
+            db: database,
+            targetTypeId: input.targetTypeId,
+            resource: refreshed,
+          });
+          // Run legacy migration seed for any spec freshly bound to this
+          // resource (idempotent — subscription_migrations gates it).
+          if (target.legacyGroupIdTemplate) {
+            const specs = await database
+              .select()
+              .from(schema.subscriptionSpecs)
+              .where(
+                eq(schema.subscriptionSpecs.targetTypeId, input.targetTypeId),
+              );
+            for (const spec of specs) {
+              await provisionGroupsForSpec({
+                db: database,
+                spec,
+                legacyGroupIdFor: makeLegacyResolver(
+                  target.legacyGroupIdTemplate,
+                ),
+              });
+            }
+          }
+        }
+        return { success: true };
+      },
+    ),
+
+    upsertNotificationResources: os.upsertNotificationResources.handler(
+      async ({ input, context }) => {
+        const caller = context.user as { type: string; pluginId?: string };
+        if (caller.type !== "service" || !caller.pluginId) {
+          throw new ORPCError("FORBIDDEN", {
+            message:
+              "upsertNotificationResources is only callable from a service",
+          });
+        }
+        const target = await assertTargetOwnedBy({
+          db: database,
+          targetTypeId: input.targetTypeId,
+          callerPluginId: caller.pluginId,
+        });
+        if (input.resources.length === 0) return { upserted: 0 };
+
+        await database
+          .insert(schema.notificationResources)
+          .values(
+            input.resources.map((r) => ({
+              targetTypeId: input.targetTypeId,
+              resourceKey: r.resourceKey,
+              displayLabel: r.displayLabel,
+            })),
+          )
+          .onConflictDoUpdate({
+            target: [
+              schema.notificationResources.targetTypeId,
+              schema.notificationResources.resourceKey,
+            ],
+            set: {
+              displayLabel: sql`excluded.display_label`,
+              upsertedAt: new Date(),
+            },
+          });
+
+        // Provision groups for every spec already registered against this
+        // target. This is the path catalog hits on platform startup —
+        // each plugin then registers its spec and the spec-side
+        // provisioning loop seeds it from the legacy groups.
+        const specs = await database
+          .select()
+          .from(schema.subscriptionSpecs)
+          .where(eq(schema.subscriptionSpecs.targetTypeId, input.targetTypeId));
+        const refreshed = await database
+          .select()
+          .from(schema.notificationResources)
+          .where(
+            eq(schema.notificationResources.targetTypeId, input.targetTypeId),
+          );
+
+        const legacyResolver = target.legacyGroupIdTemplate
+          ? makeLegacyResolver(target.legacyGroupIdTemplate)
+          : undefined;
+
+        for (const spec of specs) {
+          await provisionGroupsForSpec({
+            db: database,
+            spec,
+            legacyGroupIdFor: legacyResolver,
+          });
+        }
+        // Resources without specs still get tracked (so future spec
+        // registrations can bind), but no groups are created for them
+        // until at least one spec exists.
+        void refreshed;
+        return { upserted: input.resources.length };
+      },
+    ),
+
+    removeNotificationResource: os.removeNotificationResource.handler(
+      async ({ input, context }) => {
+        const caller = context.user as { type: string; pluginId?: string };
+        if (caller.type !== "service" || !caller.pluginId) {
+          throw new ORPCError("FORBIDDEN", {
+            message:
+              "removeNotificationResource is only callable from a service",
+          });
+        }
+        await assertTargetOwnedBy({
+          db: database,
+          targetTypeId: input.targetTypeId,
+          callerPluginId: caller.pluginId,
+        });
+
+        const removedGroups = await teardownGroupsForResource({
+          db: database,
+          targetTypeId: input.targetTypeId,
+          resourceKey: input.resourceKey,
+        });
+        await database
+          .delete(schema.notificationResources)
+          .where(
+            and(
+              eq(schema.notificationResources.targetTypeId, input.targetTypeId),
+              eq(
+                schema.notificationResources.resourceKey,
+                input.resourceKey,
+              ),
+            ),
+          );
+        await database
+          .delete(schema.notificationResourceParents)
+          .where(
+            and(
+              eq(
+                schema.notificationResourceParents.childTargetTypeId,
+                input.targetTypeId,
+              ),
+              eq(
+                schema.notificationResourceParents.childResourceKey,
+                input.resourceKey,
+              ),
+            ),
+          );
+        return { removedGroups };
+      },
+    ),
+
+    listNotificationResources: os.listNotificationResources.handler(
+      async ({ input }) => {
+        const rows = await database
+          .select()
+          .from(schema.notificationResources)
+          .where(
+            eq(schema.notificationResources.targetTypeId, input.targetTypeId),
+          );
+        return rows.map((r) => ({
+          resourceKey: r.resourceKey,
+          displayLabel: r.displayLabel,
+        }));
+      },
+    ),
+
+    setNotificationResourceParents:
+      os.setNotificationResourceParents.handler(
+        async ({ input, context }) => {
+          const caller = context.user as {
+            type: string;
+            pluginId?: string;
+          };
+          if (caller.type !== "service" || !caller.pluginId) {
+            throw new ORPCError("FORBIDDEN", {
+              message:
+                "setNotificationResourceParents is only callable from a service",
+            });
+          }
+          await assertTargetOwnedBy({
+            db: database,
+            targetTypeId: input.childTargetTypeId,
+            callerPluginId: caller.pluginId,
+          });
+
+          await database
+            .delete(schema.notificationResourceParents)
+            .where(
+              and(
+                eq(
+                  schema.notificationResourceParents.childTargetTypeId,
+                  input.childTargetTypeId,
+                ),
+                eq(
+                  schema.notificationResourceParents.childResourceKey,
+                  input.childResourceKey,
+                ),
+              ),
+            );
+          if (input.parents.length > 0) {
+            await database
+              .insert(schema.notificationResourceParents)
+              .values(
+                input.parents.map((p) => ({
+                  childTargetTypeId: input.childTargetTypeId,
+                  childResourceKey: input.childResourceKey,
+                  parentTargetTypeId: p.parentTargetTypeId,
+                  parentResourceKey: p.parentResourceKey,
+                })),
+              )
+              .onConflictDoNothing();
+          }
+          return { success: true };
+        },
+      ),
+
+    registerSubscriptionSpec: os.registerSubscriptionSpec.handler(
+      async ({ input, context }) => {
+        const caller = context.user as { type: string; pluginId?: string };
+        if (caller.type !== "service" || !caller.pluginId) {
+          throw new ORPCError("FORBIDDEN", {
+            message: "registerSubscriptionSpec is only callable from a service",
+          });
+        }
+        if (caller.pluginId !== input.ownerPlugin) {
+          throw new ORPCError("FORBIDDEN", {
+            message: `Plugin ${caller.pluginId} cannot register specs owned by ${input.ownerPlugin}`,
+          });
+        }
+
+        // The target's owner plugin is guaranteed to have completed
+        // its init + afterPluginsReady before this point because the
+        // plugin loader derives an init-order edge from each declared
+        // subscription spec (`spec.target.ownerPlugin`) to the
+        // emitting plugin. If the target is missing here, the
+        // emitting plugin failed to declare the spec at register
+        // time — surfacing a clear error is the right behavior.
+        const [target] = await database
+          .select()
+          .from(schema.notificationTargets)
+          .where(
+            eq(schema.notificationTargets.targetTypeId, input.targetTypeId),
+          )
+          .limit(1);
+        if (!target) {
+          throw new ORPCError("NOT_FOUND", {
+            message: `Target type ${input.targetTypeId} is not registered. Did the emitting plugin declare this spec via env.registerSubscriptionSpecs(...) in its register() block?`,
+          });
+        }
+
+        await database
+          .insert(schema.subscriptionSpecs)
+          .values({
+            specId: input.specId,
+            ownerPlugin: input.ownerPlugin,
+            localId: input.localId,
+            targetTypeId: input.targetTypeId,
+            displayTitle: input.display.title,
+            displayDescription: input.display.description,
+            displayIconName: input.display.iconName,
+          })
+          .onConflictDoUpdate({
+            target: [schema.subscriptionSpecs.specId],
+            set: {
+              ownerPlugin: input.ownerPlugin,
+              localId: input.localId,
+              targetTypeId: input.targetTypeId,
+              displayTitle: input.display.title,
+              displayDescription: input.display.description,
+              displayIconName: input.display.iconName,
+            },
+          });
+
+        const [spec] = await database
+          .select()
+          .from(schema.subscriptionSpecs)
+          .where(eq(schema.subscriptionSpecs.specId, input.specId))
+          .limit(1);
+        if (spec) {
+          await provisionGroupsForSpec({
+            db: database,
+            spec,
+            legacyGroupIdFor: target.legacyGroupIdTemplate
+              ? makeLegacyResolver(target.legacyGroupIdTemplate)
+              : undefined,
+          });
+        }
+        return { success: true };
+      },
+    ),
+
+    listSubscriptionSpecs: os.listSubscriptionSpecs.handler(async () => {
+      const rows = await database.select().from(schema.subscriptionSpecs);
+      return rows.map((row) => ({
+        specId: row.specId,
+        ownerPlugin: row.ownerPlugin,
+        localId: row.localId,
+        targetTypeId: row.targetTypeId,
+        display: {
+          title: row.displayTitle,
+          description: row.displayDescription,
+          iconName: row.displayIconName ?? undefined,
+        },
+      }));
+    }),
+
+    notifyForSubscription: os.notifyForSubscription.handler(
+      async ({ input, context }) => {
+        const caller = context.user as { type: string; pluginId?: string };
+        if (caller.type !== "service" || !caller.pluginId) {
+          throw new ORPCError("FORBIDDEN", {
+            message: "notifyForSubscription is only callable from a service",
+          });
+        }
+
+        const [spec] = await database
+          .select()
+          .from(schema.subscriptionSpecs)
+          .where(eq(schema.subscriptionSpecs.specId, input.specId))
+          .limit(1);
+        if (!spec) {
+          throw new ORPCError("NOT_FOUND", {
+            message: `Subscription spec ${input.specId} is not registered`,
+          });
+        }
+        if (spec.ownerPlugin !== caller.pluginId) {
+          throw new ORPCError("FORBIDDEN", {
+            message: `Plugin ${caller.pluginId} cannot dispatch under spec ${input.specId} (owned by ${spec.ownerPlugin})`,
+          });
+        }
+
+        // Validate every resourceKey is a known resource of the spec's
+        // target. Unknown keys = drift (resource was never pushed) and
+        // would silently produce zero subscribers.
+        const known = await database
+          .select({ resourceKey: schema.notificationResources.resourceKey })
+          .from(schema.notificationResources)
+          .where(
+            and(
+              eq(
+                schema.notificationResources.targetTypeId,
+                spec.targetTypeId,
+              ),
+              inArray(
+                schema.notificationResources.resourceKey,
+                input.resourceKeys,
+              ),
+            ),
+          );
+        const knownSet = new Set(known.map((k) => k.resourceKey));
+        const missing = input.resourceKeys.filter((k) => !knownSet.has(k));
+        if (missing.length > 0) {
+          throw new ORPCError("NOT_FOUND", {
+            message: `Resources not registered for target ${spec.targetTypeId}: ${missing.join(", ")}`,
+          });
+        }
+
+        // Primary group ids — one per resourceKey.
+        const primaryGroupIds = input.resourceKeys.map((rk) =>
+          deriveGroupId({
+            ownerPlugin: spec.ownerPlugin,
+            localId: spec.localId,
+            resourceKey: rk,
+          }),
+        );
+
+        // Inherited group ids: walk parent edges for each resourceKey,
+        // map parent targets to same-plugin specs.
+        const inheritedGroupIds = new Set<string>();
+        for (const rk of input.resourceKeys) {
+          const parts = await resolveInheritedGroupIds({
+            db: database,
+            spec,
+            resourceKey: rk,
+          });
+          for (const gid of parts) inheritedGroupIds.add(gid);
+        }
+
+        const allGroupIds = [...primaryGroupIds, ...inheritedGroupIds];
+
+        const subscribers = await database
+          .selectDistinct({ userId: schema.notificationSubscriptions.userId })
+          .from(schema.notificationSubscriptions)
+          .where(
+            inArray(
+              schema.notificationSubscriptions.groupId,
+              allGroupIds,
+            ),
+          );
+
+        const excluded = new Set(input.excludeUserIds);
+        const recipients = subscribers
+          .map((s) => s.userId)
+          .filter((uid) => !excluded.has(uid));
+
+        if (recipients.length === 0) {
+          return { notifiedCount: 0 };
+        }
+
+        const { title, body, importance, action, collapseKey, subjects } =
+          input;
+        const notificationValues = recipients.map((userId) => ({
+          userId,
+          title,
+          body,
+          action,
+          importance: importance ?? "info",
+          collapseKey,
+          subjects,
+        }));
+        const inserted = await database
+          .insert(schema.notifications)
+          .values(notificationValues)
+          .returning({
+            id: schema.notifications.id,
+            userId: schema.notifications.userId,
+          });
+
+        await Promise.all(
+          recipients.map((userId) => cache.invalidateForUser(userId)),
+        );
+
+        for (const notification of inserted) {
+          void signalService.sendToUser(
+            NOTIFICATION_RECEIVED,
+            notification.userId,
+            {
+              id: notification.id,
+              title,
+              body,
+              importance: importance ?? "info",
+            },
+          );
+        }
+        for (const userId of recipients) {
+          void sendToExternalChannels(userId, {
             title,
             body,
             importance: importance ?? "info",
-          }
-        );
-      }
-
-      // Also send to external channels (Telegram, SMTP, etc.) - fire and forget
-      for (const userId of userIds) {
-        void sendToExternalChannels(userId, {
-          title,
-          body,
-          importance: importance ?? "info",
-          action,
-        });
-      }
-
-      return { notifiedCount: userIds.length };
-    }),
-
-    // Notify all subscribers of multiple groups with internal deduplication
-    notifyGroups: os.notifyGroups.handler(async ({ input }) => {
-      const { groupIds, title, body, importance, action } = input;
-      const { inArray } = await import("drizzle-orm");
-
-      if (groupIds.length === 0) {
-        return { notifiedCount: 0 };
-      }
-
-      // Get all subscribers for all groups, deduplicated
-      const subscribers = await database
-        .selectDistinct({ userId: schema.notificationSubscriptions.userId })
-        .from(schema.notificationSubscriptions)
-        .where(inArray(schema.notificationSubscriptions.groupId, groupIds));
-
-      if (subscribers.length === 0) {
-        return { notifiedCount: 0 };
-      }
-
-      const notificationValues = subscribers.map((sub) => ({
-        userId: sub.userId,
-        title,
-        body,
-        action,
-        importance: importance ?? "info",
-      }));
-
-      const inserted = await database
-        .insert(schema.notifications)
-        .values(notificationValues)
-        .returning({
-          id: schema.notifications.id,
-          userId: schema.notifications.userId,
-        });
-
-      await Promise.all(
-        subscribers.map((sub) => cache.invalidateForUser(sub.userId)),
-      );
-
-      // Send realtime signals to each subscriber
-      for (const notification of inserted) {
-        void signalService.sendToUser(
-          NOTIFICATION_RECEIVED,
-          notification.userId,
-          {
-            id: notification.id,
-            title,
-            body,
-            importance: importance ?? "info",
-          }
-        );
-      }
-
-      // Also send to external channels (Telegram, SMTP, etc.) - fire and forget
-      for (const sub of subscribers) {
-        void sendToExternalChannels(sub.userId, {
-          title,
-          body,
-          importance: importance ?? "info",
-          action,
-        });
-      }
-
-      return { notifiedCount: subscribers.length };
-    }),
+            action,
+            subjects,
+          });
+        }
+        return { notifiedCount: recipients.length };
+      },
+    ),
 
     // Send transactional notification via ALL enabled strategies
     // No internal notification created - sent directly via external channels
@@ -666,7 +1174,7 @@ export const createNotificationRouter = (
         const payload: NotificationPayload = {
           title: notification.title,
           body: notification.body,
-          importance: "critical", // Transactional messages are always critical
+          importance: notification.importance ?? "info",
           action: notification.action,
           type: "transactional",
         };

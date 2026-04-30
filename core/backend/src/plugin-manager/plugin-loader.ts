@@ -88,6 +88,13 @@ export function registerPlugin({
   // Store metadata for request-time context injection
   deps.pluginMetadataRegistry.set(pluginId, backendPlugin.metadata);
 
+  // Plugin dependencies derived from declared subscription specs.
+  // Populated by `registerSubscriptionSpecs` below; attached to the
+  // PendingInit when registerInit fires (a plugin's register block
+  // calls registerInit at most once, so timing is deterministic
+  // regardless of registration order within register()).
+  const pluginDependencies = new Set<string>();
+
   // Execute Register
   backendPlugin.register({
     registerInit: <
@@ -108,7 +115,21 @@ export function registerPlugin({
         init: args.init as InitCallback,
         afterPluginsReady: args.afterPluginsReady as InitCallback | undefined,
         schema: args.schema,
+        pluginDependencies,
       });
+    },
+    registerSubscriptionSpecs: (specs) => {
+      for (const spec of specs) {
+        if (spec.ownerPlugin !== pluginId) {
+          throw new Error(
+            `Plugin ${pluginId} declared a subscription spec it does not own (ownerPlugin=${spec.ownerPlugin})`,
+          );
+        }
+        const targetOwner = spec.target.ownerPlugin;
+        if (targetOwner && targetOwner !== pluginId) {
+          pluginDependencies.add(targetOwner);
+        }
+      }
     },
     registerService: (ref: ServiceRef<unknown>, impl: unknown) => {
       deps.registry.register(ref, impl);

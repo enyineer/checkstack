@@ -1,4 +1,4 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import { anomalySettingsConfig } from "./config";
@@ -159,5 +159,107 @@ export class AnomalyService {
       .returning();
 
     return result.config;
+  }
+
+  /**
+   * List anomaly-notification mutes for a user. Optionally narrow to one
+   * system. Returns the same shape as the DTO (mutedAt is ISO-formatted).
+   */
+  async listMutes({
+    userId,
+    systemId,
+  }: {
+    userId: string;
+    systemId?: string;
+  }) {
+    const conditions = [eq(schema.anomalyNotificationMutes.userId, userId)];
+    if (systemId !== undefined) {
+      conditions.push(eq(schema.anomalyNotificationMutes.systemId, systemId));
+    }
+
+    const rows = await this.db
+      .select()
+      .from(schema.anomalyNotificationMutes)
+      .where(and(...conditions));
+
+    return rows.map((r) => ({
+      systemId: r.systemId,
+      fieldPath: r.fieldPath,
+      mutedAt: r.mutedAt.toISOString(),
+    }));
+  }
+
+  async addMute({
+    userId,
+    systemId,
+    fieldPath,
+  }: {
+    userId: string;
+    systemId: string;
+    fieldPath: string;
+  }) {
+    await this.db
+      .insert(schema.anomalyNotificationMutes)
+      .values({ userId, systemId, fieldPath })
+      .onConflictDoNothing();
+  }
+
+  async removeMute({
+    userId,
+    systemId,
+    fieldPath,
+  }: {
+    userId: string;
+    systemId: string;
+    fieldPath: string;
+  }) {
+    await this.db
+      .delete(schema.anomalyNotificationMutes)
+      .where(
+        and(
+          eq(schema.anomalyNotificationMutes.userId, userId),
+          eq(schema.anomalyNotificationMutes.systemId, systemId),
+          eq(schema.anomalyNotificationMutes.fieldPath, fieldPath),
+        ),
+      );
+  }
+
+  /**
+   * For a given (system, fieldPath), return the set of userIds that have
+   * muted notifications. A row with empty fieldPath ("") for the system
+   * counts as a mute regardless of which field triggered the dispatch.
+   * Used by the notification dispatcher to populate `excludeUserIds`.
+   *
+   * `candidateUserIds` is optional — when omitted, returns every user
+   * that ever muted this (system, field). The notification backend
+   * intersects against actual subscribers anyway, so a broader exclude
+   * set is harmless.
+   */
+  async getMutedUserIds({
+    systemId,
+    fieldPath,
+    candidateUserIds,
+  }: {
+    systemId: string;
+    fieldPath: string;
+    candidateUserIds?: string[];
+  }): Promise<Set<string>> {
+    const conditions = [
+      eq(schema.anomalyNotificationMutes.systemId, systemId),
+      inArray(schema.anomalyNotificationMutes.fieldPath, [fieldPath, ""]),
+    ];
+    if (candidateUserIds !== undefined) {
+      if (candidateUserIds.length === 0) return new Set();
+      conditions.push(
+        inArray(schema.anomalyNotificationMutes.userId, candidateUserIds),
+      );
+    }
+
+    const rows = await this.db
+      .select({ userId: schema.anomalyNotificationMutes.userId })
+      .from(schema.anomalyNotificationMutes)
+      .where(and(...conditions));
+
+    return new Set(rows.map((r) => r.userId));
   }
 }

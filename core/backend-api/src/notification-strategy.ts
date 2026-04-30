@@ -20,6 +20,22 @@ export type NotificationContactResolution =
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
+ * An entity affected by a notification, surfaced to the recipient as a
+ * chip/link/native element. Mirrors `NotificationSubject` from
+ * `@checkstack/notification-common` — duplicated here to avoid a runtime
+ * dependency from backend-api on notification-common.
+ *
+ * `kind` is namespaced as `<pluginId>.<localKind>` (e.g., `catalog.system`).
+ */
+export interface NotificationSubject {
+  kind: string;
+  id: string;
+  name: string;
+  url?: string;
+  status?: "healthy" | "unhealthy" | "degraded" | "unknown";
+}
+
+/**
  * The notification content to send via external channel.
  */
 export interface NotificationPayload {
@@ -41,6 +57,15 @@ export interface NotificationPayload {
     label: string;
     url: string;
   };
+  /**
+   * Affected entities. Each strategy renders these in its native format
+   * (Slack section, Discord embed field, SMTP card, etc.). For text-only
+   * channels, render as a bulleted list with optional URLs.
+   *
+   * When `action` is null and `subjects` are present, the subject URLs are
+   * the recipient's only navigation paths.
+   */
+  subjects?: NotificationSubject[];
   /**
    * Source type identifier for filtering and templates.
    * Examples: "password-reset", "healthcheck.alert", "maintenance.reminder"

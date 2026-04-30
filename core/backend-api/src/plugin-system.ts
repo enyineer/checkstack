@@ -99,6 +99,25 @@ export type BackendPluginRegistry = {
    * Multiple cleanup handlers can be registered; they run in LIFO order.
    */
   registerCleanup: (cleanup: () => Promise<void>) => void;
+  /**
+   * Declare notification subscription specs this plugin owns. Called
+   * synchronously during `register()` so the plugin loader can derive
+   * init-order dependencies from each spec's target: an emitter
+   * targeting `catalogSystemTarget` automatically waits for catalog's
+   * init + afterPluginsReady before its own. Plugins still call the
+   * notification-backend RPC `registerSubscriptionSpec` from
+   * afterPluginsReady — this declaration is purely for ordering.
+   *
+   * Each entry must carry an `ownerPlugin` that matches the calling
+   * plugin id, and a `target.ownerPlugin` describing the plugin that
+   * owns the target type the spec is bound to.
+   */
+  registerSubscriptionSpecs: (
+    specs: ReadonlyArray<{
+      readonly ownerPlugin: string;
+      readonly target: { readonly ownerPlugin: string };
+    }>,
+  ) => void;
   pluginManager: {
     getAllAccessRules: () => { id: string; description?: string }[];
   };

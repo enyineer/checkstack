@@ -6,6 +6,7 @@ import {
   type NotificationStrategy,
   type NotificationSendContext,
   type NotificationDeliveryResult,
+  type NotificationSubject,
   markdownToSlackMrkdwn,
 } from "@checkstack/backend-api";
 import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
@@ -67,6 +68,7 @@ interface SlackBlockOptions {
   body?: string;
   importance: "info" | "warning" | "critical";
   action?: { label: string; url: string };
+  subjects?: NotificationSubject[];
 }
 
 interface SlackPayload {
@@ -75,8 +77,30 @@ interface SlackPayload {
   attachments?: Array<{ color: string }>;
 }
 
+/** Render the subjects list as a Slack mrkdwn bullet list. */
+function renderSubjectsAsMrkdwn(subjects: NotificationSubject[]): string {
+  return [
+    "*Affected:*",
+    ...subjects.map((subject) => {
+      const statusPrefix = subject.status
+        ? `${SUBJECT_STATUS_EMOJI[subject.status]} `
+        : "• ";
+      return subject.url
+        ? `${statusPrefix}<${subject.url}|${subject.name}>`
+        : `${statusPrefix}${subject.name}`;
+    }),
+  ].join("\n");
+}
+
+const SUBJECT_STATUS_EMOJI = {
+  healthy: "🟢",
+  degraded: "🟡",
+  unhealthy: "🔴",
+  unknown: "⚪",
+} as const;
+
 function buildSlackPayload(options: SlackBlockOptions): SlackPayload {
-  const { title, body, importance, action } = options;
+  const { title, body, importance, action, subjects } = options;
 
   const importanceEmoji: Record<string, string> = {
     info: "ℹ️",
@@ -112,6 +136,20 @@ function buildSlackPayload(options: SlackBlockOptions): SlackPayload {
         text: mrkdwnBody,
       },
     });
+  }
+
+  // Subjects section (if provided)
+  if (subjects && subjects.length > 0) {
+    blocks.push(
+      { type: "divider" },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: renderSubjectsAsMrkdwn(subjects),
+        },
+      },
+    );
   }
 
   // Action button (if provided)
@@ -188,6 +226,7 @@ const slackStrategy: NotificationStrategy<SlackConfig, SlackUserConfig> = {
         body: notification.body,
         importance: notification.importance,
         action: notification.action,
+        subjects: notification.subjects,
       });
 
       // Send to Slack webhook

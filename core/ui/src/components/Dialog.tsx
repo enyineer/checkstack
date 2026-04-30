@@ -1,6 +1,7 @@
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { cva, type VariantProps } from "class-variance-authority";
+import { X } from "lucide-react";
 import { cn } from "../utils";
 import { usePerformance } from "./PerformanceProvider";
 
@@ -54,33 +55,42 @@ interface DialogContentProps
     React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>,
     VariantProps<typeof dialogContentVariants> {}
 
+interface DialogContentExtraProps {
+  hideCloseButton?: boolean;
+}
+
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  DialogContentProps
->(({ className, children, size, ...props }, ref) => {
+  DialogContentProps & DialogContentExtraProps
+>(({ className, children, size, hideCloseButton, ...props }, ref) => {
   const { isLowPower } = usePerformance();
   return (
     <DialogPortal>
       <DialogOverlay />
-      <DialogPrimitive.Content
-        ref={ref}
-        className={cn(
-          "fixed inset-0 z-50 flex items-center justify-center p-4",
-          !isLowPower && "duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-        )}
-        {...props}
-      >
-        <div
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+        <DialogPrimitive.Content
+          ref={ref}
           className={cn(
+            "pointer-events-auto relative",
             dialogContentVariants({ size }),
-            !isLowPower && "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+            !isLowPower &&
+              "duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
             className,
           )}
+          {...props}
         >
-          {/* Wrapper with negative margin and positive padding to allow focus rings to extend */}
           <div className="-mx-2 px-2">{children}</div>
-        </div>
-    </DialogPrimitive.Content>
+          {!hideCloseButton && (
+            <DialogPrimitive.Close
+              className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+              <span className="sr-only">Close</span>
+            </DialogPrimitive.Close>
+          )}
+        </DialogPrimitive.Content>
+      </div>
     </DialogPortal>
   );
 });

@@ -36,6 +36,20 @@
       "when": 1767566076200,
       "tag": "0004_regular_corsair",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777534340114,
+      "tag": "0005_material_mauler",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777549165507,
+      "tag": "0006_chubby_gladiator",
+      "breakpoints": true
     }
   ]
 }

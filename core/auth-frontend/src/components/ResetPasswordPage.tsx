@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { Lock, ArrowLeft, CheckCircle, AlertCircle } from "lucide-react";
-import { authRoutes, passwordSchema } from "@checkstack/auth-common";
+import { AuthApi, authRoutes, passwordSchema } from "@checkstack/auth-common";
 import { resolveRoute, extractErrorMessage} from "@checkstack/common";
+import { usePluginClient } from "@checkstack/frontend-api";
 import {
   Button,
   Input,
@@ -18,6 +19,7 @@ import {
   AlertContent,
   AlertTitle,
   AlertDescription,
+  LoadingSpinner,
 } from "@checkstack/ui";
 import { getAuthClientLazy } from "../lib/auth-client";
 
@@ -33,6 +35,16 @@ export const ResetPasswordPage = () => {
   const [success, setSuccess] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const authClient = getAuthClientLazy();
+  const authApiClient = usePluginClient(AuthApi);
+
+  // Pre-validate token on load so users see invalid/expired errors before
+  // entering a password. Token entropy is high enough that exposing validity
+  // does not enable enumeration.
+  const { data: tokenValidation, isLoading: validatingToken } =
+    authApiClient.validateResetToken.useQuery(
+      { token: token ?? "" },
+      { enabled: Boolean(token) },
+    );
 
   // Validate password on change
   useEffect(() => {
@@ -90,8 +102,11 @@ export const ResetPasswordPage = () => {
     }
   };
 
-  // No token - show error
-  if (!token) {
+  // No token, expired, or invalid - show error before user types a password.
+  const tokenInvalid =
+    !token || (tokenValidation && !tokenValidation.valid);
+  if (tokenInvalid) {
+    const isExpired = tokenValidation?.reason === "expired";
     return (
       <div className="min-h-[80vh] flex items-center justify-center">
         <Card className="w-full max-w-md">
@@ -99,10 +114,13 @@ export const ResetPasswordPage = () => {
             <div className="mx-auto w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mb-2">
               <AlertCircle className="h-6 w-6 text-destructive" />
             </div>
-            <CardTitle className="text-2xl font-bold">Invalid Link</CardTitle>
+            <CardTitle className="text-2xl font-bold">
+              {isExpired ? "Link Expired" : "Invalid Link"}
+            </CardTitle>
             <CardDescription>
-              This password reset link is invalid or has expired. Please request
-              a new one.
+              {isExpired
+                ? "This password reset link has expired. Please request a new one."
+                : "This password reset link is invalid. Please request a new one."}
             </CardDescription>
           </CardHeader>
           <CardFooter className="flex flex-col gap-4">
@@ -124,6 +142,16 @@ export const ResetPasswordPage = () => {
             </Link>
           </CardFooter>
         </Card>
+      </div>
+    );
+  }
+
+  // While the token is being checked, show a spinner to avoid a flash of the
+  // password form before we know whether the link is valid.
+  if (validatingToken) {
+    return (
+      <div className="min-h-[80vh] flex items-center justify-center">
+        <LoadingSpinner />
       </div>
     );
   }

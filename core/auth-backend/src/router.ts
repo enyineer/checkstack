@@ -665,6 +665,26 @@ export const createAuthRouter = (
   // ONBOARDING ENDPOINTS
   // ==========================================================================
 
+  const validateResetToken = os.validateResetToken.handler(
+    async ({ input }) => {
+      const [record] = await internalDb
+        .select({ expiresAt: schema.verification.expiresAt })
+        .from(schema.verification)
+        .where(
+          eq(schema.verification.identifier, `reset-password:${input.token}`),
+        )
+        .limit(1);
+
+      if (!record) {
+        return { valid: false, reason: "invalid" as const };
+      }
+      if (record.expiresAt.getTime() <= Date.now()) {
+        return { valid: false, reason: "expired" as const };
+      }
+      return { valid: true };
+    },
+  );
+
   const getOnboardingStatus = os.getOnboardingStatus.handler(async () => {
     // Check if any users exist in the database
     const users = await internalDb
@@ -1942,6 +1962,7 @@ export const createAuthRouter = (
     setRegistrationStatus,
     getOnboardingStatus,
     completeOnboarding,
+    validateResetToken,
     getCurrentUserProfile,
     updateCurrentUser,
     getAnonymousAccessRules,

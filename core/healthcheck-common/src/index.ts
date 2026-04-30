@@ -41,6 +41,7 @@ export interface HealthCheckConfiguration {
 
 export * from "./rpc-contract";
 export * from "./plugin-metadata";
+export * from "./notifications";
 export { healthcheckRoutes } from "./routes";
 
 // =============================================================================

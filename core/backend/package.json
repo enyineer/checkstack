@@ -41,6 +41,7 @@
     "@types/bun": "latest",
     "@checkstack/tsconfig": "workspace:*",
     "@checkstack/scripts": "workspace:*",
-    "@checkstack/test-utils-backend": "workspace:*"
+    "@checkstack/test-utils-backend": "workspace:*",
+    "drizzle-kit": "^0.31.10"
   }
 }

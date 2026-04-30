@@ -11,12 +11,10 @@ import {
   SystemStateBadgesSlot,
   System,
   Group,
+  catalogGroupTarget,
 } from "@checkstack/catalog-common";
 import { resolveRoute } from "@checkstack/common";
-import {
-  NotificationApi,
-  type EnrichedSubscription,
-} from "@checkstack/notification-common";
+import { NotificationSubscriptionsManager } from "@checkstack/notification-frontend";
 import { IncidentApi } from "@checkstack/incident-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { AnomalyApi } from "@checkstack/anomaly-common";
@@ -31,8 +29,6 @@ import {
   StatusCard,
   EmptyState,
   LoadingSpinner,
-  SubscribeButton,
-  useToast,
   AnimatedCounter,
   TerminalFeed,
   type TerminalEntry,
@@ -56,14 +52,11 @@ import { IncidentOverviewSheet } from "./components/IncidentOverviewSheet";
 import { MaintenanceOverviewSheet } from "./components/MaintenanceOverviewSheet";
 import { AnomalyOverviewSheet } from "./components/AnomalyOverviewSheet";
 
-const CATALOG_PLUGIN_ID = "catalog";
 const MAX_TERMINAL_ENTRIES = 8;
 
 interface GroupWithSystems extends Group {
   systems: System[];
 }
-
-const getGroupId = (groupId: string) => `${CATALOG_PLUGIN_ID}.group.${groupId}`;
 
 const statusToVariant = (
   status: string,
@@ -87,23 +80,16 @@ const statusToVariant = (
 export const Dashboard: React.FC = () => {
   const { isLowPower } = usePerformance();
   const catalogClient = usePluginClient(CatalogApi);
-  const notificationClient = usePluginClient(NotificationApi);
   const incidentClient = usePluginClient(IncidentApi);
   const maintenanceClient = usePluginClient(MaintenanceApi);
   const anomalyClient = usePluginClient(AnomalyApi);
 
   const navigate = useNavigate();
-  const toast = useToast();
   const authApi = useApi(authApiRef);
   const { data: session } = authApi.useSession();
 
   // Terminal feed entries from real healthcheck signals
   const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>([]);
-
-  // Track per-group loading state for subscribe buttons
-  const [subscriptionLoading, setSubscriptionLoading] = useState<
-    Record<string, boolean>
-  >({});
 
   const [isIncidentSheetOpen, setIncidentSheetOpen] = useState(false);
   const [isMaintenanceSheetOpen, setMaintenanceSheetOpen] = useState(false);
@@ -158,43 +144,12 @@ export const Dashboard: React.FC = () => {
       { staleTime: 30_000 },
     );
 
-  // Fetch subscriptions (only when logged in)
-  const { data: subscriptions = [], refetch: refetchSubscriptions } =
-    notificationClient.getSubscriptions.useQuery(
-      {},
-      { enabled: !!session, staleTime: 60_000 },
-    );
-
   // Combined loading state
   const loading =
     entitiesLoading ||
     incidentsLoading ||
     maintenancesLoading ||
     anomaliesLoading;
-
-  // -------------------------------------------------------------------------
-  // MUTATIONS
-  // -------------------------------------------------------------------------
-
-  const subscribeMutation = notificationClient.subscribe.useMutation({
-    onSuccess: () => {
-      toast.success("Subscribed to group notifications");
-      void refetchSubscriptions();
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to subscribe");
-    },
-  });
-
-  const unsubscribeMutation = notificationClient.unsubscribe.useMutation({
-    onSuccess: () => {
-      toast.success("Unsubscribed from group notifications");
-      void refetchSubscriptions();
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to unsubscribe");
-    },
-  });
 
   // -------------------------------------------------------------------------
   // COMPUTED DATA
@@ -248,39 +203,6 @@ export const Dashboard: React.FC = () => {
     navigate(resolveRoute(catalogRoutes.routes.systemDetail, { systemId }));
   };
 
-  const isSubscribed = (groupId: string) => {
-    const fullId = getGroupId(groupId);
-    return subscriptions.some(
-      (s: EnrichedSubscription) => s.groupId === fullId,
-    );
-  };
-
-  const handleSubscribe = (groupId: string) => {
-    const fullId = getGroupId(groupId);
-    setSubscriptionLoading((prev) => ({ ...prev, [groupId]: true }));
-    subscribeMutation.mutate(
-      { groupId: fullId },
-      {
-        onSettled: () => {
-          setSubscriptionLoading((prev) => ({ ...prev, [groupId]: false }));
-        },
-      },
-    );
-  };
-
-  const handleUnsubscribe = (groupId: string) => {
-    const fullId = getGroupId(groupId);
-    setSubscriptionLoading((prev) => ({ ...prev, [groupId]: true }));
-    unsubscribeMutation.mutate(
-      { groupId: fullId },
-      {
-        onSettled: () => {
-          setSubscriptionLoading((prev) => ({ ...prev, [groupId]: false }));
-        },
-      },
-    );
-  };
-
   // -------------------------------------------------------------------------
   // RENDER
   // -------------------------------------------------------------------------
@@ -324,11 +246,12 @@ export const Dashboard: React.FC = () => {
                     {group.systems.length === 1 ? "system" : "systems"}
                   </span>
                   {session && (
-                    <SubscribeButton
-                      isSubscribed={isSubscribed(group.id)}
-                      onSubscribe={() => handleSubscribe(group.id)}
-                      onUnsubscribe={() => handleUnsubscribe(group.id)}
-                      loading={subscriptionLoading[group.id] || false}
+                    <NotificationSubscriptionsManager
+                      target={catalogGroupTarget}
+                      resource={{
+                        groupId: group.id,
+                        groupName: group.name,
+                      }}
                     />
                   )}
                 </div>

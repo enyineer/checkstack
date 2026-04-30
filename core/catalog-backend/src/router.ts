@@ -2,6 +2,8 @@ import { implement, ORPCError } from "@orpc/server";
 import { autoAuthMiddleware, type RpcContext } from "@checkstack/backend-api";
 import {
   catalogContract,
+  catalogSystemTarget,
+  catalogGroupTarget,
   type SystemContact,
 } from "@checkstack/catalog-common";
 import { EntityService } from "./services/entity-service";
@@ -39,7 +41,7 @@ export const createCatalogRouter = ({
   notificationClient,
   authClient,
   gitOpsClient,
-  pluginId,
+  pluginId: _pluginId,
   cache,
 }: CatalogRouterDeps) => {
   const entityService = new EntityService(database);
@@ -56,42 +58,84 @@ export const createCatalogRouter = ({
     }
   };
 
-  // Helper to create notification group for an entity
-  const createNotificationGroup = async (
-    type: "system" | "group",
-    id: string,
-    name: string,
-  ) => {
+  // Resource lifecycle: catalog pushes systems and groups into
+  // notification-backend's resource registry. The platform takes over
+  // from there — registering specs, provisioning per-resource groups,
+  // walking parent edges at dispatch time. Catalog never directly
+  // creates per-resource notification groups any more.
+  const upsertSystemResource = async (system: { id: string; name: string }) => {
     try {
-      await notificationClient.createGroup({
-        groupId: `${type}.${id}`,
-        name: `${name} Notifications`,
-        description: `Notifications for the ${name} ${type}`,
-        ownerPlugin: pluginId,
+      await notificationClient.upsertNotificationResource({
+        targetTypeId: catalogSystemTarget.targetTypeId,
+        resource: { resourceKey: system.id, displayLabel: system.name },
       });
     } catch (error) {
-      // Log but don't fail the operation
       console.warn(
-        `Failed to create notification group for ${type} ${id}:`,
+        `Failed to upsert notification resource for system ${system.id}:`,
         error,
       );
     }
   };
 
-  // Helper to delete notification group for an entity
-  const deleteNotificationGroup = async (
-    type: "system" | "group",
-    id: string,
-  ) => {
+  const upsertGroupResource = async (group: { id: string; name: string }) => {
     try {
-      await notificationClient.deleteGroup({
-        groupId: `${pluginId}.${type}.${id}`,
-        ownerPlugin: pluginId,
+      await notificationClient.upsertNotificationResource({
+        targetTypeId: catalogGroupTarget.targetTypeId,
+        resource: { resourceKey: group.id, displayLabel: group.name },
       });
     } catch (error) {
-      // Log but don't fail the operation
       console.warn(
-        `Failed to delete notification group for ${type} ${id}:`,
+        `Failed to upsert notification resource for catalog group ${group.id}:`,
+        error,
+      );
+    }
+  };
+
+  const refreshSystemParents = async (systemId: string) => {
+    try {
+      const groups = await entityService.getGroups();
+      const parents = groups
+        .filter((g) => g.systemIds?.includes(systemId))
+        .map((g) => ({
+          parentTargetTypeId: catalogGroupTarget.targetTypeId,
+          parentResourceKey: g.id,
+        }));
+      await notificationClient.setNotificationResourceParents({
+        childTargetTypeId: catalogSystemTarget.targetTypeId,
+        childResourceKey: systemId,
+        parents,
+      });
+    } catch (error) {
+      console.warn(
+        `Failed to refresh notification parents for system ${systemId}:`,
+        error,
+      );
+    }
+  };
+
+  const removeSystemResource = async (systemId: string) => {
+    try {
+      await notificationClient.removeNotificationResource({
+        targetTypeId: catalogSystemTarget.targetTypeId,
+        resourceKey: systemId,
+      });
+    } catch (error) {
+      console.warn(
+        `Failed to remove notification resource for system ${systemId}:`,
+        error,
+      );
+    }
+  };
+
+  const removeGroupResource = async (groupId: string) => {
+    try {
+      await notificationClient.removeNotificationResource({
+        targetTypeId: catalogGroupTarget.targetTypeId,
+        resourceKey: groupId,
+      });
+    } catch (error) {
+      console.warn(
+        `Failed to remove notification resource for catalog group ${groupId}:`,
         error,
       );
     }
@@ -154,16 +198,44 @@ export const createCatalogRouter = ({
     }),
   );
 
-  const createSystem = os.createSystem.handler(async ({ input }) => {
+  const getSystemGroups = os.getSystemGroups.handler(
+    async ({ input }) => {
+      // Fetch all groups (cache-warm), then filter to those that contain
+      // the system. This is cheaper than a per-system join because
+      // `getGroups()` already produces the full populated list and is
+      // cached topology-wide; per-system mutations invalidate this cache
+      // alongside everything else.
+      const groups = await entityService.getGroups();
+      const filtered = groups.filter((group) =>
+        group.systemIds?.includes(input.systemId),
+      );
+      return filtered as unknown as Array<
+        (typeof filtered)[number] & {
+          metadata: Record<string, unknown> | null;
+        }
+      >;
+    },
+  );
+
+  const createSystem = os.createSystem.handler(async ({ input, context }) => {
     const result = await entityService.createSystem(input);
 
-    // Create a notification group for this system
-    await createNotificationGroup("system", result.id, result.name);
+    // Push the new system into notification-backend's resource registry.
+    // notification-backend handles all per-spec group provisioning from
+    // this single signal — catalog never authors notification groups
+    // directly.
+    await upsertSystemResource({ id: result.id, name: result.name });
+    await refreshSystemParents(result.id);
 
-    // Drop the topology cache before any downstream side-effect that might
-    // observe it (notification group creation already happened, but the
-    // hook chain in deleteSystem/etc. relies on this ordering).
     await cache.invalidateTopology();
+
+    // Hooks remain for non-notification cleanup concerns (e.g. incident
+    // associations) — emitting plugins no longer use them for
+    // subscription provisioning.
+    await context.emitHook(catalogHooks.systemCreated, {
+      systemId: result.id,
+      systemName: result.name,
+    });
 
     return result as typeof result & {
       metadata: Record<string, unknown> | null;
@@ -191,6 +263,11 @@ export const createCatalogRouter = ({
       });
     }
     await cache.invalidateTopology();
+    // Refresh display label in notification-backend on rename so the
+    // settings/audit UI shows the current name.
+    if (input.data.name !== undefined) {
+      await upsertSystemResource({ id: result.id, name: result.name });
+    }
     return result as typeof result & {
       metadata: Record<string, unknown> | null;
     };
@@ -200,8 +277,7 @@ export const createCatalogRouter = ({
     await enforceNotGitOpsLocked("System", input);
     await entityService.deleteSystem(input);
 
-    // Delete the notification group for this system
-    await deleteNotificationGroup("system", input);
+    await removeSystemResource(input);
 
     // Drop catalog topology + this system's contacts BEFORE the hook fires,
     // so downstream plugins (e.g. healthcheck) and any frontend that
@@ -217,16 +293,20 @@ export const createCatalogRouter = ({
     return { success: true };
   });
 
-  const createGroup = os.createGroup.handler(async ({ input }) => {
+  const createGroup = os.createGroup.handler(async ({ input, context }) => {
     const result = await entityService.createGroup({
       name: input.name,
       metadata: input.metadata,
     });
 
-    // Create a notification group for this catalog group
-    await createNotificationGroup("group", result.id, result.name);
+    await upsertGroupResource({ id: result.id, name: result.name });
 
     await cache.invalidateTopology();
+
+    await context.emitHook(catalogHooks.groupCreated, {
+      groupId: result.id,
+      groupName: result.name,
+    });
 
     // New groups have no systems yet
     return {
@@ -258,6 +338,9 @@ export const createCatalogRouter = ({
       });
     }
     await cache.invalidateTopology();
+    if (input.data.name !== undefined) {
+      await upsertGroupResource({ id: fullGroup.id, name: fullGroup.name });
+    }
     return fullGroup as unknown as typeof fullGroup & {
       metadata: Record<string, unknown> | null;
     };
@@ -267,8 +350,7 @@ export const createCatalogRouter = ({
     await enforceNotGitOpsLocked("Group", input);
     await entityService.deleteGroup(input);
 
-    // Delete the notification group for this catalog group
-    await deleteNotificationGroup("group", input);
+    await removeGroupResource(input);
 
     await cache.invalidateTopology();
 
@@ -279,23 +361,21 @@ export const createCatalogRouter = ({
   });
 
   const addSystemToGroup = os.addSystemToGroup.handler(async ({ input }) => {
-    // Note: We only enforce the lock on the System, not the Group.
-    // This is because system-group associations are reconciled as a kindExtension
-    // of the System kind. The Group reconciler does not touch associations.
-    // Thus, it is perfectly safe (and intended) to manually add an unlocked System
-    // to a GitOps-managed Group.
     await enforceNotGitOpsLocked("System", input.systemId);
     await entityService.addSystemToGroup(input);
     await cache.invalidateTopology();
+    // Push refreshed parent edges so notification-backend's dispatcher
+    // walks the new membership when computing inherited subscribers.
+    await refreshSystemParents(input.systemId);
     return { success: true };
   });
 
   const removeSystemFromGroup = os.removeSystemFromGroup.handler(
     async ({ input }) => {
-      // See addSystemToGroup for why we only check the System provenance lock.
       await enforceNotGitOpsLocked("System", input.systemId);
       await entityService.removeSystemFromGroup(input);
       await cache.invalidateTopology();
+      await refreshSystemParents(input.systemId);
       return { success: true };
     },
   );
@@ -418,51 +498,6 @@ export const createCatalogRouter = ({
   );
 
   /**
-   * Notify all users subscribed to a system (and optionally its groups).
-   * Delegates deduplication to notification-backend via notifyGroups RPC.
-   */
-  const notifySystemSubscribers = os.notifySystemSubscribers.handler(
-    async ({ input }) => {
-      const {
-        systemId,
-        title,
-        body,
-        importance,
-        action,
-        includeGroupSubscribers,
-      } = input;
-
-      // Collect all notification group IDs to notify
-      // Start with the system's notification group
-      const groupIds = [`${pluginId}.system.${systemId}`];
-
-      // If includeGroupSubscribers is true, add groups containing this system
-      if (includeGroupSubscribers) {
-        const systemGroups = await database
-          .select({ groupId: schema.systemsGroups.groupId })
-          .from(schema.systemsGroups)
-          .where(eq(schema.systemsGroups.systemId, systemId));
-
-        // Spread to avoid mutation
-        groupIds.push(
-          ...systemGroups.map(({ groupId }) => `${pluginId}.group.${groupId}`),
-        );
-      }
-
-      // 3. Send to notification-backend, which handles deduplication
-      const result = await notificationClient.notifyGroups({
-        groupIds,
-        title,
-        body,
-        importance: importance ?? "info",
-        action,
-      });
-
-      return { notifiedCount: result.notifiedCount };
-    },
-  );
-
-  /**
    * Get the catalog group IDs that contain a specific system.
    * Used by the dependency plugin for batched notification deduplication.
    */
@@ -484,6 +519,7 @@ export const createCatalogRouter = ({
     getSystems,
     getSystem,
     getGroups,
+    getSystemGroups,
     createSystem,
     updateSystem,
     deleteSystem,
@@ -497,7 +533,6 @@ export const createCatalogRouter = ({
     removeSystemFromGroup,
     getViews,
     createView,
-    notifySystemSubscribers,
     getSystemGroupIds,
   });
 };

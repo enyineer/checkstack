@@ -1,6 +1,7 @@
 import type { CollectorRegistry, Logger, SafeDatabase } from "@checkstack/backend-api";
 import type { CacheProvider } from "@checkstack/cache-api";
 import type { CatalogApi } from "@checkstack/catalog-common";
+import type { NotificationApi } from "@checkstack/notification-common";
 import type { InferClient } from "@checkstack/common";
 import type { HealthCheckApi, HealthCheckRunResult } from "@checkstack/healthcheck-common";
 import { getHealthResultMeta } from "@checkstack/healthcheck-common";
@@ -33,6 +34,7 @@ export async function setupBaselineAnalyzerJob({
   healthCheckClient,
   signalService,
   catalogClient,
+  notificationClient,
   collectorRegistry,
 }: {
   db: SafeDatabase<typeof schema>;
@@ -42,6 +44,7 @@ export async function setupBaselineAnalyzerJob({
   healthCheckClient: InferClient<typeof HealthCheckApi>;
   signalService?: SignalService;
   catalogClient: InferClient<typeof CatalogApi>;
+  notificationClient: InferClient<typeof NotificationApi>;
   collectorRegistry: CollectorRegistry;
 }) {
   const queue = queueManager.getQueue(BASELINE_ANALYZER_QUEUE);
@@ -217,6 +220,7 @@ export async function setupBaselineAnalyzerJob({
             db,
             logger,
             catalogClient,
+            notificationClient,
             signalService,
             systemId: assignment.systemId,
             configurationId: assignment.configurationId,

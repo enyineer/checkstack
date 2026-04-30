@@ -9,10 +9,15 @@ import {
   pluginMetadata,
   catalogContract,
   catalogRoutes,
+  catalogSystemTarget,
+  catalogGroupTarget,
 } from "@checkstack/catalog-common";
 import { createCatalogRouter } from "./router";
 import { createCatalogCache } from "./cache";
-import { NotificationApi } from "@checkstack/notification-common";
+import {
+  NotificationApi,
+  targetToRegistration,
+} from "@checkstack/notification-common";
 import { AuthApi } from "@checkstack/auth-common";
 import { authHooks } from "@checkstack/auth-backend";
 import { resolveRoute, type InferClient, extractErrorMessage} from "@checkstack/common";
@@ -270,8 +275,12 @@ export default createBackendPlugin({
         const typedDb = database as SafeDatabase<typeof schema>;
         const notificationClient = rpcClient.forPlugin(NotificationApi);
 
-        // Bootstrap: Create notification groups for existing systems and groups
-        await bootstrapNotificationGroups(typedDb, notificationClient, logger);
+        // Catalog owns the platform's "system" and "group" notification
+        // target types. Register both target types, then push the
+        // current set of resources + parent edges to notification-
+        // backend in one shot. Per-resource notification group
+        // provisioning happens server-side from this signal.
+        await bootstrapNotificationTargets(typedDb, notificationClient, logger);
 
         // Subscribe to user deletion to clean up user contacts
         onHook(
@@ -290,45 +299,77 @@ export default createBackendPlugin({
 });
 
 /**
- * Bootstrap notification groups for existing catalog entities
+ * Register the catalog target types and seed every existing system /
+ * group as a known resource. Runs every startup (idempotent on the
+ * notification-backend side via primary-key upsert) so resources stay
+ * in sync even if catalog and notification-backend are restarted in
+ * different orders.
  */
-async function bootstrapNotificationGroups(
+async function bootstrapNotificationTargets(
   database: SafeDatabase<typeof schema>,
   notificationClient: InferClient<typeof NotificationApi>,
   logger: { debug: (msg: string) => void },
 ) {
   try {
-    // Get all existing systems and groups
+    await Promise.all([
+      notificationClient.registerNotificationTarget(
+        targetToRegistration(catalogSystemTarget),
+      ),
+      notificationClient.registerNotificationTarget(
+        targetToRegistration(catalogGroupTarget),
+      ),
+    ]);
+
     const systems = await database.select().from(schema.systems);
     const groups = await database.select().from(schema.groups);
 
-    // Create notification groups for each system
-    for (const system of systems) {
-      await notificationClient.createGroup({
-        groupId: `system.${system.id}`,
-        name: `${system.name} Notifications`,
-        description: `Notifications for the ${system.name} system`,
-        ownerPlugin: pluginMetadata.pluginId,
+    if (systems.length > 0) {
+      await notificationClient.upsertNotificationResources({
+        targetTypeId: catalogSystemTarget.targetTypeId,
+        resources: systems.map((s) => ({
+          resourceKey: s.id,
+          displayLabel: s.name,
+        })),
       });
     }
 
-    // Create notification groups for each catalog group
-    for (const group of groups) {
-      await notificationClient.createGroup({
-        groupId: `group.${group.id}`,
-        name: `${group.name} Notifications`,
-        description: `Notifications for the ${group.name} group`,
-        ownerPlugin: pluginMetadata.pluginId,
+    if (groups.length > 0) {
+      await notificationClient.upsertNotificationResources({
+        targetTypeId: catalogGroupTarget.targetTypeId,
+        resources: groups.map((g) => ({
+          resourceKey: g.id,
+          displayLabel: g.name,
+        })),
+      });
+    }
+
+    // Seed parent edges from the systems_groups join table so the
+    // dispatcher can walk inheritance without re-querying catalog at
+    // notification time.
+    const memberships = await database.select().from(schema.systemsGroups);
+    const parentsBySystem = new Map<string, string[]>();
+    for (const m of memberships) {
+      const arr = parentsBySystem.get(m.systemId) ?? [];
+      arr.push(m.groupId);
+      parentsBySystem.set(m.systemId, arr);
+    }
+    for (const [systemId, parentGroupIds] of parentsBySystem) {
+      await notificationClient.setNotificationResourceParents({
+        childTargetTypeId: catalogSystemTarget.targetTypeId,
+        childResourceKey: systemId,
+        parents: parentGroupIds.map((groupId) => ({
+          parentTargetTypeId: catalogGroupTarget.targetTypeId,
+          parentResourceKey: groupId,
+        })),
       });
     }
 
     logger.debug(
-      `Bootstrapped notification groups for ${systems.length} systems and ${groups.length} groups`,
+      `Bootstrapped notification targets: ${systems.length} systems, ${groups.length} groups, ${memberships.length} parent edges`,
     );
   } catch (error) {
-    // Don't fail startup if notification service is unavailable
     logger.debug(
-      `Failed to bootstrap notification groups: ${
+      `Failed to bootstrap notification targets: ${
         extractErrorMessage(error, "Unknown error")
       }`,
     );

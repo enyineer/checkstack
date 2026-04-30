@@ -21,6 +21,14 @@ function createMockCatalogClient() {
   };
 }
 
+function createMockNotificationClient(subscriberIds: string[] = ["user-1"]) {
+  return {
+    notifyForSubscription: mock(async () => ({
+      notifiedCount: subscriberIds.length,
+    })),
+  };
+}
+
 function createMockLogger() {
   return {
     debug: mock(() => {}),
@@ -132,6 +140,7 @@ describe("evaluateDrift", () => {
         templateConfig: defaultTemplate,
         db: db as never,
         catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
         logger: createMockLogger() as never,
       });
       expect(db._insertCalls.length).toBe(0);
@@ -147,6 +156,7 @@ describe("evaluateDrift", () => {
         templateConfig: defaultTemplate,
         db: db as never,
         catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
         logger: createMockLogger() as never,
       });
       expect(db._insertCalls.length).toBe(0);
@@ -161,6 +171,7 @@ describe("evaluateDrift", () => {
         templateConfig: { ...defaultTemplate, driftEnabled: false },
         db: db as never,
         catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
         logger: createMockLogger() as never,
       });
       expect(db._insertCalls.length).toBe(0);
@@ -175,6 +186,7 @@ describe("evaluateDrift", () => {
         templateConfig: { ...defaultTemplate, enabled: false },
         db: db as never,
         catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
         logger: createMockLogger() as never,
       });
       expect(db._insertCalls.length).toBe(0);
@@ -189,6 +201,7 @@ describe("evaluateDrift", () => {
         templateConfig: defaultTemplate,
         db: db as never,
         catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
         logger: createMockLogger() as never,
       });
       expect(db._insertCalls.length).toBe(0);
@@ -206,6 +219,7 @@ describe("evaluateDrift", () => {
         templateConfig: defaultTemplate,
         db: db as never,
         catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
         logger: createMockLogger() as never,
         signalService: signalService as never,
       });
@@ -234,6 +248,7 @@ describe("evaluateDrift", () => {
         templateConfig: defaultTemplate,
         db: db as never,
         catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
         logger: createMockLogger() as never,
       });
       expect(db._updateCalls.length).toBe(1);
@@ -250,6 +265,7 @@ describe("evaluateDrift", () => {
       };
       const db = createMockDb({ existingAnomaly: existing });
       const catalog = createMockCatalogClient();
+      const notification = createMockNotificationClient();
       const signalService = createMockSignalService();
       await evaluateDrift({
         ...baseProps,
@@ -258,12 +274,13 @@ describe("evaluateDrift", () => {
         templateConfig: defaultTemplate,
         db: db as never,
         catalogClient: catalog as never,
+        notificationClient: notification as never,
         logger: createMockLogger() as never,
         signalService: signalService as never,
       });
       expect(db._updateCalls.length).toBe(1);
       expect(db._updateCalls[0].state).toBe("anomaly");
-      expect(catalog.notifySystemSubscribers).toHaveBeenCalledTimes(1);
+      expect(notification.notifyForSubscription).toHaveBeenCalledTimes(1);
       // Two signals: state change + trend detected
       expect(signalService.broadcast).toHaveBeenCalledTimes(2);
     });
@@ -277,6 +294,7 @@ describe("evaluateDrift", () => {
       };
       const db = createMockDb({ existingAnomaly: existing });
       const catalog = createMockCatalogClient();
+      const notification = createMockNotificationClient();
       await evaluateDrift({
         ...baseProps,
         baseline: driftingBaseline,
@@ -284,11 +302,12 @@ describe("evaluateDrift", () => {
         templateConfig: defaultTemplate,
         db: db as never,
         catalogClient: catalog as never,
+        notificationClient: notification as never,
         logger: createMockLogger() as never,
       });
       expect(db._updateCalls.length).toBe(1);
       expect(db._updateCalls[0].state).toBeUndefined();
-      expect(catalog.notifySystemSubscribers).not.toHaveBeenCalled();
+      expect(notification.notifyForSubscription).not.toHaveBeenCalled();
     });
 
     test("deletes suspicious row when drift goes away before confirmation", async () => {
@@ -306,6 +325,7 @@ describe("evaluateDrift", () => {
         templateConfig: defaultTemplate,
         db: db as never,
         catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
         logger: createMockLogger() as never,
       });
       expect(db._deleteCalls.length).toBe(1);
@@ -320,6 +340,7 @@ describe("evaluateDrift", () => {
       };
       const db = createMockDb({ existingAnomaly: existing });
       const catalog = createMockCatalogClient();
+      const notification = createMockNotificationClient();
       await evaluateDrift({
         ...baseProps,
         baseline: stableBaseline,
@@ -327,11 +348,12 @@ describe("evaluateDrift", () => {
         templateConfig: defaultTemplate,
         db: db as never,
         catalogClient: catalog as never,
+        notificationClient: notification as never,
         logger: createMockLogger() as never,
       });
       expect(db._updateCalls.length).toBe(1);
       expect(db._updateCalls[0].state).toBe("recovered");
-      expect(catalog.notifySystemSubscribers).toHaveBeenCalledTimes(1);
+      expect(notification.notifyForSubscription).toHaveBeenCalledTimes(1);
     });
 
     test("does nothing when no row and no drift (steady state)", async () => {
@@ -343,6 +365,7 @@ describe("evaluateDrift", () => {
         templateConfig: defaultTemplate,
         db: db as never,
         catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
         logger: createMockLogger() as never,
       });
       expect(db._insertCalls.length).toBe(0);
@@ -362,6 +385,7 @@ describe("evaluateDrift", () => {
         templateConfig: defaultTemplate,
         db: db as never,
         catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
         logger: createMockLogger() as never,
       });
       expect(db._insertCalls.length).toBe(0);
@@ -374,6 +398,7 @@ describe("evaluateDrift", () => {
         templateConfig: defaultTemplate,
         db: db2 as never,
         catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
         logger: createMockLogger() as never,
       });
       expect(db2._insertCalls.length).toBe(1);

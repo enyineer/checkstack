@@ -7,9 +7,15 @@ import {
   pluginMetadata,
   incidentContract,
   incidentRoutes,
+  incidentSystemSubscription,
+  incidentGroupSubscription,
 } from "@checkstack/incident-common";
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
 import { integrationEventExtensionPoint } from "@checkstack/integration-backend";
+import {
+  NotificationApi,
+  specToRegistration,
+} from "@checkstack/notification-common";
 import { IncidentService } from "./service";
 import { createRouter } from "./router";
 import { CatalogApi } from "@checkstack/catalog-common";
@@ -60,6 +66,10 @@ export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
     env.registerAccessRules(incidentAccessRules);
+    env.registerSubscriptionSpecs([
+      incidentSystemSubscription,
+      incidentGroupSubscription,
+    ]);
 
     // Register hooks as integration events
     const integrationEvents = env.getExtensionPoint(
@@ -125,6 +135,7 @@ export default createBackendPlugin({
 
         const catalogClient = rpcClient.forPlugin(CatalogApi);
         const authClient = rpcClient.forPlugin(AuthApi);
+        const notificationClient = rpcClient.forPlugin(NotificationApi);
 
         const service = new IncidentService(
           database as SafeDatabase<typeof schema>,
@@ -135,6 +146,7 @@ export default createBackendPlugin({
           service,
           signalService,
           catalogClient,
+          notificationClient,
           authClient,
           logger,
           cache,
@@ -168,12 +180,24 @@ export default createBackendPlugin({
 
         logger.debug("✅ Incident Backend initialized.");
       },
-      // Phase 3: Subscribe to catalog events for cleanup
-      afterPluginsReady: async ({ database, logger, onHook }) => {
+      // Subscribe to catalog system deletion (clean up incident
+      // associations) + register subscription specs. Per-system /
+      // per-group notification group lifecycle is fully owned by
+      // notification-backend now — incident never touches it.
+      afterPluginsReady: async ({ database, logger, onHook, rpcClient }) => {
         const typedDb = database as SafeDatabase<typeof schema>;
         const service = new IncidentService(typedDb);
+        const notificationClient = rpcClient.forPlugin(NotificationApi);
 
-        // Subscribe to catalog system deletion to clean up associations
+        await Promise.all([
+          notificationClient.registerSubscriptionSpec(
+            specToRegistration(incidentSystemSubscription),
+          ),
+          notificationClient.registerSubscriptionSpec(
+            specToRegistration(incidentGroupSubscription),
+          ),
+        ]);
+
         onHook(
           catalogHooks.systemDeleted,
           async (payload) => {

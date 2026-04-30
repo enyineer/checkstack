@@ -423,6 +423,10 @@ export class PluginManager {
           handlers.push(cleanup);
           this.cleanupHandlers.set(metaPluginId, handlers);
         },
+        registerSubscriptionSpecs: () => {
+          // No-op in this single-plugin registration path; ordering
+          // only matters during full-system load (plugin-loader).
+        },
         getExtensionPoint: <T>(ref: ExtensionPoint<T>) =>
           this.extensionPointManager.getExtensionPoint(ref),
         registerRouter: (router: unknown, contract: AnyContractRouter) => {

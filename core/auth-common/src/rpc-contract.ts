@@ -152,6 +152,19 @@ export const authContract = {
     )
     .output(z.object({ success: z.boolean() })),
 
+  validateResetToken: proc({
+    operationType: "query",
+    userType: "anonymous",
+    access: [],
+  })
+    .input(z.object({ token: z.string().min(1).max(128) }))
+    .output(
+      z.object({
+        valid: z.boolean(),
+        reason: z.enum(["invalid", "expired"]).optional(),
+      }),
+    ),
+
   // ==========================================================================
   // AUTHENTICATED ENDPOINTS (userType: "authenticated")
   // ==========================================================================

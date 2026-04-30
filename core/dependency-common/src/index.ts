@@ -26,6 +26,7 @@ export {
   type NodePosition,
 } from "./schemas";
 export * from "./plugin-metadata";
+export * from "./notifications";
 export { dependencyRoutes } from "./routes";
 
 // =============================================================================

@@ -43,6 +43,14 @@ function createMockCatalogClient() {
   };
 }
 
+function createMockNotificationClient(subscriberIds: string[] = ["user-1"]) {
+  return {
+    notifyForSubscription: mock(async () => ({
+      notifiedCount: subscriberIds.length,
+    })),
+  };
+}
+
 function createMockLogger() {
   return {
     debug: mock(() => {}),
@@ -248,6 +256,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
     });
     expect(cache.get).not.toHaveBeenCalled();
   });
@@ -263,6 +272,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
     });
     expect(cache.get).not.toHaveBeenCalled();
   });
@@ -280,6 +290,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
     });
     // Two fields (statusText, isRunning) means cache.get should be called twice
     expect(cache.get).toHaveBeenCalledTimes(2);
@@ -301,6 +312,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
     });
     
     expect(db._insertCalls.length).toBe(1);
@@ -326,6 +338,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
     });
     expect(cache.get).toHaveBeenCalledTimes(1);
     expect(db._insertCalls.length).toBe(0);
@@ -345,6 +358,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
     });
     expect(db._insertCalls.length).toBe(0);
   });
@@ -363,6 +377,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
     });
     expect(db._insertCalls.length).toBe(1);
     expect(db._insertCalls[0]).toMatchObject({
@@ -380,6 +395,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
     const baseline = createBaseline({ mean: 100, stdDev: 10 });
     const cache = createMockCache(new Map([[cacheKeyPrefix, baseline]]));
     const catalogClient = createMockCatalogClient();
+    const notificationClient = createMockNotificationClient(["user-1"]);
     const db = createMockDb({
       existingAnomaly: {
         id: "anomaly-existing",
@@ -400,18 +416,19 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: catalogClient as never,
+      notificationClient: notificationClient as never,
     });
 
     expect(db._updateCalls.length).toBe(1);
     expect(db._updateCalls[0]).toMatchObject({ state: "anomaly" });
 
-    expect(catalogClient.notifySystemSubscribers).toHaveBeenCalledTimes(1);
-    const notifArgs = (catalogClient.notifySystemSubscribers as Mock<(...args: unknown[]) => unknown>).mock.calls[0] as unknown[];
+    expect(notificationClient.notifyForSubscription).toHaveBeenCalledTimes(1);
+    const notifArgs = (notificationClient.notifyForSubscription as Mock<(...args: unknown[]) => unknown>).mock.calls[0] as unknown[];
     const notifPayload = notifArgs[0] as Record<string, unknown>;
     expect(notifPayload).toMatchObject({
-      systemId,
+      specId: "anomaly.system",
+      resourceKeys: [systemId],
       importance: "warning",
-      includeGroupSubscribers: true,
     });
     expect(notifPayload.title).toContain("Anomaly Detected");
   });
@@ -422,6 +439,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
     const baseline = createBaseline({ mean: 100, stdDev: 10 });
     const cache = createMockCache(new Map([[cacheKeyPrefix, baseline]]));
     const catalogClient = createMockCatalogClient();
+    const notificationClient = createMockNotificationClient(["user-1"]);
     const db = createMockDb({
       existingAnomaly: {
         id: "anomaly-confirmed",
@@ -442,16 +460,18 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: catalogClient as never,
+      notificationClient: notificationClient as never,
     });
 
     expect(db._updateCalls.length).toBe(1);
     expect(db._updateCalls[0]).toMatchObject({ state: "recovered" });
 
-    expect(catalogClient.notifySystemSubscribers).toHaveBeenCalledTimes(1);
-    const notifArgs = (catalogClient.notifySystemSubscribers as Mock<(...args: unknown[]) => unknown>).mock.calls[0] as unknown[];
+    expect(notificationClient.notifyForSubscription).toHaveBeenCalledTimes(1);
+    const notifArgs = (notificationClient.notifyForSubscription as Mock<(...args: unknown[]) => unknown>).mock.calls[0] as unknown[];
     const notifPayload = notifArgs[0] as Record<string, unknown>;
     expect(notifPayload).toMatchObject({
-      systemId,
+      specId: "anomaly.system",
+      resourceKeys: [systemId],
       importance: "info",
     });
     expect(notifPayload.title).toContain("Recovered");
@@ -482,6 +502,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
     });
 
     expect(db._deleteCalls.length).toBe(1);
@@ -507,6 +528,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
     });
 
     expect(db._insertCalls.length).toBe(0);
@@ -535,6 +557,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
     });
 
     expect(cache.get).toHaveBeenCalledTimes(2);
@@ -566,6 +589,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
     });
 
     expect(cache.set).toHaveBeenCalledTimes(1);
@@ -593,6 +617,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
     });
 
     expect(db._insertCalls.length).toBe(1);
@@ -618,6 +643,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
     });
 
     expect(db._insertCalls.length).toBe(0);
@@ -639,6 +665,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
     });
 
     expect(db._insertCalls.length).toBe(1);
@@ -661,6 +688,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
     });
 
     // Baseline lookup happens, but direction resolution short-circuits before insert.
@@ -687,6 +715,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
     });
 
     // No schema direction available, no config direction → silently skipped
@@ -718,6 +747,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
     });
 
     expect(db._updateCalls.length).toBe(1);
@@ -730,6 +760,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
     const baseline = createBaseline({ mean: 100, stdDev: 10 });
     const cache = createMockCache(new Map([[cacheKeyPrefix, baseline]]));
     const catalogClient = createMockCatalogClient();
+    const notificationClient = createMockNotificationClient();
     const db = createMockDb({
       existingAnomaly: {
         id: "anomaly-confirmed",
@@ -750,11 +781,12 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: catalogClient as never,
+      notificationClient: notificationClient as never,
     });
 
     // Should update observed value but not send another notification
     expect(db._updateCalls.length).toBe(1);
-    expect(catalogClient.notifySystemSubscribers).not.toHaveBeenCalled();
+    expect(notificationClient.notifyForSubscription).not.toHaveBeenCalled();
   });
 
   // ─── Signal emission (F8) ─────────────────────────────────────────────
@@ -774,6 +806,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
       signalService,
     });
 
@@ -808,6 +841,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
       signalService,
     });
 
@@ -842,6 +876,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: createMockLogger() as never,
       catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
       signalService,
     });
 
@@ -883,6 +918,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
       cache,
       logger: logger as never,
       catalogClient: failingClient as never,
+      notificationClient: createMockNotificationClient() as never,
     });
 
     // State transition still happened despite notification failure

@@ -1,14 +1,21 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { notifyAffectedSystems } from "./notifications";
+import { maintenanceCollapseKey } from "@checkstack/maintenance-common";
 
-// Mock catalog client
 function createMockCatalogClient() {
   return {
-    notifySystemSubscribers: mock(() => Promise.resolve()),
+    getSystemGroups: mock(() => Promise.resolve([])),
   };
 }
 
-// Mock logger
+function createMockNotificationClient() {
+  return {
+    notifyForSubscription: mock(() =>
+      Promise.resolve({ notifiedCount: 0 }),
+    ),
+  };
+}
+
 function createMockLogger() {
   return {
     warn: mock(() => {}),
@@ -20,60 +27,43 @@ function createMockLogger() {
 
 describe("notifyAffectedSystems (maintenance)", () => {
   let mockCatalogClient: ReturnType<typeof createMockCatalogClient>;
+  let mockNotificationClient: ReturnType<typeof createMockNotificationClient>;
   let mockLogger: ReturnType<typeof createMockLogger>;
 
   beforeEach(() => {
     mockCatalogClient = createMockCatalogClient();
+    mockNotificationClient = createMockNotificationClient();
     mockLogger = createMockLogger();
   });
 
-  describe("system name inclusion", () => {
-    it("should include system name in title when systemNames map is provided", async () => {
-      const systemNames = new Map([
-        ["sys-1", "Production Database"],
-      ]);
-
+  describe("title + body", () => {
+    it("titles use the maintenance name and action verb (no per-system suffix)", async () => {
       await notifyAffectedSystems({
         catalogClient: mockCatalogClient as never,
+      notificationClient: mockNotificationClient as never,
         logger: mockLogger as never,
         maintenanceId: "maint-1",
-        maintenanceTitle: "Scheduled DB Upgrade",
+        maintenanceTitle: "DB Upgrade",
         systemIds: ["sys-1"],
-        systemNames,
         action: "created",
       });
 
-      expect(mockCatalogClient.notifySystemSubscribers).toHaveBeenCalledWith(
+      expect(
+        mockNotificationClient.notifyForSubscription,
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
-          title: "Maintenance scheduled: Production Database",
-          body: expect.stringContaining("**Production Database**"),
-        }),
-      );
-    });
-
-    it("should fall back to systemId when systemNames map is not provided", async () => {
-      await notifyAffectedSystems({
-        catalogClient: mockCatalogClient as never,
-        logger: mockLogger as never,
-        maintenanceId: "maint-1",
-        maintenanceTitle: "Scheduled DB Upgrade",
-        systemIds: ["sys-1"],
-        action: "started",
-      });
-
-      expect(mockCatalogClient.notifySystemSubscribers).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: "Maintenance started: sys-1",
-          body: expect.stringContaining("**sys-1**"),
+          title: "Maintenance scheduled: DB Upgrade",
+          body: expect.stringContaining(`**"DB Upgrade"**`),
         }),
       );
     });
   });
 
   describe("action text mapping", () => {
-    it("should use 'scheduled' for created action", async () => {
+    it("uses 'scheduled' for created action", async () => {
       await notifyAffectedSystems({
         catalogClient: mockCatalogClient as never,
+      notificationClient: mockNotificationClient as never,
         logger: mockLogger as never,
         maintenanceId: "maint-1",
         maintenanceTitle: "Test",
@@ -81,16 +71,19 @@ describe("notifyAffectedSystems (maintenance)", () => {
         action: "created",
       });
 
-      expect(mockCatalogClient.notifySystemSubscribers).toHaveBeenCalledWith(
+      expect(
+        mockNotificationClient.notifyForSubscription,
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           title: expect.stringContaining("scheduled"),
         }),
       );
     });
 
-    it("should use 'completed' for completed action", async () => {
+    it("uses 'completed' for completed action", async () => {
       await notifyAffectedSystems({
         catalogClient: mockCatalogClient as never,
+      notificationClient: mockNotificationClient as never,
         logger: mockLogger as never,
         maintenanceId: "maint-1",
         maintenanceTitle: "Test",
@@ -98,7 +91,9 @@ describe("notifyAffectedSystems (maintenance)", () => {
         action: "completed",
       });
 
-      expect(mockCatalogClient.notifySystemSubscribers).toHaveBeenCalledWith(
+      expect(
+        mockNotificationClient.notifyForSubscription,
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           title: expect.stringContaining("completed"),
         }),
@@ -107,9 +102,10 @@ describe("notifyAffectedSystems (maintenance)", () => {
   });
 
   describe("importance", () => {
-    it("should always use 'info' importance", async () => {
+    it("always uses 'info' importance", async () => {
       await notifyAffectedSystems({
         catalogClient: mockCatalogClient as never,
+      notificationClient: mockNotificationClient as never,
         logger: mockLogger as never,
         maintenanceId: "maint-1",
         maintenanceTitle: "Test",
@@ -117,7 +113,9 @@ describe("notifyAffectedSystems (maintenance)", () => {
         action: "started",
       });
 
-      expect(mockCatalogClient.notifySystemSubscribers).toHaveBeenCalledWith(
+      expect(
+        mockNotificationClient.notifyForSubscription,
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           importance: "info",
         }),
@@ -125,14 +123,84 @@ describe("notifyAffectedSystems (maintenance)", () => {
     });
   });
 
+  describe("bulking + subjects + collapseKey", () => {
+    it("emits a single batched call regardless of how many affected systems", async () => {
+      await notifyAffectedSystems({
+        catalogClient: mockCatalogClient as never,
+      notificationClient: mockNotificationClient as never,
+        logger: mockLogger as never,
+        maintenanceId: "maint-1",
+        maintenanceTitle: "Test",
+        systemIds: ["sys-1", "sys-2", "sys-3"],
+        action: "created",
+      });
+
+      expect(
+        mockNotificationClient.notifyForSubscription,
+      ).toHaveBeenCalledTimes(1);
+    });
+
+    it("uses a stable collapseKey derived from the maintenance id", async () => {
+      await notifyAffectedSystems({
+        catalogClient: mockCatalogClient as never,
+      notificationClient: mockNotificationClient as never,
+        logger: mockLogger as never,
+        maintenanceId: "maint-42",
+        maintenanceTitle: "Test",
+        systemIds: ["sys-1"],
+        action: "started",
+      });
+
+      expect(
+        mockNotificationClient.notifyForSubscription,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          collapseKey: maintenanceCollapseKey("maint-42"),
+        }),
+      );
+    });
+
+    it("includes one subject per affected system", async () => {
+      const systemNames = new Map([
+        ["sys-1", "API Gateway"],
+        ["sys-2", "Database"],
+      ]);
+
+      await notifyAffectedSystems({
+        catalogClient: mockCatalogClient as never,
+      notificationClient: mockNotificationClient as never,
+        logger: mockLogger as never,
+        maintenanceId: "maint-1",
+        maintenanceTitle: "Test",
+        systemIds: ["sys-1", "sys-2"],
+        systemNames,
+        action: "created",
+      });
+
+      const call = (
+        mockNotificationClient.notifyForSubscription.mock
+          .calls[0] as unknown as [
+          { subjects?: Array<Record<string, unknown>> },
+        ]
+      )[0];
+      expect(call?.subjects).toHaveLength(2);
+      expect(call?.subjects?.[0]).toMatchObject({
+        kind: "catalog.system",
+        id: "sys-1",
+        name: "API Gateway",
+      });
+    });
+  });
+
   describe("error handling", () => {
-    it("should log warning but not throw when notification fails", async () => {
-      mockCatalogClient.notifySystemSubscribers.mockRejectedValue(
+    it("logs a warning but does not throw when the notify call fails", async () => {
+      mockNotificationClient.notifyForSubscription.mockRejectedValue(
         new Error("Network error"),
       );
 
       await notifyAffectedSystems({
         catalogClient: mockCatalogClient as never,
+      notificationClient: mockNotificationClient as never,
         logger: mockLogger as never,
         maintenanceId: "maint-1",
         maintenanceTitle: "Test",

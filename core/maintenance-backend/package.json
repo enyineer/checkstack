@@ -19,6 +19,7 @@
     "@checkstack/maintenance-common": "workspace:*",
     "@checkstack/notification-common": "workspace:*",
     "@checkstack/catalog-common": "workspace:*",
+    "@checkstack/catalog-backend": "workspace:*",
     "@checkstack/auth-common": "workspace:*",
     "@checkstack/command-backend": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
@@ -35,6 +36,7 @@
     "@checkstack/test-utils-backend": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
     "@types/bun": "^1.0.0",
+    "drizzle-kit": "^0.31.10",
     "typescript": "^5.0.0"
   }
 }

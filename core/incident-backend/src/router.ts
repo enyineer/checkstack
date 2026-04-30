@@ -22,6 +22,9 @@ export function createRouter(
   service: IncidentService,
   signalService: SignalService,
   catalogClient: InferClient<typeof CatalogApi>,
+  notificationClient: InferClient<
+    typeof import("@checkstack/notification-common").NotificationApi
+  >,
   authClient: InferClient<typeof AuthApi>,
   logger: Logger,
   cache: IncidentCache,
@@ -175,6 +178,7 @@ export function createRouter(
       const systemNames = await resolveSystemNames(result.systemIds);
       await notifyAffectedSystems({
         catalogClient,
+        notificationClient,
         logger,
         incidentId: result.id,
         incidentTitle: result.title,
@@ -219,6 +223,7 @@ export function createRouter(
       const systemNames = await resolveSystemNames(result.systemIds);
       await notifyAffectedSystems({
         catalogClient,
+        notificationClient,
         logger,
         incidentId: result.id,
         incidentTitle: result.title,
@@ -296,6 +301,7 @@ export function createRouter(
           const systemNames = await resolveSystemNames(incident.systemIds);
           await notifyAffectedSystems({
             catalogClient,
+            notificationClient,
             logger,
             incidentId: input.incidentId,
             incidentTitle: incident.title,
@@ -347,6 +353,7 @@ export function createRouter(
       const systemNames = await resolveSystemNames(result.systemIds);
       await notifyAffectedSystems({
         catalogClient,
+        notificationClient,
         logger,
         incidentId: result.id,
         incidentTitle: result.title,

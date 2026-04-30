@@ -8,10 +8,16 @@ import {
   maintenanceContract,
   maintenanceRoutes,
   MaintenanceApi,
+  maintenanceSystemSubscription,
+  maintenanceGroupSubscription,
 } from "@checkstack/maintenance-common";
 
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
 import { integrationEventExtensionPoint } from "@checkstack/integration-backend";
+import {
+  NotificationApi,
+  specToRegistration,
+} from "@checkstack/notification-common";
 import { MaintenanceService } from "./service";
 import { createRouter } from "./router";
 import { CatalogApi } from "@checkstack/catalog-common";
@@ -59,6 +65,10 @@ export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
     env.registerAccessRules(maintenanceAccessRules);
+    env.registerSubscriptionSpecs([
+      maintenanceSystemSubscription,
+      maintenanceGroupSubscription,
+    ]);
 
     // Register hooks as integration events
     const integrationEvents = env.getExtensionPoint(
@@ -92,6 +102,7 @@ export default createBackendPlugin({
     // Store clients for afterPluginsReady
     let catalogClient: InferClient<typeof CatalogApi>;
     let maintenanceClient: InferClient<typeof MaintenanceApi>;
+    let notificationClient: InferClient<typeof NotificationApi>;
 
     env.registerInit({
       schema,
@@ -115,6 +126,7 @@ export default createBackendPlugin({
 
         catalogClient = rpcClient.forPlugin(CatalogApi);
         maintenanceClient = rpcClient.forPlugin(MaintenanceApi);
+        notificationClient = rpcClient.forPlugin(NotificationApi);
         const authClient = rpcClient.forPlugin(AuthApi);
 
         maintenanceService = new MaintenanceService(
@@ -125,6 +137,7 @@ export default createBackendPlugin({
           maintenanceService,
           signalService,
           catalogClient,
+          notificationClient,
           authClient,
           logger,
           cache,
@@ -160,6 +173,18 @@ export default createBackendPlugin({
         logger.debug("✅ Maintenance Backend initialized.");
       },
       afterPluginsReady: async ({ queueManager, logger }) => {
+        // Notification subscription specs. Per-resource group lifecycle
+        // is platform-managed by notification-backend — maintenance just
+        // declares the specs.
+        await Promise.all([
+          notificationClient.registerSubscriptionSpec(
+            specToRegistration(maintenanceSystemSubscription),
+          ),
+          notificationClient.registerSubscriptionSpec(
+            specToRegistration(maintenanceGroupSubscription),
+          ),
+        ]);
+
         // Schedule the recurring status transition check job
         const queue = queueManager.getQueue<Record<string, never>>(
           STATUS_TRANSITION_QUEUE,

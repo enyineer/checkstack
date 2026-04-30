@@ -9,6 +9,8 @@
   },
   "dependencies": {
     "@checkstack/common": "workspace:*",
+    "@checkstack/catalog-common": "workspace:*",
+    "@checkstack/notification-common": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
     "zod": "^4.2.1"
   },

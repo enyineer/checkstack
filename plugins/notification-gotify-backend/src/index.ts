@@ -133,10 +133,20 @@ const gotifyStrategy: NotificationStrategy<GotifyConfig, GotifyUserConfig> = {
     }
 
     try {
-      // Build message body
-      const message = notification.body
+      // Build message body. Gotify treats `message` as plain text; subjects
+      // append as a bulleted list with parenthesized URLs.
+      let message = notification.body
         ? markdownToPlainText(notification.body)
         : notification.title;
+      const subjects = notification.subjects ?? [];
+      if (subjects.length > 0) {
+        const lines = subjects.map((subject) =>
+          subject.url
+            ? `• ${subject.name} (${subject.url})`
+            : `• ${subject.name}`,
+        );
+        message += `\n\nAffected:\n${lines.join("\n")}`;
+      }
 
       // Add action URL to extras if present
       const extras: Record<string, unknown> = {};

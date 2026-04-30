@@ -148,6 +148,7 @@ Configure your SMTP server to enable email notifications:
       bodyHtml,
       importance: notification.importance,
       action: notification.action,
+      subjects: notification.subjects,
       logoUrl: layoutConfig?.logoUrl,
       primaryColor: layoutConfig?.primaryColor,
       accentColor: layoutConfig?.accentColor,

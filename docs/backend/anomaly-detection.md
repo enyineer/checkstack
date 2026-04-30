@@ -370,7 +370,15 @@ Anomaly notifications are dispatched through the shared notification sidecar ([c
 | `recovered` | `info` (Good news) |
 | `drift_recovered` | `info` |
 
-The `Manage Notification Preferences` UI lets operators silence anomalies per system or per channel. Operators who only want notifications for confirmed-but-not-recovered events can disable the recovery channel.
+### 8.1 Subscription model
+
+Anomaly notifications target a dedicated per-system notification group, namespaced as `anomaly.system.<systemId>`, instead of the shared `catalog.system.<systemId>` group. This separation lets users opt out of anomaly noise without losing incident or healthcheck alerts for the same system. The groups are created lazily on the catalog `systemCreated` hook and torn down on `systemDeleted`. On first deploy, existing subscribers of each `catalog.system.<id>` group are seeded onto the new anomaly group via a one-time bootstrap migration so no one silently stops getting alerts.
+
+### 8.2 Per-field and per-system mute
+
+The `anomaly_notification_mutes` table holds user-scoped mutes. A row's existence means that user has muted notifications for that `(systemId, fieldPath)` pair. An empty `fieldPath` represents a system-wide mute. The dispatcher consults this table after fetching subscribers and filters out muted users before calling `notifyUsers`.
+
+The system anomaly widget on each system detail page exposes a bell icon on every anomaly row (per-field mute) plus a `Mute all` toggle in the card header (per-system mute). Mutes are user-scoped and persist across sessions.
 
 ---
 

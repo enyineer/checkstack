@@ -142,6 +142,16 @@ const webexStrategy: NotificationStrategy<WebexConfig, WebexUserConfig> = {
         markdown += `\n\n${notification.body}`;
       }
 
+      const subjects = notification.subjects ?? [];
+      if (subjects.length > 0) {
+        const lines = subjects.map((subject) =>
+          subject.url
+            ? `- [${subject.name}](${subject.url})`
+            : `- ${subject.name}`,
+        );
+        markdown += `\n\n**Affected:**\n${lines.join("\n")}`;
+      }
+
       if (notification.action?.url) {
         markdown += `\n\n[${notification.action.label}](${notification.action.url})`;
       }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   usePluginClient,
@@ -10,45 +10,30 @@ import {
   SystemDetailsSlot,
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
+  catalogSystemTarget,
 } from "@checkstack/catalog-common";
-import { NotificationApi } from "@checkstack/notification-common";
+import { NotificationSubscriptionsManager } from "@checkstack/notification-frontend";
 import {
   Card,
   CardContent,
   Page,
   PageContent,
   PageLayout,
-  SubscribeButton,
-  useToast,
   LoadingSpinner,
   AccessDenied,
 } from "@checkstack/ui";
 import { authApiRef } from "@checkstack/auth-frontend/api";
 
 import { Activity, Calendar, Mail, User } from "lucide-react";
-import { extractErrorMessage } from "@checkstack/common";
-
-const CATALOG_PLUGIN_ID = "catalog";
 
 export const SystemDetailPage: React.FC = () => {
   const { systemId } = useParams<{ systemId: string }>();
   const catalogClient = usePluginClient(CatalogApi);
-  const notificationClient = usePluginClient(NotificationApi);
-  const toast = useToast();
   const authApi = useApi(authApiRef);
   const { data: session } = authApi.useSession();
 
   const [groups, setGroups] = useState<Group[]>([]);
   const [notFound, setNotFound] = useState(false);
-
-  // Subscription state
-  const [isSubscribed, setIsSubscribed] = useState(false);
-  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
-
-  // Construct the full group ID for this system
-  const getSystemGroupId = useCallback(() => {
-    return `${CATALOG_PLUGIN_ID}.system.${systemId}`;
-  }, [systemId]);
 
   // Fetch system data with useQuery
   const { data: systemsData, isLoading: systemsLoading } =
@@ -68,33 +53,6 @@ export const SystemDetailPage: React.FC = () => {
   const system = systemsData?.systems.find((s) => s.id === systemId);
   const loading = systemsLoading || groupsLoading;
 
-  // Fetch subscriptions with useQuery
-  const { data: subscriptions, refetch: refetchSubscriptions } =
-    notificationClient.getSubscriptions.useQuery({});
-
-  // Subscribe/unsubscribe mutations
-  const subscribeMutation = notificationClient.subscribe.useMutation({
-    onSuccess: () => {
-      setIsSubscribed(true);
-      toast.success("Subscribed to system notifications");
-      void refetchSubscriptions();
-    },
-    onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to subscribe"));
-    },
-  });
-
-  const unsubscribeMutation = notificationClient.unsubscribe.useMutation({
-    onSuccess: () => {
-      setIsSubscribed(false);
-      toast.success("Unsubscribed from system notifications");
-      void refetchSubscriptions();
-    },
-    onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to unsubscribe"));
-    },
-  });
-
   // Update not found state
   useEffect(() => {
     if (!systemsLoading && !system && systemId) {
@@ -111,26 +69,6 @@ export const SystemDetailPage: React.FC = () => {
       setGroups(systemGroups);
     }
   }, [groupsData, systemId]);
-
-  // Update subscription status from query
-  useEffect(() => {
-    if (subscriptions && systemId) {
-      const groupId = getSystemGroupId();
-      const hasSubscription = subscriptions.some((s) => s.groupId === groupId);
-      setIsSubscribed(hasSubscription);
-      setSubscriptionLoading(false);
-    }
-  }, [subscriptions, systemId, getSystemGroupId]);
-
-  const handleSubscribe = () => {
-    setSubscriptionLoading(true);
-    subscribeMutation.mutate({ groupId: getSystemGroupId() });
-  };
-
-  const handleUnsubscribe = () => {
-    setSubscriptionLoading(true);
-    unsubscribeMutation.mutate({ groupId: getSystemGroupId() });
-  };
 
   if (loading) {
     return (
@@ -165,15 +103,9 @@ export const SystemDetailPage: React.FC = () => {
     <div className="flex items-center gap-2">
       <ExtensionSlot slot={SystemStateBadgesSlot} context={{ system }} />
       {session && (
-        <SubscribeButton
-          isSubscribed={isSubscribed}
-          onSubscribe={handleSubscribe}
-          onUnsubscribe={handleUnsubscribe}
-          loading={
-            subscriptionLoading ||
-            subscribeMutation.isPending ||
-            unsubscribeMutation.isPending
-          }
+        <NotificationSubscriptionsManager
+          target={catalogSystemTarget}
+          resource={{ systemId: system.id, systemName: system.name }}
         />
       )}
     </div>

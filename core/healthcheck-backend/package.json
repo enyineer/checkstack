@@ -26,6 +26,7 @@
     "@checkstack/incident-common": "workspace:*",
     "@checkstack/integration-backend": "workspace:*",
     "@checkstack/maintenance-common": "workspace:*",
+    "@checkstack/notification-common": "workspace:*",
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/satellite-backend": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
@@ -44,6 +45,7 @@
     "@types/bun": "^1.0.0",
     "@types/tdigest": "^0.1.5",
     "date-fns": "^4.1.0",
+    "drizzle-kit": "^0.31.10",
     "typescript": "^5.0.0"
   }
 }

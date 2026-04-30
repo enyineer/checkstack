@@ -10,7 +10,13 @@ import {
   pluginMetadata,
   healthCheckContract,
   healthcheckRoutes,
+  healthcheckSystemSubscription,
+  healthcheckGroupSubscription,
 } from "@checkstack/healthcheck-common";
+import {
+  NotificationApi,
+  specToRegistration,
+} from "@checkstack/notification-common";
 import {
   createBackendPlugin,
   coreServices,
@@ -67,6 +73,10 @@ export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
     env.registerAccessRules(healthCheckAccessRules);
+    env.registerSubscriptionSpecs([
+      healthcheckSystemSubscription,
+      healthcheckGroupSubscription,
+    ]);
 
     // Register hooks as integration events
     const integrationEvents = env.getExtensionPoint(
@@ -179,6 +189,9 @@ export default createBackendPlugin({
         // Create incident client for notification suppression checks
         const incidentClient = rpcClient.forPlugin(IncidentApi);
 
+        // Notification client for spec-bound dispatch
+        const notificationClient = rpcClient.forPlugin(NotificationApi);
+
         // Create gitops client for provenance lock checks
         const gitOpsClient = rpcClient.forPlugin(GitOpsApi);
 
@@ -191,6 +204,7 @@ export default createBackendPlugin({
 
         // Setup queue-based health check worker
         await setupHealthCheckWorker({
+          notificationClient,
           db: database,
           registry: healthCheckRegistry,
           collectorRegistry,
@@ -255,6 +269,7 @@ export default createBackendPlugin({
         logger,
         onHook,
         emitHook,
+        rpcClient,
         healthCheckRegistry,
         collectorRegistry,
       }) => {
@@ -266,6 +281,19 @@ export default createBackendPlugin({
           queueManager,
           logger,
         });
+
+        // Notification subscription specs. Per-resource group lifecycle
+        // is owned by notification-backend now — healthcheck just
+        // declares the specs it dispatches under.
+        const afterNotificationClient = rpcClient.forPlugin(NotificationApi);
+        await Promise.all([
+          afterNotificationClient.registerSubscriptionSpec(
+            specToRegistration(healthcheckSystemSubscription),
+          ),
+          afterNotificationClient.registerSubscriptionSpec(
+            specToRegistration(healthcheckGroupSubscription),
+          ),
+        ]);
 
         // Register GitOps documentation now that registries are populated
         registerHealthcheckGitOpsDocumentation({

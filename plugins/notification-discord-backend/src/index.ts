@@ -6,6 +6,7 @@ import {
   type NotificationStrategy,
   type NotificationSendContext,
   type NotificationDeliveryResult,
+  type NotificationSubject,
   markdownToPlainText,
 } from "@checkstack/backend-api";
 import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
@@ -67,6 +68,7 @@ interface DiscordEmbedOptions {
   body?: string;
   importance: "info" | "warning" | "critical";
   action?: { label: string; url: string };
+  subjects?: NotificationSubject[];
 }
 
 interface DiscordEmbed {
@@ -77,8 +79,15 @@ interface DiscordEmbed {
   timestamp?: string;
 }
 
+const SUBJECT_STATUS_EMOJI = {
+  healthy: "🟢",
+  degraded: "🟡",
+  unhealthy: "🔴",
+  unknown: "⚪",
+} as const;
+
 function buildDiscordEmbed(options: DiscordEmbedOptions): DiscordEmbed {
-  const { title, body, importance, action } = options;
+  const { title, body, importance, action, subjects } = options;
 
   // Discord colors are decimal values
   const importanceColors: Record<string, number> = {
@@ -104,14 +113,38 @@ function buildDiscordEmbed(options: DiscordEmbedOptions): DiscordEmbed {
     embed.description = markdownToPlainText(body);
   }
 
+  const fields: NonNullable<DiscordEmbed["fields"]> = [];
+
+  if (subjects && subjects.length > 0) {
+    // One field summarizing every affected subject as a markdown bullet
+    // list. Discord renders [name](url) in field values, and prefixes
+    // status with a colored circle when present.
+    fields.push({
+      name: "Affected",
+      value: subjects
+        .map((subject) => {
+          const prefix = subject.status
+            ? `${SUBJECT_STATUS_EMOJI[subject.status]} `
+            : "• ";
+          return subject.url
+            ? `${prefix}[${subject.name}](${subject.url})`
+            : `${prefix}${subject.name}`;
+        })
+        .join("\n"),
+      inline: false,
+    });
+  }
+
   if (action?.url) {
-    embed.fields = [
-      {
-        name: action.label,
-        value: `[Click here](${action.url})`,
-        inline: false,
-      },
-    ];
+    fields.push({
+      name: action.label,
+      value: `[Click here](${action.url})`,
+      inline: false,
+    });
+  }
+
+  if (fields.length > 0) {
+    embed.fields = fields;
   }
 
   return embed;
@@ -166,6 +199,7 @@ const discordStrategy: NotificationStrategy<DiscordConfig, DiscordUserConfig> =
           body: notification.body,
           importance: notification.importance,
           action: notification.action,
+          subjects: notification.subjects,
         });
 
         // Send to Discord webhook

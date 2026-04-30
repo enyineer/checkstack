@@ -24,6 +24,7 @@ export {
 } from "./schemas";
 export { MaintenanceDetailsSlot, MaintenanceStatusSlot } from "./slots";
 export * from "./plugin-metadata";
+export * from "./notifications";
 export { maintenanceRoutes } from "./routes";
 
 // =============================================================================

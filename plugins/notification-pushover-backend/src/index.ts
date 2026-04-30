@@ -149,10 +149,22 @@ const pushoverStrategy: NotificationStrategy<
     try {
       const priority = mapImportanceToPriority(notification.importance);
 
-      // Build message body
-      const message = notification.body
+      // Build message body. Pushover supports a constrained HTML subset, so
+      // subjects render as an HTML list with anchor tags when URLs exist.
+      let message = notification.body
         ? markdownToPlainText(notification.body)
         : notification.title;
+      const subjects = notification.subjects ?? [];
+      if (subjects.length > 0) {
+        const items = subjects
+          .map((subject) =>
+            subject.url
+              ? `<li><a href="${subject.url}">${subject.name}</a></li>`
+              : `<li>${subject.name}</li>`,
+          )
+          .join("");
+        message += `\n\n<b>Affected:</b><ul>${items}</ul>`;
+      }
 
       // Build request body
       const body: Record<string, string | number> = {

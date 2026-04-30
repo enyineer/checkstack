@@ -1,5 +1,6 @@
 import type { Logger, SafeDatabase } from "@checkstack/backend-api";
 import type { CatalogApi } from "@checkstack/catalog-common";
+import type { NotificationApi } from "@checkstack/notification-common";
 import type { InferClient } from "@checkstack/common";
 import type { SignalService } from "@checkstack/signal-common";
 import {
@@ -24,6 +25,7 @@ export interface EvaluateDriftInput {
   db: SafeDatabase<typeof schema>;
   logger: Logger;
   catalogClient: InferClient<typeof CatalogApi>;
+  notificationClient: InferClient<typeof NotificationApi>;
   signalService?: SignalService;
   systemId: string;
   configurationId: string;
@@ -49,6 +51,7 @@ export async function evaluateDrift({
   db,
   logger,
   catalogClient,
+  notificationClient,
   signalService,
   systemId,
   configurationId,
@@ -160,6 +163,8 @@ export async function evaluateDrift({
           baselineMean: baseline.mean,
           projectedChange: driftResult.projectedChange,
           catalogClient,
+          notificationClient,
+          db,
           logger,
         });
         return;
@@ -225,6 +230,8 @@ export async function evaluateDrift({
       observedValue: baseline.mean,
       baselineMean: baseline.mean,
       catalogClient,
+      notificationClient,
+      db,
       logger,
     });
   }

@@ -2,10 +2,14 @@ import type { Logger } from "@checkstack/backend-api";
 import type { InferClient } from "@checkstack/common";
 import { resolveRoute } from "@checkstack/common";
 import type { CatalogApi } from "@checkstack/catalog-common";
-import { catalogRoutes } from "@checkstack/catalog-common";
+import { catalogRoutes, createSystemSubject } from "@checkstack/catalog-common";
 import type { MaintenanceApi } from "@checkstack/maintenance-common";
 import type { IncidentApi } from "@checkstack/incident-common";
 import type { NotificationApi } from "@checkstack/notification-common";
+import {
+  dependencyUpstreamCollapseKey,
+  dependencySystemSubscription,
+} from "@checkstack/dependency-common";
 import type { DerivedState } from "@checkstack/dependency-common";
 import { DEPENDENCY_WARNINGS_CHANGED } from "@checkstack/dependency-common";
 import type { DependencyService } from "./services/dependency-service";
@@ -395,13 +399,13 @@ export async function evaluateAndNotifyDownstream({
 }
 
 /**
- * Send batched, per-user personalized notifications.
- *
- * Instead of sending one notification per affected system (which causes
- * floods for group subscribers), this function:
- * 1. Resolves all notification group IDs for each affected system
- * 2. Resolves subscribers per group and builds a user → systems reverse map
- * 3. Sends one personalized notification per user with only their relevant systems
+ * Dispatch one notification per impacted downstream system using the
+ * platform spec contract. Subscribers to each downstream system (and its
+ * parent catalog groups, resolved server-side via stored target edges)
+ * receive a notification describing the upstream impact. Multi-system
+ * dispatches collapse on the *upstream* changedSystemId so a recipient
+ * subscribed to several downstreams sees one card per upstream event,
+ * not one per downstream.
  */
 async function sendBatchedNotifications({
   systemsToNotify,
@@ -418,57 +422,9 @@ async function sendBatchedNotifications({
   notificationClient: InferClient<typeof NotificationApi>;
   logger: Logger;
 }): Promise<void> {
-  // Phase 1: Resolve all notification group IDs for affected systems
-  const systemToGroupIds = new Map<string, string[]>();
-  for (const system of systemsToNotify) {
-    const groupIds = [`catalog.system.${system.systemId}`];
+  void catalogClient;
+  if (systemsToNotify.length === 0) return;
 
-    try {
-      const { groupIds: catalogGroupIds } =
-        await catalogClient.getSystemGroupIds({
-          systemId: system.systemId,
-        });
-      groupIds.push(
-        ...catalogGroupIds.map((gid) => `catalog.group.${gid}`),
-      );
-    } catch (error) {
-      logger.warn(
-        `Failed to resolve group IDs for system ${system.systemId}:`,
-        error,
-      );
-    }
-
-    systemToGroupIds.set(system.systemId, groupIds);
-  }
-
-  // Phase 2: Resolve subscribers per group → build user → systems reverse map
-  const userSystems = new Map<string, Set<string>>();
-  for (const system of systemsToNotify) {
-    const groupIds = systemToGroupIds.get(system.systemId) ?? [];
-    for (const groupId of groupIds) {
-      try {
-        const { userIds } =
-          await notificationClient.getGroupSubscribers({ groupId });
-        for (const userId of userIds) {
-          if (!userSystems.has(userId)) {
-            userSystems.set(userId, new Set());
-          }
-          userSystems.get(userId)!.add(system.systemId);
-        }
-      } catch (error) {
-        logger.warn(
-          `Failed to resolve subscribers for group ${groupId}:`,
-          error,
-        );
-      }
-    }
-  }
-
-  if (userSystems.size === 0) {
-    return;
-  }
-
-  // Phase 3: Send one personalized notification per user
   const upstreamName =
     statuses.get(changedSystemId)?.systemName ?? changedSystemId;
   const upstreamSystemDetailPath = resolveRoute(
@@ -476,65 +432,48 @@ async function sendBatchedNotifications({
     { systemId: changedSystemId },
   );
 
-  for (const [userId, subscribedSystemIds] of userSystems) {
-    const relevantSystems = systemsToNotify.filter((s) =>
-      subscribedSystemIds.has(s.systemId),
-    );
-    if (relevantSystems.length === 0) continue;
-
-    const allRecovery = relevantSystems.every((s) => s.isRecovery);
-    const systemNames = relevantSystems.map((s) => s.systemName);
-
-    let title: string;
-    let body: string;
-
-    if (relevantSystems.length === 1) {
-      // Single system — use detailed title/body
-      const entry = relevantSystems[0];
-      title = buildNotificationTitle({
-        derivedState: entry.derivedState,
-        isRecovery: entry.isRecovery,
-        systemName: entry.systemName,
-      });
-      body = buildNotificationBody({
-        upstreamNames: entry.upstreamNames,
-        derivedState: entry.derivedState,
-        isRecovery: entry.isRecovery,
-        systemName: entry.systemName,
-      });
-    } else if (allRecovery) {
-      title = `Dependency impact resolved: ${upstreamName}`;
-      body = `All upstream dependencies of **${systemNames.join("**, **")}** have recovered.`;
-    } else {
-      title = `Upstream dependency issue: ${upstreamName} — ${relevantSystems.length} systems affected`;
-      const systemLines = relevantSystems
-        .map((entry) => formatSystemImpactLine(entry))
-        .join("\n");
-      body = `An upstream dependency (**${upstreamName}**) is affecting:\n\n${systemLines}`;
-    }
-
-    const importance = allRecovery
+  for (const entry of systemsToNotify) {
+    const title = buildNotificationTitle({
+      derivedState: entry.derivedState,
+      isRecovery: entry.isRecovery,
+      systemName: entry.systemName,
+    });
+    const body = buildNotificationBody({
+      upstreamNames: entry.upstreamNames,
+      derivedState: entry.derivedState,
+      isRecovery: entry.isRecovery,
+      systemName: entry.systemName,
+    });
+    const importance = entry.isRecovery
       ? ("info" as const)
-      : resolveWorstImportance(relevantSystems);
+      : resolveWorstImportance([entry]);
 
     try {
-      await notificationClient.notifyUsers({
-        userIds: [userId],
+      await notificationClient.notifyForSubscription({
+        specId: dependencySystemSubscription.specId,
+        resourceKeys: [entry.systemId],
         title,
         body,
         importance,
         action: { label: "View Root Cause", url: upstreamSystemDetailPath },
+        collapseKey: dependencyUpstreamCollapseKey(changedSystemId),
+        subjects: [
+          createSystemSubject({
+            id: entry.systemId,
+            name: entry.systemName,
+            url: resolveRoute(catalogRoutes.routes.systemDetail, {
+              systemId: entry.systemId,
+            }),
+          }),
+        ],
       });
-      logger.debug(
-        `Dependency notification sent to user ${userId}: ${relevantSystems.length} system(s)`,
-      );
     } catch (error) {
-      // Notifications are best-effort
       logger.warn(
-        `Failed to send dependency notification to user ${userId}:`,
+        `Failed to dispatch dependency notification for ${entry.systemId}:`,
         error,
       );
     }
   }
+  void upstreamName;
 }
 
