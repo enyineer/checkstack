@@ -1,5 +1,12 @@
 # @checkstack/anomaly-backend
 
+## 1.0.1
+
+### Patch Changes
+
+- Updated dependencies [2a749d3]
+  - @checkstack/healthcheck-backend@1.0.1
+
 ## 1.0.0
 
 ### Major Changes
