@@ -1,5 +1,24 @@
 # @checkstack/announcement-backend
 
+## 0.3.2
+
+### Patch Changes
+
+- 32d52c6: chore: add `drizzle-kit` as a dev dependency
+
+  Lets each backend package run `drizzle-kit generate` locally without
+  relying on the workspace-level binary. No runtime impact — devDeps
+  only.
+
+- Updated dependencies [32d52c6]
+- Updated dependencies [32d52c6]
+- Updated dependencies [32d52c6]
+  - @checkstack/backend-api@0.14.0
+  - @checkstack/auth-backend@0.4.22
+  - @checkstack/cache-api@0.2.2
+  - @checkstack/command-backend@0.1.22
+  - @checkstack/cache-utils@0.2.2
+
 ## 0.3.1
 
 ### Patch Changes

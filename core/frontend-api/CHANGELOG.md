@@ -1,5 +1,11 @@
 # @checkstack/frontend-api
 
+## 0.4.1
+
+### Patch Changes
+
+- 32d52c6: Add missing workspace/runtime deps that were only resolving locally via stale `node_modules` symlinks: `@checkstack/signal-common` in `anomaly-backend` and `@orpc/contract` in `frontend-api`. Both were imported as `import type` and went unflagged by the `no-extraneous-runtime-deps` rule, but failed `tsc` on clean CI installs.
+
 ## 0.4.0
 
 ### Minor Changes

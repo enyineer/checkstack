@@ -1,5 +1,24 @@
 # @checkstack/notification-teams-backend
 
+## 0.0.31
+
+### Patch Changes
+
+- 32d52c6: Bulk notifications affecting multiple systems and collapse lifecycle events into a single card.
+
+  Notifications now carry an optional `subjects` array (the entities they affect) and an optional `collapseKey` (so related notifications collapse into one row per recipient). Incidents, maintenances, anomalies, healthchecks, and dependency-impact events route through these new fields, so an incident affecting three systems produces one in-app notification + one external send per subscriber instead of three. Lifecycle updates for the same entity (created → updated → resolved) also collapse, with an expandable "+N updates" timeline.
+
+  Subject kinds are namespaced as `<pluginId>.<localKind>` and built via type-safe helpers exported from each domain's common package (`createSystemSubject`, `incidentCollapseKey`, etc.). The frontend kind registry (`registerSubjectKind`) lets plugins bind icon + label for their kinds; unknown kinds fall back to a generic chip.
+
+  All notification strategies (SMTP, Slack, Discord, Teams, Telegram, Pushover, Gotify, Webex, Backstage) render the affected subjects natively in their format (HTML cards, Slack blocks, Discord embed fields, adaptive cards, markdown lists, etc.).
+
+- Updated dependencies [32d52c6]
+- Updated dependencies [32d52c6]
+- Updated dependencies [32d52c6]
+- Updated dependencies [32d52c6]
+  - @checkstack/notification-backend@1.0.0
+  - @checkstack/backend-api@0.14.0
+
 ## 0.0.30
 
 ### Patch Changes
