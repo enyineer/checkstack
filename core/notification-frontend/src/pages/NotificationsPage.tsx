@@ -1,28 +1,47 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Bell, Check, Trash2, ChevronDown } from "lucide-react";
+import { Bell, Check, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import {
   PageLayout,
   Badge,
   Button,
   Card,
   useToast,
-  DropdownMenu,
-  DropdownMenuContent,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   DropdownMenuItem,
-  DropdownMenuTrigger,
+  MenuCloseContext,
   Markdown,
 } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
 import type { Notification } from "@checkstack/notification-common";
 import { NotificationApi } from "@checkstack/notification-common";
 import { extractErrorMessage } from "@checkstack/common";
+import { NotificationSubjects } from "../components/NotificationSubjects";
+import { groupByCollapseKey } from "../components/collapse";
+import { CollapsedGroupTimeline } from "../components/CollapsedGroupTimeline";
 
 export const NotificationsPage = () => {
   const notificationClient = usePluginClient(NotificationApi);
   const toast = useToast();
 
   const [filter, setFilter] = useState<"all" | "unread">("all");
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  const toggleExpanded = useCallback((key: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
   const [page, setPage] = useState(0);
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
   const pageSize = 20;
@@ -135,41 +154,41 @@ export const NotificationsPage = () => {
         {/* Header with filters */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                onClick={() => {
-                  setFilterDropdownOpen(!filterDropdownOpen);
-                }}
-              >
+            <Popover
+              open={filterDropdownOpen}
+              onOpenChange={setFilterDropdownOpen}
+            >
+              <PopoverTrigger asChild>
                 <Button variant="outline" size="sm">
                   {filter === "all" ? "All" : "Unread"}{" "}
                   <ChevronDown className="h-4 w-4 ml-1" />
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                isOpen={filterDropdownOpen}
-                onClose={() => {
-                  setFilterDropdownOpen(false);
-                }}
-              >
-                <DropdownMenuItem
-                  onClick={() => {
-                    setFilter("all");
-                    setFilterDropdownOpen(false);
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-56 p-1">
+                <MenuCloseContext.Provider
+                  value={{
+                    onClose: () => {
+                      setFilterDropdownOpen(false);
+                    },
                   }}
                 >
-                  All notifications
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    setFilter("unread");
-                    setFilterDropdownOpen(false);
-                  }}
-                >
-                  Unread only
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setFilter("all");
+                    }}
+                  >
+                    All notifications
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setFilter("unread");
+                    }}
+                  >
+                    Unread only
+                  </DropdownMenuItem>
+                </MenuCloseContext.Provider>
+              </PopoverContent>
+            </Popover>
             <span className="text-sm text-muted-foreground">
               {total} notification{total === 1 ? "" : "s"}
             </span>
@@ -192,69 +211,119 @@ export const NotificationsPage = () => {
           </Card>
         ) : (
           <div className="space-y-2">
-            {notifications.map((notification) => (
-              <Card
-                key={notification.id}
-                className={`p-4 ${
-                  notification.isRead ? "" : "border-l-4 border-l-primary"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      {getImportanceBadge(notification.importance)}
-                      <span className="text-xs text-muted-foreground">
-                        {formatDate(notification.createdAt)}
-                      </span>
-                    </div>
-                    <h3
-                      className={`font-medium ${
-                        notification.isRead
-                          ? "text-muted-foreground"
-                          : "text-foreground"
-                      }`}
-                    >
-                      {notification.title}
-                    </h3>
-                    <Markdown size="sm" className="text-muted-foreground mt-1">
-                      {notification.body}
-                    </Markdown>
-                    {notification.action && (
-                      <div className="flex gap-2 mt-2">
-                        <Link
-                          to={notification.action.url}
-                          className="text-sm text-primary hover:text-primary/80"
-                        >
-                          {notification.action.label}
-                        </Link>
+            {groupByCollapseKey(notifications).map((group) => {
+              const notification = group.representative;
+              const isExpanded = expandedGroups.has(group.key);
+              return (
+                <Card
+                  key={group.key}
+                  className={`p-4 ${
+                    notification.isRead ? "" : "border-l-4 border-l-primary"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        {getImportanceBadge(notification.importance)}
+                        <span className="text-xs text-muted-foreground">
+                          {formatDate(notification.createdAt)}
+                        </span>
+                        {group.collapsed && (
+                          <button
+                            type="button"
+                            onClick={() => toggleExpanded(group.key)}
+                            aria-label={
+                              isExpanded
+                                ? "Collapse update history"
+                                : "Show update history"
+                            }
+                          >
+                            <Badge
+                              variant="secondary"
+                              className="text-[10px] cursor-pointer hover:bg-accent"
+                            >
+                              +{group.count - 1} updates
+                              {isExpanded ? (
+                                <ChevronUp className="ml-0.5 h-3 w-3" />
+                              ) : (
+                                <ChevronDown className="ml-0.5 h-3 w-3" />
+                              )}
+                            </Badge>
+                          </button>
+                        )}
                       </div>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {!notification.isRead && (
+                      <h3
+                        className={`font-medium ${
+                          notification.isRead
+                            ? "text-muted-foreground"
+                            : "text-foreground"
+                        }`}
+                      >
+                        {notification.title}
+                      </h3>
+                      <Markdown size="sm" className="text-muted-foreground mt-1">
+                        {notification.body}
+                      </Markdown>
+                      {notification.subjects &&
+                        notification.subjects.length > 0 && (
+                          <NotificationSubjects
+                            subjects={notification.subjects}
+                            maxVisible={5}
+                          />
+                        )}
+                      {notification.action && (
+                        <div className="flex gap-2 mt-2">
+                          <Link
+                            to={notification.action.url}
+                            className="text-sm text-primary hover:text-primary/80"
+                          >
+                            {notification.action.label}
+                          </Link>
+                        </div>
+                      )}
+                      {group.collapsed && isExpanded && (
+                        <CollapsedGroupTimeline
+                          notifications={group.notifications}
+                          variant="page"
+                        />
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {!notification.isRead && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            // Mark every notification in the group as read
+                            // so the badge clears in one shot.
+                            for (const n of group.notifications) {
+                              handleMarkAsRead(n.id);
+                            }
+                          }}
+                          disabled={markAsReadMutation.isPending}
+                          title="Mark as read"
+                        >
+                          <Check className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => handleMarkAsRead(notification.id)}
-                        disabled={markAsReadMutation.isPending}
-                        title="Mark as read"
+                        onClick={() => {
+                          for (const n of group.notifications) {
+                            handleDelete(n.id);
+                          }
+                        }}
+                        disabled={deleteMutation.isPending}
+                        title="Delete"
                       >
-                        <Check className="h-4 w-4" />
+                        <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleDelete(notification.id)}
-                      disabled={deleteMutation.isPending}
-                      title="Delete"
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    </div>
                   </div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
           </div>
         )}
 

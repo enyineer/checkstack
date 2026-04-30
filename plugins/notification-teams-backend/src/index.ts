@@ -6,6 +6,7 @@ import {
   type NotificationStrategy,
   type NotificationSendContext,
   type NotificationDeliveryResult,
+  type NotificationSubject,
   type StrategyOAuthConfig,
 } from "@checkstack/backend-api";
 import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
@@ -97,10 +98,18 @@ interface AdaptiveCardOptions {
   body?: string;
   importance: "info" | "warning" | "critical";
   action?: { label: string; url: string };
+  subjects?: NotificationSubject[];
 }
 
+const SUBJECT_STATUS_EMOJI = {
+  healthy: "🟢",
+  degraded: "🟡",
+  unhealthy: "🔴",
+  unknown: "⚪",
+} as const;
+
 function buildAdaptiveCard(options: AdaptiveCardOptions): object {
-  const { title, body, importance, action } = options;
+  const { title, body, importance, action, subjects } = options;
 
   const importanceColors: Record<string, string> = {
     info: "accent",
@@ -131,6 +140,32 @@ function buildAdaptiveCard(options: AdaptiveCardOptions): object {
       text: body,
       wrap: true,
     });
+  }
+
+  if (subjects && subjects.length > 0) {
+    // Affected entities rendered as a FactSet — names link to URLs when
+    // present; status maps to a colored circle.
+    bodyElements.push(
+      {
+        type: "TextBlock",
+        text: "**Affected**",
+        weight: "bolder",
+        spacing: "medium",
+        wrap: true,
+      },
+      {
+        type: "FactSet",
+        facts: subjects.map((subject) => {
+          const prefix = subject.status
+            ? `${SUBJECT_STATUS_EMOJI[subject.status]} `
+            : "";
+          return {
+            title: prefix + subject.name,
+            value: subject.url ? `[Open](${subject.url})` : "—",
+          };
+        }),
+      },
+    );
   }
 
   const card: Record<string, unknown> = {
@@ -299,6 +334,7 @@ const teamsStrategy: NotificationStrategy<TeamsConfig> = {
         body: notification.body,
         importance: notification.importance,
         action: notification.action,
+        subjects: notification.subjects,
       });
 
       // Step 3: Send message to the chat

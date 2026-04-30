@@ -16,12 +16,15 @@
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/anomaly-common": "workspace:*",
+    "@checkstack/signal-common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/cache-api": "workspace:*",
     "@checkstack/cache-utils": "workspace:*",
     "@checkstack/healthcheck-backend": "workspace:*",
+    "@checkstack/catalog-backend": "workspace:*",
     "@checkstack/catalog-common": "workspace:*",
+    "@checkstack/notification-common": "workspace:*",
     "drizzle-orm": "^0.45.0",
     "hono": "^4.12.14",
     "zod": "^4.2.1",
@@ -34,6 +37,7 @@
     "@checkstack/tsconfig": "workspace:*",
     "@types/bun": "^1.0.0",
     "date-fns": "^4.1.0",
+    "drizzle-kit": "^0.31.10",
     "typescript": "^5.0.0"
   }
 }

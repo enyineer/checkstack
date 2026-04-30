@@ -4,10 +4,17 @@ import { setupBaselineAnalyzerJob } from "./jobs/baseline-analyzer";
 import { processCheckCompleted } from "./detector";
 import * as schema from "./schema";
 import { CatalogApi } from "@checkstack/catalog-common";
+import { NotificationApi } from "@checkstack/notification-common";
 import { AnomalyService } from "./service";
 import { createRouter } from "./router";
 import { createAnomalyRouterCache, type AnomalyRouterCache } from "./router-cache";
-import { anomalyContract, anomalyAccessRules } from "@checkstack/anomaly-common";
+import {
+  anomalyContract,
+  anomalyAccessRules,
+  anomalySystemSubscription,
+  anomalyGroupSubscription,
+} from "@checkstack/anomaly-common";
+import { specToRegistration } from "@checkstack/notification-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 
 import { definePluginMetadata } from "@checkstack/common";
@@ -18,10 +25,16 @@ export const plugin = createBackendPlugin({
   }),
   register(env) {
     env.registerAccessRules(anomalyAccessRules);
+    // Declared subscription specs feed the plugin loader's
+    // dependency sorter — each spec's target.ownerPlugin becomes an
+    // implicit init-order dep, so anomaly waits for catalog (the
+    // owner of catalogSystemTarget / catalogGroupTarget) before its
+    // own init + afterPluginsReady runs.
+    env.registerSubscriptionSpecs([
+      anomalySystemSubscription,
+      anomalyGroupSubscription,
+    ]);
 
-    // Shared between init (router) and afterPluginsReady (detector hook),
-    // so the detector can drop the router cache before broadcasting state
-    // change signals.
     let routerCache: AnomalyRouterCache | undefined;
 
     env.registerInit({
@@ -30,7 +43,7 @@ export const plugin = createBackendPlugin({
         db: coreServices.database,
         logger: coreServices.logger,
         queueManager: coreServices.queueManager,
-        cacheManager: coreServices.cacheManager, // Pre-req
+        cacheManager: coreServices.cacheManager,
         rpcClient: coreServices.rpcClient,
         rpc: coreServices.rpc,
         signalService: coreServices.signalService,
@@ -43,6 +56,7 @@ export const plugin = createBackendPlugin({
         const typedDb = db as SafeDatabase<typeof schema>;
         const healthCheckClient = rpcClient.forPlugin(HealthCheckApi);
         const catalogClient = rpcClient.forPlugin(CatalogApi);
+        const notificationClient = rpcClient.forPlugin(NotificationApi);
 
         await setupBaselineAnalyzerJob({
           db: typedDb,
@@ -52,6 +66,7 @@ export const plugin = createBackendPlugin({
           healthCheckClient,
           signalService,
           catalogClient,
+          notificationClient,
           collectorRegistry,
         });
 
@@ -66,6 +81,21 @@ export const plugin = createBackendPlugin({
         const cache = cacheManager.getProvider();
         const typedDb = db as SafeDatabase<typeof schema>;
         const catalogClient = rpcClient.forPlugin(CatalogApi);
+        const notificationClient = rpcClient.forPlugin(NotificationApi);
+
+        // Register subscription specs against the platform. notification-
+        // backend takes care of provisioning per-resource groups by joining
+        // the spec's target type onto the resource registry catalog already
+        // pushes — anomaly never needs to know about per-system or
+        // per-group lifecycle.
+        await Promise.all([
+          notificationClient.registerSubscriptionSpec(
+            specToRegistration(anomalySystemSubscription),
+          ),
+          notificationClient.registerSubscriptionSpec(
+            specToRegistration(anomalyGroupSubscription),
+          ),
+        ]);
 
         onHook(healthCheckHooks.checkCompleted, async (payload) => {
           await processCheckCompleted({
@@ -75,6 +105,7 @@ export const plugin = createBackendPlugin({
             routerCache,
             logger,
             catalogClient,
+            notificationClient,
             signalService,
             collectorRegistry,
           });

@@ -9,10 +9,25 @@ import {
   catalogAccess,
 } from "@checkstack/catalog-common";
 
+import { Server, FolderTree } from "lucide-react";
+import { registerSubjectKind } from "@checkstack/notification-frontend";
+
 import { CatalogPage } from "./components/CatalogPage";
 import { CatalogConfigPage } from "./components/CatalogConfigPage";
 import { CatalogUserMenuItems } from "./components/UserMenuItems";
 import { SystemDetailPage } from "./components/SystemDetailPage";
+
+// Notification subject kinds emitted by catalog (see catalog-common's
+// `createSystemSubject` / `createGroupSubject`). Registered at module load
+// so the notification bell + page render kind-appropriate icons.
+registerSubjectKind(`${pluginMetadata.pluginId}.system`, {
+  label: "System",
+  icon: Server,
+});
+registerSubjectKind(`${pluginMetadata.pluginId}.group`, {
+  label: "Group",
+  icon: FolderTree,
+});
 
 export const catalogPlugin = createFrontendPlugin({
   metadata: pluginMetadata,

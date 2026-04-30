@@ -11,6 +11,7 @@
     "@checkstack/common": "workspace:*",
     "@checkstack/auth-common": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",
+    "@checkstack/notification-common": "workspace:*",
     "@orpc/contract": "^1.13.14",
     "zod": "^4.2.1"
   },

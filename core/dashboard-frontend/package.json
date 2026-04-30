@@ -25,6 +25,7 @@
     "@checkstack/incident-common": "workspace:*",
     "@checkstack/maintenance-common": "workspace:*",
     "@checkstack/notification-common": "workspace:*",
+    "@checkstack/notification-frontend": "workspace:*",
     "@checkstack/queue-frontend": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",

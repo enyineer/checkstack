@@ -1,7 +1,10 @@
 import React from "react";
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
 import { SystemDetailsSlot } from "@checkstack/catalog-common";
-import { AnomalyApi, type AnomalyDto } from "@checkstack/anomaly-common";
+import {
+  AnomalyApi,
+  type AnomalyDto,
+} from "@checkstack/anomaly-common";
 import { healthcheckRoutes } from "@checkstack/healthcheck-common";
 import { resolveRoute } from "@checkstack/common";
 import {
@@ -10,8 +13,20 @@ import {
   CardTitle,
   CardContent,
   Badge,
+  Button,
+  useToast,
 } from "@checkstack/ui";
-import { Activity, AlertTriangle, HelpCircle, TrendingUp, TrendingDown, ArrowRight, LineChart } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  HelpCircle,
+  TrendingUp,
+  TrendingDown,
+  ArrowRight,
+  LineChart,
+  Bell,
+  BellOff,
+} from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Link } from "react-router-dom";
 
@@ -75,14 +90,12 @@ function humanizeFieldName(name: string): string {
     .join(" ");
 }
 
-/** Convert strategy + collector into a readable source label */
 function humanizeCollectorSource(strategyId: string, collectorId: string): string {
-  // Strip "healthcheck-" prefix if present
   const cleanStrategy = strategyId.replace(/^healthcheck-/, "").toUpperCase();
 
   if (collectorId) {
     const cleanCollector = collectorId
-      .split(" ")
+      .split("-")
       .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
       .join(" ");
     return `${cleanStrategy} · ${cleanCollector}`;
@@ -95,7 +108,19 @@ function humanizeCollectorSource(strategyId: string, collectorId: string): strin
 // Anomaly Row Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-function AnomalyRow({ anomaly, systemId }: { anomaly: AnomalyDto; systemId: string }) {
+function AnomalyRow({
+  anomaly,
+  systemId,
+  isMuted,
+  onToggleMute,
+  isToggling,
+}: {
+  anomaly: AnomalyDto;
+  systemId: string;
+  isMuted: boolean;
+  onToggleMute: (fieldPath: string, isMuted: boolean) => void;
+  isToggling: boolean;
+}) {
   const isSuspicious = anomaly.state === "suspicious";
   const isDrift = anomaly.kind === "drift";
   const parsed = parseFieldPath(anomaly.fieldPath);
@@ -133,14 +158,20 @@ function AnomalyRow({ anomaly, systemId }: { anomaly: AnomalyDto; systemId: stri
           <span className="text-sm font-medium truncate">
             {parsed.label}
           </span>
-          {parsed.source && (
+          {parsed.source ? (
             <span className="text-[10px] text-muted-foreground bg-muted/80 px-1.5 py-0.5 rounded font-medium shrink-0">
               {parsed.source}
             </span>
-          )}
+          ) : undefined}
           {isDrift && (
             <span className="text-[10px] text-muted-foreground bg-muted/40 px-1.5 py-0.5 rounded font-medium shrink-0">
               drift
+            </span>
+          )}
+          {isMuted && (
+            <span className="text-[10px] text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded font-medium shrink-0 inline-flex items-center gap-0.5">
+              <BellOff className="h-2.5 w-2.5" />
+              muted
             </span>
           )}
         </div>
@@ -168,7 +199,7 @@ function AnomalyRow({ anomaly, systemId }: { anomaly: AnomalyDto; systemId: stri
         </div>
       </div>
 
-      {/* Deviation badge + arrow */}
+      {/* Deviation badge + mute toggle + arrow */}
       <div className="flex items-center gap-2 shrink-0">
         <Badge
           variant={isSuspicious ? "outline" : "warning"}
@@ -183,6 +214,29 @@ function AnomalyRow({ anomaly, systemId }: { anomaly: AnomalyDto; systemId: stri
           )}
           {deviationValue}σ
         </Badge>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+          disabled={isToggling}
+          title={
+            isMuted
+              ? "Unmute notifications for this field"
+              : "Mute notifications for this field"
+          }
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onToggleMute(anomaly.fieldPath, isMuted);
+          }}
+        >
+          {isMuted ? (
+            <BellOff className="h-3.5 w-3.5" />
+          ) : (
+            <Bell className="h-3.5 w-3.5" />
+          )}
+        </Button>
         <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
       </div>
     </Link>
@@ -195,6 +249,7 @@ function AnomalyRow({ anomaly, systemId }: { anomaly: AnomalyDto; systemId: stri
 
 export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
   const anomalyClient = usePluginClient(AnomalyApi);
+  const toast = useToast();
 
   // Fetch only active anomalies — exclude recovered ones.
   // Two queries with React Query deduplication: confirmed anomalies + suspicious.
@@ -209,6 +264,44 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
       { systemId: system.id, state: "suspicious", limit: 10 },
       { staleTime: 30_000 },
     );
+
+  const { data: mutes = [], refetch: refetchMutes } =
+    anomalyClient.listAnomalyNotificationMutes.useQuery(
+      { systemId: system.id },
+      { staleTime: 30_000 },
+    );
+
+  const mutedFields = React.useMemo(
+    () => new Set(mutes.map((m) => m.fieldPath)),
+    [mutes],
+  );
+  const isSystemMuted = mutedFields.has("");
+
+  const muteMutation = anomalyClient.muteAnomalyNotification.useMutation({
+    onSuccess: () => {
+      void refetchMutes();
+    },
+    onError: () => {
+      toast.error("Failed to mute notifications");
+    },
+  });
+
+  const unmuteMutation = anomalyClient.unmuteAnomalyNotification.useMutation({
+    onSuccess: () => {
+      void refetchMutes();
+    },
+    onError: () => {
+      toast.error("Failed to unmute notifications");
+    },
+  });
+
+  const handleToggleMute = (fieldPath: string, currentlyMuted: boolean) => {
+    if (currentlyMuted) {
+      unmuteMutation.mutate({ systemId: system.id, fieldPath });
+    } else {
+      muteMutation.mutate({ systemId: system.id, fieldPath });
+    }
+  };
 
   const isLoading = loadingConfirmed || loadingSuspicious;
 
@@ -240,6 +333,8 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
   const confirmedCount = confirmedAnomalies.length;
   const suspiciousCount = suspiciousAnomalies.length;
 
+  const isToggling = muteMutation.isPending || unmuteMutation.isPending;
+
   return (
     <Card>
       <CardHeader>
@@ -264,6 +359,31 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
                 {suspiciousCount}
               </Badge>
             )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[11px] gap-1"
+              disabled={isToggling}
+              title={
+                isSystemMuted
+                  ? "Resume anomaly notifications for this system"
+                  : "Stop receiving any anomaly notifications for this system"
+              }
+              onClick={() => handleToggleMute("", isSystemMuted)}
+            >
+              {isSystemMuted ? (
+                <>
+                  <BellOff className="h-3 w-3" />
+                  Muted
+                </>
+              ) : (
+                <>
+                  <Bell className="h-3 w-3" />
+                  Mute all
+                </>
+              )}
+            </Button>
           </div>
         </div>
       </CardHeader>
@@ -274,6 +394,9 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
               key={anomaly.id}
               anomaly={anomaly}
               systemId={system.id}
+              isMuted={isSystemMuted || mutedFields.has(anomaly.fieldPath)}
+              onToggleMute={handleToggleMute}
+              isToggling={isToggling}
             />
           ))}
         </div>

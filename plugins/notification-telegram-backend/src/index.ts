@@ -148,6 +148,31 @@ const telegramStrategy: NotificationStrategy<
         messageText += `\n\n${messageBody}`;
       }
 
+      // Append the affected subjects as a markdown bullet list. Telegram
+      // renders [name](url) when subjects have URLs; status maps to a
+      // colored circle prefix.
+      const subjects = notification.subjects ?? [];
+      if (subjects.length > 0) {
+        const statusEmoji = {
+          healthy: "🟢",
+          degraded: "🟡",
+          unhealthy: "🔴",
+          unknown: "⚪",
+        } as const;
+        const subjectLines = subjects.map((subject) => {
+          const prefix = subject.status ? `${statusEmoji[subject.status]} ` : "• ";
+          const namePart = subject.url
+            ? `[${subject.name}](${subject.url})`
+            : subject.name;
+          return `${prefix}${namePart}`;
+        });
+        const subjectsBlock = telegramifyMarkdown(
+          `**Affected:**\n${subjectLines.join("\n")}`,
+          "escape",
+        );
+        messageText += `\n\n${subjectsBlock}`;
+      }
+
       // Build inline keyboard for action button
       const actionUrl = notification.action?.url;
 

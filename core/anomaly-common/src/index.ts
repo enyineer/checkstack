@@ -6,6 +6,7 @@ export * from "./engine/drift";
 export * from "./access";
 export * from "./rpc-contract";
 export * from "./plugin-metadata";
+export * from "./notifications";
 
 import { createSignal } from "@checkstack/signal-common";
 import { z } from "zod";

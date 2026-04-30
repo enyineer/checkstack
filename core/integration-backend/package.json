@@ -30,6 +30,7 @@
     "@checkstack/tsconfig": "workspace:*",
     "@checkstack/test-utils-backend": "workspace:*",
     "@types/node": "^20.0.0",
+    "drizzle-kit": "^0.31.10",
     "typescript": "^5.0.0"
   }
 }

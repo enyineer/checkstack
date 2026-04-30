@@ -8,6 +8,8 @@ import {
   timestamp,
   doublePrecision,
   unique,
+  index,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 export const anomalyStateEnum = pgEnum("anomaly_state", [
@@ -85,3 +87,27 @@ export const anomalyAssignments = pgTable("anomaly_assignments", {
 }, (t) => ({
   pk: unique("anomaly_assignments_pk").on(t.systemId, t.configurationId),
 }));
+
+/**
+ * Per-user mute records for anomaly notifications. A row's existence means
+ * the user has muted notifications for that (system, fieldPath) pair.
+ *
+ * Empty fieldPath ("") represents a system-wide mute — anomaly notifications
+ * for the entire system are suppressed for that user. We collapse the two
+ * granularities into one table so dispatch can answer "is this user muted?"
+ * with a single index lookup instead of two queries.
+ */
+export const anomalyNotificationMutes = pgTable(
+  "anomaly_notification_mutes",
+  {
+    userId: text("user_id").notNull(),
+    systemId: text("system_id").notNull(),
+    fieldPath: text("field_path").notNull(),
+    mutedAt: timestamp("muted_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.systemId, t.fieldPath] }),
+    userIdx: index("anomaly_notification_mutes_user_idx").on(t.userId),
+    systemIdx: index("anomaly_notification_mutes_system_idx").on(t.systemId),
+  }),
+);

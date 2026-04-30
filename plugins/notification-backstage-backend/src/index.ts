@@ -187,10 +187,23 @@ const backstageStrategy: NotificationStrategy<
       };
     }
 
-    // Build the notification payload
-    const description = notification.body
+    // Build the notification payload. Backstage's notifications plugin only
+    // accepts a single description string and a single link, so subjects
+    // are appended to the description as a bulleted list — names hyperlink
+    // when URLs are present.
+    let description = notification.body
       ? markdownToPlainText(notification.body)
       : undefined;
+    const subjects = notification.subjects ?? [];
+    if (subjects.length > 0) {
+      const lines = subjects.map((subject) =>
+        subject.url
+          ? `- [${subject.name}](${subject.url})`
+          : `- ${subject.name}`,
+      );
+      const block = `**Affected:**\n${lines.join("\n")}`;
+      description = description ? `${description}\n\n${block}` : block;
+    }
 
     const payload = {
       recipients: {

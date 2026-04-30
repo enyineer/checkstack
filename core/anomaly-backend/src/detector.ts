@@ -11,6 +11,7 @@ import {
 } from "@checkstack/anomaly-common";
 import type { Logger } from "@checkstack/backend-api";
 import type { CatalogApi } from "@checkstack/catalog-common";
+import type { NotificationApi } from "@checkstack/notification-common";
 import type { InferClient } from "@checkstack/common";
 import { AnomalyService } from "./service";
 import type { AnomalySettings, AnomalyDirection } from "@checkstack/anomaly-common";
@@ -38,6 +39,7 @@ export async function processCheckCompleted({
   routerCache,
   logger,
   catalogClient,
+  notificationClient,
   signalService,
   collectorRegistry,
 }: {
@@ -54,6 +56,7 @@ export async function processCheckCompleted({
   };
   logger: Logger;
   catalogClient: InferClient<typeof CatalogApi>;
+  notificationClient: InferClient<typeof NotificationApi>;
   signalService?: SignalService;
   collectorRegistry: CollectorRegistry;
 }) {
@@ -295,6 +298,8 @@ export async function processCheckCompleted({
             observedValue: value,
             baselineMean: baseline.mean,
             catalogClient,
+            notificationClient,
+            db,
             logger,
           });
         } else {
@@ -352,6 +357,8 @@ export async function processCheckCompleted({
             observedValue: value,
             baselineMean: baseline.mean,
             catalogClient,
+            notificationClient,
+            db,
             logger,
           });
         }

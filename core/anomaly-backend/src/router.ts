@@ -1,8 +1,13 @@
 import { implement } from "@orpc/server";
 import { anomalyContract } from "@checkstack/anomaly-common";
 import type { AnomalyService } from "./service";
-import type { Logger } from "@checkstack/backend-api";
-import type { VersionedRecord } from "@checkstack/backend-api";
+import {
+  autoAuthMiddleware,
+  type Logger,
+  type RealUser,
+  type RpcContext,
+  type VersionedRecord,
+} from "@checkstack/backend-api";
 import type { AnomalySettings } from "@checkstack/anomaly-common";
 import type { AnomalyRouterCache } from "./router-cache";
 
@@ -11,7 +16,9 @@ export function createRouter(
   logger: Logger,
   cache: AnomalyRouterCache,
 ) {
-  const os = implement(anomalyContract);
+  const os = implement(anomalyContract)
+    .$context<RpcContext>()
+    .use(autoAuthMiddleware);
 
   return os.router({
     getAnomalies: os.getAnomalies.handler(
@@ -69,6 +76,37 @@ export function createRouter(
         ]);
         return result as VersionedRecord<Partial<AnomalySettings>>;
       }
+    ),
+
+    listAnomalyNotificationMutes: os.listAnomalyNotificationMutes.handler(
+      async ({ input, context }) => {
+        const userId = (context.user as RealUser).id;
+        return service.listMutes({ userId, systemId: input.systemId });
+      },
+    ),
+
+    muteAnomalyNotification: os.muteAnomalyNotification.handler(
+      async ({ input, context }) => {
+        const userId = (context.user as RealUser).id;
+        await service.addMute({
+          userId,
+          systemId: input.systemId,
+          fieldPath: input.fieldPath,
+        });
+        return { success: true };
+      },
+    ),
+
+    unmuteAnomalyNotification: os.unmuteAnomalyNotification.handler(
+      async ({ input, context }) => {
+        const userId = (context.user as RealUser).id;
+        await service.removeMute({
+          userId,
+          systemId: input.systemId,
+          fieldPath: input.fieldPath,
+        });
+        return { success: true };
+      },
     ),
   });
 }

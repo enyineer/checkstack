@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -8,7 +8,10 @@ import path from "node:path";
  * section of the package.json, and not in 'devDependencies'.
  */
 
-// Cache for package.json contents to avoid redundant disk reads
+// Cache for package.json contents to avoid redundant disk reads.
+// Keyed by absolute path; entries hold the parsed data plus the mtime they
+// were read at, so we invalidate after `bun install` rewrites package.json
+// without requiring an ESLint server restart in the IDE.
 const packageJsonCache = new Map();
 
 /**
@@ -58,6 +61,7 @@ export const noExtraneousRuntimeDeps = {
     messages: {
       extraneousDep: "Module '{{packageName}}' is a runtime dependency but is listed in devDependencies. Move it to dependencies.",
       missingDep: "Module '{{packageName}}' is a runtime dependency but is missing from package.json dependencies.",
+      missingTypeDep: "Module '{{packageName}}' is imported for types but is missing from package.json dependencies/peerDependencies/devDependencies. Add it so TypeScript can resolve it on a clean install.",
     },
     schema: [],
   },
@@ -79,12 +83,20 @@ export const noExtraneousRuntimeDeps = {
       return {};
     }
 
-    let pkgData = packageJsonCache.get(pkgJsonPath);
+    let mtimeMs;
+    try {
+      mtimeMs = statSync(pkgJsonPath).mtimeMs;
+    } catch {
+      return {};
+    }
+
+    const cached = packageJsonCache.get(pkgJsonPath);
+    let pkgData = cached && cached.mtimeMs === mtimeMs ? cached.data : undefined;
     if (!pkgData) {
       try {
         const content = readFileSync(pkgJsonPath, "utf8");
         pkgData = JSON.parse(content);
-        packageJsonCache.set(pkgJsonPath, pkgData);
+        packageJsonCache.set(pkgJsonPath, { data: pkgData, mtimeMs });
       } catch {
         return {};
       }
@@ -102,8 +114,9 @@ export const noExtraneousRuntimeDeps = {
     /**
      * @param {import('eslint').Rule.Node} node
      * @param {string} packageName
+     * @param {{ typeOnly?: boolean }} [options]
      */
-    const validatePackage = (node, packageName) => {
+    const validatePackage = (node, packageName, options = {}) => {
       // Ignore type-only packages and @types/*
       if (packageName.startsWith("@types/") || packageName.startsWith("node:")) {
         return;
@@ -116,6 +129,25 @@ export const noExtraneousRuntimeDeps = {
       ];
 
       if (builtins.includes(packageName)) {
+        return;
+      }
+
+      const { typeOnly = false } = options;
+
+      if (typeOnly) {
+        // Type-only imports must still be resolvable by tsc. Allow any of
+        // dependencies / peerDependencies / devDependencies, but flag if missing entirely.
+        if (
+          !dependencies[packageName] &&
+          !peerDependencies[packageName] &&
+          !devDependencies[packageName]
+        ) {
+          context.report({
+            node,
+            messageId: "missingTypeDep",
+            data: { packageName },
+          });
+        }
         return;
       }
 
@@ -141,18 +173,12 @@ export const noExtraneousRuntimeDeps = {
 
         if (!packageName) return;
 
-        // Ignore type-only imports
-        if (node.importKind === "type") {
-          return;
-        }
+        const isTypeOnlyImport =
+          node.importKind === "type" ||
+          (node.specifiers.length > 0 &&
+            node.specifiers.every(s => s.importKind === "type"));
 
-        // Also check if individual specifiers are types (for mixed imports)
-        const hasNonTypeSpecifiers = node.specifiers.some(s => s.importKind !== "type");
-        if (!hasNonTypeSpecifiers && node.specifiers.length > 0) {
-          return;
-        }
-
-        validatePackage(node, packageName);
+        validatePackage(node, packageName, { typeOnly: isTypeOnlyImport });
       },
       
       CallExpression(node) {

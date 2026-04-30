@@ -1,18 +1,24 @@
 import { definePluginMetadata } from "@checkstack/common";
 import { FrontendPlugin, createSlotExtension } from "@checkstack/frontend-api";
-import { 
-  AssignmentIDENodeSlot, 
-  AssignmentIDEPanelSlot, 
+import {
+  AssignmentIDENodeSlot,
+  AssignmentIDEPanelSlot,
   HealthCheckConfigIDENodeSlot,
   HealthCheckConfigIDEPanelSlot,
   type AssignmentIDEContext,
   type HealthCheckConfigIDEContext
 } from "@checkstack/healthcheck-frontend";
-import { SystemStateBadgesSlot, SystemDetailsSlot } from "@checkstack/catalog-common";
+import {
+  SystemStateBadgesSlot,
+  SystemDetailsSlot,
+} from "@checkstack/catalog-common";
+import { registerSubscriptionSubControls } from "@checkstack/notification-frontend";
+import { anomalySystemSubscription } from "@checkstack/anomaly-common";
 import { AnomalyConfigPanel } from "./components/AnomalyConfigPanel";
 import { AnomalyTemplatePanel } from "./components/AnomalyTemplatePanel";
 import { SystemAnomalyBadge } from "./components/SystemAnomalyBadge";
 import { SystemAnomalyWidget } from "./components/SystemAnomalyWidget";
+import { AnomalyFieldMuteList } from "./components/AnomalyFieldMuteList";
 import { IDETreeNode } from "@checkstack/ui";
 import { Activity } from "lucide-react";
 
@@ -76,3 +82,13 @@ export const plugin: FrontendPlugin = {
     }),
   ],
 };
+
+// Sub-control panel for the per-system anomaly subscription — registered
+// once at module load so the notification dialog renders the per-field
+// mute list inline below the row when the user expands it. The dialog
+// itself is driven by the backend spec registry; no slot extension to
+// declare here.
+registerSubscriptionSubControls(
+  anomalySystemSubscription,
+  AnomalyFieldMuteList,
+);

@@ -651,22 +651,12 @@ export default createBackendPlugin({
               disableSignUp: !registrationAllowed,
               minPasswordLength: 8,
               maxPasswordLength: 128,
-              sendResetPassword: async ({ user, url }) => {
+              sendResetPassword: async ({ user, token }) => {
                 // Send password reset notification via all enabled strategies
                 // Using void to prevent timing attacks revealing email existence
                 const notificationClient = rpcClient.forPlugin(NotificationApi);
-                const frontendUrl = baseUrl;
-                // SECURITY: Use URL parsing instead of brittle string splitting
-                const parsedUrl = new URL(url);
-                const resetToken = parsedUrl.searchParams.get("token");
-                if (!resetToken) {
-                  throw new APIError("BAD_REQUEST", {
-                    message:
-                      "Malformed password reset URL: missing token parameter",
-                  });
-                }
-                const resetUrl = `${frontendUrl}/auth/reset-password?token=${encodeURIComponent(
-                  resetToken,
+                const resetUrl = `${baseUrl}/auth/reset-password?token=${encodeURIComponent(
+                  token,
                 )}`;
 
                 void notificationClient.sendTransactional({

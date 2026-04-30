@@ -13,6 +13,29 @@ import { NotificationsPage } from "./pages/NotificationsPage";
 import { NotificationSettingsPage } from "./pages/NotificationSettingsPage";
 import { NotificationUserMenuItems } from "./components/UserMenuItems";
 
+// Plugin-extensible kind registry — domain frontends call `registerSubjectKind`
+// at module load to bind their kinds (e.g., "catalog.system") to icon + label.
+export {
+  registerSubjectKind,
+  getSubjectKindRenderer,
+} from "./components/SubjectKindRegistry";
+export type { SubjectKindRenderer } from "./components/SubjectKindRegistry";
+export { NotificationSubjects } from "./components/NotificationSubjects";
+export {
+  SubscriptionRow,
+  type SubscriptionRowProps,
+  type ResolvedInheritance,
+} from "./components/SubscriptionRow";
+export {
+  NotificationSubscriptionsManager,
+  type NotificationSubscriptionsManagerProps,
+} from "./components/NotificationSubscriptionsManager";
+export {
+  registerSubscriptionSubControls,
+  getSubscriptionSubControls,
+  type SubscriptionSubControlsComponent,
+} from "./components/SubscriptionSubControlsRegistry";
+
 export const notificationPlugin = createFrontendPlugin({
   metadata: pluginMetadata,
   routes: [

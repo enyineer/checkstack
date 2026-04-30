@@ -26,6 +26,7 @@ export {
 } from "./schemas";
 export { IncidentDetailsSlot, IncidentStatusSlot } from "./slots";
 export * from "./plugin-metadata";
+export * from "./notifications";
 export { incidentRoutes } from "./routes";
 
 // =============================================================================

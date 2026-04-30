@@ -4,6 +4,8 @@ import {
   dependencyAccessRules,
   pluginMetadata,
   dependencyContract,
+  dependencySystemSubscription,
+  dependencyGroupSubscription,
 } from "@checkstack/dependency-common";
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
 import { DependencyService } from "./services/dependency-service";
@@ -27,6 +29,10 @@ export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
     env.registerAccessRules(dependencyAccessRules);
+    env.registerSubscriptionSpecs([
+      dependencySystemSubscription,
+      dependencyGroupSubscription,
+    ]);
 
     env.registerInit({
       schema,

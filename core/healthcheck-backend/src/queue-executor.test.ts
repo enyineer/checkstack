@@ -189,6 +189,9 @@ describe("Queue-Based Health Check Executor", () => {
         catalogClient: mockCatalogClient as unknown as Parameters<
           typeof setupHealthCheckWorker
         >[0]["catalogClient"],
+        notificationClient: { notifyForSubscription: () => Promise.resolve({ notifiedCount: 0 }) } as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["notificationClient"],
         maintenanceClient: mockMaintenanceClient as unknown as Parameters<
           typeof setupHealthCheckWorker
         >[0]["maintenanceClient"],
@@ -383,6 +386,9 @@ describe("Queue-Based Health Check Executor", () => {
         catalogClient: mockCatalogClient as unknown as Parameters<
           typeof setupHealthCheckWorker
         >[0]["catalogClient"],
+        notificationClient: { notifyForSubscription: () => Promise.resolve({ notifiedCount: 0 }) } as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["notificationClient"],
         maintenanceClient: mockMaintenanceClient as unknown as Parameters<
           typeof setupHealthCheckWorker
         >[0]["maintenanceClient"],

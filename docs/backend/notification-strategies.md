@@ -189,6 +189,167 @@ export default createBackendPlugin({
 });
 ```
 
+## Notification Bulking and Subjects
+
+A single backend event often affects many entities (e.g., an incident affecting three systems, a maintenance covering multiple services, a shared healthcheck failing across systems). Without coordination, each affected entity yields one notification per subscribed user — the same message arriving 3× in the bell and 3× by email.
+
+The notification system supports two complementary forms of de-duplication:
+
+1. **Subject bulking** — one notification per recipient that lists every affected entity as a structured `subjects` array.
+2. **Collapse keys** — multiple notifications sharing a `collapseKey` collapse into one card on the recipient's bell, with a `+N updates` chevron that expands to a chronological timeline.
+
+Both are optional fields on every `notify*` RPC and on the `NotificationPayload` delivered to strategies.
+
+### NotificationSubject
+
+```typescript
+import type { NotificationSubject } from "@checkstack/notification-common";
+
+interface NotificationSubject {
+  /** Plugin-namespaced discriminator: "<pluginId>.<localKind>" */
+  kind: string;
+  /** Stable identifier within its kind */
+  id: string;
+  /** Human-readable display name */
+  name: string;
+  /** Optional deep link */
+  url?: string;
+  /** Optional health/status hint — drives the chip's status dot */
+  status?: "healthy" | "unhealthy" | "degraded" | "unknown";
+}
+```
+
+`kind` MUST be namespaced as `<pluginId>.<localKind>`. The schema rejects values that don't match this pattern. The frontend uses `kind` to look up an icon and label from the plugin-extensible **subject-kind registry**; unknown kinds fall back to a generic chip.
+
+### CollapseKey
+
+A free-form string; convention is `<pluginId>.<localKind>.<entityId>`. Notifications with the same `(userId, collapseKey)` collapse into a single card on the recipient's notification bell and notifications page. The newest entry is shown as the representative; older entries sit behind a `+N updates` chevron.
+
+### Building subjects and collapse keys
+
+To prevent kind/key clashes across plugins, never construct these strings by hand. Each domain's `*-common` package exports type-safe builders bound to its own `pluginMetadata`.
+
+```typescript
+// In catalog-common
+import { createSubjectKindBuilder } from "@checkstack/notification-common";
+import { pluginMetadata } from "./plugin-metadata";
+
+export const createSystemSubject = createSubjectKindBuilder(
+  pluginMetadata,
+  "system",
+);
+export const createGroupSubject = createSubjectKindBuilder(
+  pluginMetadata,
+  "group",
+);
+```
+
+```typescript
+// In incident-common
+import { createCollapseKeyBuilder } from "@checkstack/notification-common";
+import { pluginMetadata } from "./plugin-metadata";
+
+export const incidentCollapseKey = createCollapseKeyBuilder(
+  pluginMetadata,
+  "incident",
+);
+```
+
+The builders bind the plugin id at module load, so renaming a plugin updates every produced kind/key automatically.
+
+#### Built-in helpers
+
+| Package | Helper | Output |
+|---------|--------|--------|
+| `@checkstack/catalog-common` | `createSystemSubject` | `kind: "catalog.system"` |
+| `@checkstack/catalog-common` | `createGroupSubject` | `kind: "catalog.group"` |
+| `@checkstack/incident-common` | `incidentCollapseKey(id)` | `"incident.incident.<id>"` |
+| `@checkstack/maintenance-common` | `maintenanceCollapseKey(id)` | `"maintenance.maintenance.<id>"` |
+| `@checkstack/anomaly-common` | `anomalyCollapseKey(systemId, fieldPath)` | `"anomaly.anomaly.<sys>.<field>"` |
+| `@checkstack/healthcheck-common` | `systemHealthCollapseKey(systemId)` | `"healthcheck.system-health.<sys>"` |
+| `@checkstack/dependency-common` | `dependencyUpstreamCollapseKey(upstreamId)` | `"dependency.upstream.<id>"` |
+
+### Catalog RPC: `notifyManySystemSubscribers`
+
+For events that affect **multiple systems at once**, route through the new `notifyManySystemSubscribers` procedure on `catalog-common`. It deduplicates subscribers across all referenced systems (and their groups) and emits a single notification per recipient.
+
+```typescript
+import { catalogClient } from "...";
+import {
+  catalogRoutes,
+  createSystemSubject,
+} from "@checkstack/catalog-common";
+import {
+  incidentRoutes,
+  incidentCollapseKey,
+} from "@checkstack/incident-common";
+import { resolveRoute } from "@checkstack/common";
+
+const subjects = affectedSystemIds.map((systemId) =>
+  createSystemSubject({
+    id: systemId,
+    name: systemNames.get(systemId) ?? systemId,
+    url: resolveRoute(catalogRoutes.routes.systemDetail, { systemId }),
+  }),
+);
+
+await catalogClient.notifyManySystemSubscribers({
+  systemIds: affectedSystemIds,
+  title: `Incident reported: ${incidentTitle}`,
+  body: `Incident **"${incidentTitle}"** has been reported.`,
+  importance: "warning",
+  action: { label: "View Incident", url: incidentDetailPath },
+  includeGroupSubscribers: true,
+  collapseKey: incidentCollapseKey(incidentId),
+  subjects,
+});
+```
+
+The single-system `notifySystemSubscribers` and the lower-level `notifyUsers` / `notifyGroups` procedures all accept `collapseKey` and `subjects` too — use them when fan-out happens elsewhere.
+
+### Strategy obligation: render subjects natively
+
+`subjects` is part of `NotificationPayload`, so every strategy `send()` receives it. **Strategies MUST render subjects in their native format** rather than ignoring them — otherwise the recipient loses context about what was actually affected. Reference renderings:
+
+| Strategy | Native rendering |
+|----------|------------------|
+| SMTP (`wrapInEmailLayout`) | Card section under the body, one row per subject with status dot + name link |
+| Slack | Divider + `section` block with markdown bullet list (status emoji + linked names) |
+| Discord | Embed `field` named "Affected" with a markdown bullet list |
+| Teams | `FactSet` adaptive-card element below the body |
+| Telegram | Markdown bullet list block, status emoji prefix when present |
+| Pushover | HTML `<ul>` (Pushover's `html: 1` flag) |
+| Gotify / Webex / Backstage | Plain-text or markdown bullet list appended to the body |
+
+The fallback for text-only channels is `Affected:\n• Name (url)\n…` — never silent omission.
+
+### Frontend kind registry
+
+The notification frontend renders subjects as compact chips (`<NotificationSubjects>`). Each chip shows a kind-appropriate icon, name, and optional status dot. To bind icons + labels, plugins call `registerSubjectKind` at module load (typically from each `*-frontend` package's plugin entry point):
+
+```typescript
+import { Server, FolderTree } from "lucide-react";
+import { registerSubjectKind } from "@checkstack/notification-frontend";
+import { pluginMetadata } from "@checkstack/catalog-common";
+
+registerSubjectKind(`${pluginMetadata.pluginId}.system`, {
+  label: "System",
+  icon: Server,
+});
+registerSubjectKind(`${pluginMetadata.pluginId}.group`, {
+  label: "Group",
+  icon: FolderTree,
+});
+```
+
+Unknown kinds (e.g., emitted by a plugin not loaded in the current bundle) fall back to a generic chip with the subject's `name` — they never break rendering.
+
+### Collapse + expand on the frontend
+
+`NotificationBell` and `NotificationsPage` group rendered notifications by `collapseKey`, pick the newest entry as the representative, and show a `+N updates` chevron when more than one notification shares the key. Clicking the chevron toggles a `<CollapsedGroupTimeline>` showing every older entry (relative time + title + body excerpt) in chronological order. "Mark as read" / "Delete" actions on a collapsed group apply to every notification in the group.
+
+Notifications without a `collapseKey` render as singletons (their `id` doubles as the group key internally).
+
 ## Semantic Notification Body
 
 Notifications use **semantic Markdown content** that strategies convert to their native format. This ensures content is authored once and renders appropriately across all channels.
@@ -197,13 +358,27 @@ Notifications use **semantic Markdown content** that strategies convert to their
 
 ```typescript
 // Plugin sending a notification
+import { createSystemSubject } from "@checkstack/catalog-common";
+import { systemHealthCollapseKey } from "@checkstack/healthcheck-common";
+
 await notificationApi.notifyUsers({
   userIds: ["user-1"],
   notification: {
     title: "Health Check Failed",
-    body: "**System:** api-server\n\nThe system is now in **degraded** state.\n\n[View Details](https://...)",
+    body: "**System:** api-server\n\nThe system is now in **degraded** state.",
     importance: "critical",
     action: { label: "View Dashboard", url: "https://..." },
+    // Older states for the same system collapse into one card.
+    collapseKey: systemHealthCollapseKey("api-server"),
+    // Renders as a chip in-app and a native rich element per strategy.
+    subjects: [
+      createSystemSubject({
+        id: "api-server",
+        name: "API Server",
+        url: "https://...",
+        status: "degraded",
+      }),
+    ],
     type: "healthcheck.alert",
   },
 });

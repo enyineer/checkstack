@@ -3,4 +3,7 @@ export * from "./access";
 export * from "./rpc-contract";
 export * from "./signals";
 export * from "./plugin-metadata";
+export * from "./builders";
+export * from "./targets";
+export * from "./subscriptions";
 export { notificationRoutes } from "./routes";

@@ -1,16 +1,21 @@
-import { CatalogApi } from "@checkstack/catalog-common";
+import {
+  CatalogApi,
+  catalogRoutes,
+  createSystemSubject,
+} from "@checkstack/catalog-common";
 import type { Logger } from "@checkstack/backend-api";
 import type { InferClient } from "@checkstack/common";
 import { resolveRoute } from "@checkstack/common";
-import { maintenanceRoutes } from "@checkstack/maintenance-common";
+import type { NotificationApi } from "@checkstack/notification-common";
+import {
+  maintenanceRoutes,
+  maintenanceCollapseKey,
+  maintenanceSystemSubscription,
+} from "@checkstack/maintenance-common";
 
-/**
- * Helper to notify subscribers of affected systems about a maintenance event.
- * Each system triggers a separate notification call, but within each call
- * the subscribers are deduplicated (system + its groups).
- */
 export async function notifyAffectedSystems(props: {
   catalogClient: InferClient<typeof CatalogApi>;
+  notificationClient: InferClient<typeof NotificationApi>;
   logger: Logger;
   maintenanceId: string;
   maintenanceTitle: string;
@@ -19,7 +24,7 @@ export async function notifyAffectedSystems(props: {
   action: "created" | "updated" | "started" | "completed";
 }): Promise<void> {
   const {
-    catalogClient,
+    notificationClient,
     logger,
     maintenanceId,
     maintenanceTitle,
@@ -27,6 +32,10 @@ export async function notifyAffectedSystems(props: {
     systemNames,
     action,
   } = props;
+  void props.catalogClient;
+
+  const uniqueSystemIds = [...new Set(systemIds)];
+  if (uniqueSystemIds.length === 0) return;
 
   const actionText = {
     created: "scheduled",
@@ -38,27 +47,29 @@ export async function notifyAffectedSystems(props: {
   const maintenanceDetailPath = resolveRoute(maintenanceRoutes.routes.detail, {
     maintenanceId,
   });
+  const subjects = uniqueSystemIds.map((systemId) =>
+    createSystemSubject({
+      id: systemId,
+      name: systemNames?.get(systemId) ?? systemId,
+      url: resolveRoute(catalogRoutes.routes.systemDetail, { systemId }),
+    }),
+  );
 
-  for (const systemId of systemIds) {
-    // Resolve system name from provided map, or fall back to systemId
-    const systemName = systemNames?.get(systemId) ?? systemId;
-
-    try {
-      await catalogClient.notifySystemSubscribers({
-        systemId,
-        title: `Maintenance ${actionText}: ${systemName}`,
-        body: `Maintenance **"${maintenanceTitle}"** has been ${actionText} for **${systemName}**.`,
-        importance: "info",
-        action: { label: "View Maintenance", url: maintenanceDetailPath },
-        includeGroupSubscribers: true,
-      });
-    } catch (error) {
-      // Log but don't fail the operation - notifications are best-effort
-      logger.warn(
-        `Failed to notify subscribers for system ${systemId}:`,
-        error,
-      );
-    }
+  try {
+    await notificationClient.notifyForSubscription({
+      specId: maintenanceSystemSubscription.specId,
+      resourceKeys: uniqueSystemIds,
+      title: `Maintenance ${actionText}: ${maintenanceTitle}`,
+      body: `Maintenance **"${maintenanceTitle}"** has been ${actionText}.`,
+      importance: "info",
+      action: { label: "View Maintenance", url: maintenanceDetailPath },
+      collapseKey: maintenanceCollapseKey(maintenanceId),
+      subjects,
+    });
+  } catch (error) {
+    logger.warn(
+      `Failed to notify subscribers for maintenance ${maintenanceId}:`,
+      error,
+    );
   }
 }
-

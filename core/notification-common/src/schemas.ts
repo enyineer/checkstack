@@ -11,6 +11,47 @@ export const NotificationActionSchema = z.object({
 });
 export type NotificationAction = z.infer<typeof NotificationActionSchema>;
 
+/**
+ * An entity affected by a notification (e.g., a system impacted by an
+ * incident, or a system on which a shared healthcheck is failing).
+ *
+ * Subjects render as chips in-app and as native rich elements per
+ * notification strategy (e.g., Slack section, Discord embed field, SMTP
+ * card). When a notification has no canonical parent CTA (`action` is
+ * null), the subjects' URLs are the user's only navigation path.
+ *
+ * `kind` is an open string so plugins can introduce their own subject
+ * types. To prevent clashes between plugins, kinds MUST be namespaced as
+ * `<pluginId>.<localKind>` (e.g., `catalog.system`, `incident.incident`,
+ * `healthcheck.healthcheck`). Frontend rendering metadata (icon, label)
+ * is provided via the plugin-extensible subject-kind registry in
+ * `@checkstack/notification-frontend`; unknown kinds fall back to a
+ * generic chip with the subject's `name`.
+ */
+const NAMESPACED_KIND_PATTERN = /^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_-]*$/;
+
+export const NotificationSubjectSchema = z.object({
+  /**
+   * Plugin-namespaced discriminator: `<pluginId>.<localKind>`.
+   * Plugins register icon/label for their kinds in the frontend registry.
+   */
+  kind: z.string().regex(NAMESPACED_KIND_PATTERN, {
+    message: "Subject kind must be namespaced as '<pluginId>.<localKind>'",
+  }),
+  /** Stable identifier for the subject within its kind. */
+  id: z.string(),
+  /** Human-readable display name. */
+  name: z.string(),
+  /** Optional deep link to the subject. Recipients without UI access (text channels) just show the name. */
+  url: z.string().optional(),
+  /**
+   * Optional health/status hint, used to color the chip and add an icon.
+   * Strategies that cannot render color simply ignore it.
+   */
+  status: z.enum(["healthy", "unhealthy", "degraded", "unknown"]).optional(),
+});
+export type NotificationSubject = z.infer<typeof NotificationSubjectSchema>;
+
 // Core notification schema
 export const NotificationSchema = z.object({
   id: z.string().uuid(),
@@ -22,7 +63,14 @@ export const NotificationSchema = z.object({
   action: NotificationActionSchema.optional(),
   importance: ImportanceSchema,
   isRead: z.boolean(),
-  groupId: z.string().optional(),
+  /**
+   * Collapse key shared by related notifications. Frontend collapses rows
+   * with the same (userId, collapseKey) into one card with a "+N updates"
+   * badge. Examples: "incident.<id>", "healthcheck.<id>".
+   */
+  collapseKey: z.string().optional(),
+  /** Affected entities (renders as chips / native rich elements). */
+  subjects: z.array(NotificationSubjectSchema).optional(),
   createdAt: z.coerce.date(),
 });
 export type Notification = z.infer<typeof NotificationSchema>;

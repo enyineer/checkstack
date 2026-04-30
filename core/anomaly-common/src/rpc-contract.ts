@@ -43,6 +43,20 @@ export const AnomalyBaselineDtoSchema = z.object({
 export type AnomalyBaselineDto = z.infer<typeof AnomalyBaselineDtoSchema>;
 
 /**
+ * A user-scoped mute on anomaly notifications. Empty `fieldPath` means the
+ * entire system is muted; non-empty means just that one field.
+ */
+export const AnomalyNotificationMuteDtoSchema = z.object({
+  systemId: z.string(),
+  fieldPath: z.string(),
+  mutedAt: z.string(),
+});
+
+export type AnomalyNotificationMuteDto = z.infer<
+  typeof AnomalyNotificationMuteDtoSchema
+>;
+
+/**
  * Schema for a VersionedRecord wrapper used in RPC transport.
  * Wraps the data with version metadata for backward-compatible schema evolution.
  */
@@ -148,6 +162,60 @@ export const anomalyContract = {
       config: PartialAnomalySettingsSchema,
     }))
     .output(VersionedPartialAnomalySettingsSchema),
+
+  /**
+   * List all anomaly-notification mutes belonging to the calling user.
+   * Optionally filterable by systemId (e.g. when rendering per-system mute
+   * controls inside a system detail view).
+   */
+  listAnomalyNotificationMutes: proc({
+    operationType: "query",
+    userType: "user",
+    access: [],
+  })
+    .input(
+      z.object({
+        systemId: z.string().optional(),
+      }),
+    )
+    .output(z.array(AnomalyNotificationMuteDtoSchema)),
+
+  /**
+   * Mute anomaly notifications for the calling user. Pass an empty
+   * `fieldPath` to mute the entire system; otherwise mutes only the
+   * specific field. Idempotent.
+   */
+  muteAnomalyNotification: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [],
+    instanceAccess: { idParam: "systemId" },
+  })
+    .input(
+      z.object({
+        systemId: z.string(),
+        fieldPath: z.string().default(""),
+      }),
+    )
+    .output(z.object({ success: z.boolean() })),
+
+  /**
+   * Remove a mute previously created via muteAnomalyNotification. No-op if
+   * no matching record exists.
+   */
+  unmuteAnomalyNotification: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [],
+    instanceAccess: { idParam: "systemId" },
+  })
+    .input(
+      z.object({
+        systemId: z.string(),
+        fieldPath: z.string().default(""),
+      }),
+    )
+    .output(z.object({ success: z.boolean() })),
 };
 
 export type AnomalyContract = typeof anomalyContract;

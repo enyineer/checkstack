@@ -18,6 +18,8 @@
     "@checkstack/dashboard-frontend": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",
     "@checkstack/incident-common": "workspace:*",
+    "@checkstack/notification-common": "workspace:*",
+    "@checkstack/notification-frontend": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
     "date-fns": "^4.1.0",

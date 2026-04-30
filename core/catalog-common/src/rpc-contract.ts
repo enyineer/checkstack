@@ -83,6 +83,21 @@ export const catalogContract = {
     access: [catalogAccess.group.read],
   }).output(z.array(GroupSchema)),
 
+  /**
+   * Returns the catalog groups a system belongs to. Used by host plugins
+   * (catalog) and emitting plugins (e.g. anomaly) to walk parent
+   * subscriptions and surface inheritance hints. Server-side join — no
+   * client-side filtering of `getGroups()` needed.
+   */
+  getSystemGroups: proc({
+    operationType: "query",
+    userType: "public",
+    access: [catalogAccess.system.read],
+    instanceAccess: { idParam: "systemId" },
+  })
+    .input(z.object({ systemId: z.string() }))
+    .output(z.array(GroupSchema)),
+
   // ==========================================================================
   // SYSTEM MANAGEMENT (userType: "authenticated" with manage access)
   // ==========================================================================
@@ -228,44 +243,6 @@ export const catalogContract = {
   // ==========================================================================
   // SERVICE INTERFACE (userType: "service" - backend-to-backend only)
   // ==========================================================================
-
-  /**
-   * Notify all users subscribed to a system (and optionally its groups).
-   * This is used by other plugins (e.g., maintenance) to send notifications
-   * to system subscribers without needing direct access to the notification service.
-   *
-   * Deduplication: If includeGroupSubscribers is true, subscribers are
-   * deduplicated so users subscribed to both the system AND its groups
-   * receive only one notification.
-   */
-  notifySystemSubscribers: proc({
-    operationType: "mutation",
-    userType: "service",
-    access: [], // Service-to-service, no access rules needed
-  })
-    .input(
-      z.object({
-        systemId: z
-          .string()
-          .describe("The system ID to notify subscribers for"),
-        title: z.string().describe("Notification title"),
-        body: z.string().describe("Notification body (supports markdown)"),
-        importance: z.enum(["info", "warning", "critical"]).optional(),
-        action: z
-          .object({
-            label: z.string(),
-            url: z.string(),
-          })
-          .optional(),
-        includeGroupSubscribers: z
-          .boolean()
-          .optional()
-          .describe(
-            "If true, also notify subscribers of groups that contain this system",
-          ),
-      }),
-    )
-    .output(z.object({ notifiedCount: z.number() })),
 
   /**
    * Get the catalog group IDs that contain a specific system.
