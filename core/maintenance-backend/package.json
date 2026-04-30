@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/maintenance-backend",
-  "version": "0.7.1",
+  "version": "1.0.0",
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {

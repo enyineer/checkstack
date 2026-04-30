@@ -1,5 +1,205 @@
 # @checkstack/notification-common
 
+## 1.0.0
+
+### Major Changes
+
+- 32d52c6: feat: notification target pattern + per-spec subscriptions
+
+  Replaces the all-or-nothing catalog system/group notification model with a
+  platform-level target pattern. Each notification-emitting plugin declares
+  _subscription specs_ against typed _target_ objects exported from the
+  target's owning plugin (catalog ships `catalogSystemTarget` and
+  `catalogGroupTarget`). Notification-backend handles every per-resource
+  group lifecycle, parent-edge inheritance, and legacy-subscription seeding
+  — plugins never author groupId helpers, lifecycle hooks, or migration
+  code again.
+
+  **Plugin-author surface area is now ~12 lines per emitter:**
+
+  ```ts
+  // <plugin>-common
+  const { defineSubscription } = createSubscriptionFactory(pluginMetadata);
+  export const fooSystemSubscription = defineSubscription({
+    localId: "system",
+    target: catalogSystemTarget,
+    display: { title: "Foo Alerts", description: "...", iconName: "Bell" },
+  });
+
+  // <plugin>-backend register()
+  env.registerSubscriptionSpecs([fooSystemSubscription]);
+  //   ^ feeds the plugin loader's dependency sorter — each spec's
+  //     target.ownerPlugin becomes an implicit init-order dep, so this
+  //     plugin automatically waits for catalog (the target owner) to
+  //     finish init + afterPluginsReady before its own runs.
+
+  // <plugin>-backend afterPluginsReady
+  await notificationClient.registerSubscriptionSpec(
+    specToRegistration(fooSystemSubscription)
+  );
+  // dispatch
+  await notificationClient.notifyForSubscription({
+    specId: fooSystemSubscription.specId,
+    resourceKeys: [systemId],
+    title,
+    body,
+    importance,
+    action,
+    collapseKey,
+    subjects,
+  });
+
+  // <plugin>-frontend
+  createNotificationSubscriptionExtension({ spec: fooSystemSubscription });
+  ```
+
+  **Migrated plugins**: anomaly, incident, maintenance, healthcheck,
+  dependency. Each lost its bespoke `notification-groups.ts`,
+  `bootstrap*NotificationGroups`, `ensure*Group`, and inheritance walk —
+  all of that is now centralized in notification-backend's
+  `subscription-engine`.
+
+  **Plugin loader change** (`@checkstack/backend-api`,
+  `@checkstack/backend`): the register-time API gains
+  `env.registerSubscriptionSpecs([...specs])`. The dependency sorter
+  walks `spec.target.ownerPlugin` for every declared spec and adds the
+  target owner as an init-order dependency of the emitting plugin. This
+  guarantees that catalog (the owner of the platform's `system` and
+  `group` targets) completes init + afterPluginsReady before any
+  emitting plugin tries to register its specs against the notification
+  service — no string-prefix heuristics, no manual `dependsOnPlugins`
+  list, no stub rows. Plugins that fail to declare their specs at
+  register time get a clear `Target type X is not registered. Did the
+emitting plugin declare this spec via env.registerSubscriptionSpecs?`
+  error from the dispatcher.
+
+  **Removed** (no backwards compat):
+
+  - `catalogClient.notifySystemSubscribers` and
+    `catalogClient.notifyManySystemSubscribers`
+  - `notificationClient.notifyUsers` and `notificationClient.notifyGroups`
+    as direct dispatch primitives — replaced by spec-bound
+    `notifyForSubscription`
+  - catalog's `bootstrapNotificationGroups` (replaced by
+    `bootstrapNotificationTargets`)
+
+  **Enforcement**: the dispatcher rejects calls referencing unregistered
+  specIds, specs owned by other plugins, or resourceKeys that haven't been
+  pushed via `upsertNotificationResource`. Display metadata for any
+  groupId is recoverable via the spec registry, so audit lists render
+  correct labels even when an emitter's frontend isn't loaded.
+
+  **Per-field anomaly mute** keeps working — it now lives inside the
+  generic SubscriptionRow's optional `SubControls` panel
+  (`AnomalyFieldMuteList`), exposed through the catalog system detail
+  page's notifications card.
+
+  The catalog system detail page renders a "Notifications" card hosting
+  `SystemNotificationSubscriptionsSlot`. The matching group surface is
+  not yet rendered — group-level subscriptions are wired end-to-end on
+  the backend; a follow-up will add the host UI.
+
+  **Migration of existing subscribers**: target types declare a
+  `legacyGroupIdTemplate`; on first registration of each spec,
+  notification-backend reads subscribers from the legacy
+  `catalog.system.<id>` / `catalog.group.<id>` groups and seeds the new
+  spec groups exactly once per (spec × resource) pair, tracked in
+  `subscription_migrations`. Anomaly stays opt-in (its target also
+  declares the template, but the user-explicit nature of the original
+  opt-in flow means the seeding produces the same set of subscribers
+  they already had).
+
+### Minor Changes
+
+- 32d52c6: feat(anomaly): per-system and per-field notification mute
+
+  Anomaly notifications now flow through their own subscription group
+  (`anomaly.system.<systemId>`) instead of the shared catalog system group, so
+  users can opt out of anomaly noise without losing incident or healthcheck
+  alerts for the same system. On first deploy, existing subscribers of each
+  `catalog.system.<id>` group are seeded onto the new anomaly group so no one
+  silently stops getting alerts.
+
+  A new mute table (`anomaly_notification_mutes`) backs two granularities:
+
+  - **Per-field**: silence a single noisy metric on one system.
+  - **Per-system**: silence every anomaly for one system in one click.
+
+  The system anomaly widget now exposes a bell icon on each anomaly row plus a
+  `Mute all` toggle in the card header. Mutes are user-scoped and persist
+  across sessions.
+
+  Catalog gains a `systemCreated` hook so anomaly (and any future plugin) can
+  provision per-system state on creation rather than waiting for a restart.
+  The notification service gains a `bulkSubscribe` service-RPC used by the
+  one-time migration described above.
+
+- 32d52c6: Bulk notifications affecting multiple systems and collapse lifecycle events into a single card.
+
+  Notifications now carry an optional `subjects` array (the entities they affect) and an optional `collapseKey` (so related notifications collapse into one row per recipient). Incidents, maintenances, anomalies, healthchecks, and dependency-impact events route through these new fields, so an incident affecting three systems produces one in-app notification + one external send per subscriber instead of three. Lifecycle updates for the same entity (created → updated → resolved) also collapse, with an expandable "+N updates" timeline.
+
+  Subject kinds are namespaced as `<pluginId>.<localKind>` and built via type-safe helpers exported from each domain's common package (`createSystemSubject`, `incidentCollapseKey`, etc.). The frontend kind registry (`registerSubjectKind`) lets plugins bind icon + label for their kinds; unknown kinds fall back to a generic chip.
+
+  All notification strategies (SMTP, Slack, Discord, Teams, Telegram, Pushover, Gotify, Webex, Backstage) render the affected subjects natively in their format (HTML cards, Slack blocks, Discord embed fields, adaptive cards, markdown lists, etc.).
+
+- 32d52c6: feat: unified notification-subscription manager dialog driven by spec registry
+
+  Replaces the bell-toggle UX (which only managed a single legacy
+  catalog group) with a modal that lists every notification type
+  registered against a target — system or group — and exposes both
+  per-type toggles and a bulk "Subscribe to all / Unsubscribe from all"
+  action. Both surfaces (system detail page header bell, dashboard group
+  header bell) now open the same `NotificationSubscriptionsManager`
+  component.
+
+  **Key change vs. the prior slot-based approach**: rows are now driven
+  by `notificationClient.listSubscriptionSpecs` — the backend's spec
+  registry is the single source of truth. Previously, a row only
+  appeared if a frontend plugin had remembered to register a
+  `createNotificationSubscriptionExtension`; this caused silent drift
+  (healthcheck and dependency registered backend specs without frontend
+  extensions, so the dialog counted them but never rendered rows). Now,
+  every spec the platform knows about renders a row using the spec's
+  `display` metadata (title, description, iconName resolved via
+  `DynamicIcon`).
+
+  **Sub-controls registry** (`@checkstack/notification-frontend`):
+  plugins that want sub-granularity (anomaly's per-field mute list,
+  future severity / channel filters) call
+  `registerSubscriptionSubControls(spec, Component)` at module load —
+  the manager looks the component up by `specId` when expanding a row.
+
+  **Removed (no compat)**:
+
+  - `createNotificationSubscriptionExtension` (replaced by the
+    spec-driven manager + the SubControls registry)
+  - `target.slot` field on `NotificationTarget` and the
+    `NotificationTargetInput.slot` parameter on
+    `defineNotificationTarget`
+  - `SystemNotificationSubscriptionsSlot` and
+    `GroupNotificationSubscriptionsSlot` from `@checkstack/catalog-common`
+  - `SystemNotificationsCard` from the system detail page's main column
+  - `SubscribeButton` wiring on dashboard group cards and the system
+    detail page header
+
+  **Migrated frontends**: anomaly (now registers `AnomalyFieldMuteList`
+  via the SubControls registry), incident, maintenance — all dropped
+  their `createNotificationSubscriptionExtension` calls. healthcheck and
+  dependency now show up automatically via the spec registry — no
+  frontend changes needed for them to render.
+
+  The trigger button reflects aggregate state — filled bell when at
+  least one spec is subscribed for the resource, ghost bell when none.
+
+### Patch Changes
+
+- 32d52c6: Fix and improve password reset flow + email branding:
+
+  - **Fix**: password reset emails were failing with "Malformed password reset URL: missing token parameter". Better-auth puts the reset token in the URL path (`/reset-password/{token}`), not as a `?token=` query param, so the previous URL-parsing logic always failed. Now uses the `token` argument better-auth passes to `sendResetPassword` directly.
+  - **UX**: the reset password page now validates the token on load via a new anonymous `validateResetToken` endpoint, so users see "Invalid Link" / "Link Expired" before typing a password rather than after submitting. Tokens are 24-char nanoid-style values (~143 bits of entropy), so exposing validity does not enable enumeration.
+  - **Fix**: transactional notifications were hardcoded to `importance: "critical"`, causing password reset emails to display a misleading "CRITICAL" badge. The `sendTransactional` contract now accepts an optional `importance` field that defaults to `"info"`.
+  - **Branding**: redesigned the email layout (`wrapInEmailLayout`) with a Checkstack-style engineering aesthetic — dark header with grid pattern, monospace importance badge, hardened CTA button (Outlook VML fallback + explicit text color), and force-light color scheme to prevent client auto-inversion from breaking text legibility.
+
 ## 0.3.0
 
 ### Minor Changes

@@ -1,5 +1,81 @@
 # @checkstack/dashboard-frontend
 
+## 0.6.0
+
+### Minor Changes
+
+- 32d52c6: feat: unified notification-subscription manager dialog driven by spec registry
+
+  Replaces the bell-toggle UX (which only managed a single legacy
+  catalog group) with a modal that lists every notification type
+  registered against a target — system or group — and exposes both
+  per-type toggles and a bulk "Subscribe to all / Unsubscribe from all"
+  action. Both surfaces (system detail page header bell, dashboard group
+  header bell) now open the same `NotificationSubscriptionsManager`
+  component.
+
+  **Key change vs. the prior slot-based approach**: rows are now driven
+  by `notificationClient.listSubscriptionSpecs` — the backend's spec
+  registry is the single source of truth. Previously, a row only
+  appeared if a frontend plugin had remembered to register a
+  `createNotificationSubscriptionExtension`; this caused silent drift
+  (healthcheck and dependency registered backend specs without frontend
+  extensions, so the dialog counted them but never rendered rows). Now,
+  every spec the platform knows about renders a row using the spec's
+  `display` metadata (title, description, iconName resolved via
+  `DynamicIcon`).
+
+  **Sub-controls registry** (`@checkstack/notification-frontend`):
+  plugins that want sub-granularity (anomaly's per-field mute list,
+  future severity / channel filters) call
+  `registerSubscriptionSubControls(spec, Component)` at module load —
+  the manager looks the component up by `specId` when expanding a row.
+
+  **Removed (no compat)**:
+
+  - `createNotificationSubscriptionExtension` (replaced by the
+    spec-driven manager + the SubControls registry)
+  - `target.slot` field on `NotificationTarget` and the
+    `NotificationTargetInput.slot` parameter on
+    `defineNotificationTarget`
+  - `SystemNotificationSubscriptionsSlot` and
+    `GroupNotificationSubscriptionsSlot` from `@checkstack/catalog-common`
+  - `SystemNotificationsCard` from the system detail page's main column
+  - `SubscribeButton` wiring on dashboard group cards and the system
+    detail page header
+
+  **Migrated frontends**: anomaly (now registers `AnomalyFieldMuteList`
+  via the SubControls registry), incident, maintenance — all dropped
+  their `createNotificationSubscriptionExtension` calls. healthcheck and
+  dependency now show up automatically via the spec registry — no
+  frontend changes needed for them to render.
+
+  The trigger button reflects aggregate state — filled bell when at
+  least one spec is subscribed for the resource, ghost bell when none.
+
+### Patch Changes
+
+- Updated dependencies [32d52c6]
+- Updated dependencies [32d52c6]
+- Updated dependencies [32d52c6]
+- Updated dependencies [32d52c6]
+- Updated dependencies [32d52c6]
+- Updated dependencies [32d52c6]
+- Updated dependencies [32d52c6]
+  - @checkstack/anomaly-common@1.0.0
+  - @checkstack/notification-common@1.0.0
+  - @checkstack/notification-frontend@0.3.0
+  - @checkstack/catalog-common@2.0.0
+  - @checkstack/catalog-frontend@0.9.0
+  - @checkstack/incident-common@1.0.0
+  - @checkstack/maintenance-common@1.0.0
+  - @checkstack/healthcheck-common@1.0.0
+  - @checkstack/frontend-api@0.4.1
+  - @checkstack/auth-frontend@0.5.32
+  - @checkstack/ui@1.7.0
+  - @checkstack/command-frontend@0.2.33
+  - @checkstack/queue-frontend@0.3.2
+
 ## 0.5.1
 
 ### Patch Changes

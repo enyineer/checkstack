@@ -1,5 +1,12 @@
 # @checkstack/slo-common
 
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [32d52c6]
+  - @checkstack/frontend-api@0.4.1
+
 ## 0.3.0
 
 ### Minor Changes

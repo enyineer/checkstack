@@ -1,5 +1,21 @@
 # @checkstack/dependency-frontend
 
+## 0.3.4
+
+### Patch Changes
+
+- Updated dependencies [32d52c6]
+- Updated dependencies [32d52c6]
+- Updated dependencies [32d52c6]
+- Updated dependencies [32d52c6]
+- Updated dependencies [32d52c6]
+  - @checkstack/catalog-common@2.0.0
+  - @checkstack/healthcheck-common@1.0.0
+  - @checkstack/dependency-common@1.0.0
+  - @checkstack/dashboard-frontend@0.6.0
+  - @checkstack/frontend-api@0.4.1
+  - @checkstack/ui@1.7.0
+
 ## 0.3.3
 
 ### Patch Changes

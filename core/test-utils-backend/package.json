@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/test-utils-backend",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "checkstack": {
     "type": "tooling"
   },
