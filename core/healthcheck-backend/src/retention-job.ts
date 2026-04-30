@@ -6,7 +6,7 @@ import {
   healthCheckAggregates,
   DEFAULT_RETENTION_CONFIG,
 } from "./schema";
-import { eq, and, lt } from "drizzle-orm";
+import { eq, and, lt, sql } from "drizzle-orm";
 import type { QueueManager } from "@checkstack/queue-api";
 
 type Db = SafeDatabase<typeof schema>;
@@ -228,23 +228,59 @@ async function rollupHourlyAggregates(params: RollupParams) {
     const p95LatencyMs =
       p95Values.length > 0 ? Math.max(...p95Values) : undefined;
 
-    // Insert daily aggregate
-    await db.insert(healthCheckAggregates).values({
-      configurationId,
-      systemId,
-      bucketStart: bucket.bucketStart,
-      bucketSize: "daily",
-      runCount,
-      healthyCount,
-      degradedCount,
-      unhealthyCount,
-      latencySumMs: latencySumMs > 0 ? latencySumMs : undefined,
-      avgLatencyMs,
-      minLatencyMs,
-      maxLatencyMs,
-      p95LatencyMs,
-      aggregatedResult: undefined, // Cannot combine result across hours
-    });
+    // Upsert the daily aggregate. A row may already exist for this
+    // (configurationId, systemId, day, daily, sourceId=null) tuple if a
+    // prior rollup ran and then late-arriving hourly buckets (e.g. from
+    // a satellite that was offline) were rolled up afterwards. Merge in
+    // that case rather than crashing — sums add, min/max/p95 fold.
+    const newLatencySum = latencySumMs > 0 ? latencySumMs : undefined;
+    await db
+      .insert(healthCheckAggregates)
+      .values({
+        configurationId,
+        systemId,
+        bucketStart: bucket.bucketStart,
+        bucketSize: "daily",
+        runCount,
+        healthyCount,
+        degradedCount,
+        unhealthyCount,
+        latencySumMs: newLatencySum,
+        avgLatencyMs,
+        minLatencyMs,
+        maxLatencyMs,
+        p95LatencyMs,
+        aggregatedResult: undefined, // Cannot combine result across hours
+      })
+      .onConflictDoUpdate({
+        target: [
+          healthCheckAggregates.configurationId,
+          healthCheckAggregates.systemId,
+          healthCheckAggregates.bucketStart,
+          healthCheckAggregates.bucketSize,
+          healthCheckAggregates.sourceId,
+        ],
+        set: {
+          runCount: sql`${healthCheckAggregates.runCount} + ${runCount}`,
+          healthyCount: sql`${healthCheckAggregates.healthyCount} + ${healthyCount}`,
+          degradedCount: sql`${healthCheckAggregates.degradedCount} + ${degradedCount}`,
+          unhealthyCount: sql`${healthCheckAggregates.unhealthyCount} + ${unhealthyCount}`,
+          latencySumMs: sql`COALESCE(${healthCheckAggregates.latencySumMs}, 0) + ${newLatencySum ?? 0}`,
+          avgLatencyMs: sql`CASE WHEN (${healthCheckAggregates.runCount} + ${runCount}) > 0 THEN (COALESCE(${healthCheckAggregates.latencySumMs}, 0) + ${newLatencySum ?? 0}) / (${healthCheckAggregates.runCount} + ${runCount}) ELSE ${healthCheckAggregates.avgLatencyMs} END`,
+          minLatencyMs:
+            minLatencyMs === undefined
+              ? sql`${healthCheckAggregates.minLatencyMs}`
+              : sql`LEAST(COALESCE(${healthCheckAggregates.minLatencyMs}, ${minLatencyMs}), ${minLatencyMs})`,
+          maxLatencyMs:
+            maxLatencyMs === undefined
+              ? sql`${healthCheckAggregates.maxLatencyMs}`
+              : sql`GREATEST(COALESCE(${healthCheckAggregates.maxLatencyMs}, ${maxLatencyMs}), ${maxLatencyMs})`,
+          p95LatencyMs:
+            p95LatencyMs === undefined
+              ? sql`${healthCheckAggregates.p95LatencyMs}`
+              : sql`GREATEST(COALESCE(${healthCheckAggregates.p95LatencyMs}, ${p95LatencyMs}), ${p95LatencyMs})`,
+        },
+      });
 
     // Delete processed hourly aggregates
     for (const hourly of bucket.aggregates) {
