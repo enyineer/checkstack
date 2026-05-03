@@ -1,5 +1,22 @@
 # @checkstack/frontend
 
+## 0.4.2
+
+### Patch Changes
+
+- e7f346c: fix: suggest a `BASE_URL` value derived from the URL the user actually opened on the misconfiguration error screen, instead of always recommending `http://localhost:3000`. Makes the diagnostic actionable when the app is reached over a LAN IP, custom port, or proxied domain.
+  - @checkstack/about-frontend@0.2.14
+  - @checkstack/announcement-frontend@0.2.15
+  - @checkstack/auth-frontend@0.5.32
+  - @checkstack/catalog-frontend@0.9.0
+  - @checkstack/command-frontend@0.2.33
+  - @checkstack/common@0.7.0
+  - @checkstack/dependency-frontend@0.3.4
+  - @checkstack/frontend-api@0.4.1
+  - @checkstack/signal-common@0.2.0
+  - @checkstack/signal-frontend@0.1.0
+  - @checkstack/ui@1.7.0
+
 ## 0.4.1
 
 ### Patch Changes

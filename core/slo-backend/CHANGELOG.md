@@ -1,5 +1,26 @@
 # @checkstack/slo-backend
 
+## 0.3.4
+
+### Patch Changes
+
+- Updated dependencies [302cd3f]
+  - @checkstack/backend-api@0.14.1
+  - @checkstack/cache-api@0.2.3
+  - @checkstack/catalog-backend@1.0.1
+  - @checkstack/command-backend@0.1.23
+  - @checkstack/healthcheck-backend@1.0.2
+  - @checkstack/integration-backend@0.1.23
+  - @checkstack/queue-api@0.2.17
+  - @checkstack/cache-utils@0.2.3
+  - @checkstack/catalog-common@2.0.0
+  - @checkstack/common@0.7.0
+  - @checkstack/dependency-common@1.0.0
+  - @checkstack/healthcheck-common@1.0.0
+  - @checkstack/integration-common@0.3.0
+  - @checkstack/signal-common@0.2.0
+  - @checkstack/slo-common@0.3.1
+
 ## 0.3.3
 
 ### Patch Changes

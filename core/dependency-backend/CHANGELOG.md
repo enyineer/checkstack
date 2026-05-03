@@ -1,5 +1,22 @@
 # @checkstack/dependency-backend
 
+## 1.0.2
+
+### Patch Changes
+
+- Updated dependencies [302cd3f]
+  - @checkstack/backend-api@0.14.1
+  - @checkstack/catalog-backend@1.0.1
+  - @checkstack/healthcheck-backend@1.0.2
+  - @checkstack/catalog-common@2.0.0
+  - @checkstack/common@0.7.0
+  - @checkstack/dependency-common@1.0.0
+  - @checkstack/healthcheck-common@1.0.0
+  - @checkstack/incident-common@1.0.0
+  - @checkstack/maintenance-common@1.0.0
+  - @checkstack/notification-common@1.0.0
+  - @checkstack/signal-common@0.2.0
+
 ## 1.0.1
 
 ### Patch Changes
