@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/dev-server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local Checkstack dev server for plugin authors. Spawns the platform backend with the cwd plugin loaded, runs Vite for the frontend, and reloads on save. Used as a devDependency in plugin repos (run via `bun run dev` → `checkstack-dev`).",
   "license": "Elastic-2.0",
   "type": "module",
@@ -33,8 +33,12 @@
     "@checkstack/frontend": "*"
   },
   "peerDependenciesMeta": {
-    "@checkstack/backend": { "optional": true },
-    "@checkstack/frontend": { "optional": true }
+    "@checkstack/backend": {
+      "optional": true
+    },
+    "@checkstack/frontend": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@checkstack/tsconfig": "workspace:*",
