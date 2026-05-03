@@ -170,7 +170,7 @@ jobs:
           format: table
           exit-code: "1"
           ignore-unfixed: true
-          severity: CRITICAL
+          severity: CRITICAL,HIGH
           output: /tmp/trivy-image.txt
 
       - name: Aggregate Security Output
