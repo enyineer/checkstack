@@ -1,5 +1,5 @@
 ---
-"checkstack-monorepo": patch
+"@checkstack/tsconfig": patch
 ---
 
 build: switch typecheck to tsgo with project references (~4× cold, ~200× warm)
