@@ -1,5 +1,12 @@
 # @checkstack/api-docs-common
 
+## 0.1.11
+
+### Patch Changes
+
+- Updated dependencies [50e5f5f]
+  - @checkstack/common@0.8.0
+
 ## 0.1.10
 
 ### Patch Changes

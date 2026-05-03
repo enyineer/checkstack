@@ -1,5 +1,14 @@
 # @checkstack/healthcheck-jenkins-backend
 
+## 0.3.15
+
+### Patch Changes
+
+- Updated dependencies [50e5f5f]
+  - @checkstack/backend-api@0.15.0
+  - @checkstack/common@0.8.0
+  - @checkstack/healthcheck-common@1.0.1
+
 ## 0.3.14
 
 ### Patch Changes

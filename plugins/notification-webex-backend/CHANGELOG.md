@@ -1,5 +1,14 @@
 # @checkstack/notification-webex-backend
 
+## 0.0.33
+
+### Patch Changes
+
+- Updated dependencies [50e5f5f]
+  - @checkstack/backend-api@0.15.0
+  - @checkstack/common@0.8.0
+  - @checkstack/notification-backend@1.0.2
+
 ## 0.0.32
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/queue-api",
-  "version": "0.2.17",
+  "version": "0.2.18",
   "license": "Elastic-2.0",
   "checkstack": {
     "type": "tooling"

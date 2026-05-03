@@ -1,5 +1,17 @@
 # @checkstack/announcement-frontend
 
+## 0.2.16
+
+### Patch Changes
+
+- Updated dependencies [50e5f5f]
+  - @checkstack/announcement-common@0.3.1
+  - @checkstack/common@0.8.0
+  - @checkstack/signal-frontend@0.1.1
+  - @checkstack/ui@1.7.1
+  - @checkstack/auth-frontend@0.5.33
+  - @checkstack/frontend-api@0.4.2
+
 ## 0.2.15
 
 ### Patch Changes
