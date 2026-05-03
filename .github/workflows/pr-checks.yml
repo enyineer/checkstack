@@ -157,23 +157,74 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Build Production Image
-        run: docker build -t checkstack-prod:latest .
+      # BuildKit-aware Docker setup so we can use the `gha` cache backend.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
+      # Build the production image WITH GitHub Actions layer cache. The
+      # Dockerfile's existing `--mount=type=cache` only persists within a
+      # single job; this caches the actual Docker layers across runs via
+      # GHA's cache, so unchanged layers (apk packages, bun install when
+      # bun.lock didn't change, frontend build when frontend didn't
+      # change) skip entirely.
+      - name: Build Production Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          tags: checkstack-prod:latest
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Trivy downloads its vuln DB (~150 MB) on every fresh runner. The
+      # DB is updated upstream every 6h, so we key the cache on the day
+      # to balance freshness and hit rate. Trivy itself negotiates a
+      # newer DB on miss, so a stale cache is never wrong — just slower
+      # for that one run.
+      - name: Cache Trivy DB
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
+      # Pinned trivy version (vs `:latest`) so the runner can reuse the
+      # image across runs from local cache and we get reproducible
+      # results.
       - name: Security Audit
         id: security
+        env:
+          TRIVY_IMAGE: ghcr.io/aquasecurity/trivy:0.70.0
+          TRIVY_CACHE_DIR: /root/.cache/trivy
         run: |
           set +e
           echo "🔎 Running Security Audit..." > /tmp/security-output.txt
-          
+
+          # Mount the runner's trivy cache into the container so a cache
+          # hit means an instant scan instead of a 150 MB DB download.
+          mkdir -p ~/.cache/trivy
+
           echo -e "\n📦 --- Filesystem Scan ---" >> /tmp/security-output.txt
-          docker run --rm -v $(pwd):/root ghcr.io/aquasecurity/trivy:latest fs --format table --exit-code 1 --ignore-unfixed --severity CRITICAL /root >> /tmp/security-output.txt
+          docker run --rm \
+            -v "$(pwd):/root" \
+            -v "$HOME/.cache/trivy:$TRIVY_CACHE_DIR" \
+            -e TRIVY_CACHE_DIR \
+            "$TRIVY_IMAGE" fs \
+              --format table --exit-code 1 --ignore-unfixed --severity CRITICAL \
+              /root >> /tmp/security-output.txt
           FS_EXIT=$?
-          
+
           echo -e "\n🐳 --- Image Scan ---" >> /tmp/security-output.txt
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/aquasecurity/trivy:latest image --format table --exit-code 1 --ignore-unfixed --severity CRITICAL checkstack-prod:latest >> /tmp/security-output.txt
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$HOME/.cache/trivy:$TRIVY_CACHE_DIR" \
+            -e TRIVY_CACHE_DIR \
+            "$TRIVY_IMAGE" image \
+              --format table --exit-code 1 --ignore-unfixed --severity CRITICAL \
+              checkstack-prod:latest >> /tmp/security-output.txt
           IMG_EXIT=$?
-          
+
           if [ $FS_EXIT -ne 0 ] || [ $IMG_EXIT -ne 0 ]; then
             echo "exit_code=1" >> $GITHUB_OUTPUT
           else
