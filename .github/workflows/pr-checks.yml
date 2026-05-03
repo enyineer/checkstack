@@ -39,19 +39,22 @@ jobs:
 
       # `tsgo -b` writes incremental artifacts to per-package `.tsbuild/`
       # directories. Caching them lets PRs that don't touch source compile
-      # in ~0.3s; cold runs are still ~12s. The cache is ~4 MB compressed
-      # so transfer overhead is sub-second.
+      # in ~0.3s; cold runs are ~30s on the runner. The cache is ~4 MB
+      # compressed so transfer overhead is sub-second.
       #
-      # Note: caching `tsconfig.tsbuildinfo` historically caused slow CI
-      # in this repo because of the previous (per-package tsc) layout;
-      # under tsgo+composite the metadata is significantly smaller and
-      # lives inside `.tsbuild/`, so we cache that single tree.
+      # IMPORTANT: list explicit two-segment globs (NOT `**/.tsbuild`).
+      # `**` makes the cache action walk every directory in the repo
+      # (including all of `node_modules`) before filtering — that
+      # enumeration alone took multiple minutes in early runs of this
+      # workflow. Workspace layout is fixed (`core/*` and `plugins/*`),
+      # so glob explicitly.
       - name: Restore tsgo build cache
         uses: actions/cache@v4
         with:
           path: |
-            **/.tsbuild
-            !**/node_modules/**
+            core/*/.tsbuild
+            plugins/*/.tsbuild
+            plugins/_test-scaffolds/*/.tsbuild
           # Strict key: only restore caches built against the exact
           # tsconfig + dependency set. Stale caches do nothing useful here
           # because tsgo would invalidate most projects on a partial match
