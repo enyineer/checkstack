@@ -1,6 +1,7 @@
 {
   "name": "@checkstack/tsconfig",
   "version": "0.0.6",
+  "license": "Elastic-2.0",
   "files": [
     "base.json",
     "frontend.json",

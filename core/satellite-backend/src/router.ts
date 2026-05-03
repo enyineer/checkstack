@@ -36,7 +36,7 @@ export function createSatelliteRouter(props: {
 
     getSatellite: os.getSatellite.handler(async ({ input }) => {
       const satellite = await service.getSatellite(input.id);
-      // eslint-disable-next-line unicorn/no-null -- oRPC contract uses nullable()
+       
       return satellite ?? null;
     }),
 

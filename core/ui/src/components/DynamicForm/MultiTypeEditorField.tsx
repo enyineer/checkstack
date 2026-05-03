@@ -123,7 +123,7 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
           obj[pair.key] = pair.value;
         }
         try {
-          // eslint-disable-next-line unicorn/no-null -- JSON.stringify requires null for formatting
+           
           onChange(JSON.stringify(obj, null, 2));
           return;
         } catch {

@@ -2,7 +2,6 @@ import type { Server } from "bun";
 import { type Context, Hono } from "hono";
 import { TrieRouter } from "hono/router/trie-router";
 import { PluginManager } from "./plugin-manager";
-import { logger } from "hono/logger";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { db } from "./db";
 import path from "node:path";
@@ -12,17 +11,35 @@ import { coreServices, coreHooks } from "@checkstack/backend-api";
 import { extractErrorMessage } from "@checkstack/common";
 import { plugins } from "./schema";
 import { eq, and } from "drizzle-orm";
-import { PluginLocalInstaller } from "./services/plugin-installer";
 import { QueuePluginRegistryImpl } from "./services/queue-plugin-registry";
 import { QueueManagerImpl } from "./services/queue-manager";
 import { CachePluginRegistryImpl } from "./services/cache-plugin-registry";
 import { CacheManagerImpl } from "./services/cache-manager";
+import { PostgresPluginArtifactStore } from "./services/plugin-artifact-store";
+import { DefaultPluginInstallerRegistry } from "./services/plugin-installers/installer-registry";
+import { PluginEventRecorder } from "./services/plugin-event-recorder";
+import { createPluginManagerRouter } from "./services/plugin-manager-router";
+import {
+  pluginManagerAccessRules,
+  pluginMetadata as pluginManagerMetadata,
+  pluginManagerAccess,
+} from "@checkstack/pluginmanager-common";
+import {
+  extractPackageJson,
+  tryExtractBundle,
+  MAX_TARBALL_SIZE_BYTES,
+} from "./services/plugin-installers/tarball-utils";
 import {
   createWebSocketHandler,
   SignalServiceImpl,
   type WebSocketData,
 } from "@checkstack/signal-backend";
-import type { WsConnectionHandlers } from "@checkstack/backend-api";
+import type {
+  AuthService,
+  BackendPlugin,
+  WsConnectionHandlers,
+} from "@checkstack/backend-api";
+import { createDevAuthService } from "./services/dev-auth";
 
 // =============================================================================
 // SERVER-LEVEL WEBSOCKET DATA
@@ -46,7 +63,6 @@ import {
   PLUGIN_INSTALLED,
   PLUGIN_DEREGISTERED,
 } from "@checkstack/signal-common";
-import { createPluginAdminRouter } from "./plugin-manager/plugin-admin-router";
 import {
   pluginMetadata as apiDocsMetadata,
   apiDocsAccess,
@@ -113,7 +129,38 @@ app.use(
     credentials: true,
   })
 );
-app.use("*", logger());
+// Request/response logging through our rootLogger (winston) instead of
+// hono/logger which bypasses winston and writes to stdout directly. Goes
+// at debug level for healthy responses; warn for 4xx and error for 5xx so
+// failures surface even with low verbosity. The 5xx branch additionally
+// peeks the response body so the underlying error message lands in the
+// log — Hono returns errors as JSON via `c.json({error}, 500)` which the
+// default access log strips down to just the status code.
+app.use("*", async (c, next) => {
+  const start = performance.now();
+  const method = c.req.method;
+  const path = c.req.path;
+  rootLogger.debug(`<-- ${method} ${path}`);
+  await next();
+  const elapsedMs = (performance.now() - start).toFixed(1);
+  const status = c.res.status;
+  const line = `--> ${method} ${path} ${status} ${elapsedMs}ms`;
+
+  if (status >= 500) {
+    let body: string | undefined;
+    try {
+      // Clone so the response stream remains consumable downstream.
+      body = await c.res.clone().text();
+    } catch {
+      // ignore — best-effort body capture only
+    }
+    rootLogger.error(body ? `${line} — ${body}` : line);
+  } else if (status >= 400) {
+    rootLogger.warn(line);
+  } else {
+    rootLogger.debug(line);
+  }
+});
 
 // =============================================================================
 // PLATFORM ENDPOINTS — /.checkstack/*
@@ -316,12 +363,6 @@ if (frontendDistPath && fs.existsSync(frontendDistPath)) {
 const init = async () => {
   rootLogger.info("🚀 Starting Checkstack Core...");
 
-  // Register Plugin Installer Service
-  const installer = new PluginLocalInstaller(
-    path.join(process.cwd(), "runtime_plugins")
-  );
-  pluginManager.registerService(coreServices.pluginInstaller, installer);
-
   // 1. Run Core Migrations
   rootLogger.info("🔄 Running core migrations...");
   try {
@@ -372,6 +413,128 @@ const init = async () => {
     cacheRegistry
   );
   pluginManager.registerService(coreServices.cacheManager, cacheManager);
+
+  // 1.9. Register Plugin Install Services (artifact store + installer registry)
+  rootLogger.debug("Registering plugin install services...");
+  const runtimePluginsDir = path.join(process.cwd(), "runtime_plugins");
+  fs.mkdirSync(runtimePluginsDir, { recursive: true });
+  const pluginArtifactStore = new PostgresPluginArtifactStore(db);
+  const pluginInstallerRegistry = new DefaultPluginInstallerRegistry({
+    runtimeDir: runtimePluginsDir,
+    artifactStore: pluginArtifactStore,
+  });
+  pluginManager.registerService(
+    coreServices.pluginArtifactStore,
+    pluginArtifactStore,
+  );
+  pluginManager.registerService(
+    coreServices.pluginInstallerRegistry,
+    pluginInstallerRegistry,
+  );
+  // Per-instance event recorder (instanceId is the bun process pid for now;
+  // upgrade to a stable instance id when multi-region deploys land).
+  const eventRecorder = new PluginEventRecorder(db, `bun-${process.pid}`);
+  pluginManager.setEventRecorder(eventRecorder);
+  pluginManager.setRuntimeDir(runtimePluginsDir);
+
+  // Tarball-upload endpoint backing the install UI's "Tarball Upload" tab.
+  //
+  // The user uploads a `.tgz` produced by `bunx @checkstack/scripts plugin-pack`
+  // (single-package or `--bundle` mode). We peek the bytes to derive the
+  // primary `(name, version)`, persist the artifact to plugin_artifacts, and
+  // return the `artifactId`. The frontend then submits a `PluginSource` of
+  // type "tarball" with that id to `previewInstall` / `install`.
+  //
+  // We deliberately keep this as a plain Hono route (not an oRPC procedure)
+  // because oRPC contracts are JSON-only — multipart bodies can't be
+  // expressed there. Auth + access are enforced manually below using the
+  // same access service the rest of the platform uses.
+  app.post("/api/pluginmanager/upload-tarball", async (c) => {
+    const authService = await pluginManager.getService(coreServices.auth);
+    if (!authService) {
+      return c.json({ error: "Auth service not available" }, 503);
+    }
+    const user = await authService.authenticate(c.req.raw);
+    if (!user || user.type === "service") {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+    const requiredAccess = `${pluginManagerMetadata.pluginId}.${pluginManagerAccess.install.id}`;
+    const accessRules = (
+      "accessRules" in user ? user.accessRules : []
+    ) as string[];
+    const anonymous = await authService.getAnonymousAccessRules();
+    if (!accessRules.includes(requiredAccess) && !anonymous.includes(requiredAccess)) {
+      return c.json({ error: "Access denied" }, 403);
+    }
+
+    const formData = await c.req.formData();
+    const file = formData.get("file");
+    if (!file || typeof file === "string") {
+      return c.json({ error: "Missing 'file' field in multipart body" }, 400);
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.byteLength === 0) {
+      return c.json({ error: "Uploaded file is empty" }, 400);
+    }
+    if (bytes.byteLength > MAX_TARBALL_SIZE_BYTES) {
+      return c.json(
+        {
+          error: `Tarball exceeds maximum size: ${bytes.byteLength} > ${MAX_TARBALL_SIZE_BYTES} bytes`,
+        },
+        413,
+      );
+    }
+
+    // Derive (name, version) by peeking the tarball. For bundle tarballs,
+    // use the primary's manifest entry; for single packages, the embedded
+    // package.json. Validation happens here too — a malformed tarball is
+    // rejected before any DB write.
+    let pluginName: string;
+    let version: string;
+    try {
+      const bundle = await tryExtractBundle(bytes);
+      if (bundle) {
+        pluginName = bundle.manifest.primary;
+        const primaryEntry = bundle.manifest.packages.find(
+          (p) => p.name === bundle.manifest.primary,
+        );
+        if (!primaryEntry) {
+          return c.json(
+            { error: `Bundle manifest missing primary entry '${pluginName}'` },
+            400,
+          );
+        }
+        version = primaryEntry.version;
+      } else {
+        const meta = await extractPackageJson(bytes);
+        pluginName = meta.name;
+        version = meta.version;
+      }
+    } catch (error) {
+      return c.json(
+        { error: `Failed to peek tarball: ${extractErrorMessage(error)}` },
+        400,
+      );
+    }
+
+    const { artifactId, contentHash } = await pluginArtifactStore.store({
+      pluginName,
+      version,
+      tarball: bytes,
+    });
+
+    rootLogger.info(
+      `📦 Tarball uploaded: ${pluginName}@${version} (artifactId=${artifactId}, ${bytes.byteLength} bytes)`,
+    );
+
+    return c.json({
+      artifactId,
+      pluginName,
+      version,
+      contentHash,
+      sizeBytes: bytes.byteLength,
+    });
+  });
 
   // Serve static assets for runtime frontend plugins only
   // Backend plugins don't need public assets - only frontend plugins do
@@ -437,7 +600,88 @@ const init = async () => {
   }
 
   // 3. Load Plugins
-  await pluginManager.loadPlugins(app);
+  //
+  // Dev-server mode (entered via `bunx @checkstack/scripts dev` from a
+  // plugin author's repo). Two env vars control it:
+  //
+  //   - CHECKSTACK_DEV_PLUGIN_PATH: absolute path to a plugin module's
+  //     directory whose `default` export is the BackendPlugin to load.
+  //     When set, filesystem discovery is skipped — only this plugin and
+  //     core services are loaded. Lets a plugin author iterate without
+  //     a workspace checkout.
+  //   - CHECKSTACK_DEV_AUTH=true: registers a synthetic auth service that
+  //     auto-grants every access rule. Skips login flow entirely. Strictly
+  //     refused on a known-prod NODE_ENV value to make accidental misuse
+  //     loud.
+  const devPluginPath = process.env.CHECKSTACK_DEV_PLUGIN_PATH;
+  const devAuth = process.env.CHECKSTACK_DEV_AUTH === "true";
+  if (devAuth) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "CHECKSTACK_DEV_AUTH=true is refused when NODE_ENV=production. " +
+          "Dev auth bypasses every access guard and must never run in prod.",
+      );
+    }
+    rootLogger.warn(
+      "🛠 Dev auth ENABLED — every access rule is auto-granted. Do NOT use in production.",
+    );
+    const devAuthService: AuthService = createDevAuthService({
+      getAllAccessRules: () => pluginManager.getAllAccessRules(),
+    });
+    pluginManager.registerService(coreServices.auth, devAuthService);
+  }
+
+  const manualPlugins: BackendPlugin[] = [];
+  if (devPluginPath) {
+    rootLogger.info(`🛠 Dev mode — loading plugin from ${devPluginPath}`);
+
+    // Co-load `@checkstack/*` backend deps the dev command resolved from
+    // the plugin's package.json. Without these, the plugin under dev's
+    // `init()` would hit unregistered services. The dev command always
+    // includes in-memory queue+cache providers when no other provider
+    // is in the dep graph, so coreServices.queueManager /
+    // coreServices.cacheManager have a registered strategy on boot.
+    const extraPathsRaw = process.env.CHECKSTACK_DEV_EXTRA_PLUGIN_PATHS;
+    const extraPaths: string[] = extraPathsRaw ? JSON.parse(extraPathsRaw) : [];
+    for (const extra of extraPaths) {
+      try {
+        const mod = await import(extra);
+        const exp = mod.default as BackendPlugin | undefined;
+        if (!exp || typeof exp.register !== "function") {
+          throw new Error(
+            `Module at ${extra} does not export a default BackendPlugin`,
+          );
+        }
+        manualPlugins.push(exp);
+      } catch (error) {
+        throw new Error(
+          `Failed to import co-loaded core plugin from ${extra}: ${extractErrorMessage(error)}`,
+        );
+      }
+    }
+
+    // Plugin under dev loads last; the platform's pendingInits topo-sort
+    // takes care of actual init order, but importing it last makes the
+    // boot log easier to read.
+    try {
+      const pluginModule = await import(devPluginPath);
+      const pluginExport = pluginModule.default as BackendPlugin | undefined;
+      if (!pluginExport || typeof pluginExport.register !== "function") {
+        throw new Error(
+          `Module at ${devPluginPath} does not export a default BackendPlugin`,
+        );
+      }
+      manualPlugins.push(pluginExport);
+    } catch (error) {
+      throw new Error(
+        `Failed to import dev plugin from ${devPluginPath}: ${extractErrorMessage(error)}`,
+      );
+    }
+  }
+
+  await pluginManager.loadPlugins(app, manualPlugins, {
+    skipDiscovery: !!devPluginPath,
+  });
 
   // 4. Wire up auth client for access-based signal filtering
   // This must happen AFTER plugins load so auth-backend is available
@@ -455,13 +699,28 @@ const init = async () => {
     );
   }
 
-  // 5. Register plugin admin router (core admin endpoints)
-  const pluginAdminRouter = createPluginAdminRouter({
+  // 4.5. Register the plugin-manager admin router (core router, not a regular
+  // plugin). Access rules from `@checkstack/pluginmanager-common` are also
+  // pushed into the access registry here so the autoAuthMiddleware can
+  // resolve them. We use the existing access-rule prefix scheme so the
+  // ids land as e.g. `pluginmanager.plugin.manage`.
+  pluginManager.registerCoreAccessRules(
+    pluginManagerMetadata.pluginId,
+    pluginManagerAccessRules,
+  );
+  pluginManager.registerCorePluginMetadata(pluginManagerMetadata);
+  const pluginManagerRouter = createPluginManagerRouter({
+    db,
     pluginManager,
-    installer,
+    registry: pluginManager.getRegistry(),
+    eventRecorder,
+    workspaceRoot: path.resolve(import.meta.dir, "..", "..", ".."),
+    runtimeDir: runtimePluginsDir,
   });
-  // Register as core router - available at /api/core/
-  pluginManager.registerCoreRouter("core", pluginAdminRouter);
+  pluginManager.registerCoreRouter(
+    pluginManagerMetadata.pluginId,
+    pluginManagerRouter,
+  );
 
   // 5. Setup lifecycle listeners for multi-instance coordination
   await pluginManager.setupLifecycleListeners();

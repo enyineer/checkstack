@@ -4,7 +4,12 @@
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {
-    "type": "backend"
+    "type": "backend",
+    "pluginId": "notification-telegram",
+    "bundle": [
+      "@checkstack/notification-telegram-common",
+      "@checkstack/notification-telegram-frontend"
+    ]
   },
   "exports": {
     ".": "./src/index.ts",
@@ -12,7 +17,8 @@
   },
   "scripts": {
     "typecheck": "tsgo -b",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "pack": "bunx @checkstack/scripts plugin-pack"
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
@@ -25,5 +31,10 @@
   "devDependencies": {
     "@checkstack/tsconfig": "workspace:*",
     "typescript": "^5.7.2"
-  }
+  },
+  "description": "Checkstack notification-telegram-backend plugin",
+  "author": {
+    "name": "Checkstack contributors"
+  },
+  "license": "Elastic-2.0"
 }

@@ -1,6 +1,7 @@
 {
   "name": "@checkstack/incident-frontend",
   "version": "0.7.0",
+  "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.tsx",
   "checkstack": {

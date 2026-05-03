@@ -4,12 +4,17 @@
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {
-    "type": "backend"
+    "type": "backend",
+    "pluginId": "queue-memory",
+    "bundle": [
+      "@checkstack/queue-memory-common"
+    ]
   },
   "scripts": {
     "typecheck": "tsgo -b",
     "lint": "bun run lint:code",
-    "lint:code": "eslint . --max-warnings 0"
+    "lint:code": "eslint . --max-warnings 0",
+    "pack": "bunx @checkstack/scripts plugin-pack"
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
@@ -23,5 +28,10 @@
     "@types/bun": "latest",
     "@checkstack/tsconfig": "workspace:*",
     "@checkstack/scripts": "workspace:*"
-  }
+  },
+  "description": "Checkstack queue-memory-backend plugin",
+  "author": {
+    "name": "Checkstack contributors"
+  },
+  "license": "Elastic-2.0"
 }

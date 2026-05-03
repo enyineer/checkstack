@@ -4,13 +4,15 @@
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {
-    "type": "backend"
+    "type": "backend",
+    "pluginId": "auth-credential"
   },
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsgo -b"
+    "typecheck": "tsgo -b",
+    "pack": "bunx @checkstack/scripts plugin-pack"
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
@@ -21,5 +23,10 @@
   "devDependencies": {
     "@checkstack/tsconfig": "workspace:*",
     "typescript": "^5.9.3"
-  }
+  },
+  "description": "Checkstack auth-credential-backend plugin",
+  "author": {
+    "name": "Checkstack contributors"
+  },
+  "license": "Elastic-2.0"
 }

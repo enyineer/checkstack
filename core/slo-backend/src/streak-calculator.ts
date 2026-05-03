@@ -79,7 +79,7 @@ export async function runDailySnapshotJob(deps: {
           availabilityPercent: status.currentAvailability ?? 100,
           budgetConsumedMinutes: status.errorBudgetConsumedMinutes,
           budgetRemainingPercent: status.errorBudgetRemainingPercent,
-          // eslint-disable-next-line unicorn/no-null -- Zod schema uses .nullable()
+           
           burnRate: status.burnRate ?? null,
           streakDays: streak?.currentStreak ?? 0,
         },

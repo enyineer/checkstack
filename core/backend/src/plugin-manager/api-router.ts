@@ -20,6 +20,8 @@ import type {
 import type { ServiceRegistry } from "../services/service-registry";
 import type { EventBus } from "@checkstack/backend-api";
 import type { PluginMetadata } from "@checkstack/common";
+import { rootLogger } from "../logger";
+import { extractErrorMessage } from "@checkstack/common";
 
 /**
  * Creates the API route handler for Hono.
@@ -71,17 +73,18 @@ export function createApiRouteHandler({
             try {
               return await next(rest);
             } catch (error) {
-              if (logger) {
-                logger.error(`RPC procedure error: ${String(error)}`);
-                const stack =
-                  error !== null &&
-                  typeof error === "object" &&
-                  "stack" in error
-                    ? (error as { stack: string }).stack
-                    : undefined;
-                if (stack) {
-                  logger.error(`Stack trace: ${stack}`);
-                }
+              const target = (logger ?? rootLogger) as Logger;
+              target.error(
+                `RPC ${pathname} failed: ${extractErrorMessage(error)}`,
+              );
+              const stack =
+                error !== null &&
+                typeof error === "object" &&
+                "stack" in error
+                  ? (error as { stack: string }).stack
+                  : undefined;
+              if (stack) {
+                target.error(`Stack trace: ${stack}`);
               }
               throw error;
             }
@@ -121,6 +124,22 @@ export function createApiRouteHandler({
       !cacheManager ||
       !eventBus
     ) {
+      const missing = [
+        !auth && "auth",
+        !logger && "logger",
+        !db && "db",
+        !fetch && "fetch",
+        !healthCheckRegistry && "healthCheckRegistry",
+        !collectorRegistry && "collectorRegistry",
+        !queuePluginRegistry && "queuePluginRegistry",
+        !queueManager && "queueManager",
+        !cachePluginRegistry && "cachePluginRegistry",
+        !cacheManager && "cacheManager",
+        !eventBus && "eventBus",
+      ].filter(Boolean).join(", ");
+      (logger ?? rootLogger).error(
+        `${pathname}: core services not initialized — missing: ${missing}`,
+      );
       return c.json({ error: "Core services not initialized" }, 500);
     }
 
@@ -136,6 +155,11 @@ export function createApiRouteHandler({
       pluginMetadataRegistry.get(pluginId);
 
     if (!pluginMetadata) {
+      (logger as Logger).error(
+        `${pathname}: no plugin metadata registered for pluginId='${pluginId}'. ` +
+          `Regular plugins populate this during register(); core routers must call ` +
+          `pluginManager.registerCorePluginMetadata().`,
+      );
       return c.json({ error: "Plugin metadata not found in registry" }, 500);
     }
 

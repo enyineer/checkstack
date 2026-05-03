@@ -1094,8 +1094,25 @@ const version = pluginRegistry.getVersion();
 
 > **Note**: Only plugins ending with `-frontend` trigger signals. Backend-only plugins are not signaled to the frontend.
 
+## Distributing your plugin
+
+When your `-frontend` package is part of a multi-package plugin (most are
+— they ship alongside a `-backend` and possibly a `-common`), it gets
+packed into a bundle by the runtime distribution tooling. See
+[Plugin Distribution & Packing](../architecture/plugin-distribution.md)
+for how the primary package's `checkstack.bundle` field declares siblings,
+how `bunx @checkstack/scripts plugin-pack --bundle` produces a single
+bundle tarball, and the npm / GitHub release / GitHub Enterprise /
+tarball-upload distribution channels operators can install from.
+
+For local development, run `bunx @checkstack/scripts dev` from your
+plugin's repo — see
+[Developing Plugins in Isolation](../getting-started/plugin-development.md).
+
 ## Next Steps
 
+- [Developing Plugins in Isolation](../getting-started/plugin-development.md) - Running Checkstack locally for plugin dev
+- [Plugin Distribution & Packing](../architecture/plugin-distribution.md) - How to ship your plugin to operators
 - [Backend Plugin Development](../backend/plugins.md)
 - [Common Plugin Guidelines](../common/plugins.md)
 - [Extension Points](./extension-points.md)

@@ -4,13 +4,15 @@
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {
-    "type": "backend"
+    "type": "backend",
+    "pluginId": "notification-smtp"
   },
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsgo -b"
+    "typecheck": "tsgo -b",
+    "pack": "bunx @checkstack/scripts plugin-pack"
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
@@ -23,5 +25,10 @@
     "@types/nodemailer": "^8.0.0",
     "@checkstack/tsconfig": "workspace:*",
     "typescript": "^5.9.3"
-  }
+  },
+  "description": "Checkstack notification-smtp-backend plugin",
+  "author": {
+    "name": "Checkstack contributors"
+  },
+  "license": "Elastic-2.0"
 }

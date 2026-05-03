@@ -2,6 +2,7 @@ export * from "./types";
 export * from "./pagination";
 export * from "./routes";
 export * from "./plugin-metadata";
+export * from "./plugin-source";
 export * from "./client-definition";
 export * from "./access-utils";
 export * from "./icons";

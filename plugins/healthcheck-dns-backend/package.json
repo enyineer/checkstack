@@ -4,12 +4,14 @@
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {
-    "type": "backend"
+    "type": "backend",
+    "pluginId": "healthcheck-dns"
   },
   "scripts": {
     "typecheck": "tsgo -b",
     "lint": "bun run lint:code",
-    "lint:code": "eslint . --max-warnings 0"
+    "lint:code": "eslint . --max-warnings 0",
+    "pack": "bunx @checkstack/scripts plugin-pack"
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
@@ -21,5 +23,10 @@
     "typescript": "^5.0.0",
     "@checkstack/tsconfig": "workspace:*",
     "@checkstack/scripts": "workspace:*"
-  }
+  },
+  "description": "Checkstack healthcheck-dns-backend plugin",
+  "author": {
+    "name": "Checkstack contributors"
+  },
+  "license": "Elastic-2.0"
 }

@@ -97,7 +97,7 @@ export class DependencyService {
       targetSystemId: input.targetSystemId,
       impactType: input.impactType,
       transitive: input.transitive ?? false,
-      // eslint-disable-next-line unicorn/no-null -- Drizzle SQL column is nullable
+       
       label: input.label ?? null,
     });
 
@@ -213,7 +213,7 @@ export class DependencyService {
 
     return {
       ...row,
-      // eslint-disable-next-line unicorn/no-null -- Drizzle SQL column is nullable
+       
       label: row.label ?? null,
       healthCheckRules: rules.length > 0 ? rules : undefined,
     };
@@ -367,7 +367,7 @@ export class DependencyService {
       const rules = rulesByDep.get(row.id);
       return {
         ...row,
-        // eslint-disable-next-line unicorn/no-null -- Drizzle SQL column is nullable
+         
         label: row.label ?? null,
         healthCheckRules: rules && rules.length > 0 ? rules : undefined,
       };

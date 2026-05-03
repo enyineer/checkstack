@@ -105,7 +105,7 @@ export function createRouter(
         service.getMaintenance(input.id),
       );
       if (!result) {
-        // eslint-disable-next-line unicorn/no-null -- oRPC contract requires null for missing values
+         
         return null;
       }
       // User-name resolution stays outside the cache: it's a foreign-system

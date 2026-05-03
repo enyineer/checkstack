@@ -1,5 +1,6 @@
 {
   "name": "checkstack-monorepo",
+  "license": "Elastic-2.0",
   "private": true,
   "workspaces": [
     "core/*",

@@ -1,0 +1,64 @@
+# Example GitHub Actions workflow for releasing a Checkstack plugin.
+#
+# Drop this in `.github/workflows/release.yml` of your plugin repo. On every
+# push to a `v*` tag it runs `plugin-pack`, attaches the resulting `.tgz` to
+# a GitHub release, and (optionally) publishes to npm.
+#
+# Two modes are supported:
+#   - per-package: pack a single package per repo
+#   - bundle:      pack a primary package + sibling packages declared in
+#                  `package.json#checkstack.bundle`. Add `--bundle` to the
+#                  `plugin-pack` invocation below.
+#
+# The Checkstack platform installs from the GitHub release asset (`.tgz`)
+# directly — no on-platform build is performed. See
+# `docs/architecture/plugin-distribution.md` (in the platform repo) for the
+# install-time convention.
+
+name: Release Plugin
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write # to upload release assets
+  id-token: write # for npm provenance
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      # Type-checks + lints + packs in one step.
+      # Replace `plugin-pack` with `plugin-pack --bundle` if you ship a bundle.
+      - name: Pack
+        run: bunx @checkstack/scripts plugin-pack
+
+      - name: Compute artifact name
+        id: artifact
+        run: |
+          file=$(ls dist/*.tgz | head -n 1)
+          echo "path=$file" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename $file)" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release with tarball
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.artifact.outputs.path }}
+
+      # Optional: publish per-package to npm. Skip this step if your
+      # plugin is private (only distributed via GitHub release / tarball
+      # upload). The platform will accept either source.
+      #
+      # - run: bun publish --access public
+      #   env:
+      #     NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}

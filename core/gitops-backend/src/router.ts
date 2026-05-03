@@ -49,7 +49,7 @@ export const createGitOpsRouter = ({
       .from(schema.provenance)
       .where(and(...conditions));
     const row = result[0];
-    // eslint-disable-next-line unicorn/no-null
+     
     return row ? { ...row, warnings: row.warnings ?? [] } : null;
   });
 
@@ -92,8 +92,8 @@ export const createGitOpsRouter = ({
       type: input.type,
       target: input.target,
       pathPattern: input.pathPattern,
-      baseUrl: input.baseUrl ?? null, // eslint-disable-line unicorn/no-null
-      authToken: input.authToken ? encrypt(input.authToken) : null, // eslint-disable-line unicorn/no-null
+      baseUrl: input.baseUrl ?? null,  
+      authToken: input.authToken ? encrypt(input.authToken) : null,  
       syncInterval,
       deletionPolicy: input.deletionPolicy ?? "orphan",
     });
@@ -127,7 +127,7 @@ export const createGitOpsRouter = ({
     if (input.data.baseUrl !== undefined) updates.baseUrl = input.data.baseUrl;
     if (input.data.authToken !== undefined) {
       // null = explicitly clear token, string = encrypt and store
-      // eslint-disable-next-line unicorn/no-null
+       
       updates.authToken = input.data.authToken ? encrypt(input.data.authToken) : null;
     }
     if (input.data.syncInterval !== undefined)

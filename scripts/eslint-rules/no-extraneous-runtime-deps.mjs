@@ -121,6 +121,13 @@ export const noExtraneousRuntimeDeps = {
       if (packageName.startsWith("@types/") || packageName.startsWith("node:")) {
         return;
       }
+      // Vite/Webpack-style virtual modules (e.g.
+      // `virtual:checkstack-dev-plugin`) are resolved by the bundler's
+      // `resolve.alias` at runtime, never installed from npm. They have
+      // no business in package.json.
+      if (packageName.startsWith("virtual:")) {
+        return;
+      }
 
       // Built-ins shared across environments (Node + Bun)
       const builtins = [

@@ -1,6 +1,7 @@
 {
   "name": "@checkstack/frontend",
   "version": "0.4.2",
+  "license": "Elastic-2.0",
   "checkstack": {
     "type": "frontend"
   },

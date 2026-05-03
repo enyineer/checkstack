@@ -224,7 +224,7 @@ export function buildAdaptiveCard(options: AdaptiveCardOptions): object {
       },
       {
         type: "TextBlock",
-        // eslint-disable-next-line unicorn/no-null
+         
         text: "```\n" + JSON.stringify(payload, null, 2) + "\n```",
         wrap: true,
         fontType: "monospace",

@@ -1,6 +1,7 @@
 {
   "name": "@checkstack/drizzle-helper",
   "version": "0.0.4",
+  "license": "Elastic-2.0",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

@@ -4,13 +4,15 @@
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {
-    "type": "backend"
+    "type": "backend",
+    "pluginId": "collector-hardware"
   },
   "scripts": {
     "typecheck": "tsgo -b",
     "lint": "bun run lint:code",
     "lint:code": "eslint . --max-warnings 0",
-    "test": "bun test"
+    "test": "bun test",
+    "pack": "bunx @checkstack/scripts plugin-pack"
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
@@ -23,5 +25,10 @@
     "typescript": "^5.0.0",
     "@checkstack/tsconfig": "workspace:*",
     "@checkstack/scripts": "workspace:*"
-  }
+  },
+  "description": "Checkstack collector-hardware-backend plugin",
+  "author": {
+    "name": "Checkstack contributors"
+  },
+  "license": "Elastic-2.0"
 }

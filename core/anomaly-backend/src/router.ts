@@ -62,7 +62,7 @@ export function createRouter(
     getAnomalyAssignmentConfig: os.getAnomalyAssignmentConfig.handler(
       async ({ input }) => {
         const result = await service.getAnomalyAssignmentConfig(input.systemId, input.configurationId);
-        // eslint-disable-next-line unicorn/no-null
+         
         return (result as VersionedRecord<Partial<AnomalySettings>>) ?? null;
       }
     ),

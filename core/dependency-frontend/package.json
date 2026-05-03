@@ -1,6 +1,7 @@
 {
   "name": "@checkstack/dependency-frontend",
   "version": "0.3.4",
+  "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.tsx",
   "checkstack": {

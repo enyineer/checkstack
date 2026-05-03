@@ -1,6 +1,7 @@
 {
   "name": "@checkstack/backend-api",
   "version": "0.14.1",
+  "license": "Elastic-2.0",
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {

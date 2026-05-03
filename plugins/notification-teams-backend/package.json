@@ -4,7 +4,8 @@
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {
-    "type": "backend"
+    "type": "backend",
+    "pluginId": "notification-teams"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -12,7 +13,8 @@
   },
   "scripts": {
     "typecheck": "tsgo -b",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "pack": "bunx @checkstack/scripts plugin-pack"
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
@@ -23,5 +25,10 @@
   "devDependencies": {
     "@checkstack/tsconfig": "workspace:*",
     "typescript": "^5.7.2"
-  }
+  },
+  "description": "Checkstack notification-teams-backend plugin",
+  "author": {
+    "name": "Checkstack contributors"
+  },
+  "license": "Elastic-2.0"
 }

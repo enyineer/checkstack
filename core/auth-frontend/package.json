@@ -1,6 +1,7 @@
 {
   "name": "@checkstack/auth-frontend",
   "version": "0.5.32",
+  "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.tsx",
   "checkstack": {

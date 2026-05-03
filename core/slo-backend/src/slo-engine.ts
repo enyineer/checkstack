@@ -325,13 +325,13 @@ export class SloEngine {
     const effectiveAvailability =
       totalWindowMinutes > 0
         ? ((totalWindowMinutes - consumedMinutes) / totalWindowMinutes) * 100
-        // eslint-disable-next-line unicorn/no-null -- Zod schema uses .nullable()
+         
         : null;
 
     const strictAvailability =
       totalWindowMinutes > 0
         ? ((totalWindowMinutes - downtime.totalMinutes) / totalWindowMinutes) * 100
-        // eslint-disable-next-line unicorn/no-null -- Zod schema uses .nullable()
+         
         : null;
 
     // Burn rate: how fast are we consuming budget relative to the window?
@@ -342,7 +342,7 @@ export class SloEngine {
     const expectedConsumption =
       (elapsedDays / objective.windowDays) * allowedDowntimeMinutes;
     const burnRate =
-      // eslint-disable-next-line unicorn/no-null -- Zod schema uses .nullable()
+       
       expectedConsumption > 0 ? consumedMinutes / expectedConsumption : null;
 
     // Check for open downtime events
@@ -364,7 +364,7 @@ export class SloEngine {
       target: objective.target,
       windowDays: objective.windowDays,
       healthCheckConfigurationId: objective.healthCheckConfigurationId,
-      // eslint-disable-next-line unicorn/no-null -- Not yet resolving configuration names
+       
       healthCheckConfigurationName: null,
       currentAvailability: effectiveAvailability,
       strictAvailability,

@@ -180,7 +180,7 @@ export const createCatalogRouter = ({
       const system = await entityService.getSystem(input.systemId);
       if (!system) {
         // oRPC contract uses .nullable() which requires null
-        // eslint-disable-next-line unicorn/no-null
+         
         return null;
       }
       return system as typeof system & {

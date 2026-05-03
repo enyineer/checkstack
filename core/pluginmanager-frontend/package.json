@@ -1,0 +1,30 @@
+{
+  "name": "@checkstack/pluginmanager-frontend",
+  "version": "0.1.0",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "main": "src/index.tsx",
+  "checkstack": {
+    "type": "frontend"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@checkstack/pluginmanager-common": "workspace:*",
+    "@checkstack/frontend-api": "workspace:*",
+    "@checkstack/common": "workspace:*",
+    "@checkstack/ui": "workspace:*",
+    "react": "^18.2.0",
+    "react-router-dom": "^6.22.0",
+    "lucide-react": "^0.344.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/react": "^18.2.0",
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/scripts": "workspace:*"
+  }
+}

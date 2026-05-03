@@ -1,6 +1,7 @@
 {
   "name": "@checkstack/api-docs-frontend",
   "version": "0.1.34",
+  "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.tsx",
   "checkstack": {

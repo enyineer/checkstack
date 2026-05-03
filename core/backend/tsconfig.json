@@ -23,6 +23,9 @@
       "path": "../drizzle-helper"
     },
     {
+      "path": "../pluginmanager-common"
+    },
+    {
       "path": "../queue-api"
     },
     {

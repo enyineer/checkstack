@@ -1,4 +1,6 @@
 import type { Hono } from "hono";
+import path from "node:path";
+import fs from "node:fs";
 import { adminPool, db } from "./db";
 import { ServiceRegistry } from "./services/service-registry";
 import type { CoreCollectorRegistry } from "./services/collector-registry";
@@ -14,12 +16,14 @@ import {
 } from "@checkstack/backend-api";
 import type { AnyContractRouter } from "@orpc/contract";
 import type { AccessRule, PluginMetadata } from "@checkstack/common";
+import { extractErrorMessage } from "@checkstack/common";
 
 // Extracted modules
 import { registerCoreServices } from "./plugin-manager/core-services";
 import { createExtensionPointManager } from "./plugin-manager/extension-points";
 import { loadPlugins as loadPluginsImpl } from "./plugin-manager/plugin-loader";
 import { rootLogger } from "./logger";
+import type { PluginEventRecorder } from "./services/plugin-event-recorder";
 
 export interface DeregisterOptions {
   deleteSchema: boolean;
@@ -58,6 +62,14 @@ export class PluginManager {
   // Global readiness registry — plugins contribute probes, /ready aggregates them
   private readinessRegistry: CoreReadinessRegistry;
 
+  // Audit/error event recorder — wired post-construction in index.ts.
+  private eventRecorder: PluginEventRecorder | undefined;
+
+  // Filesystem location plugins are installed into at runtime (set in
+  // index.ts). The runtime install pipeline reads from here on bootstrap
+  // and writes to here when handling broadcast install hooks.
+  private runtimeDir: string | undefined;
+
   // Resolves once `/api/:pluginId/*` is registered on the root router and
   // Phase 2 (per-plugin init) is starting. The HTTP server awaits this
   // promise to know when it is safe to stop gating incoming requests.
@@ -80,6 +92,60 @@ export class PluginManager {
     this.collectorRegistry = registries.collectorRegistry;
     this.wsStore = registries.wsStore;
     this.readinessRegistry = registries.readinessRegistry;
+  }
+
+  /**
+   * Register access rules owned by a core router (not a regular plugin).
+   * Used by `pluginmanager` and other built-in admin endpoints whose access
+   * rules need to be visible to the autoAuthMiddleware.
+   */
+  registerCoreAccessRules(
+    pluginId: string,
+    accessRules: AccessRule[],
+  ): void {
+    const prefixed = accessRules.map((rule) => ({
+      ...rule,
+      pluginId,
+      id: `${pluginId}.${rule.id}`,
+    }));
+    this.registeredAccessRules.push(...prefixed);
+  }
+
+  /**
+   * Register plugin metadata owned by a core router. The /api/:pluginId/*
+   * dispatcher in api-router.ts looks up `pluginMetadataRegistry` to build
+   * the RpcContext and 500s with "Plugin metadata not found in registry"
+   * when the lookup misses. Regular plugins populate the registry as part
+   * of their register() lifecycle; core routers (which never go through
+   * that lifecycle) need to call this method to register theirs.
+   */
+  registerCorePluginMetadata(metadata: PluginMetadata): void {
+    this.pluginMetadataRegistry.set(metadata.pluginId, metadata);
+  }
+
+  /**
+   * Expose the underlying ServiceRegistry to internal core code. Plugins
+   * should NEVER touch this directly — they go through the registered
+   * service refs.
+   */
+  getRegistry(): ServiceRegistry {
+    return this.registry;
+  }
+
+  setEventRecorder(recorder: PluginEventRecorder): void {
+    this.eventRecorder = recorder;
+  }
+
+  getEventRecorder(): PluginEventRecorder | undefined {
+    return this.eventRecorder;
+  }
+
+  setRuntimeDir(dir: string): void {
+    this.runtimeDir = dir;
+  }
+
+  getRuntimeDir(): string | undefined {
+    return this.runtimeDir;
   }
 
   /**
@@ -158,17 +224,17 @@ export class PluginManager {
   }
 
   /**
-   * Deregister a plugin at runtime.
-   * Only works for plugins with isUninstallable: true.
+   * In-process teardown of a plugin. Runs on EVERY instance that receives
+   * the deregistration broadcast (the originator AND all replicas).
+   *
+   * Strictly memory-only: clears registries, runs cleanup handlers, removes
+   * collectors and access rules. **Does NOT touch shared persistent state**
+   * (Postgres schemas, plugin_configs, plugin_artifacts, plugins rows) —
+   * destructive cleanup is the originator's job, see `deletePluginData`.
    */
-  async deregisterPlugin(
-    pluginId: string,
-    options: DeregisterOptions
-  ): Promise<void> {
-    rootLogger.info(`🔄 Deregistering plugin: ${pluginId}...`);
+  async deregisterPluginInProcess(pluginId: string): Promise<void> {
+    rootLogger.info(`🔄 Deregistering plugin in-process: ${pluginId}...`);
 
-    // 1. Emit pluginDeregistering hook locally (instance-local, not distributed)
-    // This lets other plugins on THIS instance cleanup dependencies
     const eventBus = await this.registry.get(coreServices.eventBus, {
       pluginId: "core",
     });
@@ -177,7 +243,6 @@ export class PluginManager {
       reason: "uninstall" as const,
     });
 
-    // 2. Run cleanup handlers (LIFO order)
     const handlers = this.cleanupHandlers.get(pluginId) || [];
     for (const handler of handlers.toReversed()) {
       try {
@@ -188,7 +253,6 @@ export class PluginManager {
     }
     this.cleanupHandlers.delete(pluginId);
 
-    // 3. Unsubscribe from all EventBus hooks
     const subscriptions = this.hookSubscriptions.get(pluginId) || [];
     for (const unsubscribe of subscriptions) {
       try {
@@ -199,48 +263,94 @@ export class PluginManager {
     }
     this.hookSubscriptions.delete(pluginId);
 
-    // 4. Remove from router maps and contract registry
     this.pluginRpcRouters.delete(pluginId);
     this.pluginHttpHandlers.delete(pluginId);
     this.pluginContractRegistry.delete(pluginId);
-    rootLogger.debug(`   -> Removed routers and contracts for ${pluginId}`);
+    this.pluginMetadataRegistry.delete(pluginId);
 
-    // 4b. Cleanup collectors
-    // - Remove collectors owned by this plugin
     this.collectorRegistry.unregisterByOwner(pluginId);
-    // - Remove collectors that have no loaded strategy plugins
-    //   (exclude the current plugin being deregistered)
     const loadedPluginIds = new Set(
-      [...this.pluginMetadataRegistry.keys()].filter((id) => id !== pluginId)
+      [...this.pluginMetadataRegistry.keys()].filter((id) => id !== pluginId),
     );
     this.collectorRegistry.unregisterByMissingStrategies(loadedPluginIds);
 
-    // 5. Remove access rules from registry
-    const beforeCount = this.registeredAccessRules.length;
     this.registeredAccessRules = this.registeredAccessRules.filter(
-      (p) => p.pluginId !== pluginId
-    );
-    rootLogger.debug(
-      `   -> Removed ${
-        beforeCount - this.registeredAccessRules.length
-      } access rules`
+      (p) => p.pluginId !== pluginId,
     );
 
-    // 6. Drop schema if requested
-    if (options.deleteSchema) {
-      try {
-        const schemaName = `plugin_${pluginId}`;
-        await db.execute(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
-        rootLogger.info(`   -> Dropped schema: ${schemaName}`);
-      } catch (error) {
-        rootLogger.error(`Failed to drop schema for ${pluginId}:`, error);
+    await eventBus.emit(coreHooks.pluginDeregistered, { pluginId });
+    rootLogger.info(`✅ Plugin deregistered in-process: ${pluginId}`);
+  }
+
+  /**
+   * Originator-only destructive cleanup.
+   *
+   * Runs AFTER `deregisterPluginInProcess` has been broadcast and acked
+   * across all instances. Drops the plugin's Postgres schema, deletes its
+   * plugin_configs rows, deletes the artifact, deletes the `plugins` row.
+   *
+   * Multiple instances must NOT call this concurrently — coordination via
+   * the originator's request handler is the contract.
+   */
+  async deletePluginData({
+    pluginIds,
+    bundleId,
+    deleteSchema,
+    deleteConfigs,
+  }: {
+    pluginIds: string[];
+    bundleId?: string | null;
+    deleteSchema: boolean;
+    deleteConfigs: boolean;
+  }): Promise<void> {
+    rootLogger.info(
+      `🗑 Originator: cleaning up data for ${pluginIds.join(", ")}...`,
+    );
+
+    const { plugins, pluginConfigs } = await import("./schema");
+    const { inArray, eq, and } = await import("drizzle-orm");
+
+    if (deleteSchema) {
+      for (const pluginId of pluginIds) {
+        try {
+          const schemaName = `plugin_${pluginId}`;
+          await db.execute(
+            `DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`,
+          );
+          rootLogger.info(`   -> Dropped schema: ${schemaName}`);
+        } catch (error) {
+          rootLogger.error(`Failed to drop schema for ${pluginId}:`, error);
+        }
       }
     }
 
-    // 7. Emit pluginDeregistered hook (for access rule cleanup in auth-backend)
-    await eventBus.emit(coreHooks.pluginDeregistered, { pluginId });
+    if (deleteConfigs) {
+      await db
+        .delete(pluginConfigs)
+        .where(inArray(pluginConfigs.pluginId, pluginIds));
+      rootLogger.debug(`   -> Deleted plugin_configs rows`);
+    }
 
-    rootLogger.info(`✅ Plugin deregistered: ${pluginId}`);
+    const artifactStore = await this.registry.get(
+      coreServices.pluginArtifactStore,
+      { pluginId: "core" },
+    );
+    if (bundleId) {
+      await artifactStore.deleteByBundle({ bundleId });
+    } else {
+      for (const pluginName of pluginIds) {
+        await artifactStore.delete({ pluginName });
+      }
+    }
+    rootLogger.debug(`   -> Deleted plugin_artifacts rows`);
+
+    await (bundleId ? db.delete(plugins).where(eq(plugins.bundleId, bundleId)) : db.delete(plugins).where(
+        and(
+          inArray(plugins.name, pluginIds),
+          eq(plugins.isUninstallable, true),
+        ),
+      ));
+    rootLogger.info(`✅ Originator: data cleanup complete`);
   }
 
   /**
@@ -253,49 +363,39 @@ export class PluginManager {
   }
 
   /**
-   * Request deregistration of a plugin across all instances.
-   * This emits a broadcast hook that all instances (including this one) will receive.
-   * Each instance then performs local cleanup via deregisterPlugin().
+   * Originator-side: broadcast in-process deregistration to all instances.
+   * Carries plugin ids only — no destructive flags. Destructive ops happen
+   * locally on the originator after the broadcast settles
+   * (see `deletePluginData`).
    */
-  async requestDeregistration(
-    pluginId: string,
-    options: DeregisterOptions
-  ): Promise<void> {
-    rootLogger.info(`📢 Broadcasting deregistration request for: ${pluginId}`);
-
-    // Emit broadcast hook - all instances receive and perform local cleanup
+  async broadcastDeregistration(pluginIds: string[]): Promise<void> {
+    rootLogger.info(`📢 Broadcasting deregistration: ${pluginIds.join(", ")}`);
     const eventBus = await this.registry.get(coreServices.eventBus, {
       pluginId: "core",
     });
-    await eventBus.emit(coreHooks.pluginDeregistrationRequested, {
-      pluginId,
-      deleteSchema: options.deleteSchema,
-    });
-
-    rootLogger.info(`✅ Deregistration request broadcast for: ${pluginId}`);
+    for (const pluginId of pluginIds) {
+      await eventBus.emit(coreHooks.pluginDeregistrationRequested, {
+        pluginId,
+        deleteSchema: false, // unused by listeners now — destructive ops are originator-only
+      });
+    }
   }
 
   /**
-   * Request installation/loading of a plugin across all instances.
-   * This emits a broadcast hook that all instances (including this one) will receive.
-   * Each instance then loads the plugin into memory.
+   * Originator-side: broadcast in-process installation to all instances.
+   * Each receiver pulls the artifact from `plugin_artifacts` and loads.
    */
-  async requestInstallation(
-    pluginId: string,
-    pluginPath: string
-  ): Promise<void> {
-    rootLogger.info(`📢 Broadcasting installation request for: ${pluginId}`);
-
-    // Emit broadcast hook - all instances receive and load the plugin
+  async broadcastInstallation(pluginIds: string[]): Promise<void> {
+    rootLogger.info(`📢 Broadcasting installation: ${pluginIds.join(", ")}`);
     const eventBus = await this.registry.get(coreServices.eventBus, {
       pluginId: "core",
     });
-    await eventBus.emit(coreHooks.pluginInstallationRequested, {
-      pluginId,
-      pluginPath,
-    });
-
-    rootLogger.info(`✅ Installation request broadcast for: ${pluginId}`);
+    for (const pluginId of pluginIds) {
+      await eventBus.emit(coreHooks.pluginInstallationRequested, {
+        pluginId,
+        pluginPath: "", // ignored — receivers resolve via plugin_artifacts
+      });
+    }
   }
 
   /**
@@ -307,26 +407,61 @@ export class PluginManager {
       pluginId: "core",
     });
 
-    // Listen for deregistration broadcasts (from any instance)
+    // Listen for deregistration broadcasts (from any instance) — every
+    // instance does in-process teardown only. Originator separately runs
+    // `deletePluginData` after the broadcast settles.
     await eventBus.subscribe(
       "core",
       coreHooks.pluginDeregistrationRequested,
-      async ({ pluginId, deleteSchema }) => {
+      async ({ pluginId }) => {
         rootLogger.info(`📥 Received deregistration request for: ${pluginId}`);
-        await this.deregisterPlugin(pluginId, { deleteSchema });
-      }
+        try {
+          await this.deregisterPluginInProcess(pluginId);
+          await this.eventRecorder?.record({
+            pluginName: pluginId,
+            action: "uninstall",
+            phase: "in-process-unload",
+            status: "succeeded",
+          });
+        } catch (error) {
+          await this.eventRecorder?.record({
+            pluginName: pluginId,
+            action: "uninstall",
+            phase: "in-process-unload",
+            status: "failed",
+            error: extractErrorMessage(error),
+          });
+          throw error;
+        }
+      },
     );
 
-    // Listen for installation broadcasts (from any instance)
+    // Listen for installation broadcasts (from any instance) — every
+    // instance hydrates the artifact (if not already on disk) then loads.
     await eventBus.subscribe(
       "core",
       coreHooks.pluginInstallationRequested,
-      async ({ pluginId, pluginPath }) => {
-        rootLogger.info(
-          `📥 Received installation request for: ${pluginId} at ${pluginPath}`
-        );
-        await this.loadSinglePlugin(pluginId, pluginPath);
-      }
+      async ({ pluginId }) => {
+        rootLogger.info(`📥 Received installation request for: ${pluginId}`);
+        try {
+          await this.hydrateAndLoadPlugin(pluginId);
+          await this.eventRecorder?.record({
+            pluginName: pluginId,
+            action: "install",
+            phase: "in-process-load",
+            status: "succeeded",
+          });
+        } catch (error) {
+          await this.eventRecorder?.record({
+            pluginName: pluginId,
+            action: "install",
+            phase: "in-process-load",
+            status: "failed",
+            error: extractErrorMessage(error),
+          });
+          throw error;
+        }
+      },
     );
 
     rootLogger.debug("🔗 Lifecycle listeners registered");
@@ -345,51 +480,106 @@ export class PluginManager {
   }
 
   /**
-   * Load a single plugin at runtime (for dynamic installation).
-   * If the plugin isn't available locally, it will be installed via npm first.
-   * This imports the plugin module, registers it, and initializes it.
+   * Resolve a plugin's `plugins` row, fetch its artifact from the artifact
+   * store (or original `PluginSource` as a fallback), install it into the
+   * runtime dir if not present, and run `loadSinglePlugin`. Used by both
+   * the installation broadcast handler AND the fresh-instance bootstrap
+   * step in `loadPlugins`.
+   */
+  async hydrateAndLoadPlugin(pluginId: string): Promise<void> {
+    const { plugins: pluginsTable } = await import("./schema");
+    const { eq } = await import("drizzle-orm");
+
+    const rows = await db
+      .select()
+      .from(pluginsTable)
+      .where(eq(pluginsTable.name, pluginId))
+      .limit(1);
+
+    if (rows.length === 0) {
+      throw new Error(`Plugin '${pluginId}' has no row in 'plugins' table`);
+    }
+    const row = rows[0];
+
+    // Fast path: monorepo-local plugin, just load by package name / path.
+    if (!row.isUninstallable) {
+      await this.loadSinglePlugin(pluginId, row.path);
+      return;
+    }
+
+    if (!this.runtimeDir) {
+      throw new Error(
+        `Runtime plugin dir not configured — call setRuntimeDir before hydrating runtime plugins.`,
+      );
+    }
+
+    const pkgDir = path.join(this.runtimeDir, "node_modules", pluginId);
+    if (!fs.existsSync(path.join(pkgDir, "package.json"))) {
+      // Module not installed yet — pull from artifact store and install.
+      const artifactStore = await this.registry.get(
+        coreServices.pluginArtifactStore,
+        { pluginId: "core" },
+      );
+      const artifact = await artifactStore.fetch({
+        pluginName: pluginId,
+        version: row.version,
+      });
+      if (!artifact) {
+        throw new Error(
+          `No tarball found in plugin_artifacts for ${pluginId}@${row.version}. ` +
+            `The plugin row exists but its artifact is missing — re-install from the original source.`,
+        );
+      }
+      const allowInstallScripts =
+        (row.metadata as { checkstack?: { allowInstallScripts?: boolean } })
+          ?.checkstack?.allowInstallScripts === true;
+
+      const installerRegistry = await this.registry.get(
+        coreServices.pluginInstallerRegistry,
+        { pluginId: "core" },
+      );
+      // Any installer's installFromArtifact does the same thing (delegates
+      // to the shared install-from-tarball helper) — pick npm.
+      await installerRegistry
+        .forSource("npm")
+        .installFromArtifact({
+          tarball: artifact.tarball,
+          pluginName: pluginId,
+          allowInstallScripts,
+        });
+    }
+
+    await this.loadSinglePlugin(pluginId, pkgDir);
+  }
+
+  /**
+   * Register + initialize an installed plugin module.
    *
-   * @param pluginId - The plugin ID (package name)
-   * @param pluginPath - The expected path (may not exist yet on this instance)
+   * Pre-condition: the package must already be importable (either monorepo
+   * source via the workspace, or installed under `runtime_plugins/node_modules`
+   * by `hydrateAndLoadPlugin`).
    */
   async loadSinglePlugin(pluginId: string, pluginPath: string): Promise<void> {
     rootLogger.info(`🔌 Loading plugin at runtime: ${pluginId}`);
 
-    // Emit instance-local installing hook
     const eventBus = await this.registry.get(coreServices.eventBus, {
       pluginId: "core",
     });
     await eventBus.emitLocal(coreHooks.pluginInstalling, { pluginId });
 
     try {
-      // 1. Try to import the plugin - if it fails, install it first
       let pluginModule;
 
       try {
-        // Try importing by package name first
         pluginModule = await import(pluginId);
       } catch {
         try {
-          // Try importing by path
           pluginModule = await import(pluginPath);
-        } catch {
-          // Plugin not available locally - need to install it
-          rootLogger.info(
-            `   -> Plugin ${pluginId} not found locally, installing via npm...`
+        } catch (error) {
+          throw new Error(
+            `Plugin ${pluginId} module not available locally — call hydrateAndLoadPlugin instead, or check that the plugin is correctly installed.`,
+            { cause: error },
           );
-
-          const installer = await this.registry.get(
-            coreServices.pluginInstaller,
-            { pluginId: "core" }
-          );
-          const result = await installer.install(pluginId);
-
-          // Now try importing again
-          try {
-            pluginModule = await import(result.name);
-          } catch {
-            pluginModule = await import(result.path);
-          }
         }
       }
 

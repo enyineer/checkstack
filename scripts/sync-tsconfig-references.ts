@@ -67,7 +67,7 @@ async function main(): Promise<void> {
   // Write tsconfig.json
   await writeFile(
     TSCONFIG_PATH,
-    // eslint-disable-next-line unicorn/no-null
+     
     JSON.stringify(rootTsConfig, null, 2) + "\n",
     "utf8"
   );

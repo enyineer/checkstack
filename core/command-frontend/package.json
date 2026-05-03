@@ -1,6 +1,7 @@
 {
   "name": "@checkstack/command-frontend",
   "version": "0.2.33",
+  "license": "Elastic-2.0",
   "type": "module",
   "exports": {
     ".": {

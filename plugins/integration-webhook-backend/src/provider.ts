@@ -161,7 +161,7 @@ Configure your server to:
           severity: "warning",
         },
       },
-      // eslint-disable-next-line unicorn/no-null
+       
       null,
       2,
     ),

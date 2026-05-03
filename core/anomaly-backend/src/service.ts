@@ -44,9 +44,9 @@ export class AnomalyService {
     return results.map((r) => ({
       ...r,
       startedAt: r.startedAt.toISOString(),
-      // eslint-disable-next-line unicorn/no-null
+       
       confirmedAt: r.confirmedAt?.toISOString() ?? null,
-      // eslint-disable-next-line unicorn/no-null
+       
       recoveredAt: r.recoveredAt?.toISOString() ?? null,
     }));
   }

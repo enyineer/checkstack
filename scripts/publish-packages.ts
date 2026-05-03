@@ -115,6 +115,32 @@ export function determinePackageStatus({
   return "ahead-of-local";
 }
 
+/**
+ * Detects whether the given package opts into runtime-plugin packing by
+ * declaring a `pack` script. When yes, we run `plugin-pack --validate-only`
+ * before publishing so every release dogfoods the same
+ * `installPackageMetadataSchema` validator the runtime plugin installer
+ * uses on incoming tarballs. Catches missing `description` / `author` /
+ * `license` / `checkstack.pluginId` etc. before they hit npm.
+ */
+async function validatePluginPackageMetadata({
+  dir,
+  pkg,
+}: {
+  dir: string;
+  pkg: PackageJson & { scripts?: Record<string, string> };
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!pkg.scripts?.pack) {
+    return { ok: true };
+  }
+  try {
+    await $`bunx @checkstack/scripts plugin-pack --validate-only --cwd ${dir}`.quiet();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: extractErrorMessage(error) };
+  }
+}
+
 export async function publishPackage({
   dir,
   dryRun,
@@ -130,6 +156,21 @@ export async function publishPackage({
       version: "unknown",
       success: false,
       error: "No package.json found",
+    };
+  }
+
+  // Dogfood the metadata validator on every plugin publish. Non-plugin
+  // packages (no `pack` script) skip validation.
+  const validation = await validatePluginPackageMetadata({
+    dir,
+    pkg: pkg as PackageJson & { scripts?: Record<string, string> },
+  });
+  if (!validation.ok) {
+    return {
+      name: pkg.name,
+      version: pkg.version,
+      success: false,
+      error: `plugin-pack validation failed: ${validation.error}`,
     };
   }
 

@@ -4,13 +4,15 @@
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {
-    "type": "backend"
+    "type": "backend",
+    "pluginId": "auth-saml"
   },
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsgo -b"
+    "typecheck": "tsgo -b",
+    "pack": "bunx @checkstack/scripts plugin-pack"
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
@@ -31,5 +33,10 @@
     "name": "@checkstack/auth-saml-backend",
     "type": "backend",
     "displayName": "SAML Authentication (Backend)"
-  }
+  },
+  "description": "Checkstack auth-saml-backend plugin",
+  "author": {
+    "name": "Checkstack contributors"
+  },
+  "license": "Elastic-2.0"
 }

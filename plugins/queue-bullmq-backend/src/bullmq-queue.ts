@@ -39,7 +39,7 @@ export class BullMQQueue<T = unknown> implements Queue<T> {
         password: config.password,
         db: config.db,
         // Disable automatic reconnection and retries for immediate failure
-        // eslint-disable-next-line unicorn/no-null
+         
         retryStrategy: () => null, // Don't retry, fail immediately
         maxRetriesPerRequest: 1,
         enableReadyCheck: true,

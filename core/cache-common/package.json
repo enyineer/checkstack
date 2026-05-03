@@ -1,6 +1,7 @@
 {
   "name": "@checkstack/cache-common",
   "version": "0.2.0",
+  "license": "Elastic-2.0",
   "type": "module",
   "exports": {
     ".": {

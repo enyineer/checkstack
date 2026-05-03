@@ -16,6 +16,12 @@
   "scripts": {
     "typecheck": "tsgo -b",
     "lint": "bun run lint:code",
-    "lint:code": "eslint . --max-warnings 0"
-  }
+    "lint:code": "eslint . --max-warnings 0",
+    "pack": "bunx @checkstack/scripts plugin-pack"
+  },
+  "description": "Checkstack queue-memory-common plugin",
+  "author": {
+    "name": "Checkstack contributors"
+  },
+  "license": "Elastic-2.0"
 }

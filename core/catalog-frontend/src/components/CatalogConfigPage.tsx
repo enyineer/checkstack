@@ -426,7 +426,7 @@ export const CatalogConfigPage = () => {
 
         {/* Drag overlay — the floating ghost shown while dragging */}
         {/* dropAnimation must be null (not undefined) per @dnd-kit API to disable the fly-back animation */}
-        {/* eslint-disable-next-line unicorn/no-null */}
+        { }
         <DragOverlay dropAnimation={null}>
           {activeSystem ? <SystemDragOverlay system={activeSystem} /> : undefined}
         </DragOverlay>

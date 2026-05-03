@@ -1,6 +1,7 @@
 {
   "name": "@checkstack/auth-common",
   "version": "0.6.4",
+  "license": "Elastic-2.0",
   "type": "module",
   "exports": {
     ".": {

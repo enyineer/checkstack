@@ -19,6 +19,28 @@ Plugins **MUST** be registerable at runtime. This design enables:
 - Hot-swapping plugins during development
 - Dynamic feature enablement based on deployment needs
 
+The platform supports four install sources, all going through a discriminated
+`PluginSource` union and a per-source `PluginInstaller`:
+
+| Source     | Use case                                        |
+|------------|-------------------------------------------------|
+| `npm`      | Public or private npm registry (configurable)   |
+| `tarball`  | Uploaded `.tgz` (filesystem analogue)           |
+| `github`   | GitHub release asset (`.tgz` packed by our CLI) |
+| `catalog`  | Curated marketplace (stub — coming soon)        |
+
+Plugin tarballs (single package or `--bundle`-mode multi-package) are
+persisted in `plugin_artifacts` (Postgres `bytea`). A freshly spun replica
+recovers every runtime-installed plugin from this table at boot — no
+re-fetch from the original source is needed for replicas to come up.
+
+For plugin authors: see [Plugin Distribution & Packing](./plugin-distribution.md)
+for the developer-facing guide on packing, bundles, npm/GitHub/tarball
+distribution, and the `bunx @checkstack/scripts plugin-pack` CLI. For the
+full runtime design (artifact store, originator orchestration, bundle
+resolution, fresh-instance bootstrap), see
+[docs/plans/2026-05-03-runtime-plugin-system.md](../plans/2026-05-03-runtime-plugin-system.md).
+
 ### 2. Inversion of Control (IoC)
 
 Plugins register themselves with the core application through well-defined interfaces:
@@ -333,6 +355,7 @@ Mix and match based on scaling needs:
 ## Next Steps
 
 - [Packages vs Plugins Architecture](packages-vs-plugins.md)
+- [Plugin Distribution & Packing](plugin-distribution.md)
 - [Backend Plugin Development](../backend/plugins.md)
 - [Frontend Plugin Development](../frontend/plugins.md)
 - [Common Plugin Guidelines](../common/plugins.md)
