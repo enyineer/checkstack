@@ -1105,8 +1105,8 @@ how `bunx @checkstack/scripts plugin-pack --bundle` produces a single
 bundle tarball, and the npm / GitHub release / GitHub Enterprise /
 tarball-upload distribution channels operators can install from.
 
-For local development, run `bunx @checkstack/scripts dev` from your
-plugin's repo — see
+For local development, add `@checkstack/dev-server` as a devDependency
+and run `checkstack-dev` from your plugin's repo — see
 [Developing Plugins in Isolation](../getting-started/plugin-development.md).
 
 ## Next Steps

@@ -982,9 +982,9 @@ mode, npm / GitHub release / GitHub Enterprise / tarball-upload distribution,
 and a copy-paste GitHub Actions workflow — lives in
 [Plugin Distribution & Packing](../architecture/plugin-distribution.md).
 
-For the dev loop itself, run `bunx @checkstack/scripts dev` from your
-plugin's repo — it boots a local Checkstack with your plugin loaded and
-auth bypassed. Full guide:
+For the dev loop itself, add `@checkstack/dev-server` as a devDependency
+and run `checkstack-dev` from your plugin's repo — it boots a local
+Checkstack with your plugin loaded and auth bypassed. Full guide:
 [Developing Plugins in Isolation](../getting-started/plugin-development.md).
 
 Quick checklist before your first release:

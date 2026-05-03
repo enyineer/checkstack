@@ -1,0 +1,46 @@
+{
+  "name": "@checkstack/dev-server",
+  "version": "0.1.0",
+  "description": "Local Checkstack dev server for plugin authors. Spawns the platform backend with the cwd plugin loaded, runs Vite for the frontend, and reloads on save. Used as a devDependency in plugin repos (run via `bun run dev` → `checkstack-dev`).",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "checkstack": {
+    "type": "tooling"
+  },
+  "main": "src/dev-server.ts",
+  "bin": {
+    "checkstack-dev": "./src/dev-server.ts"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@checkstack/common": "workspace:*",
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.0"
+  },
+  "peerDependencies": {
+    "@checkstack/backend": "*",
+    "@checkstack/frontend": "*"
+  },
+  "peerDependenciesMeta": {
+    "@checkstack/backend": { "optional": true },
+    "@checkstack/frontend": { "optional": true }
+  },
+  "devDependencies": {
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/scripts": "workspace:*",
+    "@checkstack/backend": "workspace:*",
+    "@checkstack/frontend": "workspace:*",
+    "typescript": "^5.0.0"
+  }
+}

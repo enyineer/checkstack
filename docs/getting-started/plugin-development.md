@@ -10,7 +10,7 @@ Develop a Checkstack plugin from its own repo. No monorepo checkout. No
 upload loop. No Docker bind-mount tricks.
 
 ```bash
-bunx @checkstack/scripts dev
+bunx checkstack-dev
 ```
 
 That's it. The command boots the same backend code path Checkstack uses
@@ -70,7 +70,7 @@ A minimal `package.json`:
     "pluginId": "widget"
   },
   "scripts": {
-    "dev": "bunx @checkstack/scripts dev",
+    "dev": "checkstack-dev",
     "pack": "bunx @checkstack/scripts plugin-pack"
   },
   "dependencies": {
@@ -78,7 +78,9 @@ A minimal `package.json`:
     "@checkstack/common": "^1.0.0"
   },
   "devDependencies": {
-    "@checkstack/scripts": "^0.1.0"
+    "@checkstack/scripts": "^0.1.0",
+    "@checkstack/dev-server": "^0.1.0",
+    "@checkstack/backend": "^1.0.0"
   }
 }
 ```
@@ -173,20 +175,20 @@ runs.
 ```mermaid
 sequenceDiagram
     participant Dev as Plugin author
-    participant Scripts as @checkstack/scripts dev
+    participant DevServer as @checkstack/dev-server
     participant Backend as @checkstack/backend
     participant Watcher as fs.watch on ./src
 
-    Dev->>Scripts: bun run dev
-    Scripts->>Scripts: validate package.json
-    Scripts->>Scripts: resolve @checkstack/backend
-    Scripts->>Backend: spawn `bun run <backend-entry>`<br/>env: CHECKSTACK_DEV_PLUGIN_PATH=cwd<br/>env: CHECKSTACK_DEV_AUTH=true
+    Dev->>DevServer: bun run dev (checkstack-dev)
+    DevServer->>DevServer: validate package.json
+    DevServer->>DevServer: resolve @checkstack/backend
+    DevServer->>Backend: spawn `bun run <backend-entry>`<br/>env: CHECKSTACK_DEV_PLUGIN_PATH=cwd<br/>env: CHECKSTACK_DEV_AUTH=true
     Backend->>Backend: skipDiscovery=true; load plugin manually
     Backend->>Backend: register dev auth (auto-grants every rule)
     Backend->>Dev: HTTP 200 on http://localhost:3000
-    Watcher-->>Scripts: file change in ./src
-    Scripts->>Backend: SIGTERM
-    Scripts->>Backend: respawn
+    Watcher-->>DevServer: file change in ./src
+    DevServer->>Backend: SIGTERM
+    DevServer->>Backend: respawn
 ```
 
 Two env vars do the work. Both are inert in production — `core/backend`
@@ -196,7 +198,7 @@ refuses `CHECKSTACK_DEV_AUTH=true` when `NODE_ENV=production` and ignores
 ## Command-line flags
 
 ```
-bunx @checkstack/scripts dev --help
+bunx checkstack-dev --help
 ```
 
 | Flag                   | Default                                                                  | Notes                                              |
@@ -267,8 +269,12 @@ final check.
 
 **`Could not locate @checkstack/backend`**
 
-Make sure `@checkstack/scripts` is in your devDependencies (it pulls in
-`@checkstack/backend` transitively). Run `bun install` again.
+Make sure `@checkstack/dev-server` is in your devDependencies, and that
+the platform package matching your plugin's type is too — `@checkstack/backend`
+for a backend plugin, `@checkstack/frontend` for a frontend plugin (or
+both for a multi-package plugin that ships frontend + backend together).
+The dev server resolves them from your plugin's own `node_modules` (so
+the version your plugin pins is what runs). Run `bun install` again.
 
 **Port 3000 in use**
 

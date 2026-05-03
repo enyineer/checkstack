@@ -14,7 +14,7 @@
     "pluginId": "{{pluginBaseName}}"
   },
   "scripts": {
-    "dev": "bunx @checkstack/scripts dev",
+    "dev": "checkstack-dev",
     "pack": "bunx @checkstack/scripts plugin-pack",
     "typecheck": "tsgo -b",
     "lint": "bun run lint:code",
@@ -32,6 +32,8 @@
   },
   "devDependencies": {
     "@checkstack/scripts": "workspace:*",
+    "@checkstack/dev-server": "workspace:*",
+    "@checkstack/frontend": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
     "@checkstack/test-utils-frontend": "workspace:*",
     "@types/react": "^18.3.1",
