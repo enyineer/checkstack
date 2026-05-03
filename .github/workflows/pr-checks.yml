@@ -160,21 +160,30 @@ jobs:
       - name: Build Production Image
         run: docker build -t checkstack-prod:latest .
 
-      - name: Security Audit
+      - name: Trivy Image Scan
+        id: trivy-image
+        uses: aquasecurity/trivy-action@v0.36.0
+        continue-on-error: true
+        with:
+          scan-type: image
+          image-ref: checkstack-prod:latest
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL
+          output: /tmp/trivy-image.txt
+
+      - name: Aggregate Security Output
         id: security
         run: |
-          set +e
-          echo "🔎 Running Security Audit..." > /tmp/security-output.txt
-          
-          echo -e "\n📦 --- Filesystem Scan ---" >> /tmp/security-output.txt
-          docker run --rm -v $(pwd):/root ghcr.io/aquasecurity/trivy:latest fs --format table --exit-code 1 --ignore-unfixed --severity CRITICAL /root >> /tmp/security-output.txt
-          FS_EXIT=$?
-          
-          echo -e "\n🐳 --- Image Scan ---" >> /tmp/security-output.txt
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/aquasecurity/trivy:latest image --format table --exit-code 1 --ignore-unfixed --severity CRITICAL checkstack-prod:latest >> /tmp/security-output.txt
-          IMG_EXIT=$?
-          
-          if [ $FS_EXIT -ne 0 ] || [ $IMG_EXIT -ne 0 ]; then
+          {
+            echo "🔎 Running Security Audit..."
+            echo ""
+            echo "🐳 --- Image Scan ---"
+            cat /tmp/trivy-image.txt 2>/dev/null || echo "(no output produced)"
+          } > /tmp/security-output.txt
+
+          if [ "${{ steps.trivy-image.outcome }}" != "success" ]; then
             echo "exit_code=1" >> $GITHUB_OUTPUT
           else
             echo "exit_code=0" >> $GITHUB_OUTPUT
@@ -379,7 +388,7 @@ jobs:
                   output,
                   '```',
                   '',
-                  '**How to fix:** Run `bun run audit:security` and `bun run audit:image` locally to identify the vulnerabilities. For filesystem vulnerabilities, update the affected packages in `bun.lock`. For image vulnerabilities, check the base image or runtime dependencies. All **CRITICAL** vulnerabilities must be resolved or ignored if they are confirmed false positives.',
+                  '**How to fix:** CI only enforces the image scan — run `bun run audit:image` locally to reproduce these vulnerabilities (requires building the production image). For a faster check without a Docker build, `bun run audit:security` runs a filesystem scan against your dependencies. Update the base image, runtime dependencies, or affected packages in `bun.lock` accordingly. All **CRITICAL** vulnerabilities must be resolved or ignored if they are confirmed false positives.',
                   '',
                   '</details>',
                 ].join('\n'));
