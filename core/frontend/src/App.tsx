@@ -249,6 +249,13 @@ function AppWithApis() {
   // Config probe failed — baseUrl is not reachable (misconfigured BASE_URL).
   // Surface a clear diagnostic rather than a broken empty dashboard.
   if (!runtimeConfig || configError) {
+    // Derive the suggested BASE_URL from the URL the user actually has open
+    // in their browser — that's almost certainly the value they want.
+    const suggestedBaseUrl =
+      globalThis.window !== undefined && globalThis.location?.origin
+        ? globalThis.location.origin
+        : "http://localhost:3000";
+
     return (
       <div className="h-screen flex items-center justify-center bg-background p-8">
         <div className="max-w-lg w-full rounded-xl border border-destructive/50 bg-destructive/10 p-8 space-y-4 text-center">
@@ -264,9 +271,9 @@ function AppWithApis() {
           </p>
           <div className="text-left bg-muted rounded-lg p-4 space-y-1 text-sm font-mono">
             <p className="text-muted-foreground">
-              # For a default Docker setup:
+              # Based on the URL you opened, try:
             </p>
-            <p className="text-foreground">BASE_URL=http://localhost:3000</p>
+            <p className="text-foreground">BASE_URL={suggestedBaseUrl}</p>
           </div>
           <p className="text-sm text-muted-foreground">
             After updating your{" "}
