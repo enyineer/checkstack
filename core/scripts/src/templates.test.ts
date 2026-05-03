@@ -4,7 +4,7 @@ import {
   prepareTemplateData,
   registerHelpers,
 } from "./utils/template";
-import { validatePluginPackageJson } from "./commands/dev-internals";
+import { installPackageMetadataSchema } from "@checkstack/common";
 import { execSync } from "node:child_process";
 import { rmSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -138,31 +138,48 @@ describe("CLI Template Scaffolding", () => {
       // because they only inspect static metadata.
       // ────────────────────────────────────────────────────────────
 
-      it("renders a package.json that the dev-server's validator accepts", () => {
-        const result = validatePluginPackageJson({ cwd: targetDir });
-        if (!result.ok) {
+      it("renders a package.json that the install-time validator accepts", () => {
+        // Validate against the same schema dev-server and the runtime
+        // plugin installer use. Inlined here (rather than imported from
+        // dev-server) so `@checkstack/scripts` doesn't take a dep on
+        // `@checkstack/dev-server`.
+        const pkgJsonPath = path.join(targetDir, "package.json");
+        const raw = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as unknown;
+        const result = installPackageMetadataSchema.safeParse(raw);
+        if (!result.success) {
           throw new Error(
-            `Generated package.json fails dev-server validation:\n${
-              "issues" in result
-                ? result.issues.join("\n")
-                : "package.json missing"
-            }`,
+            `Generated package.json fails install-time validation:\n${result.error.issues
+              .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+              .join("\n")}`,
           );
         }
         // Sanity-check the metadata shape so a later schema change
         // surfaces here too.
-        expect(result.metadata.name).toBe(`@checkstack/${pluginName}`);
-        expect(result.metadata.checkstack.type).toBe(pluginType);
-        expect(result.metadata.checkstack.pluginId).toBe(TEST_BASE_NAME);
-        expect(result.metadata.author).toBeDefined();
-        expect(result.metadata.license).toBe("Elastic-2.0");
+        expect(result.data.name).toBe(`@checkstack/${pluginName}`);
+        expect(result.data.checkstack.type).toBe(pluginType);
+        expect(result.data.checkstack.pluginId).toBe(TEST_BASE_NAME);
+        expect(result.data.author).toBeDefined();
+        expect(result.data.license).toBe("Elastic-2.0");
       });
 
-      it("includes the @checkstack/scripts devDependency so bunx resolves the dev/pack commands", () => {
+      it("includes the @checkstack/scripts devDependency so `bunx @checkstack/scripts plugin-pack` resolves", () => {
         const pkg = JSON.parse(
           readFileSync(path.join(targetDir, "package.json"), "utf8"),
         ) as { devDependencies?: Record<string, string> };
         expect(pkg.devDependencies?.["@checkstack/scripts"]).toBeDefined();
+      });
+
+      it("includes @checkstack/dev-server (backend/frontend only) so the local dev loop is one-click", () => {
+        const pkg = JSON.parse(
+          readFileSync(path.join(targetDir, "package.json"), "utf8"),
+        ) as { devDependencies?: Record<string, string> };
+        if (pluginType === "common") {
+          // Common packages have no runtime, so the dev server makes no
+          // sense for them.
+          expect(pkg.devDependencies?.["@checkstack/dev-server"]).toBeUndefined();
+        } else {
+          expect(pkg.devDependencies?.["@checkstack/dev-server"]).toBeDefined();
+        }
       });
 
       it("includes the `pack` script (and the `dev` script for backend/frontend)", () => {
@@ -171,9 +188,10 @@ describe("CLI Template Scaffolding", () => {
         ) as { scripts?: Record<string, string> };
         expect(pkg.scripts?.pack).toBe("bunx @checkstack/scripts plugin-pack");
         if (pluginType !== "common") {
-          // Common packages have no runtime, so a dev server makes no
-          // sense for them — but backend/frontend must be one-click.
-          expect(pkg.scripts?.dev).toBe("bunx @checkstack/scripts dev");
+          // Backend/frontend templates pin the dev script to the
+          // `checkstack-dev` bin (provided by `@checkstack/dev-server`,
+          // which the template adds as a devDependency).
+          expect(pkg.scripts?.dev).toBe("checkstack-dev");
         }
       });
     });
