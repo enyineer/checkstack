@@ -56,6 +56,14 @@ export interface PluginLoaderDeps {
    * Map of pluginId -> contract for OpenAPI generation.
    */
   pluginContractRegistry: Map<string, AnyContractRouter>;
+  /**
+   * Called once `/api/:pluginId/*` is added to the root router and Phase 2
+   * (per-plugin init) is about to start. From this point on, plugin RPC
+   * routers come online incrementally as each plugin initializes — so
+   * self-referencing HTTP calls (e.g. RPC made from `afterPluginsReady`)
+   * can be allowed through the boot-time request gate without deadlocking.
+   */
+  onApiRouteRegistered?: () => void;
 }
 
 /**
@@ -294,6 +302,19 @@ export async function loadPlugins({
     pluginMetadataRegistry: deps.pluginMetadataRegistry,
   });
   registerApiRoute(rootRouter, apiHandler);
+
+  // Routes are now registered on the root router. Signal readiness so the
+  // server can stop blocking incoming requests in `waitForInit()`. We open
+  // the gate here (BEFORE Phase 2 / Phase 3) so that:
+  //   - the static module-load endpoints (/api/plugins, /api/about, …) stop
+  //     hanging behind the boot gate;
+  //   - cross-plugin RPC calls made from `afterPluginsReady` can self-loop
+  //     through the HTTP server without deadlocking on init completion.
+  // Plugin RPC routers come online incrementally as each plugin's Phase 2
+  // init runs; requests targeting a not-yet-initialized plugin fall through
+  // to the api-router's "Plugin metadata not found" 500, which is the
+  // pre-existing behavior and is preferable to a multi-second hang.
+  deps.onApiRouteRegistered?.();
 
   for (const id of sortedIds) {
     const p = pendingInits.find((x) => x.metadata.pluginId === id)!;

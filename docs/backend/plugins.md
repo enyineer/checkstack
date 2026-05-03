@@ -290,6 +290,16 @@ env.registerInit({
 });
 ```
 
+### Contributing readiness probes
+
+Plugins that depend on external connectivity (queues, caches, external
+APIs) should contribute a probe to the `/ready` endpoint via
+`coreServices.readinessRegistry`. The platform's `/ready` probe will not
+return 200 while any critical plugin probe is failing — this gates
+orchestrators (k8s/docker-compose) from sending traffic to a backend
+that isn't actually ready. See **[Health & Readiness](./health-and-readiness.md)**
+for the full API and probe contract.
+
 ## Hooks and Events
 
 The platform provides a distributed hook/event system for cross-plugin communication. Hooks are delivered via the queue system for reliable multi-instance support.

@@ -28,3 +28,4 @@ export * from "./collector-registry";
 export * from "./incremental-aggregation";
 export * from "./aggregated-result";
 export * from "./ws-registry";
+export * from "./readiness-registry";

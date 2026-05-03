@@ -19,6 +19,7 @@ import {
 } from "./types";
 import type { EventBus } from "./event-bus-types";
 import type { WebSocketRouteRegistry } from "./ws-registry";
+import type { ReadinessRegistry } from "./readiness-registry";
 
 export * from "./types";
 
@@ -53,4 +54,7 @@ export const coreServices = {
     "core.cachePluginRegistry",
   ),
   cacheManager: createServiceRef<CacheManager>("core.cacheManager"),
+  readinessRegistry: createServiceRef<ReadinessRegistry>(
+    "core.readinessRegistry",
+  ),
 };

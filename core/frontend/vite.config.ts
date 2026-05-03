@@ -22,6 +22,10 @@ export default defineConfig(() => {
           ws: true, // Enable WebSocket proxy
         },
         "/assets": backendUrl,
+        // Platform endpoints (probes etc.) under /.checkstack/* — proxied
+        // here for dev convenience so e.g.
+        // `curl http://localhost:5173/.checkstack/ready` works.
+        "/.checkstack": backendUrl,
       },
     },
     // ============================================================

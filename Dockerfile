@@ -89,8 +89,14 @@ ENV CHECKSTACK_FRONTEND_DIST=/app/core/frontend/dist
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
+# Probe the readiness endpoint, not liveness:
+#   /.checkstack/health  → 200 the moment the process is up (even mid-boot)
+#   /.checkstack/ready   → 503 until plugins finish loading and all critical
+#                          probes pass; 200 only when traffic should flow.
+# `--start-period=60s` gives plugin init enough time on cold start before
+# Docker counts failures against `--retries`.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/.checkstack/ready || exit 1
 
 ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
 CMD ["bun", "run", "core/backend/src/index.ts"]
