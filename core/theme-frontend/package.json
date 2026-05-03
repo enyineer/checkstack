@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/theme-frontend",
-  "version": "0.1.36",
+  "version": "0.1.37",
   "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.tsx",

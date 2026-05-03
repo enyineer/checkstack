@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/notification-slack-backend",
-  "version": "0.1.24",
+  "version": "0.1.25",
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {

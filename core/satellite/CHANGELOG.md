@@ -1,5 +1,14 @@
 # @checkstack/satellite
 
+## 0.2.5
+
+### Patch Changes
+
+- Updated dependencies [50e5f5f]
+  - @checkstack/backend-api@0.15.0
+  - @checkstack/common@0.8.0
+  - @checkstack/satellite-common@0.3.2
+
 ## 0.2.4
 
 ### Patch Changes

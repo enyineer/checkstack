@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/test-utils-frontend",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "license": "Elastic-2.0",
   "checkstack": {
     "type": "tooling"

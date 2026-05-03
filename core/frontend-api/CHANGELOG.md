@@ -1,5 +1,13 @@
 # @checkstack/frontend-api
 
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies [50e5f5f]
+  - @checkstack/common@0.8.0
+  - @checkstack/signal-common@0.2.1
+
 ## 0.4.1
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # @checkstack/satellite-common
 
+## 0.3.2
+
+### Patch Changes
+
+- Updated dependencies [50e5f5f]
+  - @checkstack/common@0.8.0
+  - @checkstack/healthcheck-common@1.0.1
+  - @checkstack/signal-common@0.2.1
+
 ## 0.3.1
 
 ### Patch Changes
