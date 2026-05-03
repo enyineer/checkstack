@@ -157,24 +157,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # BuildKit-aware Docker setup so we can use the `gha` cache backend.
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      # Build the production image WITH GitHub Actions layer cache. The
-      # Dockerfile's existing `--mount=type=cache` only persists within a
-      # single job; this caches the actual Docker layers across runs via
-      # GHA's cache, so unchanged layers (apk packages, bun install when
-      # bun.lock didn't change, frontend build when frontend didn't
-      # change) skip entirely.
+      # Plain `docker build` is faster end-to-end than buildx with the
+      # `type=gha` cache backend in our setup: layer-export to GHA cache
+      # adds ~85s of cold-run overhead and the warm-cache savings don't
+      # consistently recoup it (the Dockerfile's own --mount=type=cache
+      # already covers bun install efficiently within a job).
       - name: Build Production Image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          tags: checkstack-prod:latest
-          load: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        run: docker build -t checkstack-prod:latest .
 
       # Trivy downloads its vuln DB (~150 MB) on every fresh runner. The
       # DB is updated upstream every 6h, so we key the cache on the day
