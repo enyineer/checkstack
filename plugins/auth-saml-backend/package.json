@@ -10,7 +10,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo -b"
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",

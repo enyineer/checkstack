@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import inquirer from "inquirer";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import {
   validatePluginName,
   pluginExists,
@@ -217,6 +218,22 @@ export async function createCommand() {
     }
 
     // Success message with next steps
+    // Refresh project-references in every package's tsconfig + the root
+    // solution tsconfig so the new package is wired into the typecheck
+    // graph. Affects only tsconfig.json files; safe to rerun any time.
+    console.log("\n🔗 Refreshing TypeScript project references...");
+    const refResult = spawnSync(
+      "bun",
+      ["run", "typecheck:references:generate"],
+      { stdio: "inherit" },
+    );
+    if (refResult.status !== 0) {
+      console.warn(
+        "⚠️  Failed to refresh references automatically. " +
+          "Run `bun run typecheck:references:generate` manually before typechecking.",
+      );
+    }
+
     console.log(
       `\n✅ ${
         locationLabel.charAt(0).toUpperCase() + locationLabel.slice(1)

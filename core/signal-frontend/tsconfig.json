@@ -2,5 +2,10 @@
   "extends": "@checkstack/tsconfig/frontend.json",
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../signal-common"
+    }
   ]
 }

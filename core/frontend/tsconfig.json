@@ -1,6 +1,47 @@
 {
   "extends": "@checkstack/tsconfig/frontend.json",
+  "compilerOptions": {
+    "types": [
+      "bun",
+      "vite/client"
+    ]
+  },
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../about-frontend"
+    },
+    {
+      "path": "../announcement-frontend"
+    },
+    {
+      "path": "../auth-frontend"
+    },
+    {
+      "path": "../catalog-frontend"
+    },
+    {
+      "path": "../command-frontend"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../dependency-frontend"
+    },
+    {
+      "path": "../frontend-api"
+    },
+    {
+      "path": "../signal-common"
+    },
+    {
+      "path": "../signal-frontend"
+    },
+    {
+      "path": "../ui"
+    }
   ]
 }

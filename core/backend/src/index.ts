@@ -1,5 +1,6 @@
 import type { Server } from "bun";
 import { type Context, Hono } from "hono";
+import { TrieRouter } from "hono/router/trie-router";
 import { PluginManager } from "./plugin-manager";
 import { logger } from "hono/logger";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
@@ -8,6 +9,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { rootLogger } from "./logger";
 import { coreServices, coreHooks } from "@checkstack/backend-api";
+import { extractErrorMessage } from "@checkstack/common";
 import { plugins } from "./schema";
 import { eq, and } from "drizzle-orm";
 import { PluginLocalInstaller } from "./services/plugin-installer";
@@ -52,8 +54,39 @@ import {
 
 import { cors } from "hono/cors";
 
-const app = new Hono();
+// IMPORTANT: TrieRouter (not the default SmartRouter).
+// SmartRouter freezes its matcher on the first incoming request — any later
+// app.add() throws "Can not add a route since the matcher is already built".
+// Plugins register routes asynchronously during init() and at runtime via
+// loadSinglePlugin(), so we need an incremental router.
+const app = new Hono({ router: new TrieRouter() });
 const pluginManager = new PluginManager();
+
+/**
+ * Init lifecycle state.
+ *
+ * `initialized` flips to true after the entire init() completes (Phases 1-3).
+ * It feeds the "core.init" readiness probe consumed by /ready.
+ *
+ * `initError` is populated when init throws; the process is then exited so
+ * the supervisor (docker/k8s) restarts us — we never serve a half-initialized
+ * backend.
+ *
+ * The HTTP request gate does NOT key off these flags directly. It awaits
+ * `pluginManager.routesReadyPromise`, which resolves earlier — right after
+ * `/api/:pluginId/*` is added to the root router and BEFORE `afterPluginsReady`
+ * runs — so cross-plugin RPC calls during plugin boot don't deadlock on
+ * themselves.
+ */
+let initError: Error | undefined;
+let initialized = false;
+
+/**
+ * Maximum time a request will wait for init to complete before falling back
+ * to a 503 Service Unavailable. Without this, a wedged plugin would hang
+ * health probes forever.
+ */
+const READY_WAIT_TIMEOUT_MS = 30_000;
 
 // WebSocket handler instance (initialized during init)
 let wsHandler: ReturnType<typeof createWebSocketHandler> | undefined;
@@ -81,6 +114,50 @@ app.use(
   })
 );
 app.use("*", logger());
+
+// =============================================================================
+// PLATFORM ENDPOINTS — /.checkstack/*
+// =============================================================================
+//
+// All "platform-level" endpoints (probes, future operator hooks) live under
+// /.checkstack/* so they are clearly separated from plugin /api/*, runtime
+// frontend assets, and the SPA wildcard. The leading dot keeps them out of
+// any plugin URL space by construction.
+//
+// Health & readiness:
+//   - registered at module load; bypass the boot gate in `fetch()` so that
+//     orchestrators (Kubernetes, docker-compose) can probe a still-booting
+//     process.
+//   - /.checkstack/health = "process is alive"
+//   - /.checkstack/ready  = "plugins initialized and all critical probes pass"
+
+/** Liveness probe — answers as long as the process responds. */
+app.get("/.checkstack/health", (c) => c.json({ status: "ok" }));
+
+/**
+ * Readiness probe — aggregates plugin-contributed checks.
+ * - 503 while init is in flight or has failed
+ * - 503 if any critical probe is failing
+ * - 200 only when init completed AND all critical probes pass
+ */
+app.get("/.checkstack/ready", async (c) => {
+  if (initError) {
+    return c.json(
+      { ready: false, error: initError.message, checks: [] },
+      503,
+      { "Retry-After": "5" },
+    );
+  }
+  if (!initialized) {
+    return c.json(
+      { ready: false, reason: "initializing", checks: [] },
+      503,
+      { "Retry-After": "1" },
+    );
+  }
+  const snapshot = await pluginManager.getReadinessRegistry().evaluate();
+  return c.json(snapshot, snapshot.ready ? 200 : 503);
+});
 
 // SECURITY: Add missing standard security headers across all API responses
 app.use("/api/*", async (c, next) => {
@@ -185,14 +262,16 @@ if (frontendDistPath && fs.existsSync(frontendDistPath)) {
   };
 
   // Serve static assets (JS, CSS, images, etc.)
-  app.get("/assets/*", async (c) => {
+  // Fall through to next() on miss so plugin-asset routes (registered later
+  // during init at /assets/plugins/:pluginName/*) get a chance to match.
+  app.get("/assets/*", async (c, next) => {
     const assetPath = c.req.path.replace("/assets/", "");
     const filePath = path.join(frontendDistPath, "assets", assetPath);
 
     if (fs.existsSync(filePath)) {
       return serveFile(c, filePath);
     }
-    return c.notFound();
+    return next();
   });
 
   // Serve vendor scripts (externalized React, react-router-dom, etc.)
@@ -441,16 +520,117 @@ const init = async () => {
     logger: rootLogger.child({ service: "WebSocket" }),
   });
 
+  // Register the core "init" readiness probe. Plugin-contributed probes are
+  // additive — see coreServices.readinessRegistry for the plugin-facing API.
+  pluginManager.getReadinessRegistry().register({
+    name: "core.init",
+    critical: true,
+    check: async () => ({ ok: initialized, message: initialized ? undefined : "init not complete" }),
+  });
+
   rootLogger.info("✅ Checkstack Core initialized.");
 };
 
-void init();
+/**
+ * Fire-and-forget init. We deliberately don't `await` at the top level so the
+ * server can answer /health and /ready while plugins are still loading;
+ * non-bypass requests are gated via `waitForRoutesReady()` below.
+ */
+// eslint-disable-next-line unicorn/prefer-top-level-await -- intentionally non-blocking; gates handled in waitForRoutesReady()
+void (async () => {
+  try {
+    await init();
+    initialized = true;
+  } catch (error: unknown) {
+    initError = new Error(extractErrorMessage(error, "init failed"));
+    rootLogger.error(
+      "❌ FATAL: Checkstack Core init failed; the process will exit so the supervisor can restart it.",
+      initError,
+    );
+    // Give the logger one tick to flush, then exit so docker/k8s restarts us.
+    // A half-initialized backend silently serves broken state — restart is
+    // strictly better than continuing. We disable the no-process-exit rule
+    // because this IS the canonical fail-fast pattern for a long-running
+    // server entrypoint.
+    setTimeout(() => {
+      // eslint-disable-next-line unicorn/no-process-exit -- intentional fail-fast on init failure
+      process.exit(1);
+    }, 50);
+  }
+})();
+
+/**
+ * Paths that bypass the boot gate. Platform endpoints under /.checkstack/*
+ * MUST be reachable while the backend is still booting so orchestrators can
+ * probe it. Everything else waits until plugin routes are registered.
+ */
+const BOOT_BYPASS_PREFIX = "/.checkstack/";
+
+/**
+ * Wait until plugin RPC routes are registered on the root router (resolved
+ * inside `loadPlugins` BEFORE Phase 2 / `afterPluginsReady`). Returns:
+ *   - undefined when routes are ready → caller should proceed to Hono.
+ *   - a 503 Response when init failed or the wait timed out.
+ *
+ * Why this gate, and why at this specific point:
+ *   - Earlier (before /api/:pluginId/* is added), an incoming request would
+ *     short-circuit through the SPA wildcard or 404 because the plugin route
+ *     simply doesn't exist yet on the router.
+ *   - Later (after full init), self-referencing RPC calls made from
+ *     `afterPluginsReady` would deadlock waiting for init to complete — so
+ *     we MUST open the gate before Phase 3 runs.
+ *   - `loadPlugins()` resolves `routesReadyPromise` immediately after
+ *     `registerApiRoute()`, which is the earliest point both conditions hold.
+ */
+async function waitForRoutesReady(): Promise<Response | undefined> {
+  if (initError) {
+    return Response.json(
+      { error: "Backend init failed", message: initError.message },
+      { status: 503, headers: { "Retry-After": "5" } },
+    );
+  }
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  // pluginManager.routesReadyPromise resolves from inside loadPlugins; it
+  // never rejects. The init catch handler logs + process.exit's separately.
+  const timedOut = await Promise.race([
+    pluginManager.routesReadyPromise.then(() => false),
+    new Promise<true>((resolve) => {
+      timeoutHandle = setTimeout(() => resolve(true), READY_WAIT_TIMEOUT_MS);
+    }),
+  ]);
+  if (timeoutHandle) clearTimeout(timeoutHandle);
+  if (timedOut) {
+    return Response.json(
+      { error: "Backend not ready", message: "boot timeout" },
+      { status: 503, headers: { "Retry-After": "5" } },
+    );
+  }
+  // Re-read after await — init may have rejected while we were waiting.
+  const errAfter = initError as Error | undefined;
+  if (errAfter) {
+    return Response.json(
+      { error: "Backend init failed", message: errAfter.message },
+      { status: 503, headers: { "Retry-After": "5" } },
+    );
+  }
+  return undefined;
+}
 
 // Custom fetch handler that handles WebSocket upgrades
 const fetch = async (
   req: Request,
   server: Server<ServerWsData>
 ): Promise<Response | undefined> => {
+  const url = new URL(req.url);
+
+  // Platform endpoints (/.checkstack/*) bypass the boot gate so orchestrators
+  // can poll a booting process. Everything else waits until plugin routes
+  // are registered on the root router (resolved before Phase 2 init runs).
+  if (!url.pathname.startsWith(BOOT_BYPASS_PREFIX)) {
+    const stalled = await waitForRoutesReady();
+    if (stalled) return stalled;
+  }
+
   // Set the server reference for WebSocket pub/sub after startup
   if (wsHandler && !server.upgrade) {
     // Server doesn't support WebSocket upgrade (shouldn't happen with Bun)
@@ -460,8 +640,6 @@ const fetch = async (
   // Give the WebSocket handler the server reference if needed
   // Cast is safe: signal handler only reads its own fields via connectionType guard
   wsHandler?.setServer(server as unknown as Server<WebSocketData>);
-
-  const url = new URL(req.url);
 
   // Handle WebSocket upgrade for signals
   if (url.pathname === "/api/signals/ws") {

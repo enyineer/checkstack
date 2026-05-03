@@ -2,5 +2,25 @@
   "extends": "@checkstack/tsconfig/frontend.json",
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../frontend-api"
+    },
+    {
+      "path": "../infrastructure-common"
+    },
+    {
+      "path": "../queue-common"
+    },
+    {
+      "path": "../signal-frontend"
+    },
+    {
+      "path": "../ui"
+    }
   ]
 }

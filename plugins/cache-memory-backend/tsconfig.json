@@ -2,5 +2,19 @@
   "extends": "@checkstack/tsconfig/backend.json",
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../../core/backend-api"
+    },
+    {
+      "path": "../../core/cache-api"
+    },
+    {
+      "path": "../../core/common"
+    },
+    {
+      "path": "../cache-memory-common"
+    }
   ]
 }

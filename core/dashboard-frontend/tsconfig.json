@@ -2,5 +2,55 @@
   "extends": "@checkstack/tsconfig/frontend.json",
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../anomaly-common"
+    },
+    {
+      "path": "../auth-frontend"
+    },
+    {
+      "path": "../catalog-common"
+    },
+    {
+      "path": "../catalog-frontend"
+    },
+    {
+      "path": "../command-common"
+    },
+    {
+      "path": "../command-frontend"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../frontend-api"
+    },
+    {
+      "path": "../healthcheck-common"
+    },
+    {
+      "path": "../incident-common"
+    },
+    {
+      "path": "../maintenance-common"
+    },
+    {
+      "path": "../notification-common"
+    },
+    {
+      "path": "../notification-frontend"
+    },
+    {
+      "path": "../queue-frontend"
+    },
+    {
+      "path": "../signal-frontend"
+    },
+    {
+      "path": "../ui"
+    }
   ]
 }

@@ -1,11 +1,21 @@
 {
   "extends": "./base.json",
+  // Shared ambient declarations (CSS imports, import.meta.env) are picked
+  // up by every extending project. Relative paths in `files` are resolved
+  // against THIS file's directory at extends-time, so leaf tsconfigs in
+  // every frontend package automatically include them without any per-
+  // package boilerplate.
+  "files": ["./vite-env.d.ts"],
   "compilerOptions": {
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    // Frontend tests run with `bun test`. We include `bun` here so test files
+    // see `bun:test` and globals. Vite-specific types are added per-package
+    // (only `core/frontend` actually depends on `vite`).
+    "types": ["bun"]
   }
 }

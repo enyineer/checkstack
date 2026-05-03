@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo -b",
     "lint": "bun run lint:code",
     "lint:code": "eslint . --max-warnings 0"
   },

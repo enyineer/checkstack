@@ -23,6 +23,7 @@ Building backend plugins and services:
 
 - **[Backend Plugins](./backend/plugins.md)** - Create REST APIs, services, and database schemas
 - **[Service Communication](./backend/services.md)** - Backend-to-backend communication patterns
+- **[Health & Readiness](./backend/health-and-readiness.md)** - `/.checkstack/health` and `/.checkstack/ready` probes; plugin-contributed readiness checks
 - **[Config Service](./backend/config-service.md)** - Dynamic configuration management
 - **[Queue System](./backend/queue-system.md)** - Asynchronous task processing
 - **[Signals](./backend/signals.md)** - Realtime server-to-client communication

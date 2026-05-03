@@ -3,6 +3,7 @@ import { adminPool, db } from "./db";
 import { ServiceRegistry } from "./services/service-registry";
 import type { CoreCollectorRegistry } from "./services/collector-registry";
 import type { WebSocketRouteStoreImpl } from "./services/ws-route-registry";
+import type { CoreReadinessRegistry } from "./services/readiness-registry";
 import {
   BackendPlugin,
   ServiceRef,
@@ -54,7 +55,21 @@ export class PluginManager {
   // Global WebSocket route store for server-level routing
   private wsStore: WebSocketRouteStoreImpl;
 
+  // Global readiness registry — plugins contribute probes, /ready aggregates them
+  private readinessRegistry: CoreReadinessRegistry;
+
+  // Resolves once `/api/:pluginId/*` is registered on the root router and
+  // Phase 2 (per-plugin init) is starting. The HTTP server awaits this
+  // promise to know when it is safe to stop gating incoming requests.
+  // Held as a deferred so the listener (server) can be wired up before
+  // loadPlugins() runs.
+  private resolveRoutesReady!: () => void;
+  readonly routesReadyPromise: Promise<void>;
+
   constructor() {
+    this.routesReadyPromise = new Promise<void>((resolve) => {
+      this.resolveRoutesReady = resolve;
+    });
     const registries = registerCoreServices({
       registry: this.registry,
       adminPool,
@@ -64,6 +79,15 @@ export class PluginManager {
     });
     this.collectorRegistry = registries.collectorRegistry;
     this.wsStore = registries.wsStore;
+    this.readinessRegistry = registries.readinessRegistry;
+  }
+
+  /**
+   * Get the global readiness registry so the server-level /ready endpoint
+   * can aggregate plugin-contributed probes.
+   */
+  getReadinessRegistry(): CoreReadinessRegistry {
+    return this.readinessRegistry;
   }
 
   /**
@@ -124,8 +148,13 @@ export class PluginManager {
         pluginMetadataRegistry: this.pluginMetadataRegistry,
         cleanupHandlers: this.cleanupHandlers,
         pluginContractRegistry: this.pluginContractRegistry,
+        onApiRouteRegistered: () => this.resolveRoutesReady(),
       },
     });
+    // Defensive: if loadPlugins returned without ever calling the callback
+    // (e.g. zero plugins discovered and no api route registered), unblock
+    // the server gate anyway — by this point Hono is fully configured.
+    this.resolveRoutesReady();
   }
 
   /**

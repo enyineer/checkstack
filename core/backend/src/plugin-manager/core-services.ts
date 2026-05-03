@@ -30,6 +30,10 @@ import {
   WebSocketRouteStoreImpl,
   createScopedWsRegistry,
 } from "../services/ws-route-registry";
+import {
+  CoreReadinessRegistry,
+  createScopedReadinessRegistry,
+} from "../services/readiness-registry";
 
 /**
  * Check if a PostgreSQL schema exists.
@@ -59,7 +63,11 @@ export function registerCoreServices({
   pluginRpcRouters: Map<string, unknown>;
   pluginHttpHandlers: Map<string, (req: Request) => Promise<Response>>;
   pluginContractRegistry: Map<string, unknown>;
-}): { collectorRegistry: CoreCollectorRegistry; wsStore: WebSocketRouteStoreImpl } {
+}): {
+  collectorRegistry: CoreCollectorRegistry;
+  wsStore: WebSocketRouteStoreImpl;
+  readinessRegistry: CoreReadinessRegistry;
+} {
   // 1. Database Factory (Scoped)
   registry.registerFactory(coreServices.database, async (metadata) => {
     const { pluginId, previousPluginIds } = metadata;
@@ -356,6 +364,17 @@ export function registerCoreServices({
     createScopedWsRegistry(globalWsStore, metadata.pluginId),
   );
 
+  // 11. Readiness Registry (Scoped Factory)
+  // Plugins contribute probes that are aggregated by the /ready endpoint.
+  const globalReadinessRegistry = new CoreReadinessRegistry();
+  registry.registerFactory(coreServices.readinessRegistry, () =>
+    createScopedReadinessRegistry(globalReadinessRegistry),
+  );
+
   // Return global registries for lifecycle cleanup
-  return { collectorRegistry: globalCollectorRegistry, wsStore: globalWsStore };
+  return {
+    collectorRegistry: globalCollectorRegistry,
+    wsStore: globalWsStore,
+    readinessRegistry: globalReadinessRegistry,
+  };
 }

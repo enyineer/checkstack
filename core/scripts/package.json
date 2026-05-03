@@ -9,7 +9,7 @@
   },
   "scripts": {
     "sync": "bun run src/sync.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo -b"
   },
   "dependencies": {
     "inquirer": "^13.4.1",

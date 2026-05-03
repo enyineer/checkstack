@@ -2,5 +2,22 @@
   "extends": "@checkstack/tsconfig/backend.json",
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../../core/backend-api"
+    },
+    {
+      "path": "../../core/common"
+    },
+    {
+      "path": "../../core/integration-backend"
+    },
+    {
+      "path": "../../core/integration-common"
+    },
+    {
+      "path": "../integration-jira-common"
+    }
   ]
 }

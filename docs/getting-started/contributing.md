@@ -114,7 +114,15 @@ bun test:watch           # Watch mode
 # Tooling (Standardized via @checkstack/scripts)
 bun run sync             # Synchronize project configurations
 bun run lint             # Run all linters
-bun run typecheck        # TypeScript type checking
+bun run typecheck        # TypeScript type checking — single `tsgo -b`
+                         # across the whole repo via project references.
+                         # Cold ~12s, warm/incremental ~0.3s.
+
+# Typecheck maintenance (rarely needed; see "TypeScript setup" below)
+bun run typecheck:references:generate  # Refresh references after editing
+                                       # workspace deps in package.json
+bun run typecheck:references:check     # Dry-run; CI runs this to detect drift
+bun run typecheck:clean                # Wipe `.tsbuild/` + tsbuildinfo
 
 # Database
 bun run db:generate      # Generate migrations
@@ -205,6 +213,34 @@ API endpoints or components provided.
 - Enable **strict mode**
 - Avoid `any` types (use `unknown` if needed)
 - Use **type inference** where possible
+
+#### TypeScript setup (project references + tsgo)
+
+Typechecking uses [`tsgo`](https://www.npmjs.com/package/@typescript/native-preview)
+(the TypeScript 7 native port, in preview) with **project references**
+between every workspace package. A single `bun run typecheck` from the
+repo root walks the dependency graph: cold ~12s, warm/incremental
+~0.3s.
+
+The references graph is generated from `package.json` deps — you don't
+hand-edit `references` arrays. Helper scripts:
+
+| Script | When to run |
+|---|---|
+| `bun run typecheck` | Always. The default. Runs `:references:check` first (~150ms) then `tsgo -b`. Reads cached `.tsbuild/` for incremental work. |
+| `bun run typecheck:references:generate` | After **adding or removing a `@checkstack/*` workspace dep** in any `package.json`, **adding a new package** to the workspace, or **removing a package**. `bun run create` runs this for you when scaffolding a new package. If you forget, the next `bun run typecheck` will tell you. |
+| `bun run typecheck:references:check` | Dry-run; runs automatically as part of `typecheck`. Run standalone if you just want the validation without the actual typecheck. |
+| `bun run typecheck:clean` | Almost never. Wipes `.tsbuild/` and `tsconfig.tsbuildinfo` files. Useful when diagnosing a stale cache, after major dep upgrades, or when switching between branches with very different type graphs. **Don't run this routinely** — it forces a 12s cold rebuild on the next typecheck. |
+
+`bun run typecheck` does **not** auto-run the generator (would mutate
+tsconfig files without explicit intent) or the cleaner (would defeat
+the warm cache). It does run `:references:check` so you find out about
+stale references with a clear error message — not a cryptic tsgo
+failure.
+
+`.tsbuild/` and `tsconfig.tsbuildinfo` are gitignored. Bun runs source
+TypeScript directly at runtime, so emitted `.d.ts` files exist purely
+to satisfy the project-references contract.
 
 ### Naming Conventions
 

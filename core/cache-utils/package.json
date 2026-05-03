@@ -16,7 +16,7 @@
     "typescript": "^5.0.0"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo -b",
     "lint": "bun run lint:code",
     "lint:code": "eslint . --max-warnings 0"
   }

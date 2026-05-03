@@ -7,7 +7,9 @@
     "**/*.spec.tsx",
     "**/*.md",
     "**/__tests__/**",
-    "**/__mocks__/**"
+    "**/__mocks__/**",
+    "tsconfig.json",
+    "tsconfig.tsbuildinfo"
   ],
   "ignoredPackages": ["@checkstack/release"]
 }

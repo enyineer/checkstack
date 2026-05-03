@@ -1,7 +1,7 @@
 { "name": "@checkstack/{{pluginName}}", "version": "0.0.1",
 "checkstack": { "type": "backend" },
 "description": "{{pluginDescription}}", "type": "module", "exports": { ".": {
-"import": "./src/index.ts" } }, "scripts": { "typecheck": "tsc --noEmit",
+"import": "./src/index.ts" } }, "scripts": { "typecheck": "tsgo -b",
 "lint": "bun run lint:code", "lint:code": "eslint . --max-warnings 0", "test":
 "bun test" }, "dependencies": { "@checkstack/backend-api": "workspace:*",
 "@checkstack/common": "workspace:*", "@checkstack/{{pluginBaseName}}-common":

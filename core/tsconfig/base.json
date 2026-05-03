@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "incremental": true,
+    "composite": true,
     "module": "esnext",
     "target": "esnext",
     "moduleResolution": "bundler",
@@ -10,7 +11,23 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "allowJs": true,
-    "noEmit": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+
+    // Project-references / fast-typecheck setup.
+    //
+    // We use `tsgo -b` (TypeScript native preview) from the repo root for
+    // typechecking. Composite project references require emit, so we emit
+    // declaration files only (no .js) to a per-package `.tsbuild/` directory.
+    //
+    // - `${configDir}` resolves to the dir of the *using* tsconfig.json
+    //   (TS 5.5+), keeping outputs scoped to each package.
+    // - `.tsbuild/` is gitignored. Bun runs source TS directly at runtime,
+    //   so the emitted .d.ts files are purely for cross-package typechecking.
+    // - `composite` is set in the platform-specific configs (backend/frontend/common).
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    "outDir": "${configDir}/.tsbuild"
   }
 }

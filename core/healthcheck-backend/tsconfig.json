@@ -2,5 +2,64 @@
   "extends": "@checkstack/tsconfig/backend.json",
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../backend-api"
+    },
+    {
+      "path": "../cache-api"
+    },
+    {
+      "path": "../cache-utils"
+    },
+    {
+      "path": "../catalog-backend"
+    },
+    {
+      "path": "../catalog-common"
+    },
+    {
+      "path": "../command-backend"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../drizzle-helper"
+    },
+    {
+      "path": "../gitops-backend"
+    },
+    {
+      "path": "../gitops-common"
+    },
+    {
+      "path": "../healthcheck-common"
+    },
+    {
+      "path": "../incident-common"
+    },
+    {
+      "path": "../integration-backend"
+    },
+    {
+      "path": "../maintenance-common"
+    },
+    {
+      "path": "../notification-common"
+    },
+    {
+      "path": "../queue-api"
+    },
+    {
+      "path": "../satellite-backend"
+    },
+    {
+      "path": "../signal-common"
+    },
+    {
+      "path": "../test-utils-backend"
+    }
   ]
 }

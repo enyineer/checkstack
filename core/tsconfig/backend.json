@@ -2,8 +2,6 @@
   "extends": "./base.json",
   "compilerOptions": {
     "lib": ["ESNext", "DOM"],
-    "composite": true,
-    "downlevelIteration": true,
     "allowSyntheticDefaultImports": true,
     "types": ["bun"]
   }

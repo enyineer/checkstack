@@ -1,7 +1,7 @@
 { "name": "@checkstack/{{pluginName}}", "version": "0.0.1",
 "checkstack": { "type": "frontend" },
 "description": "{{pluginDescription}}", "type": "module", "exports": { ".": {
-"import": "./src/index.tsx" } }, "scripts": { "typecheck": "tsc --noEmit",
+"import": "./src/index.tsx" } }, "scripts": { "typecheck": "tsgo -b",
 "lint": "bun run lint:code", "lint:code": "eslint . --max-warnings 0",
 "test:e2e": "bunx playwright test" }, "dependencies": {
 "@checkstack/frontend-api": "workspace:*", "@checkstack/common":

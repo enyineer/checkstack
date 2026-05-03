@@ -1,0 +1,355 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false
+  },
+  "files": [],
+  "include": [],
+  "references": [
+    {
+      "path": "./core/about-common"
+    },
+    {
+      "path": "./core/about-frontend"
+    },
+    {
+      "path": "./core/announcement-backend"
+    },
+    {
+      "path": "./core/announcement-common"
+    },
+    {
+      "path": "./core/announcement-frontend"
+    },
+    {
+      "path": "./core/anomaly-backend"
+    },
+    {
+      "path": "./core/anomaly-common"
+    },
+    {
+      "path": "./core/anomaly-frontend"
+    },
+    {
+      "path": "./core/api-docs-common"
+    },
+    {
+      "path": "./core/api-docs-frontend"
+    },
+    {
+      "path": "./core/auth-backend"
+    },
+    {
+      "path": "./core/auth-common"
+    },
+    {
+      "path": "./core/auth-frontend"
+    },
+    {
+      "path": "./core/backend"
+    },
+    {
+      "path": "./core/backend-api"
+    },
+    {
+      "path": "./core/cache-api"
+    },
+    {
+      "path": "./core/cache-backend"
+    },
+    {
+      "path": "./core/cache-common"
+    },
+    {
+      "path": "./core/cache-frontend"
+    },
+    {
+      "path": "./core/cache-utils"
+    },
+    {
+      "path": "./core/catalog-backend"
+    },
+    {
+      "path": "./core/catalog-common"
+    },
+    {
+      "path": "./core/catalog-frontend"
+    },
+    {
+      "path": "./core/command-backend"
+    },
+    {
+      "path": "./core/command-common"
+    },
+    {
+      "path": "./core/command-frontend"
+    },
+    {
+      "path": "./core/common"
+    },
+    {
+      "path": "./core/dashboard-frontend"
+    },
+    {
+      "path": "./core/dependency-backend"
+    },
+    {
+      "path": "./core/dependency-common"
+    },
+    {
+      "path": "./core/dependency-frontend"
+    },
+    {
+      "path": "./core/drizzle-helper"
+    },
+    {
+      "path": "./core/frontend"
+    },
+    {
+      "path": "./core/frontend-api"
+    },
+    {
+      "path": "./core/gitops-backend"
+    },
+    {
+      "path": "./core/gitops-common"
+    },
+    {
+      "path": "./core/gitops-frontend"
+    },
+    {
+      "path": "./core/healthcheck-backend"
+    },
+    {
+      "path": "./core/healthcheck-common"
+    },
+    {
+      "path": "./core/healthcheck-frontend"
+    },
+    {
+      "path": "./core/incident-backend"
+    },
+    {
+      "path": "./core/incident-common"
+    },
+    {
+      "path": "./core/incident-frontend"
+    },
+    {
+      "path": "./core/infrastructure-common"
+    },
+    {
+      "path": "./core/infrastructure-frontend"
+    },
+    {
+      "path": "./core/integration-backend"
+    },
+    {
+      "path": "./core/integration-common"
+    },
+    {
+      "path": "./core/integration-frontend"
+    },
+    {
+      "path": "./core/maintenance-backend"
+    },
+    {
+      "path": "./core/maintenance-common"
+    },
+    {
+      "path": "./core/maintenance-frontend"
+    },
+    {
+      "path": "./core/notification-backend"
+    },
+    {
+      "path": "./core/notification-common"
+    },
+    {
+      "path": "./core/notification-frontend"
+    },
+    {
+      "path": "./core/queue-api"
+    },
+    {
+      "path": "./core/queue-backend"
+    },
+    {
+      "path": "./core/queue-common"
+    },
+    {
+      "path": "./core/queue-frontend"
+    },
+    {
+      "path": "./core/satellite"
+    },
+    {
+      "path": "./core/satellite-backend"
+    },
+    {
+      "path": "./core/satellite-common"
+    },
+    {
+      "path": "./core/satellite-frontend"
+    },
+    {
+      "path": "./core/signal-backend"
+    },
+    {
+      "path": "./core/signal-common"
+    },
+    {
+      "path": "./core/signal-frontend"
+    },
+    {
+      "path": "./core/slo-backend"
+    },
+    {
+      "path": "./core/slo-common"
+    },
+    {
+      "path": "./core/slo-frontend"
+    },
+    {
+      "path": "./core/test-utils-backend"
+    },
+    {
+      "path": "./core/test-utils-frontend"
+    },
+    {
+      "path": "./core/theme-backend"
+    },
+    {
+      "path": "./core/theme-common"
+    },
+    {
+      "path": "./core/theme-frontend"
+    },
+    {
+      "path": "./core/ui"
+    },
+    {
+      "path": "./plugins/auth-credential-backend"
+    },
+    {
+      "path": "./plugins/auth-github-backend"
+    },
+    {
+      "path": "./plugins/auth-ldap-backend"
+    },
+    {
+      "path": "./plugins/auth-saml-backend"
+    },
+    {
+      "path": "./plugins/cache-memory-backend"
+    },
+    {
+      "path": "./plugins/cache-memory-common"
+    },
+    {
+      "path": "./plugins/collector-hardware-backend"
+    },
+    {
+      "path": "./plugins/healthcheck-dns-backend"
+    },
+    {
+      "path": "./plugins/healthcheck-grpc-backend"
+    },
+    {
+      "path": "./plugins/healthcheck-http-backend"
+    },
+    {
+      "path": "./plugins/healthcheck-jenkins-backend"
+    },
+    {
+      "path": "./plugins/healthcheck-mysql-backend"
+    },
+    {
+      "path": "./plugins/healthcheck-ping-backend"
+    },
+    {
+      "path": "./plugins/healthcheck-postgres-backend"
+    },
+    {
+      "path": "./plugins/healthcheck-rcon-backend"
+    },
+    {
+      "path": "./plugins/healthcheck-rcon-common"
+    },
+    {
+      "path": "./plugins/healthcheck-redis-backend"
+    },
+    {
+      "path": "./plugins/healthcheck-script-backend"
+    },
+    {
+      "path": "./plugins/healthcheck-ssh-backend"
+    },
+    {
+      "path": "./plugins/healthcheck-ssh-common"
+    },
+    {
+      "path": "./plugins/healthcheck-tcp-backend"
+    },
+    {
+      "path": "./plugins/healthcheck-tls-backend"
+    },
+    {
+      "path": "./plugins/integration-jira-backend"
+    },
+    {
+      "path": "./plugins/integration-jira-common"
+    },
+    {
+      "path": "./plugins/integration-script-backend"
+    },
+    {
+      "path": "./plugins/integration-teams-backend"
+    },
+    {
+      "path": "./plugins/integration-webex-backend"
+    },
+    {
+      "path": "./plugins/integration-webhook-backend"
+    },
+    {
+      "path": "./plugins/notification-backstage-backend"
+    },
+    {
+      "path": "./plugins/notification-discord-backend"
+    },
+    {
+      "path": "./plugins/notification-gotify-backend"
+    },
+    {
+      "path": "./plugins/notification-pushover-backend"
+    },
+    {
+      "path": "./plugins/notification-slack-backend"
+    },
+    {
+      "path": "./plugins/notification-smtp-backend"
+    },
+    {
+      "path": "./plugins/notification-teams-backend"
+    },
+    {
+      "path": "./plugins/notification-telegram-backend"
+    },
+    {
+      "path": "./plugins/notification-webex-backend"
+    },
+    {
+      "path": "./plugins/queue-bullmq-backend"
+    },
+    {
+      "path": "./plugins/queue-bullmq-common"
+    },
+    {
+      "path": "./plugins/queue-memory-backend"
+    },
+    {
+      "path": "./plugins/queue-memory-common"
+    }
+  ]
+}

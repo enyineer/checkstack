@@ -5,5 +5,37 @@
   },
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../anomaly-common"
+    },
+    {
+      "path": "../catalog-common"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../frontend-api"
+    },
+    {
+      "path": "../healthcheck-common"
+    },
+    {
+      "path": "../healthcheck-frontend"
+    },
+    {
+      "path": "../notification-common"
+    },
+    {
+      "path": "../notification-frontend"
+    },
+    {
+      "path": "../signal-frontend"
+    },
+    {
+      "path": "../ui"
+    }
   ]
 }

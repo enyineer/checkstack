@@ -9,6 +9,7 @@ export default tseslint.config(
     ignores: [
       "**/node_modules/**",
       "**/dist/**",
+      "**/.tsbuild/**",
       "**/drizzle/**",
       "**/public/vendor/**",
       "**/*.test.ts*",

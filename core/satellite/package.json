@@ -4,7 +4,7 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo -b",
     "start": "bun run src/index.ts",
     "lint": "bun run lint:code",
     "lint:code": "eslint . --max-warnings 0"

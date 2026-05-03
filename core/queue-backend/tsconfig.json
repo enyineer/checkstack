@@ -2,5 +2,19 @@
   "extends": "@checkstack/tsconfig/backend.json",
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../backend-api"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../queue-api"
+    },
+    {
+      "path": "../queue-common"
+    }
   ]
 }

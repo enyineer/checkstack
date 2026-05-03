@@ -2,5 +2,10 @@
   "extends": "@checkstack/tsconfig/common.json",
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../common"
+    }
   ]
 }
