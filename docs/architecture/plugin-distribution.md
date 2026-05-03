@@ -17,9 +17,9 @@ If you only want to *consume* a plugin as a platform operator, the
 bottom is enough.
 
 > **Looking for the dev loop?** This doc covers the *distribution
-> mechanics* (packing, bundles, channels). For local development — just
-> `bunx @checkstack/scripts dev` from your plugin's repo — see
-> [Developing Plugins in Isolation](../getting-started/plugin-development.md).
+> mechanics* (packing, bundles, channels). For local development — add
+> `@checkstack/dev-server` as a devDependency and run `checkstack-dev` —
+> see [Developing Plugins in Isolation](../getting-started/plugin-development.md).
 
 > **Distinction:** monorepo-internal plugins (the ones living in `core/` and
 > `plugins/` of this repo) are loaded automatically at boot via filesystem

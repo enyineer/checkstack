@@ -23,15 +23,9 @@
   },
   "dependencies": {
     "@checkstack/common": "workspace:*",
-    "@checkstack/backend": "workspace:*",
-    "@checkstack/frontend": "workspace:*",
-    "@checkstack/frontend-api": "workspace:*",
-    "@checkstack/ui": "workspace:*",
-    "@vitejs/plugin-react": "^4.3.4",
     "inquirer": "^13.4.1",
     "handlebars": "^4.7.8",
-    "tar": "^7.4.3",
-    "vite": "^5.4.0"
+    "tar": "^7.4.3"
   },
   "devDependencies": {
     "@checkstack/tsconfig": "workspace:*",
