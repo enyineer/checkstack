@@ -53,7 +53,7 @@ export function createRouter({
       cache.wrapObjective(input.id, async () => {
         const objective = await service.getObjective({ id: input.id });
         if (!objective) {
-          // eslint-disable-next-line unicorn/no-null -- oRPC contract requires null for missing values
+           
           return null;
         }
         const status = await engine.computeStatus({ objective });

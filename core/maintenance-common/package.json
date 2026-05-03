@@ -1,6 +1,7 @@
 {
   "name": "@checkstack/maintenance-common",
   "version": "1.0.0",
+  "license": "Elastic-2.0",
   "type": "module",
   "exports": {
     ".": {

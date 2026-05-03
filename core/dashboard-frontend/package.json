@@ -1,6 +1,7 @@
 {
   "name": "@checkstack/dashboard-frontend",
   "version": "0.6.0",
+  "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.tsx",
   "checkstack": {

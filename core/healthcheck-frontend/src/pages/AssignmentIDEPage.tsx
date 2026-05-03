@@ -315,7 +315,7 @@ const AssignmentIDEPageContent = () => {
       {
         systemId,
         configurationId: configId,
-        // eslint-disable-next-line unicorn/no-null -- RPC contract uses nullable()
+         
         retentionConfig: null,
       },
       {

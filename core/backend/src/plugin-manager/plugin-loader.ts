@@ -224,6 +224,14 @@ export async function loadPlugins({
     // 2. Sync local plugins to database
     await syncPluginsToDatabase({ localPlugins, db: deps.db });
 
+    // 2.5 Bootstrap runtime-installed plugins missing from node_modules.
+    // For every `is_uninstallable=true` row in `plugins`, ensure the
+    // package is installed in the runtime dir. If not, fetch its tarball
+    // from `plugin_artifacts` and run `bun install` so the import below
+    // resolves. This is what lets a freshly spun replica recover the
+    // full plugin set from Postgres alone.
+    await bootstrapRuntimePlugins({ db: deps.db, registry: deps.registry });
+
     // 3. Load all enabled BACKEND plugins from database
     allPlugins = await deps.db
       .select()
@@ -639,5 +647,70 @@ function validateContractAccessRules({
         }
       }
     }
+  }
+}
+
+/**
+ * Fresh-instance bootstrap.
+ *
+ * Walks every `is_uninstallable=true` row in the `plugins` table and ensures
+ * the corresponding package is installed under the runtime dir. Missing
+ * packages are recovered from `plugin_artifacts` (bytea) and installed with
+ * `bun install --no-save --ignore-scripts`. Once this returns, the normal
+ * `pluginModule = await import(...)` in Phase 1 below resolves.
+ */
+async function bootstrapRuntimePlugins({
+  db,
+  registry,
+}: {
+  db: SafeDatabase<Record<string, unknown>>;
+  registry: ServiceRegistry;
+}): Promise<void> {
+  const installerRegistry = await registry
+    .get(coreServices.pluginInstallerRegistry, { pluginId: "core" })
+    .catch(() => {});
+  const artifactStore = await registry
+    .get(coreServices.pluginArtifactStore, { pluginId: "core" })
+    .catch(() => {});
+  if (!installerRegistry || !artifactStore) {
+    rootLogger.debug(
+      "   -> Skipping runtime plugin bootstrap (services not registered)",
+    );
+    return;
+  }
+
+  const remoteRows = await db
+    .select()
+    .from(plugins)
+    .where(eq(plugins.isUninstallable, true));
+
+  for (const row of remoteRows) {
+    if (!row.path) continue;
+    const pkgJsonPath = path.join(row.path, "package.json");
+    if (fs.existsSync(pkgJsonPath)) {
+      rootLogger.debug(`   -> ${row.name} already present, skipping bootstrap`);
+      continue;
+    }
+    rootLogger.info(
+      `🔌 Bootstrapping runtime plugin from artifact store: ${row.name}@${row.version}`,
+    );
+    const artifact = await artifactStore.fetch({
+      pluginName: row.name,
+      version: row.version,
+    });
+    if (!artifact) {
+      rootLogger.warn(
+        `   -> No artifact for ${row.name}@${row.version} — skipping. Re-install from the original source.`,
+      );
+      continue;
+    }
+    const allowInstallScripts =
+      (row.metadata as { checkstack?: { allowInstallScripts?: boolean } })
+        ?.checkstack?.allowInstallScripts === true;
+    await installerRegistry.forSource("npm").installFromArtifact({
+      tarball: artifact.tarball,
+      pluginName: row.name,
+      allowInstallScripts,
+    });
   }
 }

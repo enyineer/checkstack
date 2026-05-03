@@ -79,7 +79,7 @@ export const ProviderEditor: React.FC<ProviderEditorProps> = ({
     // - empty string → undefined (keep current)
     let authTokenValue: string | null | undefined;
     if (clearToken) {
-      // eslint-disable-next-line unicorn/no-null
+       
       authTokenValue = null;
     } else if (authToken.trim()) {
       authTokenValue = authToken.trim();

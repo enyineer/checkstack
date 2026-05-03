@@ -1,19 +1,37 @@
 {
   "name": "@checkstack/scripts",
   "version": "0.1.2",
+  "description": "Checkstack tooling: plugin scaffolding, codegen, and the plugin-pack CLI used by external plugin authors.",
+  "license": "Elastic-2.0",
+  "type": "module",
   "checkstack": {
     "type": "tooling"
   },
   "bin": {
     "checkstack-scripts": "./src/cli.ts"
   },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "sync": "bun run src/sync.ts",
     "typecheck": "tsgo -b"
   },
   "dependencies": {
+    "@checkstack/common": "workspace:*",
+    "@checkstack/backend": "workspace:*",
+    "@checkstack/frontend": "workspace:*",
+    "@checkstack/frontend-api": "workspace:*",
+    "@checkstack/ui": "workspace:*",
+    "@vitejs/plugin-react": "^4.3.4",
     "inquirer": "^13.4.1",
-    "handlebars": "^4.7.8"
+    "handlebars": "^4.7.8",
+    "tar": "^7.4.3",
+    "vite": "^5.4.0"
   },
   "devDependencies": {
     "@checkstack/tsconfig": "workspace:*",

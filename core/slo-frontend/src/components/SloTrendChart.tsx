@@ -100,7 +100,7 @@ export const SloTrendChart: React.FC<SloTrendChartProps> = ({
           />
           <Tooltip
             content={({ active, payload }) => {
-              // eslint-disable-next-line unicorn/no-null
+               
               if (!active || !payload?.length) return null;
               const payloadData = payload[0].payload as (typeof data)[number];
               return (

@@ -201,7 +201,7 @@ export class HealthCheckService {
       )
       .then((rows) => rows[0]);
 
-    // eslint-disable-next-line unicorn/no-null -- RPC contract uses nullable()
+     
     return { retentionConfig: row?.retentionConfig ?? null };
   }
 

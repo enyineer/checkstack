@@ -15,8 +15,3 @@ export {
   type MockEventBus,
   type EmittedEvent,
 } from "./mock-event-bus";
-export {
-  createMockPluginInstaller,
-  type MockPluginInstaller,
-  type InstallResult,
-} from "./mock-plugin-installer";

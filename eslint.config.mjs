@@ -35,6 +35,11 @@ export default tseslint.config(
       "unicorn/prevent-abbreviations": "off",
       "unicorn/prefer-module": "off",
       "unicorn/no-nested-ternary": "off",
+      // `null` is a legitimate value in this codebase, especially around
+      // Drizzle: an insert with `null` writes a NULL column, while
+      // `undefined` is interpreted as "leave this column unset". The two
+      // are NOT interchangeable, so we don't lint them away.
+      "unicorn/no-null": "off",
       // React hooks rules
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",

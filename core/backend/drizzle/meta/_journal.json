@@ -8,6 +8,13 @@
       "when": 1767314744846,
       "tag": "0000_loose_yellow_claw",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777826951043,
+      "tag": "0001_slim_mordo",
+      "breakpoints": true
     }
   ]
 }

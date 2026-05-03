@@ -972,8 +972,40 @@ If TypeScript complains about handler types:
 2. Let oRPC infer types from the procedure chain
 3. Ensure input/output schemas match the contract definition
 
+## Distributing your plugin
+
+Once your backend (and any sibling `-frontend` / `-common` packages) are
+ready, package and publish them so operators can install via the runtime
+Plugin Manager. The full guide — required `package.json` shape, the
+`bunx @checkstack/scripts plugin-pack` CLI, single-package vs `--bundle`
+mode, npm / GitHub release / GitHub Enterprise / tarball-upload distribution,
+and a copy-paste GitHub Actions workflow — lives in
+[Plugin Distribution & Packing](../architecture/plugin-distribution.md).
+
+For the dev loop itself, run `bunx @checkstack/scripts dev` from your
+plugin's repo — it boots a local Checkstack with your plugin loaded and
+auth bypassed. Full guide:
+[Developing Plugins in Isolation](../getting-started/plugin-development.md).
+
+Quick checklist before your first release:
+
+1. Add a `pack` script to every package's `package.json`:
+   ```json
+   "scripts": { "pack": "bunx @checkstack/scripts plugin-pack" }
+   ```
+2. Set the required `checkstack` block (`type`, `pluginId`) and standard
+   metadata fields (`description`, `author`, `license`).
+3. For multi-package plugins, declare `checkstack.bundle` on the **primary**
+   only — all siblings ship at the same version.
+4. Run `bun run pack` (or `bun run pack -- --bundle` for bundles) locally
+   to verify metadata before pushing the release tag.
+5. Use the [release workflow template](../examples/plugin-release.yml) as a
+   starting point for CI.
+
 ## Next Steps
 
+- [Developing Plugins in Isolation](../getting-started/plugin-development.md) - Running Checkstack locally for plugin dev
+- [Plugin Distribution & Packing](../architecture/plugin-distribution.md) - How to ship your plugin to operators
 - [Configuration Storage](./config-service.md) - When to use ConfigService vs custom schemas
 - [Health Check Strategies](./healthcheck-strategies.md) - Transport strategy development
 - [Collector Plugins](./collectors.md) - Extend strategies with diagnostic collectors

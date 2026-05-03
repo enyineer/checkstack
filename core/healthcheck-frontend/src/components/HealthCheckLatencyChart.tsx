@@ -131,7 +131,7 @@ export const HealthCheckLatencyChart: React.FC<
         />
         <Tooltip
           content={({ active, payload }) => {
-            // eslint-disable-next-line unicorn/no-null -- recharts requires null return, not undefined
+             
             if (!active || !payload?.length) return null;
             const data = payload[0].payload as (typeof chartData)[number];
             const startTime = format(new Date(data.timestamp), "MMM d, HH:mm");

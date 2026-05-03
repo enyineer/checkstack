@@ -1,6 +1,7 @@
 {
   "name": "@checkstack/queue-common",
   "version": "0.3.0",
+  "license": "Elastic-2.0",
   "type": "module",
   "exports": {
     ".": {

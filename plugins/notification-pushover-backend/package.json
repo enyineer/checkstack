@@ -4,7 +4,8 @@
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {
-    "type": "backend"
+    "type": "backend",
+    "pluginId": "notification-pushover"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -13,7 +14,8 @@
   "scripts": {
     "typecheck": "tsgo -b",
     "lint": "eslint src --ext .ts",
-    "test": "bun test"
+    "test": "bun test",
+    "pack": "bunx @checkstack/scripts plugin-pack"
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
@@ -24,5 +26,10 @@
   "devDependencies": {
     "@checkstack/tsconfig": "workspace:*",
     "typescript": "^5.7.2"
-  }
+  },
+  "description": "Checkstack notification-pushover-backend plugin",
+  "author": {
+    "name": "Checkstack contributors"
+  },
+  "license": "Elastic-2.0"
 }

@@ -51,6 +51,7 @@ describe("extractPluginMetadata", () => {
       pluginPath: "/fake/path/test-backend",
       type: "backend",
       enabled: true,
+      version: "0.0.1",
     });
   });
 
@@ -288,6 +289,7 @@ describe("syncPluginsToDatabase", () => {
         pluginPath: "/workspace/plugins/new-backend",
         type: "backend",
         enabled: true,
+        version: "2.1.0",
       },
     ];
 
@@ -310,6 +312,7 @@ describe("syncPluginsToDatabase", () => {
       type: "backend",
       enabled: true,
       isUninstallable: false,
+      version: "2.1.0",
     });
   });
 
@@ -320,6 +323,7 @@ describe("syncPluginsToDatabase", () => {
         pluginPath: "/workspace/plugins/new-location",
         type: "backend",
         enabled: true,
+        version: "1.0.0",
       },
     ];
 
@@ -347,6 +351,7 @@ describe("syncPluginsToDatabase", () => {
     expect(updateCall.set).toHaveBeenCalledWith({
       path: "/workspace/plugins/new-location",
       type: "backend",
+      version: "1.0.0",
     });
   });
 
@@ -357,6 +362,7 @@ describe("syncPluginsToDatabase", () => {
         pluginPath: "/workspace/plugins/remote-backend",
         type: "backend",
         enabled: true,
+        version: "0.0.0",
       },
     ];
 

@@ -29,7 +29,7 @@ export function SignalAutoInvalidator(): React.ReactNode {
     }
   });
 
-  // eslint-disable-next-line unicorn/no-null
+   
   return null;
 }
 

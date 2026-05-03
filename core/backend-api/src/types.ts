@@ -105,9 +105,8 @@ export interface AuthenticationStrategy {
   validate(request: Request): Promise<RealUser | ApplicationUser | undefined>;
 }
 
-export interface PluginInstaller {
-  install(packageName: string): Promise<{ name: string; path: string }>;
-}
+// Runtime-plugin installer types live in ./plugin-source.ts and are
+// re-exported via the package index.
 
 /**
  * Options for declarative route definitions (Deprecated, will be replaced by oRPC procedures).

@@ -173,7 +173,7 @@ export function createRouter({
           systemStatuses: statuses,
         });
 
-        // eslint-disable-next-line unicorn/no-null -- oRPC contract requires null
+         
         return warningMap.get(input.systemId) ?? null;
       },
     ),

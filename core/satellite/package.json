@@ -1,6 +1,7 @@
 {
   "name": "@checkstack/satellite",
   "version": "0.2.4",
+  "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {

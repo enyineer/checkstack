@@ -72,7 +72,7 @@ export class SloService {
     await this.db.insert(sloObjectives).values({
       id,
       systemId: input.systemId,
-      // eslint-disable-next-line unicorn/no-null -- Drizzle requires null for nullable columns
+       
       healthCheckConfigurationId: input.healthCheckConfigurationId ?? null,
       target: input.target,
       windowDays: input.windowDays,
@@ -184,9 +184,9 @@ export class SloService {
       systemId,
       startTime: now,
       attributionType,
-      // eslint-disable-next-line unicorn/no-null -- Drizzle requires null for nullable columns
+       
       upstreamSystemId: upstreamSystemId ?? null,
-      // eslint-disable-next-line unicorn/no-null -- Drizzle requires null for nullable columns
+       
       upstreamSystemName: upstreamSystemName ?? null,
     });
 
@@ -480,7 +480,7 @@ export class SloService {
         currentStreak: newCurrent,
         bestStreak: newBest,
         streakStart: streak.streakStart ?? now,
-        // eslint-disable-next-line unicorn/no-null -- Drizzle requires null for nullable columns
+         
         bestStreakEnd: newCurrent > streak.bestStreak ? null : streak.bestStreakEnd,
       })
       .where(eq(sloStreaks.objectiveId, objectiveId));
@@ -499,7 +499,7 @@ export class SloService {
     const now = new Date();
     const updateData: Partial<typeof sloStreaks.$inferInsert> = {
       currentStreak: 0,
-      // eslint-disable-next-line unicorn/no-null -- Drizzle requires null for nullable columns
+       
       streakStart: null,
     };
 

@@ -7,6 +7,10 @@ import {
   timestamp,
   jsonb,
   primaryKey,
+  uuid,
+  integer,
+  index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 // --- Plugin System Schema ---
@@ -18,6 +22,18 @@ export const plugins = pgTable("plugins", {
   config: json("config").default({}),
   enabled: boolean("enabled").default(true).notNull(),
   type: text("type").default("backend").notNull(),
+  // ── Runtime plugin system additions ────────────────────────────────────────
+  /** Installed version (matches package.json `version`). Empty string for
+   *  legacy rows that predate the runtime install system. */
+  version: text("version").default("").notNull(),
+  /** Full validated `InstallPackageMetadata` snapshot taken at install time. */
+  metadata: jsonb("metadata").default({}).notNull(),
+  /** The `PluginSource` used to install this plugin (NULL for monorepo-local). */
+  source: jsonb("source"),
+  /** Groups sibling rows installed together as one bundle. */
+  bundleId: uuid("bundle_id"),
+  /** True on the primary row of a bundle (the row that declared the bundle). */
+  isPrimary: boolean("is_primary").default(false).notNull(),
 });
 
 // --- JWT Key Store Schema ---
@@ -42,5 +58,67 @@ export const pluginConfigs = pgTable(
   },
   (table) => ({
     pk: primaryKey({ columns: [table.pluginId, table.configId] }),
-  })
+  }),
+);
+
+// --- Plugin Artifact Store ---
+// Tarball bytes for runtime-installed plugins. Shared across all instances
+// so a freshly spun replica can recover plugins without re-fetching from
+// the original source.
+export const pluginArtifacts = pgTable(
+  "plugin_artifacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pluginName: text("plugin_name").notNull(),
+    version: text("version").notNull(),
+    bundleId: uuid("bundle_id"),
+    tarball: text("tarball").notNull(), // base64-encoded bytes (drizzle bytea handling is awkward; text is portable)
+    contentHash: text("content_hash").notNull(), // sha256 hex
+    sizeBytes: integer("size_bytes").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pluginNameVersionIdx: uniqueIndex("plugin_artifacts_name_version_idx").on(
+      table.pluginName,
+      table.version,
+    ),
+    contentHashIdx: index("plugin_artifacts_content_hash_idx").on(
+      table.contentHash,
+    ),
+  }),
+);
+
+// --- Plugin Install Events (audit + reviewable error log) ---
+export const pluginInstallEvents = pgTable(
+  "plugin_install_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pluginName: text("plugin_name"),
+    bundleId: uuid("bundle_id"),
+    /** "install" | "uninstall" */
+    action: text("action").notNull(),
+    /**
+     * Phase within action:
+     *   "validate" | "persist" | "broadcast" | "in-process-load" |
+     *   "in-process-unload" | "destructive-cleanup" | "audit"
+     */
+    phase: text("phase").notNull(),
+    /** "started" | "succeeded" | "failed" */
+    status: text("status").notNull(),
+    source: jsonb("source"),
+    error: text("error"),
+    instanceId: text("instance_id").notNull(),
+    userId: text("user_id"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pluginNameCreatedIdx: index("plugin_install_events_name_created_idx").on(
+      table.pluginName,
+      table.createdAt,
+    ),
+    statusCreatedIdx: index("plugin_install_events_status_created_idx").on(
+      table.status,
+      table.createdAt,
+    ),
+  }),
 );

@@ -10,13 +10,9 @@ import type {
 import type { ConfigService } from "./config-service";
 import type { SignalService } from "@checkstack/signal-common";
 import { SafeDatabase } from "./plugin-system";
-import {
-  Logger,
-  Fetch,
-  AuthService,
-  PluginInstaller,
-  RpcClient,
-} from "./types";
+import { Logger, Fetch, AuthService, RpcClient } from "./types";
+import type { PluginInstallerRegistry } from "./plugin-source";
+import type { PluginArtifactStore } from "./plugin-artifact-store";
 import type { EventBus } from "./event-bus-types";
 import type { WebSocketRouteRegistry } from "./ws-registry";
 import type { ReadinessRegistry } from "./readiness-registry";
@@ -39,7 +35,20 @@ export const coreServices = {
   collectorRegistry: createServiceRef<CollectorRegistry>(
     "core.collectorRegistry",
   ),
-  pluginInstaller: createServiceRef<PluginInstaller>("core.pluginInstaller"),
+  /**
+   * Per-source installer registry used by the runtime plugin system.
+   * Indexed by `PluginSource["type"]` (npm, tarball, github, catalog).
+   */
+  pluginInstallerRegistry: createServiceRef<PluginInstallerRegistry>(
+    "core.pluginInstallerRegistry",
+  ),
+  /**
+   * Persistent tarball store backing fresh-instance bootstrap and
+   * cross-instance artifact sharing.
+   */
+  pluginArtifactStore: createServiceRef<PluginArtifactStore>(
+    "core.pluginArtifactStore",
+  ),
   rpc: createServiceRef<RpcService>("core.rpc"),
   rpcClient: createServiceRef<RpcClient>("core.rpcClient"),
   queuePluginRegistry: createServiceRef<QueuePluginRegistry>(

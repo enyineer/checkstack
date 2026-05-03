@@ -10,6 +10,7 @@ export interface PluginMetadata {
   pluginPath: string; // Absolute path to plugin directory
   type: "backend" | "frontend" | "common";
   enabled: boolean;
+  version: string; // From package.json "version"
 }
 
 /**
@@ -64,6 +65,7 @@ export function extractPluginMetadata({
       pluginPath: pluginDir,
       type,
       enabled: true, // Local plugins are always enabled
+      version: typeof pkgJson.version === "string" ? pkgJson.version : "",
     };
   } catch (error) {
     rootLogger.debug(`⚠️  Failed to read package.json for ${pluginDir}:`, error);
@@ -148,16 +150,19 @@ export async function syncPluginsToDatabase({
         type: plugin.type,
         enabled: plugin.enabled,
         isUninstallable: false, // Local plugins are part of monorepo
+        version: plugin.version,
       });
     } else {
       // Update existing plugin ONLY if it's a local plugin (not remotely installed)
-      // This handles the case where a plugin directory was renamed
+      // This handles the case where a plugin directory was renamed AND keeps
+      // `version` in lockstep with each release.
       if (!existing[0].isUninstallable) {
         await db
           .update(plugins)
           .set({
             path: plugin.pluginPath,
             type: plugin.type,
+            version: plugin.version,
           })
           .where(
             and(

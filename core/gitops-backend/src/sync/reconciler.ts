@@ -475,7 +475,7 @@ async function upsertProvenance(params: {
         // Preserve existing entityId on error retries; update on successful reconcile
         ...(entityId ? { entityId } : {}),
         status,
-        errorMessage: errorMessage ?? null, // eslint-disable-line unicorn/no-null
+        errorMessage: errorMessage ?? null,  
         warnings: warnings ?? [],
         repository: file.repository,
         filePath: file.filePath,
@@ -502,7 +502,7 @@ async function upsertProvenance(params: {
     lastSyncHash: contentHash,
     secretRefs,
     status,
-    errorMessage: errorMessage ?? null, // eslint-disable-line unicorn/no-null
+    errorMessage: errorMessage ?? null,  
     warnings: warnings ?? [],
   });
 }
@@ -518,7 +518,7 @@ async function updateProviderSyncStatus(params: {
     .update(schema.providers)
     .set({
       lastSyncAt: new Date(),
-      lastSyncError: error ?? null, // eslint-disable-line unicorn/no-null
+      lastSyncError: error ?? null,  
       updatedAt: new Date(),
     })
     .where(eq(schema.providers.id, providerId));

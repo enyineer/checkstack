@@ -169,6 +169,12 @@
       "path": "./core/notification-frontend"
     },
     {
+      "path": "./core/pluginmanager-common"
+    },
+    {
+      "path": "./core/pluginmanager-frontend"
+    },
+    {
       "path": "./core/queue-api"
     },
     {
