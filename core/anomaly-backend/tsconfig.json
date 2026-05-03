@@ -2,5 +2,49 @@
   "extends": "@checkstack/tsconfig/backend.json",
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../anomaly-common"
+    },
+    {
+      "path": "../backend-api"
+    },
+    {
+      "path": "../cache-api"
+    },
+    {
+      "path": "../cache-utils"
+    },
+    {
+      "path": "../catalog-backend"
+    },
+    {
+      "path": "../catalog-common"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../drizzle-helper"
+    },
+    {
+      "path": "../healthcheck-backend"
+    },
+    {
+      "path": "../healthcheck-common"
+    },
+    {
+      "path": "../notification-common"
+    },
+    {
+      "path": "../queue-api"
+    },
+    {
+      "path": "../signal-common"
+    },
+    {
+      "path": "../test-utils-backend"
+    }
   ]
 }

@@ -9,7 +9,7 @@
     "dev": "vite",
     "build:vendor": "vite build --config vite.config.vendor.ts",
     "build": "bun run build:vendor && vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo -b",
     "lint": "bun run lint:code",
     "preview": "vite preview",
     "lint:code": "eslint . --max-warnings 0"

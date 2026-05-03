@@ -3,6 +3,7 @@ node_modules/
 .DS_Store
 dist/
 *.tsbuildinfo
+.tsbuild/
 packages/frontend/public/vendor/
 runtime_plugins/
 .dev/

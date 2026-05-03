@@ -2,5 +2,22 @@
   "extends": "@checkstack/tsconfig/frontend.json",
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../cache-common"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../frontend-api"
+    },
+    {
+      "path": "../infrastructure-common"
+    },
+    {
+      "path": "../ui"
+    }
   ]
 }

@@ -30,6 +30,34 @@ jobs:
       - name: Install Dependencies
         run: bun install --frozen-lockfile
 
+      # Catch the case where someone added or removed a workspace
+      # dependency in package.json but forgot to run
+      # `bun run typecheck:references:generate`. This is a fast (<1s)
+      # text-only check; the actual typecheck below is the heavy step.
+      - name: Verify tsconfig references are in sync
+        run: bun run typecheck:references:check
+
+      # `tsgo -b` writes incremental artifacts to per-package `.tsbuild/`
+      # directories. Caching them lets PRs that don't touch source compile
+      # in ~0.3s; cold runs are still ~12s. The cache is ~4 MB compressed
+      # so transfer overhead is sub-second.
+      #
+      # Note: caching `tsconfig.tsbuildinfo` historically caused slow CI
+      # in this repo because of the previous (per-package tsc) layout;
+      # under tsgo+composite the metadata is significantly smaller and
+      # lives inside `.tsbuild/`, so we cache that single tree.
+      - name: Restore tsgo build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            **/.tsbuild
+            !**/node_modules/**
+          # Strict key: only restore caches built against the exact
+          # tsconfig + dependency set. Stale caches do nothing useful here
+          # because tsgo would invalidate most projects on a partial match
+          # anyway.
+          key: tsgo-${{ runner.os }}-${{ hashFiles('**/tsconfig.json', 'core/tsconfig/**', 'package.json', 'bun.lock') }}
+
       - name: Typecheck
         id: typecheck
         run: |

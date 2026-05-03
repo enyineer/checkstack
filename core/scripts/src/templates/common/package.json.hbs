@@ -1,7 +1,7 @@
 { "name": "@checkstack/{{pluginName}}", "version": "0.0.1",
 "checkstack": { "type": "common" },
 "description": "{{pluginDescription}}", "type": "module", "exports": { ".": {
-"import": "./src/index.ts" } }, "scripts": { "typecheck": "tsc --noEmit",
+"import": "./src/index.ts" } }, "scripts": { "typecheck": "tsgo -b",
 "lint": "bun run lint:code", "lint:code": "eslint . --max-warnings 0" },
 "dependencies": { "@checkstack/common": "workspace:*", "@orpc/contract":
 "^1.13.2", "zod": "^3.23.0" }, "devDependencies": {

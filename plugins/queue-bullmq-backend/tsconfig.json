@@ -1,3 +1,17 @@
 {
-  "extends": "@checkstack/tsconfig/base.json"
+  "extends": "@checkstack/tsconfig/base.json",
+  "references": [
+    {
+      "path": "../../core/backend-api"
+    },
+    {
+      "path": "../../core/common"
+    },
+    {
+      "path": "../../core/queue-api"
+    },
+    {
+      "path": "../queue-bullmq-common"
+    }
+  ]
 }

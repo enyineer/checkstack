@@ -1,3 +1,20 @@
 {
-  "extends": "@checkstack/tsconfig/backend.json"
+  "extends": "@checkstack/tsconfig/backend.json",
+  "references": [
+    {
+      "path": "../../core/auth-backend"
+    },
+    {
+      "path": "../../core/auth-common"
+    },
+    {
+      "path": "../../core/backend-api"
+    },
+    {
+      "path": "../../core/common"
+    },
+    {
+      "path": "../../core/test-utils-backend"
+    }
+  ]
 }

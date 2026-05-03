@@ -5,6 +5,17 @@
     "rootDir": "./src"
   },
   "include": [
-    "src/**/*"
+    "src*"
+  ],
+  "references": [
+    {
+      "path": "../../core/auth-backend"
+    },
+    {
+      "path": "../../core/backend-api"
+    },
+    {
+      "path": "../../core/common"
+    }
   ]
 }

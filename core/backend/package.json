@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --env-file=../../.env --watch src/index.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo -b",
     "generate": "bun --env-file=../../.env run drizzle-kit generate",
     "lint": "bun run lint:code",
     "lint:code": "eslint . --max-warnings 0"

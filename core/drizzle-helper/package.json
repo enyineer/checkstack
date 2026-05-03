@@ -12,9 +12,10 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo -b"
   },
   "devDependencies": {
+    "@checkstack/tsconfig": "workspace:*",
     "typescript": "^5.0.0"
   },
   "checkstack": {

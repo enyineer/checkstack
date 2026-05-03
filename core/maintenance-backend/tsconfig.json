@@ -2,5 +2,52 @@
   "extends": "@checkstack/tsconfig/backend.json",
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../auth-common"
+    },
+    {
+      "path": "../backend-api"
+    },
+    {
+      "path": "../cache-api"
+    },
+    {
+      "path": "../cache-utils"
+    },
+    {
+      "path": "../catalog-backend"
+    },
+    {
+      "path": "../catalog-common"
+    },
+    {
+      "path": "../command-backend"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../drizzle-helper"
+    },
+    {
+      "path": "../integration-backend"
+    },
+    {
+      "path": "../integration-common"
+    },
+    {
+      "path": "../maintenance-common"
+    },
+    {
+      "path": "../notification-common"
+    },
+    {
+      "path": "../signal-common"
+    },
+    {
+      "path": "../test-utils-backend"
+    }
   ]
 }

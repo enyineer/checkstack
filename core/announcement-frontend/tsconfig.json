@@ -2,5 +2,25 @@
   "extends": "@checkstack/tsconfig/frontend.json",
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../announcement-common"
+    },
+    {
+      "path": "../auth-frontend"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../frontend-api"
+    },
+    {
+      "path": "../signal-frontend"
+    },
+    {
+      "path": "../ui"
+    }
   ]
 }

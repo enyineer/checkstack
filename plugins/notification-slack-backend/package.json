@@ -11,7 +11,7 @@
     "./plugin-metadata": "./src/plugin-metadata.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo -b",
     "lint": "eslint src --ext .ts",
     "test": "bun test"
   },

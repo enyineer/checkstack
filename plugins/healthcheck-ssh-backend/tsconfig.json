@@ -2,5 +2,19 @@
   "extends": "@checkstack/tsconfig/backend.json",
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../../core/backend-api"
+    },
+    {
+      "path": "../../core/common"
+    },
+    {
+      "path": "../../core/healthcheck-common"
+    },
+    {
+      "path": "../healthcheck-ssh-common"
+    }
   ]
 }

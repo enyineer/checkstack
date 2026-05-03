@@ -2,5 +2,31 @@
   "extends": "@checkstack/tsconfig/frontend.json",
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../catalog-common"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../dashboard-frontend"
+    },
+    {
+      "path": "../dependency-common"
+    },
+    {
+      "path": "../frontend-api"
+    },
+    {
+      "path": "../healthcheck-common"
+    },
+    {
+      "path": "../signal-frontend"
+    },
+    {
+      "path": "../ui"
+    }
   ]
 }

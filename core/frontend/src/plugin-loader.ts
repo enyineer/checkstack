@@ -23,15 +23,15 @@ export async function loadPlugins(overrideModules?: Record<string, unknown>) {
     if (overrideModules) {
       modules = overrideModules;
     } else {
-      const coreModules =
-        // @ts-expect-error - Vite specific property
-        import.meta.glob("../../*-frontend/src/index.tsx", { eager: true });
+      const coreModules = import.meta.glob(
+        "../../*-frontend/src/index.tsx",
+        { eager: true },
+      );
 
-      const pluginModules =
-        // @ts-expect-error - Vite specific property
-        import.meta.glob("../../../plugins/*-frontend/src/index.tsx", {
-          eager: true,
-        });
+      const pluginModules = import.meta.glob(
+        "../../../plugins/*-frontend/src/index.tsx",
+        { eager: true },
+      );
 
       modules = { ...coreModules, ...pluginModules };
     }

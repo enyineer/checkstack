@@ -1,6 +1,21 @@
 {
   "extends": "@checkstack/tsconfig/backend.json",
   "include": [
-    "src"
+    "src",
+    "package.json"
+  ],
+  "compilerOptions": {
+    "resolveJsonModule": true
+  },
+  "references": [
+    {
+      "path": "../backend-api"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../satellite-common"
+    }
   ]
 }
