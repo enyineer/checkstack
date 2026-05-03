@@ -192,10 +192,15 @@ jobs:
 
           # Mount the runner's trivy cache into the container so a cache
           # hit means an instant scan instead of a 150 MB DB download.
+          # Run trivy as the runner user (`--user $(id -u):$(id -g)`)
+          # so cached files stay readable by the actions/cache post step
+          # — otherwise they'd be root-owned and the cache save fails
+          # with "Cannot open: Permission denied".
           mkdir -p ~/.cache/trivy
+          USER_FLAGS="--user $(id -u):$(id -g)"
 
           echo -e "\n📦 --- Filesystem Scan ---" >> /tmp/security-output.txt
-          docker run --rm \
+          docker run --rm $USER_FLAGS \
             -v "$(pwd):/root" \
             -v "$HOME/.cache/trivy:$TRIVY_CACHE_DIR" \
             -e TRIVY_CACHE_DIR \
@@ -205,7 +210,10 @@ jobs:
           FS_EXIT=$?
 
           echo -e "\n🐳 --- Image Scan ---" >> /tmp/security-output.txt
-          docker run --rm \
+          # Image scan needs access to the docker socket. The runner
+          # user is in the `docker` group on GHA runners, so passing
+          # `--user` is still safe here.
+          docker run --rm $USER_FLAGS --group-add "$(getent group docker | cut -d: -f3)" \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$HOME/.cache/trivy:$TRIVY_CACHE_DIR" \
             -e TRIVY_CACHE_DIR \
