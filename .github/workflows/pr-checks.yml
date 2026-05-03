@@ -157,71 +157,23 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # Plain `docker build` is faster end-to-end than buildx with the
-      # `type=gha` cache backend in our setup: layer-export to GHA cache
-      # adds ~85s of cold-run overhead and the warm-cache savings don't
-      # consistently recoup it (the Dockerfile's own --mount=type=cache
-      # already covers bun install efficiently within a job).
       - name: Build Production Image
         run: docker build -t checkstack-prod:latest .
 
-      # Trivy downloads its vuln DB (~150 MB) on every fresh runner. The
-      # DB is updated upstream every 6h, so we key the cache on the day
-      # to balance freshness and hit rate. Trivy itself negotiates a
-      # newer DB on miss, so a stale cache is never wrong — just slower
-      # for that one run.
-      - name: Cache Trivy DB
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/trivy
-          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: |
-            trivy-db-${{ runner.os }}-
-
-      # Pinned trivy version (vs `:latest`) so the runner can reuse the
-      # image across runs from local cache and we get reproducible
-      # results.
       - name: Security Audit
         id: security
-        env:
-          TRIVY_IMAGE: ghcr.io/aquasecurity/trivy:0.70.0
-          TRIVY_CACHE_DIR: /root/.cache/trivy
         run: |
           set +e
           echo "🔎 Running Security Audit..." > /tmp/security-output.txt
-
-          # Mount the runner's trivy cache into the container so a cache
-          # hit means an instant scan instead of a 150 MB DB download.
-          # Run trivy as the runner user (`--user $(id -u):$(id -g)`)
-          # so cached files stay readable by the actions/cache post step
-          # — otherwise they'd be root-owned and the cache save fails
-          # with "Cannot open: Permission denied".
-          mkdir -p ~/.cache/trivy
-          USER_FLAGS="--user $(id -u):$(id -g)"
-
+          
           echo -e "\n📦 --- Filesystem Scan ---" >> /tmp/security-output.txt
-          docker run --rm $USER_FLAGS \
-            -v "$(pwd):/root" \
-            -v "$HOME/.cache/trivy:$TRIVY_CACHE_DIR" \
-            -e TRIVY_CACHE_DIR \
-            "$TRIVY_IMAGE" fs \
-              --format table --exit-code 1 --ignore-unfixed --severity CRITICAL \
-              /root >> /tmp/security-output.txt
+          docker run --rm -v $(pwd):/root ghcr.io/aquasecurity/trivy:latest fs --format table --exit-code 1 --ignore-unfixed --severity CRITICAL /root >> /tmp/security-output.txt
           FS_EXIT=$?
-
+          
           echo -e "\n🐳 --- Image Scan ---" >> /tmp/security-output.txt
-          # Image scan needs access to the docker socket. The runner
-          # user is in the `docker` group on GHA runners, so passing
-          # `--user` is still safe here.
-          docker run --rm $USER_FLAGS --group-add "$(getent group docker | cut -d: -f3)" \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$HOME/.cache/trivy:$TRIVY_CACHE_DIR" \
-            -e TRIVY_CACHE_DIR \
-            "$TRIVY_IMAGE" image \
-              --format table --exit-code 1 --ignore-unfixed --severity CRITICAL \
-              checkstack-prod:latest >> /tmp/security-output.txt
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/aquasecurity/trivy:latest image --format table --exit-code 1 --ignore-unfixed --severity CRITICAL checkstack-prod:latest >> /tmp/security-output.txt
           IMG_EXIT=$?
-
+          
           if [ $FS_EXIT -ne 0 ] || [ $IMG_EXIT -ne 0 ]; then
             echo "exit_code=1" >> $GITHUB_OUTPUT
           else
