@@ -30,13 +30,6 @@ jobs:
       - name: Install Dependencies
         run: bun install --frozen-lockfile
 
-      # Catch the case where someone added or removed a workspace
-      # dependency in package.json but forgot to run
-      # `bun run typecheck:references:generate`. This is a fast (<1s)
-      # text-only check; the actual typecheck below is the heavy step.
-      - name: Verify tsconfig references are in sync
-        run: bun run typecheck:references:check
-
       # `tsgo -b` writes incremental artifacts to per-package `.tsbuild/`
       # directories. Caching them lets PRs that don't touch source compile
       # in ~0.3s; cold runs are ~30s on the runner. The cache is ~4 MB

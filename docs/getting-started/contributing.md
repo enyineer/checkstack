@@ -227,14 +227,16 @@ hand-edit `references` arrays. Helper scripts:
 
 | Script | When to run |
 |---|---|
-| `bun run typecheck` | Always. The default. Reads cached `.tsbuild/` for incremental work. |
-| `bun run typecheck:references:generate` | After **adding or removing a `@checkstack/*` workspace dep** in any `package.json`, **adding a new package** to the workspace, or **removing a package**. `bun run create` runs this for you when scaffolding a new package. |
-| `bun run typecheck:references:check` | Dry-run; CI runs this on every PR. Use locally to verify your tsconfigs are in sync before pushing. |
+| `bun run typecheck` | Always. The default. Runs `:references:check` first (~150ms) then `tsgo -b`. Reads cached `.tsbuild/` for incremental work. |
+| `bun run typecheck:references:generate` | After **adding or removing a `@checkstack/*` workspace dep** in any `package.json`, **adding a new package** to the workspace, or **removing a package**. `bun run create` runs this for you when scaffolding a new package. If you forget, the next `bun run typecheck` will tell you. |
+| `bun run typecheck:references:check` | Dry-run; runs automatically as part of `typecheck`. Run standalone if you just want the validation without the actual typecheck. |
 | `bun run typecheck:clean` | Almost never. Wipes `.tsbuild/` and `tsconfig.tsbuildinfo` files. Useful when diagnosing a stale cache, after major dep upgrades, or when switching between branches with very different type graphs. **Don't run this routinely** — it forces a 12s cold rebuild on the next typecheck. |
 
-`bun run typecheck` does **not** auto-run the generator or the cleaner.
-Including the generator would mutate tsconfig files without explicit
-intent; including the cleaner would defeat the warm cache.
+`bun run typecheck` does **not** auto-run the generator (would mutate
+tsconfig files without explicit intent) or the cleaner (would defeat
+the warm cache). It does run `:references:check` so you find out about
+stale references with a clear error message — not a cryptic tsgo
+failure.
 
 `.tsbuild/` and `tsconfig.tsbuildinfo` are gitignored. Bun runs source
 TypeScript directly at runtime, so emitted `.d.ts` files exist purely
