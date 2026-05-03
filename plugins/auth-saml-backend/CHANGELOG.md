@@ -1,5 +1,16 @@
 # @checkstack/auth-saml-backend
 
+## 0.1.23
+
+### Patch Changes
+
+- 302cd3f: fix(security): bump transitive `@xmldom/xmldom` to `0.8.13` to resolve 4 HIGH-severity CVEs (CVE-2026-41672, -41673, -41674, -41675). Pulled in via `samlify` / `xml-crypto` / `@authenio/xml-encryption`; all consumers already accept the patched range, so re-resolving the lockfile was sufficient.
+- Updated dependencies [302cd3f]
+  - @checkstack/backend-api@0.14.1
+  - @checkstack/auth-backend@0.4.23
+  - @checkstack/auth-common@0.6.4
+  - @checkstack/common@0.7.0
+
 ## 0.1.22
 
 ### Patch Changes
