@@ -122,19 +122,38 @@ export function determinePackageStatus({
  * `installPackageMetadataSchema` validator the runtime plugin installer
  * uses on incoming tarballs. Catches missing `description` / `author` /
  * `license` / `checkstack.pluginId` etc. before they hit npm.
+ *
+ * We call the LOCAL plugin-pack source rather than `bunx @checkstack/scripts`
+ * for two reasons:
+ *   1. Avoid the chicken-and-egg where the release that *introduces* a
+ *      validation change runs against the previous npm version, leaving a
+ *      one-release lag for rule changes to take effect.
+ *   2. Unblock releases when the currently-published @checkstack/scripts
+ *      has a broken transitive dep tree (which is the bug this fix-pr is
+ *      shipping). Without this, the publish job can't recover from a bad
+ *      published CLI without manual intervention.
+ *
+ * External plugin authors still `bunx @checkstack/scripts plugin-pack`
+ * normally; they get whatever version they pin, unaffected by CI.
  */
 async function validatePluginPackageMetadata({
   dir,
   pkg,
+  rootDir,
 }: {
   dir: string;
   pkg: PackageJson & { scripts?: Record<string, string> };
+  rootDir: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!pkg.scripts?.pack) {
     return { ok: true };
   }
+  const pluginPackPath = path.join(
+    rootDir,
+    "core/scripts/src/commands/plugin-pack.ts",
+  );
   try {
-    await $`bunx @checkstack/scripts plugin-pack --validate-only --cwd ${dir}`.quiet();
+    await $`bun run ${pluginPackPath} --validate-only --cwd ${dir}`.quiet();
     return { ok: true };
   } catch (error) {
     return { ok: false, error: extractErrorMessage(error) };
@@ -144,9 +163,11 @@ async function validatePluginPackageMetadata({
 export async function publishPackage({
   dir,
   dryRun,
+  rootDir,
 }: {
   dir: string;
   dryRun: boolean;
+  rootDir: string;
 }): Promise<PublishResult> {
   const pkg = await getPackageJson({ dir });
 
@@ -164,6 +185,7 @@ export async function publishPackage({
   const validation = await validatePluginPackageMetadata({
     dir,
     pkg: pkg as PackageJson & { scripts?: Record<string, string> },
+    rootDir,
   });
   if (!validation.ok) {
     return {
@@ -289,7 +311,7 @@ export async function runPublish({
   for (const { dir, pkg } of packagesToPublish) {
     const verb = dryRun ? "Would publish" : "Publishing";
     console.log(`${verb} ${pkg.name}@${pkg.version}...`);
-    const result = await publishPackage({ dir, dryRun });
+    const result = await publishPackage({ dir, dryRun, rootDir });
     results.push(result);
 
     if (result.success) {
