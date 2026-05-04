@@ -25,6 +25,7 @@ export const apiDocsPlugin = createFrontendPlugin({
     createSlotExtension(UserMenuItemsSlot, {
       id: "api-docs.user-menu.link",
       component: ApiDocsMenuItem,
+      group: "Documentation",
     }),
   ],
 });

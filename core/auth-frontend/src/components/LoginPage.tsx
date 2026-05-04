@@ -9,6 +9,7 @@ import {
   UserMenuItemsSlot,
   UserMenuItemsBottomSlot,
   UserMenuItemsContext,
+  Extension,
 } from "@checkstack/frontend-api";
 import { AuthApi, authRoutes } from "@checkstack/auth-common";
 import { resolveRoute } from "@checkstack/common";
@@ -24,6 +25,7 @@ import {
   CardFooter,
   UserMenu,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   Alert,
   AlertIcon,
@@ -416,6 +418,60 @@ export const LogoutMenuItem = (_props: UserMenuItemsContext) => {
   );
 };
 
+/**
+ * Canonical user-menu group labels and their display order. Extensions tag
+ * themselves via `group` on their slot registration; anything that doesn't
+ * match a known group falls into a trailing label-less bucket.
+ */
+const USER_MENU_GROUP_ORDER: readonly string[] = [
+  "Workspace",
+  "Reliability",
+  "Configuration",
+  "Documentation",
+  "Account",
+];
+
+function groupTopExtensions(
+  extensions: Extension[],
+): Array<{ label: string | undefined; items: Extension[] }> {
+  const buckets = new Map<string, Extension[]>();
+  const ungrouped: Extension[] = [];
+
+  for (const ext of extensions) {
+    const groupName = ext.group;
+    if (!groupName) {
+      ungrouped.push(ext);
+      continue;
+    }
+    const list = buckets.get(groupName);
+    if (list) {
+      list.push(ext);
+    } else {
+      buckets.set(groupName, [ext]);
+    }
+  }
+
+  const result: Array<{ label: string | undefined; items: Extension[] }> = [];
+  // Known groups in canonical order.
+  for (const name of USER_MENU_GROUP_ORDER) {
+    const items = buckets.get(name);
+    if (items) {
+      result.push({ label: name, items });
+      buckets.delete(name);
+    }
+  }
+  // Any extra groups plugins introduced — render in encounter order, alphabetised.
+  const extras = [...buckets.entries()].toSorted(([a], [b]) => a.localeCompare(b));
+  for (const [name, items] of extras) {
+    result.push({ label: name, items });
+  }
+  // Untagged extensions go last with no header.
+  if (ungrouped.length > 0) {
+    result.push({ label: undefined, items: ungrouped });
+  }
+  return result;
+}
+
 export const LoginNavbarAction = () => {
   const authApi = useApi(authApiRef);
   const { data: session, isPending } = authApi.useSession();
@@ -445,7 +501,7 @@ export const LoginNavbarAction = () => {
   }
 
   if (session?.user) {
-    // Check if we have any bottom items to decide if we need a separator
+    const topExtensions = pluginRegistry.getExtensions(UserMenuItemsSlot.id);
     const bottomExtensions = pluginRegistry.getExtensions(
       UserMenuItemsBottomSlot.id,
     );
@@ -454,10 +510,20 @@ export const LoginNavbarAction = () => {
       accessRules,
       hasCredentialAccount,
     };
+    const groups = groupTopExtensions(topExtensions);
 
     return (
       <UserMenu user={session.user}>
-        <ExtensionSlot slot={UserMenuItemsSlot} context={menuContext} />
+        {groups.map(({ label, items }, groupIndex) => (
+          <React.Fragment key={label ?? `__group-${groupIndex}`}>
+            {groupIndex > 0 && <DropdownMenuSeparator />}
+            {label && <DropdownMenuLabel>{label}</DropdownMenuLabel>}
+            {items.map((ext) => {
+              const Component = ext.component as React.ComponentType<UserMenuItemsContext>;
+              return <Component key={ext.id} {...menuContext} />;
+            })}
+          </React.Fragment>
+        ))}
         {hasBottomItems && <DropdownMenuSeparator />}
         <ExtensionSlot slot={UserMenuItemsBottomSlot} context={menuContext} />
       </UserMenu>

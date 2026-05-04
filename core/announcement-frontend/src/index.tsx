@@ -28,6 +28,7 @@ export default createFrontendPlugin({
     createSlotExtension(UserMenuItemsSlot, {
       id: "announcement.user-menu.items",
       component: AnnouncementMenuItems,
+      group: "Workspace",
     }),
     {
       id: "announcement.dashboard.cards",

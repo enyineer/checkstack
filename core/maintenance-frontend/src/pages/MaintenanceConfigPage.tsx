@@ -16,6 +16,7 @@ import { CatalogApi } from "@checkstack/catalog-common";
 import {
   Card,
   CardHeader,
+  CardHeaderRow,
   CardTitle,
   CardContent,
   Button,
@@ -184,7 +185,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
     >
       <Card>
         <CardHeader className="border-b border-border">
-          <div className="flex items-center justify-between">
+          <CardHeaderRow>
             <div className="flex items-center gap-2">
               <Wrench className="h-5 w-5 text-muted-foreground" />
               <CardTitle>Maintenances</CardTitle>
@@ -195,7 +196,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
                 setStatusFilter(v as MaintenanceStatus | "all")
               }
             >
-              <SelectTrigger className="w-40">
+              <SelectTrigger className="w-full sm:w-40">
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
               <SelectContent>
@@ -206,7 +207,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
                 <SelectItem value="cancelled">Cancelled</SelectItem>
               </SelectContent>
             </Select>
-          </div>
+          </CardHeaderRow>
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (

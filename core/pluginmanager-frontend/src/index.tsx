@@ -39,6 +39,7 @@ export default createFrontendPlugin({
       id: "pluginmanager.user-menu.link",
       slot: UserMenuItemsSlot,
       component: PluginManagerMenuItem,
+      group: "Configuration",
     },
   ],
 });

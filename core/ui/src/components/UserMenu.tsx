@@ -94,7 +94,7 @@ export const UserMenu: React.FC<UserMenuProps> = ({
             <SheetHeader className="px-4 py-3 border-b border-border">
               <SheetTitle className="text-base">Menu</SheetTitle>
             </SheetHeader>
-            <div className="flex-1 overflow-y-auto p-2 grid grid-cols-1 gap-2">
+            <div className="flex-1 min-h-0 overflow-y-auto p-2 flex flex-col gap-1 [&>*]:shrink-0">
               {userInfo}
               <DropdownMenuSeparator />
               {children}

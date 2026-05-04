@@ -178,6 +178,7 @@ export const authPlugin = createFrontendPlugin({
     },
     createSlotExtension(UserMenuItemsSlot, {
       id: "auth.user-menu.settings",
+      group: "Configuration",
       component: ({ accessRules: userPerms }: UserMenuItemsContext) => {
         // eslint-disable-next-line react-hooks/rules-of-hooks -- Inline component used via createSlotExtension
         const navigate = useNavigate();
@@ -199,6 +200,7 @@ export const authPlugin = createFrontendPlugin({
     }),
     createSlotExtension(UserMenuItemsSlot, {
       id: "auth.user-menu.profile",
+      group: "Account",
       component: () => {
         // eslint-disable-next-line react-hooks/rules-of-hooks -- Inline component used via createSlotExtension
         const navigate = useNavigate();

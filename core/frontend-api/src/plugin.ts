@@ -22,6 +22,12 @@ export interface Extension<
   id: string;
   slot: TSlot;
   component: React.ComponentType<SlotContext<TSlot>>;
+  /**
+   * Optional group key. Slot consumers (e.g. the user menu) may use this
+   * to render extensions in labeled sections. Slots that do not understand
+   * groups will ignore this field.
+   */
+  group?: string;
 }
 
 /**

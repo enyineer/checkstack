@@ -627,10 +627,28 @@ export default createFrontendPlugin({
     createSlotExtension(UserMenuItemsSlot, {
       id: "myplugin.user-menu.items",
       component: MyPluginMenuItems,
+      group: "Configuration", // Optional: bucket the item into a UserMenu section
     }),
   ],
 });
 ```
+
+**Grouping menu items**
+
+The user menu groups `UserMenuItemsSlot` extensions by their optional
+`group` field and renders each group under a labeled header. Canonical
+groups (rendered in this order) are:
+
+- `"Workspace"` — domain-level browsing (catalogs, dashboards, dependency graphs)
+- `"Reliability"` — operational signals (health checks, incidents, maintenances, SLOs)
+- `"Configuration"` — admin/setup pages (auth, infrastructure, integrations, plugins)
+- `"Documentation"` — reference material (API docs, kind registry)
+- `"Account"` — personal items (profile)
+
+Extensions without a `group` are rendered last (no header), and any custom
+group strings introduced by plugins are rendered after the canonical groups
+in alphabetical order. `UserMenuItemsBottomSlot` always renders below the
+top section, separated by a divider — no `group` is honored there.
 
 #### Example: Dashboard Widget
 
