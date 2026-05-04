@@ -51,6 +51,7 @@ jobs:
 
       - name: Merge Storybook into Pages artifact
         run: |
+          sudo chown -R "$(id -u):$(id -g)" ./_site
           mkdir -p ./_site/storybook
           cp -r ./core/ui/storybook-static/. ./_site/storybook/
 
