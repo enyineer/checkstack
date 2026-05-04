@@ -9,11 +9,17 @@ export default tseslint.config(
     ignores: [
       "**/node_modules/**",
       "**/dist/**",
+      "**/storybook-static/**",
       "**/.tsbuild/**",
       "**/drizzle/**",
       "**/public/vendor/**",
       "**/*.test.ts*",
       "**/*.e2e.ts",
+      // Astro-generated files and the docs site source. Astro provides its
+      // own type checking via `astro check`; running our ESLint rules over
+      // its virtual-module imports (`astro:content`) and generated `.astro/`
+      // dir produces false positives.
+      "docs/**",
     ],
   },
   js.configs.recommended,

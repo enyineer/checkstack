@@ -1,0 +1,31 @@
+---
+import Default from "@astrojs/starlight/components/Footer.astro";
+import type { Props } from "@astrojs/starlight/props";
+---
+
+<Default {...Astro.props}><slot /></Default>
+
+<div class="cs-footer">
+  <span>
+    <a href="https://github.com/enyineer/checkstack">Checkstack</a> &middot;
+    <a href={`${import.meta.env.BASE_URL.replace(/\/$/, "")}/storybook/`}>Component library</a> &middot;
+    <a href="https://github.com/enyineer/checkstack/blob/main/LICENSE.md">Elastic-2.0</a>
+  </span>
+</div>
+
+<style>
+  .cs-footer {
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--sl-color-gray-5);
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+    text-align: center;
+  }
+  .cs-footer a {
+    color: inherit;
+  }
+  .cs-footer a:hover {
+    color: var(--sl-color-accent);
+  }
+</style>

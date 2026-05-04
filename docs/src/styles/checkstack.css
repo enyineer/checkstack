@@ -1,0 +1,98 @@
+/* Checkstack brand tokens for Starlight.
+ * Mirrors the same HSL values used by @checkstack/ui's themes.css so the docs
+ * site, the app, and Storybook share a consistent identity.
+ *
+ * Starlight exposes `--sl-color-accent-*` and `--sl-color-gray-*` ramps. We
+ * remap the accent ramp to the Checkstack purple, and tweak a few surface
+ * tokens for a more "engineering-first" feel: tighter contrast, mono-leaning
+ * code blocks, subtle borders.
+ */
+
+:root {
+  /* Checkstack purple ramp (light mode) */
+  --sl-color-accent-low: #ede9fe;
+  --sl-color-accent: #7c3aed;
+  --sl-color-accent-high: #4c1d95;
+
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #f4f4f5;
+  --sl-color-gray-2: #e4e4e7;
+  --sl-color-gray-3: #a1a1aa;
+  --sl-color-gray-4: #71717a;
+  --sl-color-gray-5: #52525b;
+  --sl-color-gray-6: #27272a;
+  --sl-color-gray-7: #18181b;
+  --sl-color-black: #09090b;
+
+  --sl-font: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, sans-serif;
+  --sl-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo,
+    Consolas, monospace;
+}
+
+:root[data-theme="dark"] {
+  --sl-color-accent-low: #2e1065;
+  --sl-color-accent: #a78bfa;
+  --sl-color-accent-high: #ede9fe;
+
+  --sl-color-white: #fafafa;
+  --sl-color-gray-1: #e4e4e7;
+  --sl-color-gray-2: #a1a1aa;
+  --sl-color-gray-3: #52525b;
+  --sl-color-gray-4: #3f3f46;
+  --sl-color-gray-5: #27272a;
+  --sl-color-gray-6: #18181b;
+  --sl-color-gray-7: #0e0e10;
+  --sl-color-black: #09090b;
+}
+
+/* Slightly tighter heading rhythm and a subtle accent bar on H1, matching
+ * the look of section headers inside the app. */
+.sl-markdown-content h1 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  position: relative;
+  padding-left: 0.85rem;
+}
+.sl-markdown-content h1::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.35rem;
+  bottom: 0.35rem;
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    var(--sl-color-accent),
+    color-mix(in srgb, var(--sl-color-accent) 40%, transparent)
+  );
+}
+
+/* Card-like callouts for code fences */
+.sl-markdown-content pre {
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.5rem;
+}
+
+/* Crisper "in-code" highlights to match the app */
+.sl-markdown-content :not(pre) > code {
+  background: color-mix(in srgb, var(--sl-color-accent) 10%, transparent);
+  color: var(--sl-color-accent-high);
+  border-radius: 0.25rem;
+  padding: 0.1rem 0.3rem;
+  font-size: 0.9em;
+}
+:root[data-theme="dark"] .sl-markdown-content :not(pre) > code {
+  color: #ddd6fe;
+}
+
+/* Subtle hero gradient on the homepage (when using `template: splash`). */
+[data-has-hero] .hero {
+  background: radial-gradient(
+    1200px 480px at 50% -120px,
+    color-mix(in srgb, var(--sl-color-accent) 18%, transparent),
+    transparent 70%
+  );
+  border-radius: 1rem;
+}

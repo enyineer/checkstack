@@ -247,6 +247,9 @@
       "path": "./core/ui"
     },
     {
+      "path": "./docs"
+    },
+    {
       "path": "./plugins/auth-credential-backend"
     },
     {

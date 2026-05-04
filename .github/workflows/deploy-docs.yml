@@ -32,12 +32,6 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Build Jekyll site
-        uses: actions/jekyll-build-pages@v1
-        with:
-          source: ./docs
-          destination: ./_site
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -46,12 +40,16 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Build Astro Starlight site
+        run: bun run --filter '@checkstack/docs' build
+
       - name: Build Storybook
         run: bun run --filter '@checkstack/ui' storybook:build
 
-      - name: Merge Storybook into Pages artifact
+      - name: Assemble Pages artifact
         run: |
-          sudo chown -R "$(id -u):$(id -g)" ./_site
+          mkdir -p ./_site
+          cp -r ./docs/dist/. ./_site/
           mkdir -p ./_site/storybook
           cp -r ./core/ui/storybook-static/. ./_site/storybook/
 
