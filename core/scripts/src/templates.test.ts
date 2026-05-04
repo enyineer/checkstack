@@ -23,6 +23,12 @@ describe("CLI Template Scaffolding", () => {
   const rootDir = path.resolve(__dirname, "../../..");
   const scaffoldsDir = path.join(rootDir, TEST_SCAFFOLDS_DIR);
 
+  // bun:test gives each hook a 5s default timeout. Both `beforeAll` and
+  // `afterAll` shell out to `bun install` (which dwarfs that on a cold
+  // CI runner), so we extend the hook timeout to match the inner
+  // execSync ceiling. Without this the hook is aborted while the
+  // subprocess is still running and every `it` in the suite shows up as
+  // `(unnamed) [5006.01ms]` — the source of past CI flakes.
   beforeAll(() => {
     registerHelpers();
 
@@ -59,7 +65,7 @@ describe("CLI Template Scaffolding", () => {
       stdio: "pipe",
       timeout: 120_000,
     });
-  });
+  }, 180_000);
 
   afterAll(() => {
     // Cleanup all test packages
@@ -73,7 +79,7 @@ describe("CLI Template Scaffolding", () => {
       stdio: "pipe",
       timeout: 60_000,
     });
-  });
+  }, 120_000);
 
   for (const pluginType of PLUGIN_TYPES) {
     const pluginName = `${TEST_BASE_NAME}-${pluginType}`;
