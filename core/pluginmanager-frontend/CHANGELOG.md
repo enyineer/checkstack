@@ -1,5 +1,80 @@
 # @checkstack/pluginmanager-frontend
 
+## 0.3.0
+
+### Minor Changes
+
+- 3547670: Wire the new tips infrastructure across the frontends:
+
+  **Empty-state coaching.** Replace generic "no items" copy with onboarding
+  guidance — short description, three numbered steps and a primary CTA — on
+  every EmptyState that has a meaningful next action. Affects: catalog
+  (systems + groups), dashboard, health-check page, integrations (subscriptions
+
+  - provider connections), GitOps providers + secrets, GitOps provenance,
+    SLO config + overview, maintenance config, satellites, plugin manager,
+    incident config, announcements. Read-only EmptyStates (incident history,
+    maintenance history, plugin events) get clearer descriptions explaining
+    what would populate them.
+
+  **First-run anchored tips.** Add `<Tip>` popovers to the most important
+  "Create" affordances so first-time users see a one-line explanation of
+  what they're about to make and why it matters: catalog “Add System” /
+  “Add Group”, healthcheck “Create Check”, integrations “New Subscription”,
+  GitOps “Add Provider”, SLO “Create SLO”, maintenance “Create Maintenance”,
+  satellite “Create Satellite”, plugin-manager “Install plugin”, incident
+  “Report Incident”, announcement “New Announcement”. Each tip is dismissed
+  per user (server-backed when signed in, localStorage otherwise) and
+  namespaced through `qualifyTipId(plugin, …)` so it cannot escape the
+  plugin's own namespace.
+
+  **Welcome banner on the dashboard.** A `<TipBanner>` at the top of the
+  dashboard introduces Checkstack's main flow ("add a system, then a health
+  check") with a one-click jump into the catalog.
+
+### Patch Changes
+
+- 950d6ec: Fix mobile UserMenu items rendering at zero height, group menu items by
+  section, and unstack cramped card headers on small viewports.
+
+  - **UserMenu mobile bug**: On mobile, the user-menu Sheet rendered every
+    menu item as a grid row, which combined with `flex-shrink: 1` on each
+    item collapsed the buttons whose internal layout uses `display: flex`
+    (the items registered with `useNavigate` rather than `<Link>`) to zero
+    content height. Switched the mobile container to a flex column with
+    `[&>*]:shrink-0` and added `min-h-0` so the sheet scrolls correctly
+    when the list overflows.
+
+  - **UserMenu grouping**: Slot extensions now accept an optional `group`
+    field. The user menu buckets `UserMenuItemsSlot` extensions by `group`
+    and renders each group under a labeled header (`Workspace`,
+    `Reliability`, `Configuration`, `Documentation`, `Account`). Existing
+    core plugins are tagged with the appropriate group; third-party plugins
+    can pick any of these or supply their own label. Untagged extensions
+    render last with no header. `UserMenuItemsBottomSlot` is unaffected.
+
+  - **Card header responsiveness**: `CardHeaderRow` (the primitive shared by
+    Incident, Maintenance, Auth, Catalog, GitOps and other config cards) now
+    stacks vertically on narrow viewports and only switches to a single row
+    at the `sm` breakpoint, so titles and adjacent filter controls (e.g.
+    status `Select`, "Show resolved" checkbox) no longer cram together on
+    mobile. Refactored the Incident and Maintenance config pages to use the
+    primitive instead of a hand-rolled `flex items-center justify-between`
+    row, and made their `Select` triggers full-width on mobile.
+
+- Updated dependencies [42abfff]
+- Updated dependencies [3547670]
+- Updated dependencies [1ef2e79]
+- Updated dependencies [aa89bc5]
+- Updated dependencies [3547670]
+- Updated dependencies [950d6ec]
+- Updated dependencies [3547670]
+  - @checkstack/common@0.9.0
+  - @checkstack/ui@1.8.0
+  - @checkstack/frontend-api@0.5.0
+  - @checkstack/tips-frontend@0.2.0
+  - @checkstack/pluginmanager-common@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes

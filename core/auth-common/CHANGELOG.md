@@ -1,5 +1,12 @@
 # @checkstack/auth-common
 
+## 0.6.6
+
+### Patch Changes
+
+- Updated dependencies [42abfff]
+  - @checkstack/common@0.9.0
+
 ## 0.6.5
 
 ### Patch Changes

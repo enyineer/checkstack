@@ -1,5 +1,51 @@
 # @checkstack/satellite-backend
 
+## 0.3.0
+
+### Minor Changes
+
+- f6f9a5c: Add a GitOps `Satellite` kind plus a UI affordance for resetting tokens.
+
+  GitOps owns satellite **metadata only** — `metadata.name`,
+  `spec.region`, and `metadata.labels` (used as the satellite's runtime
+  tags). The bcrypt token is intentionally never expressed in YAML; on
+  first reconcile a satellite is created with a random token that is
+  discarded, and operators must use the Satellites page to retrieve a
+  working credential.
+
+  To support that flow:
+
+  - New service methods: `updateSatelliteMetadata`, `rotateSatelliteToken`,
+    `getSatelliteByName`.
+  - New RPC procs: `updateSatellite`, `rotateSatelliteToken`.
+  - New `RotateSatelliteTokenDialog` and a "Reset token" key icon on the
+    Satellites list. The dialog reuses the one-time-reveal layout from
+    `CreateSatelliteDialog`.
+  - The Satellites list shows a `GitOpsSourceBadge` next to managed
+    satellites and disables the delete button while leaving the
+    token-reset button enabled (so operators can always re-issue a
+    credential without touching YAML).
+
+  The satellite kind reconciler adopts pre-existing satellites by name on
+  first sync, so this is safe to roll out against installations that
+  already have manually-created satellites.
+
+### Patch Changes
+
+- Updated dependencies [42abfff]
+- Updated dependencies [f6f9a5c]
+- Updated dependencies [f6f9a5c]
+- Updated dependencies [aa89bc5]
+  - @checkstack/common@0.9.0
+  - @checkstack/satellite-common@0.4.0
+  - @checkstack/gitops-common@0.3.0
+  - @checkstack/gitops-backend@0.3.0
+  - @checkstack/queue-api@0.3.0
+  - @checkstack/backend-api@0.15.1
+  - @checkstack/healthcheck-backend@1.0.4
+  - @checkstack/healthcheck-common@1.0.2
+  - @checkstack/signal-common@0.2.2
+
 ## 0.2.21
 
 ### Patch Changes

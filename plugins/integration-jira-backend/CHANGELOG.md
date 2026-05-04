@@ -1,5 +1,16 @@
 # @checkstack/integration-jira-backend
 
+## 0.1.10
+
+### Patch Changes
+
+- Updated dependencies [42abfff]
+  - @checkstack/common@0.9.0
+  - @checkstack/backend-api@0.15.1
+  - @checkstack/integration-backend@0.1.25
+  - @checkstack/integration-common@0.3.2
+  - @checkstack/integration-jira-common@0.1.13
+
 ## 0.1.9
 
 ### Patch Changes

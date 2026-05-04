@@ -1,5 +1,32 @@
 # @checkstack/healthcheck-backend
 
+## 1.0.4
+
+### Patch Changes
+
+- Updated dependencies [42abfff]
+- Updated dependencies [f6f9a5c]
+- Updated dependencies [f6f9a5c]
+- Updated dependencies [1ef2e79]
+- Updated dependencies [aa89bc5]
+  - @checkstack/common@0.9.0
+  - @checkstack/satellite-backend@0.3.0
+  - @checkstack/gitops-common@0.3.0
+  - @checkstack/gitops-backend@0.3.0
+  - @checkstack/incident-common@1.1.0
+  - @checkstack/maintenance-common@1.1.0
+  - @checkstack/catalog-common@2.1.0
+  - @checkstack/catalog-backend@1.1.0
+  - @checkstack/queue-api@0.3.0
+  - @checkstack/cache-api@0.3.0
+  - @checkstack/backend-api@0.15.1
+  - @checkstack/command-backend@0.1.25
+  - @checkstack/healthcheck-common@1.0.2
+  - @checkstack/integration-backend@0.1.25
+  - @checkstack/notification-common@1.0.2
+  - @checkstack/signal-common@0.2.2
+  - @checkstack/cache-utils@0.2.5
+
 ## 1.0.3
 
 ### Patch Changes

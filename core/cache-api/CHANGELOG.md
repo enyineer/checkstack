@@ -1,5 +1,127 @@
 # @checkstack/cache-api
 
+## 0.3.0
+
+### Minor Changes
+
+- aa89bc5: Replace the bespoke `registerInfrastructureTab()` registry with a standard
+  slot-extension contract (`InfrastructureTabsSlot` from
+  `@checkstack/infrastructure-common`). Plugins now contribute infrastructure
+  tabs via `createSlotExtension`, depending only on the slot owner.
+
+  The slot system in `@checkstack/frontend-api` gains a second type parameter
+  on `createSlot<TContext, TMetadata>` so extensions can declare typed static
+  metadata at registration time (label, icon, access rules, ordering for the
+  infrastructure tab bar). A new `useSlotExtensions(slot)` hook returns typed
+  extensions and subscribes to plugin lifecycle changes.
+
+  Each tab body now stacks a **Runtime** sub-section (live state, read-only)
+  on top of a **Configuration** sub-section (settings, gated by `canUpdate`).
+
+  **Queue runtime panel.** Surfaces aggregated counts (pending / processing /
+  completed / failed) plus three sub-tabs of recent jobs: **Active**, **Recent
+  failed** (with the failure message), and **Recent completed** (with
+  duration). Job payloads are deliberately not surfaced — they may carry
+  secrets and need a separate manage-access gate to be shown.
+
+  To support this, `Queue<T>` gains a required `listJobs(opts)` method
+  returning `JobSummary[]` (no payloads), and `QueueStats` gains a
+  `scope: "instance" | "cluster"` field. The in-memory queue keeps rolling
+  ring buffers (200 entries) for completed/failed history and tracks active
+  jobs by id; BullMQ uses native `getJobs`. `QueueManager.listJobs` aggregates
+  across queues and sorts (most-recent-first for terminal states, FIFO for
+  active/waiting/delayed).
+
+  **Cache runtime panel.** Lists the top N entries by size (or by recency) so
+  operators can debug a cache filling up. Values are deliberately omitted —
+  PII / secret risk. Backends opt in via an optional `listEntries?` method on
+  `CacheProvider`; non-supporting backends return `{ supported: false }` and
+  the UI renders a "not supported by this backend" hint. The in-memory cache
+  implements it using its existing per-entry byte tracking.
+
+  `CacheStats` also gains `scope: "instance" | "cluster"`.
+
+  **Multi-instance scope warning.** A new `<InstanceScopeBanner>` component in
+  `@checkstack/ui` renders a yellow banner above any runtime panel whose
+  backend reports `scope: "instance"` — i.e. in-memory queue or cache running
+  in a horizontally scaled deployment. The banner explains the metrics are
+  local to the responding replica and recommends switching to a clustered
+  backend (Redis-backed queue / cache) for cluster-wide visibility.
+
+  **Bug fix — stable cache provider proxy.** `CacheManagerImpl.getProvider()`
+  now returns a single stable proxy that delegates to whatever provider is
+  currently active. Previously, consumers of `createCachedScope` (and any
+  direct `cacheManager.getProvider()` caller) captured the active provider
+  reference at plugin-init time. After any `setActiveBackend` call — including
+  saving the same memory config in the new Cache tab, which reconstructs the
+  in-memory cache — those scopes wrote to an orphaned old provider while the
+  runtime panel read stats from the new (empty) one, making the runtime panel
+  appear to report 0 keys. With the proxy, all consumers share a single stable
+  identity and writes always land in the active provider.
+
+  **Bytes tracking on the in-memory cache.** `InMemoryCache.getStats().sizeBytes`
+  now returns a running approximation (UTF-8 bytes of the key plus
+  `v8.serialize(value).byteLength`, with a JSON fallback) that's kept in sync
+  across all eviction paths. Treat the number as a sanity gauge; it doesn't
+  include `Map` per-entry overhead.
+
+  **Pagination.** Both `Queue<T>.listJobs` and `CacheProvider.listEntries?`
+  are offset-paginated. Inputs gain an `offset: number`; outputs change to
+  `{ items, total: number | null, hasMore: boolean }`. `total` is nullable
+  so backends that can't compute it cheaply still paginate via `hasMore`.
+  The UI uses the existing `<Pagination>` component with a 25-row default
+  page size. `QueueManager.listJobs` aggregates by over-fetching
+  `[0, offset+limit)` per queue, merge-sorting, then slicing the window —
+  optimal for the single-queue case, acceptable for the multi-queue case
+  within the UI's reasonable page-depth bounds. BullMQ uses native offset
+  ranges via `getJobs(types, start, end)` plus `getJobCounts` for `total`.
+
+  **Pending tab.** The Queue runtime panel exposes a virtual `"pending"`
+  state (waiting ∪ delayed, FIFO). It's now the default sub-tab, since
+  "what's queued up?" is the most common question. Per-row state is shown
+  when viewing the combined list.
+
+  **Recurring schedules visible under Pending.** Cron- and interval-based
+  recurring jobs (e.g. healthchecks) are surfaced under Pending/Delayed
+  between fires, with a `nextRunAt` countdown column and a "(recurring)"
+  label. `JobSummary` gains optional `nextRunAt: Date` and `recurring:
+boolean` fields. The in-memory queue synthesises these rows from its
+  `recurringJobs` registry; BullMQ already materialises the next fire of
+  each scheduler as a delayed job and we now surface its trigger time and
+  the `repeatJobKey`-derived `recurring` flag.
+
+  **Bug fix — drop hook emits with no listeners.** `EventBus.emit` no
+  longer enqueues a job when zero listeners (distributed or instance-local)
+  are registered for the hook. Previously, hooks like
+  `core.plugin.initialized` — emitted on every plugin init but subscribed
+  to by nothing in the core repo — accumulated one waiting job per emit
+  forever. The in-memory queue's `processNext` short-circuits when there
+  are zero consumer groups, so its post-loop cleanup never ran for these
+  orphaned jobs. The fix drops the emit at the source and logs a debug
+  line. Note: in distributed deployments using a Redis-backed queue, this
+  means a subscriber on another replica won't receive an event if no
+  replica that emits it has a local listener. Plugins needing cross-process
+  delivery must register their listener on every replica that should
+  receive the hook.
+
+  **Breaking notes (treated as minor under beta semantics)**:
+
+  - `@checkstack/infrastructure-common` removes `registerInfrastructureTab`
+    and `getInfrastructureTabs`; former callers must register an extension
+    into `InfrastructureTabsSlot`.
+  - `@checkstack/queue-api`'s `Queue<T>` interface requires the new
+    `listJobs(opts)` method returning `ListJobsResult` (paginated). Both
+    bundled queue backends (memory, BullMQ) are updated; out-of-tree
+    implementations will need to add it.
+  - `QueueStats` and `CacheStats` add a required `scope` field.
+  - `CacheProvider.listEntries?` (when implemented) now returns
+    `ListEntriesResult` instead of `CacheEntrySummary[]`.
+  - `JobState` adds a `"pending"` variant.
+
+### Patch Changes
+
+- @checkstack/backend-api@0.15.1
+
 ## 0.2.4
 
 ### Patch Changes
