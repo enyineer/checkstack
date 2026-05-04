@@ -1,0 +1,50 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Introduction" />
+
+# Checkstack UI
+
+This is the component library for Checkstack plugin developers. Every primitive
+exported from `@checkstack/ui` is intended to be safe for plugin use — both in
+core plugins shipped in this repo and in third-party plugins published to npm.
+
+## Why this exists
+
+Plugins ship their own React components but render *inside* the host frontend's
+React tree, so they must use the host's design tokens, theme, and spacing scale.
+The `@checkstack/ui` package is the public surface for that. If a primitive
+isn't documented here, treat it as an internal implementation detail.
+
+## How to use
+
+```tsx
+import { Button, Card, CardHeader, CardTitle, CardContent } from "@checkstack/ui";
+
+export function MyPanel() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>My Plugin</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Button variant="primary">Do the thing</Button>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Theming
+
+All components consume CSS custom properties defined in `themes.css`. The host
+frontend wraps the entire app in `ThemeProvider`, so plugins automatically
+inherit light/dark mode. Use semantic Tailwind classes (`bg-primary`,
+`text-muted-foreground`, …) — never hardcoded colors.
+
+## Accessibility & performance
+
+- Components are built on Radix primitives where keyboard / focus / ARIA
+  behavior is non-trivial.
+- Animation-heavy components respect the `usePerformance` hook's `isLowPower`
+  flag — see [the performance rule](https://github.com/enyineer/checkstack/blob/main/.agent/rules/performance.md)
+  for the full contract plugins are expected to follow.

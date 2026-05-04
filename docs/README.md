@@ -43,6 +43,7 @@ Building backend plugins and services:
 Building frontend plugins and UI:
 
 - **[Frontend Plugins](./frontend/plugins.md)** - Create UI components, pages, and routing
+- **[Component Library (Storybook)](./storybook/)** - Browse every `@checkstack/ui` primitive plugins can use
 - **[Extension Points](./frontend/extension-points.md)** - UI slots and extension system
 - **[Theming](./frontend/theming.md)** - Design tokens and theme customization
 - **[Config Schemas](./frontend/config-schemas.md)** - Sending configuration schemas to frontend

@@ -9,3 +9,4 @@ runtime_plugins/
 .dev/
 plugins/_test-scaffolds/
 reports/
+storybook-static/
