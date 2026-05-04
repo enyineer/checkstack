@@ -128,6 +128,8 @@
         "@checkstack/catalog-backend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
+        "@checkstack/gitops-backend": "workspace:*",
+        "@checkstack/gitops-common": "workspace:*",
         "@checkstack/healthcheck-backend": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/notification-common": "workspace:*",
@@ -609,6 +611,8 @@
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/dependency-common": "workspace:*",
+        "@checkstack/gitops-backend": "workspace:*",
+        "@checkstack/gitops-common": "workspace:*",
         "@checkstack/healthcheck-backend": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/incident-common": "workspace:*",
@@ -656,6 +660,8 @@
         "@checkstack/dashboard-frontend": "workspace:*",
         "@checkstack/dependency-common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/gitops-common": "workspace:*",
+        "@checkstack/gitops-frontend": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
@@ -673,7 +679,7 @@
     },
     "core/dev-server": {
       "name": "@checkstack/dev-server",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "bin": {
         "checkstack-dev": "./src/dev-server.ts",
       },
@@ -1327,7 +1333,7 @@
     },
     "core/release": {
       "name": "@checkstack/release",
-      "version": "0.80.0",
+      "version": "0.81.0",
     },
     "core/satellite": {
       "name": "@checkstack/satellite",
@@ -1350,6 +1356,8 @@
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
+        "@checkstack/gitops-backend": "workspace:*",
+        "@checkstack/gitops-common": "workspace:*",
         "@checkstack/healthcheck-backend": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/queue-api": "workspace:*",
@@ -1391,6 +1399,8 @@
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/gitops-common": "workspace:*",
+        "@checkstack/gitops-frontend": "workspace:*",
         "@checkstack/satellite-common": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
@@ -1407,7 +1417,7 @@
     },
     "core/scripts": {
       "name": "@checkstack/scripts",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "bin": {
         "checkstack-scripts": "./src/cli.ts",
       },
@@ -1481,6 +1491,8 @@
         "@checkstack/command-backend": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/dependency-common": "workspace:*",
+        "@checkstack/gitops-backend": "workspace:*",
+        "@checkstack/gitops-common": "workspace:*",
         "@checkstack/healthcheck-backend": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/integration-backend": "workspace:*",

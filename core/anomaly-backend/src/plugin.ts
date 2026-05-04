@@ -16,6 +16,11 @@ import {
 } from "@checkstack/anomaly-common";
 import { specToRegistration } from "@checkstack/notification-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
+import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
+import {
+  registerAnomalyGitOpsKinds,
+  registerAnomalyGitOpsDocumentation,
+} from "./anomaly-gitops-kinds";
 
 import { definePluginMetadata } from "@checkstack/common";
 
@@ -36,6 +41,20 @@ export const plugin = createBackendPlugin({
     ]);
 
     let routerCache: AnomalyRouterCache | undefined;
+
+    // ─── GitOps Entity Kind Registration ─────────────────────────────
+    // Mutable ref populated during init(); the reconciler closure pulls
+    // the service via the lazy accessor at sync time.
+    let gitopsService: AnomalyService | undefined;
+    const kindRegistry = env.getExtensionPoint(entityKindExtensionPoint);
+    registerAnomalyGitOpsKinds({
+      kindRegistry,
+      getService: () => {
+        if (!gitopsService)
+          throw new Error("AnomalyService not initialized");
+        return gitopsService;
+      },
+    });
 
     env.registerInit({
       schema,
@@ -71,6 +90,7 @@ export const plugin = createBackendPlugin({
         });
 
         const service = new AnomalyService(typedDb);
+        gitopsService = service;
         routerCache = createAnomalyRouterCache({ cacheManager, logger });
         const router = createRouter(service, logger, routerCache);
         rpc.registerRouter(router, anomalyContract);
@@ -96,6 +116,14 @@ export const plugin = createBackendPlugin({
             specToRegistration(anomalyGroupSubscription),
           ),
         ]);
+
+        // GitOps spec-schema docs need the collector registry to be
+        // populated so we can enumerate per-collector result fields and
+        // register conditional variants under `anomaly.fieldOverrides`.
+        registerAnomalyGitOpsDocumentation({
+          kindRegistry,
+          collectorRegistry,
+        });
 
         onHook(healthCheckHooks.checkCompleted, async (payload) => {
           await processCheckCompleted({

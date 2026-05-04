@@ -24,6 +24,8 @@
     "@checkstack/cache-utils": "workspace:*",
     "@checkstack/healthcheck-backend": "workspace:*",
     "@checkstack/catalog-backend": "workspace:*",
+    "@checkstack/gitops-backend": "workspace:*",
+    "@checkstack/gitops-common": "workspace:*",
     "@checkstack/catalog-common": "workspace:*",
     "@checkstack/notification-common": "workspace:*",
     "drizzle-orm": "^0.45.0",

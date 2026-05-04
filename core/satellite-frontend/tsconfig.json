@@ -11,6 +11,12 @@
       "path": "../frontend-api"
     },
     {
+      "path": "../gitops-common"
+    },
+    {
+      "path": "../gitops-frontend"
+    },
+    {
       "path": "../satellite-common"
     },
     {

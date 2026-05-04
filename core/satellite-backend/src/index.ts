@@ -14,6 +14,8 @@ import { createSatelliteRouter } from "./router";
 import { HeartbeatMonitor } from "./heartbeat-monitor";
 import { SatelliteWsHandler } from "./satellite-ws-handler";
 import { ConfigRelay } from "./config-relay";
+import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
+import { registerSatelliteGitOpsKinds } from "./satellite-gitops-kinds";
 
 // Queue and job constants
 const HEARTBEAT_QUEUE = "satellite-heartbeat";
@@ -24,6 +26,17 @@ export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
     env.registerAccessRules(satelliteAccessRules);
+
+    // ─── GitOps Entity Kind Registration ─────────────────────────────
+    let gitopsService: SatelliteService | undefined;
+    const kindRegistry = env.getExtensionPoint(entityKindExtensionPoint);
+    registerSatelliteGitOpsKinds({
+      kindRegistry,
+      getService: () => {
+        if (!gitopsService) throw new Error("SatelliteService not initialized");
+        return gitopsService;
+      },
+    });
 
     env.registerInit({
       schema,
@@ -41,6 +54,7 @@ export default createBackendPlugin({
         const service = new SatelliteService(
           database as SafeDatabase<typeof schema>,
         );
+        gitopsService = service;
 
         const router = createSatelliteRouter({
           service,

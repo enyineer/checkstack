@@ -27,6 +27,8 @@
     "@checkstack/signal-common": "workspace:*",
     "@checkstack/integration-backend": "workspace:*",
     "@checkstack/integration-common": "workspace:*",
+    "@checkstack/gitops-backend": "workspace:*",
+    "@checkstack/gitops-common": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/queue-api": "workspace:*",
     "drizzle-orm": "^0.45.0",

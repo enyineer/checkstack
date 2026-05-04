@@ -2,7 +2,7 @@ import { implement, ORPCError } from "@orpc/server";
 import { z } from "zod";
 import { autoAuthMiddleware, type RpcContext } from "@checkstack/backend-api";
 import { encrypt, decrypt } from "@checkstack/backend-api";
-import { gitopsContract } from "@checkstack/gitops-common";
+import { gitopsContract, deriveSourceUrl } from "@checkstack/gitops-common";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import type { QueueManager } from "@checkstack/queue-api";
 import type { InternalEntityKindRegistry } from "./kind-registry";
@@ -34,6 +34,36 @@ export const createGitOpsRouter = ({
 }: GitOpsRouterDeps) => {
   // ─── Provenance ──────────────────────────────────────────────────────
 
+  type ProviderMeta = {
+    type: "github" | "gitlab";
+    baseUrl: string | null;
+  };
+
+  const buildProviderLookup = async (): Promise<Map<string, ProviderMeta>> => {
+    const providers = await db.select().from(schema.providers);
+    const map = new Map<string, ProviderMeta>();
+    for (const p of providers) {
+      map.set(p.id, { type: p.type, baseUrl: p.baseUrl });
+    }
+    return map;
+  };
+
+  const decorateProvenance = (
+    row: typeof schema.provenance.$inferSelect,
+    providers: Map<string, ProviderMeta>,
+  ) => {
+    const provider = providers.get(row.providerId);
+    const sourceUrl = provider
+      ? deriveSourceUrl({
+          providerType: provider.type,
+          baseUrl: provider.baseUrl,
+          repository: row.repository,
+          filePath: row.filePath,
+        })
+      : null;
+    return { ...row, warnings: row.warnings ?? [], sourceUrl };
+  };
+
   const getProvenance = os.getProvenance.handler(async ({ input }) => {
     const conditions = [eq(schema.provenance.kind, input.kind)];
 
@@ -49,14 +79,15 @@ export const createGitOpsRouter = ({
       .from(schema.provenance)
       .where(and(...conditions));
     const row = result[0];
-     
-    return row ? { ...row, warnings: row.warnings ?? [] } : null;
+    if (!row) return null;
+    const providers = await buildProviderLookup();
+    return decorateProvenance(row, providers);
   });
 
   const listProvenance = os.listProvenance.handler(async ({ input }) => {
     const rawRows = await db.select().from(schema.provenance);
-    // Normalize: ensure warnings is always a string[] (Drizzle may return null for pre-migration rows)
-    const rows = rawRows.map((row) => ({ ...row, warnings: row.warnings ?? [] }));
+    const providers = await buildProviderLookup();
+    const rows = rawRows.map((row) => decorateProvenance(row, providers));
     if (!input) return rows;
 
     return rows.filter((row) => {

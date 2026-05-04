@@ -36,3 +36,7 @@ export {
   type DeletionPolicy,
 } from "./provenance-types";
 export { gitopsContract, GitOpsApi, type GitOpsContract } from "./rpc-contract";
+export {
+  deriveSourceUrl,
+  type DeriveSourceUrlInput,
+} from "./source-url";

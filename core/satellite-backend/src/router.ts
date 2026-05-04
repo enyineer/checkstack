@@ -1,4 +1,4 @@
-import { implement } from "@orpc/server";
+import { implement, ORPCError } from "@orpc/server";
 import {
   satelliteContract,
   SATELLITE_STATUS_CHANGED,
@@ -73,6 +73,34 @@ export function createSatelliteRouter(props: {
         name: satellite.name,
         region: satellite.region,
       });
+    }),
+
+    updateSatellite: os.updateSatellite.handler(async ({ input }) => {
+      const updated = await service.updateSatelliteMetadata(input);
+      if (!updated) {
+        throw new ORPCError("NOT_FOUND", {
+          message: `Satellite not found: ${input.id}`,
+        });
+      }
+      logger.info(`Satellite metadata updated: ${updated.name}`);
+      await signalService.broadcast(SATELLITE_CONFIG_CHANGED, {
+        satelliteId: updated.id,
+      });
+      return updated;
+    }),
+
+    rotateSatelliteToken: os.rotateSatelliteToken.handler(async ({ input }) => {
+      const result = await service.rotateSatelliteToken(input.id);
+      if (!result) {
+        throw new ORPCError("NOT_FOUND", {
+          message: `Satellite not found: ${input.id}`,
+        });
+      }
+      logger.info(`Satellite token rotated: ${result.satellite.name}`);
+      await signalService.broadcast(SATELLITE_CONFIG_CHANGED, {
+        satelliteId: result.satellite.id,
+      });
+      return { satellite: result.satellite, token: result.plaintextToken };
     }),
 
     getOnlineSatelliteIds: os.getOnlineSatelliteIds.handler(async () => {
