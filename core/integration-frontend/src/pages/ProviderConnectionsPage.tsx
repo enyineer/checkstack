@@ -276,13 +276,19 @@ export const ProviderConnectionsPage = () => {
             />
           }
           title="No connections configured"
-          description="Create a connection to start using this provider"
-        >
-          <Button onClick={openCreateDialog} className="mt-4">
-            <Plus className="h-4 w-4 mr-2" />
-            Create Connection
-          </Button>
-        </EmptyState>
+          description={`A connection holds the credentials and base configuration that ${provider?.displayName ?? "this provider"} needs in order to deliver events from Checkstack. Once a connection exists you can subscribe to events from the Integrations page.`}
+          steps={[
+            "Click “Create Connection” and fill in the credentials this provider needs.",
+            "Give the connection a name that says where it points (e.g. “Prod Jira” vs. “Sandbox Jira”).",
+            "Head back to Integrations and create a webhook subscription that uses this connection.",
+          ]}
+          actions={
+            <Button onClick={openCreateDialog}>
+              <Plus className="h-4 w-4 mr-2" />
+              Create connection
+            </Button>
+          }
+        />
       ) : (
         <Card>
           <CardHeader>

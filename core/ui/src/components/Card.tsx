@@ -22,8 +22,9 @@ export const CardHeader = ({
 );
 
 /**
- * A row layout for card headers with title and actions.
- * Provides mobile-friendly defaults with flex-wrap and gap.
+ * Row layout for card headers with title and actions. Stacks vertically on
+ * narrow viewports and switches to a single row at the `sm` breakpoint, so
+ * filters and buttons don't get cramped against the title on mobile.
  */
 export const CardHeaderRow = ({
   className,
@@ -31,7 +32,7 @@ export const CardHeaderRow = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "flex flex-wrap items-center justify-between gap-3",
+      "flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between",
       className,
     )}
     {...props}

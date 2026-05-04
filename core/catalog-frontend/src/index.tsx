@@ -52,6 +52,7 @@ export const catalogPlugin = createFrontendPlugin({
     createSlotExtension(UserMenuItemsSlot, {
       id: "catalog.user-menu.items",
       component: CatalogUserMenuItems,
+      metadata: { group: "Workspace" },
     }),
   ],
 });

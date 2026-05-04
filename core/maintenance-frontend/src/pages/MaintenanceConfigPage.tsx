@@ -11,11 +11,16 @@ import type {
   MaintenanceWithSystems,
   MaintenanceStatus,
 } from "@checkstack/maintenance-common";
-import { maintenanceAccess } from "@checkstack/maintenance-common";
+import {
+  maintenanceAccess,
+  pluginMetadata as maintenancePluginMetadata,
+} from "@checkstack/maintenance-common";
+import { Tip } from "@checkstack/tips-frontend";
 import { CatalogApi } from "@checkstack/catalog-common";
 import {
   Card,
   CardHeader,
+  CardHeaderRow,
   CardTitle,
   CardContent,
   Button,
@@ -176,15 +181,24 @@ const MaintenanceConfigPageContent: React.FC = () => {
       loading={accessLoading}
       allowed={canManage}
       actions={
-        <Button onClick={handleCreate}>
-          <Plus className="h-4 w-4 mr-2" />
-          Create Maintenance
-        </Button>
+        <Tip
+          plugin={maintenancePluginMetadata}
+          id="windows.create"
+          title="Tell Checkstack about expected downtime"
+          description="Maintenance windows mark a period where you expect a system to be partially or fully unavailable. Checkstack uses them to suppress incidents, mark systems as “under maintenance” on the public status page, and (optionally) exclude the window from SLO error budgets."
+          side="bottom"
+          align="end"
+        >
+          <Button onClick={handleCreate}>
+            <Plus className="h-4 w-4 mr-2" />
+            Create Maintenance
+          </Button>
+        </Tip>
       }
     >
       <Card>
         <CardHeader className="border-b border-border">
-          <div className="flex items-center justify-between">
+          <CardHeaderRow>
             <div className="flex items-center gap-2">
               <Wrench className="h-5 w-5 text-muted-foreground" />
               <CardTitle>Maintenances</CardTitle>
@@ -195,7 +209,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
                 setStatusFilter(v as MaintenanceStatus | "all")
               }
             >
-              <SelectTrigger className="w-40">
+              <SelectTrigger className="w-full sm:w-40">
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
               <SelectContent>
@@ -206,7 +220,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
                 <SelectItem value="cancelled">Cancelled</SelectItem>
               </SelectContent>
             </Select>
-          </div>
+          </CardHeaderRow>
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (
@@ -215,8 +229,22 @@ const MaintenanceConfigPageContent: React.FC = () => {
             </div>
           ) : maintenances.length === 0 ? (
             <EmptyState
-              title="No maintenances found"
-              description="Create your first planned maintenance to get started."
+              icon={<Wrench className="size-10" />}
+              title="No planned maintenances"
+              description="A maintenance window tells Checkstack “this system is expected to be down or degraded” for a defined period. Failed health checks during the window are still recorded but are treated as expected — the system is flagged as “in maintenance” on the public status page, and notifications about it are suppressed."
+              steps={[
+                "Click “Create Maintenance” and pick the systems that will be affected.",
+                "Set a start time, end time, and a short summary your users will see.",
+                "Subscribers (groups, status page subscribers, integrations) are notified automatically when the window starts and ends.",
+              ]}
+              actions={
+                canManage ? (
+                  <Button onClick={handleCreate}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Schedule maintenance
+                  </Button>
+                ) : undefined
+              }
             />
           ) : (
             <Table>

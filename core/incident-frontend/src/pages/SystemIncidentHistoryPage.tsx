@@ -110,8 +110,8 @@ const SystemIncidentHistoryPageContent: React.FC = () => {
         <CardContent className="p-0">
           {incidents.length === 0 ? (
             <EmptyState
-              title="No incidents"
-              description="This system has no recorded incidents."
+              title="Clean record"
+              description="No incidents have been reported for this system. Incidents in Checkstack are created by hand when a real outage or user-visible issue happens — they aren't auto-generated from failing health checks. Anything reported against this system in the future will show up here."
             />
           ) : (
             <div className="divide-y divide-border">

@@ -41,6 +41,7 @@ export const integrationPlugin = createFrontendPlugin({
     createSlotExtension(UserMenuItemsSlot, {
       id: "integration.user-menu.link",
       component: IntegrationMenuItem,
+      metadata: { group: "Configuration" },
     }),
   ],
 });

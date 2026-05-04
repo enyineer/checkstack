@@ -122,8 +122,8 @@ const SystemMaintenanceHistoryPageContent: React.FC = () => {
             </div>
           ) : maintenances.length === 0 ? (
             <EmptyState
-              title="No maintenances found"
-              description="There are no recorded maintenances for this system."
+              title="No maintenance history"
+              description="This system has never had a planned maintenance window. When one is scheduled (or completes), it will appear here so you can see how often this system is taken offline and for how long."
             />
           ) : (
             <Table>

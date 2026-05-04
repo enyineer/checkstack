@@ -17,7 +17,11 @@ import {
   usePluginClient,
 } from "@checkstack/frontend-api";
 import { System, CatalogApi } from "../api";
-import { catalogAccess } from "@checkstack/catalog-common";
+import {
+  catalogAccess,
+  pluginMetadata as catalogPluginMetadata,
+} from "@checkstack/catalog-common";
+import { Tip } from "@checkstack/tips-frontend";
 import {
   PageLayout,
   Card,
@@ -337,10 +341,19 @@ export const CatalogConfigPage = () => {
                   <Server className="w-5 h-5 text-muted-foreground" />
                   Systems
                 </CardTitle>
-                <Button size="sm" onClick={() => setIsSystemEditorOpen(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add System
-                </Button>
+                <Tip
+                  plugin={catalogPluginMetadata}
+                  id="systems.create"
+                  title="Start here: add a system"
+                  description="A system is anything you want Checkstack to keep an eye on — a service, a host, a job, a database. Almost everything else (health checks, SLOs, incidents, notifications) hangs off systems."
+                  side="bottom"
+                  align="end"
+                >
+                  <Button size="sm" onClick={() => setIsSystemEditorOpen(true)}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add System
+                  </Button>
+                </Tip>
               </CardHeaderRow>
               {systems.length > 0 && groups.length > 0 && (
                 <p className="text-xs text-muted-foreground mt-1">
@@ -351,7 +364,22 @@ export const CatalogConfigPage = () => {
             </CardHeader>
             <CardContent className="space-y-4">
               {systems.length === 0 ? (
-                <EmptyState title="No systems created yet." />
+                <EmptyState
+                  icon={<Server className="size-10" />}
+                  title="No systems yet"
+                  description="Systems are the things you monitor. Once you add one, you can attach health checks, SLOs, maintenance windows and incident history to it."
+                  steps={[
+                    "Click “Add System” to register your first service, host or job.",
+                    "Group related systems so dashboards and on-call rotations stay tidy.",
+                    "Wire health checks to a system so its health status reflects reality and subscribers get notified on changes.",
+                  ]}
+                  actions={
+                    <Button onClick={() => setIsSystemEditorOpen(true)}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add your first system
+                    </Button>
+                  }
+                />
               ) : (
                 <div className="space-y-2">
                   {systems.map((system) => (
@@ -381,10 +409,19 @@ export const CatalogConfigPage = () => {
                   <LayoutGrid className="w-5 h-5 text-muted-foreground" />
                   Groups
                 </CardTitle>
-                <Button size="sm" onClick={() => setIsGroupEditorOpen(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Group
-                </Button>
+                <Tip
+                  plugin={catalogPluginMetadata}
+                  id="groups.create"
+                  title="Group systems that belong together"
+                  description="Groups are how Checkstack rolls up status: a group is healthy when all of its systems are healthy. Use them per team, per product area, or per environment."
+                  side="bottom"
+                  align="end"
+                >
+                  <Button size="sm" onClick={() => setIsGroupEditorOpen(true)}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Group
+                  </Button>
+                </Tip>
               </CardHeaderRow>
               {groups.length > 0 && systems.length > 0 && (
                 <p className="text-xs text-muted-foreground mt-1">
@@ -394,7 +431,22 @@ export const CatalogConfigPage = () => {
             </CardHeader>
             <CardContent className="space-y-4">
               {groups.length === 0 ? (
-                <EmptyState title="No groups created yet." />
+                <EmptyState
+                  icon={<LayoutGrid className="size-10" />}
+                  title="No groups yet"
+                  description="Groups roll up the health of multiple systems into a single status — useful for teams, products or environments."
+                  steps={[
+                    "Click “Add Group” and give it a meaningful name.",
+                    "Drag systems from the left panel into the group, or use the assign button on each system.",
+                    "Subscribe to the group from the status page to alert your team on any rolled-up incident.",
+                  ]}
+                  actions={
+                    <Button onClick={() => setIsGroupEditorOpen(true)}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add your first group
+                    </Button>
+                  }
+                />
               ) : (
                 <div className="space-y-2">
                   {groups.map((group) => (

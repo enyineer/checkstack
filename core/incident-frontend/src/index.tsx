@@ -45,6 +45,7 @@ export default createFrontendPlugin({
     createSlotExtension(UserMenuItemsSlot, {
       id: "incident.user-menu.items",
       component: IncidentMenuItems,
+      metadata: { group: "Reliability" },
     }),
     createSlotExtension(SystemStateBadgesSlot, {
       id: "incident.system-incident-badge",

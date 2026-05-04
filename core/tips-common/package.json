@@ -1,0 +1,31 @@
+{
+  "name": "@checkstack/tips-common",
+  "version": "0.1.0",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@checkstack/common": "workspace:*",
+    "@orpc/contract": "^1.13.14",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/scripts": "workspace:*",
+    "typescript": "^5.7.2"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test"
+  },
+  "checkstack": {
+    "type": "common"
+  }
+}

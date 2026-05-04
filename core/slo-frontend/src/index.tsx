@@ -40,6 +40,7 @@ export default createFrontendPlugin({
     createSlotExtension(UserMenuItemsSlot, {
       id: "slo.user-menu.items",
       component: SloMenuItems,
+      metadata: { group: "Reliability" },
     }),
     createSlotExtension(SystemStateBadgesSlot, {
       id: "slo.system-state-badge",
