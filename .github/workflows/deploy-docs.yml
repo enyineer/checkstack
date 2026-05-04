@@ -37,6 +37,16 @@ jobs:
         with:
           bun-version: latest
 
+      # Astro 6 hard-requires Node ≥ 22.12 at runtime. `bun run` defers to
+      # the system `node` binary for shebang-based CLIs like astro, so the
+      # runner's default (Node 20) makes the build fail with
+      # "Node.js v20.20.2 is not supported by Astro!". Install Node 22 on
+      # PATH so bun finds a compatible interpreter for the docs build.
+      - name: Setup Node 22 (required by Astro)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
