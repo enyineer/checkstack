@@ -65,5 +65,34 @@ export const createCacheRouter = (configService: ConfigService) => {
         };
       },
     ),
+
+    getRuntimeStats: os.getRuntimeStats.handler(async ({ context }) => {
+      const pluginId = context.cacheManager.getActivePlugin();
+      const provider = context.cacheManager.getProvider();
+      const stats = provider.getStats
+        ? await provider.getStats()
+        : {
+            keyCount: null,
+            sizeBytes: null,
+            hits: null,
+            misses: null,
+            scope: "instance" as const,
+          };
+      return { pluginId, ...stats };
+    }),
+
+    listEntries: os.listEntries.handler(async ({ input, context }) => {
+      const provider = context.cacheManager.getProvider();
+      if (!provider.listEntries) {
+        return { supported: false, items: [], total: 0, hasMore: false };
+      }
+      const result = await provider.listEntries(input);
+      return {
+        supported: true,
+        items: result.items,
+        total: result.total,
+        hasMore: result.hasMore,
+      };
+    }),
   });
 };

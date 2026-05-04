@@ -31,6 +31,7 @@ import {
 import { Maximize2, Save, RefreshCw, Trash2 } from "lucide-react";
 import type { ImpactType } from "@checkstack/dependency-common";
 import { DependencyEdgeForm } from "./DependencyEdgeForm";
+import { useProvenanceLocks } from "@checkstack/gitops-frontend";
 
 import {
   SystemNodeComponent,
@@ -86,6 +87,9 @@ function DependencyMapContent() {
   const catalogClient = usePluginClient(CatalogApi);
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const { fitView } = useReactFlow();
+  // GitOps owns the *source* system's `dependencies` extension. We use the
+  // bulk hook to gate edge mutations per edge based on the source's lock.
+  const { getLock: getSystemLock } = useProvenanceLocks();
   const [nodes, setNodes, onNodesChange] = useNodesState<SystemNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<DependencyEdge>([]);
   const [hasUnsaved, setHasUnsaved] = useState(false);
@@ -217,6 +221,17 @@ function DependencyMapContent() {
       if (!connection.source || !connection.target) return;
       if (connection.source === connection.target) return;
 
+      const sourceLocked = getSystemLock({
+        kind: "System",
+        entityId: connection.source,
+      }).isLocked;
+      if (sourceLocked) {
+        toast.error(
+          "Source system is managed by GitOps — declare the dependency in its YAML.",
+        );
+        return;
+      }
+
       createDependency({
         sourceSystemId: connection.source,
         targetSystemId: connection.target,
@@ -224,7 +239,7 @@ function DependencyMapContent() {
         transitive: false,
       });
     },
-    [createDependency],
+    [createDependency, getSystemLock, toast],
   );
 
   // Track node positions for saving and for preserving in-memory positions
@@ -568,12 +583,17 @@ function DependencyMapContent() {
         </Panel>
 
         {/* Edge editor panel */}
-        {selectedEdge && (
+        {selectedEdge && (() => {
+          const edgeSourceLocked = getSystemLock({
+            kind: "System",
+            entityId: selectedEdge.sourceSystemId,
+          }).isLocked;
+          return (
           <Panel position="top-left">
             <div className="bg-card/95 backdrop-blur-sm border border-border rounded-lg shadow-lg p-4 w-72 space-y-3">
               <div className="space-y-1">
                 <p className="text-sm font-semibold text-foreground">
-                  Edit Dependency
+                  {edgeSourceLocked ? "Dependency (GitOps)" : "Edit Dependency"}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {systemNameMap.get(selectedEdge.sourceSystemId) ??
@@ -582,6 +602,12 @@ function DependencyMapContent() {
                   {systemNameMap.get(selectedEdge.targetSystemId) ??
                     selectedEdge.targetSystemId}
                 </p>
+                {edgeSourceLocked && (
+                  <p className="text-xs text-warning">
+                    The source system is managed by GitOps. Edit the
+                    dependency in its YAML.
+                  </p>
+                )}
               </div>
               <DependencyEdgeForm
                 impactType={selectedEdge.impactType}
@@ -610,7 +636,8 @@ function DependencyMapContent() {
                       systemId: selectedEdge.sourceSystemId,
                     })
                   }
-                  disabled={deleteMutation.isPending}
+                  disabled={deleteMutation.isPending || edgeSourceLocked}
+                  title={edgeSourceLocked ? "Managed by GitOps" : undefined}
                 >
                   <Trash2 className="h-3.5 w-3.5 mr-1" />
                   Delete
@@ -622,7 +649,7 @@ function DependencyMapContent() {
                     size="sm"
                     onClick={() => setSelectedEdge(undefined)}
                   >
-                    Cancel
+                    {edgeSourceLocked ? "Close" : "Cancel"}
                   </Button>
                   <Button
                     type="button"
@@ -639,7 +666,8 @@ function DependencyMapContent() {
                             : [],
                       })
                     }
-                    disabled={updateMutation.isPending}
+                    disabled={updateMutation.isPending || edgeSourceLocked}
+                    title={edgeSourceLocked ? "Managed by GitOps" : undefined}
                   >
                     {updateMutation.isPending ? "Saving..." : "Save"}
                   </Button>
@@ -647,7 +675,8 @@ function DependencyMapContent() {
               </div>
             </div>
           </Panel>
-        )}
+          );
+        })()}
       </ReactFlow>
     </div>
   );

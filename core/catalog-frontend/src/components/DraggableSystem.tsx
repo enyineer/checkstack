@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { GripVertical, Edit, Trash2, FolderPlus, GitBranch } from "lucide-react";
+import { GripVertical, Edit, Trash2, FolderPlus } from "lucide-react";
 import { Button } from "@checkstack/ui";
 import { ExtensionSlot } from "@checkstack/frontend-api";
 import { CatalogSystemActionsSlot } from "@checkstack/catalog-common";
-import { useProvenanceLock } from "@checkstack/gitops-frontend";
+import {
+  useProvenanceLock,
+  GitOpsSourceBadge,
+} from "@checkstack/gitops-frontend";
 import type { Group, System } from "../api";
 
 interface DraggableSystemProps {
@@ -39,7 +42,7 @@ export const DraggableSystem = ({
 }: DraggableSystemProps) => {
   const [isPickerOpen, setIsPickerOpen] = useState(false);
 
-  const { isLocked } = useProvenanceLock({
+  const { isLocked, provenance } = useProvenanceLock({
     kind: "System",
     entityId: system.id,
   });
@@ -58,23 +61,23 @@ export const DraggableSystem = ({
     >
       {/* Main row: grip + name/description */}
       <div className="flex items-start gap-2 p-3 pb-2">
-        {/* Grip handle — only this element triggers the drag */}
-        <div
-          {...listeners}
-          {...attributes}
-          className={`flex-shrink-0 mt-0.5 text-muted-foreground/40 touch-none ${
-            isLocked
-              ? "cursor-not-allowed opacity-30"
-              : "cursor-grab active:cursor-grabbing hover:text-muted-foreground"
-          }`}
-          aria-label={isLocked ? `${system.name} is managed by GitOps` : `Drag ${system.name}`}
-        >
-          {isLocked ? (
-            <GitBranch className="w-4 h-4 text-primary" />
-          ) : (
+        {/* Grip handle — only this element triggers the drag.
+            When GitOps-locked, swap in the source badge so users can click
+            through to the file that owns this system. */}
+        {isLocked && provenance ? (
+          <div className="flex-shrink-0 mt-0.5">
+            <GitOpsSourceBadge provenance={provenance} />
+          </div>
+        ) : (
+          <div
+            {...listeners}
+            {...attributes}
+            className="flex-shrink-0 mt-0.5 text-muted-foreground/40 touch-none cursor-grab active:cursor-grabbing hover:text-muted-foreground"
+            aria-label={`Drag ${system.name}`}
+          >
             <GripVertical className="w-4 h-4" />
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Name + description — gets all remaining width, never truncated */}
         <div className="flex-1 min-w-0">

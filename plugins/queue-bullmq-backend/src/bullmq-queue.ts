@@ -6,8 +6,17 @@ import {
   ConsumeOptions,
   RecurringJobDetails,
   RecurringSchedule,
+  JobSummary,
+  JobState,
+  ListJobsOptions,
+  ListJobsResult,
 } from "@checkstack/queue-api";
-import { Queue as BullQueue, Worker, JobsOptions } from "bullmq";
+import {
+  Queue as BullQueue,
+  Worker,
+  JobsOptions,
+  JobType as BullJobType,
+} from "bullmq";
 import type { BullMQConfig } from "./plugin";
 import { extractErrorMessage } from "@checkstack/common";
 
@@ -285,6 +294,94 @@ export class BullMQQueue<T = unknown> implements Queue<T> {
       completed: counts.completed || 0,
       failed: counts.failed || 0,
       consumerGroups: this.consumerGroups.size,
+      scope: "cluster",
     };
+  }
+
+  async listJobs(opts: ListJobsOptions): Promise<ListJobsResult> {
+    if (this.stopped) {
+      return { items: [], total: 0, hasMore: false };
+    }
+    const limit = Math.max(0, opts.limit);
+    const offset = Math.max(0, opts.offset);
+
+    // "pending" is a virtual state covering waiting + delayed.
+    const queryStates: BullJobType[] =
+      opts.state === "pending"
+        ? ["waiting", "delayed"]
+        : [opts.state as BullJobType];
+
+    if (limit === 0) {
+      const counts = await this.queue.getJobCounts(...queryStates);
+      const total = queryStates.reduce(
+        (sum, s) => sum + (counts[s] ?? 0),
+        0,
+      );
+      return { items: [], total, hasMore: total > offset };
+    }
+
+    // BullMQ getJobs accepts a state array and an inclusive [start, end] range.
+    const [jobs, counts] = await Promise.all([
+      this.queue.getJobs(queryStates, offset, offset + limit - 1),
+      this.queue.getJobCounts(...queryStates),
+    ]);
+    let total: number | null = 0;
+    for (const s of queryStates) {
+      const c = counts[s];
+      if (c === undefined) {
+        total = null;
+        break;
+      }
+      total += c;
+    }
+
+    const items: JobSummary[] = jobs.map((job) => {
+      const finishedAt =
+        job.finishedOn === undefined ? undefined : new Date(job.finishedOn);
+      const startedAt =
+        job.processedOn === undefined ? undefined : new Date(job.processedOn);
+      const isDelayed =
+        job.opts.delay !== undefined &&
+        job.opts.delay > 0 &&
+        job.processedOn === undefined;
+      // For "pending" requests, classify per-job as waiting vs delayed.
+      const reportedState: JobState =
+        opts.state === "pending"
+          ? isDelayed
+            ? "delayed"
+            : "waiting"
+          : (opts.state as JobState);
+      // BullMQ schedulers (cron / interval) materialise the next fire as a
+      // delayed job; surface its trigger time so the UI can show "Next run".
+      const nextRunAt =
+        isDelayed && job.opts.delay !== undefined
+          ? new Date(job.timestamp + job.opts.delay)
+          : undefined;
+      // BullMQ records `repeatJobKey` on jobs created by a scheduler.
+      const recurring =
+        (job.opts as { repeatJobKey?: string }).repeatJobKey !== undefined;
+      const summary: JobSummary = {
+        id: job.id ?? "",
+        name: job.name,
+        state: reportedState,
+        enqueuedAt: new Date(job.timestamp),
+        startedAt,
+        finishedAt,
+        attempts: job.attemptsMade,
+      };
+      if (nextRunAt) summary.nextRunAt = nextRunAt;
+      if (recurring) summary.recurring = true;
+      if (opts.state === "failed" && job.failedReason) {
+        summary.failedReason = job.failedReason;
+      }
+      return summary;
+    });
+
+    const hasMore =
+      total === null
+        ? items.length === limit
+        : offset + items.length < total;
+
+    return { items, total, hasMore };
   }
 }

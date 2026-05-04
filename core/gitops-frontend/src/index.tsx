@@ -45,4 +45,7 @@ export const gitopsPlugin = createFrontendPlugin({
 
 // Public API for other frontend plugins
 export { useProvenanceLock } from "./hooks/useProvenanceLock";
+export { useProvenanceLocks } from "./hooks/useProvenanceLocks";
+export type { ProvenanceLock } from "./hooks/useProvenanceLocks";
 export { GitOpsLockBanner } from "./components/GitOpsLockBanner";
+export { GitOpsSourceBadge } from "./components/GitOpsSourceBadge";

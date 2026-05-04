@@ -1,11 +1,18 @@
 import { eq, and, or, inArray } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
-import { maintenances, maintenanceSystems, maintenanceUpdates } from "./schema";
+import {
+  maintenances,
+  maintenanceSystems,
+  maintenanceUpdates,
+  maintenanceLinks,
+} from "./schema";
 import type {
   MaintenanceWithSystems,
   MaintenanceDetail,
   MaintenanceUpdate,
+  MaintenanceLink,
+  AddMaintenanceLinkInput,
   CreateMaintenanceInput,
   UpdateMaintenanceInput,
   AddMaintenanceUpdateInput,
@@ -99,6 +106,11 @@ export class MaintenanceService {
       .from(maintenanceUpdates)
       .where(eq(maintenanceUpdates.maintenanceId, id));
 
+    const links = await this.db
+      .select()
+      .from(maintenanceLinks)
+      .where(eq(maintenanceLinks.maintenanceId, id));
+
     return {
       ...maintenance,
       description: maintenance.description ?? undefined,
@@ -108,6 +120,7 @@ export class MaintenanceService {
         statusChange: u.statusChange ?? undefined,
         createdBy: u.createdBy ?? undefined,
       })),
+      links,
     };
   }
 
@@ -319,6 +332,39 @@ export class MaintenanceService {
     // Cascade delete handles junctions and updates
     await this.db.delete(maintenances).where(eq(maintenances.id, id));
     return true;
+  }
+
+  /**
+   * Add a hotlink to a maintenance.
+   */
+  async addLink(input: AddMaintenanceLinkInput): Promise<MaintenanceLink> {
+    const id = generateId();
+    await this.db.insert(maintenanceLinks).values({
+      id,
+      maintenanceId: input.maintenanceId,
+      label: input.label,
+      url: input.url,
+    });
+    const [row] = await this.db
+      .select()
+      .from(maintenanceLinks)
+      .where(eq(maintenanceLinks.id, id));
+    return row;
+  }
+
+  /**
+   * Remove a hotlink. Returns the parent maintenanceId so the caller can
+   * invalidate the right cache entry, or undefined if the link did not
+   * exist.
+   */
+  async removeLink(id: string): Promise<string | undefined> {
+    const [existing] = await this.db
+      .select()
+      .from(maintenanceLinks)
+      .where(eq(maintenanceLinks.id, id));
+    if (!existing) return undefined;
+    await this.db.delete(maintenanceLinks).where(eq(maintenanceLinks.id, id));
+    return existing.maintenanceId;
   }
 
   /**

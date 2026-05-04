@@ -497,6 +497,33 @@ export const createCatalogRouter = ({
     },
   );
 
+  // System Links handlers (free-form URL hotlinks attached to a system)
+  const getSystemLinks = os.getSystemLinks.handler(async ({ input }) =>
+    cache.wrapLinks(input.systemId, async () =>
+      entityService.getLinksForSystem(input.systemId),
+    ),
+  );
+
+  const addSystemLink = os.addSystemLink.handler(async ({ input }) => {
+    await enforceNotGitOpsLocked("System", input.systemId);
+    const result = await entityService.addLink({
+      systemId: input.systemId,
+      label: input.label,
+      url: input.url,
+    });
+    await cache.invalidateLinks(input.systemId);
+    return result;
+  });
+
+  const removeSystemLink = os.removeSystemLink.handler(async ({ input }) => {
+    const removed = await entityService.removeLink(input);
+    if (removed) {
+      await enforceNotGitOpsLocked("System", removed.systemId);
+      await cache.invalidateLinks(removed.systemId);
+    }
+    return { success: !!removed };
+  });
+
   /**
    * Get the catalog group IDs that contain a specific system.
    * Used by the dependency plugin for batched notification deduplication.
@@ -526,6 +553,9 @@ export const createCatalogRouter = ({
     getSystemContacts,
     addSystemContact,
     removeSystemContact,
+    getSystemLinks,
+    addSystemLink,
+    removeSystemLink,
     createGroup,
     updateGroup,
     deleteGroup,

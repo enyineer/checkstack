@@ -13,6 +13,7 @@ import {
 } from "@checkstack/ui";
 import { TeamAccessEditor } from "@checkstack/auth-frontend";
 import { ContactsEditor } from "./ContactsEditor";
+import { SystemLinksEditor } from "./SystemLinksEditor";
 import { ExtensionSlot } from "@checkstack/frontend-api";
 import { SystemEditorSlot } from "@checkstack/catalog-common";
 import { extractErrorMessage } from "@checkstack/common";
@@ -106,6 +107,9 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
 
             {/* Contacts Editor - only shown for existing systems */}
             {initialData?.id && <ContactsEditor systemId={initialData.id} />}
+
+            {/* Additional Links - only shown for existing systems */}
+            {initialData?.id && <SystemLinksEditor systemId={initialData.id} />}
 
             {/* Team Access Editor - only shown for existing systems */}
             {initialData?.id && (

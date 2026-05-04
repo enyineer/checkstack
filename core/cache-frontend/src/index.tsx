@@ -1,22 +1,26 @@
-import { createFrontendPlugin } from "@checkstack/frontend-api";
-import { registerInfrastructureTab } from "@checkstack/infrastructure-common";
+import {
+  createFrontendPlugin,
+  createSlotExtension,
+} from "@checkstack/frontend-api";
+import { InfrastructureTabsSlot } from "@checkstack/infrastructure-common";
 import { pluginMetadata, cacheAccess } from "@checkstack/cache-common";
-import { CacheConfigTab } from "./components/CacheConfigTab";
+import { CacheInfrastructureTab } from "./components/CacheInfrastructureTab";
 import { HardDrive } from "lucide-react";
-
-// Register cache tab into the Infrastructure Configuration page
-registerInfrastructureTab({
-  id: "cache",
-  pluginId: pluginMetadata.pluginId,
-  label: "Cache",
-  icon: HardDrive,
-  component: CacheConfigTab,
-  readAccess: cacheAccess.settings.read,
-  manageAccess: cacheAccess.settings.manage,
-  order: 20, // After queue (10)
-});
 
 export const cachePlugin = createFrontendPlugin({
   metadata: pluginMetadata,
-  // No routes — the cache tab lives inside the infrastructure page
+  // No routes — the cache tab lives inside the infrastructure page.
+  extensions: [
+    createSlotExtension(InfrastructureTabsSlot, {
+      id: "cache.infrastructure.tab",
+      component: CacheInfrastructureTab,
+      metadata: {
+        label: "Cache",
+        icon: HardDrive,
+        readAccess: cacheAccess.settings.read,
+        manageAccess: cacheAccess.settings.manage,
+        order: 20,
+      },
+    }),
+  ],
 });

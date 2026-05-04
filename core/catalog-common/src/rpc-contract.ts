@@ -7,6 +7,7 @@ import {
   ViewSchema,
   SystemContactSchema,
   ContactTypeSchema,
+  SystemLinkSchema,
 } from "./types";
 import { catalogAccess } from "./access";
 
@@ -157,6 +158,43 @@ export const catalogContract = {
     .output(SystemContactSchema),
 
   removeSystemContact: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.system.manage],
+  })
+    .input(z.string())
+    .output(z.object({ success: z.boolean() })),
+
+  // ==========================================================================
+  // SYSTEM LINKS MANAGEMENT
+  // Free-form URLs (Jira boards, dashboards, runbooks) attached to a system.
+  // ==========================================================================
+
+  getSystemLinks: proc({
+    operationType: "query",
+    userType: "public",
+    access: [catalogAccess.system.read],
+    instanceAccess: { idParam: "systemId" },
+  })
+    .input(z.object({ systemId: z.string() }))
+    .output(z.array(SystemLinkSchema)),
+
+  addSystemLink: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.system.manage],
+    instanceAccess: { idParam: "systemId" },
+  })
+    .input(
+      z.object({
+        systemId: z.string(),
+        label: z.string().max(120).optional(),
+        url: z.string().url("Must be a valid URL"),
+      }),
+    )
+    .output(SystemLinkSchema),
+
+  removeSystemLink: proc({
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.system.manage],

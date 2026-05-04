@@ -15,6 +15,13 @@
       "when": 1768688736163,
       "tag": "0001_tough_star_brand",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777907807346,
+      "tag": "0002_daffy_madelyne_pryor",
+      "breakpoints": true
     }
   ]
 }

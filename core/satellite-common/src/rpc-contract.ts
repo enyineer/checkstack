@@ -56,6 +56,42 @@ export const satelliteContract = {
     .output(z.void()),
 
   /**
+   * Update a satellite's metadata. Token is unaffected — use
+   * `rotateSatelliteToken` to issue a new token.
+   */
+  updateSatellite: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [satelliteAccess.satellite.manage],
+  })
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string().min(1).optional(),
+        region: z.string().min(1).optional(),
+        tags: z.record(z.string(), z.string()).optional(),
+      }),
+    )
+    .output(SatelliteWithStatusSchema),
+
+  /**
+   * Rotate (reset) a satellite's token. Returns the new plaintext token,
+   * shown once. The previous token is invalidated immediately.
+   */
+  rotateSatelliteToken: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [satelliteAccess.satellite.manage],
+  })
+    .input(z.object({ id: z.string() }))
+    .output(
+      z.object({
+        satellite: SatelliteWithStatusSchema,
+        token: z.string(),
+      }),
+    ),
+
+  /**
    * Get the list of online satellite IDs.
    * Used internally by healthcheck-backend for stale source exclusion
    * during health state evaluation.

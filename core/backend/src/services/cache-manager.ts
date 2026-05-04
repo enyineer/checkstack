@@ -1,4 +1,10 @@
-import type { CacheManager, CacheProvider } from "@checkstack/cache-api";
+import type {
+  CacheManager,
+  CacheProvider,
+  CacheStats,
+  ListEntriesOptions,
+  ListEntriesResult,
+} from "@checkstack/cache-api";
 import type { CachePluginRegistryImpl } from "./cache-plugin-registry";
 import type { Logger, ConfigService } from "@checkstack/backend-api";
 import { z } from "zod";
@@ -18,6 +24,10 @@ type ActiveCachePointer = z.infer<typeof activeCachePointerSchema>;
 /**
  * A no-op CacheProvider used before any backend is configured.
  * All operations are safe to call but behave as if the cache is empty.
+ *
+ * Held only as the initial value of `activeProvider` until
+ * `loadConfiguration()` runs; consumers always interact with the stable
+ * proxy below, so they pick up the real provider as soon as it's ready.
  */
 const nullProvider: CacheProvider = {
   // eslint-disable-next-line unicorn/no-useless-undefined
@@ -31,8 +41,18 @@ const nullProvider: CacheProvider = {
 /**
  * CacheManagerImpl handles cache provider lifecycle and backend switching.
  *
- * Simpler than QueueManagerImpl — no proxy pattern needed since cache is
- * stateless key/value. The active provider is replaced atomically on backend switch.
+ * `getProvider()` returns a single stable proxy whose methods delegate to
+ * whichever provider is currently active. This means:
+ *
+ *  - Plugins that capture the proxy at init time (e.g. via
+ *    `createCachedScope`) keep functioning across backend switches and
+ *    don't write into orphaned providers.
+ *  - The Infrastructure runtime panel reads stats from the same instance
+ *    plugins write to — no split-brain.
+ *
+ * The earlier "no proxy pattern needed since cache is stateless key/value"
+ * comment was wrong: in-memory backends are stateful and replacing the
+ * active reference would orphan their state.
  */
 export class CacheManagerImpl implements CacheManager {
   private activePluginId: string = "memory";
@@ -42,12 +62,49 @@ export class CacheManagerImpl implements CacheManager {
   };
   private configVersion: number = 0;
   private activeProvider: CacheProvider = nullProvider;
+  private readonly providerProxy: CacheProvider;
 
   constructor(
     private registry: CachePluginRegistryImpl,
     private configService: ConfigService,
     private logger: Logger,
-  ) {}
+  ) {
+    this.providerProxy = this.createProviderProxy();
+  }
+
+  private createProviderProxy(): CacheProvider {
+    return {
+      get: <T>(key: string) => this.activeProvider.get<T>(key),
+      set: <T>(key: string, value: T, ttlMs?: number) =>
+        this.activeProvider.set<T>(key, value, ttlMs),
+      delete: (key: string) => this.activeProvider.delete(key),
+      deleteByPrefix: (prefix: string) =>
+        this.activeProvider.deleteByPrefix(prefix),
+      has: (key: string) => this.activeProvider.has(key),
+      getStats: async (): Promise<CacheStats> => {
+        const provider = this.activeProvider;
+        if (provider.getStats) {
+          return provider.getStats();
+        }
+        return {
+          keyCount: null,
+          sizeBytes: null,
+          hits: null,
+          misses: null,
+          scope: "instance",
+        };
+      },
+      listEntries: async (
+        opts: ListEntriesOptions,
+      ): Promise<ListEntriesResult> => {
+        const provider = this.activeProvider;
+        if (!provider.listEntries) {
+          return { items: [], total: 0, hasMore: false };
+        }
+        return provider.listEntries(opts);
+      },
+    };
+  }
 
   async loadConfiguration(): Promise<void> {
     try {
@@ -83,11 +140,10 @@ export class CacheManagerImpl implements CacheManager {
         );
       }
 
-      // Initialize the active provider
       this.initializeProvider();
     } catch (error) {
       this.logger.error("Failed to load cache configuration", error);
-      // Continue with defaults — nullProvider is already set
+      // Continue with defaults — nullProvider is already set behind the proxy.
     }
   }
 
@@ -113,8 +169,12 @@ export class CacheManagerImpl implements CacheManager {
     }
   }
 
+  /**
+   * Returns the stable proxy. The same instance is returned for the
+   * lifetime of the manager, so callers can safely capture it once.
+   */
   getProvider(): CacheProvider {
-    return this.activeProvider;
+    return this.providerProxy;
   }
 
   getActivePlugin(): string {
@@ -126,21 +186,17 @@ export class CacheManagerImpl implements CacheManager {
   }
 
   async setActiveBackend(pluginId: string, config: unknown): Promise<void> {
-    // 1. Validate plugin exists
     const newPlugin = this.registry.getPlugin(pluginId);
     if (!newPlugin) {
       throw new Error(`Cache plugin '${pluginId}' not found`);
     }
 
-    // 2. Validate config against schema
     newPlugin.configSchema.parse(config);
 
-    // 3. Create new provider (acts as connection test)
     this.logger.info("🔍 Testing new cache provider...");
     let newProvider: CacheProvider;
     try {
       newProvider = newPlugin.createProvider(config, this.logger);
-      // Quick smoke test
       await newProvider.set("__test__", true, 1000);
       await newProvider.delete("__test__");
       this.logger.info("✅ Cache provider test successful");
@@ -150,20 +206,17 @@ export class CacheManagerImpl implements CacheManager {
       throw new Error(`Failed to create cache provider: ${message}`);
     }
 
-    // 4. Stop old provider if it has a stop method
     const oldProvider = this.activeProvider;
     if ("stop" in oldProvider && typeof oldProvider.stop === "function") {
       await (oldProvider as { stop: () => Promise<void> }).stop();
     }
 
-    // 5. Switch to new provider
     const oldPluginId = this.activePluginId;
     this.activePluginId = pluginId;
     this.activeConfig = config;
     this.configVersion++;
     this.activeProvider = newProvider;
 
-    // 6. Persist configuration
     await this.configService.set(
       pluginId,
       newPlugin.configSchema,

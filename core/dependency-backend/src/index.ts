@@ -20,6 +20,8 @@ import { NotificationApi } from "@checkstack/notification-common";
 import { catalogHooks } from "@checkstack/catalog-backend";
 import { healthCheckHooks } from "@checkstack/healthcheck-backend";
 import { evaluateAndNotifyDownstream } from "./notifications";
+import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
+import { registerDependencyGitOpsKinds } from "./dependency-gitops-kinds";
 
 // =============================================================================
 // Plugin Definition
@@ -33,6 +35,18 @@ export default createBackendPlugin({
       dependencySystemSubscription,
       dependencyGroupSubscription,
     ]);
+
+    // ─── GitOps Entity Kind Registration ─────────────────────────────
+    let gitopsService: DependencyService | undefined;
+    const kindRegistry = env.getExtensionPoint(entityKindExtensionPoint);
+    registerDependencyGitOpsKinds({
+      kindRegistry,
+      getService: () => {
+        if (!gitopsService)
+          throw new Error("DependencyService not initialized");
+        return gitopsService;
+      },
+    });
 
     env.registerInit({
       schema,
@@ -51,6 +65,7 @@ export default createBackendPlugin({
         const service = new DependencyService(
           database as SafeDatabase<typeof schema>,
         );
+        gitopsService = service;
         const warningService = new WarningEvaluationService();
 
         const router = createRouter({

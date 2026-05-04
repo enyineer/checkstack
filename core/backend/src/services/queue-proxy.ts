@@ -5,6 +5,8 @@ import type {
   QueueStats,
   RecurringJobDetails,
   RecurringSchedule,
+  ListJobsOptions,
+  ListJobsResult,
 } from "@checkstack/queue-api";
 import { rootLogger } from "../logger";
 
@@ -171,6 +173,11 @@ export class QueueProxy<T = unknown> implements Queue<T> {
   async getStats(): Promise<QueueStats> {
     const delegate = this.ensureDelegate();
     return delegate.getStats();
+  }
+
+  async listJobs(opts: ListJobsOptions): Promise<ListJobsResult> {
+    const delegate = this.ensureDelegate();
+    return delegate.listJobs(opts);
   }
 
   /**

@@ -465,5 +465,57 @@ describe("EventBus", () => {
         `No local listeners for hook: ${testHook.id}`
       );
     });
+
+    it("should drop emit (not enqueue) when no listeners are registered", async () => {
+      const testHook = createHook<{ value: number }>(
+        "test.emit.no.listeners",
+      );
+
+      // Capture queue creation: getQueue is invoked lazily on enqueue.
+      const before = (mockQueueManager as any).getQueue?.mock?.calls?.length ?? 0;
+
+      await eventBus.emit(testHook, { value: 1 });
+      await eventBus.emit(testHook, { value: 2 });
+
+      const after = (mockQueueManager as any).getQueue?.mock?.calls?.length ?? 0;
+      // No queue should be created and no enqueue should occur for an
+      // entirely unsubscribed hook — otherwise jobs would pile up forever.
+      expect(after).toBe(before);
+
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        `Dropped hook ${testHook.id}: no listeners registered`,
+      );
+    });
+
+    it("should enqueue when at least one distributed listener is registered", async () => {
+      const testHook = createHook<{ value: number }>(
+        "test.emit.with.listener",
+      );
+      const received: number[] = [];
+      await eventBus.subscribe("test-plugin", testHook, async (payload) => {
+        received.push(payload.value);
+      });
+
+      await eventBus.emit(testHook, { value: 7 });
+      // Allow the mock queue to deliver synchronously.
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(received).toContain(7);
+    });
+
+    it("should enqueue when at least one instance-local listener is registered", async () => {
+      const testHook = createHook<{ value: number }>(
+        "test.emit.with.local.listener",
+      );
+      await eventBus.subscribe("test-plugin", testHook, async () => {}, {
+        mode: "instance-local",
+      });
+
+      // emit (distributed) should still enqueue because a local listener
+      // exists — drops are based on absence of *any* listener.
+      await eventBus.emit(testHook, { value: 1 });
+      expect(mockLogger.debug).not.toHaveBeenCalledWith(
+        `Dropped hook ${testHook.id}: no listeners registered`,
+      );
+    });
   });
 });

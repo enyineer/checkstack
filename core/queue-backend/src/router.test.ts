@@ -38,7 +38,11 @@ describe("Queue Router", () => {
         completed: 100,
         failed: 2,
         consumerGroups: 3,
+        scope: "instance" as const,
       })
+    ),
+    listJobs: mock(() =>
+      Promise.resolve({ items: [], total: 0, hasMore: false })
     ),
   };
 

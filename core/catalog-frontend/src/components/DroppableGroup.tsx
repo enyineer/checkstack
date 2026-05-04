@@ -1,7 +1,11 @@
 import { useDroppable } from "@dnd-kit/core";
 import { EditableText, Button } from "@checkstack/ui";
-import { Trash2, GitBranch } from "lucide-react";
-import { useProvenanceLock } from "@checkstack/gitops-frontend";
+import { Trash2 } from "lucide-react";
+import {
+  useProvenanceLock,
+  useProvenanceLocks,
+  GitOpsSourceBadge,
+} from "@checkstack/gitops-frontend";
 import type { Group, System } from "../api";
 
 interface DroppableGroupProps {
@@ -36,10 +40,12 @@ export const DroppableGroup = ({
 }: DroppableGroupProps) => {
   const { setNodeRef } = useDroppable({ id: group.id });
 
-  const { isLocked } = useProvenanceLock({
+  const { isLocked, provenance } = useProvenanceLock({
     kind: "Group",
     entityId: group.id,
   });
+
+  const { getLock } = useProvenanceLocks();
 
   const groupSystems = (group.systemIds ?? [])
     .map((sysId) => systems.find((s) => s.id === sysId))
@@ -63,10 +69,8 @@ export const DroppableGroup = ({
       {/* Group header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 flex-1">
-          {isLocked && (
-            <span title="Managed by GitOps">
-              <GitBranch className="w-4 h-4 text-primary shrink-0" />
-            </span>
+          {isLocked && provenance && (
+            <GitOpsSourceBadge provenance={provenance} />
           )}
           <div className="flex-1">
             <EditableText
@@ -110,6 +114,8 @@ export const DroppableGroup = ({
         <div className="pl-2 space-y-1">
           {groupSystems.map((sys) => {
             const isNew = newlyAddedSystemId === sys.id;
+            const systemLock = getLock({ kind: "System", entityId: sys.id });
+            const systemLocked = systemLock.isLocked;
             return (
               <div
                 key={sys.id}
@@ -119,11 +125,25 @@ export const DroppableGroup = ({
                     : "border-border shadow-none"
                 }`}
               >
-                <span className="text-foreground truncate">{sys.name}</span>
+                <span className="text-foreground truncate flex items-center gap-1.5">
+                  {systemLocked && systemLock.provenance ? (
+                    <GitOpsSourceBadge
+                      provenance={systemLock.provenance}
+                      iconClassName="w-3 h-3 text-primary"
+                    />
+                  ) : null}
+                  {sys.name}
+                </span>
                 <Button
                   variant="ghost"
                   className="text-destructive/60 hover:text-destructive h-6 w-6 p-0 flex-shrink-0"
                   onClick={() => onRemoveSystem(group.id, sys.id)}
+                  disabled={systemLocked}
+                  title={
+                    systemLocked
+                      ? "Managed by GitOps"
+                      : `Remove ${sys.name} from ${group.name}`
+                  }
                   aria-label={`Remove ${sys.name} from ${group.name}`}
                 >
                   <Trash2 className="w-3 h-3" />

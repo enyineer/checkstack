@@ -24,6 +24,8 @@ import { sloHooks } from "./hooks";
 import { setupDailySnapshotJob } from "./streak-calculator";
 import { setupWeeklyDigestJob } from "./weekly-digest";
 import { evaluateAchievements } from "./achievement-evaluator";
+import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
+import { registerSloGitOpsKinds } from "./slo-gitops-kinds";
 
 // =============================================================================
 // Integration Event Payload Schemas
@@ -168,6 +170,17 @@ export default createBackendPlugin({
 
     // Shared references across init/afterPluginsReady (maintenance-backend pattern)
     let sharedEngine: SloEngine;
+    let gitopsService: SloService | undefined;
+
+    // ─── GitOps Entity Kind Registration ─────────────────────────────
+    const kindRegistry = env.getExtensionPoint(entityKindExtensionPoint);
+    registerSloGitOpsKinds({
+      kindRegistry,
+      getService: () => {
+        if (!gitopsService) throw new Error("SloService not initialized");
+        return gitopsService;
+      },
+    });
 
     env.registerInit({
       schema,
@@ -190,6 +203,7 @@ export default createBackendPlugin({
         logger.debug("🔧 Initializing SLO Backend...");
 
         const service = new SloService(database as SafeDatabase<typeof schema>);
+        gitopsService = service;
         const engine = new SloEngine({
           service,
           signalService,

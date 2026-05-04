@@ -463,6 +463,125 @@ spec:
     password: "${{ secrets.payment-db-password }}"
 ```
 
+## Other Built-In Kinds and Extensions
+
+Beyond `System` and `Healthcheck`, the following kinds and extensions
+are registered by their owning plugins:
+
+### `kind: SLO` (slo-backend)
+
+Reliability targets bound to a system, optionally narrowed to a single
+healthcheck. The objective UUID is the entity ID in provenance, so
+renames preserve identity.
+
+```yaml
+apiVersion: checkstack.io/v1alpha1
+kind: SLO
+metadata:
+  name: payments-availability
+spec:
+  systemRef: { kind: System, name: payments-api }
+  healthcheckRef: { kind: Healthcheck, name: payments-http } # optional
+  target: 99.9
+  windowDays: 30
+  dependencyExclusion: strict # or "self-only"
+  excludedDependencyRefs: # optional
+    - { kind: System, name: third-party-payments }
+  burnRateThresholds: # optional
+    warningPercent: 50
+    criticalPercent: 80
+    fastBurnMultiplier: 5
+```
+
+### `kind: Satellite` (satellite-backend)
+
+Metadata-only declaration of remote execution nodes. The bcrypt token
+is **never** expressed in YAML — the reconciler discards the random
+token issued at creation. Operators retrieve a working token via the
+"Reset token" button on the Satellites page. Runtime tags use the
+envelope's `metadata.labels` (`Record<string, string>`), so there is no
+duplicate `tags` field on the spec.
+
+```yaml
+apiVersion: checkstack.io/v1alpha1
+kind: Satellite
+metadata:
+  name: eu-west-1
+  labels:
+    tier: prod
+    region-group: emea
+spec:
+  region: eu-west-1
+```
+
+The reconciler adopts pre-existing satellites by `metadata.name` on
+first sync, so manually-created satellites are absorbed safely.
+
+### Extension: `Healthcheck.anomaly` (anomaly-backend)
+
+Per-healthcheck anomaly defaults. Replaces the full template-level
+`AnomalySettings` record on every reconcile (GitOps is the source of
+truth; UI edits to managed entities are blocked).
+
+```yaml
+apiVersion: checkstack.io/v1alpha1
+kind: Healthcheck
+metadata: { name: payment-db-check }
+spec:
+  # …strategy / intervalSeconds / config…
+  anomaly:
+    enabled: true
+    sensitivity: 1
+    confirmationWindow: 3
+    baselineWindow: "7d"
+    notify: true
+    driftEnabled: true
+    driftThreshold: 2
+    fieldOverrides: # keyed by result field path
+      latencyMs: { sensitivity: 0.5, driftThreshold: 4 }
+```
+
+### Extension: `System.dependencies` (dependency-backend)
+
+Declares upstream system dependencies for a system. The reconciler diffs
+the declared edges against the persisted ones where this system is the
+source, then applies create / update / delete to converge. Refs that
+resolve to the source system itself are rejected.
+
+```yaml
+apiVersion: checkstack.io/v1alpha1
+kind: System
+metadata: { name: payments-api }
+spec:
+  dependencies:
+    - targetRef: { kind: System, name: payments-db }
+      impactType: critical # informational | degraded | critical
+      transitive: false # follow multi-hop chains?
+      label: "primary store" # optional
+```
+
+The matching UI (system editor drawer + Dependency Map) disables
+Add/Edit/Delete for the source system's upstream edges; downstream
+edges are gated per-row by the *other* system's lock.
+
+### Extension: `System.anomaly` (anomaly-backend)
+
+Per-assignment anomaly overrides ("exceptions"), keyed by
+`healthcheckRef`. Each entry maps to one System ↔ Healthcheck
+assignment and its `AnomalySettings` partial.
+
+```yaml
+apiVersion: checkstack.io/v1alpha1
+kind: System
+metadata: { name: payment-api }
+spec:
+  anomaly:
+    - healthcheckRef: { kind: Healthcheck, name: payment-db-check }
+      enabled: false
+      fieldOverrides:
+        latencyMs: { sensitivity: 0.3 }
+```
+
 ## Troubleshooting
 
 ### Kind Not Appearing in Registry
