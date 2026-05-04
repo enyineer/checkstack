@@ -46,6 +46,8 @@ const minecraftServerResultSchema = z.object({
     "x-chart-label": "TPS",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-min-absolute-delta": 1,
+    "x-anomaly-min-relative-delta": 0.05,
   }).optional(),
 });
 

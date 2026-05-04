@@ -55,12 +55,16 @@ const pingResultSchema = healthResultSchema({
     "x-chart-label": "Packets Sent",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "deviation",
+    "x-anomaly-min-absolute-delta": 1,
+    "x-anomaly-min-relative-delta": 0.25,
   }),
   packetsReceived: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Packets Received",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-min-absolute-delta": 1,
+    "x-anomaly-min-relative-delta": 0.25,
   }),
   packetLoss: healthResultNumber({
     "x-chart-type": "gauge",
@@ -68,6 +72,7 @@ const pingResultSchema = healthResultSchema({
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-min-absolute-delta": 5,
   }),
   minLatency: healthResultNumber({
     "x-chart-type": "line",
@@ -75,6 +80,8 @@ const pingResultSchema = healthResultSchema({
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }).optional(),
   avgLatency: healthResultNumber({
     "x-chart-type": "line",
@@ -82,6 +89,8 @@ const pingResultSchema = healthResultSchema({
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }).optional(),
   maxLatency: healthResultNumber({
     "x-chart-type": "line",
@@ -89,6 +98,8 @@ const pingResultSchema = healthResultSchema({
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }).optional(),
   error: healthResultString({
     "x-chart-type": "status",

@@ -68,6 +68,14 @@ function addHealthResultMeta(
         jsonField["x-anomaly-sensitivity"] = healthMeta["x-anomaly-sensitivity"];
       if (healthMeta["x-anomaly-confirmation-window"] !== undefined)
         jsonField["x-anomaly-confirmation-window"] = healthMeta["x-anomaly-confirmation-window"];
+      if (healthMeta["x-anomaly-drift-enabled"] !== undefined)
+        jsonField["x-anomaly-drift-enabled"] = healthMeta["x-anomaly-drift-enabled"];
+      if (healthMeta["x-anomaly-drift-threshold"] !== undefined)
+        jsonField["x-anomaly-drift-threshold"] = healthMeta["x-anomaly-drift-threshold"];
+      if (healthMeta["x-anomaly-min-absolute-delta"] !== undefined)
+        jsonField["x-anomaly-min-absolute-delta"] = healthMeta["x-anomaly-min-absolute-delta"];
+      if (healthMeta["x-anomaly-min-relative-delta"] !== undefined)
+        jsonField["x-anomaly-min-relative-delta"] = healthMeta["x-anomaly-min-relative-delta"];
     }
 
     // Recurse into nested objects and arrays

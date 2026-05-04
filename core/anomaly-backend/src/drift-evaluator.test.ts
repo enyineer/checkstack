@@ -121,12 +121,8 @@ const stableBaseline = createBaseline({
 
 const defaultTemplate: AnomalySettings = {
   enabled: true,
-  sensitivity: 1,
-  confirmationWindow: 3,
   baselineWindow: "7d",
   notify: true,
-  driftEnabled: true,
-  driftThreshold: 2,
 };
 
 describe("evaluateDrift", () => {
@@ -162,16 +158,21 @@ describe("evaluateDrift", () => {
       expect(db._insertCalls.length).toBe(0);
     });
 
-    test("does nothing when driftEnabled is false", async () => {
+    test("does nothing when drift is disabled at the field level", async () => {
       const db = createMockDb();
       await evaluateDrift({
         ...baseProps,
         baseline: driftingBaseline,
         schemaDirection: "lower-is-better",
-        templateConfig: { ...defaultTemplate, driftEnabled: false },
+        templateConfig: {
+          ...defaultTemplate,
+          fieldOverrides: {
+            "collectors.http.request.responseTimeMs": { driftEnabled: false },
+          },
+        },
         db: db as never,
         catalogClient: createMockCatalogClient() as never,
-      notificationClient: createMockNotificationClient() as never,
+        notificationClient: createMockNotificationClient() as never,
         logger: createMockLogger() as never,
       });
       expect(db._insertCalls.length).toBe(0);

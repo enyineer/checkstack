@@ -44,17 +44,15 @@ export const AnomalyFieldConfigSchema = z.object({
   direction: AnomalyDirectionSchema.optional(),
   driftEnabled: z.boolean().optional(),
   driftThreshold: z.number().optional(),
+  minAbsoluteDelta: z.number().nonnegative().optional(),
+  minRelativeDelta: z.number().nonnegative().optional(),
 });
 export type AnomalyFieldConfig = z.infer<typeof AnomalyFieldConfigSchema>;
 
 export const AnomalySettingsSchema = z.object({
   enabled: z.boolean().default(true),
-  sensitivity: z.number().default(1),
-  confirmationWindow: z.number().int().default(3),
   baselineWindow: z.string().default("7d"),
   notify: z.boolean().default(true),
-  driftEnabled: z.boolean().default(true),
-  driftThreshold: z.number().default(2),
   fieldOverrides: z.record(z.string(), AnomalyFieldConfigSchema).optional(),
 });
 export type AnomalySettings = z.infer<typeof AnomalySettingsSchema>;

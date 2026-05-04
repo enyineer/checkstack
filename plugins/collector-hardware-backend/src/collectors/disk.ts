@@ -56,6 +56,8 @@ const diskResultSchema = z.object({
     "x-chart-unit": "GB",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-min-absolute-delta": 1,
+    "x-anomaly-min-relative-delta": 0.05,
   }),
   availableGb: healthResultNumber({
     "x-chart-type": "line",
@@ -63,6 +65,8 @@ const diskResultSchema = z.object({
     "x-chart-unit": "GB",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-min-absolute-delta": 1,
+    "x-anomaly-min-relative-delta": 0.05,
   }),
   usedPercent: healthResultNumber({
     "x-chart-type": "gauge",
@@ -72,6 +76,7 @@ const diskResultSchema = z.object({
     "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 1.5,
     "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
   mountPoint: healthResultString({
     "x-chart-type": "text",

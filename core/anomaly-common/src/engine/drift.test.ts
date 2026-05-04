@@ -202,4 +202,91 @@ describe("Anomaly Engine - Drift Detection", () => {
       expect(result.drifting).toBe(false);
     });
   });
+
+  describe("practical-significance floors", () => {
+    test("absolute floor suppresses drift below the floor", () => {
+      // slope*n = 100, statistical band = 60 → would normally drift.
+      // But projected change 100 < absolute floor 200 → no drift.
+      const suppressed = detectDrift({
+        slope: 1,
+        stdDev: 30,
+        sampleCount: 100,
+        direction: "deviation",
+        sensitivity: 1,
+        threshold: 2,
+        minAbsoluteDelta: 200,
+      });
+      expect(suppressed.drifting).toBe(false);
+
+      const passes = detectDrift({
+        slope: 1,
+        stdDev: 30,
+        sampleCount: 100,
+        direction: "deviation",
+        sensitivity: 1,
+        threshold: 2,
+        minAbsoluteDelta: 50,
+      });
+      expect(passes.drifting).toBe(true);
+    });
+
+    test("relative floor suppresses drift below the proportional floor", () => {
+      // mean=1000, projected change=100 → relative=0.1 (10%).
+      // With minRelativeDelta=0.5 (50%), drift suppressed.
+      const suppressed = detectDrift({
+        slope: 1,
+        stdDev: 30,
+        sampleCount: 100,
+        direction: "deviation",
+        sensitivity: 1,
+        threshold: 2,
+        mean: 1000,
+        minRelativeDelta: 0.5,
+      });
+      expect(suppressed.drifting).toBe(false);
+
+      // mean=100, same projected change=100 → relative=1.0 → fires.
+      const fires = detectDrift({
+        slope: 1,
+        stdDev: 30,
+        sampleCount: 100,
+        direction: "deviation",
+        sensitivity: 1,
+        threshold: 2,
+        mean: 100,
+        minRelativeDelta: 0.5,
+      });
+      expect(fires.drifting).toBe(true);
+    });
+
+    test("relative floor without mean is a no-op", () => {
+      // No mean provided → relative floor cannot be evaluated, so it doesn't suppress.
+      const result = detectDrift({
+        slope: 1,
+        stdDev: 30,
+        sampleCount: 100,
+        direction: "deviation",
+        sensitivity: 1,
+        threshold: 2,
+        minRelativeDelta: 0.99,
+      });
+      expect(result.drifting).toBe(true);
+    });
+
+    test("zero stdDev still respects floors", () => {
+      // Without floors, this drifts (any movement on constant metric).
+      // With absolute floor above projected change, it's suppressed.
+      const result = detectDrift({
+        slope: 0.001,
+        stdDev: 0,
+        sampleCount: 100,
+        direction: "deviation",
+        sensitivity: 1,
+        threshold: 2,
+        minAbsoluteDelta: 1,
+      });
+      expect(result.drifting).toBe(false);
+      expect(result.deviationSigmas).toBe(Number.POSITIVE_INFINITY);
+    });
+  });
 });

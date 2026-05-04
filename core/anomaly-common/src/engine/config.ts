@@ -7,57 +7,96 @@ export interface EffectiveConfig {
   direction?: AnomalyDirection;
   driftEnabled: boolean;
   driftThreshold: number;
+  /** Practical-significance floor on absolute deviation (default 0). */
+  minAbsoluteDelta: number;
+  /** Practical-significance floor on relative deviation (default 0). */
+  minRelativeDelta: number;
 }
 
 /**
- * Resolves the effective anomaly detection config for a specific field path
- * using the Three-Layer Override Model.
+ * Per-field schema-declared anomaly defaults. These are the plugin author's
+ * tuned defaults — the layer beneath user-supplied field overrides.
+ */
+export interface SchemaDefaults {
+  sensitivity?: number;
+  confirmationWindow?: number;
+  driftEnabled?: boolean;
+  driftThreshold?: number;
+  minAbsoluteDelta?: number;
+  minRelativeDelta?: number;
+}
+
+/** Engine fallback constants — used only when neither the user nor the schema set a value. */
+const ENGINE_DEFAULTS = {
+  enabled: true,
+  sensitivity: 1,
+  confirmationWindow: 3,
+  driftEnabled: true,
+  driftThreshold: 2,
+  minAbsoluteDelta: 0,
+  minRelativeDelta: 0,
+} as const;
+
+/**
+ * Resolves the effective anomaly detection config for a specific field path.
  *
  * Resolution order (highest to lowest precedence):
- * 1. Assignment field override (most specific — user override for a specific field on a specific system)
- * 2. Template field override (plugin developer annotation for a specific field)
- * 3. Assignment global (user override for the entire system assignment)
- * 4. Template global (plugin developer default for the entire health check)
- * 5. Engine defaults (hardcoded fallback values)
+ * 1. Assignment field override
+ * 2. Template field override
+ * 3. Schema annotation (plugin-author default)
+ * 4. Engine fallback constant
  *
- * Note: Field-level overrides always win over global overrides because they
- * represent more specific intent. If a template marks a field as `enabled: false`,
- * only an assignment-level field override can re-enable it — the assignment global
- * `enabled: true` won't override it, since the template field config is more specific.
+ * Globals were removed in favour of per-field configuration only. Plugin
+ * defaults are tuned per-field with awareness of each metric's unit and
+ * nature, so a single global multiplier across heterogeneous fields would
+ * be meaningless. Templates and assignments influence detection through
+ * `fieldOverrides`; the only true global on `AnomalySettings` is the master
+ * `enabled` toggle (and the `baselineWindow` / `notify` knobs which are
+ * inherently scoped to the whole assignment).
  */
 export function resolveEffectiveConfig(
   path: string,
   templateConfig?: AnomalySettings,
-  assignmentConfig?: Partial<AnomalySettings>
+  assignmentConfig?: Partial<AnomalySettings>,
+  schemaDefaults?: SchemaDefaults
 ): EffectiveConfig {
-  const fieldConfig = assignmentConfig?.fieldOverrides?.[path] ?? templateConfig?.fieldOverrides?.[path];
-  
-  const enabled = fieldConfig?.enabled 
-    ?? assignmentConfig?.enabled 
-    ?? templateConfig?.enabled 
-    ?? true;
+  const fieldConfig =
+    assignmentConfig?.fieldOverrides?.[path] ??
+    templateConfig?.fieldOverrides?.[path];
 
-  const sensitivity = fieldConfig?.sensitivity 
-    ?? assignmentConfig?.sensitivity 
-    ?? templateConfig?.sensitivity 
-    ?? 1;
+  // The master toggle remains a global — it's the kill switch for the
+  // entire assignment, not a per-field setting. A field override of
+  // `enabled: false` can still locally opt out.
+  const enabled = fieldConfig?.enabled
+    ?? assignmentConfig?.enabled
+    ?? templateConfig?.enabled
+    ?? ENGINE_DEFAULTS.enabled;
 
-  const confirmationWindow = fieldConfig?.confirmationWindow 
-    ?? assignmentConfig?.confirmationWindow 
-    ?? templateConfig?.confirmationWindow 
-    ?? 3;
+  const sensitivity = fieldConfig?.sensitivity
+    ?? schemaDefaults?.sensitivity
+    ?? ENGINE_DEFAULTS.sensitivity;
+
+  const confirmationWindow = fieldConfig?.confirmationWindow
+    ?? schemaDefaults?.confirmationWindow
+    ?? ENGINE_DEFAULTS.confirmationWindow;
 
   const direction = fieldConfig?.direction;
 
   const driftEnabled = fieldConfig?.driftEnabled
-    ?? assignmentConfig?.driftEnabled
-    ?? templateConfig?.driftEnabled
-    ?? true;
+    ?? schemaDefaults?.driftEnabled
+    ?? ENGINE_DEFAULTS.driftEnabled;
 
   const driftThreshold = fieldConfig?.driftThreshold
-    ?? assignmentConfig?.driftThreshold
-    ?? templateConfig?.driftThreshold
-    ?? 2;
+    ?? schemaDefaults?.driftThreshold
+    ?? ENGINE_DEFAULTS.driftThreshold;
+
+  const minAbsoluteDelta = fieldConfig?.minAbsoluteDelta
+    ?? schemaDefaults?.minAbsoluteDelta
+    ?? ENGINE_DEFAULTS.minAbsoluteDelta;
+
+  const minRelativeDelta = fieldConfig?.minRelativeDelta
+    ?? schemaDefaults?.minRelativeDelta
+    ?? ENGINE_DEFAULTS.minRelativeDelta;
 
   return {
     enabled,
@@ -66,6 +105,7 @@ export function resolveEffectiveConfig(
     direction,
     driftEnabled,
     driftThreshold,
+    minAbsoluteDelta,
+    minRelativeDelta,
   };
 }
-

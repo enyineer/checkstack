@@ -61,6 +61,7 @@ const certificateResultSchema = healthResultSchema({
     "x-chart-unit": "days",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-min-absolute-delta": 1,
   }),
   valid: healthResultBoolean({
     "x-chart-type": "boolean",

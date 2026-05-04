@@ -47,6 +47,7 @@ const cpuResultSchema = z.object({
     "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 1.5,
     "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
   loadAvg1m: healthResultNumber({
     "x-chart-type": "line",
@@ -55,6 +56,8 @@ const cpuResultSchema = z.object({
     "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 1.5,
     "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 0.5,
+    "x-anomaly-min-relative-delta": 0.25,
   }).optional(),
   loadAvg5m: healthResultNumber({
     "x-chart-type": "line",
@@ -63,6 +66,8 @@ const cpuResultSchema = z.object({
     "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 1.5,
     "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 0.5,
+    "x-anomaly-min-relative-delta": 0.25,
   }).optional(),
   loadAvg15m: healthResultNumber({
     "x-chart-type": "line",
@@ -71,6 +76,8 @@ const cpuResultSchema = z.object({
     "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 1.5,
     "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 0.5,
+    "x-anomaly-min-relative-delta": 0.25,
   }).optional(),
   coreCount: healthResultNumber({
     "x-chart-type": "counter",

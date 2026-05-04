@@ -55,6 +55,8 @@ const commandResultSchema = healthResultSchema({
     "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 2,
     "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   success: healthResultBoolean({
     "x-chart-type": "boolean",

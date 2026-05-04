@@ -33,6 +33,18 @@ export interface EvaluateDriftInput {
   baseline: FieldBaseline;
   /** Direction declared by the schema for this field, if any. */
   schemaDirection?: AnomalyDirection;
+  /** Schema-declared sensitivity multiplier (plugin author default). */
+  schemaSensitivity?: number;
+  /** Schema-declared confirmation window (plugin author default). */
+  schemaConfirmationWindow?: number;
+  /** Schema-declared drift toggle (plugin author default). */
+  schemaDriftEnabled?: boolean;
+  /** Schema-declared drift threshold sigma multiplier (plugin author default). */
+  schemaDriftThreshold?: number;
+  /** Schema-declared practical-significance floor on absolute change. */
+  schemaMinAbsoluteDelta?: number;
+  /** Schema-declared practical-significance floor on relative change. */
+  schemaMinRelativeDelta?: number;
   templateConfig?: AnomalySettings;
   assignmentConfig?: Partial<AnomalySettings>;
 }
@@ -58,6 +70,12 @@ export async function evaluateDrift({
   fieldPath,
   baseline,
   schemaDirection,
+  schemaSensitivity,
+  schemaConfirmationWindow,
+  schemaDriftEnabled,
+  schemaDriftThreshold,
+  schemaMinAbsoluteDelta,
+  schemaMinRelativeDelta,
   templateConfig,
   assignmentConfig,
 }: EvaluateDriftInput): Promise<void> {
@@ -67,7 +85,16 @@ export async function evaluateDrift({
     direction: configDirection,
     driftEnabled,
     driftThreshold,
-  } = resolveEffectiveConfig(fieldPath, templateConfig, assignmentConfig);
+    minAbsoluteDelta,
+    minRelativeDelta,
+  } = resolveEffectiveConfig(fieldPath, templateConfig, assignmentConfig, {
+    sensitivity: schemaSensitivity,
+    confirmationWindow: schemaConfirmationWindow,
+    driftEnabled: schemaDriftEnabled,
+    driftThreshold: schemaDriftThreshold,
+    minAbsoluteDelta: schemaMinAbsoluteDelta,
+    minRelativeDelta: schemaMinRelativeDelta,
+  });
 
   const direction = configDirection ?? schemaDirection;
 
@@ -83,6 +110,9 @@ export async function evaluateDrift({
     direction,
     sensitivity,
     threshold: driftThreshold,
+    mean: baseline.mean,
+    minAbsoluteDelta,
+    minRelativeDelta,
   });
 
   const [existing] = await db

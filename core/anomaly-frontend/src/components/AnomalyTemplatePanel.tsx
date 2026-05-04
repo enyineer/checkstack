@@ -24,10 +24,8 @@ import {
 
 const DEFAULT_VALUES: AnomalySettingsFormValues = {
   enabled: true,
-  sensitivity: 1,
-  confirmationWindow: 3,
-  driftEnabled: true,
-  driftThreshold: 2,
+  baselineWindow: "7d",
+  notify: true,
   fieldOverrides: {},
 };
 
@@ -36,9 +34,6 @@ export function AnomalyTemplatePanel({ context }: { context: HealthCheckConfigID
   const anomalyClient = usePluginClient(AnomalyApi);
 
   const [values, setValues] = useState<AnomalySettingsFormValues>(DEFAULT_VALUES);
-  // Template-only settings — preserved on save but not surfaced as form controls.
-  const [baselineWindow, setBaselineWindow] = useState("7d");
-  const [notify, setNotify] = useState(true);
 
   const { data: configRecord, isLoading } = anomalyClient.getAnomalyConfig.useQuery(
     { configurationId: context.configurationId },
@@ -56,16 +51,12 @@ export function AnomalyTemplatePanel({ context }: { context: HealthCheckConfigID
     if (configRecord?.data) {
       setValues({
         enabled: configRecord.data.enabled ?? true,
-        sensitivity: configRecord.data.sensitivity ?? 1,
-        confirmationWindow: configRecord.data.confirmationWindow ?? 3,
-        driftEnabled: configRecord.data.driftEnabled ?? true,
-        driftThreshold: configRecord.data.driftThreshold ?? 2,
+        baselineWindow: configRecord.data.baselineWindow ?? "7d",
+        notify: configRecord.data.notify ?? true,
         fieldOverrides:
           (configRecord.data.fieldOverrides as Record<string, AnomalyFieldConfig>) ??
           {},
       });
-      setBaselineWindow(configRecord.data.baselineWindow ?? "7d");
-      setNotify(configRecord.data.notify ?? true);
     }
   }, [configRecord]);
 
@@ -79,11 +70,7 @@ export function AnomalyTemplatePanel({ context }: { context: HealthCheckConfigID
   const handleSave = () => {
     updateMutation.mutate({
       configurationId: context.configurationId,
-      config: {
-        ...values,
-        baselineWindow,
-        notify,
-      },
+      config: values,
     });
   };
 

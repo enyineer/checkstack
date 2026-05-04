@@ -157,18 +157,13 @@ export async function processCheckCompleted({
       continue; // Learning phase (no baseline yet)
     }
 
-    const {
-      enabled: effectiveEnabled,
-      sensitivity: effectiveSensitivity,
-      confirmationWindow: effectiveConfirmation,
-      direction: effectiveDirection,
-    } = resolveEffectiveConfig(path, templateConfig, assignmentConfig);
-
-    if (!effectiveEnabled) {
-      continue;
-    }
-
     let schemaDirection: AnomalyDirection | undefined;
+    let schemaSensitivity: number | undefined;
+    let schemaConfirmationWindow: number | undefined;
+    let schemaDriftEnabled: boolean | undefined;
+    let schemaDriftThreshold: number | undefined;
+    let schemaMinAbsoluteDelta: number | undefined;
+    let schemaMinRelativeDelta: number | undefined;
     const collector = collectorRegistry.getCollector(collectorId);
     if (collector) {
       const collectorSchema = collector.collector.result.schema;
@@ -178,8 +173,34 @@ export async function processCheckCompleted({
         if (fieldSchema) {
           const meta = getHealthResultMeta(fieldSchema);
           schemaDirection = meta?.["x-anomaly-direction"];
+          schemaSensitivity = meta?.["x-anomaly-sensitivity"];
+          schemaConfirmationWindow = meta?.["x-anomaly-confirmation-window"];
+          schemaDriftEnabled = meta?.["x-anomaly-drift-enabled"];
+          schemaDriftThreshold = meta?.["x-anomaly-drift-threshold"];
+          schemaMinAbsoluteDelta = meta?.["x-anomaly-min-absolute-delta"];
+          schemaMinRelativeDelta = meta?.["x-anomaly-min-relative-delta"];
         }
       }
+    }
+
+    const {
+      enabled: effectiveEnabled,
+      sensitivity: effectiveSensitivity,
+      confirmationWindow: effectiveConfirmation,
+      direction: effectiveDirection,
+      minAbsoluteDelta: effectiveMinAbsolute,
+      minRelativeDelta: effectiveMinRelative,
+    } = resolveEffectiveConfig(path, templateConfig, assignmentConfig, {
+      sensitivity: schemaSensitivity,
+      confirmationWindow: schemaConfirmationWindow,
+      driftEnabled: schemaDriftEnabled,
+      driftThreshold: schemaDriftThreshold,
+      minAbsoluteDelta: schemaMinAbsoluteDelta,
+      minRelativeDelta: schemaMinRelativeDelta,
+    });
+
+    if (!effectiveEnabled) {
+      continue;
     }
 
     const direction = effectiveDirection ?? schemaDirection;
@@ -206,7 +227,13 @@ export async function processCheckCompleted({
         direction,
         effectiveSensitivity,
       );
-      anomalous = isAnomalous(value, thresholds);
+      anomalous = isAnomalous({
+        value,
+        mean: baseline.mean,
+        thresholds,
+        minAbsoluteDelta: effectiveMinAbsolute,
+        minRelativeDelta: effectiveMinRelative,
+      });
       deviation =
         baseline.stdDev > 0
           ? Math.abs(value - baseline.mean) / baseline.stdDev

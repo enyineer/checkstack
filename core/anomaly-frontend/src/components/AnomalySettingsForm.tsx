@@ -1,4 +1,12 @@
-import { Label, Toggle, Slider } from "@checkstack/ui";
+import {
+  Label,
+  Toggle,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@checkstack/ui";
 import type {
   AnomalyDirection,
   AnomalyFieldConfig,
@@ -8,10 +16,8 @@ import type { AnomalyFieldMeta } from "./useAnomalyFields";
 
 export interface AnomalySettingsFormValues {
   enabled: boolean;
-  sensitivity: number;
-  confirmationWindow: number;
-  driftEnabled: boolean;
-  driftThreshold: number;
+  baselineWindow: string;
+  notify: boolean;
   fieldOverrides: Record<string, AnomalyFieldConfig>;
 }
 
@@ -29,25 +35,36 @@ export interface AnomalySettingsFormProps {
 
 const COPY = {
   template: {
-    enabledLabel: "Enable Anomaly Detection by Default",
+    enabledLabel: "Enable anomaly detection by default",
     enabledDescription:
       "Run background analysis to detect deviations from expected behavior across all systems using this template.",
-    sensitivityLabel: "Global Sensitivity Multiplier",
-    confirmationLabel: "Confirmation Window",
-    fieldOverridesTitle: "Global Field-Level Defaults",
+    fieldOverridesTitle: "Field-level defaults",
     fieldOverridesDescription:
-      "Set default anomaly behavior for specific metrics collected by this health check.",
+      "Tune anomaly detection for specific metrics. Each field uses the plugin's tuned defaults until you override it here.",
+    notifyLabel: "Send notifications on confirmed anomalies",
+    notifyDescription:
+      "Page the assigned subscribers when an anomaly transitions to confirmed.",
   },
   assignment: {
-    enabledLabel: "Enable Assignment Exceptions",
-    enabledDescription: "Run background analysis for this specific system",
-    sensitivityLabel: "Sensitivity Multiplier Override",
-    confirmationLabel: "Confirmation Window Override",
-    fieldOverridesTitle: "Field-Level Overrides",
+    enabledLabel: "Enable assignment exceptions",
+    enabledDescription:
+      "Run background analysis for this specific system assignment.",
+    fieldOverridesTitle: "Field-level overrides",
     fieldOverridesDescription:
-      "Override anomaly settings for specific metrics collected by this health check.",
+      "Override anomaly settings for specific metrics on this system. Other systems using the same template are unaffected.",
+    notifyLabel: "Send notifications on confirmed anomalies",
+    notifyDescription:
+      "Page the assigned subscribers for this system when an anomaly transitions to confirmed.",
   },
 } as const;
+
+const BASELINE_WINDOW_OPTIONS: { value: string; label: string }[] = [
+  { value: "1d", label: "1 day" },
+  { value: "3d", label: "3 days" },
+  { value: "7d", label: "7 days (recommended)" },
+  { value: "14d", label: "14 days" },
+  { value: "30d", label: "30 days" },
+];
 
 export function AnomalySettingsForm({
   values,
@@ -57,14 +74,7 @@ export function AnomalySettingsForm({
   variant,
 }: AnomalySettingsFormProps) {
   const copy = COPY[variant];
-  const {
-    enabled,
-    sensitivity,
-    confirmationWindow,
-    driftEnabled,
-    driftThreshold,
-    fieldOverrides,
-  } = values;
+  const { enabled, baselineWindow, notify, fieldOverrides } = values;
 
   const handleFieldOverrideChange = (
     field: string,
@@ -76,15 +86,34 @@ export function AnomalySettingsForm({
     onChange("fieldOverrides", next);
   };
 
+  const handleFieldPatch = (
+    field: string,
+    patch: Partial<AnomalyFieldConfig>,
+  ) => {
+    const next = { ...fieldOverrides };
+    next[field] = { ...next[field], ...patch };
+    onChange("fieldOverrides", next);
+  };
+
+  const handleFieldReset = (field: string) => {
+    const next = { ...fieldOverrides };
+    delete next[field];
+    onChange("fieldOverrides", next);
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between p-4 border rounded-md">
         <div className="space-y-0.5">
           <Label className="text-base font-medium">{copy.enabledLabel}</Label>
-          <div className="text-sm text-muted-foreground">{copy.enabledDescription}</div>
+          <div className="text-sm text-muted-foreground">
+            {copy.enabledDescription}
+          </div>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-sm font-medium">{enabled ? "Enabled" : "Disabled"}</span>
+          <span className="text-sm font-medium">
+            {enabled ? "Enabled" : "Disabled"}
+          </span>
           <Toggle
             checked={enabled}
             onCheckedChange={(val) => onChange("enabled", val)}
@@ -95,101 +124,44 @@ export function AnomalySettingsForm({
 
       <div className="grid gap-6 md:grid-cols-2 p-4 border rounded-md">
         <div className="space-y-2">
-          <Label htmlFor="sensitivity">{copy.sensitivityLabel}</Label>
-          <div className="pt-4 pb-2 px-1">
-            <Slider
-              id="sensitivity"
-              value={[sensitivity]}
-              min={0.5}
-              max={3}
-              step={0.1}
-              onValueChange={(val) => onChange("sensitivity", val[0])}
-              disabled={!enabled || isLocked}
-            />
-          </div>
-          <div className="flex justify-between items-center text-[10px] font-mono text-muted-foreground pt-1">
-            <span>0.5 (More)</span>
-            <span className="font-semibold text-foreground bg-muted px-1.5 py-0.5 rounded">
-              {sensitivity.toFixed(1)}x
-            </span>
-            <span>3.0 (Fewer)</span>
-          </div>
-          {variant === "template" && (
-            <p className="text-xs text-muted-foreground pt-2">
-              Higher multiplier = wider expected range (fewer alerts).
-            </p>
-          )}
+          <Label htmlFor="baselineWindow" className="text-sm font-medium">
+            Baseline window
+          </Label>
+          <Select
+            value={baselineWindow}
+            onValueChange={(val) => onChange("baselineWindow", val)}
+            disabled={!enabled || isLocked}
+          >
+            <SelectTrigger id="baselineWindow" className="h-10">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {BASELINE_WINDOW_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            How much history to use when computing each metric's baseline.
+            Longer windows are smoother but slower to react to legitimate
+            changes.
+          </p>
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="confirmationWindow">{copy.confirmationLabel}</Label>
-          <div className="pt-4 pb-2 px-1">
-            <Slider
-              id="confirmationWindow"
-              value={[confirmationWindow]}
-              min={1}
-              max={10}
-              step={1}
-              onValueChange={(val) => onChange("confirmationWindow", val[0])}
-              disabled={!enabled || isLocked}
-            />
-          </div>
-          <div className="flex justify-between items-center text-[10px] font-mono text-muted-foreground pt-1">
-            <span>1 Run</span>
-            <span className="font-semibold text-foreground bg-muted px-1.5 py-0.5 rounded">
-              {confirmationWindow} Runs
-            </span>
-            <span>10 Runs</span>
-          </div>
-          {variant === "template" && (
-            <p className="text-xs text-muted-foreground pt-2">
-              Number of consecutive anomalous runs required before an alert is triggered.
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-2 p-4 border rounded-md">
-        <div className="flex items-center justify-between md:col-span-2">
+        <div className="flex items-center justify-between md:col-span-1">
           <div className="space-y-0.5">
-            <Label className="text-base font-medium">Trend Drift Detection</Label>
-            <div className="text-sm text-muted-foreground">
-              Catch slow, gradual degradation that never triggers a spike alert.
+            <Label className="text-sm font-medium">{copy.notifyLabel}</Label>
+            <div className="text-xs text-muted-foreground">
+              {copy.notifyDescription}
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium">{driftEnabled ? "Enabled" : "Disabled"}</span>
-            <Toggle
-              checked={driftEnabled}
-              onCheckedChange={(val) => onChange("driftEnabled", val)}
-              disabled={!enabled || isLocked}
-            />
-          </div>
-        </div>
-
-        <div className="space-y-2 md:col-span-2">
-          <Label htmlFor="driftThreshold">Drift Threshold (σ)</Label>
-          <div className="pt-4 pb-2 px-1">
-            <Slider
-              id="driftThreshold"
-              value={[driftThreshold]}
-              min={1}
-              max={4}
-              step={0.1}
-              onValueChange={(val) => onChange("driftThreshold", val[0])}
-              disabled={!enabled || !driftEnabled || isLocked}
-            />
-          </div>
-          <div className="flex justify-between items-center text-[10px] font-mono text-muted-foreground pt-1">
-            <span>1.0σ (More)</span>
-            <span className="font-semibold text-foreground bg-muted px-1.5 py-0.5 rounded">
-              {driftThreshold.toFixed(1)}σ
-            </span>
-            <span>4.0σ (Fewer)</span>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Drift fires when the projected change over the baseline window exceeds this many standard deviations.
-          </p>
+          <Toggle
+            checked={notify}
+            onCheckedChange={(val) => onChange("notify", val)}
+            disabled={!enabled || isLocked}
+          />
         </div>
       </div>
 
@@ -199,12 +171,10 @@ export function AnomalySettingsForm({
         availableFields={availableFields}
         fieldOverrides={fieldOverrides}
         onChange={handleFieldOverrideChange}
+        onPatchField={handleFieldPatch}
+        onResetField={handleFieldReset}
         parentEnabled={enabled}
         isLocked={isLocked}
-        defaultSensitivity={sensitivity}
-        defaultConfirmationWindow={confirmationWindow}
-        defaultDriftEnabled={driftEnabled}
-        defaultDriftThreshold={driftThreshold}
       />
     </div>
   );

@@ -45,29 +45,105 @@ describe("Anomaly Engine - Thresholds", () => {
   describe("isAnomalous", () => {
     test("detects lower anomalies", () => {
       const thresholds = { lowerTrigger: 50 };
-      expect(isAnomalous(40, thresholds)).toBe(true);
-      expect(isAnomalous(50, thresholds)).toBe(false); // Exactly at threshold is not anomalous
-      expect(isAnomalous(60, thresholds)).toBe(false);
+      expect(isAnomalous({ value: 40, mean: 60, thresholds })).toBe(true);
+      expect(isAnomalous({ value: 50, mean: 60, thresholds })).toBe(false); // Exactly at threshold is not anomalous
+      expect(isAnomalous({ value: 60, mean: 60, thresholds })).toBe(false);
     });
 
     test("detects upper anomalies", () => {
       const thresholds = { upperTrigger: 100 };
-      expect(isAnomalous(110, thresholds)).toBe(true);
-      expect(isAnomalous(100, thresholds)).toBe(false);
-      expect(isAnomalous(90, thresholds)).toBe(false);
+      expect(isAnomalous({ value: 110, mean: 80, thresholds })).toBe(true);
+      expect(isAnomalous({ value: 100, mean: 80, thresholds })).toBe(false);
+      expect(isAnomalous({ value: 90, mean: 80, thresholds })).toBe(false);
     });
 
     test("detects bidirectional anomalies", () => {
       const thresholds = { lowerTrigger: 20, upperTrigger: 80 };
-      expect(isAnomalous(10, thresholds)).toBe(true);
-      expect(isAnomalous(50, thresholds)).toBe(false);
-      expect(isAnomalous(90, thresholds)).toBe(true);
+      expect(isAnomalous({ value: 10, mean: 50, thresholds })).toBe(true);
+      expect(isAnomalous({ value: 50, mean: 50, thresholds })).toBe(false);
+      expect(isAnomalous({ value: 90, mean: 50, thresholds })).toBe(true);
     });
 
     test("handles undefined thresholds gracefully", () => {
       const thresholds = {};
-      expect(isAnomalous(1000, thresholds)).toBe(false);
-      expect(isAnomalous(-1000, thresholds)).toBe(false);
+      expect(isAnomalous({ value: 1000, mean: 0, thresholds })).toBe(false);
+      expect(isAnomalous({ value: -1000, mean: 0, thresholds })).toBe(false);
+    });
+
+    test("absolute floor suppresses statistically-anomalous but practically-tiny swings", () => {
+      // 6ms baseline, σ=1 → upperTrigger ≈ 9. Value 20 crosses statistical trigger
+      // but Δ=14ms is below the 50ms practical-significance floor → no fire.
+      const thresholds = computeThresholds(6, 1, "lower-is-better", 1);
+      expect(
+        isAnomalous({ value: 20, mean: 6, thresholds, minAbsoluteDelta: 50 }),
+      ).toBe(false);
+      // Same baseline, value 200ms (Δ=194ms) → fires.
+      expect(
+        isAnomalous({ value: 200, mean: 6, thresholds, minAbsoluteDelta: 50 }),
+      ).toBe(true);
+    });
+
+    test("relative floor suppresses small proportional changes", () => {
+      // 1000ms baseline, σ=10 → upperTrigger=1030. Value 1100 crosses statistically.
+      // Δ=100, Δ/μ=0.1. With minRelativeDelta=0.5 (50%), still doesn't fire.
+      const thresholds = computeThresholds(1000, 10, "lower-is-better", 1);
+      expect(
+        isAnomalous({ value: 1100, mean: 1000, thresholds, minRelativeDelta: 0.5 }),
+      ).toBe(false);
+      // Value 2000, Δ/μ=1.0 → fires.
+      expect(
+        isAnomalous({ value: 2000, mean: 1000, thresholds, minRelativeDelta: 0.5 }),
+      ).toBe(true);
+    });
+
+    test("both floors must clear when both are set", () => {
+      const thresholds = computeThresholds(100, 5, "lower-is-better", 1);
+      // Δ=20 passes minAbsoluteDelta=10 but Δ/μ=0.2 fails minRelativeDelta=0.5
+      expect(
+        isAnomalous({
+          value: 120,
+          mean: 100,
+          thresholds,
+          minAbsoluteDelta: 10,
+          minRelativeDelta: 0.5,
+        }),
+      ).toBe(false);
+      // Δ=80 passes both floors
+      expect(
+        isAnomalous({
+          value: 180,
+          mean: 100,
+          thresholds,
+          minAbsoluteDelta: 10,
+          minRelativeDelta: 0.5,
+        }),
+      ).toBe(true);
+    });
+
+    test("floors of 0 are no-ops (backward compatible)", () => {
+      const thresholds = { upperTrigger: 100 };
+      expect(
+        isAnomalous({
+          value: 101,
+          mean: 50,
+          thresholds,
+          minAbsoluteDelta: 0,
+          minRelativeDelta: 0,
+        }),
+      ).toBe(true);
+    });
+
+    test("relative floor handles mean ≈ 0 without dividing by zero", () => {
+      const thresholds = { upperTrigger: 0.01 };
+      // mean=0, value=10, Δ=10. Math.max(0, ε)=ε ≈ 2.2e-16. Δ/ε = 4.5e16 → passes.
+      expect(
+        isAnomalous({
+          value: 10,
+          mean: 0,
+          thresholds,
+          minRelativeDelta: 0.5,
+        }),
+      ).toBe(true);
     });
   });
 

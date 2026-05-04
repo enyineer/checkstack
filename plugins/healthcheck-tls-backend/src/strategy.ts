@@ -84,6 +84,7 @@ const tlsResultSchema = healthResultSchema({
     "x-chart-unit": "days",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-min-absolute-delta": 1,
   }),
   error: healthResultString({
     "x-chart-type": "status",

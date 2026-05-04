@@ -83,12 +83,8 @@ export class AnomalyService {
       // Return default configuration wrapper
       return anomalySettingsConfig.create({
         enabled: true,
-        sensitivity: 1,
-        confirmationWindow: 3,
         baselineWindow: "7d",
         notify: true,
-        driftEnabled: true,
-        driftThreshold: 2,
       });
     }
 

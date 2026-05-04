@@ -13,6 +13,19 @@ export interface DriftDetectionInput {
   sensitivity: number;
   /** Sigma multiplier on the drift trigger band. Default 2 in callers. */
   threshold: number;
+  /** Baseline mean — required when applying the relative floor. */
+  mean?: number;
+  /**
+   * Floor on |slope × sampleCount| (projected absolute change). The
+   * statistical drift trigger must be exceeded *and* the projected change
+   * must be ≥ this floor. Default 0 (disabled).
+   */
+  minAbsoluteDelta?: number;
+  /**
+   * Floor on |slope × sampleCount| / max(|μ|, ε) (projected relative
+   * change), expressed as a fraction. Default 0 (disabled).
+   */
+  minRelativeDelta?: number;
 }
 
 export interface DriftDetectionResult {
@@ -46,8 +59,12 @@ export function detectDrift({
   direction,
   sensitivity,
   threshold,
+  mean,
+  minAbsoluteDelta = 0,
+  minRelativeDelta = 0,
 }: DriftDetectionInput): DriftDetectionResult {
   const projectedChange = slope * sampleCount;
+  const absChange = Math.abs(projectedChange);
   const driftDirection: "above" | "below" = slope >= 0 ? "above" : "below";
 
   const deviationSigmas =
@@ -55,7 +72,7 @@ export function detectDrift({
       ? slope === 0
         ? 0
         : Number.POSITIVE_INFINITY
-      : Math.abs(projectedChange) / stdDev;
+      : absChange / stdDev;
 
   if (sampleCount === 0 || slope === 0) {
     return { drifting: false, projectedChange, deviationSigmas, driftDirection };
@@ -74,7 +91,21 @@ export function detectDrift({
   }
 
   const triggerBand = threshold * stdDev * sensitivity;
-  const drifting = Math.abs(projectedChange) > triggerBand;
+  const exceedsStatistical = absChange > triggerBand;
+  if (!exceedsStatistical) {
+    return { drifting: false, projectedChange, deviationSigmas, driftDirection };
+  }
 
-  return { drifting, projectedChange, deviationSigmas, driftDirection };
+  if (absChange < minAbsoluteDelta) {
+    return { drifting: false, projectedChange, deviationSigmas, driftDirection };
+  }
+
+  if (minRelativeDelta > 0 && mean !== undefined) {
+    const denominator = Math.max(Math.abs(mean), Number.EPSILON);
+    if (absChange / denominator < minRelativeDelta) {
+      return { drifting: false, projectedChange, deviationSigmas, driftDirection };
+    }
+  }
+
+  return { drifting: true, projectedChange, deviationSigmas, driftDirection };
 }
