@@ -1,5 +1,11 @@
 import { z } from "zod";
-import type { Queue, QueueStats, RecurringSchedule } from "./queue";
+import type {
+  Queue,
+  QueueStats,
+  RecurringSchedule,
+  ListJobsOptions,
+  ListJobsResult,
+} from "./queue";
 import type { Migration, Logger } from "@checkstack/backend-api";
 
 export interface QueuePlugin<Config = unknown> {
@@ -88,6 +94,12 @@ export interface QueueManager {
    * Used for monitoring and lag detection.
    */
   getAggregatedStats(): Promise<QueueStats>;
+
+  /**
+   * Aggregate {@link Queue.listJobs} across all queues, sorted into a single
+   * paginated list. Used by the Infrastructure runtime panel.
+   */
+  listJobs(opts: ListJobsOptions): Promise<ListJobsResult>;
 
   /**
    * List all recurring jobs across all queues.

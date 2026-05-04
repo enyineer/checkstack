@@ -63,3 +63,17 @@ export const maintenanceUpdates = pgTable("maintenance_updates", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   createdBy: text("created_by"),
 });
+
+/**
+ * Hotlinks attached to a maintenance — e.g. a change ticket, runbook, or
+ * chat thread. Free-form URL + optional human label.
+ */
+export const maintenanceLinks = pgTable("maintenance_links", {
+  id: text("id").primaryKey(),
+  maintenanceId: text("maintenance_id")
+    .notNull()
+    .references(() => maintenances.id, { onDelete: "cascade" }),
+  label: text("label"),
+  url: text("url").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});

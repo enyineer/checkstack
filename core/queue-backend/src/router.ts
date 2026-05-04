@@ -121,6 +121,26 @@ export const createQueueRouter = (configService: ConfigService) => {
       };
     }),
 
+    listJobs: os.listJobs.handler(async ({ input, context }) => {
+      const result = await context.queueManager.listJobs(input);
+      return {
+        items: result.items.map((s) => ({
+          id: s.id,
+          name: s.name,
+          state: s.state,
+          enqueuedAt: s.enqueuedAt,
+          startedAt: s.startedAt,
+          finishedAt: s.finishedAt,
+          attempts: s.attempts,
+          failedReason: s.failedReason,
+          nextRunAt: s.nextRunAt,
+          recurring: s.recurring,
+        })),
+        total: result.total,
+        hasMore: result.hasMore,
+      };
+    }),
+
     updateLagThresholds: os.updateLagThresholds.handler(
       async ({ input, context }) => {
         // Validate that warning < critical

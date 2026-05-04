@@ -59,6 +59,20 @@ export const systemsGroups = pgTable(
   }),
 );
 
+/**
+ * Free-form hotlinks attached to a system — e.g. Jira board, dashboard URL,
+ * runbook. Sits alongside contacts but is purely URL-based, no user/email.
+ */
+export const systemLinks = pgTable("system_links", {
+  id: text("id").primaryKey(),
+  systemId: text("system_id")
+    .notNull()
+    .references(() => systems.id, { onDelete: "cascade" }),
+  label: text("label"),
+  url: text("url").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const views = pgTable("views", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),

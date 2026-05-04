@@ -1,37 +1,48 @@
 /**
  * A type-safe slot definition that can be exported from plugin common packages.
- * The context type parameter defines what props extensions will receive.
+ *
+ * @typeParam TContext  - Props passed to every extension component at render time.
+ * @typeParam TMetadata - Static descriptor each extension declares at registration time
+ *                        (e.g. label, icon, ordering, access rules). Use `undefined`
+ *                        (the default) when the slot just renders components without
+ *                        per-extension metadata.
  */
-export interface SlotDefinition<TContext = undefined> {
+export interface SlotDefinition<TContext = undefined, TMetadata = undefined> {
   /** Unique slot identifier, recommended format: "plugin-name.area.purpose" */
   readonly id: string;
   /** Phantom type for context type inference - do not use directly */
   readonly _contextType?: TContext;
+  /** Phantom type for metadata type inference - do not use directly */
+  readonly _metadataType?: TMetadata;
 }
 
 /**
  * Creates a type-safe slot definition that can be exported from any package.
  *
  * @example
- * // In @checkstack/catalog-common
+ * // Render-only slot (no metadata)
  * export const SystemDetailsSlot = createSlot<{ systemId: string }>(
  *   "catalog.system.details"
  * );
  *
- * // In your frontend plugin
- * extensions: [{
- *   id: "my-plugin.system-details",
- *   slot: SystemDetailsSlot,
- *   component: MySystemDetailsExtension, // Receives { systemId: string }
- * }]
- *
- * @param id - Unique slot identifier
- * @returns A slot definition that can be used for type-safe extension registration
+ * @example
+ * // Slot whose extensions declare metadata at registration time
+ * interface InfrastructureTabMetadata {
+ *   label: string;
+ *   icon: React.ComponentType<{ className?: string }>;
+ *   readAccess: AccessRule;
+ *   manageAccess: AccessRule;
+ *   order?: number;
+ * }
+ * export const InfrastructureTabsSlot = createSlot<
+ *   { canUpdate: boolean },
+ *   InfrastructureTabMetadata
+ * >("infrastructure.tabs");
  */
-export function createSlot<TContext = undefined>(
+export function createSlot<TContext = undefined, TMetadata = undefined>(
   id: string
-): SlotDefinition<TContext> {
-  return { id } as SlotDefinition<TContext>;
+): SlotDefinition<TContext, TMetadata> {
+  return { id } as SlotDefinition<TContext, TMetadata>;
 }
 
 /**

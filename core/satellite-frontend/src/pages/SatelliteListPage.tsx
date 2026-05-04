@@ -30,9 +30,14 @@ import {
   ConfirmationModal,
   PageLayout,
 } from "@checkstack/ui";
-import { Plus, Satellite, Trash2, MapPin } from "lucide-react";
+import { Plus, Satellite, Trash2, MapPin, KeyRound } from "lucide-react";
 import { SatelliteStatusBadge } from "../components/SatelliteStatusBadge";
 import { CreateSatelliteDialog } from "../components/CreateSatelliteDialog";
+import { RotateSatelliteTokenDialog } from "../components/RotateSatelliteTokenDialog";
+import {
+  useProvenanceLocks,
+  GitOpsSourceBadge,
+} from "@checkstack/gitops-frontend";
 import { extractErrorMessage } from "@checkstack/common";
 
 const SatelliteListPageContent: React.FC = () => {
@@ -48,6 +53,11 @@ const SatelliteListPageContent: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<
     SatelliteWithStatus | undefined
   >();
+  const [rotateTarget, setRotateTarget] = useState<
+    SatelliteWithStatus | undefined
+  >();
+
+  const { getLock } = useProvenanceLocks();
 
   const {
     data: satellites,
@@ -139,39 +149,68 @@ const SatelliteListPageContent: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {satelliteList.map((sat) => (
-                  <TableRow key={sat.id}>
-                    <TableCell>
-                      <p className="font-medium">{sat.name}</p>
-                      <p className="text-xs text-muted-foreground font-mono">
-                        {sat.id}
-                      </p>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                        <MapPin className="h-3.5 w-3.5" />
-                        {sat.region}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <SatelliteStatusBadge status={sat.status} />
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-sm text-muted-foreground font-mono">
-                        {sat.version ?? "—"}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDeleteTarget(sat)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {satelliteList.map((sat) => {
+                  const lock = getLock({
+                    kind: "Satellite",
+                    entityId: sat.id,
+                  });
+                  return (
+                    <TableRow key={sat.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {lock.isLocked && lock.provenance && (
+                            <GitOpsSourceBadge provenance={lock.provenance} />
+                          )}
+                          <div>
+                            <p className="font-medium">{sat.name}</p>
+                            <p className="text-xs text-muted-foreground font-mono">
+                              {sat.id}
+                            </p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                          <MapPin className="h-3.5 w-3.5" />
+                          {sat.region}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <SatelliteStatusBadge status={sat.status} />
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm text-muted-foreground font-mono">
+                          {sat.version ?? "—"}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="Reset token"
+                            aria-label={`Reset token for ${sat.name}`}
+                            onClick={() => setRotateTarget(sat)}
+                          >
+                            <KeyRound className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={lock.isLocked}
+                            title={
+                              lock.isLocked ? "Managed by GitOps" : "Delete satellite"
+                            }
+                            aria-label={`Delete ${sat.name}`}
+                            onClick={() => setDeleteTarget(sat)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}
@@ -193,6 +232,12 @@ const SatelliteListPageContent: React.FC = () => {
         variant="danger"
         onConfirm={handleDelete}
         isLoading={deleteMutation.isPending}
+      />
+
+      <RotateSatelliteTokenDialog
+        satellite={rotateTarget}
+        onClose={() => setRotateTarget(undefined)}
+        onRotated={() => void refetch()}
       />
     </PageLayout>
   );

@@ -9,6 +9,8 @@ import {
   QueueStatsDtoSchema,
   QueueLagStatusSchema,
   QueueLagThresholdsSchema,
+  ListJobsInputSchema,
+  ListJobsResultSchema,
 } from "./schemas";
 
 // Queue RPC Contract with access metadata
@@ -57,6 +59,15 @@ export const queueContract = {
   })
     .input(QueueLagThresholdsSchema)
     .output(QueueLagThresholdsSchema),
+
+  // List jobs in a state — read access. Payloads omitted by design.
+  listJobs: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [queueAccess.settings.read],
+  })
+    .input(ListJobsInputSchema)
+    .output(ListJobsResultSchema),
 };
 
 // Export contract type

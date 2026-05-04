@@ -579,6 +579,67 @@ export const MySystemAction: React.FC<Props> = ({ systemId, systemName }) => {
 > [!TIP]
 > Using `SlotContext` and `createSlotExtension` ensures compile-time type checking. If the slot definition changes, TypeScript will immediately flag any component prop mismatches.
 
+#### Typed Metadata on Extensions
+
+Some slots need each extension to declare a static descriptor at registration
+time — for example, the Infrastructure Settings tab bar needs a label, icon,
+and access rules to render its nav before the tab body is mounted. Pass a
+second type argument to `createSlot` to express that contract:
+
+```typescript
+import { createSlot } from "@checkstack/frontend-api";
+import type { AccessRule } from "@checkstack/common";
+
+export interface InfrastructureTabContext {
+  canUpdate: boolean;
+}
+
+export interface InfrastructureTabMetadata {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  readAccess: AccessRule;
+  manageAccess: AccessRule;
+  order?: number;
+}
+
+export const InfrastructureTabsSlot = createSlot<
+  InfrastructureTabContext,
+  InfrastructureTabMetadata
+>("infrastructure.tabs");
+```
+
+Extensions for a slot whose metadata type is non-`undefined` must supply a
+`metadata` field; `createSlotExtension` will type-check it:
+
+```typescript
+createSlotExtension(InfrastructureTabsSlot, {
+  id: "queue.infrastructure.tab",
+  component: QueueInfrastructureTab,
+  metadata: {
+    label: "Queue",
+    icon: Gauge,
+    readAccess: queueAccess.settings.read,
+    manageAccess: queueAccess.settings.manage,
+    order: 10,
+  },
+});
+```
+
+Consumers read metadata via `useSlotExtensions`, which subscribes to plugin
+register/unregister events:
+
+```typescript
+import { useSlotExtensions } from "@checkstack/frontend-api";
+
+const tabs = useSlotExtensions(InfrastructureTabsSlot);
+// tabs[i].metadata is typed as InfrastructureTabMetadata
+```
+
+`<ExtensionSlot slot={…} context={…} />` remains the right tool when the
+consumer just needs to render every extension inline. Reach for
+`useSlotExtensions` only when you need metadata, ordering, or per-extension
+gating logic.
+
 #### Example: User Menu Extension
 
 User menu slots (`UserMenuItemsSlot`, `UserMenuItemsBottomSlot`) receive a `UserMenuItemsContext` with pre-fetched user data for synchronous rendering:

@@ -36,7 +36,13 @@ const SystemIncidentHistoryPageContent: React.FC = () => {
   const { data: systemsData, isLoading: systemsLoading } =
     catalogClient.getSystems.useQuery({});
 
-  const incidents = incidentsData?.incidents ?? [];
+  // Sort: active incidents (non-resolved) first, then by creation date desc.
+  const incidents = (incidentsData?.incidents ?? []).toSorted((a, b) => {
+    const aActive = a.status === "resolved" ? 1 : 0;
+    const bActive = b.status === "resolved" ? 1 : 0;
+    if (aActive !== bActive) return aActive - bActive;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
   const systems = systemsData?.systems ?? [];
   const system = systems.find((s) => s.id === systemId);
   const loading = incidentsLoading || systemsLoading;

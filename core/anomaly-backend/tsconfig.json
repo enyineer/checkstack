@@ -29,6 +29,12 @@
       "path": "../drizzle-helper"
     },
     {
+      "path": "../gitops-backend"
+    },
+    {
+      "path": "../gitops-common"
+    },
+    {
       "path": "../healthcheck-backend"
     },
     {

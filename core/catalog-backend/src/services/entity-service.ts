@@ -98,6 +98,30 @@ export class EntityService {
       .where(eq(schema.systemContacts.userId, userId));
   }
 
+  // System Links — free-form URLs attached to a system
+  async getLinksForSystem(systemId: string) {
+    return this.database
+      .select()
+      .from(schema.systemLinks)
+      .where(eq(schema.systemLinks.systemId, systemId));
+  }
+
+  async addLink(props: { systemId: string; label?: string; url: string }) {
+    const result = await this.database
+      .insert(schema.systemLinks)
+      .values({ id: uuidv4(), ...props })
+      .returning();
+    return result[0];
+  }
+
+  async removeLink(linkId: string) {
+    const result = await this.database
+      .delete(schema.systemLinks)
+      .where(eq(schema.systemLinks.id, linkId))
+      .returning();
+    return result[0];
+  }
+
   // Groups
   async getGroups() {
     // Fetch all groups

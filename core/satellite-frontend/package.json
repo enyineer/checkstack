@@ -17,6 +17,8 @@
     "@checkstack/frontend-api": "workspace:*",
     "@checkstack/satellite-common": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
+    "@checkstack/gitops-common": "workspace:*",
+    "@checkstack/gitops-frontend": "workspace:*",
     "@checkstack/tips-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
     "lucide-react": "^0.344.0",

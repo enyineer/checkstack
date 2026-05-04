@@ -31,7 +31,12 @@ import {
   AlertTriangle,
   RotateCcw,
   MapIcon,
+  GitBranch,
 } from "lucide-react";
+import {
+  useProvenanceLock,
+  useProvenanceLocks,
+} from "@checkstack/gitops-frontend";
 
 type Props = SlotContext<typeof SystemEditorSlot>;
 
@@ -57,6 +62,16 @@ function getImpactBadge(impactType: ImpactType): React.ReactNode {
 export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
   const depClient = usePluginClient(DependencyApi);
   const catalogClient = usePluginClient(CatalogApi);
+
+  // GitOps owns the *source* system's `dependencies` extension. Edits to
+  // upstream rows (this system → ...) are blocked when this system is
+  // managed; downstream rows belong to other source systems and are gated
+  // per-row via the bulk hook.
+  const { isLocked: sourceLocked } = useProvenanceLock({
+    kind: "System",
+    entityId: systemId,
+  });
+  const { getLock: getSystemLock } = useProvenanceLocks();
 
   const [isAdding, setIsAdding] = useState(false);
   const [selectedTargetId, setSelectedTargetId] = useState("");
@@ -168,12 +183,29 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <Label>Dependencies</Label>
+        <Label className="flex items-center gap-2">
+          Dependencies
+          {sourceLocked && (
+            <span
+              className="inline-flex items-center gap-1 text-xs font-normal text-primary"
+              title="Managed by GitOps — edit the source YAML"
+            >
+              <GitBranch className="h-3 w-3" />
+              GitOps
+            </span>
+          )}
+        </Label>
         <Button
           type="button"
           variant="outline"
           size="sm"
           onClick={() => setIsAdding(!isAdding)}
+          disabled={sourceLocked}
+          title={
+            sourceLocked
+              ? "Managed by GitOps — declare dependencies in the System's YAML"
+              : undefined
+          }
         >
           <Plus className="h-3.5 w-3.5 mr-1" />
           Add
@@ -187,7 +219,7 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
       )}
 
       {/* Add dependency form */}
-      {isAdding && (
+      {isAdding && !sourceLocked && (
         <div className="p-3 rounded-lg border border-border bg-muted/30 space-y-3">
           <div className="space-y-2">
             <label className="text-sm font-medium">Depends on (upstream)</label>
@@ -257,6 +289,7 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
                 onDelete={() => handleDelete(dep)}
                 onUpdate={handleUpdate}
                 isUpdating={updateMutation.isPending}
+                isLocked={sourceLocked}
               />
             ))}
           </div>
@@ -271,17 +304,26 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
             Depended By ({downstreamDeps.length})
           </h4>
           <div className="space-y-1">
-            {downstreamDeps.map((dep) => (
-              <DependencyRow
-                key={dep.id}
-                dependency={dep}
-                systemName={systemNameMap.get(dep.sourceSystemId) ?? dep.sourceSystemId}
-                direction="downstream"
-                onDelete={() => handleDelete(dep)}
-                onUpdate={handleUpdate}
-                isUpdating={updateMutation.isPending}
-              />
-            ))}
+            {downstreamDeps.map((dep) => {
+              // The "source" of a downstream edge is *another* system —
+              // its lock is what governs editability.
+              const otherSourceLocked = getSystemLock({
+                kind: "System",
+                entityId: dep.sourceSystemId,
+              }).isLocked;
+              return (
+                <DependencyRow
+                  key={dep.id}
+                  dependency={dep}
+                  systemName={systemNameMap.get(dep.sourceSystemId) ?? dep.sourceSystemId}
+                  direction="downstream"
+                  onDelete={() => handleDelete(dep)}
+                  onUpdate={handleUpdate}
+                  isUpdating={updateMutation.isPending}
+                  isLocked={otherSourceLocked}
+                />
+              );
+            })}
           </div>
         </div>
       )}
@@ -322,6 +364,7 @@ function DependencyRow({
   onDelete,
   onUpdate,
   isUpdating,
+  isLocked = false,
 }: {
   dependency: Dependency;
   systemName: string;
@@ -334,6 +377,8 @@ function DependencyRow({
     healthCheckRules?: { healthCheckId: string; overrideImpactType: ImpactType }[];
   }) => void;
   isUpdating: boolean;
+  /** When true, the source system of this edge is GitOps-managed. */
+  isLocked?: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editImpact, setEditImpact] = useState<ImpactType>(
@@ -366,7 +411,7 @@ function DependencyRow({
     setIsEditing(false);
   };
 
-  if (isEditing) {
+  if (isEditing && !isLocked) {
     return (
       <div className="p-3 rounded-lg border border-primary/30 bg-muted/30 space-y-3">
         <div className="flex items-center gap-2">
@@ -415,24 +460,35 @@ function DependencyRow({
     );
   }
 
+  const interactive = !isLocked;
   return (
     <div
-      className="flex items-center justify-between p-2 rounded border border-border bg-background hover:bg-muted/30 transition-colors cursor-pointer"
-      onClick={() => setIsEditing(true)}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          setIsEditing(true);
-        }
-      }}
+      className={`flex items-center justify-between p-2 rounded border border-border bg-background transition-colors ${
+        interactive ? "hover:bg-muted/30 cursor-pointer" : ""
+      }`}
+      onClick={interactive ? () => setIsEditing(true) : undefined}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : -1}
+      onKeyDown={
+        interactive
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setIsEditing(true);
+              }
+            }
+          : undefined
+      }
+      title={isLocked ? "Managed by GitOps" : undefined}
     >
       <div className="flex items-center gap-2">
         {direction === "upstream" ? (
           <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
         ) : (
           <ArrowDownRight className="h-4 w-4 text-muted-foreground" />
+        )}
+        {isLocked && (
+          <GitBranch className="h-3 w-3 text-primary" aria-label="Managed by GitOps" />
         )}
         <span className="text-sm font-medium">{systemName}</span>
         {dependency.label && (
@@ -460,6 +516,8 @@ function DependencyRow({
           variant="ghost"
           size="icon"
           className="h-7 w-7"
+          disabled={isLocked}
+          title={isLocked ? "Managed by GitOps" : undefined}
           onClick={(e) => {
             e.stopPropagation();
             onDelete();

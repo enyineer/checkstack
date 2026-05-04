@@ -185,9 +185,35 @@ export class EventBus implements IEventBus {
   }
 
   /**
-   * Emit a hook
+   * Emit a hook.
+   *
+   * Skips the underlying queue enqueue when no listener has been
+   * registered for the hook in this process. Without this guard, hooks
+   * with no subscribers (e.g. `core.plugin.initialized` when no plugin
+   * has registered a listener) would accumulate jobs in the in-memory
+   * queue forever — they'd be enqueued, no consumer group exists to
+   * process them, and `processNext` short-circuits before its cleanup
+   * pass when `consumerGroups.size === 0`.
+   *
+   * Note: this checks listeners in the *local process*. In distributed
+   * deployments with a Redis-backed queue, a subscriber on another
+   * replica would never see the event under this rule. Callers that
+   * need cross-process delivery must therefore ensure at least one
+   * listener registers on every replica that should receive the hook.
    */
   async emit<T>(hook: Hook<T>, payload: T): Promise<void> {
+    const hasDistributedListeners =
+      (this.listeners.get(hook.id)?.length ?? 0) > 0;
+    const hasLocalListeners =
+      (this.localListeners.get(hook.id)?.length ?? 0) > 0;
+
+    if (!hasDistributedListeners && !hasLocalListeners) {
+      this.logger.debug(
+        `Dropped hook ${hook.id}: no listeners registered`,
+      );
+      return;
+    }
+
     let channel = this.queueChannels.get(hook.id);
 
     // Create channel lazily if not exists

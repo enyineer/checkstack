@@ -216,4 +216,209 @@ describe("InMemoryCache", () => {
       // Entry may or may not be expired (passive eviction), but no crash
     });
   });
+
+  describe("getStats — byte tracking", () => {
+    it("starts at zero bytes", async () => {
+      const cache = createCache();
+      const stats = await cache.getStats();
+      expect(stats.sizeBytes).toBe(0);
+      expect(stats.keyCount).toBe(0);
+    });
+
+    it("grows on set and shrinks on delete", async () => {
+      const cache = createCache();
+      await cache.set("k", "small");
+      const afterSet = await cache.getStats();
+      expect(afterSet.sizeBytes).toBeGreaterThan(0);
+
+      await cache.delete("k");
+      const afterDelete = await cache.getStats();
+      expect(afterDelete.sizeBytes).toBe(0);
+      expect(afterDelete.keyCount).toBe(0);
+    });
+
+    it("scales with payload size", async () => {
+      const small = createCache();
+      const big = createCache();
+      await small.set("k", "x");
+      await big.set("k", "x".repeat(10_000));
+      const smallStats = await small.getStats();
+      const bigStats = await big.getStats();
+      expect(bigStats.sizeBytes!).toBeGreaterThan(smallStats.sizeBytes! * 100);
+    });
+
+    it("replaces (not double-counts) on overwrite", async () => {
+      const cache = createCache();
+      await cache.set("k", "first");
+      const first = (await cache.getStats()).sizeBytes!;
+      await cache.set("k", "second-but-longer-value");
+      const second = (await cache.getStats()).sizeBytes!;
+      expect(second).toBeGreaterThan(first);
+      expect((await cache.getStats()).keyCount).toBe(1);
+    });
+
+    it("returns to zero after deleteByPrefix", async () => {
+      const cache = createCache();
+      await cache.set("p:a", "1");
+      await cache.set("p:b", "2");
+      await cache.set("other", "3");
+      const removed = await cache.deleteByPrefix("p:");
+      expect(removed).toBe(2);
+      const stats = await cache.getStats();
+      expect(stats.keyCount).toBe(1);
+      expect(stats.sizeBytes!).toBeGreaterThan(0);
+
+      await cache.delete("other");
+      const empty = await cache.getStats();
+      expect(empty.sizeBytes).toBe(0);
+    });
+
+    it("decrements on TTL expiry via get", async () => {
+      const cache = createCache();
+      await cache.set("k", "value", 10);
+      expect((await cache.getStats()).sizeBytes!).toBeGreaterThan(0);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      // Passive eviction via get
+      expect(await cache.get("k")).toBeUndefined();
+      expect((await cache.getStats()).sizeBytes).toBe(0);
+    });
+
+    it("decrements on LRU eviction at capacity", async () => {
+      const cache = createCache({ maxEntries: 2 });
+      await cache.set("a", "x".repeat(100));
+      await cache.set("b", "y".repeat(100));
+      const before = (await cache.getStats()).sizeBytes!;
+      await cache.set("c", "z");
+      // "a" should have been evicted; size went down by ~100 bytes plus a key,
+      // up by tiny amount for "c" — net should be lower than `before`.
+      const after = (await cache.getStats()).sizeBytes!;
+      expect(after).toBeLessThan(before);
+      expect((await cache.getStats()).keyCount).toBe(2);
+    });
+
+    it("counts non-JSON-safe values via v8.serialize", async () => {
+      const cache = createCache();
+      await cache.set("date", new Date());
+      await cache.set("map", new Map([["k", "v"]]));
+      const stats = await cache.getStats();
+      expect(stats.sizeBytes!).toBeGreaterThan(0);
+      expect(stats.keyCount).toBe(2);
+    });
+
+    it("reports scope=instance", async () => {
+      const cache = createCache();
+      const stats = await cache.getStats();
+      expect(stats.scope).toBe("instance");
+    });
+  });
+
+  describe("listEntries", () => {
+    it("returns empty when cache is empty", async () => {
+      const cache = createCache();
+      const result = await cache.listEntries({
+        offset: 0,
+        limit: 10,
+        sortBy: "biggest",
+      });
+      expect(result.items).toEqual([]);
+      expect(result.total).toBe(0);
+      expect(result.hasMore).toBe(false);
+    });
+
+    it("sorts by size descending when sortBy=biggest", async () => {
+      const cache = createCache();
+      await cache.set("small", "x");
+      await cache.set("big", "x".repeat(5000));
+      await cache.set("medium", "x".repeat(500));
+
+      const { items, total } = await cache.listEntries({
+        offset: 0,
+        limit: 10,
+        sortBy: "biggest",
+      });
+      expect(items.map((e) => e.key)).toEqual(["big", "medium", "small"]);
+      expect(total).toBe(3);
+      for (let i = 1; i < items.length; i++) {
+        expect(items[i - 1].byteSize).toBeGreaterThanOrEqual(
+          items[i].byteSize,
+        );
+      }
+    });
+
+    it("sorts by insertion recency when sortBy=newest", async () => {
+      const cache = createCache();
+      await cache.set("first", "a");
+      await cache.set("second", "b");
+      await cache.set("third", "c");
+
+      const { items } = await cache.listEntries({
+        offset: 0,
+        limit: 10,
+        sortBy: "newest",
+      });
+      expect(items.map((e) => e.key)).toEqual(["third", "second", "first"]);
+    });
+
+    it("paginates with offset/limit and reports total/hasMore", async () => {
+      const cache = createCache();
+      for (let i = 0; i < 30; i++) {
+        await cache.set(`k-${i}`, "x".repeat(i));
+      }
+      const page1 = await cache.listEntries({
+        offset: 0,
+        limit: 5,
+        sortBy: "biggest",
+      });
+      expect(page1.items).toHaveLength(5);
+      expect(page1.total).toBe(30);
+      expect(page1.hasMore).toBe(true);
+
+      const page2 = await cache.listEntries({
+        offset: 5,
+        limit: 5,
+        sortBy: "biggest",
+      });
+      expect(page2.items).toHaveLength(5);
+      expect(page2.items.map((e) => e.key)).not.toEqual(
+        page1.items.map((e) => e.key),
+      );
+
+      const lastPage = await cache.listEntries({
+        offset: 28,
+        limit: 5,
+        sortBy: "biggest",
+      });
+      expect(lastPage.items).toHaveLength(2);
+      expect(lastPage.hasMore).toBe(false);
+    });
+
+    it("does NOT include cached values in summaries", async () => {
+      const cache = createCache();
+      await cache.set("secret", { token: "very-private" });
+      const { items } = await cache.listEntries({
+        offset: 0,
+        limit: 10,
+        sortBy: "biggest",
+      });
+      expect(items[0].key).toBe("secret");
+      expect(Object.keys(items[0]).sort()).toEqual(
+        ["byteSize", "expiresAt", "key"].sort(),
+      );
+    });
+
+    it("surfaces TTL as expiresAt Date or null", async () => {
+      const cache = createCache();
+      await cache.set("ephemeral", "x", 60_000);
+      await cache.set("forever", "y");
+      const { items } = await cache.listEntries({
+        offset: 0,
+        limit: 10,
+        sortBy: "newest",
+      });
+      const ephemeral = items.find((e) => e.key === "ephemeral")!;
+      const forever = items.find((e) => e.key === "forever")!;
+      expect(ephemeral.expiresAt).toBeInstanceOf(Date);
+      expect(forever.expiresAt).toBeNull();
+    });
+  });
 });

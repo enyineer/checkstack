@@ -43,7 +43,18 @@ const SystemMaintenanceHistoryPageContent: React.FC = () => {
   const { data: systemsData, isLoading: systemsLoading } =
     catalogClient.getSystems.useQuery({});
 
-  const maintenances = maintenancesData?.maintenances ?? [];
+  // Sort: active maintenances (scheduled / in_progress) first, then by
+  // creation date desc.
+  const maintenances = (maintenancesData?.maintenances ?? []).toSorted(
+    (a, b) => {
+      const aActive =
+        a.status === "scheduled" || a.status === "in_progress" ? 0 : 1;
+      const bActive =
+        b.status === "scheduled" || b.status === "in_progress" ? 0 : 1;
+      if (aActive !== bActive) return aActive - bActive;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    },
+  );
   const systems = systemsData?.systems ?? [];
   const system = systems.find((s) => s.id === systemId);
   const systemName = system?.name ?? "Unknown System";

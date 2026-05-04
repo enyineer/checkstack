@@ -81,6 +81,72 @@ export class SatelliteService {
   }
 
   /**
+   * Update a satellite's metadata (name, region, tags). Token is left intact —
+   * use `rotateSatelliteToken` to issue a new one.
+   */
+  async updateSatelliteMetadata(props: {
+    id: string;
+    name?: string;
+    region?: string;
+    tags?: Record<string, string>;
+  }): Promise<SatelliteWithStatus | undefined> {
+    const updates: Partial<typeof satellites.$inferInsert> = {};
+    if (props.name !== undefined) updates.name = props.name;
+    if (props.region !== undefined) updates.region = props.region;
+    if (props.tags !== undefined) updates.tags = props.tags;
+    if (Object.keys(updates).length === 0) return this.getSatellite(props.id);
+
+    const [row] = await this.db
+      .update(satellites)
+      .set(updates)
+      .where(eq(satellites.id, props.id))
+      .returning();
+    return row ? this.toSatelliteWithStatus(row) : undefined;
+  }
+
+  /**
+   * Rotate the token for an existing satellite. Generates a fresh plaintext
+   * token, stores its bcrypt hash, and returns the plaintext for one-time
+   * display. The previous token is invalidated immediately.
+   */
+  async rotateSatelliteToken(
+    id: string,
+  ): Promise<{ satellite: SatelliteWithStatus; plaintextToken: string } | undefined> {
+    const randomBytes = crypto.getRandomValues(new Uint8Array(32));
+    const tokenBody = Buffer.from(randomBytes).toString("base64url");
+    const plaintextToken = `csat_${tokenBody}`;
+
+    const tokenHash = await Bun.password.hash(plaintextToken, {
+      algorithm: "bcrypt",
+      cost: 10,
+    });
+
+    const [row] = await this.db
+      .update(satellites)
+      .set({ tokenHash })
+      .where(eq(satellites.id, id))
+      .returning();
+    if (!row) return undefined;
+
+    return {
+      satellite: this.toSatelliteWithStatus(row),
+      plaintextToken,
+    };
+  }
+
+  /**
+   * Lookup helper — returns a satellite by its `name`. Used by GitOps to
+   * resolve a YAML-declared satellite name to the persisted UUID.
+   */
+  async getSatelliteByName(name: string): Promise<SatelliteWithStatus | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(satellites)
+      .where(eq(satellites.name, name));
+    return row ? this.toSatelliteWithStatus(row) : undefined;
+  }
+
+  /**
    * List all satellites with computed online/offline status.
    */
   async listSatellites(): Promise<SatelliteWithStatus[]> {
