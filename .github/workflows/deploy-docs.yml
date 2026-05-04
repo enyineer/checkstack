@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - "docs/**"
+      - "core/ui/**"
+      - ".github/workflows/deploy-docs.yml"
   workflow_dispatch:
 
 permissions:
@@ -30,11 +32,27 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Build with Jekyll
+      - name: Build Jekyll site
         uses: actions/jekyll-build-pages@v1
         with:
           source: ./docs
           destination: ./_site
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Storybook
+        run: bun run --filter '@checkstack/ui' storybook:build
+
+      - name: Merge Storybook into Pages artifact
+        run: |
+          mkdir -p ./_site/storybook
+          cp -r ./core/ui/storybook-static/. ./_site/storybook/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
