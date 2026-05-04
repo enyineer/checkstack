@@ -20,6 +20,7 @@ import { CatalogApi } from "@checkstack/catalog-common";
 import {
   Card,
   CardHeader,
+  CardHeaderRow,
   CardTitle,
   CardContent,
   Button,
@@ -231,13 +232,13 @@ const IncidentConfigPageContent: React.FC = () => {
     >
       <Card>
         <CardHeader className="border-b border-border">
-          <div className="flex items-center justify-between">
+          <CardHeaderRow>
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-muted-foreground" />
               <CardTitle>Incidents</CardTitle>
             </div>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 text-sm">
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+              <label className="flex items-center gap-2 text-sm whitespace-nowrap">
                 <input
                   type="checkbox"
                   checked={showResolved}
@@ -252,7 +253,7 @@ const IncidentConfigPageContent: React.FC = () => {
                   setStatusFilter(v as IncidentStatus | "all")
                 }
               >
-                <SelectTrigger className="w-40">
+                <SelectTrigger className="w-full sm:w-40">
                   <SelectValue placeholder="Filter by status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -265,7 +266,7 @@ const IncidentConfigPageContent: React.FC = () => {
                 </SelectContent>
               </Select>
             </div>
-          </div>
+          </CardHeaderRow>
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (

@@ -57,6 +57,7 @@ export const notificationPlugin = createFrontendPlugin({
     createSlotExtension(UserMenuItemsSlot, {
       id: "notification.user.setting",
       component: NotificationUserMenuItems,
+      metadata: { group: "Configuration" },
     }),
   ],
 });

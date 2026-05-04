@@ -26,6 +26,7 @@ export default createFrontendPlugin({
     createSlotExtension(UserMenuItemsSlot, {
       id: "satellite.user-menu.items",
       component: SatelliteMenuItems,
+      metadata: { group: "Reliability" },
     }),
   ],
 });

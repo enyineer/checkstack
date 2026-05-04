@@ -33,10 +33,12 @@ export const gitopsPlugin = createFrontendPlugin({
     createSlotExtension(UserMenuItemsSlot, {
       id: "gitops.user-menu.link",
       component: GitOpsMenuItem,
+      metadata: { group: "Configuration" },
     }),
     createSlotExtension(UserMenuItemsSlot, {
       id: "gitops.user-menu.kind-registry",
       component: KindRegistryMenuItem,
+      metadata: { group: "Documentation" },
     }),
   ],
 });
