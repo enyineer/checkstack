@@ -23,12 +23,23 @@ export const GitOpsLockBanner: React.FC<GitOpsLockBannerProps> = ({
         <span className="text-muted-foreground ml-1">
           — edits are disabled. Changes must be made in Git.
         </span>
-        <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-          <span className="truncate">
+        {provenance.sourceUrl ? (
+          <a
+            href={provenance.sourceUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="text-xs text-primary hover:underline mt-0.5 flex items-center gap-1"
+          >
+            <span className="truncate">
+              {provenance.repository}/{provenance.filePath}
+            </span>
+            <ExternalLink className="w-3 h-3 shrink-0" />
+          </a>
+        ) : (
+          <div className="text-xs text-muted-foreground mt-0.5 truncate">
             {provenance.repository}/{provenance.filePath}
-          </span>
-          <ExternalLink className="w-3 h-3 shrink-0" />
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

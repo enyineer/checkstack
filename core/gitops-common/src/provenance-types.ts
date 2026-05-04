@@ -16,6 +16,12 @@ export const provenanceSchema = z.object({
   providerId: z.string(),
   repository: z.string(),
   filePath: z.string(),
+  /**
+   * Browsable web URL pointing to the entity's defining file in its source
+   * provider, derived from the provider type, baseUrl, repository and filePath.
+   * Null when the URL cannot be safely derived (unknown baseUrl shape, etc.).
+   */
+  sourceUrl: z.string().nullable(),
   lastSyncHash: z.string(),
   status: provenanceStatusSchema,
   errorMessage: z.string().nullable(),
