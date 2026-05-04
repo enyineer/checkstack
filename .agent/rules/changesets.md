@@ -14,3 +14,5 @@ You typically **don't need** a changeset for:
 - Development tooling changes
 
 Check the changesets documentation under .changeset/README.md if necessary.
+
+*KEEP IN MIND*: The platform is currently in BETA. DO NOT bump packages with major versions, instead bump with minor but add BREAKING CHANGES to the changesets text.

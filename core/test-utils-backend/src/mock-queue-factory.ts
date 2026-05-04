@@ -101,7 +101,9 @@ export function createMockQueueManager(): QueueManager {
         completed: 0,
         failed: 0,
         consumerGroups: consumers.size,
+        scope: "instance" as const,
       }),
+      listJobs: async () => ({ items: [], total: 0, hasMore: false }),
     };
 
     return mockQueue;
@@ -131,7 +133,9 @@ export function createMockQueueManager(): QueueManager {
       completed: 0,
       failed: 0,
       consumerGroups: 0,
+      scope: "instance" as const,
     }),
+    listJobs: async () => ({ items: [], total: 0, hasMore: false }),
     listAllRecurringJobs: async (): Promise<RecurringJobInfo[]> => [],
     startPolling: () => {},
     shutdown: async () => {
