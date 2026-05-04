@@ -152,6 +152,24 @@ export interface Queue<T = unknown> {
    * Get queue statistics
    */
   getStats(): Promise<QueueStats>;
+
+  /**
+   * List jobs in a particular state for the Infrastructure runtime panel,
+   * paginated.
+   *
+   * Implementations MUST:
+   * - Return summaries only (no payloads).
+   * - Honour `opts.offset` and `opts.limit`.
+   * - For `completed` / `failed`: return the most recent first.
+   * - For `active` / `waiting` / `delayed`: return the oldest first
+   *   (FIFO order — what users typically want to see).
+   * - Set `total` to a cheap exact count when possible, or `null` when not.
+   * - Set `hasMore` correctly so the UI can disable the "next" control.
+   *
+   * Backends without affordable history (e.g. fire-and-forget transports)
+   * may return `{ items: [], total: 0, hasMore: false }` for terminal states.
+   */
+  listJobs(opts: ListJobsOptions): Promise<ListJobsResult>;
 }
 
 export interface QueueStats {
@@ -163,4 +181,87 @@ export interface QueueStats {
    * Number of active consumer groups
    */
   consumerGroups: number;
+  /**
+   * Whether these stats reflect the local process only (`"instance"`) or
+   * the entire deployment cluster (`"cluster"`). Backends that share state
+   * across replicas (e.g. BullMQ on Redis) report `"cluster"`. Backends
+   * that hold state in-process (e.g. the in-memory queue) report
+   * `"instance"`; in horizontally scaled deployments, each replica returns
+   * its own numbers.
+   */
+  scope: "instance" | "cluster";
+}
+
+/**
+ * Lifecycle states a job can be in. Mirrors BullMQ for consistency, with
+ * one virtual addition: `"pending"` is the union of `"waiting"` and
+ * `"delayed"`. Most operators think of "pending work" as both — the
+ * Infrastructure UI exposes it as a single tab, and the existing
+ * `QueueStats.pending` already aggregates both counts.
+ */
+export type JobState =
+  | "pending"
+  | "waiting"
+  | "active"
+  | "delayed"
+  | "completed"
+  | "failed";
+
+/**
+ * Inspection summary for a single job. Carries no payload — payloads can
+ * contain secrets, so they're surfaced (if at all) behind a separate
+ * manage-access RPC. The Infrastructure runtime panel uses these summaries
+ * for the Active / Failed / Completed sub-tables.
+ */
+export interface JobSummary {
+  id: string;
+  /** Optional job/queue name for display. */
+  name?: string;
+  state: JobState;
+  /** Time the job was first enqueued. */
+  enqueuedAt: Date;
+  /** Time the job started processing, if applicable. */
+  startedAt?: Date;
+  /** Time the job finished (completed or failed), if applicable. */
+  finishedAt?: Date;
+  /** Attempts made so far (1-based on completion, 0 before first run). */
+  attempts: number;
+  /** Failure message, only set when `state === "failed"`. */
+  failedReason?: string;
+  /**
+   * For recurring schedules and delayed jobs: the absolute time of the
+   * next planned execution. Lets the UI render a "Next run" column for
+   * pending/delayed rows so cron-scheduled work (e.g. healthchecks) is
+   * visible between fires.
+   */
+  nextRunAt?: Date;
+  /**
+   * Whether this row represents a recurring schedule (cron / interval)
+   * rather than a one-shot enqueue. Used by the UI to label such rows
+   * distinctly so operators can tell scheduled work from ad-hoc work.
+   */
+  recurring?: boolean;
+}
+
+/**
+ * Options for {@link Queue.listJobs}. Offset-based pagination — backends
+ * that natively use cursors (BullMQ, Redis SCAN, etc.) translate internally.
+ */
+export interface ListJobsOptions {
+  state: JobState;
+  /** Zero-based offset into the result set. */
+  offset: number;
+  /** Maximum summaries to return. Implementations should cap at a reasonable upper bound. */
+  limit: number;
+}
+
+/**
+ * Paginated result for {@link Queue.listJobs}.
+ */
+export interface ListJobsResult {
+  items: JobSummary[];
+  /** Total job count for the requested state, or `null` if the backend can't compute it cheaply. */
+  total: number | null;
+  /** Whether more items exist past `offset + items.length`. */
+  hasMore: boolean;
 }

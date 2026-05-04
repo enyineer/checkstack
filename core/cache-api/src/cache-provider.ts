@@ -1,4 +1,60 @@
 /**
+ * Coarse runtime statistics about a cache backend.
+ *
+ * All numeric fields are nullable: a value of `null` means "the backend
+ * cannot report this metric cheaply" (e.g. a remote cache where counting
+ * keys would scan the whole keyspace). The Infrastructure UI renders
+ * `null` as "—".
+ */
+export interface CacheStats {
+  /** Number of cached keys, or `null` if the backend can't report it cheaply. */
+  keyCount: number | null;
+  /** Approximate memory footprint in bytes, or `null` if unknown. */
+  sizeBytes: number | null;
+  /** Hit count since the provider started, or `null` if not tracked. */
+  hits: number | null;
+  /** Miss count since the provider started, or `null` if not tracked. */
+  misses: number | null;
+  /**
+   * `"instance"` if these stats reflect just this process's cache,
+   * `"cluster"` if they're shared across the deployment.
+   */
+  scope: "instance" | "cluster";
+}
+
+/**
+ * Inspection summary for a single cache entry. Used by the Infrastructure
+ * runtime panel to surface "biggest values" / "newest entries". Values are
+ * deliberately omitted: cached payloads can carry secrets and PII.
+ */
+export interface CacheEntrySummary {
+  /** Fully-qualified key as stored (already plugin-prefixed). */
+  key: string;
+  /** Approximate byte footprint of the entry. */
+  byteSize: number;
+  /** Absolute expiration time, or `null` for entries with no TTL. */
+  expiresAt: Date | null;
+}
+
+export interface ListEntriesOptions {
+  /** Zero-based offset into the sorted result set. */
+  offset: number;
+  limit: number;
+  sortBy: "biggest" | "newest";
+}
+
+/**
+ * Paginated result for {@link CacheProvider.listEntries}.
+ */
+export interface ListEntriesResult {
+  items: CacheEntrySummary[];
+  /** Total entry count, or `null` if the backend can't compute it cheaply. */
+  total: number | null;
+  /** Whether more items exist past `offset + items.length`. */
+  hasMore: boolean;
+}
+
+/**
  * Cache provider interface for key-value storage with optional TTL.
  *
  * Implementations should be stateless from the caller's perspective —
@@ -36,6 +92,28 @@ export interface CacheProvider {
    * Check if a key exists and has not expired.
    */
   has(key: string): Promise<boolean>;
+
+  /**
+   * Optional: return coarse runtime statistics for the Infrastructure UI.
+   *
+   * Implementations that can answer this cheaply (in-process caches, or
+   * remote caches with a built-in stats command) should implement it.
+   * Backends without an affordable stats path should leave it unset; the
+   * UI will report "stats unavailable" and the router returns all-null
+   * fields.
+   */
+  getStats?(): Promise<CacheStats>;
+
+  /**
+   * Optional: list cache entries (without values) for the Infrastructure
+   * runtime panel, paginated. Used to surface the biggest entries when the
+   * cache fills up.
+   *
+   * Implementations should NOT return values — only key, size, and TTL.
+   * Backends that can't enumerate keys cheaply (e.g. some remote caches)
+   * should leave this unset.
+   */
+  listEntries?(opts: ListEntriesOptions): Promise<ListEntriesResult>;
 }
 
 /**

@@ -9,33 +9,72 @@ import type {
 import type { Signal } from "@checkstack/signal-common";
 
 /**
- * Extract the context type from a SlotDefinition
+ * Extract the context type from a SlotDefinition.
  */
-export type SlotContext<T> = T extends SlotDefinition<infer C> ? C : never;
+export type SlotContext<T> = T extends SlotDefinition<infer C, unknown>
+  ? C
+  : never;
 
 /**
- * Type-safe extension that infers component props from the slot definition.
+ * Extract the metadata type from a SlotDefinition.
+ */
+export type SlotMetadata<T> = T extends SlotDefinition<unknown, infer M>
+  ? M
+  : never;
+
+/**
+ * Type-safe extension that infers component props and metadata from the
+ * slot definition.
+ *
+ * The `metadata` field is always declared as optional on the base interface
+ * so that aggregate types like `Extension[]` (used in
+ * {@link FrontendPlugin.extensions}) accept extensions for slots that don't
+ * declare metadata. The required-vs-optional distinction is enforced at
+ * registration time by {@link createSlotExtension}, which narrows the input
+ * shape based on the slot's metadata parameter.
  */
 export interface Extension<
-  TSlot extends SlotDefinition<unknown> = SlotDefinition<unknown>
+  TSlot extends SlotDefinition<unknown, unknown> = SlotDefinition<
+    unknown,
+    unknown
+  >
 > {
   id: string;
   slot: TSlot;
   component: React.ComponentType<SlotContext<TSlot>>;
+  metadata?: SlotMetadata<TSlot>;
 }
 
 /**
- * Helper to create a type-safe extension from a slot definition.
- * This ensures the component props match the slot's expected context.
+ * Input shape for `createSlotExtension`. Requires `metadata` when the slot
+ * declares a non-`undefined` metadata type, forbids it otherwise.
  */
-export function createSlotExtension<TSlot extends SlotDefinition<unknown>>(
-  slot: TSlot,
-  extension: Omit<Extension<TSlot>, "slot">
-): Extension<TSlot> {
+type SlotExtensionInput<TSlot extends SlotDefinition<unknown, unknown>> =
+  SlotMetadata<TSlot> extends undefined
+    ? {
+        id: string;
+        component: React.ComponentType<SlotContext<TSlot>>;
+        metadata?: undefined;
+      }
+    : {
+        id: string;
+        component: React.ComponentType<SlotContext<TSlot>>;
+        metadata: SlotMetadata<TSlot>;
+      };
+
+/**
+ * Helper to create a type-safe extension from a slot definition.
+ * Ensures the component props match the slot's expected context and that
+ * `metadata` matches the slot's metadata contract (required when the slot
+ * declares typed metadata, forbidden otherwise).
+ */
+export function createSlotExtension<
+  TSlot extends SlotDefinition<unknown, unknown>
+>(slot: TSlot, extension: SlotExtensionInput<TSlot>): Extension<TSlot> {
   return {
     ...extension,
     slot,
-  };
+  } as Extension<TSlot>;
 }
 
 /**

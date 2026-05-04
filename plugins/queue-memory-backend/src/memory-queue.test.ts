@@ -505,4 +505,192 @@ describe("InMemoryQueue Consumer Groups", () => {
   });
 
   // NOTE: Recurring job tests are in recurring-jobs.test.ts
+
+  describe("listJobs + getStats scope", () => {
+    it("getStats reports scope=instance", async () => {
+      const stats = await queue.getStats();
+      expect(stats.scope).toBe("instance");
+    });
+
+    it("lists waiting jobs in FIFO order", async () => {
+      await queue.enqueue("a", { jobId: "j-a" });
+      await queue.enqueue("b", { jobId: "j-b" });
+      await queue.enqueue("c", { jobId: "j-c" });
+
+      const waiting = await queue.listJobs({
+        state: "waiting",
+        offset: 0,
+        limit: 10,
+      });
+      expect(waiting.items.map((j) => j.id)).toEqual(["j-a", "j-b", "j-c"]);
+      expect(waiting.items.every((j) => j.state === "waiting")).toBe(true);
+      expect(waiting.total).toBe(3);
+      expect(waiting.hasMore).toBe(false);
+    });
+
+    it("classifies delayed jobs separately from waiting", async () => {
+      // delayMultiplier=0.01 means startDelay=10s becomes 100ms; list before it elapses.
+      await queue.enqueue("now");
+      await queue.enqueue("later", { startDelay: 10 });
+
+      const waiting = await queue.listJobs({
+        state: "waiting",
+        offset: 0,
+        limit: 10,
+      });
+      const delayed = await queue.listJobs({
+        state: "delayed",
+        offset: 0,
+        limit: 10,
+      });
+      expect(waiting.items).toHaveLength(1);
+      expect(delayed.items).toHaveLength(1);
+    });
+
+    it("surfaces recurring (cron) schedules under pending with nextRunAt", async () => {
+      // Use cron pattern: every minute
+      await queue.scheduleRecurring("payload", {
+        jobId: "cron-job",
+        cronPattern: "*/1 * * * *",
+      });
+
+      const pending = await queue.listJobs({
+        state: "pending",
+        offset: 0,
+        limit: 10,
+      });
+      const cronRow = pending.items.find((j) => j.id === "cron-job");
+      expect(cronRow).toBeDefined();
+      expect(cronRow!.recurring).toBe(true);
+      expect(cronRow!.state).toBe("delayed");
+      expect(cronRow!.nextRunAt).toBeInstanceOf(Date);
+      expect(cronRow!.nextRunAt!.getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it("surfaces recurring (interval) schedules under delayed with nextRunAt", async () => {
+      await queue.scheduleRecurring("payload", {
+        jobId: "interval-job",
+        intervalSeconds: 60,
+      });
+
+      const delayed = await queue.listJobs({
+        state: "delayed",
+        offset: 0,
+        limit: 10,
+      });
+      const row = delayed.items.find((j) => j.id === "interval-job");
+      expect(row).toBeDefined();
+      expect(row!.recurring).toBe(true);
+      expect(row!.nextRunAt).toBeInstanceOf(Date);
+    });
+
+    it("'pending' is the union of waiting and delayed, FIFO", async () => {
+      await queue.enqueue("now1", { jobId: "p-now-1" });
+      await queue.enqueue("later", { jobId: "p-later", startDelay: 10 });
+      await queue.enqueue("now2", { jobId: "p-now-2" });
+
+      const pending = await queue.listJobs({
+        state: "pending",
+        offset: 0,
+        limit: 10,
+      });
+      expect(pending.items.map((j) => j.id)).toEqual([
+        "p-now-1",
+        "p-later",
+        "p-now-2",
+      ]);
+      expect(pending.total).toBe(3);
+      // Per-job state classification preserved.
+      const states = Object.fromEntries(
+        pending.items.map((j) => [j.id, j.state]),
+      );
+      expect(states["p-now-1"]).toBe("waiting");
+      expect(states["p-later"]).toBe("delayed");
+      expect(states["p-now-2"]).toBe("waiting");
+    });
+
+    it("records completed jobs in history (most-recent first)", async () => {
+      await queue.consume(async () => {}, {
+        consumerGroup: "g1",
+        maxRetries: 0,
+      });
+
+      await queue.enqueue("x", { jobId: "ok-1" });
+      await queue.enqueue("y", { jobId: "ok-2" });
+      await new Promise((resolve) => setTimeout(resolve, 60));
+
+      const completed = await queue.listJobs({
+        state: "completed",
+        offset: 0,
+        limit: 10,
+      });
+      expect(completed.items.length).toBe(2);
+      expect(completed.total).toBe(2);
+      // Newest first
+      expect(
+        completed.items[0].finishedAt!.getTime(),
+      ).toBeGreaterThanOrEqual(completed.items[1].finishedAt!.getTime());
+      expect(completed.items[0].state).toBe("completed");
+    });
+
+    it("records failed jobs with the error message", async () => {
+      await queue.consume(
+        async () => {
+          throw new Error("boom");
+        },
+        { consumerGroup: "g1", maxRetries: 0 },
+      );
+
+      await queue.enqueue("z", { jobId: "bad-1" });
+      await new Promise((resolve) => setTimeout(resolve, 60));
+
+      const failed = await queue.listJobs({
+        state: "failed",
+        offset: 0,
+        limit: 10,
+      });
+      expect(failed.items.length).toBe(1);
+      expect(failed.items[0].state).toBe("failed");
+      expect(failed.items[0].failedReason).toBe("boom");
+    });
+
+    it("paginates with offset/limit", async () => {
+      await queue.consume(async () => {}, {
+        consumerGroup: "g1",
+        maxRetries: 0,
+      });
+      for (let i = 0; i < 10; i++) {
+        await queue.enqueue("v", { jobId: `id-${i}` });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 80));
+
+      const page1 = await queue.listJobs({
+        state: "completed",
+        offset: 0,
+        limit: 3,
+      });
+      expect(page1.items).toHaveLength(3);
+      expect(page1.total).toBe(10);
+      expect(page1.hasMore).toBe(true);
+
+      const page2 = await queue.listJobs({
+        state: "completed",
+        offset: 3,
+        limit: 3,
+      });
+      expect(page2.items).toHaveLength(3);
+      // Different page should yield different ids
+      expect(page2.items.map((j) => j.id)).not.toEqual(
+        page1.items.map((j) => j.id),
+      );
+
+      const lastPage = await queue.listJobs({
+        state: "completed",
+        offset: 9,
+        limit: 3,
+      });
+      expect(lastPage.items).toHaveLength(1);
+      expect(lastPage.hasMore).toBe(false);
+    });
+  });
 });

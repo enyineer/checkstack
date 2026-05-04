@@ -6,6 +6,9 @@ import {
   CachePluginDtoSchema,
   CacheConfigurationDtoSchema,
   UpdateCacheConfigurationSchema,
+  CacheRuntimeStatsSchema,
+  ListCacheEntriesInputSchema,
+  ListCacheEntriesResultSchema,
 } from "./schemas";
 
 /**
@@ -34,6 +37,23 @@ export const cacheContract = {
   })
     .input(UpdateCacheConfigurationSchema)
     .output(CacheConfigurationDtoSchema),
+
+  // Cache runtime stats - Read access
+  getRuntimeStats: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [cacheAccess.settings.read],
+  }).output(CacheRuntimeStatsSchema),
+
+  // List cache entries (without values) - Read access. Backends without an
+  // affordable enumeration path return `supported: false`.
+  listEntries: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [cacheAccess.settings.read],
+  })
+    .input(ListCacheEntriesInputSchema)
+    .output(ListCacheEntriesResultSchema),
 };
 
 // Export contract type
