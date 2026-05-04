@@ -15,6 +15,13 @@
       "when": 1769034170052,
       "tag": "0001_early_madrox",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777907813247,
+      "tag": "0002_harsh_carmella_unuscione",
+      "breakpoints": true
     }
   ]
 }

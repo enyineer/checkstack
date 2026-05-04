@@ -392,5 +392,34 @@ export function createRouter(
         );
         return { suppressed };
       }),
+
+    addLink: os.addLink.handler(async ({ input }) => {
+      // Verify incident exists so the FK violation surfaces as NOT_FOUND.
+      const incident = await service.getIncident(input.incidentId);
+      if (!incident) {
+        throw new ORPCError("NOT_FOUND", { message: "Incident not found" });
+      }
+      const link = await service.addLink(input);
+      await cache.invalidateForMutation({
+        incidentId: incident.id,
+        systemIds: incident.systemIds,
+      });
+      return link;
+    }),
+
+    removeLink: os.removeLink.handler(async ({ input }) => {
+      const incidentId = await service.removeLink(input.id);
+      if (!incidentId) {
+        return { success: false };
+      }
+      const incident = await service.getIncident(incidentId);
+      if (incident) {
+        await cache.invalidateForMutation({
+          incidentId,
+          systemIds: incident.systemIds,
+        });
+      }
+      return { success: true };
+    }),
   });
 }

@@ -26,6 +26,7 @@ import {
   SelectContent,
   SelectItem,
   StatusUpdateTimeline,
+  LinksEditor,
 } from "@checkstack/ui";
 import { Plus, MessageSquare, Loader2, AlertCircle } from "lucide-react";
 import { IncidentUpdateForm } from "./IncidentUpdateForm";
@@ -83,6 +84,24 @@ export const IncidentEditor: React.FC<Props> = ({
     },
     onError: (error) => {
       toast.error(extractErrorMessage(error, "Failed to save"));
+    },
+  });
+
+  const addLinkMutation = incidentClient.addLink.useMutation({
+    onSuccess: () => {
+      void refetchDetail();
+    },
+    onError: (error) => {
+      toast.error(extractErrorMessage(error, "Failed to add link"));
+    },
+  });
+
+  const removeLinkMutation = incidentClient.removeLink.useMutation({
+    onSuccess: () => {
+      void refetchDetail();
+    },
+    onError: (error) => {
+      toast.error(extractErrorMessage(error, "Failed to remove link"));
     },
   });
 
@@ -338,6 +357,30 @@ export const IncidentEditor: React.FC<Props> = ({
                   maxHeight="max-h-48"
                 />
               )}
+            </div>
+          )}
+
+          {/* Hotlinks (Jira tickets, runbooks, ...) — editing only */}
+          {incident && (
+            <div className="border-t pt-4">
+              <LinksEditor
+                title="Hotlinks"
+                description="Attach Jira tickets, runbooks, dashboards, or any URL relevant to this incident."
+                links={incidentDetail?.links ?? []}
+                busy={
+                  addLinkMutation.isPending || removeLinkMutation.isPending
+                }
+                onAdd={async ({ label, url }) => {
+                  await addLinkMutation.mutateAsync({
+                    incidentId: incident.id,
+                    label,
+                    url,
+                  });
+                }}
+                onRemove={async (link) => {
+                  await removeLinkMutation.mutateAsync({ id: link.id });
+                }}
+              />
             </div>
           )}
 

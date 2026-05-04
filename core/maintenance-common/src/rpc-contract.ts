@@ -6,6 +6,8 @@ import {
   MaintenanceWithSystemsSchema,
   MaintenanceDetailSchema,
   MaintenanceUpdateSchema,
+  MaintenanceLinkSchema,
+  AddMaintenanceLinkInputSchema,
   CreateMaintenanceInputSchema,
   UpdateMaintenanceInputSchema,
   AddMaintenanceUpdateInputSchema,
@@ -101,6 +103,24 @@ export const maintenanceContract = {
   })
     .input(z.object({ id: z.string(), message: z.string().optional() }))
     .output(MaintenanceWithSystemsSchema),
+
+  /** Add a hotlink (e.g. change ticket, runbook) to a maintenance */
+  addLink: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [maintenanceAccess.maintenance.manage],
+  })
+    .input(AddMaintenanceLinkInputSchema)
+    .output(MaintenanceLinkSchema),
+
+  /** Remove a hotlink from a maintenance */
+  removeLink: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [maintenanceAccess.maintenance.manage],
+  })
+    .input(z.object({ id: z.string() }))
+    .output(z.object({ success: z.boolean() })),
 
   /** Delete a maintenance */
   deleteMaintenance: proc({

@@ -16,6 +16,7 @@ const CATALOG_TTL_MS = 25_000;
 const ENTITY_PREFIX = "entity:";
 const VIEW_PREFIX = "view:";
 const CONTACTS_PREFIX = "contacts:";
+const LINKS_PREFIX = "links:";
 
 const ENTITIES_KEY = `${ENTITY_PREFIX}entities`;
 const SYSTEMS_KEY = `${ENTITY_PREFIX}systems`;
@@ -27,6 +28,7 @@ const groupsForSystemKey = (systemId: string): string =>
   `${ENTITY_PREFIX}groups-for-system:${systemId}`;
 const contactsKey = (systemId: string): string =>
   `${CONTACTS_PREFIX}${systemId}`;
+const linksKey = (systemId: string): string => `${LINKS_PREFIX}${systemId}`;
 
 export interface CatalogCache {
   /** Read-through caches for the dashboard hot paths. */
@@ -40,6 +42,7 @@ export interface CatalogCache {
   ) => Promise<T>;
   wrapViews: <T>(loader: () => Promise<T>) => Promise<T>;
   wrapContacts: <T>(systemId: string, loader: () => Promise<T>) => Promise<T>;
+  wrapLinks: <T>(systemId: string, loader: () => Promise<T>) => Promise<T>;
 
   /**
    * Drop the whole topology family (entities, systems, groups, per-system,
@@ -54,6 +57,9 @@ export interface CatalogCache {
 
   /** Drop one system's contact cache. */
   invalidateContacts: (systemId: string) => Promise<void>;
+
+  /** Drop one system's hotlink cache. */
+  invalidateLinks: (systemId: string) => Promise<void>;
 
   scope: CachedScope;
 }
@@ -84,10 +90,12 @@ export function createCatalogCache({
     wrapViews: (loader) => scope.wrap(VIEWS_KEY, loader),
     wrapContacts: (systemId, loader) =>
       scope.wrap(contactsKey(systemId), loader),
+    wrapLinks: (systemId, loader) => scope.wrap(linksKey(systemId), loader),
 
     invalidateTopology: () => scope.invalidatePrefix(ENTITY_PREFIX),
     invalidateViews: () => scope.invalidatePrefix(VIEW_PREFIX),
     invalidateContacts: (systemId) => scope.invalidate(contactsKey(systemId)),
+    invalidateLinks: (systemId) => scope.invalidate(linksKey(systemId)),
 
     scope,
   };

@@ -24,7 +24,7 @@ import {
 } from "@checkstack/ui";
 import { authApiRef } from "@checkstack/auth-frontend/api";
 
-import { Activity, Calendar, Mail, User } from "lucide-react";
+import { Activity, Calendar, ExternalLink, Mail, User } from "lucide-react";
 
 export const SystemDetailPage: React.FC = () => {
   const { systemId } = useParams<{ systemId: string }>();
@@ -45,6 +45,12 @@ export const SystemDetailPage: React.FC = () => {
 
   // Fetch contacts for this system
   const { data: contactsData } = catalogClient.getSystemContacts.useQuery(
+    { systemId: systemId ?? "" },
+    { enabled: !!systemId },
+  );
+
+  // Fetch additional links for this system
+  const { data: linksData } = catalogClient.getSystemLinks.useQuery(
     { systemId: systemId ?? "" },
     { enabled: !!systemId },
   );
@@ -198,6 +204,37 @@ export const SystemDetailPage: React.FC = () => {
                           ({contact.label})
                         </span>
                       )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="h-px bg-border" />
+
+            {/* Additional Links */}
+            <div className="space-y-2">
+              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Additional Links
+              </h3>
+              {!linksData || linksData.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No links</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {linksData.map((link) => (
+                    <div
+                      key={link.id}
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline truncate"
+                      >
+                        {link.label ?? link.url}
+                      </a>
                     </div>
                   ))}
                 </div>
