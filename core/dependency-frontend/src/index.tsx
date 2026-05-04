@@ -51,7 +51,7 @@ export default createFrontendPlugin({
     createSlotExtension(UserMenuItemsSlot, {
       id: "dependency.user-menu.map",
       component: DependencyMenuItems,
-      group: "Workspace",
+      metadata: { group: "Workspace" },
     }),
   ],
 });

@@ -62,9 +62,21 @@ export interface UserMenuItemsContext {
   hasCredentialAccount: boolean;
 }
 
-export const UserMenuItemsSlot = createSlot<UserMenuItemsContext>(
-  "core.layout.navbar.user-menu.items"
-);
+/**
+ * Metadata for user-menu top-section extensions. The optional `group` key
+ * lets the menu render extensions under labeled headers (Workspace,
+ * Reliability, Configuration, Documentation, Account, or any custom label
+ * supplied by a third-party plugin). Extensions without a group render in
+ * an unlabeled bucket at the bottom of the top section.
+ */
+export interface UserMenuItemsMetadata {
+  group?: string;
+}
+
+export const UserMenuItemsSlot = createSlot<
+  UserMenuItemsContext,
+  UserMenuItemsMetadata
+>("core.layout.navbar.user-menu.items");
 export const UserMenuItemsBottomSlot = createSlot<UserMenuItemsContext>(
   "core.layout.navbar.user-menu.items.bottom"
 );

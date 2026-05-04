@@ -23,7 +23,7 @@ export const infrastructurePlugin = createFrontendPlugin({
     createSlotExtension(UserMenuItemsSlot, {
       id: "infrastructure.user-menu.items",
       component: InfrastructureUserMenuItems,
-      group: "Configuration",
+      metadata: { group: "Configuration" },
     }),
   ],
 });

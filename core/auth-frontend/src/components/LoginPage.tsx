@@ -431,14 +431,16 @@ const USER_MENU_GROUP_ORDER: readonly string[] = [
   "Account",
 ];
 
+type UserMenuExtension = Extension<typeof UserMenuItemsSlot>;
+
 function groupTopExtensions(
-  extensions: Extension[],
-): Array<{ label: string | undefined; items: Extension[] }> {
-  const buckets = new Map<string, Extension[]>();
-  const ungrouped: Extension[] = [];
+  extensions: UserMenuExtension[],
+): Array<{ label: string | undefined; items: UserMenuExtension[] }> {
+  const buckets = new Map<string, UserMenuExtension[]>();
+  const ungrouped: UserMenuExtension[] = [];
 
   for (const ext of extensions) {
-    const groupName = ext.group;
+    const groupName = ext.metadata?.group;
     if (!groupName) {
       ungrouped.push(ext);
       continue;
@@ -451,7 +453,7 @@ function groupTopExtensions(
     }
   }
 
-  const result: Array<{ label: string | undefined; items: Extension[] }> = [];
+  const result: Array<{ label: string | undefined; items: UserMenuExtension[] }> = [];
   // Known groups in canonical order.
   for (const name of USER_MENU_GROUP_ORDER) {
     const items = buckets.get(name);
@@ -501,7 +503,9 @@ export const LoginNavbarAction = () => {
   }
 
   if (session?.user) {
-    const topExtensions = pluginRegistry.getExtensions(UserMenuItemsSlot.id);
+    const topExtensions = pluginRegistry.getExtensions(
+      UserMenuItemsSlot.id,
+    ) as UserMenuExtension[];
     const bottomExtensions = pluginRegistry.getExtensions(
       UserMenuItemsBottomSlot.id,
     );

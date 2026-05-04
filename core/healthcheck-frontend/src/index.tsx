@@ -96,7 +96,7 @@ export default createFrontendPlugin({
     createSlotExtension(UserMenuItemsSlot, {
       id: "healthcheck.user-menu.items",
       component: HealthCheckMenuItems,
-      group: "Reliability",
+      metadata: { group: "Reliability" },
     }),
     createSlotExtension(SystemStateBadgesSlot, {
       id: "healthcheck.system-health-badge",
