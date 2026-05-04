@@ -16,6 +16,18 @@ export default defineConfig({
     starlight({
       title: "Checkstack",
       description: "Plugin-based application platform with extensible architecture.",
+      // expressive-code (Starlight's syntax-highlighting layer) bundles
+      // Shiki's standard languages but does not include `env`. Several
+      // pages use ```env fences for .env-style examples, so alias them
+      // to `dotenv` (which Shiki ships) instead of falling back to
+      // `txt` with a build-time warning.
+      expressiveCode: {
+        shiki: {
+          langAlias: {
+            env: "dotenv",
+          },
+        },
+      },
       logo: {
         src: "./src/assets/logo.svg",
         replacesTitle: false,
