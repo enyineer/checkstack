@@ -69,6 +69,15 @@ async function discover(): Promise<DiscoveredPackage[]> {
       const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as PackageJson;
       if (!pkg.name) continue;
 
+      // Skip packages whose tsconfig is owned by a non-tsgo toolchain
+      // (e.g. Astro for the docs site). Their config references virtual
+      // modules like `astro:content` that only resolve via the tool's own
+      // type-check command, so wiring them into the `tsgo -b` solution
+      // would break CI.
+      const tsRaw = readFileSync(tsPath, "utf8");
+      const extendsMatch = tsRaw.match(/"extends"\s*:\s*"([^"]+)"/);
+      if (extendsMatch && extendsMatch[1].startsWith("astro/")) continue;
+
       const allDeps = {
         ...pkg.dependencies,
         ...pkg.devDependencies,
