@@ -13,14 +13,15 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "@checkstack/integration-common": "workspace:*",
-    "@checkstack/frontend-api": "workspace:*",
-    "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/common": "workspace:*",
+    "@checkstack/frontend-api": "workspace:*",
+    "@checkstack/integration-common": "workspace:*",
+    "@checkstack/signal-frontend": "workspace:*",
+    "@checkstack/tips-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
+    "lucide-react": "^0.344.0",
     "react": "^18.2.0",
-    "react-router-dom": "^6.22.0",
-    "lucide-react": "^0.344.0"
+    "react-router-dom": "^6.22.0"
   },
   "devDependencies": {
     "typescript": "^5.0.0",

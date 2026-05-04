@@ -14,6 +14,8 @@ import {
   catalogGroupTarget,
 } from "@checkstack/catalog-common";
 import { resolveRoute } from "@checkstack/common";
+import { TipBanner } from "@checkstack/tips-frontend";
+import { pluginMetadata as dashboardTipMetadata } from "./pluginMetadata";
 import { NotificationSubscriptionsManager } from "@checkstack/notification-frontend";
 import { IncidentApi } from "@checkstack/incident-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
@@ -28,6 +30,7 @@ import {
   SectionHeader,
   StatusCard,
   EmptyState,
+  Button,
   LoadingSpinner,
   AnimatedCounter,
   TerminalFeed,
@@ -44,6 +47,7 @@ import {
   Wrench,
   Terminal,
   ActivitySquare,
+  Lightbulb,
 } from "lucide-react";
 import { authApiRef } from "@checkstack/auth-frontend/api";
 import { QueueLagAlert } from "@checkstack/queue-frontend";
@@ -215,9 +219,20 @@ export const Dashboard: React.FC = () => {
     if (groupsWithSystems.length === 0) {
       return (
         <EmptyState
-          title="No system groups found"
-          description="Visit the Catalog to create your first group."
           icon={<Server className="w-12 h-12" />}
+          title="Nothing to show on the dashboard yet"
+          description="Once you have systems organised into groups, this is where you'll see their rolled-up health, on a per-team or per-product basis."
+          steps={[
+            "Open the Catalog and add the systems you want to monitor.",
+            "Group related systems together (e.g. one group per team).",
+            "Attach health checks to each system so the dashboard turns green when things are working — and red when they aren't.",
+          ]}
+          actions={
+            <Button onClick={() => navigate(resolveRoute(catalogRoutes.routes.config))}>
+              <LayoutGrid className="w-4 h-4 mr-2" />
+              Open Catalog
+            </Button>
+          }
         />
       );
     }
@@ -306,6 +321,35 @@ export const Dashboard: React.FC = () => {
       >
         {/* Queue Lag Warning */}
         <QueueLagAlert />
+
+        {/* First-run welcome */}
+        <TipBanner
+          plugin={dashboardTipMetadata}
+          id="welcome"
+          title="Welcome to Checkstack"
+          description={
+            <>
+              This is your dashboard — overall health, recent activity, and
+              ongoing maintenances at a glance. To bring it to life, start
+              by adding a system in the <strong>Catalog</strong>, then
+              attach a health check to it.
+            </>
+          }
+          action={{
+            label: "Open Catalog",
+            onClick: () => navigate(resolveRoute(catalogRoutes.routes.config)),
+          }}
+          actionHint={
+            <span className="inline-flex items-center gap-1.5">
+              <Lightbulb
+                className="size-3.5 shrink-0 text-amber-500"
+                aria-hidden="true"
+              />
+              See a small lightbulb next to a button or control? Click it
+              for a short explanation of what that feature does.
+            </span>
+          }
+        />
 
         {/* Overview Section */}
         <section>

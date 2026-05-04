@@ -23,6 +23,9 @@
       "path": "../signal-frontend"
     },
     {
+      "path": "../tips-frontend"
+    },
+    {
       "path": "../ui"
     }
   ]

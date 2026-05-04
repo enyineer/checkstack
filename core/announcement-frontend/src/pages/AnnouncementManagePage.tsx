@@ -8,11 +8,13 @@ import {
 import {
   AnnouncementApi,
   announcementAccess,
+  pluginMetadata as announcementPluginMetadata,
   type Announcement,
   type AnnouncementSeverity,
   type AnnouncementVisibility,
   type AnnouncementDisplayMode,
 } from "@checkstack/announcement-common";
+import { Tip } from "@checkstack/tips-frontend";
 import {
   PageLayout,
   Card,
@@ -501,10 +503,19 @@ const AnnouncementManageContent: React.FC = () => {
       loading={accessLoading}
       allowed={canManage}
       actions={
-        <Button onClick={handleCreate}>
-          <Plus className="h-4 w-4 mr-2" />
-          New Announcement
-        </Button>
+        <Tip
+          plugin={announcementPluginMetadata}
+          id="create"
+          title="Broadcast portal-wide"
+          description="An announcement is a top-of-portal banner — different from incidents (which are about specific systems) and notifications (which target subscribers). Use them for planned maintenance windows users should know about, new feature rollouts, or important policy changes."
+          side="bottom"
+          align="end"
+        >
+          <Button onClick={handleCreate}>
+            <Plus className="h-4 w-4 mr-2" />
+            New Announcement
+          </Button>
+        </Tip>
       }
     >
       <Card>
@@ -521,8 +532,20 @@ const AnnouncementManageContent: React.FC = () => {
             </div>
           ) : announcements.length === 0 ? (
             <EmptyState
+              icon={<Megaphone className="size-10" />}
               title="No announcements yet"
-              description="Create your first announcement to inform users about important updates."
+              description="Announcements appear at the top of the portal and let you broadcast information to anyone using Checkstack — planned downtime, new features, or status updates that don't fit the incident model."
+              steps={[
+                "Click “New Announcement” and write a short, clear title.",
+                "Pick a severity (info, warning, critical) — this controls colour and prominence.",
+                "Choose visibility: public, signed-in users only, or specific roles.",
+              ]}
+              actions={
+                <Button onClick={handleCreate}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create your first announcement
+                </Button>
+              }
             />
           ) : (
             <Table>

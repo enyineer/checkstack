@@ -57,8 +57,8 @@ const PluginEventsPageContent: React.FC = () => {
       {events.length === 0 ? (
         <EmptyState
           icon={<History className="w-12 h-12" />}
-          title="No events yet"
-          description="Plugin install/uninstall lifecycle events will show up here."
+          title="No plugin events yet"
+          description="Whenever a plugin is installed, uninstalled, enabled, or fails to load, the lifecycle event lands here with phase, status and any error message. Useful for diagnosing why a freshly installed plugin didn't show up where you expected."
         />
       ) : (
         <Card>

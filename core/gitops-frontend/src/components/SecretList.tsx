@@ -160,8 +160,29 @@ export const SecretList = () => {
             </div>
           ) : !secrets || secrets.length === 0 ? (
             <EmptyState
-              title="No secrets created"
-              description="Create secrets to securely reference sensitive values in your YAML descriptors."
+              icon={<KeyRound className="size-10" />}
+              title="No secrets yet"
+              description={
+                <>
+                  Secrets keep credentials, tokens and API keys out of your
+                  YAML descriptors and out of Git. Reference them from any
+                  GitOps file with{" "}
+                  <code className="text-xs">{"${{ secrets.NAME }}"}</code>.
+                </>
+              }
+              steps={[
+                "Add a secret with a recognisable name (e.g. PROD_API_TOKEN).",
+                "Reference it in any descriptor with the ${{ secrets.NAME }} syntax — values are resolved server-side at apply time.",
+                "Rotate by editing the secret here; descriptors don't have to change.",
+              ]}
+              actions={
+                canManage ? (
+                  <Button onClick={() => setIsEditorOpen(true)}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add your first secret
+                  </Button>
+                ) : undefined
+              }
             />
           ) : (
             <div className="space-y-3">

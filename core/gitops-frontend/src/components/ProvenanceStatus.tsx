@@ -263,8 +263,8 @@ export const ProvenanceStatus = () => {
               <div className="text-center py-8 text-muted-foreground">Loading...</div>
             ) : synced.length === 0 ? (
               <EmptyState
-                title="No synced entities"
-                description="Entities will appear here after a successful sync."
+                title="Nothing synced from Git yet"
+                description="Once a sync run finds and applies YAML descriptors from your Git providers, the resulting Checkstack entities (systems, groups, health checks, …) appear here with provenance — what file they came from and which commit. That's how you know which resources are managed in Git versus created in the UI."
               />
             ) : (
               renderEntryList(synced, false)

@@ -62,8 +62,23 @@ const SloOverviewPageContent: React.FC = () => {
         </div>
       ) : objectives.length === 0 ? (
         <EmptyState
+          icon={<Target className="size-10" />}
           title="No SLOs configured"
-          description="Define Service Level Objectives to track reliability."
+          description="SLOs translate uptime into a target — “healthy 99.9% of the time over 30 days” — and let you track the error budget per system. This dashboard lights up once you've defined at least one."
+          steps={[
+            "Open SLO management to create your first objective.",
+            "Pick the system, the target percentage and the rolling window.",
+            "Come back here for an at-a-glance view of every SLO and its remaining error budget.",
+          ]}
+          actions={
+            <Link
+              to={resolveRoute(sloRoutes.routes.config)}
+              className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
+            >
+              Manage SLOs
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          }
         />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6">

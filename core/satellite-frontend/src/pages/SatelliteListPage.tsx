@@ -8,7 +8,9 @@ import {
 import {
   SatelliteApi,
   satelliteAccess,
+  pluginMetadata as satellitePluginMetadata,
 } from "@checkstack/satellite-common";
+import { Tip } from "@checkstack/tips-frontend";
 import type { SatelliteWithStatus } from "@checkstack/satellite-common";
 import {
   Card,
@@ -89,10 +91,19 @@ const SatelliteListPageContent: React.FC = () => {
       loading={accessLoading}
       allowed={canManage}
       actions={
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Create Satellite
-        </Button>
+        <Tip
+          plugin={satellitePluginMetadata}
+          id="create"
+          title="Run checks from anywhere"
+          description="A satellite is a small Checkstack agent you deploy somewhere this server can't reach directly — another region, a customer site, an air-gapped network. Once registered, you can pin specific health checks to it."
+          side="bottom"
+          align="end"
+        >
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Create Satellite
+          </Button>
+        </Tip>
       }
     >
       <Card>
@@ -109,8 +120,22 @@ const SatelliteListPageContent: React.FC = () => {
             </div>
           ) : satelliteList.length === 0 ? (
             <EmptyState
-              title="No satellites configured"
-              description="Deploy satellite nodes to execute health checks from multiple geographic locations."
+              icon={<Satellite className="size-10" />}
+              title="No satellites yet"
+              description="A satellite is a small Checkstack agent you run somewhere else — another region, another VPC, a customer site — that executes health checks and reports results back to this server. You only need them if you want checks to run from a vantage point this server can't reach itself."
+              steps={[
+                "Create a satellite here to mint a registration token.",
+                "Deploy the satellite container or binary on the target machine using that token.",
+                "Once it's online, assign health checks to it on a per-check basis — TCP, HTTP, ping etc. all support satellite execution.",
+              ]}
+              actions={
+                canManage ? (
+                  <Button onClick={() => setCreateOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create satellite
+                  </Button>
+                ) : undefined
+              }
             />
           ) : (
             <Table>

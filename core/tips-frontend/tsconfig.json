@@ -1,0 +1,26 @@
+{
+  "extends": "@checkstack/tsconfig/frontend.json",
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../auth-frontend"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../frontend-api"
+    },
+    {
+      "path": "../test-utils-frontend"
+    },
+    {
+      "path": "../tips-common"
+    },
+    {
+      "path": "../ui"
+    }
+  ]
+}

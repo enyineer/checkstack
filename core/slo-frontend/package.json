@@ -21,6 +21,7 @@
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/slo-common": "workspace:*",
+    "@checkstack/tips-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.344.0",
