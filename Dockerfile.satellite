@@ -18,6 +18,9 @@ WORKDIR /app
 COPY package.json bun.lock ./
 COPY core ./core
 COPY plugins ./plugins
+# `docs` workspace is required for Bun's workspace resolver to succeed
+# even though the satellite never runs the docs site.
+COPY docs/package.json ./docs/package.json
 
 RUN --mount=type=cache,target=/root/.bun/install/cache \
   for i in 1 2 3; do \

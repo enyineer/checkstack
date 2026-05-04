@@ -1,0 +1,26 @@
+{
+  "name": "@checkstack/docs",
+  "version": "0.1.0",
+  "license": "Elastic-2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "lint": "echo 'no lint'",
+    "typecheck": "astro check"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.4",
+    "@astrojs/starlight": "^0.38.4",
+    "astro": "^6.2.2",
+    "remark-github-admonitions-to-directives": "^2.1.0",
+    "sharp": "^0.33.5",
+    "typescript": "^5.0.0"
+  },
+  "checkstack": {
+    "type": "tooling"
+  }
+}

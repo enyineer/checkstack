@@ -1,0 +1,72 @@
+---
+title: Checkstack
+description: Plugin-based application platform with extensible architecture.
+template: splash
+hero:
+  tagline: A pluggable platform for health checks, incidents, and operational signals — built around small typed plugins, an event bus, and a sane component library.
+  image:
+    file: ../../assets/logo.svg
+  actions:
+    - text: Get started
+      link: /checkstack/getting-started/docker/
+      icon: right-arrow
+      variant: primary
+    - text: Browse components
+      link: /checkstack/storybook/
+      icon: external
+      variant: minimal
+    - text: View on GitHub
+      link: https://github.com/enyineer/checkstack
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+## Where to next
+
+<CardGrid>
+  <LinkCard
+    title="Plugin development"
+    description="Scaffold a backend, frontend, or common plugin and ship it as an npm package."
+    href="/checkstack/getting-started/plugin-development/"
+  />
+  <LinkCard
+    title="Plugin architecture"
+    description="How the plugin system, event bus, and dependency rules fit together."
+    href="/checkstack/architecture/plugin-system/"
+  />
+  <LinkCard
+    title="Backend plugins"
+    description="REST APIs, services, queues, signals, and database schemas."
+    href="/checkstack/backend/plugins/"
+  />
+  <LinkCard
+    title="Frontend plugins"
+    description="Components, routes, slot extensions, and config schemas."
+    href="/checkstack/frontend/plugins/"
+  />
+  <LinkCard
+    title="Component library"
+    description="Browse every @checkstack/ui primitive plugins can use, in Storybook."
+    href="/checkstack/storybook/"
+  />
+  <LinkCard
+    title="Contributing"
+    description="Set up your dev environment and ship your first PR."
+    href="/checkstack/getting-started/contributing/"
+  />
+</CardGrid>
+
+## Dependency rules
+
+Checkstack enforces strict package boundaries — these are checked by the
+custom ESLint rule `checkstack/enforce-architecture-deps`:
+
+- **Common → Common** only.
+- **Frontend → Frontend or Common.**
+- **Backend → Backend or Common.**
+- ❌ Common may **not** depend on Backend or Frontend.
+- ❌ Frontend may **not** depend on Backend.
+
+See [Dependency Linter](/checkstack/tooling/dependency-linter/) for enforcement details.

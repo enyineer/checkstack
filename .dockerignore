@@ -20,6 +20,11 @@ dist/
 
 # Documentation (not needed for runtime)
 docs/
+# Exception: docs/package.json must reach the build context so Bun's
+# workspace resolver doesn't fail with "Workspace not found 'docs'".
+# Astro / Starlight live in devDependencies, so --production installs
+# nothing extra from this manifest.
+!docs/package.json
 assets/
 *.md
 !README.md

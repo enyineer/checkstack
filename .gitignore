@@ -10,3 +10,4 @@ runtime_plugins/
 plugins/_test-scaffolds/
 reports/
 storybook-static/
+docs/.astro/

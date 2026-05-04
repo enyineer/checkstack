@@ -5,6 +5,11 @@ WORKDIR /app
 COPY package.json bun.lock ./
 COPY core ./core
 COPY plugins ./plugins
+# `docs` is a workspace member (Astro Starlight site). The runtime image
+# does not need its source, but Bun's workspace resolver still requires
+# the manifest to be present, otherwise `bun install` fails with
+# "Workspace not found 'docs'".
+COPY docs/package.json ./docs/package.json
 
 # Install all dependencies with timeout to prevent CI stalls
 #
@@ -53,6 +58,11 @@ WORKDIR /app
 COPY package.json bun.lock ./
 COPY core ./core
 COPY plugins ./plugins
+# `docs` is a workspace member (Astro Starlight site). The runtime image
+# does not need its source, but Bun's workspace resolver still requires
+# the manifest to be present, otherwise `bun install` fails with
+# "Workspace not found 'docs'".
+COPY docs/package.json ./docs/package.json
 
 RUN --mount=type=cache,target=/root/.bun/install/cache \
   for i in 1 2 3; do \
