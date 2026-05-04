@@ -72,3 +72,17 @@ export const incidentUpdates = pgTable("incident_updates", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   createdBy: text("created_by"),
 });
+
+/**
+ * Hotlinks attached to an incident — e.g. a Jira ticket, runbook, or chat
+ * thread. Free-form URL + optional human label.
+ */
+export const incidentLinks = pgTable("incident_links", {
+  id: text("id").primaryKey(),
+  incidentId: text("incident_id")
+    .notNull()
+    .references(() => incidents.id, { onDelete: "cascade" }),
+  label: text("label"),
+  url: text("url").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});

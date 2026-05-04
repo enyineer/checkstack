@@ -46,6 +46,16 @@ export const SystemContactSchema = z.discriminatedUnion("type", [
 ]);
 export type SystemContact = z.infer<typeof SystemContactSchema>;
 
+// System Links — free-form hotlinks attached to a system (Jira board, dashboards, etc.)
+export const SystemLinkSchema = z.object({
+  id: z.string(),
+  systemId: z.string(),
+  label: z.string().nullable(),
+  url: z.string(),
+  createdAt: z.date(),
+});
+export type SystemLink = z.infer<typeof SystemLinkSchema>;
+
 export const GroupSchema = z.object({
   id: z.string(),
   name: z.string(),

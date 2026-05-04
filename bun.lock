@@ -673,7 +673,7 @@
     },
     "core/dev-server": {
       "name": "@checkstack/dev-server",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "bin": {
         "checkstack-dev": "./src/dev-server.ts",
       },
@@ -1327,7 +1327,7 @@
     },
     "core/release": {
       "name": "@checkstack/release",
-      "version": "0.80.0",
+      "version": "0.81.0",
     },
     "core/satellite": {
       "name": "@checkstack/satellite",
@@ -1407,7 +1407,7 @@
     },
     "core/scripts": {
       "name": "@checkstack/scripts",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "bin": {
         "checkstack-scripts": "./src/cli.ts",
       },
