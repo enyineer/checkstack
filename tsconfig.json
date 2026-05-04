@@ -235,6 +235,15 @@
       "path": "./core/theme-frontend"
     },
     {
+      "path": "./core/tips-backend"
+    },
+    {
+      "path": "./core/tips-common"
+    },
+    {
+      "path": "./core/tips-frontend"
+    },
+    {
       "path": "./core/ui"
     },
     {

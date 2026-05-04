@@ -21,7 +21,9 @@
     "@checkstack/frontend-api": "workspace:*",
     "@checkstack/gitops-frontend": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
+    "@checkstack/satellite-common": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
+    "@checkstack/tips-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
@@ -31,8 +33,7 @@
     "react-router-dom": "^6.20.0",
     "recharts": "^3.6.0",
     "uuid": "^13.0.0",
-    "zod": "^4.2.1",
-    "@checkstack/satellite-common": "workspace:*"
+    "zod": "^4.2.1"
   },
   "devDependencies": {
     "@checkstack/scripts": "workspace:*",

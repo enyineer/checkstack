@@ -29,6 +29,9 @@
       "path": "../slo-common"
     },
     {
+      "path": "../tips-frontend"
+    },
+    {
       "path": "../ui"
     }
   ]

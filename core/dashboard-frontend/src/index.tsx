@@ -1,10 +1,6 @@
 import { FrontendPlugin, DashboardSlot } from "@checkstack/frontend-api";
-import { definePluginMetadata } from "@checkstack/common";
 import { Dashboard } from "./Dashboard";
-
-const pluginMetadata = definePluginMetadata({
-  pluginId: "dashboard",
-});
+import { pluginMetadata } from "./pluginMetadata";
 
 export const dashboardPlugin: FrontendPlugin = {
   metadata: pluginMetadata,

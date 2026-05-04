@@ -30,9 +30,11 @@ import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 import {
   IntegrationApi,
   integrationRoutes,
+  pluginMetadata as integrationPluginMetadata,
   type WebhookSubscription,
   type IntegrationProviderInfo,
 } from "@checkstack/integration-common";
+import { Tip } from "@checkstack/tips-frontend";
 import { SubscriptionDialog } from "../components/CreateSubscriptionDialog";
 
 export const IntegrationsPage = () => {
@@ -119,10 +121,19 @@ export const IntegrationsPage = () => {
       icon={LinkIcon}
       loading={loading}
       actions={
-        <Button onClick={openCreateDialog}>
-          <Plus className="h-4 w-4 mr-2" />
-          New Subscription
-        </Button>
+        <Tip
+          plugin={integrationPluginMetadata}
+          id="subscriptions.create"
+          title="Send Checkstack events anywhere"
+          description="A subscription forwards events (incidents, status changes, deployments) to an external system. Pick a connected provider — webhook, Jira, Teams, Slack — and choose which event types it cares about. Failed deliveries retry automatically and show up in the delivery logs."
+          side="bottom"
+          align="end"
+        >
+          <Button onClick={openCreateDialog}>
+            <Plus className="h-4 w-4 mr-2" />
+            New Subscription
+          </Button>
+        </Tip>
       }
     >
       <div className="space-y-8">
@@ -194,8 +205,19 @@ export const IntegrationsPage = () => {
           {subscriptions.length === 0 ? (
             <EmptyState
               icon={<Webhook className="h-12 w-12" />}
-              title="No webhook subscriptions"
-              description="Create a subscription to start routing events to external systems"
+              title="No webhook subscriptions yet"
+              description="A subscription forwards events from Checkstack (incidents, status changes, deployments) to external systems — Jira, ServiceNow, your own webhook receiver, anything that speaks HTTP."
+              steps={[
+                "Connect at least one provider on the Provider Connections page (Jira, Webhook, Teams, …).",
+                "Create a subscription that picks one or more event types to forward.",
+                "Watch the Delivery Logs to confirm payloads are reaching their destination.",
+              ]}
+              actions={
+                <Button onClick={openCreateDialog}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  New subscription
+                </Button>
+              }
             />
           ) : (
             <Card>

@@ -22,6 +22,7 @@
     "@checkstack/notification-common": "workspace:*",
     "@checkstack/notification-frontend": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
+    "@checkstack/tips-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.344.0",

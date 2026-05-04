@@ -104,6 +104,7 @@
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
+        "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "date-fns": "^4.1.0",
         "lucide-react": "^0.344.0",
@@ -489,6 +490,7 @@
         "@checkstack/gitops-frontend": "workspace:*",
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/notification-frontend": "workspace:*",
+        "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "@dnd-kit/core": "^6.3.1",
         "@dnd-kit/utilities": "^3.2.2",
@@ -587,6 +589,7 @@
         "@checkstack/notification-frontend": "workspace:*",
         "@checkstack/queue-frontend": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
+        "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "date-fns": "^4.1.0",
         "lucide-react": "^0.344.0",
@@ -673,7 +676,7 @@
     },
     "core/dev-server": {
       "name": "@checkstack/dev-server",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "bin": {
         "checkstack-dev": "./src/dev-server.ts",
       },
@@ -817,6 +820,7 @@
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/gitops-common": "workspace:*",
+        "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^0.344.0",
         "react": "^18.2.0",
@@ -899,6 +903,7 @@
         "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/satellite-common": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
+        "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "ajv": "^8.18.0",
         "ajv-formats": "^3.0.1",
@@ -979,6 +984,7 @@
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/notification-frontend": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
+        "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "date-fns": "^4.1.0",
         "lucide-react": "^0.344.0",
@@ -1073,6 +1079,7 @@
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/integration-common": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
+        "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^0.344.0",
         "react": "^18.2.0",
@@ -1147,6 +1154,7 @@
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/notification-frontend": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
+        "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "date-fns": "^4.1.0",
         "lucide-react": "^0.344.0",
@@ -1211,6 +1219,7 @@
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
+        "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^0.344.0",
         "react": "^18.2.0",
@@ -1243,6 +1252,7 @@
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/pluginmanager-common": "workspace:*",
+        "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^0.344.0",
         "react": "^18.2.0",
@@ -1327,7 +1337,7 @@
     },
     "core/release": {
       "name": "@checkstack/release",
-      "version": "0.80.0",
+      "version": "0.81.0",
     },
     "core/satellite": {
       "name": "@checkstack/satellite",
@@ -1393,6 +1403,7 @@
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/satellite-common": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
+        "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^0.344.0",
         "react": "^18.2.0",
@@ -1407,7 +1418,7 @@
     },
     "core/scripts": {
       "name": "@checkstack/scripts",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "bin": {
         "checkstack-scripts": "./src/cli.ts",
       },
@@ -1530,6 +1541,7 @@
         "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
         "@checkstack/slo-common": "workspace:*",
+        "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "date-fns": "^4.1.0",
         "lucide-react": "^0.344.0",
@@ -1630,6 +1642,62 @@
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/react": "^18.2.0",
+        "typescript": "^5.0.0",
+      },
+    },
+    "core/tips-backend": {
+      "name": "@checkstack/tips-backend",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/auth-backend": "workspace:*",
+        "@checkstack/backend-api": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/tips-common": "workspace:*",
+        "@orpc/server": "^1.13.2",
+        "drizzle-orm": "^0.45.0",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkstack/drizzle-helper": "workspace:*",
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/test-utils-backend": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/node": "^20.0.0",
+        "drizzle-kit": "^0.31.10",
+        "typescript": "^5.0.0",
+      },
+    },
+    "core/tips-common": {
+      "name": "@checkstack/tips-common",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/common": "workspace:*",
+        "@orpc/contract": "^1.13.14",
+        "zod": "^4.0.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
+    "core/tips-frontend": {
+      "name": "@checkstack/tips-frontend",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/auth-frontend": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/tips-common": "workspace:*",
+        "@checkstack/ui": "workspace:*",
+        "lucide-react": "^0.344.0",
+        "react": "^18.2.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/test-utils-frontend": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
         "@types/react": "^18.2.0",
         "typescript": "^5.0.0",
@@ -2649,6 +2717,12 @@
     "@checkstack/theme-common": ["@checkstack/theme-common@workspace:core/theme-common"],
 
     "@checkstack/theme-frontend": ["@checkstack/theme-frontend@workspace:core/theme-frontend"],
+
+    "@checkstack/tips-backend": ["@checkstack/tips-backend@workspace:core/tips-backend"],
+
+    "@checkstack/tips-common": ["@checkstack/tips-common@workspace:core/tips-common"],
+
+    "@checkstack/tips-frontend": ["@checkstack/tips-frontend@workspace:core/tips-frontend"],
 
     "@checkstack/tsconfig": ["@checkstack/tsconfig@workspace:core/tsconfig"],
 

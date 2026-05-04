@@ -8,7 +8,9 @@ import { mock } from "bun:test";
  * - select().from().where().limit()
  * - insert().values()
  * - insert().values().onConflictDoUpdate()
+ * - insert().values().onConflictDoNothing()
  * - update().set().where()
+ * - delete().where()
  *
  * @returns A mock database object that can be used in place of a real Drizzle database
  *
@@ -56,6 +58,7 @@ export function createMockDb() {
     insert: mock(() => ({
       values: mock(() => ({
         onConflictDoUpdate: mock(() => Promise.resolve()),
+        onConflictDoNothing: mock(() => Promise.resolve()),
         returning: mock(() => Promise.resolve([])),
       })),
     })),

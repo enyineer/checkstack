@@ -29,6 +29,9 @@
       "path": "../notification-frontend"
     },
     {
+      "path": "../tips-frontend"
+    },
+    {
       "path": "../ui"
     }
   ]

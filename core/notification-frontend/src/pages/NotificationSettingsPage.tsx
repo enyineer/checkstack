@@ -17,7 +17,9 @@ import type { EnrichedSubscription } from "@checkstack/notification-common";
 import {
   NotificationApi,
   notificationAccess,
+  pluginMetadata as notificationPluginMetadata,
 } from "@checkstack/notification-common";
+import { TipBanner } from "@checkstack/tips-frontend";
 import {
   StrategyCard,
   type DeliveryStrategy,
@@ -246,6 +248,13 @@ export const NotificationSettingsPage = () => {
   return (
     <PageLayout title="Notification Settings" icon={Bell} loading={subsLoading}>
       <div className="space-y-8">
+        <TipBanner
+          plugin={notificationPluginMetadata}
+          id="settings.intro"
+          title="Two pieces fit together: channels and subscriptions"
+          description="A channel is how you'd like to be reached (Slack DM, email, Telegram, etc.). A subscription is what you want to be reached about (a system group, a specific incident severity). Connect at least one channel here, then subscribe from the dashboard or the system detail pages."
+        />
+
         {/* Your Notification Channels - All users */}
         <section>
           <SectionHeader

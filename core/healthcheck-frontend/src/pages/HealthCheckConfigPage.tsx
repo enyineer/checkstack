@@ -11,7 +11,9 @@ import {
   type HealthCheckConfiguration,
   healthcheckRoutes,
   healthCheckAccess,
+  pluginMetadata as healthcheckPluginMetadata,
 } from "@checkstack/healthcheck-common";
+import { Tip } from "@checkstack/tips-frontend";
 import { HealthCheckList } from "../components/HealthCheckList";
 import {
   Button,
@@ -128,9 +130,18 @@ const HealthCheckConfigPageContent = () => {
               </Link>
             </Button>
           )}
-          <Button onClick={handleCreate}>
-            <Plus className="mr-2 h-4 w-4" /> Create Check
-          </Button>
+          <Tip
+            plugin={healthcheckPluginMetadata}
+            id="create"
+            title="Health checks bring systems to life"
+            description="Each check decides what 'healthy' means for one of your systems — an HTTP endpoint returning 200, a TCP port being open, a Postgres query succeeding, anything you can express. Failed checks flip the system's health status, notify subscribers, and burn SLO error budget. They do NOT auto-open incidents — those are reported by hand when there's a real outage."
+            side="bottom"
+            align="end"
+          >
+            <Button onClick={handleCreate}>
+              <Plus className="mr-2 h-4 w-4" /> Create Check
+            </Button>
+          </Tip>
         </div>
       }
     >

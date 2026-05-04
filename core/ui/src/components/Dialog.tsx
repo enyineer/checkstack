@@ -33,7 +33,7 @@ const DialogOverlay = React.forwardRef<
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 const dialogContentVariants = cva(
-  "w-full gap-4 border border-border bg-background text-foreground p-6 shadow-lg sm:rounded-lg max-h-[85dvh] overflow-y-auto overflow-x-visible",
+  "w-full border border-border bg-background text-foreground p-6 shadow-lg sm:rounded-lg max-h-[85dvh] overflow-y-auto overflow-x-visible",
   {
     variants: {
       size: {
@@ -79,7 +79,7 @@ const DialogContent = React.forwardRef<
           )}
           {...props}
         >
-          <div className="-mx-2 px-2">{children}</div>
+          <div className="-mx-2 px-2 flex flex-col gap-6">{children}</div>
           {!hideCloseButton && (
             <DialogPrimitive.Close
               className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"

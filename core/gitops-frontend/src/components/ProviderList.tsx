@@ -4,7 +4,12 @@ import {
   useApi,
   accessApiRef,
 } from "@checkstack/frontend-api";
-import { GitOpsApi, gitopsAccess } from "@checkstack/gitops-common";
+import {
+  GitOpsApi,
+  gitopsAccess,
+  pluginMetadata as gitopsPluginMetadata,
+} from "@checkstack/gitops-common";
+import { Tip } from "@checkstack/tips-frontend";
 import {
   Card,
   CardHeader,
@@ -151,10 +156,19 @@ export const ProviderList = () => {
           <CardHeaderRow>
             <CardTitle>Git Providers</CardTitle>
             {canManage && (
-              <Button size="sm" onClick={() => setIsEditorOpen(true)}>
-                <Plus className="w-4 h-4 mr-2" />
-                Add Provider
-              </Button>
+              <Tip
+                plugin={gitopsPluginMetadata}
+                id="providers.create"
+                title="Manage Checkstack from Git"
+                description="Connect a GitHub or GitLab repository and Checkstack will sync your YAML descriptors — systems, groups, health checks — into the platform. Reviews happen as PRs, history lives in commits, and rollbacks are a `git revert` away."
+                side="bottom"
+                align="end"
+              >
+                <Button size="sm" onClick={() => setIsEditorOpen(true)}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Provider
+                </Button>
+              </Tip>
             )}
           </CardHeaderRow>
         </CardHeader>
@@ -165,8 +179,22 @@ export const ProviderList = () => {
             </div>
           ) : !providers || providers.length === 0 ? (
             <EmptyState
+              icon={<Github className="size-10" />}
               title="No providers configured"
-              description="Add a GitHub or GitLab provider to start syncing infrastructure definitions."
+              description="GitOps lets you keep your Checkstack infrastructure (systems, groups, health checks, secrets) in a Git repository and sync it into the platform automatically — pull-request reviews, audit trail, rollbacks, all included."
+              steps={[
+                "Add a GitHub or GitLab provider with a token that can read the repository.",
+                "Create a sync target that points at a path in that repo containing your YAML descriptors.",
+                "Push a change and watch Checkstack apply it — provenance is tracked per resource.",
+              ]}
+              actions={
+                canManage ? (
+                  <Button onClick={() => setIsEditorOpen(true)}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Git provider
+                  </Button>
+                ) : undefined
+              }
             />
           ) : (
             <div className="space-y-3">

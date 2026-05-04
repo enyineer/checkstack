@@ -7,7 +7,12 @@ import {
   wrapInSuspense,
 } from "@checkstack/frontend-api";
 import { SloApi } from "../api";
-import { sloAccess, type SloObjective } from "@checkstack/slo-common";
+import {
+  sloAccess,
+  pluginMetadata as sloPluginMetadata,
+  type SloObjective,
+} from "@checkstack/slo-common";
+import { Tip } from "@checkstack/tips-frontend";
 import { CatalogApi } from "@checkstack/catalog-common";
 import {
   Card,
@@ -132,10 +137,19 @@ const SloConfigPageContent: React.FC = () => {
       loading={accessLoading}
       allowed={canManage}
       actions={
-        <Button onClick={handleCreate}>
-          <Plus className="h-4 w-4 mr-2" />
-          Create SLO
-        </Button>
+        <Tip
+          plugin={sloPluginMetadata}
+          id="objectives.create"
+          title="Set the bar for reliability"
+          description="An SLO is a contract you set with yourself — “this service is healthy 99.9% of the time over 30 days”. Checkstack measures it from your existing health-check history, tracks the error budget, and shows you when you're burning it too fast."
+          side="bottom"
+          align="end"
+        >
+          <Button onClick={handleCreate}>
+            <Plus className="h-4 w-4 mr-2" />
+            Create SLO
+          </Button>
+        </Tip>
       }
     >
       <Card>
@@ -152,8 +166,22 @@ const SloConfigPageContent: React.FC = () => {
             </div>
           ) : objectives.length === 0 ? (
             <EmptyState
-              title="No SLO objectives"
-              description="Create your first SLO objective to start tracking reliability."
+              icon={<Target className="size-10" />}
+              title="No SLO objectives yet"
+              description="An SLO turns raw uptime into a target you can hold yourself to: “API X is healthy 99.9% of the time over the last 30 days.” Checkstack tracks the error budget against your health-check history and lets you exclude planned maintenance."
+              steps={[
+                "Click “Create SLO” and pick the system to measure.",
+                "Choose a target (e.g. 99.9%) and a rolling window (e.g. 30 days).",
+                "Decide whether scheduled maintenances eat into the error budget — usually you want them excluded.",
+              ]}
+              actions={
+                canManage ? (
+                  <Button onClick={handleCreate}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create your first SLO
+                  </Button>
+                ) : undefined
+              }
             />
           ) : (
             <Table>

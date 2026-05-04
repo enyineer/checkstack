@@ -11,7 +11,11 @@ import type {
   IncidentWithSystems,
   IncidentStatus,
 } from "@checkstack/incident-common";
-import { incidentAccess } from "@checkstack/incident-common";
+import {
+  incidentAccess,
+  pluginMetadata as incidentPluginMetadata,
+} from "@checkstack/incident-common";
+import { Tip } from "@checkstack/tips-frontend";
 import { CatalogApi } from "@checkstack/catalog-common";
 import {
   Card,
@@ -210,10 +214,19 @@ const IncidentConfigPageContent: React.FC = () => {
       loading={accessLoading}
       allowed={canManage}
       actions={
-        <Button onClick={handleCreate}>
-          <Plus className="h-4 w-4 mr-2" />
-          Report Incident
-        </Button>
+        <Tip
+          plugin={incidentPluginMetadata}
+          id="report"
+          title="Incidents are deliberate, not automatic"
+          description="Incidents in Checkstack are events you open by hand for real, user-visible problems — they're not auto-created from failing health checks. Use “Report Incident” to record an outage you've detected (your own monitoring, a customer ticket, a security event) so it shows up on the dashboard and the public status page, and so subscribers get notified."
+          side="bottom"
+          align="end"
+        >
+          <Button onClick={handleCreate}>
+            <Plus className="h-4 w-4 mr-2" />
+            Report Incident
+          </Button>
+        </Tip>
       }
     >
       <Card>
@@ -261,8 +274,22 @@ const IncidentConfigPageContent: React.FC = () => {
             </div>
           ) : incidents.length === 0 ? (
             <EmptyState
+              icon={<AlertTriangle className="size-10" />}
               title="No incidents found"
-              description="No incidents match your current filters."
+              description="Incidents capture real, user-visible problems with the systems you monitor. They're created intentionally — Checkstack does not auto-open them from failed health checks, because not every failed check is a real outage. Open one by hand whenever something's actually broken so it shows up on the dashboard, on the status page, and reaches subscribers."
+              steps={[
+                "Adjust the filters above if you're looking for resolved or older incidents.",
+                "Click “Report Incident” to record an outage you've detected.",
+                "Linked systems and severity drive who gets notified — set them deliberately.",
+              ]}
+              actions={
+                canManage ? (
+                  <Button onClick={handleCreate}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Report incident manually
+                  </Button>
+                ) : undefined
+              }
             />
           ) : (
             <Table>

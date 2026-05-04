@@ -32,8 +32,10 @@ import {
   PluginManagerApi,
   pluginManagerAccess,
   pluginManagerRoutes,
+  pluginMetadata as pluginManagerMetadata,
   type InstalledPlugin,
 } from "@checkstack/pluginmanager-common";
+import { Tip } from "@checkstack/tips-frontend";
 import { TypedConfirmModal } from "../components/TypedConfirmModal";
 
 const InstalledPluginsPageContent: React.FC = () => {
@@ -81,12 +83,21 @@ const InstalledPluginsPageContent: React.FC = () => {
           Events
         </Link>
       </Button>
-      <Button asChild>
-        <Link to={installPath}>
-          <Plus className="w-4 h-4 mr-2" />
-          Install plugin
-        </Link>
-      </Button>
+      <Tip
+        plugin={pluginManagerMetadata}
+        id="install"
+        title="Extend Checkstack at runtime"
+        description="Plugins add new health-check protocols, notification channels, integrations, even auth backends — without rebuilding the platform. Install one from npm, a GitHub release, or upload a tarball directly."
+        side="bottom"
+        align="end"
+      >
+        <Button asChild>
+          <Link to={installPath}>
+            <Plus className="w-4 h-4 mr-2" />
+            Install plugin
+          </Link>
+        </Button>
+      </Tip>
     </div>
   );
 
@@ -125,8 +136,22 @@ const InstalledPluginsPageContent: React.FC = () => {
         <CardContent>
           {plugins.length === 0 ? (
             <EmptyState
-              title="No plugins"
-              description="No plugins discovered yet."
+              icon={<Puzzle className="size-10" />}
+              title="No plugins discovered yet"
+              description="Almost everything in Checkstack is a plugin — health-check protocols, notification channels, integrations, even auth backends. New ones can be installed at runtime from npm, a GitHub release, or a tarball you upload."
+              steps={[
+                "Click “Install plugin” to add a runtime plugin (e.g. a custom notification channel).",
+                "Drop in a tarball, paste an npm package name, or point at a GitHub release.",
+                "Bundled platform plugins always show up here too — they're read-only and managed by the Checkstack release.",
+              ]}
+              actions={
+                <Button asChild>
+                  <Link to={installPath}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Install plugin
+                  </Link>
+                </Button>
+              }
             />
           ) : (
             <Table>

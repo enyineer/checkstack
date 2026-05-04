@@ -15,9 +15,11 @@ import { usePluginClient } from "@checkstack/frontend-api";
 import {
   NotificationApi,
   subscriptionGroupId,
+  pluginMetadata as notificationPluginMetadata,
   type NotificationTarget,
 } from "@checkstack/notification-common";
 import { extractErrorMessage } from "@checkstack/common";
+import { Tip } from "@checkstack/tips-frontend";
 import { SubscriptionRow } from "./SubscriptionRow";
 
 export interface NotificationSubscriptionsManagerProps<TResource> {
@@ -111,14 +113,10 @@ export function NotificationSubscriptionsManager<TResource>({
           .filter((id) => statusMap[id])
           .map((groupId) => unsubscribeMutation.mutateAsync({ groupId })),
       );
-      toast.success(
-        `Unsubscribed from all notifications for ${resourceLabel}`,
-      );
+      toast.success(`Unsubscribed from all notifications for ${resourceLabel}`);
       void refetchStatus();
     } catch (error) {
-      toast.error(
-        extractErrorMessage(error, "Failed to unsubscribe from all"),
-      );
+      toast.error(extractErrorMessage(error, "Failed to unsubscribe from all"));
     }
   };
 
@@ -148,25 +146,58 @@ export function NotificationSubscriptionsManager<TResource>({
         <DialogContent size="lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Bell className="h-4 w-4" />
+              <Bell className="w-4 h-4" />
               Notifications for {resourceLabel}
+              <Tip
+                plugin={notificationPluginMetadata}
+                id="subscriptions.intro"
+                title="How notification subscriptions work"
+                description={
+                  <div className="space-y-2">
+                    <p>
+                      <strong>System vs. group.</strong> Subscribing to a system
+                      means you'll only hear about that one thing. Subscribing
+                      to a group means you'll hear about every system inside
+                      that group — useful if a teammate adds new systems later,
+                      since the group covers them automatically.
+                    </p>
+                    <p>
+                      <strong>All vs. specific types.</strong> Each row below is
+                      a different kind of event (incidents, anomalies, …). Use
+                      “Subscribe to all” at the top to opt in to everything, or
+                      toggle rows individually if you only care about, say,
+                      critical incidents.
+                    </p>
+                    <p>
+                      Where things actually reach you (Slack, email, Telegram,
+                      …) is configured once in <em>Notification Settings</em>{" "}
+                      and applies to every subscription.
+                    </p>
+                  </div>
+                }
+                side="bottom"
+                align="start"
+                contentClassName="w-96"
+              >
+                <span className="sr-only">Subscription help</span>
+              </Tip>
             </DialogTitle>
             <DialogDescription>
-              Choose which notification types you want to receive for
-              this {target.resourceKind}.
+              Choose which notification types you want to receive for this{" "}
+              {target.resourceKind}.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">
             {totalCount === 0 ? (
-              <div className="rounded-md border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+              <div className="p-4 text-sm border rounded-md border-border bg-muted/20 text-muted-foreground">
                 No notification types are available for this{" "}
                 {target.resourceKind} yet.
               </div>
             ) : (
               <>
-                <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/20 p-3">
-                  <div className="text-sm min-w-0">
+                <div className="flex items-center justify-between gap-3 p-3 border rounded-md border-border bg-muted/20">
+                  <div className="min-w-0 text-sm">
                     <div className="font-medium">
                       {subscribedCount} of {totalCount} subscribed
                     </div>
@@ -183,7 +214,7 @@ export function NotificationSubscriptionsManager<TResource>({
                         disabled={isPending}
                         onClick={handleUnsubscribeAll}
                       >
-                        <BellOff className="mr-1 h-3 w-3" />
+                        <BellOff className="w-3 h-3 mr-1" />
                         Unsubscribe from all
                       </Button>
                     ) : (
@@ -194,13 +225,13 @@ export function NotificationSubscriptionsManager<TResource>({
                         disabled={isPending}
                         onClick={handleSubscribeAll}
                       >
-                        <BellRing className="mr-1 h-3 w-3" />
+                        <BellRing className="w-3 h-3 mr-1" />
                         Subscribe to all
                       </Button>
                     )}
                   </div>
                 </div>
-                <div className="overflow-hidden rounded-md border border-border">
+                <div className="overflow-hidden border rounded-md border-border">
                   {specs.map((spec) => {
                     const groupId = subscriptionGroupId(spec, resourceKey);
                     return (
