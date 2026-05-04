@@ -10,7 +10,7 @@ jobs:
     if: contains(github.event.issue.labels.*.name, 'bug')
     steps:
       - name: Add criticality label
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const issueBody = context.payload.issue.body;

@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -42,7 +42,7 @@ jobs:
       # workflow. Workspace layout is fixed (`core/*` and `plugins/*`),
       # so glob explicitly.
       - name: Restore tsgo build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             core/*/.tsbuild
@@ -63,7 +63,7 @@ jobs:
 
       - name: Upload Output
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: typecheck-output
           path: /tmp/typecheck-output.txt
@@ -81,7 +81,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -100,7 +100,7 @@ jobs:
 
       - name: Upload Output
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lint-output
           path: /tmp/lint-output.txt
@@ -118,7 +118,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -137,7 +137,7 @@ jobs:
 
       - name: Upload Output
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-output
           path: /tmp/test-output.txt
@@ -155,7 +155,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Build Production Image
         run: docker build -t checkstack-prod:latest .
@@ -191,7 +191,7 @@ jobs:
 
       - name: Upload Output
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: security-output
           path: /tmp/security-output.txt
@@ -211,7 +211,7 @@ jobs:
     steps:
       - name: Download Typecheck Output
         if: always()
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: typecheck-output
           path: /tmp/artifacts/typecheck
@@ -219,7 +219,7 @@ jobs:
 
       - name: Download Lint Output
         if: always()
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: lint-output
           path: /tmp/artifacts/lint
@@ -227,7 +227,7 @@ jobs:
 
       - name: Download Test Output
         if: always()
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: test-output
           path: /tmp/artifacts/test
@@ -235,7 +235,7 @@ jobs:
 
       - name: Download Security Output
         if: always()
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: security-output
           path: /tmp/artifacts/security
@@ -243,7 +243,7 @@ jobs:
 
       - name: Count previous failure comments
         id: count-failures
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const comments = await github.paginate(
@@ -264,7 +264,7 @@ jobs:
 
       - name: Build and post report
         id: report
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
