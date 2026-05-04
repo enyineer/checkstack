@@ -36,6 +36,8 @@ const sourcePlayersResultSchema = z.object({
     "x-chart-label": "Player Count",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "deviation",
+    "x-anomaly-min-absolute-delta": 2,
+    "x-anomaly-min-relative-delta": 0.25,
   }),
   playerNames: z.array(
     healthResultString({

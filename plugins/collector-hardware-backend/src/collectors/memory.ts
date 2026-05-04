@@ -51,6 +51,8 @@ const memoryResultSchema = z.object({
     "x-chart-unit": "MB",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.1,
   }),
   freeMb: healthResultNumber({
     "x-chart-type": "line",
@@ -58,6 +60,8 @@ const memoryResultSchema = z.object({
     "x-chart-unit": "MB",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.1,
   }),
   usedPercent: healthResultNumber({
     "x-chart-type": "gauge",
@@ -67,6 +71,7 @@ const memoryResultSchema = z.object({
     "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 1.5,
     "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
   swapUsedMb: healthResultNumber({
     "x-chart-type": "line",
@@ -74,6 +79,8 @@ const memoryResultSchema = z.object({
     "x-chart-unit": "MB",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.1,
   }).optional(),
   swapTotalMb: healthResultNumber({
     "x-chart-type": "counter",

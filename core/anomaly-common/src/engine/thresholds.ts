@@ -38,17 +38,47 @@ export function computeThresholds(
   }
 }
 
-export function isAnomalous(
-  value: number,
-  thresholds: Thresholds
-): boolean {
-  if (thresholds.lowerTrigger !== undefined && value < thresholds.lowerTrigger) {
-    return true;
+export interface AnomalyCheckInput {
+  value: number;
+  mean: number;
+  thresholds: Thresholds;
+  /**
+   * Floor on |value − μ|. The statistical trigger must be exceeded *and*
+   * the absolute deviation must be ≥ this floor for the value to count as
+   * anomalous. Default 0 (disabled).
+   */
+  minAbsoluteDelta?: number;
+  /**
+   * Floor on |value − μ| / max(|μ|, ε), expressed as a fraction. The
+   * statistical trigger must be exceeded *and* the relative deviation must
+   * be ≥ this floor for the value to count as anomalous. Default 0
+   * (disabled).
+   */
+  minRelativeDelta?: number;
+}
+
+export function isAnomalous({
+  value,
+  mean,
+  thresholds,
+  minAbsoluteDelta = 0,
+  minRelativeDelta = 0,
+}: AnomalyCheckInput): boolean {
+  const exceedsStatistical =
+    (thresholds.lowerTrigger !== undefined && value < thresholds.lowerTrigger) ||
+    (thresholds.upperTrigger !== undefined && value > thresholds.upperTrigger);
+
+  if (!exceedsStatistical) return false;
+
+  const absoluteDelta = Math.abs(value - mean);
+  if (absoluteDelta < minAbsoluteDelta) return false;
+
+  if (minRelativeDelta > 0) {
+    const denominator = Math.max(Math.abs(mean), Number.EPSILON);
+    if (absoluteDelta / denominator < minRelativeDelta) return false;
   }
-  if (thresholds.upperTrigger !== undefined && value > thresholds.upperTrigger) {
-    return true;
-  }
-  return false;
+
+  return true;
 }
 
 export function isCategoricalAnomalous(
@@ -58,7 +88,7 @@ export function isCategoricalAnomalous(
   sensitivity: number = 1
 ): boolean {
   if (dominantValue === undefined || dominantRatio === undefined) return false;
-  
+
   // Sensitivity scaling for categorical fields limits false positives.
   // Base required dominance is 90% stability.
   // Lower sensitivity values (e.g., 0.5) mean "tighter bounds, more alerts".

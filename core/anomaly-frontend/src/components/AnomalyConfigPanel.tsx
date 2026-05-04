@@ -24,10 +24,8 @@ import {
 
 const DEFAULT_VALUES: AnomalySettingsFormValues = {
   enabled: true,
-  sensitivity: 1,
-  confirmationWindow: 3,
-  driftEnabled: true,
-  driftThreshold: 2,
+  baselineWindow: "7d",
+  notify: true,
   fieldOverrides: {},
 };
 
@@ -74,13 +72,9 @@ export function AnomalyConfigPanel({ context }: { context: AssignmentIDEContext 
       const tpl = templateRecord?.data;
       setValues({
         enabled: configRecord.data.enabled ?? true,
-        sensitivity: configRecord.data.sensitivity ?? tpl?.sensitivity ?? 1,
-        confirmationWindow:
-          configRecord.data.confirmationWindow ?? tpl?.confirmationWindow ?? 3,
-        driftEnabled:
-          configRecord.data.driftEnabled ?? tpl?.driftEnabled ?? true,
-        driftThreshold:
-          configRecord.data.driftThreshold ?? tpl?.driftThreshold ?? 2,
+        baselineWindow:
+          configRecord.data.baselineWindow ?? tpl?.baselineWindow ?? "7d",
+        notify: configRecord.data.notify ?? tpl?.notify ?? true,
         fieldOverrides:
           (configRecord.data.fieldOverrides as Record<string, AnomalyFieldConfig>) ??
           {},

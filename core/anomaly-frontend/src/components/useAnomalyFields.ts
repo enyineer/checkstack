@@ -8,12 +8,15 @@ import type { AnomalyDirection } from "@checkstack/anomaly-common";
 export type AnomalyFieldMeta = {
   path: string;
   type: string;
+  unit?: string;
   defaultEnabled: boolean;
   defaultDirection?: AnomalyDirection;
   defaultSensitivity?: number;
   defaultConfirmationWindow?: number;
   defaultDriftEnabled?: boolean;
   defaultDriftThreshold?: number;
+  defaultMinAbsoluteDelta?: number;
+  defaultMinRelativeDelta?: number;
 };
 
 export function useAnomalyFields(configurationId: string | undefined) {
@@ -50,12 +53,15 @@ export function useAnomalyFields(configurationId: string | undefined) {
             keys.push({
               path,
               type: value.type || "string",
+              unit: typeof value["x-chart-unit"] === "string" ? value["x-chart-unit"] : undefined,
               defaultEnabled,
               defaultDirection: value["x-anomaly-direction"] as AnomalyDirection | undefined,
               defaultSensitivity: typeof value["x-anomaly-sensitivity"] === "number" ? value["x-anomaly-sensitivity"] : undefined,
               defaultConfirmationWindow: typeof value["x-anomaly-confirmation-window"] === "number" ? value["x-anomaly-confirmation-window"] : undefined,
               defaultDriftEnabled: typeof value["x-anomaly-drift-enabled"] === "boolean" ? value["x-anomaly-drift-enabled"] : undefined,
               defaultDriftThreshold: typeof value["x-anomaly-drift-threshold"] === "number" ? value["x-anomaly-drift-threshold"] : undefined,
+              defaultMinAbsoluteDelta: typeof value["x-anomaly-min-absolute-delta"] === "number" ? value["x-anomaly-min-absolute-delta"] : undefined,
+              defaultMinRelativeDelta: typeof value["x-anomaly-min-relative-delta"] === "number" ? value["x-anomaly-min-relative-delta"] : undefined,
             });
           }
         }

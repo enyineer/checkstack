@@ -23,6 +23,18 @@ export type ChartType =
   | "status";
 
 /**
+ * Numeric anomaly directions — these operate on a μ ± Nσ statistical band
+ * over a continuous metric, so practical-significance floors apply.
+ */
+export type NumericAnomalyDirection =
+  | "higher-is-better"
+  | "lower-is-better"
+  | "deviation";
+
+/** Categorical anomaly direction — fires on dominance flips, no σ band. */
+export type CategoricalAnomalyDirection = "dominance";
+
+/**
  * Base metadata for all health check result schema fields.
  */
 export interface BaseHealthResultMeta {
@@ -63,13 +75,55 @@ export interface BaseHealthResultMeta {
 }
 
 /**
- * Metadata for a field that exposes a chart AND has anomaly detection enabled.
+ * Metadata for a chartable field with numeric anomaly detection.
+ * Carries the practical-significance floors (`x-anomaly-min-*-delta`)
+ * because they only make sense against a μ ± Nσ band.
  */
-export interface ChartMetaAnomalyEnabled extends BaseHealthResultMeta {
+export interface ChartMetaAnomalyNumeric extends BaseHealthResultMeta {
   "x-chart-type": ChartType;
   "x-anomaly-enabled": true;
-  "x-anomaly-direction": "higher-is-better" | "lower-is-better" | "deviation" | "dominance";
+  "x-anomaly-direction": NumericAnomalyDirection;
+  /**
+   * Practical-significance floor on absolute deviation. Default 0 (disabled).
+   * An anomaly only fires when |value − μ| ≥ this floor — even if the
+   * statistical trigger (μ ± Nσ) is exceeded. Use to suppress alerts on
+   * statistically-unusual but operationally-irrelevant swings on
+   * low-baseline metrics (e.g. 6 ms → 20 ms latency).
+   * Same field unit as the metric itself.
+   */
+  "x-anomaly-min-absolute-delta"?: number;
+  /**
+   * Practical-significance floor on relative deviation. Default 0 (disabled).
+   * An anomaly only fires when |value − μ| / max(|μ|, ε) ≥ this floor — even
+   * if the statistical trigger is exceeded. Expressed as a fraction
+   * (e.g. 0.5 = 50%). Use to suppress alerts whose proportional change is
+   * small on high-magnitude metrics.
+   */
+  "x-anomaly-min-relative-delta"?: number;
 }
+
+/**
+ * Metadata for a chartable field with categorical (dominance) anomaly
+ * detection. Practical-significance floors are deliberately disallowed
+ * because they have no meaning against a categorical baseline — there's
+ * no μ to subtract from.
+ */
+export interface ChartMetaAnomalyCategorical extends BaseHealthResultMeta {
+  "x-chart-type": ChartType;
+  "x-anomaly-enabled": true;
+  "x-anomaly-direction": CategoricalAnomalyDirection;
+  "x-anomaly-min-absolute-delta"?: never;
+  "x-anomaly-min-relative-delta"?: never;
+}
+
+/**
+ * Union of the two anomaly-enabled variants. Kept for back-compat with
+ * existing callers — new code should narrow against the discriminated
+ * union directly via `x-anomaly-direction`.
+ */
+export type ChartMetaAnomalyEnabled =
+  | ChartMetaAnomalyNumeric
+  | ChartMetaAnomalyCategorical;
 
 /**
  * Metadata for a field that exposes a chart but explicitly disables anomaly detection.
@@ -78,6 +132,8 @@ export interface ChartMetaAnomalyDisabled extends BaseHealthResultMeta {
   "x-chart-type": ChartType;
   "x-anomaly-enabled": false;
   "x-anomaly-direction"?: never;
+  "x-anomaly-min-absolute-delta"?: never;
+  "x-anomaly-min-relative-delta"?: never;
 }
 
 /**
@@ -87,6 +143,8 @@ export interface NonChartMeta extends BaseHealthResultMeta {
   "x-chart-type"?: never;
   "x-anomaly-enabled"?: never;
   "x-anomaly-direction"?: never;
+  "x-anomaly-min-absolute-delta"?: never;
+  "x-anomaly-min-relative-delta"?: never;
 }
 
 /**
@@ -94,8 +152,8 @@ export interface NonChartMeta extends BaseHealthResultMeta {
  * Provides autocompletion and enforces that ANY field exposing a chart
  * MUST explicitly define its anomaly behavior.
  */
-export type HealthResultMeta = 
-  | ChartMetaAnomalyEnabled 
-  | ChartMetaAnomalyDisabled 
+export type HealthResultMeta =
+  | ChartMetaAnomalyNumeric
+  | ChartMetaAnomalyCategorical
+  | ChartMetaAnomalyDisabled
   | NonChartMeta;
-

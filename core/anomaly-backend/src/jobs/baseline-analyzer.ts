@@ -205,7 +205,7 @@ export async function setupBaselineAnalyzerJob({
           const fieldName = fieldNames[path];
           if (!collectorId || !fieldName) continue;
 
-          const schemaDirection = lookupSchemaDirection({
+          const schemaInfo = lookupSchemaInfo({
             collectorRegistry,
             collectorId,
             fieldName,
@@ -226,7 +226,13 @@ export async function setupBaselineAnalyzerJob({
             configurationId: assignment.configurationId,
             fieldPath: path,
             baseline: baselineDto,
-            schemaDirection,
+            schemaDirection: schemaInfo.direction,
+            schemaSensitivity: schemaInfo.sensitivity,
+            schemaConfirmationWindow: schemaInfo.confirmationWindow,
+            schemaDriftEnabled: schemaInfo.driftEnabled,
+            schemaDriftThreshold: schemaInfo.driftThreshold,
+            schemaMinAbsoluteDelta: schemaInfo.minAbsoluteDelta,
+            schemaMinRelativeDelta: schemaInfo.minRelativeDelta,
             templateConfig,
             assignmentConfig,
           });
@@ -252,7 +258,17 @@ export async function setupBaselineAnalyzerJob({
   logger.debug("Anomaly baseline analyzer job scheduled.");
 }
 
-function lookupSchemaDirection({
+interface SchemaInfo {
+  direction?: AnomalyDirection;
+  sensitivity?: number;
+  confirmationWindow?: number;
+  driftEnabled?: boolean;
+  driftThreshold?: number;
+  minAbsoluteDelta?: number;
+  minRelativeDelta?: number;
+}
+
+function lookupSchemaInfo({
   collectorRegistry,
   collectorId,
   fieldName,
@@ -260,14 +276,22 @@ function lookupSchemaDirection({
   collectorRegistry: CollectorRegistry;
   collectorId: string;
   fieldName: string;
-}): AnomalyDirection | undefined {
+}): SchemaInfo {
   const collector = collectorRegistry.getCollector(collectorId);
-  if (!collector) return undefined;
+  if (!collector) return {};
   const collectorSchema = collector.collector.result.schema;
-  if (!("shape" in collectorSchema)) return undefined;
+  if (!("shape" in collectorSchema)) return {};
   const shape = collectorSchema.shape as Record<string, z.ZodTypeAny>;
   const fieldSchema = shape[fieldName];
-  if (!fieldSchema) return undefined;
+  if (!fieldSchema) return {};
   const meta = getHealthResultMeta(fieldSchema);
-  return meta?.["x-anomaly-direction"];
+  return {
+    direction: meta?.["x-anomaly-direction"],
+    sensitivity: meta?.["x-anomaly-sensitivity"],
+    confirmationWindow: meta?.["x-anomaly-confirmation-window"],
+    driftEnabled: meta?.["x-anomaly-drift-enabled"],
+    driftThreshold: meta?.["x-anomaly-drift-threshold"],
+    minAbsoluteDelta: meta?.["x-anomaly-min-absolute-delta"],
+    minRelativeDelta: meta?.["x-anomaly-min-relative-delta"],
+  };
 }

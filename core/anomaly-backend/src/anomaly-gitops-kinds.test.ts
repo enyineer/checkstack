@@ -67,12 +67,8 @@ describe("buildHealthcheckAnomalyExtension", () => {
       entity: {} as never,
       extensionSpec: {
         enabled: false,
-        sensitivity: 2,
-        confirmationWindow: 5,
         baselineWindow: "14d",
         notify: false,
-        driftEnabled: false,
-        driftThreshold: 3,
       },
       entityId: "hc-1",
       context: buildContext(),
@@ -80,12 +76,8 @@ describe("buildHealthcheckAnomalyExtension", () => {
     expect(stub.updateAnomalyConfig).toHaveBeenCalledTimes(1);
     expect(stub.updateAnomalyConfig).toHaveBeenCalledWith("hc-1", {
       enabled: false,
-      sensitivity: 2,
-      confirmationWindow: 5,
       baselineWindow: "14d",
       notify: false,
-      driftEnabled: false,
-      driftThreshold: 3,
     });
   });
 
@@ -134,7 +126,7 @@ describe("buildSystemAnomalyExtension", () => {
         },
         {
           healthcheckRef: { kind: "Healthcheck", name: "hc-mem" },
-          driftThreshold: 5,
+          baselineWindow: "30d",
         },
       ],
       entityId: "sys-1",
@@ -157,7 +149,7 @@ describe("buildSystemAnomalyExtension", () => {
       2,
       "sys-1",
       "cfg-mem",
-      { driftThreshold: 5 },
+      { baselineWindow: "30d" },
     );
   });
 

@@ -80,12 +80,8 @@ export function buildHealthcheckAnomalyExtension(
 const systemAnomalyEntrySchema = z.object({
   healthcheckRef: healthcheckRefSchema,
   enabled: z.boolean().optional(),
-  sensitivity: z.number().optional(),
-  confirmationWindow: z.number().int().optional(),
   baselineWindow: z.string().optional(),
   notify: z.boolean().optional(),
-  driftEnabled: z.boolean().optional(),
-  driftThreshold: z.number().optional(),
   fieldOverrides: z.record(z.string(), AnomalyFieldConfigSchema).optional(),
 });
 

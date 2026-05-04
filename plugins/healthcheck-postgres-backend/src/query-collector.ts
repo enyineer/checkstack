@@ -39,6 +39,8 @@ const queryResultSchema = healthResultSchema({
     "x-chart-label": "Row Count",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "deviation",
+    "x-anomaly-min-absolute-delta": 1,
+    "x-anomaly-min-relative-delta": 0.25,
   }),
   executionTimeMs: healthResultNumber({
     "x-chart-type": "line",
@@ -48,6 +50,8 @@ const queryResultSchema = healthResultSchema({
     "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 2,
     "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   success: healthResultBoolean({
     "x-chart-type": "boolean",

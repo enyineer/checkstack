@@ -516,7 +516,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
     const db = createMockDb({
       configRecord: {
         version: 1,
-        data: { enabled: false, sensitivity: 1, confirmationWindow: 3, baselineWindow: "7d", notify: true, driftEnabled: true, driftThreshold: 2 } satisfies AnomalySettings,
+        data: { enabled: false, baselineWindow: "7d", notify: true } satisfies AnomalySettings,
       },
     });
 

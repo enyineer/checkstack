@@ -63,6 +63,8 @@ const dnsResultSchema = healthResultSchema({
     "x-chart-label": "Record Count",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "deviation",
+    "x-anomaly-min-absolute-delta": 1,
+    "x-anomaly-min-relative-delta": 0.25,
   }),
   resolutionTimeMs: healthResultNumber({
     "x-chart-type": "line",
@@ -70,6 +72,8 @@ const dnsResultSchema = healthResultSchema({
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   error: healthResultString({
     "x-chart-type": "status",

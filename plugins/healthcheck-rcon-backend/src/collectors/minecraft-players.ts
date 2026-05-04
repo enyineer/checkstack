@@ -38,12 +38,16 @@ const minecraftPlayersResultSchema = z.object({
     "x-chart-label": "Online Players",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "deviation",
+    "x-anomaly-min-absolute-delta": 2,
+    "x-anomaly-min-relative-delta": 0.25,
   }),
   maxPlayers: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Max Players",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "deviation",
+    "x-anomaly-min-absolute-delta": 1,
+    "x-anomaly-min-relative-delta": 0.1,
   }),
   playerNames: z.array(
     healthResultString({

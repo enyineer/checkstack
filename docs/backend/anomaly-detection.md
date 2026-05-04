@@ -5,7 +5,7 @@ Checkstack ships an adaptive, baseline-learning anomaly detector that operates o
 This document is the day-to-day reference for plugin authors building strategies and collectors. It covers:
 
 - The `x-anomaly-*` schema annotations every chartable result field must carry.
-- The three-layer override model (engine defaults → plugin schema → user UI).
+- The override model (engine fallbacks → plugin schema → user field overrides).
 - Phase 1 (spike/drop) and Phase 2 (trend drift) lifecycles.
 - Signals plugins can subscribe to.
 - Worked examples for the four supported direction modes.
@@ -115,6 +115,8 @@ const result = healthResultSchema({
 | `x-anomaly-confirmation-window` | `number` | No | `3` | Consecutive runs required before a `suspicious` row escalates to `anomaly`. |
 | `x-anomaly-drift-enabled` | `boolean` | No | `true` | Enable trend drift detection on this field. |
 | `x-anomaly-drift-threshold` | `number` | No | `2` | Sigma multiplier in the drift trigger `\|slope × n\| > N · σ · sensitivity`. |
+| `x-anomaly-min-absolute-delta` | `number` | No | `0` | Practical-significance floor on `\|value − μ\|`. Anomaly only fires when the statistical trigger is exceeded **and** absolute deviation ≥ this floor. Same unit as the field. Plugin authors should set a sensible default for low-baseline metrics (e.g. 50ms for latency). |
+| `x-anomaly-min-relative-delta` | `number` | No | `0` | Practical-significance floor on `\|value − μ\| / max(\|μ\|, ε)`, expressed as a fraction. Anomaly only fires when the statistical trigger is exceeded **and** relative deviation ≥ this floor. Useful for high-magnitude metrics where small absolute changes are routine. |
 
 ### 2.3 The Discriminated Union
 
@@ -158,12 +160,16 @@ responseTimeMs: healthResultNumber({
   "x-chart-unit": "ms",
   "x-anomaly-enabled": true,
   "x-anomaly-direction": "lower-is-better",
+  "x-anomaly-min-absolute-delta": 50,
+  "x-anomaly-min-relative-delta": 0.5,
 }),
 ```
 
 A 200ms baseline with 25ms σ produces an upper trigger at `200 + 3 × 25 = 275ms`. Values up to 275ms are considered noise. A spike to 500ms is `suspicious`; if it stays high for 3 consecutive checks, it escalates to `anomaly` and a notification fires.
 
 Drift on the same field detects creep — e.g., baseline mean walking from 200ms → 240ms over a week. Drift triggers when `|slope × sampleCount| > 2 × σ × sensitivity`.
+
+The floor pair `min-absolute-delta: 50` + `min-relative-delta: 0.5` suppresses false positives on low-baseline checks. Example: a 6ms baseline with 1ms σ has a statistical trigger at ~9ms — without floors a routine 20ms blip would fire even though Δ=14ms is not actionable. With the floors, the spike must clear both 50ms absolute *and* 50% relative before alerting; a 6ms → 200ms spike (Δ=194ms, +3233%) still fires.
 
 ### Success Rate (higher-is-better)
 
@@ -225,27 +231,28 @@ internalCounter: healthResultNumber({
 
 ---
 
-## 4. Three-Layer Override Model
+## 4. Override Model
 
-Every effective config is the result of resolving three layers. The runtime uses [resolveEffectiveConfig](../../core/anomaly-common/src/engine/config.ts) to compute the final values.
-
-| Layer | Who | How | Scope |
-|---|---|---|---|
-| **Layer 1** | Engine | Hardcoded defaults in `AnomalySettingsSchema` (sensitivity 1.0, confirmation window 3, baseline window 7d, drift threshold 2, etc.). | All fields |
-| **Layer 2** | Plugin developer | `x-anomaly-*` annotations on the result schema. | Per field, per chart type |
-| **Layer 3** | User / operator | Assignment-level UI: template config + per-assignment overrides + per-field overrides. | Per assignment + per field |
+Configuration is field-only. The runtime uses [resolveEffectiveConfig](../../core/anomaly-common/src/engine/config.ts) to compute the final values for each field.
 
 **Resolution precedence (highest to lowest):**
 
-1. Assignment field override
-2. Template field override
-3. Assignment global
-4. Template global
-5. Engine defaults
+1. Assignment field override (user — per-system, per-field UI)
+2. Template field override (user — template-wide field default in the UI)
+3. Schema annotation (plugin developer — `x-anomaly-*` keys on the result schema)
+4. Engine fallback constant (`sensitivity 1.0`, `confirmationWindow 3`, `driftEnabled true`, `driftThreshold 2`, floors `0`)
 
-> Field-level overrides always win over global overrides. This is intentional: a template can mark a noisy field as `enabled: false`, and an operator can re-enable it for one specific system without affecting all other systems using the same template.
+The only non-field-level settings on `AnomalySettings` are:
 
-Plugin authors should pick conservative defaults for `sensitivity` and `confirmationWindow`. Operators can always loosen via the UI; aggressive defaults generate alert fatigue.
+| Key | Why it's global | Scope |
+|---|---|---|
+| `enabled` | Master kill switch for the whole assignment. | Template + assignment |
+| `baselineWindow` | One history per system, not per field. | Template + assignment |
+| `notify` | One notification preference per assignment. | Template + assignment |
+
+There is no global `sensitivity` / `confirmationWindow` / `driftEnabled` / `driftThreshold`. A single global multiplier across heterogeneous fields (ms vs % vs count) is meaningless, and per-field schema defaults already give the plugin author a place to express tuned defaults. If the user needs to adjust a metric, they do it in the field-level UI for that specific field.
+
+Plugin authors should pick conservative defaults for `x-anomaly-sensitivity`, `x-anomaly-confirmation-window`, and the floor annotations. Operators can always loosen them per field; aggressive defaults generate alert fatigue.
 
 ---
 
@@ -403,6 +410,27 @@ Baselines are written with a 24-hour TTL by the analyzer. The next hourly tick r
 3. **Increase the confirmation window.** `"x-anomaly-confirmation-window": 5` requires five consecutive bad checks before paging.
 4. **Review the baseline window in the assignment UI.** Operators can extend the window from 7d (default) to 14d for fields with weekly seasonality.
 
+### "Tiny absolute changes on a low-baseline metric keep alerting"
+
+A 6 ms latency baseline with 1 ms σ has a statistical trigger at ~9 ms — even a routine 20 ms blip crosses 11 σ and fires. Statistical significance ≠ operational significance. Set a practical-significance floor:
+
+```typescript
+responseTimeMs: healthResultNumber({
+  "x-chart-type": "line",
+  "x-chart-unit": "ms",
+  "x-anomaly-enabled": true,
+  "x-anomaly-direction": "lower-is-better",
+  "x-anomaly-min-absolute-delta": 50,    // ignore Δ < 50 ms
+  "x-anomaly-min-relative-delta": 0.5,   // and Δ < 50%
+}),
+```
+
+Both floors must clear in addition to the statistical trigger. Defaults of `0` mean disabled. The shipped per-run schemas in built-in plugins set sensible defaults — `50 ms` + `50%` for ms-unit fields, `5` percentage points for `%`-unit fields, `1` count + `25%` for counters, `1` GB + `5%` for disk, `50` MB + `10%` for memory — but operators can override per-system or per-field via the UI.
+
+### "Big proportional changes on a high-magnitude metric never alert"
+
+The opposite problem: if a `2000ms` baseline has a `min-absolute-delta` of `50ms` set somewhere, a 2.5% bump (50ms) crosses it routinely. For high-magnitude metrics, prefer the relative floor over absolute, or raise the absolute floor in an assignment-level override.
+
 ### "I made a change to a strategy and now nothing alerts"
 
 The baseline cache key includes `configurationId`. Schema-shape changes that alter the field path (e.g., renaming `latencyMs` → `responseTimeMs`) invalidate baselines for that field. Wait one analyzer cycle (1 hour) for fresh baselines, plus the cold-start window (24 samples).
@@ -458,7 +486,7 @@ These are deterministic, side-effect-free functions — ideal for unit tests.
 | Phase | Status | Scope |
 |---|---|---|
 | Pre-req | ✅ Shipped | [Cache System](cache-system.md) abstraction + Infrastructure Configuration UI. |
-| Phase 1 | ✅ Shipped | Spike/drop detection with confirmation window, three-layer overrides, range bands on charts, system anomaly badge + feed widget, sidecar notifications. |
+| Phase 1 | ✅ Shipped | Spike/drop detection with confirmation window, field-level overrides, range bands on charts, system anomaly badge + feed widget, sidecar notifications. |
 | Phase 2 | ✅ Shipped | Trend drift detection in the background analyzer (`kind = 'drift'` rows), drift confirmation across consecutive analyzer runs, trend-line overlay on `AutoChartGrid` charts. |
 | Phase 3 | ❌ Dropped | Cross-metric correlation — investigated 2026-04-29 and dropped (cost/value did not justify the work; schema is forward-compatible if revived). |
 | Phase 4 | 🚧 In progress | This document and supporting developer docs. |
