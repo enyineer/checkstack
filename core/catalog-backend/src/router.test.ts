@@ -12,9 +12,11 @@ const passthroughCache: CatalogCache = {
   wrapGroupsForSystem: (_systemId, loader) => loader(),
   wrapViews: (loader) => loader(),
   wrapContacts: (_systemId, loader) => loader(),
+  wrapLinks: (_systemId, loader) => loader(),
   invalidateTopology: async () => 0,
   invalidateViews: async () => 0,
   invalidateContacts: async () => {},
+  invalidateLinks: async () => {},
   scope: {} as CatalogCache["scope"],
 };
 

@@ -52,10 +52,32 @@ export const MaintenanceUpdateSchema = z.object({
 export type MaintenanceUpdate = z.infer<typeof MaintenanceUpdateSchema>;
 
 /**
- * Full maintenance detail with systems and updates
+ * Free-form hotlink attached to a maintenance (e.g. change ticket, runbook).
+ */
+export const MaintenanceLinkSchema = z.object({
+  id: z.string(),
+  maintenanceId: z.string(),
+  label: z.string().nullable(),
+  url: z.string(),
+  createdAt: z.date(),
+});
+export type MaintenanceLink = z.infer<typeof MaintenanceLinkSchema>;
+
+export const AddMaintenanceLinkInputSchema = z.object({
+  maintenanceId: z.string(),
+  label: z.string().max(120).optional(),
+  url: z.string().url("Must be a valid URL"),
+});
+export type AddMaintenanceLinkInput = z.infer<
+  typeof AddMaintenanceLinkInputSchema
+>;
+
+/**
+ * Full maintenance detail with systems, updates, and hotlinks
  */
 export const MaintenanceDetailSchema = MaintenanceWithSystemsSchema.extend({
   updates: z.array(MaintenanceUpdateSchema),
+  links: z.array(MaintenanceLinkSchema),
 });
 export type MaintenanceDetail = z.infer<typeof MaintenanceDetailSchema>;
 

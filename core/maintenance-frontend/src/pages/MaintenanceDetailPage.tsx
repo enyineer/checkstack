@@ -41,6 +41,7 @@ import {
   Plus,
   MessageSquare,
   CheckCircle2,
+  ExternalLink,
 } from "lucide-react";
 import { format } from "date-fns";
 import { MaintenanceUpdateForm } from "../components/MaintenanceUpdateForm";
@@ -240,6 +241,28 @@ const MaintenanceDetailPageContent: React.FC = () => {
                 ))}
               </div>
             </div>
+
+            {maintenance.links.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium text-muted-foreground mb-2">
+                  Hotlinks
+                </h4>
+                <div className="flex flex-wrap gap-2">
+                  {maintenance.links.map((link) => (
+                    <a
+                      key={link.id}
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-primary hover:bg-muted"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      <span>{link.label ?? link.url}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 

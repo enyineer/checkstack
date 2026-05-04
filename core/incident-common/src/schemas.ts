@@ -58,10 +58,30 @@ export const IncidentUpdateSchema = z.object({
 export type IncidentUpdate = z.infer<typeof IncidentUpdateSchema>;
 
 /**
- * Full incident detail with systems and updates
+ * Free-form hotlink attached to an incident (e.g. Jira ticket, runbook).
+ */
+export const IncidentLinkSchema = z.object({
+  id: z.string(),
+  incidentId: z.string(),
+  label: z.string().nullable(),
+  url: z.string(),
+  createdAt: z.date(),
+});
+export type IncidentLink = z.infer<typeof IncidentLinkSchema>;
+
+export const AddIncidentLinkInputSchema = z.object({
+  incidentId: z.string(),
+  label: z.string().max(120).optional(),
+  url: z.string().url("Must be a valid URL"),
+});
+export type AddIncidentLinkInput = z.infer<typeof AddIncidentLinkInputSchema>;
+
+/**
+ * Full incident detail with systems, updates, and hotlinks
  */
 export const IncidentDetailSchema = IncidentWithSystemsSchema.extend({
   updates: z.array(IncidentUpdateSchema),
+  links: z.array(IncidentLinkSchema),
 });
 export type IncidentDetail = z.infer<typeof IncidentDetailSchema>;
 

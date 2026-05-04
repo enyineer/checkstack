@@ -7,7 +7,7 @@ import type { SlotDefinition } from "../slots";
  * Extracts the context type from the slot definition itself,
  * ensuring the context matches what the slot expects.
  */
-type ExtensionSlotProps<TSlot extends SlotDefinition<unknown>> =
+type ExtensionSlotProps<TSlot extends SlotDefinition<unknown, unknown>> =
   SlotContext<TSlot> extends undefined
     ? { slot: TSlot; context?: undefined }
     : { slot: TSlot; context: SlotContext<TSlot> };
@@ -24,7 +24,7 @@ type ExtensionSlotProps<TSlot extends SlotDefinition<unknown>> =
  * <ExtensionSlot slot={NavbarRightSlot} />
  * ```
  */
-export function ExtensionSlot<TSlot extends SlotDefinition<unknown>>({
+export function ExtensionSlot<TSlot extends SlotDefinition<unknown, unknown>>({
   slot,
   context,
 }: ExtensionSlotProps<TSlot>) {

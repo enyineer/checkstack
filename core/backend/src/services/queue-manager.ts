@@ -4,6 +4,9 @@ import type {
   SwitchResult,
   RecurringJobInfo,
   QueueStats,
+  JobSummary,
+  ListJobsOptions,
+  ListJobsResult,
 } from "@checkstack/queue-api";
 import type { QueuePluginRegistryImpl } from "./queue-plugin-registry";
 import type { Logger, ConfigService } from "@checkstack/backend-api";
@@ -276,7 +279,11 @@ export class QueueManagerImpl implements QueueManager {
   }
 
   async getAggregatedStats(): Promise<QueueStats> {
-    const aggregated: QueueStats = {
+    // The narrowest scope wins: if any queue reports `instance`, the
+    // aggregate cannot claim cluster-wide accuracy.
+    let scope: "instance" | "cluster" = "cluster";
+    let sawAny = false;
+    const aggregated: Omit<QueueStats, "scope"> = {
       pending: 0,
       processing: 0,
       completed: 0,
@@ -294,13 +301,81 @@ export class QueueManagerImpl implements QueueManager {
           aggregated.completed += stats.completed;
           aggregated.failed += stats.failed;
           aggregated.consumerGroups += stats.consumerGroups;
+          if (stats.scope === "instance") {
+            scope = "instance";
+          }
+          sawAny = true;
         }
       } catch {
         // Queue may not be initialized yet
       }
     }
 
-    return aggregated;
+    return { ...aggregated, scope: sawAny ? scope : "instance" };
+  }
+
+  /**
+   * Aggregate `listJobs` across every queue proxy. For deployments with a
+   * single queue (the common case) this is a straight pass-through; with
+   * multiple queues we over-fetch [0, offset+limit) per queue, merge-sort
+   * by the same key the per-queue impls use, then slice the requested
+   * window. Sort key:
+   *  - completed/failed → finishedAt desc (most-recent first)
+   *  - active           → startedAt asc (oldest still-running first)
+   *  - waiting/delayed  → enqueuedAt asc (FIFO)
+   */
+  async listJobs(opts: ListJobsOptions): Promise<ListJobsResult> {
+    const limit = Math.max(0, opts.limit);
+    const offset = Math.max(0, opts.offset);
+    if (limit === 0) {
+      return { items: [], total: 0, hasMore: false };
+    }
+
+    const fetchUpTo = offset + limit;
+    const merged: JobSummary[] = [];
+    let totalSum = 0;
+    let totalIsNull = false;
+
+    for (const proxy of this.queueProxies.values()) {
+      try {
+        const delegate = proxy.getDelegate();
+        if (delegate) {
+          const part = await delegate.listJobs({
+            state: opts.state,
+            offset: 0,
+            limit: fetchUpTo,
+          });
+          merged.push(...part.items);
+          if (part.total === null) {
+            totalIsNull = true;
+          } else {
+            totalSum += part.total;
+          }
+        }
+      } catch {
+        // Queue may not be initialized yet
+      }
+    }
+
+    const sortKey = (j: JobSummary): number => {
+      if (opts.state === "completed" || opts.state === "failed") {
+        return -(j.finishedAt?.getTime() ?? 0);
+      }
+      if (opts.state === "active") {
+        return j.startedAt?.getTime() ?? 0;
+      }
+      return j.enqueuedAt.getTime();
+    };
+    merged.sort((a, b) => sortKey(a) - sortKey(b));
+
+    const items = merged.slice(offset, offset + limit);
+    const total = totalIsNull ? null : totalSum;
+    const hasMore =
+      total === null
+        ? merged.length > offset + items.length
+        : offset + items.length < total;
+
+    return { items, total, hasMore };
   }
 
   async listAllRecurringJobs(): Promise<RecurringJobInfo[]> {

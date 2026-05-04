@@ -1,11 +1,18 @@
 import { eq, and, inArray, ne } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
-import { incidents, incidentSystems, incidentUpdates } from "./schema";
+import {
+  incidents,
+  incidentSystems,
+  incidentUpdates,
+  incidentLinks,
+} from "./schema";
 import type {
   IncidentWithSystems,
   IncidentDetail,
   IncidentUpdate,
+  IncidentLink,
+  AddIncidentLinkInput,
   CreateIncidentInput,
   UpdateIncidentInput,
   AddIncidentUpdateInput,
@@ -100,6 +107,11 @@ export class IncidentService {
       .from(incidentUpdates)
       .where(eq(incidentUpdates.incidentId, id));
 
+    const links = await this.db
+      .select()
+      .from(incidentLinks)
+      .where(eq(incidentLinks.incidentId, id));
+
     return {
       ...incident,
       description: incident.description ?? undefined,
@@ -109,6 +121,7 @@ export class IncidentService {
         statusChange: u.statusChange ?? undefined,
         createdBy: u.createdBy ?? undefined,
       })),
+      links,
     };
   }
 
@@ -330,6 +343,39 @@ export class IncidentService {
     await this.db
       .delete(incidentSystems)
       .where(eq(incidentSystems.systemId, systemId));
+  }
+
+  /**
+   * Add a hotlink to an incident.
+   */
+  async addLink(input: AddIncidentLinkInput): Promise<IncidentLink> {
+    const id = generateId();
+    await this.db.insert(incidentLinks).values({
+      id,
+      incidentId: input.incidentId,
+      label: input.label,
+      url: input.url,
+    });
+    const [row] = await this.db
+      .select()
+      .from(incidentLinks)
+      .where(eq(incidentLinks.id, id));
+    return row;
+  }
+
+  /**
+   * Remove a hotlink. Returns the parent incidentId so the caller can
+   * invalidate the right cache entry, or undefined if the link did not
+   * exist.
+   */
+  async removeLink(id: string): Promise<string | undefined> {
+    const [existing] = await this.db
+      .select()
+      .from(incidentLinks)
+      .where(eq(incidentLinks.id, id));
+    if (!existing) return undefined;
+    await this.db.delete(incidentLinks).where(eq(incidentLinks.id, id));
+    return existing.incidentId;
   }
 
   /**

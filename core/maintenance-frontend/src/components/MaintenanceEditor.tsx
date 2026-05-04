@@ -21,6 +21,7 @@ import {
   useToast,
   DateTimePicker,
   StatusUpdateTimeline,
+  LinksEditor,
 } from "@checkstack/ui";
 import { Plus, MessageSquare, Loader2, AlertCircle } from "lucide-react";
 import { MaintenanceUpdateForm } from "./MaintenanceUpdateForm";
@@ -85,6 +86,24 @@ export const MaintenanceEditor: React.FC<Props> = ({
     },
     onError: (error) => {
       toast.error(extractErrorMessage(error, "Failed to save"));
+    },
+  });
+
+  const addLinkMutation = maintenanceClient.addLink.useMutation({
+    onSuccess: () => {
+      void refetchDetail();
+    },
+    onError: (error) => {
+      toast.error(extractErrorMessage(error, "Failed to add link"));
+    },
+  });
+
+  const removeLinkMutation = maintenanceClient.removeLink.useMutation({
+    onSuccess: () => {
+      void refetchDetail();
+    },
+    onError: (error) => {
+      toast.error(extractErrorMessage(error, "Failed to remove link"));
     },
   });
 
@@ -348,6 +367,30 @@ export const MaintenanceEditor: React.FC<Props> = ({
                   maxHeight="max-h-48"
                 />
               )}
+            </div>
+          )}
+
+          {/* Hotlinks (change tickets, runbooks, ...) — editing only */}
+          {maintenance && (
+            <div className="border-t pt-4">
+              <LinksEditor
+                title="Hotlinks"
+                description="Attach change tickets, runbooks, dashboards, or any URL relevant to this maintenance."
+                links={maintenanceDetail?.links ?? []}
+                busy={
+                  addLinkMutation.isPending || removeLinkMutation.isPending
+                }
+                onAdd={async ({ label, url }) => {
+                  await addLinkMutation.mutateAsync({
+                    maintenanceId: maintenance.id,
+                    label,
+                    url,
+                  });
+                }}
+                onRemove={async (link) => {
+                  await removeLinkMutation.mutateAsync({ id: link.id });
+                }}
+              />
             </div>
           )}
 

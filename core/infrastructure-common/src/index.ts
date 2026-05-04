@@ -1,7 +1,7 @@
 export { pluginMetadata } from "./plugin-metadata";
 export { infrastructureRoutes } from "./routes";
 export {
-  registerInfrastructureTab,
-  getInfrastructureTabs,
-  type InfrastructureTab,
-} from "./tabs";
+  InfrastructureTabsSlot,
+  type InfrastructureTabContext,
+  type InfrastructureTabMetadata,
+} from "./slots";

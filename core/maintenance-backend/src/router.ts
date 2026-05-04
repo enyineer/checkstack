@@ -377,5 +377,33 @@ export function createRouter(
         );
         return { suppressed };
       }),
+
+    addLink: os.addLink.handler(async ({ input }) => {
+      const maintenance = await service.getMaintenance(input.maintenanceId);
+      if (!maintenance) {
+        throw new ORPCError("NOT_FOUND", { message: "Maintenance not found" });
+      }
+      const link = await service.addLink(input);
+      await cache.invalidateForMutation({
+        maintenanceId: maintenance.id,
+        systemIds: maintenance.systemIds,
+      });
+      return link;
+    }),
+
+    removeLink: os.removeLink.handler(async ({ input }) => {
+      const maintenanceId = await service.removeLink(input.id);
+      if (!maintenanceId) {
+        return { success: false };
+      }
+      const maintenance = await service.getMaintenance(maintenanceId);
+      if (maintenance) {
+        await cache.invalidateForMutation({
+          maintenanceId,
+          systemIds: maintenance.systemIds,
+        });
+      }
+      return { success: true };
+    }),
   });
 }

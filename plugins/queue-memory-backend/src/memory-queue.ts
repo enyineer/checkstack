@@ -6,8 +6,13 @@ import {
   ConsumeOptions,
   RecurringJobDetails,
   RecurringSchedule,
+  JobSummary,
+  ListJobsOptions,
+  ListJobsResult,
+  JobState,
 } from "@checkstack/queue-api";
 import type { Logger } from "@checkstack/backend-api";
+import { extractErrorMessage } from "@checkstack/common";
 import { InMemoryQueueConfig } from "./plugin";
 import parser from "cron-parser";
 
@@ -79,6 +84,26 @@ type RecurringJobMetadata<T> = {
   timerId?: ReturnType<typeof setTimeout> | ReturnType<typeof setInterval>;
 } & RecurringSchedule;
 
+/** Maximum history entries kept per terminal state (completed/failed). */
+const HISTORY_CAP = 200;
+
+interface ActiveJobInfo {
+  id: string;
+  enqueuedAt: Date;
+  startedAt: Date;
+  attempts: number;
+}
+
+interface TerminalJobInfo {
+  id: string;
+  state: "completed" | "failed";
+  enqueuedAt: Date;
+  startedAt: Date;
+  finishedAt: Date;
+  attempts: number;
+  failedReason?: string;
+}
+
 /**
  * In-memory queue implementation with consumer group support
  */
@@ -93,6 +118,13 @@ export class InMemoryQueue<T> implements Queue<T> {
     completed: 0,
     failed: 0,
   };
+
+  /** Currently-processing jobs, keyed by job id. */
+  private activeJobs = new Map<string, ActiveJobInfo>();
+  /** Most-recent-first ring buffer of completed jobs (capped at {@link HISTORY_CAP}). */
+  private completedHistory: TerminalJobInfo[] = [];
+  /** Most-recent-first ring buffer of failed jobs (capped at {@link HISTORY_CAP}). */
+  private failedHistory: TerminalJobInfo[] = [];
 
   private logger: Logger;
   private heartbeatInterval: ReturnType<typeof setInterval> | undefined;
@@ -440,6 +472,13 @@ export class InMemoryQueue<T> implements Queue<T> {
     });
   }
 
+  private pushHistory(buf: TerminalJobInfo[], info: TerminalJobInfo): void {
+    buf.unshift(info);
+    if (buf.length > HISTORY_CAP) {
+      buf.length = HISTORY_CAP;
+    }
+  }
+
   private async processJob(
     job: InternalQueueJob<T>,
     consumer: ConsumerGroupState<T>["consumers"][0],
@@ -448,12 +487,27 @@ export class InMemoryQueue<T> implements Queue<T> {
   ): Promise<void> {
     await this.semaphore.acquire();
     this.processing++;
+    const startedAt = new Date();
+    this.activeJobs.set(job.id, {
+      id: job.id,
+      enqueuedAt: job.timestamp,
+      startedAt,
+      attempts: (job.attempts ?? 0) + 1,
+    });
 
     let isRetrying = false;
 
     try {
       await consumer.handler(job);
       this.stats.completed++;
+      this.pushHistory(this.completedHistory, {
+        id: job.id,
+        state: "completed",
+        enqueuedAt: job.timestamp,
+        startedAt,
+        finishedAt: new Date(),
+        attempts: (job.attempts ?? 0) + 1,
+      });
     } catch (error) {
       this.logger.error(
         `Job ${job.id} failed in group ${groupId} (attempt ${job.attempts}):`,
@@ -488,8 +542,18 @@ export class InMemoryQueue<T> implements Queue<T> {
         });
       } else {
         this.stats.failed++;
+        this.pushHistory(this.failedHistory, {
+          id: job.id,
+          state: "failed",
+          enqueuedAt: job.timestamp,
+          startedAt,
+          finishedAt: new Date(),
+          attempts: (job.attempts ?? 0) + 1,
+          failedReason: extractErrorMessage(error),
+        });
       }
     } finally {
+      this.activeJobs.delete(job.id);
       this.processing--;
       this.semaphore.release();
 
@@ -535,6 +599,149 @@ export class InMemoryQueue<T> implements Queue<T> {
       completed: this.stats.completed,
       failed: this.stats.failed,
       consumerGroups: this.consumerGroups.size,
+      scope: "instance",
+    };
+  }
+
+  /**
+   * Synthesise `JobSummary` rows for recurring schedules so the UI can
+   * surface them under Pending (and Delayed) between actual fires.
+   *
+   * The in-memory queue runs cron via `setTimeout` and intervals via
+   * `setInterval`; neither materialises the next execution as an entry
+   * in `this.jobs` until the timer fires. Without these synthetic rows,
+   * cron-scheduled work like healthchecks would be invisible to operators
+   * looking at the runtime panel.
+   */
+  private synthesizeRecurringSummaries(): JobSummary[] {
+    const out: JobSummary[] = [];
+    for (const meta of this.recurringJobs.values()) {
+      if (!meta.enabled) continue;
+      let nextRunAt: Date | undefined;
+      if ("cronPattern" in meta && meta.cronPattern) {
+        try {
+          nextRunAt = parser
+            .parseExpression(meta.cronPattern)
+            .next()
+            .toDate();
+        } catch {
+          nextRunAt = undefined;
+        }
+      } else if (meta.intervalSeconds) {
+        // Best-effort: assume "now + intervalMs". The exact next-tick of
+        // an active setInterval isn't observable from outside; this gives
+        // operators an upper bound on the wait.
+        const intervalMs =
+          meta.intervalSeconds * 1000 * (this.config.delayMultiplier ?? 1);
+        nextRunAt = new Date(Date.now() + intervalMs);
+      }
+      // For synthesised recurring rows, `enqueuedAt` represents "this
+      // schedule is currently active as of now" — not a future fire time.
+      // The future fire time goes in `nextRunAt`. Using a future date
+      // here would make the UI's "x ago" relative formatting report
+      // negative seconds.
+      out.push({
+        id: meta.jobId,
+        name: this.name,
+        state: "delayed",
+        enqueuedAt: new Date(),
+        attempts: 0,
+        nextRunAt,
+        recurring: true,
+      });
+    }
+    return out;
+  }
+
+  async listJobs(opts: ListJobsOptions): Promise<ListJobsResult> {
+    const limit = Math.max(0, opts.limit);
+    const offset = Math.max(0, opts.offset);
+    const state: JobState = opts.state;
+    const now = Date.now();
+
+    const slice = <X>(all: X[]): { items: X[]; total: number } => ({
+      items: all.slice(offset, offset + limit),
+      total: all.length,
+    });
+
+    let result: { items: JobSummary[]; total: number };
+
+    if (state === "completed" || state === "failed") {
+      const src =
+        state === "completed" ? this.completedHistory : this.failedHistory;
+      const { items, total } = slice(src);
+      result = {
+        total,
+        items: items.map((j) => ({
+          id: j.id,
+          name: this.name,
+          state,
+          enqueuedAt: j.enqueuedAt,
+          startedAt: j.startedAt,
+          finishedAt: j.finishedAt,
+          attempts: j.attempts,
+          failedReason: j.failedReason,
+        })),
+      };
+    } else if (state === "active") {
+      const sorted = [...this.activeJobs.values()].toSorted(
+        (a, b) => a.startedAt.getTime() - b.startedAt.getTime(),
+      );
+      const { items, total } = slice(sorted);
+      result = {
+        total,
+        items: items.map((j) => ({
+          id: j.id,
+          name: this.name,
+          state: "active",
+          enqueuedAt: j.enqueuedAt,
+          startedAt: j.startedAt,
+          attempts: j.attempts,
+        })),
+      };
+    } else {
+      // pending / waiting / delayed: derived from this.jobs PLUS synthetic
+      // entries for active recurring schedules (so cron jobs are visible
+      // between fires).
+      // - waiting: availableAt <= now
+      // - delayed: availableAt > now (real jobs) + recurring schedules
+      // - pending: union, sorted by enqueuedAt (FIFO)
+      const isDelayed = (job: InternalQueueJob<T>) =>
+        job.availableAt.getTime() > now;
+
+      const baseSummaries: JobSummary[] = this.jobs
+        .filter((j) =>
+          state === "pending"
+            ? true
+            : state === "delayed"
+              ? isDelayed(j)
+              : !isDelayed(j),
+        )
+        .map((j) => ({
+          id: j.id,
+          name: this.name,
+          state:
+            state === "pending"
+              ? isDelayed(j)
+                ? ("delayed" as const)
+                : ("waiting" as const)
+              : state,
+          enqueuedAt: j.timestamp,
+          attempts: j.attempts ?? 0,
+        }));
+
+      const recurringSummaries =
+        state === "waiting" ? [] : this.synthesizeRecurringSummaries();
+
+      const all = [...baseSummaries, ...recurringSummaries];
+      const { items, total } = slice(all);
+      result = { items, total };
+    }
+
+    return {
+      items: result.items,
+      total: result.total,
+      hasMore: offset + result.items.length < result.total,
     };
   }
 

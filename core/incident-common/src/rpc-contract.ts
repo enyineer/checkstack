@@ -6,6 +6,8 @@ import {
   IncidentWithSystemsSchema,
   IncidentDetailSchema,
   IncidentUpdateSchema,
+  IncidentLinkSchema,
+  AddIncidentLinkInputSchema,
   CreateIncidentInputSchema,
   UpdateIncidentInputSchema,
   AddIncidentUpdateInputSchema,
@@ -99,6 +101,24 @@ export const incidentContract = {
   })
     .input(z.object({ id: z.string(), message: z.string().optional() }))
     .output(IncidentWithSystemsSchema),
+
+  /** Add a hotlink (e.g. Jira ticket, runbook) to an incident */
+  addLink: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [incidentAccess.incident.manage],
+  })
+    .input(AddIncidentLinkInputSchema)
+    .output(IncidentLinkSchema),
+
+  /** Remove a hotlink from an incident */
+  removeLink: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [incidentAccess.incident.manage],
+  })
+    .input(z.object({ id: z.string() }))
+    .output(z.object({ success: z.boolean() })),
 
   /** Delete an incident */
   deleteIncident: proc({
