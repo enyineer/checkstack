@@ -1,5 +1,22 @@
 # @checkstack/healthcheck-http-backend
 
+## 0.3.15
+
+### Patch Changes
+
+- 42abfff: Add practical-significance floors to anomaly detection.
+
+  Two new schema annotations — `x-anomaly-min-absolute-delta` and `x-anomaly-min-relative-delta` — let plugin authors and operators suppress alerts whose statistical deviation is large but practical impact is negligible. Both floors must clear in addition to the existing μ ± Nσ trigger; defaults are 0 (disabled) so existing behaviour is unchanged.
+
+  This is the fix for cases like a 6 ms latency baseline whose σ ≈ 1 ms causes routine 20 ms blips to fire as anomalies despite Δ=14 ms being operationally irrelevant. With `min-absolute-delta: 50` and `min-relative-delta: 0.5`, those blips stay silent while a 6 ms → 200 ms spike still fires.
+
+  Built-in plugins ship with sensible defaults applied to every per-run field: 50 ms + 50 % for ms-unit fields, 5 percentage points for `%`-unit fields, 1 + 25 % for counter fields, 1 GB + 5 % for disk fields, 50 MB + 10 % for memory fields, 1 day for TLS expiry, 0.5 + 25 % for load average, 1 + 5 % for Minecraft TPS. Operators can override per-system or per-field via the assignment UI.
+
+- Updated dependencies [42abfff]
+  - @checkstack/common@0.9.0
+  - @checkstack/backend-api@0.15.1
+  - @checkstack/healthcheck-common@1.0.2
+
 ## 0.3.14
 
 ### Patch Changes

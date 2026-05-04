@@ -1,5 +1,68 @@
 # @checkstack/dashboard-frontend
 
+## 0.7.0
+
+### Minor Changes
+
+- 3547670: Wire the new tips infrastructure across the frontends:
+
+  **Empty-state coaching.** Replace generic "no items" copy with onboarding
+  guidance — short description, three numbered steps and a primary CTA — on
+  every EmptyState that has a meaningful next action. Affects: catalog
+  (systems + groups), dashboard, health-check page, integrations (subscriptions
+
+  - provider connections), GitOps providers + secrets, GitOps provenance,
+    SLO config + overview, maintenance config, satellites, plugin manager,
+    incident config, announcements. Read-only EmptyStates (incident history,
+    maintenance history, plugin events) get clearer descriptions explaining
+    what would populate them.
+
+  **First-run anchored tips.** Add `<Tip>` popovers to the most important
+  "Create" affordances so first-time users see a one-line explanation of
+  what they're about to make and why it matters: catalog “Add System” /
+  “Add Group”, healthcheck “Create Check”, integrations “New Subscription”,
+  GitOps “Add Provider”, SLO “Create SLO”, maintenance “Create Maintenance”,
+  satellite “Create Satellite”, plugin-manager “Install plugin”, incident
+  “Report Incident”, announcement “New Announcement”. Each tip is dismissed
+  per user (server-backed when signed in, localStorage otherwise) and
+  namespaced through `qualifyTipId(plugin, …)` so it cannot escape the
+  plugin's own namespace.
+
+  **Welcome banner on the dashboard.** A `<TipBanner>` at the top of the
+  dashboard introduces Checkstack's main flow ("add a system, then a health
+  check") with a one-click jump into the catalog.
+
+### Patch Changes
+
+- Updated dependencies [42abfff]
+- Updated dependencies [42abfff]
+- Updated dependencies [3547670]
+- Updated dependencies [f6f9a5c]
+- Updated dependencies [1ef2e79]
+- Updated dependencies [aa89bc5]
+- Updated dependencies [3547670]
+- Updated dependencies [3547670]
+- Updated dependencies [950d6ec]
+- Updated dependencies [3547670]
+- Updated dependencies [3547670]
+  - @checkstack/anomaly-common@1.1.0
+  - @checkstack/common@0.9.0
+  - @checkstack/ui@1.8.0
+  - @checkstack/catalog-frontend@0.10.0
+  - @checkstack/incident-common@1.1.0
+  - @checkstack/maintenance-common@1.1.0
+  - @checkstack/catalog-common@2.1.0
+  - @checkstack/frontend-api@0.5.0
+  - @checkstack/queue-frontend@0.4.0
+  - @checkstack/notification-frontend@0.4.0
+  - @checkstack/tips-frontend@0.2.0
+  - @checkstack/auth-frontend@0.6.0
+  - @checkstack/command-common@0.2.11
+  - @checkstack/command-frontend@0.2.35
+  - @checkstack/healthcheck-common@1.0.2
+  - @checkstack/notification-common@1.0.2
+  - @checkstack/signal-frontend@0.1.2
+
 ## 0.6.1
 
 ### Patch Changes

@@ -1,5 +1,90 @@
 # @checkstack/dependency-frontend
 
+## 0.4.0
+
+### Minor Changes
+
+- f6f9a5c: Add a GitOps `System.dependencies` extension and lock the matching UI.
+
+  Each entry references an upstream system by ref and tunes the impact:
+
+  ```yaml
+  apiVersion: checkstack.io/v1alpha1
+  kind: System
+  metadata: { name: payments-api }
+  spec:
+    dependencies:
+      - targetRef: { kind: System, name: payments-db }
+        impactType: critical
+        transitive: false
+        label: "primary store"
+  ```
+
+  The reconciler diffs the YAML-declared edges against the persisted ones
+  where this system is the source and converges via
+  create / update / delete. GitOps is the source of truth, so any edges
+  no longer listed are removed. Refs that resolve to the source system
+  itself are rejected; refs that fail to resolve abort the diff before
+  any mutation.
+
+  UI gates:
+
+  - The `DependencyEditor` (system editor drawer) hides Add and disables
+    Edit/Delete on upstream rows when the source system is GitOps-managed.
+    Downstream rows are gated per-row by the _other_ system's lock.
+  - The `DependencyMap` blocks `onConnect` when the source is locked,
+    surfaces a "Managed by GitOps" notice in the edge editor panel, and
+    disables Save/Delete there.
+
+### Patch Changes
+
+- 950d6ec: Fix mobile UserMenu items rendering at zero height, group menu items by
+  section, and unstack cramped card headers on small viewports.
+
+  - **UserMenu mobile bug**: On mobile, the user-menu Sheet rendered every
+    menu item as a grid row, which combined with `flex-shrink: 1` on each
+    item collapsed the buttons whose internal layout uses `display: flex`
+    (the items registered with `useNavigate` rather than `<Link>`) to zero
+    content height. Switched the mobile container to a flex column with
+    `[&>*]:shrink-0` and added `min-h-0` so the sheet scrolls correctly
+    when the list overflows.
+
+  - **UserMenu grouping**: Slot extensions now accept an optional `group`
+    field. The user menu buckets `UserMenuItemsSlot` extensions by `group`
+    and renders each group under a labeled header (`Workspace`,
+    `Reliability`, `Configuration`, `Documentation`, `Account`). Existing
+    core plugins are tagged with the appropriate group; third-party plugins
+    can pick any of these or supply their own label. Untagged extensions
+    render last with no header. `UserMenuItemsBottomSlot` is unaffected.
+
+  - **Card header responsiveness**: `CardHeaderRow` (the primitive shared by
+    Incident, Maintenance, Auth, Catalog, GitOps and other config cards) now
+    stacks vertically on narrow viewports and only switches to a single row
+    at the `sm` breakpoint, so titles and adjacent filter controls (e.g.
+    status `Select`, "Show resolved" checkbox) no longer cram together on
+    mobile. Refactored the Incident and Maintenance config pages to use the
+    primitive instead of a hand-rolled `flex items-center justify-between`
+    row, and made their `Select` triggers full-width on mobile.
+
+- Updated dependencies [42abfff]
+- Updated dependencies [3547670]
+- Updated dependencies [f6f9a5c]
+- Updated dependencies [1ef2e79]
+- Updated dependencies [aa89bc5]
+- Updated dependencies [950d6ec]
+- Updated dependencies [3547670]
+- Updated dependencies [3547670]
+  - @checkstack/common@0.9.0
+  - @checkstack/ui@1.8.0
+  - @checkstack/gitops-common@0.3.0
+  - @checkstack/gitops-frontend@0.4.0
+  - @checkstack/catalog-common@2.1.0
+  - @checkstack/frontend-api@0.5.0
+  - @checkstack/dashboard-frontend@0.7.0
+  - @checkstack/dependency-common@1.0.2
+  - @checkstack/healthcheck-common@1.0.2
+  - @checkstack/signal-frontend@0.1.2
+
 ## 0.3.5
 
 ### Patch Changes

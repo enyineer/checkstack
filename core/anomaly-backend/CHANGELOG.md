@@ -1,5 +1,107 @@
 # @checkstack/anomaly-backend
 
+## 1.1.0
+
+### Minor Changes
+
+- 42abfff: Remove global anomaly settings — configuration is now field-only.
+
+  `AnomalySettings` (template- and assignment-level) no longer carries
+  `sensitivity`, `confirmationWindow`, `driftEnabled`, or `driftThreshold`.
+  These were duplicating the per-field configuration path with awkward
+  cascade semantics, and a single global multiplier was meaningless across
+  fields with different units (ms, %, counts).
+
+  The schema retains only the truly global concerns:
+
+  - `enabled` — master kill switch for the assignment
+  - `baselineWindow` — there is one history per system, not per field
+  - `notify` — one notification preference per assignment
+  - `fieldOverrides` — per-field configuration (where everything else now lives)
+
+  `resolveEffectiveConfig` collapses to two layers: field override → schema
+  default → engine fallback constant. The plugin-author defaults set via
+  `x-anomaly-*` annotations now drive sensitivity/window/drift across the
+  detector and drift evaluator (previously only floors were threaded
+  through the schema layer).
+
+  **Breaking changes:**
+
+  - Any global `sensitivity`/`confirmationWindow`/`driftEnabled`/
+    `driftThreshold` values previously stored in `anomaly_configurations`
+    or `anomaly_assignments` are silently stripped on parse. Users who
+    customized these globals will revert to the plugin's tuned per-field
+    defaults; if they want to keep those values they must re-apply them
+    per field in the new UI.
+  - `AnomalySettingsForm` no longer renders the global sliders. The form
+    now shows: enable toggle, baseline window selector, notify toggle,
+    field overrides editor.
+  - `AnomalyFieldOverridesEditor` props `defaultSensitivity`,
+    `defaultConfirmationWindow`, `defaultDriftEnabled`, `defaultDriftThreshold`
+    are removed. Engine fallbacks (1.0, 3, true, 2) are now hard-coded
+    internal constants used only when neither field override nor schema
+    default is set.
+  - The GitOps `System.anomaly` entry schema (in `anomaly-gitops-kinds`)
+    drops `sensitivity`, `confirmationWindow`, `driftEnabled`, and
+    `driftThreshold` to match the new `AnomalySettings` shape. YAML files
+    declaring those fields will be rejected at parse time — operators
+    must move per-field tuning into `fieldOverrides`.
+
+  This change makes the override model trivial to explain ("plugin defaults,
+  overridden per field") and removes a class of confusing "where did this
+  threshold come from?" questions.
+
+- 42abfff: Add practical-significance floors to anomaly detection.
+
+  Two new schema annotations — `x-anomaly-min-absolute-delta` and `x-anomaly-min-relative-delta` — let plugin authors and operators suppress alerts whose statistical deviation is large but practical impact is negligible. Both floors must clear in addition to the existing μ ± Nσ trigger; defaults are 0 (disabled) so existing behaviour is unchanged.
+
+  This is the fix for cases like a 6 ms latency baseline whose σ ≈ 1 ms causes routine 20 ms blips to fire as anomalies despite Δ=14 ms being operationally irrelevant. With `min-absolute-delta: 50` and `min-relative-delta: 0.5`, those blips stay silent while a 6 ms → 200 ms spike still fires.
+
+  Built-in plugins ship with sensible defaults applied to every per-run field: 50 ms + 50 % for ms-unit fields, 5 percentage points for `%`-unit fields, 1 + 25 % for counter fields, 1 GB + 5 % for disk fields, 50 MB + 10 % for memory fields, 1 day for TLS expiry, 0.5 + 25 % for load average, 1 + 5 % for Minecraft TPS. Operators can override per-system or per-field via the assignment UI.
+
+- f6f9a5c: Add GitOps extensions for declarative anomaly configuration.
+
+  Two extensions are now registered against the kind registry:
+
+  - `Healthcheck.anomaly` — accepts the full `AnomalySettings` shape and
+    applies it to the healthcheck's anomaly template via
+    `updateAnomalyConfig` on reconcile.
+  - `System.anomaly` — accepts an array of per-healthcheck overrides,
+    each scoped via `healthcheckRef: { kind: Healthcheck, name: ... }`,
+    and applies them with `updateAnomalyAssignmentConfig`. The
+    healthcheck reference is the GitOps source of truth; UI edits to
+    managed entries are blocked by the existing assignment-level lock.
+
+  Spec schema documentation for `Healthcheck.anomaly.fieldOverrides` is
+  registered **per collector field**, conditioned on the selected
+  `collectors[].config` variant — same pattern the `collectors[].assertions`
+  docs use, so the kind-registry browser pre-populates the available
+  result fields once a collector is chosen. The System extension's
+  `fieldOverrides` falls back to a generic variant since the relevant
+  collector lives on the referenced Healthcheck rather than a sibling.
+
+### Patch Changes
+
+- Updated dependencies [42abfff]
+- Updated dependencies [42abfff]
+- Updated dependencies [f6f9a5c]
+- Updated dependencies [1ef2e79]
+- Updated dependencies [aa89bc5]
+  - @checkstack/anomaly-common@1.1.0
+  - @checkstack/common@0.9.0
+  - @checkstack/gitops-common@0.3.0
+  - @checkstack/gitops-backend@0.3.0
+  - @checkstack/catalog-common@2.1.0
+  - @checkstack/catalog-backend@1.1.0
+  - @checkstack/queue-api@0.3.0
+  - @checkstack/cache-api@0.3.0
+  - @checkstack/backend-api@0.15.1
+  - @checkstack/healthcheck-backend@1.0.4
+  - @checkstack/healthcheck-common@1.0.2
+  - @checkstack/notification-common@1.0.2
+  - @checkstack/signal-common@0.2.2
+  - @checkstack/cache-utils@0.2.5
+
 ## 1.0.3
 
 ### Patch Changes

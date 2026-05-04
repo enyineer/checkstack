@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/catalog-common",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "license": "Elastic-2.0",
   "type": "module",
   "exports": {

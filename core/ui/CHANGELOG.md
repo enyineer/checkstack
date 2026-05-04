@@ -1,5 +1,231 @@
 # @checkstack/ui
 
+## 1.8.0
+
+### Minor Changes
+
+- 1ef2e79: feat: hotlinks on incidents/maintenances and additional links on systems
+
+  Users with `manage` access on an incident, maintenance, or system can now
+  attach free-form URL "hotlinks" — Jira tickets, runbooks, dashboards, ticket
+  tools, etc. — alongside the existing fields.
+
+  - **Incidents** & **maintenances**: links live on the entity itself and are
+    surfaced both in the editor dialog and on the public detail page. Two new
+    RPC procedures per plugin (`addLink`, `removeLink`) gated behind the
+    existing `manage` access rule. Links are returned as part of
+    `getIncident` / `getMaintenance` and cache-invalidated on every link
+    mutation.
+  - **Systems**: a parallel `system_links` table with `getSystemLinks`,
+    `addSystemLink`, `removeSystemLink` procedures. Surfaced inside the
+    system editor (next to contacts) and on the read-only system detail
+    sidebar. Cache-scoped per-system so list endpoints remain hot.
+  - **Shared UI**: a `LinksEditor` component in `@checkstack/ui` does the
+    presentation; the three plugins each own their own RPC wiring.
+
+  Database changes ship as additive migrations (new `incident_links`,
+  `maintenance_links`, `system_links` tables, all FK-cascaded on parent
+  delete). No existing columns or rows are touched.
+
+  The system incident and maintenance history pages now sort by relevance:
+  active entries (non-`resolved` incidents, `scheduled` or `in_progress`
+  maintenances) appear at the top, with creation date descending as the
+  tiebreaker.
+
+- aa89bc5: Replace the bespoke `registerInfrastructureTab()` registry with a standard
+  slot-extension contract (`InfrastructureTabsSlot` from
+  `@checkstack/infrastructure-common`). Plugins now contribute infrastructure
+  tabs via `createSlotExtension`, depending only on the slot owner.
+
+  The slot system in `@checkstack/frontend-api` gains a second type parameter
+  on `createSlot<TContext, TMetadata>` so extensions can declare typed static
+  metadata at registration time (label, icon, access rules, ordering for the
+  infrastructure tab bar). A new `useSlotExtensions(slot)` hook returns typed
+  extensions and subscribes to plugin lifecycle changes.
+
+  Each tab body now stacks a **Runtime** sub-section (live state, read-only)
+  on top of a **Configuration** sub-section (settings, gated by `canUpdate`).
+
+  **Queue runtime panel.** Surfaces aggregated counts (pending / processing /
+  completed / failed) plus three sub-tabs of recent jobs: **Active**, **Recent
+  failed** (with the failure message), and **Recent completed** (with
+  duration). Job payloads are deliberately not surfaced — they may carry
+  secrets and need a separate manage-access gate to be shown.
+
+  To support this, `Queue<T>` gains a required `listJobs(opts)` method
+  returning `JobSummary[]` (no payloads), and `QueueStats` gains a
+  `scope: "instance" | "cluster"` field. The in-memory queue keeps rolling
+  ring buffers (200 entries) for completed/failed history and tracks active
+  jobs by id; BullMQ uses native `getJobs`. `QueueManager.listJobs` aggregates
+  across queues and sorts (most-recent-first for terminal states, FIFO for
+  active/waiting/delayed).
+
+  **Cache runtime panel.** Lists the top N entries by size (or by recency) so
+  operators can debug a cache filling up. Values are deliberately omitted —
+  PII / secret risk. Backends opt in via an optional `listEntries?` method on
+  `CacheProvider`; non-supporting backends return `{ supported: false }` and
+  the UI renders a "not supported by this backend" hint. The in-memory cache
+  implements it using its existing per-entry byte tracking.
+
+  `CacheStats` also gains `scope: "instance" | "cluster"`.
+
+  **Multi-instance scope warning.** A new `<InstanceScopeBanner>` component in
+  `@checkstack/ui` renders a yellow banner above any runtime panel whose
+  backend reports `scope: "instance"` — i.e. in-memory queue or cache running
+  in a horizontally scaled deployment. The banner explains the metrics are
+  local to the responding replica and recommends switching to a clustered
+  backend (Redis-backed queue / cache) for cluster-wide visibility.
+
+  **Bug fix — stable cache provider proxy.** `CacheManagerImpl.getProvider()`
+  now returns a single stable proxy that delegates to whatever provider is
+  currently active. Previously, consumers of `createCachedScope` (and any
+  direct `cacheManager.getProvider()` caller) captured the active provider
+  reference at plugin-init time. After any `setActiveBackend` call — including
+  saving the same memory config in the new Cache tab, which reconstructs the
+  in-memory cache — those scopes wrote to an orphaned old provider while the
+  runtime panel read stats from the new (empty) one, making the runtime panel
+  appear to report 0 keys. With the proxy, all consumers share a single stable
+  identity and writes always land in the active provider.
+
+  **Bytes tracking on the in-memory cache.** `InMemoryCache.getStats().sizeBytes`
+  now returns a running approximation (UTF-8 bytes of the key plus
+  `v8.serialize(value).byteLength`, with a JSON fallback) that's kept in sync
+  across all eviction paths. Treat the number as a sanity gauge; it doesn't
+  include `Map` per-entry overhead.
+
+  **Pagination.** Both `Queue<T>.listJobs` and `CacheProvider.listEntries?`
+  are offset-paginated. Inputs gain an `offset: number`; outputs change to
+  `{ items, total: number | null, hasMore: boolean }`. `total` is nullable
+  so backends that can't compute it cheaply still paginate via `hasMore`.
+  The UI uses the existing `<Pagination>` component with a 25-row default
+  page size. `QueueManager.listJobs` aggregates by over-fetching
+  `[0, offset+limit)` per queue, merge-sorting, then slicing the window —
+  optimal for the single-queue case, acceptable for the multi-queue case
+  within the UI's reasonable page-depth bounds. BullMQ uses native offset
+  ranges via `getJobs(types, start, end)` plus `getJobCounts` for `total`.
+
+  **Pending tab.** The Queue runtime panel exposes a virtual `"pending"`
+  state (waiting ∪ delayed, FIFO). It's now the default sub-tab, since
+  "what's queued up?" is the most common question. Per-row state is shown
+  when viewing the combined list.
+
+  **Recurring schedules visible under Pending.** Cron- and interval-based
+  recurring jobs (e.g. healthchecks) are surfaced under Pending/Delayed
+  between fires, with a `nextRunAt` countdown column and a "(recurring)"
+  label. `JobSummary` gains optional `nextRunAt: Date` and `recurring:
+boolean` fields. The in-memory queue synthesises these rows from its
+  `recurringJobs` registry; BullMQ already materialises the next fire of
+  each scheduler as a delayed job and we now surface its trigger time and
+  the `repeatJobKey`-derived `recurring` flag.
+
+  **Bug fix — drop hook emits with no listeners.** `EventBus.emit` no
+  longer enqueues a job when zero listeners (distributed or instance-local)
+  are registered for the hook. Previously, hooks like
+  `core.plugin.initialized` — emitted on every plugin init but subscribed
+  to by nothing in the core repo — accumulated one waiting job per emit
+  forever. The in-memory queue's `processNext` short-circuits when there
+  are zero consumer groups, so its post-loop cleanup never ran for these
+  orphaned jobs. The fix drops the emit at the source and logs a debug
+  line. Note: in distributed deployments using a Redis-backed queue, this
+  means a subscriber on another replica won't receive an event if no
+  replica that emits it has a local listener. Plugins needing cross-process
+  delivery must register their listener on every replica that should
+  receive the hook.
+
+  **Breaking notes (treated as minor under beta semantics)**:
+
+  - `@checkstack/infrastructure-common` removes `registerInfrastructureTab`
+    and `getInfrastructureTabs`; former callers must register an extension
+    into `InfrastructureTabsSlot`.
+  - `@checkstack/queue-api`'s `Queue<T>` interface requires the new
+    `listJobs(opts)` method returning `ListJobsResult` (paginated). Both
+    bundled queue backends (memory, BullMQ) are updated; out-of-tree
+    implementations will need to add it.
+  - `QueueStats` and `CacheStats` add a required `scope` field.
+  - `CacheProvider.listEntries?` (when implemented) now returns
+    `ListEntriesResult` instead of `CacheEntrySummary[]`.
+  - `JobState` adds a `"pending"` variant.
+
+- 3547670: Add `@checkstack/tips-*` — first-run tip and onboarding infrastructure for
+  the frontends.
+
+  Three new packages:
+
+  - `@checkstack/tips-common` — RPC contract (`tipsContract`), `TipsApi`
+    client definition, and zod schemas. Fully-qualified tip IDs have shape
+    `<pluginId>.<localTipId>` and are produced exclusively by
+    `qualifyTipId(plugin, localId)` — plugins never write the namespace
+    themselves, and a local id with a leading or trailing `.` is rejected,
+    so one plugin cannot forge or dismiss a tip in another plugin's
+    namespace.
+  - `@checkstack/tips-backend` — Postgres-backed dismissal store
+    (`user_tip_dismissal` with composite PK on `(user_id, tip_id)`),
+    `listDismissed` / `dismiss` / `reset` endpoints scoped to the
+    requesting user via the auto-auth middleware, and a
+    `auth.userDeleted` hook that cleans up dismissals when a user is
+    deleted.
+  - `@checkstack/tips-frontend` — `<Tip>` (anchored popover) and
+    `<TipBanner>` (inline callout) components plus the `useTipState`
+    hook. All three accept `{ plugin, id }` (where `plugin` is the
+    caller's `pluginMetadata`) and route through `qualifyTipId` so the
+    namespace prefix is enforced at the boundary. Persists per-user on
+    the server when logged in, and per-browser in `localStorage`
+    (`checkstack.tips.dismissed`) when anonymous, with cross-tab sync via
+    the `storage` event.
+
+  `@checkstack/ui`'s `<EmptyState>` gains optional `steps` and `actions`
+  props for richer empty-state coaching (numbered onboarding lists +
+  primary CTA), and accepts `ReactNode` for `description`. Existing
+  callers continue to work unchanged.
+
+  `@checkstack/test-utils-backend`'s `createMockDb` now also mocks
+  `insert().values().onConflictDoNothing()` so routers using upsert-or-skip
+  semantics can be unit-tested.
+
+### Patch Changes
+
+- 3547670: Give `<DialogContent>` real vertical breathing room between its
+  children. The previous `gap-4` on `<DialogContent>` was a no-op because
+  the children were rendered inside a single inner wrapper, so
+  `<DialogHeader>`, the body, and `<DialogFooter>` all stacked tight
+  against each other. The inner wrapper is now a flex column with
+  `gap-6`, so headers/descriptions, body content, and footer buttons sit
+  apart at the dialog level without callers having to add
+  `<div className="space-y-…">` themselves.
+- 950d6ec: Fix mobile UserMenu items rendering at zero height, group menu items by
+  section, and unstack cramped card headers on small viewports.
+
+  - **UserMenu mobile bug**: On mobile, the user-menu Sheet rendered every
+    menu item as a grid row, which combined with `flex-shrink: 1` on each
+    item collapsed the buttons whose internal layout uses `display: flex`
+    (the items registered with `useNavigate` rather than `<Link>`) to zero
+    content height. Switched the mobile container to a flex column with
+    `[&>*]:shrink-0` and added `min-h-0` so the sheet scrolls correctly
+    when the list overflows.
+
+  - **UserMenu grouping**: Slot extensions now accept an optional `group`
+    field. The user menu buckets `UserMenuItemsSlot` extensions by `group`
+    and renders each group under a labeled header (`Workspace`,
+    `Reliability`, `Configuration`, `Documentation`, `Account`). Existing
+    core plugins are tagged with the appropriate group; third-party plugins
+    can pick any of these or supply their own label. Untagged extensions
+    render last with no header. `UserMenuItemsBottomSlot` is unaffected.
+
+  - **Card header responsiveness**: `CardHeaderRow` (the primitive shared by
+    Incident, Maintenance, Auth, Catalog, GitOps and other config cards) now
+    stacks vertically on narrow viewports and only switches to a single row
+    at the `sm` breakpoint, so titles and adjacent filter controls (e.g.
+    status `Select`, "Show resolved" checkbox) no longer cram together on
+    mobile. Refactored the Incident and Maintenance config pages to use the
+    primitive instead of a hand-rolled `flex items-center justify-between`
+    row, and made their `Select` triggers full-width on mobile.
+
+- Updated dependencies [42abfff]
+- Updated dependencies [aa89bc5]
+- Updated dependencies [950d6ec]
+  - @checkstack/common@0.9.0
+  - @checkstack/frontend-api@0.5.0
+
 ## 1.7.1
 
 ### Patch Changes
