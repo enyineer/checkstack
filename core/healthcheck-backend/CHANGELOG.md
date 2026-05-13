@@ -1,5 +1,14 @@
 # @checkstack/healthcheck-backend
 
+## 1.1.1
+
+### Patch Changes
+
+- Updated dependencies [b627562]
+  - @checkstack/catalog-backend@1.1.2
+  - @checkstack/gitops-backend@0.3.2
+  - @checkstack/satellite-backend@0.3.2
+
 ## 1.1.0
 
 ### Minor Changes

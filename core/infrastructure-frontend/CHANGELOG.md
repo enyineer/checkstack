@@ -1,5 +1,12 @@
 # @checkstack/infrastructure-frontend
 
+## 0.2.6
+
+### Patch Changes
+
+- Updated dependencies [b627562]
+  - @checkstack/ui@1.8.2
+
 ## 0.2.5
 
 ### Patch Changes

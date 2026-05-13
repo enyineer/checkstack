@@ -1,5 +1,12 @@
 # @checkstack/queue-frontend
 
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies [b627562]
+  - @checkstack/ui@1.8.2
+
 ## 0.4.1
 
 ### Patch Changes
