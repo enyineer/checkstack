@@ -74,6 +74,18 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 # Remove development-only folders
 RUN rm -rf core/scripts core/test-utils-backend core/test-utils-frontend
 
+# Strip vendored test/benchmark artefacts inside production node_modules.
+# Some upstream tarballs (e.g. fast-uri, tedious) ship their own benchmark/
+# folders with a nested package.json. Trivy treats those nested manifests as
+# real packages and reports their CVEs (e.g. "benchmark", "uri-js" inside
+# fast-uri/benchmark/). They're never executed at runtime, so we delete them
+# wholesale to shrink the attack surface and silence false-positive findings.
+RUN find node_modules -type d \
+  \( -name test -o -name tests -o -name __tests__ \
+     -o -name benchmark -o -name benchmarks \
+     -o -name examples -o -name example \) \
+  -prune -exec rm -rf {} +
+
 # Stage 3: Production Runtime
 FROM oven/bun:1-alpine AS runtime
 WORKDIR /app
