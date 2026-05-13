@@ -193,6 +193,7 @@ export const authContract = {
     userType: "user",
     access: [],
   })
+    .route({ method: "PATCH" })
     .input(
       z.object({
         name: z.string().min(1).optional(),
@@ -216,6 +217,7 @@ export const authContract = {
     userType: "user",
     access: [authAccess.users.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.string())
     .output(z.void()),
 
@@ -232,6 +234,7 @@ export const authContract = {
     userType: "user",
     access: [authAccess.users.manage],
   })
+    .route({ method: "PATCH" })
     .input(z.object({ userId: z.string(), roles: z.array(z.string()) }))
     .output(z.void()),
 
@@ -270,6 +273,7 @@ export const authContract = {
     userType: "user",
     access: [authAccess.roles.update],
   })
+    .route({ method: "PATCH" })
     .input(
       z.object({
         id: z.string(),
@@ -285,6 +289,7 @@ export const authContract = {
     userType: "user",
     access: [authAccess.roles.delete],
   })
+    .route({ method: "DELETE" })
     .input(z.string())
     .output(z.void()),
 
@@ -303,6 +308,7 @@ export const authContract = {
     userType: "user",
     access: [authAccess.strategies],
   })
+    .route({ method: "PATCH" })
     .input(
       z.object({
         id: z.string(),
@@ -452,6 +458,7 @@ export const authContract = {
     userType: "user",
     access: [authAccess.applications],
   })
+    .route({ method: "PATCH" })
     .input(
       z.object({
         id: z.string(),
@@ -467,6 +474,7 @@ export const authContract = {
     userType: "user",
     access: [authAccess.applications],
   })
+    .route({ method: "DELETE" })
     .input(z.string())
     .output(z.void()),
 
@@ -538,6 +546,7 @@ export const authContract = {
     userType: "authenticated",
     access: [authAccess.teams.read],
   })
+    .route({ method: "PATCH" })
     .input(
       z.object({
         id: z.string(),
@@ -552,6 +561,7 @@ export const authContract = {
     userType: "authenticated",
     access: [authAccess.teams.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.string())
     .output(z.void()),
 
@@ -568,6 +578,7 @@ export const authContract = {
     userType: "authenticated",
     access: [authAccess.teams.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
 
@@ -584,6 +595,7 @@ export const authContract = {
     userType: "authenticated",
     access: [authAccess.teams.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
 
@@ -625,6 +637,7 @@ export const authContract = {
     userType: "authenticated",
     access: [authAccess.teams.manage],
   })
+    .route({ method: "DELETE" })
     .input(
       z.object({
         resourceType: z.string(),
@@ -699,6 +712,7 @@ export const authContract = {
     userType: "service",
     access: [],
   })
+    .route({ method: "DELETE" })
     .input(z.object({ resourceType: z.string(), resourceId: z.string() }))
     .output(z.void()),
 

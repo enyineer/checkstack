@@ -59,6 +59,7 @@ export const incidentContract = {
     access: [incidentAccess.incident.read],
     instanceAccess: { recordKey: "incidents" },
   })
+    .route({ method: "POST" })
     .input(z.object({ systemIds: z.array(z.string()) }))
     .output(
       z.object({
@@ -81,6 +82,7 @@ export const incidentContract = {
     userType: "authenticated",
     access: [incidentAccess.incident.manage],
   })
+    .route({ method: "PATCH" })
     .input(UpdateIncidentInputSchema)
     .output(IncidentWithSystemsSchema),
 
@@ -117,6 +119,7 @@ export const incidentContract = {
     userType: "authenticated",
     access: [incidentAccess.incident.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
 
@@ -126,6 +129,7 @@ export const incidentContract = {
     userType: "authenticated",
     access: [incidentAccess.incident.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
 

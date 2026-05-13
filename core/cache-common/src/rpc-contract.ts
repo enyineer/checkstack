@@ -35,6 +35,7 @@ export const cacheContract = {
     userType: "authenticated",
     access: [cacheAccess.settings.manage],
   })
+    .route({ method: "PATCH" })
     .input(UpdateCacheConfigurationSchema)
     .output(CacheConfigurationDtoSchema),
 

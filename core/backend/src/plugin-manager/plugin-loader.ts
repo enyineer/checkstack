@@ -29,7 +29,12 @@ import {
 } from "../utils/plugin-discovery";
 import type { InitCallback, PendingInit } from "./types";
 import { sortPlugins } from "./dependency-sorter";
-import { createApiRouteHandler, registerApiRoute } from "./api-router";
+import {
+  createApiRouteHandler,
+  createRestRouteHandler,
+  registerApiRoute,
+  registerRestRoute,
+} from "./api-router";
 import type { ExtensionPointManager } from "./extension-points";
 import { Router } from "@orpc/server";
 import { AnyContractRouter } from "@orpc/contract";
@@ -302,7 +307,10 @@ export async function loadPlugins({
   const sortedIds = sortPlugins({ pendingInits, providedBy, logger });
   rootLogger.debug(`✅ Initialization Order: ${sortedIds.join(" -> ")}`);
 
-  // Register /api/* route BEFORE plugin initialization
+  // Register /api/* (oRPC wire format) and /rest/* (REST/OpenAPI shape) routes
+  // BEFORE plugin initialization. Both routes share the same plugin RPC routers
+  // and per-request context; they differ only in how the handler decodes the
+  // request and matches it to a procedure.
   const apiHandler = createApiRouteHandler({
     registry: deps.registry,
     pluginRpcRouters: deps.pluginRpcRouters,
@@ -310,6 +318,13 @@ export async function loadPlugins({
     pluginMetadataRegistry: deps.pluginMetadataRegistry,
   });
   registerApiRoute(rootRouter, apiHandler);
+
+  const restHandler = createRestRouteHandler({
+    registry: deps.registry,
+    pluginRpcRouters: deps.pluginRpcRouters,
+    pluginMetadataRegistry: deps.pluginMetadataRegistry,
+  });
+  registerRestRoute(rootRouter, restHandler);
 
   // Routes are now registered on the root router. Signal readiness so the
   // server can stop blocking incoming requests in `waitForInit()`. We open

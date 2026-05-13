@@ -116,6 +116,7 @@ export const catalogContract = {
     userType: "authenticated",
     access: [catalogAccess.system.manage],
   })
+    .route({ method: "PATCH" })
     .input(UpdateSystemInputSchema)
     .output(SystemSchema),
 
@@ -124,6 +125,7 @@ export const catalogContract = {
     userType: "authenticated",
     access: [catalogAccess.system.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.string())
     .output(z.object({ success: z.boolean() })),
 
@@ -162,6 +164,7 @@ export const catalogContract = {
     userType: "authenticated",
     access: [catalogAccess.system.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.string())
     .output(z.object({ success: z.boolean() })),
 
@@ -199,6 +202,7 @@ export const catalogContract = {
     userType: "authenticated",
     access: [catalogAccess.system.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.string())
     .output(z.object({ success: z.boolean() })),
 
@@ -219,6 +223,7 @@ export const catalogContract = {
     userType: "authenticated",
     access: [catalogAccess.group.manage],
   })
+    .route({ method: "PATCH" })
     .input(UpdateGroupInputSchema)
     .output(GroupSchema),
 
@@ -227,6 +232,7 @@ export const catalogContract = {
     userType: "authenticated",
     access: [catalogAccess.group.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.string())
     .output(z.object({ success: z.boolean() })),
 
@@ -252,6 +258,7 @@ export const catalogContract = {
     userType: "authenticated",
     access: [catalogAccess.system.manage],
   })
+    .route({ method: "DELETE" })
     .input(
       z.object({
         groupId: z.string(),

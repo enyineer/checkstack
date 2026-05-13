@@ -46,6 +46,7 @@ export const dependencyContract = {
     userType: "public",
     access: [dependencyAccess.dependency.read],
   })
+    .route({ method: "POST" })
     .input(z.object({ systemIds: z.array(z.string()) }))
     .output(
       z.object({
@@ -83,6 +84,7 @@ export const dependencyContract = {
     access: [dependencyAccess.dependency.manage],
     instanceAccess: { idParam: "systemId" },
   })
+    .route({ method: "PATCH" })
     .input(UpdateDependencyInputSchema)
     .output(DependencySchema),
 
@@ -93,6 +95,7 @@ export const dependencyContract = {
     access: [dependencyAccess.dependency.manage],
     instanceAccess: { idParam: "systemId" },
   })
+    .route({ method: "DELETE" })
     .input(z.object({ id: z.string(), systemId: z.string() }))
     .output(z.object({ success: z.boolean() })),
 

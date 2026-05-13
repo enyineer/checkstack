@@ -112,6 +112,7 @@ export const notificationContract = {
     userType: "user",
     access: [],
   })
+    .route({ method: "DELETE" })
     .input(z.object({ notificationId: z.string().uuid() }))
     .output(z.void()),
 
@@ -164,6 +165,7 @@ export const notificationContract = {
     userType: "user",
     access: [],
   })
+    .route({ method: "POST" })
     .input(z.object({ groupIds: z.array(z.string()) }))
     .output(z.record(z.string(), z.boolean())),
 
@@ -226,6 +228,7 @@ export const notificationContract = {
     userType: "service",
     access: [],
   })
+    .route({ method: "DELETE" })
     .input(
       z.object({
         groupId: z.string().describe("Full namespaced group ID to delete"),
@@ -337,6 +340,7 @@ export const notificationContract = {
     userType: "service",
     access: [],
   })
+    .route({ method: "DELETE" })
     .input(
       z.object({
         targetTypeId: z.string(),
@@ -530,6 +534,7 @@ export const notificationContract = {
     userType: "user",
     access: [notificationAccess.admin],
   })
+    .route({ method: "PATCH" })
     .input(
       z.object({
         strategyId: z.string().describe("Qualified strategy ID"),

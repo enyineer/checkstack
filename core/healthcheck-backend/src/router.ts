@@ -155,7 +155,7 @@ export const createHealthCheckRouter = (opts: {
 
     getSystemConfigurations: os.getSystemConfigurations.handler(
       async ({ input }) => {
-        return service.getSystemConfigurations(input);
+        return service.getSystemConfigurations(input.systemId);
       },
     ),
 

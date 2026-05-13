@@ -58,6 +58,7 @@ export const maintenanceContract = {
     access: [maintenanceAccess.maintenance.read],
     instanceAccess: { recordKey: "maintenances" },
   })
+    .route({ method: "POST" })
     .input(z.object({ systemIds: z.array(z.string()) }))
     .output(
       z.object({
@@ -83,6 +84,7 @@ export const maintenanceContract = {
     userType: "authenticated",
     access: [maintenanceAccess.maintenance.manage],
   })
+    .route({ method: "PATCH" })
     .input(UpdateMaintenanceInputSchema)
     .output(MaintenanceWithSystemsSchema),
 
@@ -119,6 +121,7 @@ export const maintenanceContract = {
     userType: "authenticated",
     access: [maintenanceAccess.maintenance.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
 
@@ -128,6 +131,7 @@ export const maintenanceContract = {
     userType: "authenticated",
     access: [maintenanceAccess.maintenance.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
 

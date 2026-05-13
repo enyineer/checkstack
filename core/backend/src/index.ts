@@ -335,8 +335,13 @@ if (frontendDistPath && fs.existsSync(frontendDistPath)) {
   // Serve root-level static files (e.g., /favicon.svg) from the dist directory
   // before the SPA fallback, so they don't get caught by the index.html handler
   app.get("*", async (c, next) => {
-    // Skip API and WebSocket routes - let them pass through to actual handlers
-    if (c.req.path.startsWith("/api")) {
+    // Skip API and WebSocket routes - let them pass through to actual handlers.
+    // The trailing slash matters: `/api-docs` is a frontend route and must hit
+    // the SPA fallback below, while `/api/...` and `/rest/...` go to backend
+    // handlers (oRPC RPC + OpenAPI REST mounts).
+    const apiPath =
+      c.req.path.startsWith("/api/") || c.req.path.startsWith("/rest/");
+    if (apiPath) {
       return next();
     }
 
