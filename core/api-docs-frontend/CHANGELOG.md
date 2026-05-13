@@ -1,5 +1,32 @@
 # @checkstack/api-docs-frontend
 
+## 0.2.0
+
+### Minor Changes
+
+- 7c97b43: Backfill missing package bumps for the `/rest` mount PR — these packages were
+  modified in that change but were not declared in its changeset:
+
+  - `@checkstack/api-docs-frontend`: schema renderer rewrite (`additionalProperties`,
+    `$ref` resolution, `oneOf`/`anyOf`/`allOf`, nullable unions, `format`
+    qualifiers) and the new path/query/header/cookie parameters table for GET
+    endpoints.
+  - `@checkstack/frontend`: Vite dev-server proxy for `/rest/*` so external REST
+    clients pointing at the Vite port resolve to the backend.
+  - `@checkstack/healthcheck-backend`: router handler now unpacks `input.systemId`
+    after `getSystemConfigurations` was refactored from `.input(z.string())` to
+    `.input(z.object({ systemId: z.string() }))`.
+
+  No behavior change beyond what the original PR already shipped.
+
+### Patch Changes
+
+- Updated dependencies [9016526]
+  - @checkstack/common@0.10.0
+  - @checkstack/api-docs-common@0.1.13
+  - @checkstack/frontend-api@0.5.1
+  - @checkstack/ui@1.8.1
+
 ## 0.1.36
 
 ### Patch Changes

@@ -1,5 +1,28 @@
 # @checkstack/auth-backend
 
+## 0.4.26
+
+### Patch Changes
+
+- 080627f: Pin `kysely` to `^0.28.17` as a direct dependency to resolve CVE-2026-44635
+  (JSON-path traversal injection via unsanitized path-leg metacharacters in
+  `JSONPathBuilder.key()` / `.at()`). better-auth lists kysely as a peer
+  dependency, and Bun was auto-resolving it through the optionalPeers
+  mechanism — pinning here keeps us inside better-auth's peer range
+  (`^0.28.5`) while picking up the fix.
+
+  Two unrelated transitive vulnerabilities (`fast-uri` 3.1.0 → 3.1.2 covering
+  CVE-2026-6321/6322, `protobufjs` 7.5.5 → 7.5.8 covering
+  CVE-2026-44289/44290/44291/44293) were resolved by a plain lockfile refresh
+  and do not require package version bumps.
+
+- Updated dependencies [9016526]
+  - @checkstack/common@0.10.0
+  - @checkstack/auth-common@0.7.0
+  - @checkstack/notification-common@1.1.0
+  - @checkstack/backend-api@0.15.2
+  - @checkstack/command-backend@0.1.26
+
 ## 0.4.25
 
 ### Patch Changes

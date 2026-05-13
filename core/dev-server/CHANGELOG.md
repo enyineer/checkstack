@@ -1,5 +1,15 @@
 # @checkstack/dev-server
 
+## 1.0.0
+
+### Patch Changes
+
+- Updated dependencies [7c97b43]
+- Updated dependencies [9016526]
+  - @checkstack/frontend@0.6.0
+  - @checkstack/backend@0.10.0
+  - @checkstack/common@0.10.0
+
 ## 0.2.1
 
 ### Patch Changes

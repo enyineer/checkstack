@@ -1,5 +1,14 @@
 # @checkstack/notification-teams-backend
 
+## 0.0.35
+
+### Patch Changes
+
+- Updated dependencies [9016526]
+  - @checkstack/common@0.10.0
+  - @checkstack/backend-api@0.15.2
+  - @checkstack/notification-backend@1.0.4
+
 ## 0.0.34
 
 ### Patch Changes
