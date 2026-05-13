@@ -24,7 +24,7 @@ if (!existsSync(reportsDir)) {
 }
 
 const TRIVY_IMAGE = "ghcr.io/aquasecurity/trivy:latest";
-const commonFlags = ["--ignore-unfixed", "--severity", "CRITICAL"];
+const commonFlags = ["--ignore-unfixed", "--severity", "CRITICAL,HIGH,MEDIUM"];
 
 async function runAudit() {
   console.log(`🔎 Starting Security Audit (${mode})...`);
@@ -79,7 +79,7 @@ async function runAudit() {
     
     // If table scan failed (vulnerabilities found), exit with non-zero to fail CI/scripts
     if (tableResult.exitCode !== 0) {
-      console.error(`\n❌ CRITICAL vulnerabilities found. See ./reports/${mode}-audit.html for details.`);
+      console.error(`\n❌ CRITICAL/HIGH/MEDIUM vulnerabilities found. See ./reports/${mode}-audit.html for details.`);
       throw new Error("Security audit failed");
     }
 
