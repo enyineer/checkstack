@@ -10,6 +10,7 @@ import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 import type { AnyContractRouter } from "@orpc/contract";
 import type { PluginManager } from "./plugin-manager";
 import type { AuthService } from "@checkstack/backend-api";
+import type { AccessRule } from "@checkstack/common";
 
 /**
  * Check if a user has a specific access rule.
@@ -26,39 +27,56 @@ function hasAccess(
 }
 
 /**
- * Extract procedure metadata from a contract using oRPC internal structure.
+ * Shape of the metadata we surface in the OpenAPI spec as `x-orpc-meta`.
+ * `accessRules` are the fully-qualified access rule IDs (e.g.
+ * `"catalog.system.read"`), flattened from each procedure's `access`
+ * AccessRule[] so doc consumers don't need to know the AccessRule shape.
  */
-function extractProcedureMetadata(
+interface ExposedProcedureMeta {
+  userType?: string;
+  accessRules?: string[];
+}
+
+/**
+ * Extract procedure metadata from a contract using oRPC internal structure.
+ * Returns the raw `meta` block stored on the contract procedure builder.
+ */
+function extractRawProcedureMeta(
   contract: unknown
-): { userType?: string; accessRules?: string[] } | undefined {
+): { userType?: string; access?: AccessRule[] } | undefined {
   const orpcData = (contract as Record<string, unknown>)?.["~orpc"] as
-    | { meta?: { userType?: string; accessRules?: string[] } }
+    | { meta?: { userType?: string; access?: AccessRule[] } }
     | undefined;
   return orpcData?.meta;
 }
 
 /**
- * Build a lookup map of operationId -> metadata from all contracts.
- * operationId format: "pluginId.procedureName"
+ * Build a lookup map of operationId -> exposed metadata from all contracts.
+ * operationId format: "pluginId.procedureName".
+ *
+ * The procedure metadata stores `access` as AccessRule[]; we flatten it to
+ * `accessRules: string[]` of qualified IDs (`{pluginId}.{ruleId}`) so the
+ * OpenAPI consumer (API docs UI, third-party clients) gets a plain list.
  */
 function buildMetadataLookup(
   contracts: Map<string, AnyContractRouter>
-): Map<string, { userType?: string; accessRules?: string[] }> {
-  const lookup = new Map<
-    string,
-    { userType?: string; accessRules?: string[] }
-  >();
+): Map<string, ExposedProcedureMeta> {
+  const lookup = new Map<string, ExposedProcedureMeta>();
 
   for (const [pluginId, contract] of contracts) {
-    // Contract is an object with procedure names as keys
     for (const [procedureName, procedure] of Object.entries(
       contract as Record<string, unknown>
     )) {
-      const meta = extractProcedureMetadata(procedure);
-      if (meta) {
-        const operationId = `${pluginId}.${procedureName}`;
-        lookup.set(operationId, meta);
-      }
+      const raw = extractRawProcedureMeta(procedure);
+      if (!raw) continue;
+
+      const accessRules = raw.access?.map((rule) => `${pluginId}.${rule.id}`);
+
+      const operationId = `${pluginId}.${procedureName}`;
+      lookup.set(operationId, {
+        userType: raw.userType,
+        ...(accessRules && accessRules.length > 0 ? { accessRules } : {}),
+      });
     }
   }
 
@@ -107,13 +125,14 @@ export async function generateOpenApiSpec({
     >;
   };
 
-  // Post-process: Add x-orpc-meta to each operation and prefix paths with /api
+  // Post-process: Add x-orpc-meta to each operation and prefix paths with /rest.
+  // The REST handler is mounted at /rest/:pluginId/* (see api-router.ts);
+  // /api/:pluginId/* serves oRPC's native wire protocol, not REST.
   if (spec.paths) {
     const prefixedPaths: typeof spec.paths = {};
 
     for (const [path, methods] of Object.entries(spec.paths)) {
-      // Prefix path with /api
-      const prefixedPath = `/api${path.startsWith("/") ? path : `/${path}`}`;
+      const prefixedPath = `/rest${path.startsWith("/") ? path : `/${path}`}`;
       prefixedPaths[prefixedPath] = methods;
 
       // Add metadata to each operation

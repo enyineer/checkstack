@@ -92,6 +92,7 @@ export const healthCheckContract = {
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
   })
+    .route({ method: "PATCH" })
     .input(
       z.object({
         id: z.string(),
@@ -105,6 +106,7 @@ export const healthCheckContract = {
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.string())
     .output(z.void()),
 
@@ -133,7 +135,7 @@ export const healthCheckContract = {
     userType: "authenticated",
     access: [healthCheckAccess.configuration.read],
   })
-    .input(z.string())
+    .input(z.object({ systemId: z.string() }))
     .output(z.array(HealthCheckConfigurationSchema)),
 
   getSystemAssociations: proc({
@@ -209,6 +211,7 @@ export const healthCheckContract = {
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
   })
+    .route({ method: "PATCH" })
     .input(
       z.object({
         systemId: z.string(),
@@ -346,6 +349,7 @@ export const healthCheckContract = {
     access: [healthCheckAccess.status],
     instanceAccess: { recordKey: "statuses" },
   })
+    .route({ method: "POST" })
     .input(z.object({ systemIds: z.array(z.string()) }))
     .output(
       z.object({

@@ -52,6 +52,7 @@ export const satelliteContract = {
     userType: "authenticated",
     access: [satelliteAccess.satellite.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.object({ id: z.string() }))
     .output(z.void()),
 
@@ -64,6 +65,7 @@ export const satelliteContract = {
     userType: "authenticated",
     access: [satelliteAccess.satellite.manage],
   })
+    .route({ method: "PATCH" })
     .input(
       z.object({
         id: z.string(),

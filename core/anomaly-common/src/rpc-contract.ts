@@ -132,6 +132,7 @@ export const anomalyContract = {
     userType: "authenticated",
     access: [anomalyAccess.feed.manage],
   })
+    .route({ method: "PATCH" })
     .input(z.object({
       configurationId: z.string(),
       config: AnomalySettingsSchema,
@@ -156,6 +157,7 @@ export const anomalyContract = {
     access: [anomalyAccess.feed.manage],
     instanceAccess: { idParam: "systemId" },
   })
+    .route({ method: "PATCH" })
     .input(z.object({
       systemId: z.string(),
       configurationId: z.string(),

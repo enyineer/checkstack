@@ -96,6 +96,7 @@ export const gitopsContract = {
     userType: "authenticated",
     access: [gitopsAccess.provider.manage],
   })
+    .route({ method: "PATCH" })
     .input(
       z.object({
         id: z.string(),
@@ -117,6 +118,7 @@ export const gitopsContract = {
     userType: "authenticated",
     access: [gitopsAccess.provider.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
 
@@ -203,6 +205,7 @@ export const gitopsContract = {
     userType: "authenticated",
     access: [gitopsAccess.secret.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
 

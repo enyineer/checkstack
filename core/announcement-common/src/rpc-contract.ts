@@ -75,6 +75,7 @@ export const announcementContract = {
     userType: "authenticated",
     access: [announcementAccess.manage],
   })
+    .route({ method: "PATCH" })
     .input(UpdateAnnouncementInputSchema)
     .output(AnnouncementSchema),
 
@@ -84,6 +85,7 @@ export const announcementContract = {
     userType: "authenticated",
     access: [announcementAccess.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
 };

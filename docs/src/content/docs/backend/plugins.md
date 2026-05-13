@@ -643,17 +643,77 @@ export const incidentContract = {
     .input(z.object({ systemId: z.string() }))
     .output(z.array(IncidentSchema)),
 
-  // Bulk endpoint - overrides to use recordKey
+  // Bulk endpoint - overrides to use recordKey AND switches to POST so the
+  // potentially-large systemIds array doesn't blow past URL-length limits.
   getBulkIncidentsForSystems: proc({
     operationType: "query",
     userType: "public",
     access: [incidentAccess.incident.read],  // Same access rule
     instanceAccess: { recordKey: "incidents" },  // Override for bulk
   })
+    .route({ method: "POST" })                   // ← override default GET
     .input(z.object({ systemIds: z.array(z.string()) }))
     .output(z.object({ incidents: z.record(z.string(), z.array(IncidentSchema)) })),
 };
 ```
+
+## REST method conventions
+
+Procedures are exposed both at `/api/{pluginId}/` (oRPC's native wire format)
+and at `/rest/{pluginId}/{procedure}` (REST/OpenAPI, suitable for external
+clients). The HTTP method on the REST mount is derived from `operationType`
+by the `proc()` builder:
+
+| `operationType` | Default method |
+|-----------------|----------------|
+| `"query"`       | `GET`          |
+| `"mutation"`    | `POST`         |
+
+For idiomatic REST semantics, override the method by chaining
+`.route({ method: "..." })` on mutations after the `proc({...})` call:
+
+| Procedure name pattern        | Convention |
+|-------------------------------|------------|
+| `update*` mutation            | `.route({ method: "PATCH" })` |
+| `delete*` / `remove*` mutation| `.route({ method: "DELETE" })` |
+| `getBulk*` query              | `.route({ method: "POST" })` (see below) |
+| Any query taking a large array input | `.route({ method: "POST" })` |
+
+### Why bulk queries are POST
+
+`@orpc/openapi@1.13.x` has no automatic GET→POST fallback when the URL
+would exceed length limits. Bracket-notation encoding of a `string[]` of
+IDs blows past the typical 8 KB cap quickly, so any query that takes a
+potentially-large array input must opt out of the GET default.
+
+### GET input-shape constraint
+
+When a procedure is `GET`, the **top-level input schema must be an
+`object`** (or `any` / `unknown`). A bare scalar like `.input(z.string())`
+will cause the OpenAPI generator to throw at boot:
+
+```
+[OpenAPIGenerator] Error occurred while generating OpenAPI for procedure
+at path: <plugin>.<procedure>
+When method is "GET", input schema must satisfy: object | any | unknown
+```
+
+This isn't a serializer limitation — it's that a query string needs a
+field name to attach each value to, and a top-level scalar has no key.
+Fix it by wrapping the input:
+
+```typescript
+// ❌ Won't generate as GET
+.input(z.string())
+
+// ✅ Idiomatic
+.input(z.object({ id: z.string() }))
+```
+
+Nested objects, arrays, and `z.date()` inside the object input are all
+fine — they're serialized as bracket-notation params
+(`?filter[status]=active&ids[0]=a`) and `z.date()` becomes an ISO 8601
+string.
 
 
 **Benefits:**

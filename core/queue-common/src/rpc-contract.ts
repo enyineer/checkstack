@@ -34,6 +34,7 @@ export const queueContract = {
     userType: "authenticated",
     access: [queueAccess.settings.manage],
   })
+    .route({ method: "PATCH" })
     .input(UpdateQueueConfigurationSchema)
     .output(QueueConfigurationDtoSchema),
 
@@ -57,6 +58,7 @@ export const queueContract = {
     userType: "authenticated",
     access: [queueAccess.settings.manage],
   })
+    .route({ method: "PATCH" })
     .input(QueueLagThresholdsSchema)
     .output(QueueLagThresholdsSchema),
 

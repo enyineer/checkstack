@@ -73,6 +73,7 @@ export const sloContract = {
     access: [sloAccess.slo.read],
     instanceAccess: { recordKey: "systems" },
   })
+    .route({ method: "POST" })
     .input(z.object({ systemIds: z.array(z.string()) }))
     .output(
       z.object({
@@ -103,6 +104,7 @@ export const sloContract = {
     userType: "authenticated",
     access: [sloAccess.slo.manage],
   })
+    .route({ method: "PATCH" })
     .input(UpdateSloObjectiveInputSchema)
     .output(SloObjectiveSchema),
 
@@ -112,6 +114,7 @@ export const sloContract = {
     userType: "authenticated",
     access: [sloAccess.slo.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
 

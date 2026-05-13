@@ -46,6 +46,100 @@ Use the `Authorization` header with the Bearer scheme:
 Authorization: Bearer ck_{applicationId}_{secret}
 ```
 
+## Two API surfaces
+
+The same contracts are exposed through two HTTP shapes, and you can pick
+whichever suits your client:
+
+| Mount | Shape | Body / params |
+|-------|-------|----------------|
+| `/api/{pluginId}/` | oRPC native wire protocol — POST a `{procedure: input}` envelope. Supports batching multiple procedures per request. | `{"getSystems": {}}` |
+| `/rest/{pluginId}/{procedure}` | REST / OpenAPI — one procedure per request. Method depends on the procedure (see table below). | varies |
+
+The machine-readable schema for the REST surface is published at
+`/api/openapi.json` (paths listed there are under `/rest/...`). The method
+for each endpoint comes directly from the contract definition — always
+trust the spec over this page.
+
+## Calling REST Endpoints (recommended for ad-hoc clients)
+
+The HTTP method follows REST conventions, derived from the procedure name and
+`operationType` in the contract:
+
+| Procedure shape | HTTP method | Input goes to |
+|-----------------|-------------|---------------|
+| Query (read)                     | `GET`    | URL query params, bracket-notation encoded |
+| `create*` / `add*` mutation      | `POST`   | JSON body |
+| `update*` mutation               | `PATCH`  | JSON body |
+| `delete*` / `remove*` mutation   | `DELETE` | JSON body |
+| Bulk query (`getBulk*`, or any query taking a large array) | `POST` | JSON body |
+
+> [!NOTE]
+> The "bulk query is POST" exception exists because `@orpc/openapi@1.13.x`
+> has no automatic GET→POST fallback when the URL would exceed length limits
+> (browsers / proxies typically cap around 8 KB), and bracket-encoding a
+> large `string[]` blows past that quickly. The OpenAPI spec at
+> `/api/openapi.json` lists the real method for every endpoint.
+
+### Examples
+
+**Query (`GET`, bracket-notation params):**
+
+```bash
+curl "https://your-checkstack-instance.com/rest/healthcheck/getSystemHealthStatus?systemId=YOUR_SYSTEM_ID" \
+  -H "Authorization: Bearer ck_YOUR_APP_ID_YOUR_SECRET"
+```
+
+Nested object inputs and arrays use bracket notation:
+
+```bash
+# Input: { filter: { status: "active" }, ids: ["a", "b"] }
+curl "https://your-checkstack-instance.com/rest/foo/getItems?filter[status]=active&ids[0]=a&ids[1]=b" \
+  -H "Authorization: Bearer ck_YOUR_APP_ID_YOUR_SECRET"
+```
+
+**Create (`POST`):**
+
+```bash
+curl -X POST https://your-checkstack-instance.com/rest/incident/createIncident \
+  -H "Authorization: Bearer ck_YOUR_APP_ID_YOUR_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Database down", "severity": "high"}'
+```
+
+**Update (`PATCH`):**
+
+```bash
+curl -X PATCH https://your-checkstack-instance.com/rest/incident/updateIncident \
+  -H "Authorization: Bearer ck_YOUR_APP_ID_YOUR_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"id": "inc_123", "status": "resolved"}'
+```
+
+**Delete (`DELETE`):**
+
+```bash
+curl -X DELETE https://your-checkstack-instance.com/rest/incident/deleteIncident \
+  -H "Authorization: Bearer ck_YOUR_APP_ID_YOUR_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"id": "inc_123"}'
+```
+
+**Bulk query (`POST` despite being read-only):**
+
+```bash
+curl -X POST https://your-checkstack-instance.com/rest/healthcheck/getBulkSystemHealthStatus \
+  -H "Authorization: Bearer ck_YOUR_APP_ID_YOUR_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"systemIds": ["sys_1", "sys_2", "sys_3"]}'
+```
+
+> [!NOTE]
+> If you POST a raw JSON body to `/api/{pluginId}/{procedure}` and get
+> `"Invalid input: expected object, received undefined"`, you're hitting the
+> oRPC wire-protocol mount — use the `/rest/...` path described above instead,
+> or wrap the body in `{procedure: input}` and POST to `/api/{pluginId}/`.
+
 ## Calling oRPC Endpoints
 
 All oRPC endpoints are available at `/api/{pluginId}/` and accept JSON POST requests.
@@ -140,14 +234,15 @@ systems = call_rpc("catalog", "getSystems")
 
 ## Available Endpoints
 
-Each plugin exposes its procedures at `/api/{pluginId}/`. Common endpoints include:
+Each plugin exposes its procedures at both `/api/{pluginId}/` (oRPC wire format)
+and `/rest/{pluginId}/{procedure}` (REST). Common plugins include:
 
-| Plugin | Endpoint | Example Procedures |
-|--------|----------|-------------------|
-| `catalog` | `/api/catalog/` | `getSystems`, `getGroups` |
-| `healthcheck` | `/api/healthcheck/` | `getHealthChecks`, `getHistory` |
-| `maintenance` | `/api/maintenance/` | `getWindows`, `scheduleWindow` |
-| `incident` | `/api/incident/` | `getIncidents`, `createIncident` |
+| Plugin | oRPC mount | REST mount | Example Procedures |
+|--------|------------|------------|-------------------|
+| `catalog` | `/api/catalog/` | `/rest/catalog/...` | `getSystems`, `getGroups` |
+| `healthcheck` | `/api/healthcheck/` | `/rest/healthcheck/...` | `getHealthChecks`, `getHistory` |
+| `maintenance` | `/api/maintenance/` | `/rest/maintenance/...` | `getWindows`, `scheduleWindow` |
+| `incident` | `/api/incident/` | `/rest/incident/...` | `getIncidents`, `createIncident` |
 
 > **Note**: Available procedures depend on your application's assigned access. Check each plugin's contract definition for the full procedure list and required accesss.
 

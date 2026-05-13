@@ -21,6 +21,10 @@ export default defineConfig(() => {
           target: backendUrl,
           ws: true, // Enable WebSocket proxy
         },
+        // REST mount served by oRPC's OpenAPIHandler on the backend (see
+        // core/backend/src/plugin-manager/api-router.ts). Proxied so external
+        // REST clients pointing at the Vite dev port still resolve.
+        "^/rest/": backendUrl,
         "/assets": backendUrl,
         // Platform endpoints (probes etc.) under /.checkstack/* — proxied
         // here for dev convenience so e.g.

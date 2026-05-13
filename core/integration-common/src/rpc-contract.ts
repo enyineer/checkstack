@@ -71,6 +71,7 @@ export const integrationContract = {
     userType: "authenticated",
     access: [integrationAccess.manage],
   })
+    .route({ method: "PATCH" })
     .input(UpdateSubscriptionInputSchema)
     .output(WebhookSubscriptionSchema),
 
@@ -80,6 +81,7 @@ export const integrationContract = {
     userType: "authenticated",
     access: [integrationAccess.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
 
@@ -155,6 +157,7 @@ export const integrationContract = {
     userType: "authenticated",
     access: [integrationAccess.manage],
   })
+    .route({ method: "PATCH" })
     .input(UpdateConnectionInputSchema)
     .output(ProviderConnectionRedactedSchema),
 
@@ -164,6 +167,7 @@ export const integrationContract = {
     userType: "authenticated",
     access: [integrationAccess.manage],
   })
+    .route({ method: "DELETE" })
     .input(z.object({ connectionId: z.string() }))
     .output(z.object({ success: z.boolean() })),
 
