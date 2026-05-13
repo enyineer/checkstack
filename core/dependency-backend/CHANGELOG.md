@@ -1,5 +1,14 @@
 # @checkstack/dependency-backend
 
+## 1.1.2
+
+### Patch Changes
+
+- Updated dependencies [b627562]
+  - @checkstack/catalog-backend@1.1.2
+  - @checkstack/gitops-backend@0.3.2
+  - @checkstack/healthcheck-backend@1.1.1
+
 ## 1.1.1
 
 ### Patch Changes

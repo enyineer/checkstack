@@ -1,5 +1,14 @@
 # @checkstack/satellite-frontend
 
+## 0.3.2
+
+### Patch Changes
+
+- Updated dependencies [b627562]
+  - @checkstack/ui@1.8.2
+  - @checkstack/gitops-frontend@0.4.2
+  - @checkstack/tips-frontend@0.2.2
+
 ## 0.3.1
 
 ### Patch Changes
