@@ -8,10 +8,17 @@ Develop a Checkstack plugin from its own repo. No monorepo checkout. No
 upload loop. No Docker bind-mount tricks.
 
 ```bash
-bunx checkstack-dev
+bunx @checkstack/dev-server
 ```
 
-That's it. The command boots the same backend code path Checkstack uses
+`@checkstack/dev-server` is the published npm package that ships the
+dev server; it exposes a `checkstack-dev` binary so once you've added
+it as a devDependency, your `package.json` can wire `"dev":
+"checkstack-dev"` and you run `bun run dev` from then on (see the
+bootstrap section below). The `bunx @checkstack/dev-server` form is for
+a one-shot try before any install.
+
+The command boots the same backend code path Checkstack uses
 in production, with two well-defined dev overrides:
 
 - **Filesystem plugin discovery is skipped.** Only your plugin loads —
@@ -196,8 +203,12 @@ refuses `CHECKSTACK_DEV_AUTH=true` when `NODE_ENV=production` and ignores
 ## Command-line flags
 
 ```
-bunx checkstack-dev --help
+bunx @checkstack/dev-server --help
 ```
+
+(After installing `@checkstack/dev-server` as a devDependency, the
+binary is on the local `node_modules/.bin` path, so `bun run dev --
+--help` or `checkstack-dev --help` both work too.)
 
 | Flag                   | Default                                                                  | Notes                                              |
 |------------------------|--------------------------------------------------------------------------|----------------------------------------------------|
