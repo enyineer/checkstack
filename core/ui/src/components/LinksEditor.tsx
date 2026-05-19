@@ -10,16 +10,21 @@ export interface HotLink {
   url: string;
 }
 
-// Block `javascript:`, `data:`, `vbscript:` etc. on render to defeat stored
-// XSS via maliciously crafted links — see CodeQL js/xss-through-dom.
-function safeHref(raw: string): string {
+// Parse a user-supplied URL and return its canonicalized form ONLY when the
+// scheme is `http:` / `https:`. Returns `undefined` for any other scheme
+// (`javascript:`, `data:`, `vbscript:`, etc.) so callers can refuse to
+// render an anchor at all. The returned string is `URL.toString()` — i.e.
+// a re-serialized URL — so taint analysis sees a fresh, sanitized value
+// rather than the raw input flowing through. CodeQL js/xss-through-dom.
+function safeHref(raw: string): string | undefined {
   try {
     const parsed = new URL(raw);
-    return parsed.protocol === "http:" || parsed.protocol === "https:"
-      ? raw
-      : "#";
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return parsed.toString();
+    }
+    return undefined;
   } catch {
-    return "#";
+    return undefined;
   }
 }
 
@@ -95,42 +100,54 @@ export function LinksEditor<T extends HotLink>({
 
       {links.length > 0 ? (
         <div className="border rounded-lg divide-y">
-          {links.map((link) => (
-            <div
-              key={link.id}
-              className="flex items-center justify-between p-3 gap-2"
-            >
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <ExternalLink className="h-4 w-4 text-muted-foreground shrink-0" />
-                <div className="min-w-0">
-                  <a
-                    href={safeHref(link.url)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-primary hover:underline truncate block"
-                  >
-                    {link.label ?? link.url}
-                  </a>
-                  {link.label && (
-                    <span className="text-xs text-muted-foreground truncate block">
-                      {link.url}
-                    </span>
-                  )}
+          {links.map((link) => {
+            const href = safeHref(link.url);
+            return (
+              <div
+                key={link.id}
+                className="flex items-center justify-between p-3 gap-2"
+              >
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <ExternalLink className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="min-w-0">
+                    {href ? (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-primary hover:underline truncate block"
+                      >
+                        {link.label ?? link.url}
+                      </a>
+                    ) : (
+                      <span
+                        className="text-sm text-muted-foreground truncate block"
+                        title="Unsafe URL scheme — link disabled"
+                      >
+                        {link.label ?? link.url}
+                      </span>
+                    )}
+                    {link.label && (
+                      <span className="text-xs text-muted-foreground truncate block">
+                        {link.url}
+                      </span>
+                    )}
+                  </div>
                 </div>
+                {canManage && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void onRemove(link)}
+                    disabled={busy}
+                    aria-label="Remove link"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
-              {canManage && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void onRemove(link)}
-                  disabled={busy}
-                  aria-label="Remove link"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">No links attached</p>
