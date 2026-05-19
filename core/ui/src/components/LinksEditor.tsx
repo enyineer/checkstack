@@ -10,6 +10,19 @@ export interface HotLink {
   url: string;
 }
 
+// Block `javascript:`, `data:`, `vbscript:` etc. on render to defeat stored
+// XSS via maliciously crafted links — see CodeQL js/xss-through-dom.
+function safeHref(raw: string): string {
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? raw
+      : "#";
+  } catch {
+    return "#";
+  }
+}
+
 export interface LinksEditorProps<T extends HotLink> {
   /** Currently attached links. */
   links: T[];
@@ -60,6 +73,11 @@ export function LinksEditor<T extends HotLink>({
       setError("Must be a valid URL (include http:// or https://)");
       return;
     }
+    const parsed = new URL(trimmedUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      setError("Only http:// and https:// URLs are allowed");
+      return;
+    }
     setError(undefined);
     await onAdd({ label: label.trim() || undefined, url: trimmedUrl });
     setLabel("");
@@ -86,7 +104,7 @@ export function LinksEditor<T extends HotLink>({
                 <ExternalLink className="h-4 w-4 text-muted-foreground shrink-0" />
                 <div className="min-w-0">
                   <a
-                    href={link.url}
+                    href={safeHref(link.url)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sm text-primary hover:underline truncate block"
