@@ -37,8 +37,9 @@ export function createScopedWsRegistry(
 ): WebSocketRouteRegistry {
   return {
     register(path: string, handler: WebSocketRouteHandler): void {
-      // Normalize: "/" maps to just the pluginId, "/foo" maps to "pluginId/foo"
-      const suffix = path === "/" ? "" : path.replace(/^\//, "/");
+      // Normalize: "/" maps to just the pluginId, "/foo" maps to "pluginId/foo".
+      // Paths are documented to start with `/` (see WebSocketRouteRegistry).
+      const suffix = path === "/" ? "" : path;
       const fullPath = `${pluginId}${suffix}`;
       store.registerHandler(fullPath, handler);
     },

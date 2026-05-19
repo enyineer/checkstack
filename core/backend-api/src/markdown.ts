@@ -47,17 +47,26 @@ export function markdownToPlainText(markdown: string): string {
   // Convert to HTML first, then strip tags
   const html = markdownToHtml(markdown);
 
-  // Strip HTML tags
-  let text = html.replaceAll(/<[^>]*>/g, "");
-
-  // Decode common HTML entities
-  text = text
-    .replaceAll("&amp;", "&")
+  // Decode HTML entities FIRST so any escaped markup like `&lt;script&gt;`
+  // is exposed to the tag stripper in the next pass. `&amp;` must be
+  // decoded last; otherwise `&amp;lt;` would round-trip to `<` and
+  // reintroduce a control character (CodeQL js/double-escaping).
+  let text = html
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">")
     .replaceAll("&quot;", '"')
     .replaceAll("&#39;", "'")
-    .replaceAll("&nbsp;", " ");
+    .replaceAll("&nbsp;", " ")
+    .replaceAll("&amp;", "&");
+
+  // Strip HTML tags. Loop until the output stabilizes so adversarial inputs
+  // like `<scr<script>ipt>` cannot leave a residual `<script>` substring
+  // after a single pass (CodeQL js/incomplete-multi-character-sanitization).
+  let previous: string;
+  do {
+    previous = text;
+    text = text.replaceAll(/<[^>]*>/g, "");
+  } while (text !== previous);
 
   // Collapse multiple whitespace/newlines
   text = text.replaceAll(/\n\s*\n/g, "\n").trim();

@@ -29,6 +29,12 @@ jobs:
         contains(github.event.comment.body, '###  ⚠️  No Changeset found')
       )
     runs-on: ubuntu-latest
+    # NOTE: We intentionally do NOT `actions/checkout` the PR ref here. This
+    # workflow runs in a privileged context (pull-requests: write) and, when
+    # triggered by issue_comment, would otherwise satisfy the classic
+    # "pwn-request" pattern (CodeQL: actions/untrusted-checkout/high). All
+    # source data is fetched via the GitHub API instead — JSON config and
+    # changeset frontmatter are pure data, not executed code.
     steps:
       - name: Resolve PR metadata
         id: pr-meta
@@ -40,11 +46,11 @@ jobs:
               ? context.payload.pull_request.number
               : context.issue.number;
 
-            let headRef;
+            let headSha;
             let isInternalPr;
 
             if (isPullRequest) {
-              headRef = context.payload.pull_request.head.ref;
+              headSha = context.payload.pull_request.head.sha;
               isInternalPr = context.payload.pull_request.head.repo.full_name === context.payload.repository.full_name;
             } else {
               const pr = await github.rest.pulls.get({
@@ -52,11 +58,11 @@ jobs:
                 repo: context.repo.repo,
                 pull_number: prNumber,
               });
-              headRef = pr.data.head.ref;
+              headSha = pr.data.head.sha;
               isInternalPr = pr.data.head.repo.full_name === context.payload.repository.full_name;
             }
 
-            // Check if we already posted a changeset-reminder comment (dedup for issue_comment trigger)
+            // Dedup for issue_comment trigger: skip if we've already analyzed.
             if (!isPullRequest) {
               const comments = await github.paginate(
                 github.rest.issues.listComments,
@@ -80,15 +86,9 @@ jobs:
 
             core.setOutput('skip', 'false');
             core.setOutput('pr_number', prNumber.toString());
-            core.setOutput('head_ref', headRef);
+            core.setOutput('head_sha', headSha);
             core.setOutput('is_internal', isInternalPr.toString());
-            core.info(`PR #${prNumber}, branch: ${headRef}, internal: ${isInternalPr}`);
-
-      - name: Checkout PR branch
-        if: steps.pr-meta.outputs.skip != 'true'
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ steps.pr-meta.outputs.head_ref }}
+            core.info(`PR #${prNumber}, head: ${headSha}, internal: ${isInternalPr}`);
 
       - name: Analyze changeset coverage
         if: steps.pr-meta.outputs.skip != 'true'
@@ -96,19 +96,58 @@ jobs:
         uses: actions/github-script@v9
         with:
           script: |
-            const fs = require('fs');
-            const path = require('path');
-
             const prNumber = parseInt('${{ steps.pr-meta.outputs.pr_number }}', 10);
+            const headSha = '${{ steps.pr-meta.outputs.head_sha }}';
 
-            // ── 1. Load coverage config ──
-            const configPath = path.join(process.env.GITHUB_WORKSPACE, '.changeset', 'coverage-config.json');
+            // ── Helpers: fetch file / list directory contents via API ──
+            async function fetchFileText(filePath, ref) {
+              try {
+                const res = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: filePath,
+                  ref,
+                });
+                if (Array.isArray(res.data) || res.data.type !== 'file' || !res.data.content) {
+                  return null;
+                }
+                return Buffer.from(res.data.content, 'base64').toString('utf8');
+              } catch (err) {
+                if (err.status === 404) return null;
+                throw err;
+              }
+            }
+
+            async function listDir(dirPath, ref) {
+              try {
+                const res = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: dirPath,
+                  ref,
+                });
+                return Array.isArray(res.data) ? res.data : [];
+              } catch (err) {
+                if (err.status === 404) return [];
+                throw err;
+              }
+            }
+
+            // ── 1. Coverage config (read from default branch — trusted) ──
             let config = { ignoredFiles: [], ignoredPackages: [] };
-            try {
-              config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-              core.info(`Loaded coverage config: ${config.ignoredFiles.length} ignored file patterns, ${config.ignoredPackages.length} ignored packages`);
-            } catch (err) {
-              core.warning(`Could not load coverage config: ${err.message}. Using defaults.`);
+            const configText = await fetchFileText('.changeset/coverage-config.json');
+            if (configText) {
+              try {
+                config = JSON.parse(configText);
+                core.info(
+                  `Loaded coverage config: ${config.ignoredFiles.length} ignored file patterns, ` +
+                    `${config.ignoredPackages.length} ignored packages`
+                );
+              } catch (err) {
+                core.warning(`Could not parse coverage config: ${err.message}. Using defaults.`);
+              }
+            } else {
+              core.warning('No coverage-config.json found on default branch. Using defaults.');
             }
 
             // ── 2. Convert glob patterns to RegExp matchers ──
@@ -128,31 +167,7 @@ jobs:
               return ignoredFilePatterns.some((re) => re.test(relativePath));
             }
 
-            // ── 3. Discover workspace packages ──
-            const workspaceDirs = ['core', 'plugins'];
-            const packageMap = new Map(); // dir (relative to repo root) → package name
-
-            for (const wsDir of workspaceDirs) {
-              const wsPath = path.join(process.env.GITHUB_WORKSPACE, wsDir);
-              if (!fs.existsSync(wsPath)) continue;
-
-              for (const entry of fs.readdirSync(wsPath, { withFileTypes: true })) {
-                if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-                const pkgJsonPath = path.join(wsPath, entry.name, 'package.json');
-                try {
-                  const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
-                  if (pkgJson.name && !pkgJson.private) {
-                    packageMap.set(`${wsDir}/${entry.name}`, pkgJson.name);
-                  }
-                } catch {
-                  // Skip directories without valid package.json
-                }
-              }
-            }
-
-            core.info(`Discovered ${packageMap.size} public workspace packages`);
-
-            // ── 4. Get changed files in this PR ──
+            // ── 3. Get changed files in this PR ──
             const changedFiles = await github.paginate(
               github.rest.pulls.listFiles,
               {
@@ -163,6 +178,32 @@ jobs:
             );
 
             core.info(`PR has ${changedFiles.length} changed files`);
+
+            // ── 4. Discover only the workspace packages touched by this PR ──
+            // Avoid fetching all 100+ package.json files; just fetch ones whose
+            // directory has a changed file.
+            const workspaceRe = /^(core|plugins)\/([^/]+)\//;
+            const touchedDirs = new Set();
+            for (const file of changedFiles) {
+              const m = workspaceRe.exec(file.filename);
+              if (m) touchedDirs.add(`${m[1]}/${m[2]}`);
+            }
+
+            const packageMap = new Map(); // dir → package name
+            for (const dir of touchedDirs) {
+              const pkgJsonText = await fetchFileText(`${dir}/package.json`, headSha);
+              if (!pkgJsonText) continue;
+              try {
+                const pkgJson = JSON.parse(pkgJsonText);
+                if (pkgJson.name && !pkgJson.private) {
+                  packageMap.set(dir, pkgJson.name);
+                }
+              } catch (err) {
+                core.warning(`Could not parse ${dir}/package.json: ${err.message}`);
+              }
+            }
+
+            core.info(`Touched ${packageMap.size} public workspace package(s)`);
 
             // ── 5. Map changed files to packages, filtering ignored files ──
             const packagesWithCodeChanges = new Set();
@@ -187,13 +228,15 @@ jobs:
               return;
             }
 
-            // ── 6. Read existing changeset entries ──
-            const changesetDir = path.join(process.env.GITHUB_WORKSPACE, '.changeset');
+            // ── 6. Read existing changeset entries at PR head ──
             const coveredPackages = new Set();
-
-            for (const entry of fs.readdirSync(changesetDir)) {
-              if (!entry.endsWith('.md') || entry === 'README.md') continue;
-              const content = fs.readFileSync(path.join(changesetDir, entry), 'utf8');
+            const changesetEntries = await listDir('.changeset', headSha);
+            for (const entry of changesetEntries) {
+              if (entry.type !== 'file' || !entry.name.endsWith('.md') || entry.name === 'README.md') {
+                continue;
+              }
+              const content = await fetchFileText(`.changeset/${entry.name}`, headSha);
+              if (!content) continue;
               const match = content.match(/^---\n([\s\S]*?)\n---/);
               if (!match) continue;
               for (const line of match[1].split('\n')) {
@@ -243,9 +286,6 @@ jobs:
             core.setOutput('has_missing', 'true');
             core.setOutput('missing_list', missingPackages.join(', '));
 
-            const exampleFrontmatter = missingPackages.map((pkg) => `"${pkg}": patch`).join('\n');
-
-
             // ── 9. Post or update informational comment ──
             const packageList = missingPackages.map((pkg) => `- \`${pkg}\``).join('\n');
 
@@ -290,4 +330,3 @@ jobs:
               });
               core.info('Created new changeset coverage comment.');
             }
-

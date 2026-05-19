@@ -76,6 +76,21 @@ describe("markdownToPlainText", () => {
     const result = markdownToPlainText("A &amp; B");
     expect(result).toBe("A & B");
   });
+
+  it("does not double-unescape &amp;lt; back into a tag delimiter", () => {
+    // Without ordering the &amp; decode last, `&amp;lt;` would become `<`
+    // after entity decoding, reintroducing a control character.
+    const result = markdownToPlainText("A &amp;lt; B");
+    expect(result).toBe("A &lt; B");
+  });
+
+  it("strips nested tag attempts in raw HTML", () => {
+    // marked passes raw HTML through; the tag stripper must loop until
+    // stable so nested constructs cannot leak through.
+    const result = markdownToPlainText("<<script>script>alert(1)</script>");
+    expect(result).not.toContain("<script");
+    expect(result).not.toContain("</script");
+  });
 });
 
 describe("markdownToSlackMrkdwn", () => {
