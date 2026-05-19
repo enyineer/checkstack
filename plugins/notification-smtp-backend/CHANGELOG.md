@@ -1,5 +1,14 @@
 # @checkstack/notification-smtp-backend
 
+## 0.0.36
+
+### Patch Changes
+
+- Updated dependencies [1909a61]
+- Updated dependencies [b33fb4d]
+  - @checkstack/backend-api@0.15.3
+  - @checkstack/notification-backend@1.0.5
+
 ## 0.0.35
 
 ### Patch Changes
