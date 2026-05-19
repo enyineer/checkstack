@@ -6,7 +6,6 @@
       "name": "checkstack-monorepo",
       "dependencies": {
         "@orpc/contract": "^1.14.3",
-        "brace-expansion": "^5.0.6",
       },
       "devDependencies": {
         "@changesets/cli": "^2.31.0",
@@ -2418,7 +2417,6 @@
     "drizzle-orm": "^0.45.0",
     "esbuild": "^0.27.7",
     "uuid": "^14.0.0",
-    "ws": "^8.20.1",
     "yaml": "^2.9.0",
   },
   "packages": {
