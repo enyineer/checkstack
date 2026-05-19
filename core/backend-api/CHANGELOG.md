@@ -1,5 +1,50 @@
 # @checkstack/backend-api
 
+## 0.15.3
+
+### Patch Changes
+
+- 1909a61: Address open CodeQL code-scanning findings:
+
+  - **`@checkstack/ui` (`LinksEditor`)**: validate URL scheme on render and on
+    add; only `http:` / `https:` URLs are accepted, defeating stored XSS via
+    `javascript:` / `data:` schemes in user-supplied hotlinks
+    (`js/xss-through-dom`).
+  - **`@checkstack/backend-api` (`markdownToPlainText`)**: decode HTML entities
+    before stripping tags, then strip tags in a loop until the output
+    stabilizes. Decoding `&amp;` last avoids reintroducing tag delimiters
+    via `&amp;lt;` round-trips (`js/double-escaping`,
+    `js/incomplete-multi-character-sanitization`).
+  - **`@checkstack/backend` (`createScopedWsRegistry`)**: drop the
+    identity-replacement on the path suffix; the leading-slash invariant
+    is documented on `WebSocketRouteRegistry` (`js/identity-replacement`).
+
+- b33fb4d: Refresh `bun.lock` to clear MEDIUM-severity Trivy advisories on transitive
+  runtime dependencies. No public API change — bumping every workspace
+  package that lists `@orpc/server` as a direct dep so consumers re-resolve
+  the optional `ws` peer to the patched release on their next install.
+
+  - `ws` `8.20.0` → `8.20.1` (CVE-2026-45736). Pulled into the install tree
+    as `@orpc/server`'s optional WebSocket peer; Bun auto-installs it into
+    every backend package that depends on `@orpc/server`, so a stale 8.20.0
+    ships in the consumer's `node_modules` until the parent package
+    re-resolves.
+  - `brace-expansion` `5.0.5` → `5.0.6` (CVE-2026-45149). Pulled in only
+    through dev tooling (`minimatch@10` via `@typescript-eslint` and
+    `storybook`'s `glob@13`), so it does not ship to consumers and no
+    workspace `package.json` lists it; the lockfile bump alone clears the
+    finding for the Docker image and the local dev tree. No version bump
+    is attributed to this advisory.
+
+  The fix lives entirely in `bun.lock` — no `package.json`, `overrides`, or
+  `resolutions` change is needed because both parent ranges (`minimatch@10
+→ brace-expansion@^5.0.5`, `@orpc/server / storybook / happy-dom →
+ws@>=8.18.x`) already accept the patched releases, and `bun install`
+  keeps the resolved versions sticky after the initial `bun update`.
+
+  - @checkstack/cache-api@0.3.2
+  - @checkstack/queue-api@0.3.2
+
 ## 0.15.2
 
 ### Patch Changes
