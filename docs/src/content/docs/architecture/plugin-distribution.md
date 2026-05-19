@@ -16,8 +16,9 @@ bottom is enough.
 
 > **Looking for the dev loop?** This doc covers the *distribution
 > mechanics* (packing, bundles, channels). For local development — add
-> `@checkstack/dev-server` as a devDependency and run `checkstack-dev` —
-> see [Developing Plugins in Isolation](../getting-started/plugin-development.md).
+> `@checkstack/dev-server` as a devDependency, wire `"dev": "checkstack-dev"`
+> into your `package.json` scripts, and run `bun run dev` — see
+> [Developing Plugins in Isolation](../getting-started/plugin-development.md).
 
 > **Distinction:** monorepo-internal plugins (the ones living in `core/` and
 > `plugins/` of this repo) are loaded automatically at boot via filesystem
