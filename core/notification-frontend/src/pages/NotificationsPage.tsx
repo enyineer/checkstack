@@ -21,20 +21,20 @@ import {
 import { usePluginClient, useQueryClient } from "@checkstack/frontend-api";
 import type { Notification } from "@checkstack/notification-common";
 import { NotificationApi } from "@checkstack/notification-common";
-import { extractErrorMessage } from "@checkstack/common";
+import { extractErrorMessage, type InferClient } from "@checkstack/common";
 import { NotificationSubjects } from "../components/NotificationSubjects";
 import { groupByCollapseKey } from "../components/collapse";
 import { CollapsedGroupTimeline } from "../components/CollapsedGroupTimeline";
 
 /**
- * Shape of the `notification.getNotifications` query output. Kept inline
- * so the optimistic `markAsRead` patch can type its cache reads against
- * the same surface the loader writes.
+ * Cached output of the `notification.getNotifications` query, derived
+ * directly from the contract so a future change to the procedure's
+ * output shape surfaces as a typecheck error in this file rather than
+ * a runtime mismatch between the cache and the optimistic patch.
  */
-type NotificationsQueryData = {
-  notifications: Notification[];
-  total: number;
-};
+type NotificationsQueryData = Awaited<
+  ReturnType<InferClient<typeof NotificationApi>["getNotifications"]>
+>;
 
 export const NotificationsPage = () => {
   const notificationClient = usePluginClient(NotificationApi);
@@ -116,7 +116,7 @@ export const NotificationsPage = () => {
           notificationsQueryKey,
           {
             ...previous,
-            notifications: previous.notifications.map((n) =>
+            items: previous.items.map((n) =>
               notificationId === undefined || n.id === notificationId
                 ? { ...n, isRead: true }
                 : n,
