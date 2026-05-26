@@ -1,5 +1,46 @@
 # @checkstack/theme-backend
 
+## 0.1.33
+
+### Patch Changes
+
+- f23f3c9: Add `correlationMiddleware` to `@checkstack/backend-api` and apply it
+  to every plugin/core router so each request carries a stable
+  `x-correlation-id` (read from the inbound header, or freshly minted
+  via `crypto.randomUUID()` when absent) and an auto-injected child
+  logger bound with `{ correlationId, pluginId, userId? }`. The ID is
+  echoed back on the response header so the caller can correlate their
+  client-side trace to the server logs.
+
+  The `Logger` interface in `@checkstack/backend-api` now formally
+  documents the structured-metadata convention (`logger.info("msg",
+{ ...meta })`) alongside the long-standing varargs shape. Winston's
+  splat handling already routes both shapes through the same vararg
+  slot, so existing call sites are unaffected. A new optional
+  `Logger.child(meta)` method captures the metadata-binding contract the
+  new middleware relies on; production loggers always implement it,
+  minimal test mocks may omit it (the middleware falls back gracefully).
+
+  `RpcContext` grew two optional `Headers` bags, `requestHeaders` and
+  `responseHeaders`, populated by the outer Hono `/api/*` and `/rest/*`
+  handlers in `@checkstack/backend`. They are write-through observation
+  points for middleware; an `RpcContext` constructed without them (S2S
+  clients, tests) keeps working — the echo is a silent no-op and the ID
+  is still bound onto the child logger for server-side correlation.
+
+  The scaffolding template in `@checkstack/scripts` was updated so any
+  new plugin generated via `bun run create` wires the middleware in the
+  expected `.use(correlationMiddleware).use(autoAuthMiddleware)` order
+  out of the box.
+
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+  - @checkstack/common@0.11.0
+  - @checkstack/backend-api@0.17.0
+  - @checkstack/auth-backend@0.4.29
+  - @checkstack/theme-common@0.1.13
+
 ## 0.1.32
 
 ### Patch Changes

@@ -1,5 +1,18 @@
 # @checkstack/infrastructure-frontend
 
+## 0.2.9
+
+### Patch Changes
+
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+  - @checkstack/common@0.11.0
+  - @checkstack/frontend-api@0.5.2
+  - @checkstack/ui@1.10.0
+  - @checkstack/infrastructure-common@0.3.2
+
 ## 0.2.8
 
 ### Patch Changes

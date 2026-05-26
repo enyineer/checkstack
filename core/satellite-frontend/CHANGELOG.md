@@ -1,5 +1,31 @@
 # @checkstack/satellite-frontend
 
+## 0.3.5
+
+### Patch Changes
+
+- f23f3c9: Standardise the empty / loading / error story on key list pages using
+  the shared `ListEmptyState`, `QueryErrorState`, and `Skeleton`
+  primitives from `@checkstack/ui`. Each affected page now branches
+  through the same `isLoading -> isError -> empty -> data` ladder, so
+  failed queries surface a retry-able inline error instead of silently
+  rendering an empty table, and loading states match the final layout
+  rather than flashing a generic spinner. No layout, business logic, or
+  query input shapes changed.
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+  - @checkstack/common@0.11.0
+  - @checkstack/frontend-api@0.5.2
+  - @checkstack/gitops-frontend@0.4.5
+  - @checkstack/ui@1.10.0
+  - @checkstack/gitops-common@0.4.1
+  - @checkstack/satellite-common@0.5.2
+  - @checkstack/tips-frontend@0.2.5
+  - @checkstack/signal-frontend@0.1.4
+
 ## 0.3.4
 
 ### Patch Changes

@@ -1,5 +1,55 @@
 # @checkstack/incident-frontend
 
+## 0.8.5
+
+### Patch Changes
+
+- f23f3c9: Gate decorative motion and blur effects behind
+  `usePerformance().isLowPower` on a focused set of high-traffic plugin
+  pages (Dashboard, Dependency map, System node, Notification bell,
+  Announcement banner / cards, Anomaly field overrides editor, SLO
+  attribution chart, Catalog droppable group). Hover scales, backdrop
+  blurs, `animate-pulse`/`animate-ping` accents, and entry transitions
+  now drop to static states on low-power devices; functional UX
+  transitions (Drawer/Dialog open-close, colour transitions) are left
+  alone.
+
+  Standardise the post-mutation error-toast voice on plugin pages by
+  migrating multi-clause `toast.error(extractErrorMessage(error, "Failed
+to X"))` call sites onto the `toastError(toast, "Failed to X", error)`
+  helper from `@checkstack/ui`. The helper applies the canonical
+  `"action: message"` prefix and 100-character truncation in one place,
+  and the now-orphaned `extractErrorMessage` imports are dropped from
+  the affected files. No business logic or component APIs changed.
+
+- f23f3c9: Standardise the empty / loading / error story on key list pages using
+  the shared `ListEmptyState`, `QueryErrorState`, and `Skeleton`
+  primitives from `@checkstack/ui`. Each affected page now branches
+  through the same `isLoading -> isError -> empty -> data` ladder, so
+  failed queries surface a retry-able inline error instead of silently
+  rendering an empty table, and loading states match the final layout
+  rather than flashing a generic spinner. No layout, business logic, or
+  query input shapes changed.
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+  - @checkstack/common@0.11.0
+  - @checkstack/auth-frontend@0.6.5
+  - @checkstack/notification-common@1.2.0
+  - @checkstack/notification-frontend@0.4.5
+  - @checkstack/frontend-api@0.5.2
+  - @checkstack/dashboard-frontend@0.7.5
+  - @checkstack/ui@1.10.0
+  - @checkstack/catalog-common@2.2.2
+  - @checkstack/incident-common@1.2.2
+  - @checkstack/tips-frontend@0.2.5
+  - @checkstack/signal-frontend@0.1.4
+
 ## 0.8.4
 
 ### Patch Changes

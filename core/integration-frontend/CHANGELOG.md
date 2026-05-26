@@ -1,5 +1,89 @@
 # @checkstack/integration-frontend
 
+## 0.4.5
+
+### Patch Changes
+
+- f23f3c9: Retrofit the highest-traffic configuration list tables
+  (`HealthCheckList`, `SloConfigPage`, and the integration
+  `DeliveryLogsPage`) onto the `ResponsiveTable` + `MobileCardList`
+  primitives from `@checkstack/ui`. On `sm` and up each page still
+  renders the unchanged 5- to 7-column table; below that breakpoint a
+  sibling stacked-card layout surfaces the same data with the resource
+  name + status badge at the top, secondary columns in a muted line, and
+  the existing action buttons in a right-aligned footer. The
+  `HealthCheckListSkeleton` placeholder mirrors both branches so the page
+  no longer jumps when data resolves. No business logic, column order,
+  or query inputs changed.
+- f23f3c9: Sweep every paginated `*-common` contract onto the canonical
+  `PaginationInput` / `PaginatedResult` from `@checkstack/common` and
+  remove the now-unused legacy exports.
+
+  **BREAKING CHANGE** - `@checkstack/common` drops the deprecated
+  `PaginationInputSchema`, `paginatedOutput`, and `PaginatedResponse`
+  symbols. Callers must consume `PaginationInput` (input) and
+  `PaginatedResult(itemSchema)` (output) instead. The canonical input is
+  `{ limit (1-100, default 20), offset (>= 0, default 0) }`; the
+  canonical output envelope is
+  `{ items, total, limit, offset }`.
+
+  **BREAKING CHANGE** - `@checkstack/notification-common` migrates
+  `getNotifications` off the legacy `PaginationInputSchema`
+  (`{ limit, offset, unreadOnly }` with output `{ notifications, total }`)
+  onto `ListNotificationsInputSchema =
+PaginationInput.extend({ unreadOnly })` and
+  `PaginatedResult(NotificationSchema)`. The output key changes from
+  `notifications` to `items`, and `limit` / `offset` are now echoed on
+  the response. The `PaginationInput` type alias previously exported
+  from `notification-common` is removed - use `ListNotificationsInput`
+  or the canonical `PaginationInput` from `@checkstack/common`.
+
+  **BREAKING CHANGE** - `@checkstack/integration-common` migrates
+  `listSubscriptions` (inline `{ page, pageSize, ... }` -> output
+  `{ subscriptions, total }`) and `getDeliveryLogs` (via
+  `DeliveryLogQueryInputSchema` `{ subscriptionId?, eventType?, status?,
+page, pageSize }` -> output `{ logs, total }`) onto the canonical
+  `PaginationInput.extend({...})` input and
+  `PaginatedResult(itemSchema)` output. External callers must switch
+  from `{ page, pageSize }` to `{ limit, offset }` and read response
+  items from `data.items` (no more `data.subscriptions` / `data.logs`).
+
+  The matching `*-backend` handlers were updated to consume the new
+  input shape (`offset` arithmetic in lieu of `(page - 1) * pageSize`)
+  and to echo `limit` / `offset` on the response. The `*-frontend` call
+  sites in `NotificationsPage`, `NotificationBell`, `IntegrationsPage`,
+  and `DeliveryLogsPage` were updated to send the new input shape and
+  read `data.items`.
+
+- f23f3c9: Gate decorative motion and blur effects behind
+  `usePerformance().isLowPower` on a focused set of high-traffic plugin
+  pages (Dashboard, Dependency map, System node, Notification bell,
+  Announcement banner / cards, Anomaly field overrides editor, SLO
+  attribution chart, Catalog droppable group). Hover scales, backdrop
+  blurs, `animate-pulse`/`animate-ping` accents, and entry transitions
+  now drop to static states on low-power devices; functional UX
+  transitions (Drawer/Dialog open-close, colour transitions) are left
+  alone.
+
+  Standardise the post-mutation error-toast voice on plugin pages by
+  migrating multi-clause `toast.error(extractErrorMessage(error, "Failed
+to X"))` call sites onto the `toastError(toast, "Failed to X", error)`
+  helper from `@checkstack/ui`. The helper applies the canonical
+  `"action: message"` prefix and 100-character truncation in one place,
+  and the now-orphaned `extractErrorMessage` imports are dropped from
+  the affected files. No business logic or component APIs changed.
+
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+  - @checkstack/common@0.11.0
+  - @checkstack/frontend-api@0.5.2
+  - @checkstack/integration-common@0.5.0
+  - @checkstack/ui@1.10.0
+  - @checkstack/tips-frontend@0.2.5
+  - @checkstack/signal-frontend@0.1.4
+
 ## 0.4.4
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/healthcheck-rcon-backend",
-  "version": "0.3.18",
+  "version": "0.3.19",
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {

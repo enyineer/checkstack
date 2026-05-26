@@ -1,5 +1,171 @@
 # @checkstack/notification-backend
 
+## 1.2.0
+
+### Minor Changes
+
+- f23f3c9: Add per-channel notification delivery-attempt tracking
+  (Phase 8 of the v1 polishing plan). The external dispatch loop now
+  persists one row per `strategy.send(...)` call into a new
+  `notification_delivery_attempts` table - both successes and
+  failures - so silent delivery breakage (misconfigured webhooks, dead
+  channels) becomes queryable instead of buried in logs.
+
+  - `@checkstack/notification-backend` adds the
+    `notification_delivery_attempts` table, the matching Drizzle
+    migration, and a new `dispatchWithAttempt` helper that wraps every
+    external `strategy.send(...)` with duration measurement and
+    best-effort row persistence. The insert is intentionally
+    fire-and-forget: if writing the attempt row itself errors, the
+    dispatch loop logs and continues so visibility tracking can never
+    introduce a _new_ silent failure.
+  - `@checkstack/notification-common` exports a new
+    `DeliveryAttemptSchema` zod schema, the
+    `ListDeliveryAttemptsInputSchema =
+PaginationInput.extend({ notificationId })` input, and a new
+    `getDeliveryAttempts` procedure on the contract. The procedure is
+    gated by the existing `notificationAccess.admin`
+    (`notification:manage`) access rule - no new permission was
+    introduced.
+  - `@checkstack/notification-frontend` adds a minimal admin-only
+    `DeliveryAttemptsPage` (route id `notification.deliveryAttempts`,
+    path `/notifications/delivery-attempts`) and an "Open inspector"
+    link from the Notification Settings page for users with
+    `notification:manage`. No client-side `isAdmin` gate - the FORBIDDEN
+    case is rendered via the standard error-state branch on the page,
+    enforced by the contract.
+
+  Visibility only: there is no retry mechanism in this phase. A
+  `failure` row is a final outcome an admin actions manually
+  (re-trigger the source event, fix the misconfigured channel).
+  Automated retries are deferred to v1.1.
+
+  Strategy errors thrown during `send(...)` are persisted via
+  `extractErrorMessage(error)` so secrets potentially embedded in raw
+  error objects (webhook URLs, OAuth tokens reachable from the strategy
+  send context) are not stored verbatim.
+
+  See the new
+  `docs/src/content/docs/backend/notification-delivery.md` page for the
+  full surface description.
+
+### Patch Changes
+
+- f23f3c9: Add `correlationMiddleware` to `@checkstack/backend-api` and apply it
+  to every plugin/core router so each request carries a stable
+  `x-correlation-id` (read from the inbound header, or freshly minted
+  via `crypto.randomUUID()` when absent) and an auto-injected child
+  logger bound with `{ correlationId, pluginId, userId? }`. The ID is
+  echoed back on the response header so the caller can correlate their
+  client-side trace to the server logs.
+
+  The `Logger` interface in `@checkstack/backend-api` now formally
+  documents the structured-metadata convention (`logger.info("msg",
+{ ...meta })`) alongside the long-standing varargs shape. Winston's
+  splat handling already routes both shapes through the same vararg
+  slot, so existing call sites are unaffected. A new optional
+  `Logger.child(meta)` method captures the metadata-binding contract the
+  new middleware relies on; production loggers always implement it,
+  minimal test mocks may omit it (the middleware falls back gracefully).
+
+  `RpcContext` grew two optional `Headers` bags, `requestHeaders` and
+  `responseHeaders`, populated by the outer Hono `/api/*` and `/rest/*`
+  handlers in `@checkstack/backend`. They are write-through observation
+  points for middleware; an `RpcContext` constructed without them (S2S
+  clients, tests) keeps working — the echo is a silent no-op and the ID
+  is still bound onto the child logger for server-side correlation.
+
+  The scaffolding template in `@checkstack/scripts` was updated so any
+  new plugin generated via `bun run create` wires the middleware in the
+  expected `.use(correlationMiddleware).use(autoAuthMiddleware)` order
+  out of the box.
+
+- f23f3c9: Sweep every paginated `*-common` contract onto the canonical
+  `PaginationInput` / `PaginatedResult` from `@checkstack/common` and
+  remove the now-unused legacy exports.
+
+  **BREAKING CHANGE** - `@checkstack/common` drops the deprecated
+  `PaginationInputSchema`, `paginatedOutput`, and `PaginatedResponse`
+  symbols. Callers must consume `PaginationInput` (input) and
+  `PaginatedResult(itemSchema)` (output) instead. The canonical input is
+  `{ limit (1-100, default 20), offset (>= 0, default 0) }`; the
+  canonical output envelope is
+  `{ items, total, limit, offset }`.
+
+  **BREAKING CHANGE** - `@checkstack/notification-common` migrates
+  `getNotifications` off the legacy `PaginationInputSchema`
+  (`{ limit, offset, unreadOnly }` with output `{ notifications, total }`)
+  onto `ListNotificationsInputSchema =
+PaginationInput.extend({ unreadOnly })` and
+  `PaginatedResult(NotificationSchema)`. The output key changes from
+  `notifications` to `items`, and `limit` / `offset` are now echoed on
+  the response. The `PaginationInput` type alias previously exported
+  from `notification-common` is removed - use `ListNotificationsInput`
+  or the canonical `PaginationInput` from `@checkstack/common`.
+
+  **BREAKING CHANGE** - `@checkstack/integration-common` migrates
+  `listSubscriptions` (inline `{ page, pageSize, ... }` -> output
+  `{ subscriptions, total }`) and `getDeliveryLogs` (via
+  `DeliveryLogQueryInputSchema` `{ subscriptionId?, eventType?, status?,
+page, pageSize }` -> output `{ logs, total }`) onto the canonical
+  `PaginationInput.extend({...})` input and
+  `PaginatedResult(itemSchema)` output. External callers must switch
+  from `{ page, pageSize }` to `{ limit, offset }` and read response
+  items from `data.items` (no more `data.subscriptions` / `data.logs`).
+
+  The matching `*-backend` handlers were updated to consume the new
+  input shape (`offset` arithmetic in lieu of `(page - 1) * pageSize`)
+  and to echo `limit` / `offset` on the response. The `*-frontend` call
+  sites in `NotificationsPage`, `NotificationBell`, `IntegrationsPage`,
+  and `DeliveryLogsPage` were updated to send the new input shape and
+  read `data.items`.
+
+- f23f3c9: Phase 9 of the v1 polishing plan: tighten the plugin loader's boot-time
+  hook policy and backfill notification-router test coverage.
+
+  `@checkstack/backend` adopts an explicit per-hook policy for the two
+  boot-time hooks the plugin loader emits. `pluginInitialized` now
+  **halts the boot** if a subscriber throws — a failing subscriber here
+  means a downstream never wired itself against the freshly initialised
+  plugin, and continuing past that would leave the platform serving
+  traffic in a half-wired state. `accessRulesRegistered` keeps its
+  log-and-continue behaviour but escalates to `error` level and emits a
+  summary count if any subscriber failed; boot-blocking this hook would
+  let one misbehaving plugin DOS every other plugin on the same
+  instance. The policy is documented inline at each emit site and in a
+  new `docs/src/content/docs/backend/plugin-hook-policy.md` page.
+  **BREAKING CHANGE**: subscribers to `pluginInitialized` that
+  previously threw silently (logged and swallowed) now halt platform
+  boot. Audit subscribers and ensure they handle their own internal
+  errors before throwing.
+
+  `@checkstack/notification-backend` ships a real
+  `core/notification-backend/src/router.test.ts` covering the dispatch
+  fan-out (`notifyForSubscription`: zero subscribers, multi-recipient
+  insert, `excludeUserIds`, plus NOT_FOUND/FORBIDDEN guard rails), the
+  canonical paginated read on `getNotifications` (envelope shape,
+  `unreadOnly` filter propagation, null→undefined column mapping), the
+  service-only `createGroup` upsert behaviour (happy path + idempotent
+  re-create), and the multi-strategy `sendTransactional` path with a
+  focused fallback-style assertion: when one strategy throws, the
+  dispatch loop continues to the next and surfaces the failure as a
+  per-strategy `success: false` row instead of short-circuiting. No
+  runtime changes to the notification router.
+
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+  - @checkstack/common@0.11.0
+  - @checkstack/backend-api@0.17.0
+  - @checkstack/auth-backend@0.4.29
+  - @checkstack/notification-common@1.2.0
+  - @checkstack/auth-common@0.7.1
+  - @checkstack/signal-common@0.2.4
+  - @checkstack/cache-api@0.3.4
+  - @checkstack/queue-api@0.3.4
+  - @checkstack/cache-utils@0.2.9
+
 ## 1.1.0
 
 ### Minor Changes

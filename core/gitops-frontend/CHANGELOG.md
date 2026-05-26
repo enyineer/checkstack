@@ -1,5 +1,37 @@
 # @checkstack/gitops-frontend
 
+## 0.4.5
+
+### Patch Changes
+
+- f23f3c9: Gate decorative motion and blur effects behind
+  `usePerformance().isLowPower` on a focused set of high-traffic plugin
+  pages (Dashboard, Dependency map, System node, Notification bell,
+  Announcement banner / cards, Anomaly field overrides editor, SLO
+  attribution chart, Catalog droppable group). Hover scales, backdrop
+  blurs, `animate-pulse`/`animate-ping` accents, and entry transitions
+  now drop to static states on low-power devices; functional UX
+  transitions (Drawer/Dialog open-close, colour transitions) are left
+  alone.
+
+  Standardise the post-mutation error-toast voice on plugin pages by
+  migrating multi-clause `toast.error(extractErrorMessage(error, "Failed
+to X"))` call sites onto the `toastError(toast, "Failed to X", error)`
+  helper from `@checkstack/ui`. The helper applies the canonical
+  `"action: message"` prefix and 100-character truncation in one place,
+  and the now-orphaned `extractErrorMessage` imports are dropped from
+  the affected files. No business logic or component APIs changed.
+
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+  - @checkstack/common@0.11.0
+  - @checkstack/frontend-api@0.5.2
+  - @checkstack/ui@1.10.0
+  - @checkstack/gitops-common@0.4.1
+  - @checkstack/tips-frontend@0.2.5
+
 ## 0.4.4
 
 ### Patch Changes

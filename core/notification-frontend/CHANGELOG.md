@@ -1,5 +1,155 @@
 # @checkstack/notification-frontend
 
+## 0.4.5
+
+### Patch Changes
+
+- f23f3c9: Add per-channel notification delivery-attempt tracking
+  (Phase 8 of the v1 polishing plan). The external dispatch loop now
+  persists one row per `strategy.send(...)` call into a new
+  `notification_delivery_attempts` table - both successes and
+  failures - so silent delivery breakage (misconfigured webhooks, dead
+  channels) becomes queryable instead of buried in logs.
+
+  - `@checkstack/notification-backend` adds the
+    `notification_delivery_attempts` table, the matching Drizzle
+    migration, and a new `dispatchWithAttempt` helper that wraps every
+    external `strategy.send(...)` with duration measurement and
+    best-effort row persistence. The insert is intentionally
+    fire-and-forget: if writing the attempt row itself errors, the
+    dispatch loop logs and continues so visibility tracking can never
+    introduce a _new_ silent failure.
+  - `@checkstack/notification-common` exports a new
+    `DeliveryAttemptSchema` zod schema, the
+    `ListDeliveryAttemptsInputSchema =
+PaginationInput.extend({ notificationId })` input, and a new
+    `getDeliveryAttempts` procedure on the contract. The procedure is
+    gated by the existing `notificationAccess.admin`
+    (`notification:manage`) access rule - no new permission was
+    introduced.
+  - `@checkstack/notification-frontend` adds a minimal admin-only
+    `DeliveryAttemptsPage` (route id `notification.deliveryAttempts`,
+    path `/notifications/delivery-attempts`) and an "Open inspector"
+    link from the Notification Settings page for users with
+    `notification:manage`. No client-side `isAdmin` gate - the FORBIDDEN
+    case is rendered via the standard error-state branch on the page,
+    enforced by the contract.
+
+  Visibility only: there is no retry mechanism in this phase. A
+  `failure` row is a final outcome an admin actions manually
+  (re-trigger the source event, fix the misconfigured channel).
+  Automated retries are deferred to v1.1.
+
+  Strategy errors thrown during `send(...)` are persisted via
+  `extractErrorMessage(error)` so secrets potentially embedded in raw
+  error objects (webhook URLs, OAuth tokens reachable from the strategy
+  send context) are not stored verbatim.
+
+  See the new
+  `docs/src/content/docs/backend/notification-delivery.md` page for the
+  full surface description.
+
+- f23f3c9: Establish the canonical optimistic-UI pattern for oRPC mutations
+  (`onMutate` snapshot / patch, `onError` rollback, `onSettled`
+  invalidate) and apply it to the two highest-frequency toggles where
+  perceived latency was most visible:
+
+  - `markAsRead` on the Notifications page — clicking the check on a
+    notification card now flips the read state immediately instead of
+    waiting for the round-trip.
+  - `pauseConfiguration` / `resumeConfiguration` on the Health Check
+    Config page — pause/resume now flip the row's badge instantly,
+    rolling back on server error.
+
+  The wrapper type for `useMutation` on each plugin client gained an
+  optional `TContext` generic so optimistic sites can return a snapshot
+  from `onMutate` and consume it in `onError` without `unknown` casts.
+  The runtime behaviour and the auto-invalidation on success are
+  unchanged; the change is additive on the type surface only.
+
+  Full pattern and "when NOT to use it" guidance live in
+  `docs/frontend/optimistic-updates.md`.
+
+- f23f3c9: Sweep every paginated `*-common` contract onto the canonical
+  `PaginationInput` / `PaginatedResult` from `@checkstack/common` and
+  remove the now-unused legacy exports.
+
+  **BREAKING CHANGE** - `@checkstack/common` drops the deprecated
+  `PaginationInputSchema`, `paginatedOutput`, and `PaginatedResponse`
+  symbols. Callers must consume `PaginationInput` (input) and
+  `PaginatedResult(itemSchema)` (output) instead. The canonical input is
+  `{ limit (1-100, default 20), offset (>= 0, default 0) }`; the
+  canonical output envelope is
+  `{ items, total, limit, offset }`.
+
+  **BREAKING CHANGE** - `@checkstack/notification-common` migrates
+  `getNotifications` off the legacy `PaginationInputSchema`
+  (`{ limit, offset, unreadOnly }` with output `{ notifications, total }`)
+  onto `ListNotificationsInputSchema =
+PaginationInput.extend({ unreadOnly })` and
+  `PaginatedResult(NotificationSchema)`. The output key changes from
+  `notifications` to `items`, and `limit` / `offset` are now echoed on
+  the response. The `PaginationInput` type alias previously exported
+  from `notification-common` is removed - use `ListNotificationsInput`
+  or the canonical `PaginationInput` from `@checkstack/common`.
+
+  **BREAKING CHANGE** - `@checkstack/integration-common` migrates
+  `listSubscriptions` (inline `{ page, pageSize, ... }` -> output
+  `{ subscriptions, total }`) and `getDeliveryLogs` (via
+  `DeliveryLogQueryInputSchema` `{ subscriptionId?, eventType?, status?,
+page, pageSize }` -> output `{ logs, total }`) onto the canonical
+  `PaginationInput.extend({...})` input and
+  `PaginatedResult(itemSchema)` output. External callers must switch
+  from `{ page, pageSize }` to `{ limit, offset }` and read response
+  items from `data.items` (no more `data.subscriptions` / `data.logs`).
+
+  The matching `*-backend` handlers were updated to consume the new
+  input shape (`offset` arithmetic in lieu of `(page - 1) * pageSize`)
+  and to echo `limit` / `offset` on the response. The `*-frontend` call
+  sites in `NotificationsPage`, `NotificationBell`, `IntegrationsPage`,
+  and `DeliveryLogsPage` were updated to send the new input shape and
+  read `data.items`.
+
+- f23f3c9: Gate decorative motion and blur effects behind
+  `usePerformance().isLowPower` on a focused set of high-traffic plugin
+  pages (Dashboard, Dependency map, System node, Notification bell,
+  Announcement banner / cards, Anomaly field overrides editor, SLO
+  attribution chart, Catalog droppable group). Hover scales, backdrop
+  blurs, `animate-pulse`/`animate-ping` accents, and entry transitions
+  now drop to static states on low-power devices; functional UX
+  transitions (Drawer/Dialog open-close, colour transitions) are left
+  alone.
+
+  Standardise the post-mutation error-toast voice on plugin pages by
+  migrating multi-clause `toast.error(extractErrorMessage(error, "Failed
+to X"))` call sites onto the `toastError(toast, "Failed to X", error)`
+  helper from `@checkstack/ui`. The helper applies the canonical
+  `"action: message"` prefix and 100-character truncation in one place,
+  and the now-orphaned `extractErrorMessage` imports are dropped from
+  the affected files. No business logic or component APIs changed.
+
+- f23f3c9: Standardise the empty / loading / error story on key list pages using
+  the shared `ListEmptyState`, `QueryErrorState`, and `Skeleton`
+  primitives from `@checkstack/ui`. Each affected page now branches
+  through the same `isLoading -> isError -> empty -> data` ladder, so
+  failed queries surface a retry-able inline error instead of silently
+  rendering an empty table, and loading states match the final layout
+  rather than flashing a generic spinner. No layout, business logic, or
+  query input shapes changed.
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+  - @checkstack/common@0.11.0
+  - @checkstack/auth-frontend@0.6.5
+  - @checkstack/notification-common@1.2.0
+  - @checkstack/frontend-api@0.5.2
+  - @checkstack/ui@1.10.0
+  - @checkstack/tips-frontend@0.2.5
+  - @checkstack/signal-frontend@0.1.4
+
 ## 0.4.4
 
 ### Patch Changes
