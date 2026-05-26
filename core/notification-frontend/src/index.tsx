@@ -11,6 +11,7 @@ import {
 import { NotificationBell } from "./components/NotificationBell";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { NotificationSettingsPage } from "./pages/NotificationSettingsPage";
+import { DeliveryAttemptsPage } from "./pages/DeliveryAttemptsPage";
 import { NotificationUserMenuItems } from "./components/UserMenuItems";
 
 // Plugin-extensible kind registry — domain frontends call `registerSubjectKind`
@@ -46,6 +47,10 @@ export const notificationPlugin = createFrontendPlugin({
     {
       route: notificationRoutes.routes.settings,
       element: <NotificationSettingsPage />,
+    },
+    {
+      route: notificationRoutes.routes.deliveryAttempts,
+      element: <DeliveryAttemptsPage />,
     },
   ],
   extensions: [
