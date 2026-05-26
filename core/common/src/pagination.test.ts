@@ -1,11 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { z } from "zod";
-import {
-  PaginationInput,
-  PaginatedResult,
-  PaginationInputSchema,
-  paginatedOutput,
-} from "./pagination";
+import { PaginationInput, PaginatedResult } from "./pagination";
 
 describe("PaginationInput (canonical)", () => {
   it("applies default limit and offset when omitted", () => {
@@ -159,80 +154,3 @@ describe("PaginatedResult (canonical)", () => {
   });
 });
 
-// --- Legacy regression tests -------------------------------------------
-// Phase 4 of the v1 polishing plan removes these symbols. Until then the
-// pre-existing behaviour must keep working so the notification-common
-// consumer is not broken by Phase 1.
-
-describe("PaginationInputSchema (legacy)", () => {
-  it("accepts valid pagination input", () => {
-    const result = PaginationInputSchema.parse({ limit: 20, offset: 40 });
-    expect(result.limit).toBe(20);
-    expect(result.offset).toBe(40);
-  });
-
-  it("uses legacy default values (limit=10, offset=0)", () => {
-    const result = PaginationInputSchema.parse({});
-    expect(result.limit).toBe(10);
-    expect(result.offset).toBe(0);
-  });
-
-  it("rejects limit below 1", () => {
-    expect(() => PaginationInputSchema.parse({ limit: 0 })).toThrow();
-  });
-
-  it("rejects limit above 100", () => {
-    expect(() => PaginationInputSchema.parse({ limit: 101 })).toThrow();
-  });
-
-  it("rejects negative offset", () => {
-    expect(() => PaginationInputSchema.parse({ offset: -1 })).toThrow();
-  });
-});
-
-describe("paginatedOutput (legacy)", () => {
-  const ItemSchema = z.object({
-    id: z.string(),
-    name: z.string(),
-  });
-
-  it("creates the legacy { items, total } shape", () => {
-    const schema = paginatedOutput(ItemSchema);
-    const result = schema.parse({
-      items: [
-        { id: "1", name: "Item 1" },
-        { id: "2", name: "Item 2" },
-      ],
-      total: 100,
-    });
-
-    expect(result.items).toHaveLength(2);
-    expect(result.total).toBe(100);
-  });
-
-  it("rejects invalid items", () => {
-    const schema = paginatedOutput(ItemSchema);
-    expect(() =>
-      schema.parse({
-        items: [{ id: "1" }],
-        total: 1,
-      }),
-    ).toThrow();
-  });
-
-  it("rejects missing total", () => {
-    const schema = paginatedOutput(ItemSchema);
-    expect(() =>
-      schema.parse({
-        items: [{ id: "1", name: "Item 1" }],
-      }),
-    ).toThrow();
-  });
-
-  it("accepts an empty items array", () => {
-    const schema = paginatedOutput(ItemSchema);
-    const result = schema.parse({ items: [], total: 0 });
-    expect(result.items).toEqual([]);
-    expect(result.total).toBe(0);
-  });
-});

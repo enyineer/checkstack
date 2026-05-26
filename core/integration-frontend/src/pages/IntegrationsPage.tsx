@@ -51,7 +51,7 @@ export const IntegrationsPage = () => {
     data: subscriptionsData,
     isLoading: subsLoading,
     refetch: refetchSubs,
-  } = client.listSubscriptions.useQuery({ page: 1, pageSize: 100 });
+  } = client.listSubscriptions.useQuery({ limit: 100, offset: 0 });
 
   const { data: providers = [], isLoading: providersLoading } =
     client.listProviders.useQuery({});
@@ -74,7 +74,7 @@ export const IntegrationsPage = () => {
     },
   });
 
-  const subscriptions = subscriptionsData?.subscriptions ?? [];
+  const subscriptions = subscriptionsData?.items ?? [];
   const loading = subsLoading || providersLoading || statsLoading;
 
   // Handle ?action=create URL parameter (from command palette)

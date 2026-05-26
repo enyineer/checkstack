@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PaginationInput as CanonicalPaginationInput } from "@checkstack/common";
 
 // Notification importance levels
 export const ImportanceSchema = z.enum(["info", "warning", "critical"]);
@@ -145,13 +146,14 @@ export type NotificationGroupInput = z.infer<
   typeof NotificationGroupInputSchema
 >;
 
-// Pagination schema for listing notifications
-export const PaginationInputSchema = z.object({
-  limit: z.number().min(1).max(100).default(20),
-  offset: z.number().min(0).default(0),
+// Notification list input — extends the canonical `PaginationInput` from
+// `@checkstack/common` with the notification-specific `unreadOnly` filter.
+// Compose with `.extend({...})` to add further domain filters; do NOT
+// redefine the base `limit` / `offset` fields.
+export const ListNotificationsInputSchema = CanonicalPaginationInput.extend({
   unreadOnly: z.boolean().default(false),
 });
-export type PaginationInput = z.infer<typeof PaginationInputSchema>;
+export type ListNotificationsInput = z.infer<typeof ListNotificationsInputSchema>;
 
 // --- Notification Strategy Schemas ---
 

@@ -325,7 +325,7 @@ export const createNotificationRouter = (
           });
 
           return {
-            notifications: result.notifications.map((n) => ({
+            items: result.notifications.map((n) => ({
               id: n.id,
               userId: n.userId,
               title: n.title,
@@ -338,6 +338,8 @@ export const createNotificationRouter = (
               createdAt: n.createdAt,
             })),
             total: result.total,
+            limit: input.limit,
+            offset: input.offset,
           };
         });
       }

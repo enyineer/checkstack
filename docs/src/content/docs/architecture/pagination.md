@@ -50,9 +50,9 @@ const ListNotificationsOutput = PaginatedResult(NotificationSchema);
    layer in the handler.
 4. **No `1-vs-0` indexing confusion.** Offsets are always zero-based.
 
-The page-based shape that previously lived in
-`integration-common` (`{ page, pageSize }`) is being removed; there is
-no `page` / `pageSize` alias on the canonical schema.
+The page-based shape that previously lived in `integration-common`
+(`{ page, pageSize }`) has been removed; there is no `page` /
+`pageSize` alias on the canonical schema.
 
 ## Extending with domain extras
 
@@ -90,9 +90,57 @@ next to the procedure that owns them.
 
 ## Status: rollout
 
-The canonical schema is now exported from `@checkstack/common`.
-Consumer migration is tracked separately - the existing inline shapes
-in `notification-common`, `integration-common`, and `slo-common` will
-move to the canonical `PaginationInput` / `PaginatedResult` in a
-follow-up. Until then, new procedures should use the canonical
-contract; existing ones will be swept in one batch.
+The canonical schema is exported from `@checkstack/common` and is the
+single source of truth for paginated list inputs and outputs across
+every `*-common` package. The deprecated `PaginationInputSchema`,
+`paginatedOutput`, and `PaginatedResponse` symbols have been removed -
+new code must consume the canonical exports above.
+
+## Migrated procedures
+
+The following procedures were converted to the canonical
+`{ limit, offset }` input and `{ items, total, limit, offset }` output
+in the v1 pagination sweep:
+
+### `@checkstack/notification-common`
+
+- `getNotifications` - input was the legacy `PaginationInputSchema`
+  (`{ limit, offset, unreadOnly }`) with output
+  `{ notifications, total }`. Now consumes
+  `PaginationInput.extend({ unreadOnly })` (exported as
+  `ListNotificationsInputSchema`) and returns
+  `PaginatedResult(NotificationSchema)`. The output key renamed from
+  `notifications` to `items`.
+
+### `@checkstack/integration-common`
+
+- `listSubscriptions` - input was inline page-based
+  `{ page, pageSize, providerId?, eventType?, enabled? }` with output
+  `{ subscriptions, total }`. Now consumes
+  `PaginationInput.extend({ providerId?, eventType?, enabled? })` and
+  returns `PaginatedResult(WebhookSubscriptionSchema)`. The output key
+  renamed from `subscriptions` to `items`.
+- `getDeliveryLogs` - input was `DeliveryLogQueryInputSchema`
+  (`{ subscriptionId?, eventType?, status?, page, pageSize }`) with
+  output `{ logs, total }`. The schema now extends `PaginationInput`
+  with the same domain filters and returns
+  `PaginatedResult(DeliveryLogSchema)`. The output key renamed from
+  `logs` to `items`.
+
+### Out of scope for v1
+
+- `slo-common` `getDowntimeEvents` / `getRecentMilestones` and
+  `anomaly-common` `getAnomalies` - bare-`limit` top-N feeds, not
+  paginated lists (no `total`, no offset, no page UI). They retain
+  their existing shape.
+- `cache-common` `listEntries` and `queue-common` `listJobs` - already
+  use `{ limit, offset }` but with `limit.max(200)` (domain-specific
+  upper bound) and an additive `hasMore` / nullable `total` in the
+  response envelope to support backends that cannot cheaply count.
+  These are intentionally not on the canonical contract.
+- `healthcheck-common` `getHistory` / `getDetailedHistory` - already
+  use `{ limit, offset }` with `total` in the response. Output key is
+  `runs` (semantically meaningful) and the input default is
+  `limit=10` rather than the canonical `20`. Migration is deferred to
+  avoid churning every history call site for a contract that is
+  already substantively correct.

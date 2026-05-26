@@ -1,13 +1,17 @@
 import { z } from "zod";
 import { notificationAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
-import { createClientDefinition, proc } from "@checkstack/common";
+import {
+  createClientDefinition,
+  PaginatedResult,
+  proc,
+} from "@checkstack/common";
 import {
   NotificationSchema,
   NotificationGroupSchema,
   EnrichedSubscriptionSchema,
   RetentionSettingsSchema,
-  PaginationInputSchema,
+  ListNotificationsInputSchema,
   NotificationSubjectSchema,
 } from "./schemas";
 
@@ -78,13 +82,8 @@ export const notificationContract = {
     userType: "user",
     access: [],
   })
-    .input(PaginationInputSchema)
-    .output(
-      z.object({
-        notifications: z.array(NotificationSchema),
-        total: z.number(),
-      })
-    ),
+    .input(ListNotificationsInputSchema)
+    .output(PaginatedResult(NotificationSchema)),
 
   // Get unread count for badge
   getUnreadCount: proc({

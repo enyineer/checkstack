@@ -134,8 +134,7 @@ export function createIntegrationRouter(deps: RouterDeps) {
     // =========================================================================
 
     listSubscriptions: os.listSubscriptions.handler(async ({ input }) => {
-      const { page, pageSize, providerId, eventType, enabled } = input;
-      const offset = (page - 1) * pageSize;
+      const { limit, offset, providerId, eventType, enabled } = input;
 
       // Build where conditions
       const conditions = [];
@@ -160,7 +159,7 @@ export function createIntegrationRouter(deps: RouterDeps) {
         .select()
         .from(schema.webhookSubscriptions)
         .orderBy(desc(schema.webhookSubscriptions.createdAt))
-        .limit(pageSize)
+        .limit(limit)
         .offset(offset);
 
       if (whereClause) {
@@ -175,7 +174,7 @@ export function createIntegrationRouter(deps: RouterDeps) {
         : subscriptions;
 
       return {
-        subscriptions: filtered.map((s) => ({
+        items: filtered.map((s) => ({
           ...s,
           description: s.description ?? undefined,
           systemFilter: s.systemFilter ?? undefined,
@@ -183,6 +182,8 @@ export function createIntegrationRouter(deps: RouterDeps) {
           updatedAt: s.updatedAt,
         })),
         total: Number(total),
+        limit,
+        offset,
       };
     }),
 
@@ -701,8 +702,7 @@ export function createIntegrationRouter(deps: RouterDeps) {
     // =========================================================================
 
     getDeliveryLogs: os.getDeliveryLogs.handler(async ({ input }) => {
-      const { subscriptionId, eventType, status, page, pageSize } = input;
-      const offset = (page - 1) * pageSize;
+      const { subscriptionId, eventType, status, limit, offset } = input;
 
       // Build where conditions
       const conditions = [];
@@ -738,11 +738,11 @@ export function createIntegrationRouter(deps: RouterDeps) {
         )
         .where(whereClause)
         .orderBy(desc(schema.deliveryLogs.createdAt))
-        .limit(pageSize)
+        .limit(limit)
         .offset(offset);
 
       return {
-        logs: logs.map(({ log, subscriptionName }) => ({
+        items: logs.map(({ log, subscriptionName }) => ({
           ...log,
           subscriptionName: subscriptionName ?? undefined,
           createdAt: log.createdAt,
@@ -752,6 +752,8 @@ export function createIntegrationRouter(deps: RouterDeps) {
           errorMessage: log.errorMessage ?? undefined,
         })),
         total: Number(total),
+        limit,
+        offset,
       };
     }),
 

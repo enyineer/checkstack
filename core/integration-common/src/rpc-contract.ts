@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { integrationAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
-import { createClientDefinition, proc } from "@checkstack/common";
+import {
+  createClientDefinition,
+  PaginatedResult,
+  PaginationInput,
+  proc,
+} from "@checkstack/common";
 import {
   WebhookSubscriptionSchema,
   CreateSubscriptionInputSchema,
@@ -32,20 +37,13 @@ export const integrationContract = {
     access: [integrationAccess.manage],
   })
     .input(
-      z.object({
-        page: z.number().min(1).default(1),
-        pageSize: z.number().min(1).max(100).default(20),
+      PaginationInput.extend({
         providerId: z.string().optional(),
         eventType: z.string().optional(),
         enabled: z.boolean().optional(),
       })
     )
-    .output(
-      z.object({
-        subscriptions: z.array(WebhookSubscriptionSchema),
-        total: z.number(),
-      })
-    ),
+    .output(PaginatedResult(WebhookSubscriptionSchema)),
 
   /** Get a single subscription by ID */
   getSubscription: proc({
@@ -234,12 +232,7 @@ export const integrationContract = {
     access: [integrationAccess.manage],
   })
     .input(DeliveryLogQueryInputSchema)
-    .output(
-      z.object({
-        logs: z.array(DeliveryLogSchema),
-        total: z.number(),
-      })
-    ),
+    .output(PaginatedResult(DeliveryLogSchema)),
 
   /** Get a single delivery log entry */
   getDeliveryLog: proc({

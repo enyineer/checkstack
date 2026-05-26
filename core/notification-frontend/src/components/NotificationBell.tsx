@@ -72,7 +72,7 @@ export const NotificationBell = () => {
   const markAsReadMutation = notificationClient.markAsRead.useMutation();
 
   const unreadCount = unreadData?.count ?? 0;
-  const recentNotifications = notificationsData?.notifications ?? [];
+  const recentNotifications = notificationsData?.items ?? [];
 
   const handleMarkAllAsRead = async () => {
     try {

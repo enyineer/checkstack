@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PaginationInput } from "@checkstack/common";
 
 // =============================================================================
 // Webhook Subscription Schemas
@@ -95,12 +96,10 @@ export const DeliveryLogSchema = z.object({
 export type DeliveryLog = z.infer<typeof DeliveryLogSchema>;
 
 /** Input for querying delivery logs */
-export const DeliveryLogQueryInputSchema = z.object({
+export const DeliveryLogQueryInputSchema = PaginationInput.extend({
   subscriptionId: z.string().optional(),
   eventType: z.string().optional(),
   status: DeliveryStatusSchema.optional(),
-  page: z.number().min(1).default(1),
-  pageSize: z.number().min(1).max(100).default(20),
 });
 export type DeliveryLogQueryInput = z.infer<typeof DeliveryLogQueryInputSchema>;
 
