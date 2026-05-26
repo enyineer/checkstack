@@ -50,6 +50,13 @@
       "when": 1777549165507,
       "tag": "0006_chubby_gladiator",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1779822219628,
+      "tag": "0007_funny_hobgoblin",
+      "breakpoints": true
     }
   ]
 }

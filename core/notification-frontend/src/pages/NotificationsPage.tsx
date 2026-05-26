@@ -57,7 +57,7 @@ export const NotificationsPage = () => {
     unreadOnly: filter === "unread",
   });
 
-  const notifications = notificationsData?.notifications ?? [];
+  const notifications = notificationsData?.items ?? [];
   const total = notificationsData?.total ?? 0;
 
   // Mutation: Mark as read

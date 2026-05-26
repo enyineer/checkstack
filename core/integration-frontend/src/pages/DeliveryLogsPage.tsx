@@ -70,17 +70,16 @@ export const DeliveryLogsPage = () => {
   const pagination = usePagination({ defaultLimit: 20 });
 
   // Fetch data with useQuery
-  const page = Math.floor(pagination.offset / pagination.limit) + 1;
   const { data, isLoading, refetch } =
     integrationClient.getDeliveryLogs.useQuery({
-      page,
-      pageSize: pagination.limit,
+      limit: pagination.limit,
+      offset: pagination.offset,
     });
 
   // Sync total from response
   usePaginationSync(pagination, data?.total);
 
-  const logs = data?.logs ?? [];
+  const logs = data?.items ?? [];
 
   // Retry mutation
   const retryMutation = integrationClient.retryDelivery.useMutation({

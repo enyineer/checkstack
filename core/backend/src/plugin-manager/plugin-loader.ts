@@ -492,6 +492,23 @@ export async function loadPlugins({
   const eventBus = await deps.registry.get(coreServices.eventBus, {
     pluginId: "core",
   });
+  /**
+   * Boot-time hook policy for `pluginInitialized`: HALT on subscriber
+   * failure.
+   *
+   * Rationale: `pluginInitialized` fires immediately after a plugin's
+   * Phase 2 `init()` resolves. A throwing subscriber here means a
+   * structural problem with that plugin's startup (a downstream
+   * consumer never got the chance to wire itself against the freshly
+   * initialized plugin). Continuing past such a failure would leave
+   * the platform running in a half-wired state — surfacing it during
+   * boot is safer than discovering the missing wiring at request time.
+   *
+   * Matches the `afterPluginsReady` failure handling below (log +
+   * rethrow with a clearer message naming the failing plugin).
+   *
+   * See `docs/src/content/docs/backend/plugin-hook-policy.md`.
+   */
   for (const p of pendingInits) {
     try {
       await eventBus.emit(coreHooks.pluginInitialized, {
@@ -499,8 +516,12 @@ export async function loadPlugins({
       });
     } catch (error) {
       rootLogger.error(
-        `Failed to emit pluginInitialized hook for ${p.metadata.pluginId}:`,
+        `❌ pluginInitialized hook subscriber threw for ${p.metadata.pluginId}; halting boot to avoid an inconsistent platform state:`,
         error,
+      );
+      throw new Error(
+        `Failed pluginInitialized hook for plugin ${p.metadata.pluginId}`,
+        { cause: error },
       );
     }
   }
@@ -546,6 +567,27 @@ export async function loadPlugins({
     }
     accessRulesByPlugin.get(pluginId)!.push(rule);
   }
+  /**
+   * Boot-time hook policy for `accessRulesRegistered`: CONTINUE on
+   * subscriber failure, escalate the log to `error`.
+   *
+   * Rationale: this hook drives downstream consumers that mirror
+   * access-rule registrations into their own stores (e.g. an
+   * access-rule sync worker that hydrates a DB cache). A single
+   * misbehaving subscriber here MUST NOT be allowed to block the
+   * entire platform from booting — that would let one buggy plugin
+   * DOS every other plugin on the same instance.
+   *
+   * We deliberately diverge from the `pluginInitialized` policy
+   * because the failure mode is operational (a downstream's cache is
+   * stale until it recovers), not structural (the platform itself is
+   * fully wired even if a subscriber threw). Boot continues, the
+   * loud `error` log surfaces the breakage to operators, and the
+   * subscriber's owning plugin can implement its own retry / repair.
+   *
+   * See `docs/src/content/docs/backend/plugin-hook-policy.md`.
+   */
+  let accessRulesHookFailures = 0;
   for (const [pluginId, accessRules] of accessRulesByPlugin) {
     try {
       await eventBus.emit(coreHooks.accessRulesRegistered, {
@@ -553,11 +595,17 @@ export async function loadPlugins({
         accessRules,
       });
     } catch (error) {
+      accessRulesHookFailures += 1;
       rootLogger.error(
-        `Failed to emit accessRulesRegistered hook for ${pluginId}:`,
+        `❌ accessRulesRegistered hook subscriber threw for ${pluginId}; continuing boot (a single misbehaving plugin must not block the platform). Downstream consumers may have a stale view of this plugin's access rules until they recover:`,
         error,
       );
     }
+  }
+  if (accessRulesHookFailures > 0) {
+    rootLogger.error(
+      `❌ ${accessRulesHookFailures} accessRulesRegistered hook subscriber(s) failed during boot. Platform continued but downstream access-rule consumers may be stale.`,
+    );
   }
   // Run afterPluginsReady in topologically-sorted order, matching Phase
   // 2 init order. Iterating `pendingInits` directly would use registration
