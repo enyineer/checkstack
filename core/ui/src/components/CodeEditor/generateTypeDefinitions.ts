@@ -63,55 +63,48 @@ declare const context: {
     `);
   }
 
-  // Healthcheck script context (config-based)
+  // Healthcheck script context (config-based, ESM module).
+  // The runner spawns a Bun subprocess, sets \`globalThis.context\`, then
+  // dynamically imports the user module. So scripts can \`import\` from the
+  // Node standard library and \`export default\` their result.
   if (options.collectorConfigSchema) {
     const configType = jsonSchemaToTypeScript(options.collectorConfigSchema);
 
     lines.push(`
-/** Expected return type for healthcheck scripts */
+/** Expected return shape for inline-script health checks. */
 interface HealthCheckScriptResult {
-  /** Whether the health check passed */
+  /** Whether the health check passed. */
   success: boolean;
-  /** Optional status message */
+  /** Optional status message — surfaces in the run detail. */
   message?: string;
-  /** Optional numeric value for metrics */
+  /** Optional numeric value — feeds the value chart + anomaly detection. */
   value?: number;
 }
 
-/** Context available in healthcheck inline scripts */
+/** Runtime context exposed as a global by the inline-script runner. */
 declare const context: {
-  /** Collector configuration */
+  /** Strongly-typed collector configuration. */
   readonly config: ${configType};
 };
     `);
   }
 
-  // Always include console and fetch
-  lines.push(`
-/** Console for logging (logs appear in delivery events) */
-declare const console: {
-  /** Log an info message */
-  log(...args: unknown[]): void;
-  /** Log a warning message */
-  warn(...args: unknown[]): void;
-  /** Log an error message */
-  error(...args: unknown[]): void;
-  /** Log an info message */
-  info(...args: unknown[]): void;
-};
-
-/** Fetch API for making HTTP requests */
-declare function fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
-  `);
-
+  // We deliberately don't redeclare `console`, `fetch`, the Node stdlib,
+  // or the Bun globals here — MonacoEditor mounts the bundled upstream
+  // `@types/node` + `bun-types` declarations into Monaco's virtual
+  // filesystem via `ensureMonacoStdlib`, so all of that is already in scope.
   return lines.join("\n");
 }
 
 /**
  * Convert a JSON Schema to a TypeScript type string.
  * Handles objects, arrays, primitives, and enums.
+ *
+ * Exported for reuse by `scriptContext.ts`, which uses the same converter
+ * to build typed `context.config` / `context.event.payload` blocks for
+ * inline-script editors.
  */
-function jsonSchemaToTypeScript(
+export function jsonSchemaToTypeScript(
   schema: JsonSchemaProperty,
   indent: number = 0,
 ): string {

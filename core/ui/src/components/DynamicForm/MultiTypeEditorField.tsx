@@ -17,6 +17,8 @@ import {
   parseFormData,
   EDITOR_TYPE_LABELS,
 } from "./utils";
+import type { EditorStarterTemplates, ShellEnvVar } from "./types";
+import { pickStarterForEmptyField } from "./starterTemplateSelector";
 
 export interface MultiTypeEditorFieldProps {
   /** Unique identifier for the field */
@@ -33,6 +35,25 @@ export interface MultiTypeEditorFieldProps {
   editorTypes: EditorType[];
   /** Optional template properties for autocomplete */
   templateProperties?: TemplateProperty[];
+  /**
+   * Optional TypeScript declarations injected into Monaco for TS/JS modes —
+   * powers IntelliSense + return-shape error reporting against the runtime
+   * context the user will see (`context.config`, `context.event`, ...).
+   */
+  typeDefinitions?: string;
+  /**
+   * Optional shell env-var hints surfaced as completion items after `$`
+   * (and `${`) in shell mode. Typically populated by the platform with
+   * names like `EVENT_ID` / `PAYLOAD_*` so users don't have to memorise.
+   */
+  shellEnvVars?: ShellEnvVar[];
+  /**
+   * Optional starter templates per editor language. When the field is
+   * empty (and the user hasn't typed yet), switching to an editor with a
+   * starter for that language pre-populates the editor so users see a
+   * working example instead of a blank canvas.
+   */
+  starterTemplates?: EditorStarterTemplates;
   /** Callback when value changes */
   onChange: (value: string | undefined) => void;
 }
@@ -50,6 +71,9 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
   isRequired,
   editorTypes,
   templateProperties,
+  typeDefinitions,
+  shellEnvVars,
+  starterTemplates,
   onChange,
 }) => {
   // Detect initial editor type from value
@@ -57,15 +81,80 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
     detectEditorType(value, editorTypes),
   );
 
-  // Track if this is the initial mount to avoid re-detecting on every value change
-  const isInitialMount = React.useRef(true);
+  // Latched once the field has had non-empty content at least once for
+  // this mount. Used by the seed effects below to decide whether to
+  // (re-)install the starter template.
+  const hasSeededRef = React.useRef(false);
+
+  // React reuses this `MultiTypeEditorField` instance across collector
+  // switches when its parent `FormField` keeps the same key (e.g. both
+  // collectors have a property called `script`). The `useState`
+  // initializer above only runs on the first mount, so without this
+  // effect a switch from a shell-only collector to a typescript-only
+  // collector leaves `selectedType` stuck on "shell" — Monaco then
+  // tokenises the new collector's TS content as shell (no
+  // highlighting), and the reverse direction tokenises shell content as
+  // TS (nonsense "Cannot find name" errors).
+  //
+  // Whenever `editorTypes` changes and the current selection is no
+  // longer offered, re-detect from the new value. We deliberately do
+  // NOT reset on every `value` change — that would clobber the user's
+  // manual dropdown choice mid-edit.
   React.useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
+    if (!editorTypes.includes(selectedType)) {
+      const next = detectEditorType(value, editorTypes);
+      setSelectedType(next);
+      // Reset the seed latch too — this is effectively a fresh field
+      // for a different collector, and the new language's starter
+      // template should be eligible again.
+      hasSeededRef.current = false;
     }
-    // Don't re-detect type when value changes after initial mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only re-derive when the offered types change
+  }, [editorTypes]);
+
+  // Seed an empty field with the starter template for its detected
+  // language so users see a working example instead of a blank canvas.
+  //
+  // Why this isn't just `useEffect(..., [])`:
+  // React fires CHILD effects before PARENT effects. `DynamicForm`'s
+  // own init effect (which applies schema defaults) runs AFTER this one
+  // and, on initial mount, calls `onChange(defaults)` — which clobbers
+  // a freshly-seeded `script: starter` back to `script: ""` because the
+  // defaults effect's closure-captured `value` was the original `{}`.
+  // A naive `[]`-dep seed would therefore appear to do nothing.
+  //
+  // Two-effect design fixes this without depending on cross-component
+  // effect ordering:
+  //   1. The "observed" effect (declared FIRST) flips `hasSeededRef` to
+  //      true the moment we see non-empty content in `value` — whether
+  //      that came from our seed surviving, a parent default landing
+  //      with content, or the user typing.
+  //   2. The "seed" effect re-runs on every value/starter change and
+  //      installs the starter while `hasSeededRef` is still false. If
+  //      the parent clobbers us back to "", we just re-seed on the
+  //      next pass — until the value sticks and effect (1) latches.
+  //
+  // The latch also means we DON'T re-seed if the user deliberately
+  // deletes their content later, or on any subsequent refetch / parent
+  // re-render: once non-empty has been observed at least once, the
+  // field is the user's territory.
+  React.useEffect(() => {
+    if (!hasSeededRef.current && (value ?? "").trim().length > 0) {
+      hasSeededRef.current = true;
+    }
   }, [value]);
+
+  React.useEffect(() => {
+    if (hasSeededRef.current) return;
+    const starter = pickStarterForEmptyField({
+      value,
+      selectedType,
+      starterTemplates,
+    });
+    if (starter !== undefined) {
+      onChange(starter);
+    }
+  }, [value, selectedType, starterTemplates, onChange]);
 
   const handleTypeChange = (newType: EditorType) => {
     setSelectedType(newType);
@@ -73,6 +162,19 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
     // Clear value when switching to "none"
     if (newType === "none") {
       onChange("");
+      return;
+    }
+
+    // If the field is empty after the switch and we have a starter template
+    // for the new language, seed it. (Switching languages on a non-empty
+    // field preserves the existing content, just like before.)
+    const starter = pickStarterForEmptyField({
+      value,
+      selectedType: newType,
+      starterTemplates,
+    });
+    if (starter !== undefined) {
+      onChange(starter);
       return;
     }
 
@@ -242,6 +344,7 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
           language="javascript"
           minHeight="150px"
           templateProperties={templateProperties}
+          typeDefinitions={typeDefinitions}
         />
       )}
 
@@ -253,6 +356,7 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
           language="typescript"
           minHeight="150px"
           templateProperties={templateProperties}
+          typeDefinitions={typeDefinitions}
         />
       )}
 
@@ -264,6 +368,7 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
           language="shell"
           minHeight="150px"
           templateProperties={templateProperties}
+          shellEnvVars={shellEnvVars}
         />
       )}
     </div>

@@ -3,7 +3,12 @@ import type {
   CollectorConfigEntry,
   CollectorDto,
 } from "@checkstack/healthcheck-common";
-import { Button, DynamicForm, Label } from "@checkstack/ui";
+import {
+  Button,
+  DynamicForm,
+  Label,
+  healthcheckScriptContext,
+} from "@checkstack/ui";
 import { Trash2 } from "lucide-react";
 import { AssertionBuilder, type Assertion } from "../AssertionBuilder";
 
@@ -63,6 +68,9 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
             value={entry.config}
             onChange={onConfigChange}
             onValidChange={onValidChange}
+            {...healthcheckScriptContext({
+              collectorConfigSchema: collectorDef.configSchema,
+            })}
           />
         </div>
       )}

@@ -13,7 +13,7 @@ import {
   DEFAULT_STATE_THRESHOLDS,
 } from "@checkstack/healthcheck-common";
 import { CatalogApi } from "@checkstack/catalog-common";
-import { PageLayout, Button, useToast, IDELayout, type ValidationIssue } from "@checkstack/ui";
+import { PageLayout, Button, useToast, IDELayout, useInitOnceForKey, type ValidationIssue } from "@checkstack/ui";
 import { Save, Settings } from "lucide-react";
 import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 import { useCollectors } from "../hooks/useCollectors";
@@ -115,17 +115,23 @@ const HealthCheckIDEPageContent = () => {
     systemIdFromUrl ? [systemIdFromUrl] : [],
   );
 
-  // Initialize form from existing configuration (edit mode)
-  useEffect(() => {
-    if (existingConfig) {
-      setFormState({
-        name: existingConfig.name,
-        intervalSeconds: existingConfig.intervalSeconds,
-        strategyConfig: existingConfig.config,
-        collectors: existingConfig.collectors ?? [],
-      });
-    }
-  }, [existingConfig]);
+  // Initialize form from existing configuration (edit mode).
+  //
+  // CRITICAL: only ever runs once per healthcheck id. The configuration
+  // query is invalidated on every realtime `HEALTH_CHECK_RUN_COMPLETED`
+  // signal (see `SignalAutoInvalidator`), which would otherwise refetch
+  // and wipe the user's in-progress edits via a naive `[existingConfig]`
+  // dependency. Keying by `existingConfig.id` means the form only
+  // re-initialises when the user actually navigates to a different
+  // healthcheck — not on a background refetch of the same one.
+  useInitOnceForKey(existingConfig, existingConfig?.id, (config) => {
+    setFormState({
+      name: config.name,
+      intervalSeconds: config.intervalSeconds,
+      strategyConfig: config.config,
+      collectors: config.collectors ?? [],
+    });
+  });
 
   // Unsaved changes guard
   useEffect(() => {

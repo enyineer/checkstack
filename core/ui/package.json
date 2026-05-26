@@ -39,9 +39,12 @@
     "@storybook/react": "^10.3.6",
     "@storybook/react-vite": "^10.3.6",
     "@testing-library/react": "^16.0.0",
+    "@types/bun": "^1.3.14",
+    "@types/node": "^20.19.27",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^6.0.1",
+    "bun-types": "^1.3.14",
     "autoprefixer": "^10.4.18",
     "postcss": "^8.4.35",
     "storybook": "^10.3.6",
@@ -56,7 +59,8 @@
     "lint:code": "eslint . --max-warnings 0",
     "test": "bun test",
     "storybook": "storybook dev -p 6006",
-    "storybook:build": "storybook build -o storybook-static"
+    "storybook:build": "storybook build -o storybook-static",
+    "generate:monaco-types": "bun run scripts/generate-stdlib-types.ts"
   },
   "checkstack": {
     "type": "tooling"

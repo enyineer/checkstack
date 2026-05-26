@@ -14,11 +14,3 @@ export default createBackendPlugin({
     extensionPoint.addProvider(teamsProvider, pluginMetadata);
   },
 });
-
-// Re-export for testing
-export {
-  teamsProvider,
-  TeamsConnectionSchema,
-  TeamsSubscriptionSchema,
-  buildAdaptiveCard,
-} from "./provider";

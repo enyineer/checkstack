@@ -232,6 +232,73 @@ describe("ShellProvider", () => {
       expect(result.success).toBe(true);
       expect(result.externalId).toBe("dash-value");
     });
+
+    // Regression guards for every env var we advertise in
+    // `integrationScriptContext`'s shell-env-var list. If the runner
+    // drops one of these, autocompletion would still suggest it in the
+    // editor while the runtime silently expanded it to an empty string.
+
+    it("provides EVENT_TIMESTAMP variable", async () => {
+      const context = createTestContext({
+        script: 'echo "$EVENT_TIMESTAMP"',
+      });
+      const result = await shellProvider.deliver(context);
+      expect(result.success).toBe(true);
+      expect(result.externalId).toBe("2024-01-15T10:30:00Z");
+    });
+
+    it("provides DELIVERY_ID variable", async () => {
+      const context = createTestContext({
+        script: 'echo "$DELIVERY_ID"',
+      });
+      const result = await shellProvider.deliver(context);
+      expect(result.success).toBe(true);
+      expect(result.externalId).toBe("del-456");
+    });
+
+    it("provides SUBSCRIPTION_ID variable", async () => {
+      const context = createTestContext({
+        script: 'echo "$SUBSCRIPTION_ID"',
+      });
+      const result = await shellProvider.deliver(context);
+      expect(result.success).toBe(true);
+      expect(result.externalId).toBe("sub-789");
+    });
+
+    it("JSON-encodes arrays in PAYLOAD_* variables", async () => {
+      const context = createTestContext(
+        { script: 'echo "$PAYLOAD_TAGS"' },
+        { tags: ["urgent", "production"] },
+      );
+      const result = await shellProvider.deliver(context);
+      expect(result.success).toBe(true);
+      // Arrays go through JSON.stringify per shell-provider.ts:81 so
+      // users have something parseable to feed back into jq / awk.
+      expect(result.externalId).toBe('["urgent","production"]');
+    });
+
+    it("renders null and undefined payload fields as empty strings", async () => {
+      const context = createTestContext(
+        { script: 'echo "null=[$PAYLOAD_MAYBE]" "undef=[$PAYLOAD_OPTIONAL]"' },
+        { maybe: null, optional: undefined },
+      );
+      const result = await shellProvider.deliver(context);
+      expect(result.success).toBe(true);
+      // The dollar-paren expansion of a defined-but-empty var produces
+      // `[]` — exactly what we want for a null payload field.
+      expect(result.externalId).toContain("null=[]");
+      expect(result.externalId).toContain("undef=[]");
+    });
+
+    it("flattens three-level-nested payload fields with underscore-joined keys", async () => {
+      const context = createTestContext(
+        { script: 'echo "$PAYLOAD_DEEP_INNER_VALUE"' },
+        { deep: { inner: { value: "deep-value" } } },
+      );
+      const result = await shellProvider.deliver(context);
+      expect(result.success).toBe(true);
+      expect(result.externalId).toBe("deep-value");
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────────

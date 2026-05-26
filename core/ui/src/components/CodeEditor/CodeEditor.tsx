@@ -6,9 +6,16 @@ export {
   type CodeEditorProps,
   type CodeEditorLanguage,
   type TemplateProperty,
+  type ShellEnvVar,
 } from "./MonacoEditor";
 
 export {
   generateTypeDefinitions,
   type GenerateTypesOptions,
 } from "./generateTypeDefinitions";
+
+export {
+  healthcheckScriptContext,
+  integrationScriptContext,
+  type ScriptEditorContext,
+} from "./scriptContext";

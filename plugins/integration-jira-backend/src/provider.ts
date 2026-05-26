@@ -104,8 +104,16 @@ export const DynamicJiraFieldMappingSchema = z.object({
     "x-depends-on": ["projectKey", "issueTypeId"],
     "x-searchable": true,
   }).describe("Jira field"),
-  /** Template string with {{payload.property}} placeholders */
-  template: configString({}).describe("Template value"),
+  /**
+   * Template string with `{{payload.property}}` placeholders. The
+   * `x-editor-types: ["raw"]` annotation routes this field through
+   * DynamicForm's MultiTypeEditorField → RawEditor, which provides
+   * the `{{ … }}` autocomplete popup driven by the templateProperties
+   * passed in from CreateSubscriptionDialog.
+   */
+  template: configString({ "x-editor-types": ["raw"] }).describe(
+    "Template value",
+  ),
 });
 
 /**
@@ -127,10 +135,16 @@ export const JiraSubscriptionConfigSchema = z.object({
     "x-options-resolver": JIRA_RESOLVERS.ISSUE_TYPE_OPTIONS,
     "x-depends-on": ["projectKey"],
   }).describe("Issue type"),
-  /** Summary template (required - uses {{payload.field}} syntax) */
-  summaryTemplate: configString({}).min(1).describe("Issue summary template"),
-  /** Description template (optional) */
-  descriptionTemplate: configString({})
+  /**
+   * Summary template (required - uses `{{payload.field}}` syntax).
+   * Tagged with `x-editor-types: ["raw"]` so DynamicForm renders it as
+   * MultiTypeEditorField + RawEditor with `{{ … }}` autocomplete.
+   */
+  summaryTemplate: configString({ "x-editor-types": ["raw"] })
+    .min(1)
+    .describe("Issue summary template"),
+  /** Description template (optional, same template-autocomplete path). */
+  descriptionTemplate: configString({ "x-editor-types": ["raw"] })
     .optional()
     .describe("Issue description template"),
   /** Priority ID (optional) */

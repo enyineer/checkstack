@@ -3,7 +3,7 @@ import {
   webexProvider,
   WebexConnectionSchema,
   WebexSubscriptionSchema,
-} from "./index";
+} from "./provider";
 
 /**
  * Unit tests for the Webex Integration Provider.

@@ -14,10 +14,3 @@ export default createBackendPlugin({
     extensionPoint.addProvider(webexProvider, pluginMetadata);
   },
 });
-
-// Re-export for testing
-export {
-  webexProvider,
-  WebexConnectionSchema,
-  WebexSubscriptionSchema,
-} from "./provider";

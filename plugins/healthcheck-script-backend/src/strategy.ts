@@ -35,7 +35,7 @@ import { extractErrorMessage } from "@checkstack/common";
 
 /**
  * Configuration schema for Script health checks.
- * Global defaults only - action params moved to ExecuteCollector.
+ * Global defaults only - action params live on the per-collector schema.
  */
 export const scriptConfigSchema = baseStrategyConfigSchema.extend({});
 
@@ -146,14 +146,22 @@ interface ScriptExecutionResult {
 
 export interface ScriptExecutor {
   execute(config: {
-    command: string;
-    args: string[];
+    script: string;
     cwd?: string;
     env?: Record<string, string>;
     timeout: number;
   }): Promise<ScriptExecutionResult>;
 }
 
+/**
+ * Environment variables forwarded to user scripts.
+ *
+ * The full parent environment is _not_ forwarded by design: many backend
+ * processes hold secrets (DB URLs, API tokens, signing keys) in their env,
+ * and a user-authored script — even a trusted one — should not be a place
+ * those leak from. PATH, HOME, LANG etc. are kept so ordinary commands
+ * (awk, curl, etc.) can still be found and behave correctly.
+ */
 const SAFE_ENV_VARS = [
   "PATH",
   "HOME",
@@ -167,14 +175,25 @@ const SAFE_ENV_VARS = [
   "SHELL",
 ];
 
-// Default executor using Bun.spawn
+/**
+ * Concurrency note: this executor is stateless — every call gets its own
+ * subprocess, its own pipes, and its own timeout. There are no shared
+ * temp files for the shell path (the user's script is fed to `sh -c`
+ * directly via argv), so two concurrent shell checks can't possibly
+ * collide on disk.
+ *
+ * Cleanup is in `finally`: the timeout handle is cleared so a fast
+ * script doesn't leak an event-loop timer, and any straggler subprocess
+ * is `.kill()`-ed defensively even if we're returning normally.
+ */
 const defaultScriptExecutor: ScriptExecutor = {
   async execute(config) {
     let proc: Subprocess | undefined;
     let timedOut = false;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
+      timeoutHandle = setTimeout(() => {
         timedOut = true;
         proc?.kill();
         reject(new Error("Script execution timed out"));
@@ -189,8 +208,11 @@ const defaultScriptExecutor: ScriptExecutor = {
     }
 
     try {
+      // Execute through `sh -c` so the user's script can use pipes,
+      // redirects, variable expansion, conditionals, etc. — i.e. behave
+      // like a real shell script rather than a single argv vector.
       proc = spawn({
-        cmd: [config.command, ...config.args],
+        cmd: ["sh", "-c", config.script],
         cwd: config.cwd,
         env: { ...safeEnv, ...config.env },
         stdout: "pipe",
@@ -222,6 +244,13 @@ const defaultScriptExecutor: ScriptExecutor = {
         };
       }
       throw error;
+    } finally {
+      if (timeoutHandle !== undefined) {
+        clearTimeout(timeoutHandle);
+      }
+      // Idempotent — no-op when the subprocess has already exited cleanly,
+      // but guarantees we never leave a runaway `sh` from an exception path.
+      proc?.kill();
     }
   },
 };
@@ -310,8 +339,7 @@ export class ScriptHealthCheckStrategy implements HealthCheckStrategy<
       exec: async (request: ScriptRequest): Promise<ScriptResultType> => {
         try {
           const result = await this.executor.execute({
-            command: request.command,
-            args: request.args,
+            script: request.script,
             cwd: request.cwd,
             env: request.env,
             timeout: request.timeout,

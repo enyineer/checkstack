@@ -1,6 +1,6 @@
 # Bun workspace configuration for tests
 [test]
-# Preload mocks before any test file runs - this ensures mock.module() 
+# Preload mocks before any test file runs - this ensures mock.module()
 # is called before the module is first imported anywhere
 # Path is relative to workspace root
 preload = ["./core/backend/src/test-preload.ts"]

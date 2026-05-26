@@ -3,7 +3,6 @@ import type {
   JiraProject,
   JiraIssueType,
   JiraField,
-  JiraConnection,
 } from "@checkstack/integration-jira-common";
 import type { JiraAuthMode } from "./provider";
 import { extractErrorMessage } from "@checkstack/common";
@@ -332,22 +331,6 @@ export function createJiraClientFromConfig(
     baseUrl: config.baseUrl,
     email: config.email,
     apiToken: config.apiToken,
-    logger,
-  });
-}
-
-/**
- * Create a Jira client from a connection configuration.
- * @deprecated Use createJiraClientFromConfig with generic connection management.
- */
-export function createJiraClientFromConnection(
-  connection: JiraConnection,
-  logger: Logger,
-) {
-  return createJiraClient({
-    baseUrl: connection.baseUrl,
-    email: connection.email,
-    apiToken: connection.apiToken,
     logger,
   });
 }

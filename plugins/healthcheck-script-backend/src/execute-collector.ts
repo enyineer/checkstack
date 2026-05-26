@@ -22,27 +22,59 @@ import { pluginMetadata } from "./plugin-metadata";
 import type { ScriptTransportClient } from "./transport-client";
 
 // ============================================================================
-// CONFIGURATION SCHEMA
+// LEGACY CONFIG (v1) — kept for migration
 // ============================================================================
 
-const executeConfigSchema = z.object({
-  command: configString({
+interface ExecuteConfigV1 {
+  command: string;
+  args: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  timeout: number;
+}
+
+/**
+ * Quote an arg for the shell when migrating a v1 command+args pair into a
+ * single v2 script. Bare identifiers are passed through untouched; anything
+ * else gets single-quoted with embedded quotes escaped.
+ */
+function shellQuote(arg: string): string {
+  if (arg === "") return "''";
+  if (/^[A-Za-z0-9_\-./=:@%+]+$/.test(arg)) return arg;
+  // POSIX single-quote escape: close, emit an escaped quote, reopen.
+  return `'${arg.replaceAll("'", String.raw`'\''`)}'`;
+}
+
+// ============================================================================
+// CONFIGURATION SCHEMA (v2)
+// ============================================================================
+
+const executeConfigSchemaV2 = z.object({
+  script: configString({
     "x-editor-types": ["shell"],
-  }).describe("Shell command or script to execute"),
-  args: z.array(z.string()).default([]).describe("Command arguments"),
-  cwd: z.string().optional().describe("Working directory"),
+  }).describe(
+    "Shell script source. Executed via `sh -c`, so pipes, redirects, `if`/`for`/`while`, variable expansion, command substitution etc. all work. Exit non-zero to fail the check.",
+  ),
+  cwd: z
+    .string()
+    .optional()
+    .describe("Working directory for the script (defaults to the satellite's CWD)"),
   env: z
     .record(z.string(), z.string())
     .optional()
-    .describe("Environment variables"),
+    .describe(
+      "Extra environment variables to expose to the script. Merged on top of the safe-vars whitelist (PATH, HOME, ...).",
+    ),
   timeout: z
     .number()
+    .int()
     .min(100)
+    .max(300_000)
     .default(30_000)
-    .describe("Timeout in milliseconds"),
+    .describe("Maximum execution time in milliseconds"),
 });
 
-export type ExecuteConfig = z.infer<typeof executeConfigSchema>;
+export type ExecuteConfig = z.infer<typeof executeConfigSchemaV2>;
 
 // ============================================================================
 // RESULT SCHEMAS
@@ -120,8 +152,19 @@ export type ExecuteAggregatedResult = InferAggregatedResult<
 // ============================================================================
 
 /**
- * Built-in Script execute collector.
- * Runs commands and checks results.
+ * Shell-script execute collector.
+ *
+ * The user provides a shell script as a single string; we run it through
+ * `sh -c`. That means anything POSIX `sh` accepts works as expected:
+ *
+ * ```sh
+ * # Fail when 1-minute load average exceeds 0.60 (portable: Linux + macOS).
+ * load=$(uptime | sed 's/.*load average[s]*: //' | awk '{print $1}' | tr -d ',')
+ * awk -v l="$load" 'BEGIN { exit (l+0 > 0.60) ? 1 : 0 }'
+ * ```
+ *
+ * Exit code 0 = healthy, anything else = unhealthy. stdout / stderr are
+ * captured and reported with the run.
  */
 export class ExecuteCollector implements CollectorStrategy<
   ScriptTransportClient,
@@ -130,14 +173,36 @@ export class ExecuteCollector implements CollectorStrategy<
   ExecuteAggregatedResult
 > {
   id = "execute";
-  displayName = "Execute Script";
-  description = "Execute a command or script and check the result";
+  displayName = "Shell Script";
+  description = "Run a shell script and treat exit code 0 as healthy";
 
   supportedPlugins = [pluginMetadata];
 
   allowMultiple = true;
 
-  config = new Versioned({ version: 1, schema: executeConfigSchema });
+  config = new Versioned({
+    version: 2,
+    schema: executeConfigSchemaV2,
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description:
+          "Collapse {command, args} into a single shell script executed via `sh -c`",
+        migrate: (data: ExecuteConfigV1): ExecuteConfig => {
+          const parts = [data.command, ...(data.args ?? [])].map((arg) =>
+            shellQuote(arg),
+          );
+          return {
+            script: parts.join(" "),
+            cwd: data.cwd,
+            env: data.env,
+            timeout: data.timeout,
+          };
+        },
+      },
+    ],
+  });
   result = new Versioned({ version: 1, schema: executeResultSchema });
   aggregatedResult = new VersionedAggregated({
     version: 1,
@@ -155,8 +220,7 @@ export class ExecuteCollector implements CollectorStrategy<
     const startTime = Date.now();
 
     const response = await client.exec({
-      command: config.command,
-      args: config.args,
+      script: config.script,
       cwd: config.cwd,
       env: config.env,
       timeout: config.timeout,

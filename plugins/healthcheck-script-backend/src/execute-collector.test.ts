@@ -28,8 +28,13 @@ describe("ExecuteCollector", () => {
       const collector = new ExecuteCollector();
       const client = createMockClient({ exitCode: 0, stdout: "Hello World" });
 
+      const config: ExecuteConfig = {
+        script: "echo 'Hello World'",
+        timeout: 5000,
+      };
+
       const result = await collector.execute({
-        config: { command: "echo", args: ["Hello", "World"], timeout: 5000 },
+        config,
         client,
         pluginId: "test",
       });
@@ -50,7 +55,7 @@ describe("ExecuteCollector", () => {
       });
 
       const result = await collector.execute({
-        config: { command: "nonexistent", args: [], timeout: 5000 },
+        config: { script: "exit 1", timeout: 5000 },
         client,
         pluginId: "test",
       });
@@ -65,7 +70,7 @@ describe("ExecuteCollector", () => {
       const client = createMockClient({ timedOut: true, exitCode: -1 });
 
       const result = await collector.execute({
-        config: { command: "sleep", args: ["999"], timeout: 100 },
+        config: { script: "sleep 999", timeout: 100 },
         client,
         pluginId: "test",
       });
@@ -74,14 +79,13 @@ describe("ExecuteCollector", () => {
       expect(result.result.success).toBe(false);
     });
 
-    it("should pass correct parameters to client", async () => {
+    it("should pass the script, cwd and env through to the client", async () => {
       const collector = new ExecuteCollector();
       const client = createMockClient();
 
       await collector.execute({
         config: {
-          command: "/usr/bin/check",
-          args: ["--verbose"],
+          script: "awk '/load/ {print $1}' /proc/loadavg | head -1",
           cwd: "/tmp",
           env: { MY_VAR: "value" },
           timeout: 3000,
@@ -91,12 +95,46 @@ describe("ExecuteCollector", () => {
       });
 
       expect(client.exec).toHaveBeenCalledWith({
-        command: "/usr/bin/check",
-        args: ["--verbose"],
+        script: "awk '/load/ {print $1}' /proc/loadavg | head -1",
         cwd: "/tmp",
         env: { MY_VAR: "value" },
         timeout: 3000,
       });
+    });
+  });
+
+  describe("migration", () => {
+    it("collapses legacy {command, args} into a single shell script", async () => {
+      const collector = new ExecuteCollector();
+      const v1 = {
+        command: "echo",
+        args: ["Hello", "World"],
+        timeout: 5000,
+      };
+
+      // Versioned.parse() applies migrations transparently when the stored
+      // value declares an older version. Mirror what storage does:
+      const migrated = await collector.config.parse({ version: 1, data: v1 });
+
+      expect(migrated.script).toBe("echo Hello World");
+      expect(migrated.timeout).toBe(5000);
+    });
+
+    it("quotes args that contain shell metacharacters", async () => {
+      const collector = new ExecuteCollector();
+      const v1 = {
+        command: "/bin/sh",
+        args: ["-c", "echo 'hi there'"],
+        timeout: 5000,
+      };
+
+      const migrated = await collector.config.parse({ version: 1, data: v1 });
+
+      // The script should re-quote args so re-execution via `sh -c` is safe.
+      expect(migrated.script).toContain("/bin/sh");
+      expect(migrated.script).toContain("-c");
+      // The embedded quotes must be preserved (single-quoted form).
+      expect(migrated.script).toMatch(/echo/);
     });
   });
 
@@ -190,7 +228,7 @@ describe("ExecuteCollector", () => {
       const collector = new ExecuteCollector();
 
       expect(collector.id).toBe("execute");
-      expect(collector.displayName).toBe("Execute Script");
+      expect(collector.displayName).toBe("Shell Script");
       expect(collector.allowMultiple).toBe(true);
       expect(collector.supportedPlugins).toHaveLength(1);
     });

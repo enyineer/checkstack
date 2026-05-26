@@ -217,6 +217,78 @@ describe("ScriptProvider", () => {
       expect(result.success).toBe(true);
       expect(result.externalId).toBe("Test Subscription");
     });
+
+    // Regression guards for every field we advertise in
+    // `IntegrationScriptContext` (built by `integrationScriptContext`).
+    // If the runner drops one of these, the editor would still
+    // autocomplete it via the schema-typed declaration while the
+    // runtime returned `undefined`.
+
+    it("exposes context.event.timestamp", async () => {
+      const context = createTestContext({
+        script: `return { id: context.event.timestamp };`,
+      });
+      const result = await scriptProvider.deliver(context);
+      expect(result.success).toBe(true);
+      expect(result.externalId).toBe(context.event.timestamp);
+    });
+
+    it("exposes context.event.deliveryId", async () => {
+      const context = createTestContext({
+        script: `return { id: context.event.deliveryId };`,
+      });
+      const result = await scriptProvider.deliver(context);
+      expect(result.success).toBe(true);
+      expect(result.externalId).toBe("del-456");
+    });
+
+    it("exposes context.subscription.id (distinct from .name)", async () => {
+      const context = createTestContext({
+        script: `return { id: context.subscription.id };`,
+      });
+      const result = await scriptProvider.deliver(context);
+      expect(result.success).toBe(true);
+      expect(result.externalId).toBe(context.subscription.id);
+    });
+
+    it("can read deeply-nested payload fields", async () => {
+      const context = createTestContext({
+        script: `
+          const v = context.event.payload.nested && context.event.payload.nested.field;
+          return { id: v };
+        `,
+      });
+      context.event.payload = {
+        ...context.event.payload,
+        nested: { field: "value" },
+      };
+      const result = await scriptProvider.deliver(context);
+      expect(result.success).toBe(true);
+      expect(result.externalId).toBe("value");
+    });
+
+    it("preserves array shape in context.event.payload (no JSON-stringify)", async () => {
+      // Unlike the shell provider — where arrays get JSON-encoded into
+      // an env-var string — the inline-script runner serialises the
+      // context as JSON once and re-parses it inside the subprocess,
+      // so arrays stay as real JS arrays available to user code.
+      const context = createTestContext({
+        script: `
+          const tags = context.event.payload.tags;
+          if (!Array.isArray(tags)) {
+            throw new Error("expected array, got " + typeof tags);
+          }
+          return { id: tags.join(",") };
+        `,
+      });
+      context.event.payload = {
+        ...context.event.payload,
+        tags: ["urgent", "production"],
+      };
+      const result = await scriptProvider.deliver(context);
+      expect(result.success).toBe(true);
+      expect(result.externalId).toBe("urgent,production");
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────────

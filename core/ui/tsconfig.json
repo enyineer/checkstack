@@ -1,7 +1,9 @@
 {
   "extends": "@checkstack/tsconfig/frontend.json",
   "include": [
-    "src"
+    "src",
+    "src/components/CodeEditor/generated/stdlib-types.json",
+    "scripts"
   ],
   "references": [
     {
