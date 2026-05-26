@@ -9,27 +9,39 @@ import {
   Button,
   Input,
   Label,
+  Checkbox,
 } from "@checkstack/ui";
 import { passwordSchema } from "@checkstack/auth-common";
+import type { Role } from "../api";
 
 interface CreateUserDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * Assignable roles, surfaced as an optional multi-select inside the
+   * dialog so admins can pick role(s) atomically with user creation.
+   * Roles where `isAssignable === false` (e.g. anonymous) are filtered
+   * out by the caller before being passed in.
+   */
+  assignableRoles: Role[];
   onSubmit: (data: {
     name: string;
     email: string;
     password: string;
+    roleIds: string[];
   }) => Promise<void>;
 }
 
 export const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
   open,
   onOpenChange,
+  assignableRoles,
   onSubmit,
 }) => {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
@@ -39,6 +51,7 @@ export const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
       setName("");
       setEmail("");
       setPassword("");
+      setSelectedRoleIds([]);
       setValidationErrors([]);
     }
   }, [open]);
@@ -68,11 +81,19 @@ export const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
 
     setLoading(true);
     try {
-      await onSubmit({ name, email, password });
+      await onSubmit({ name, email, password, roleIds: selectedRoleIds });
       onOpenChange(false);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleToggleRole = (roleId: string) => {
+    setSelectedRoleIds((prev) =>
+      prev.includes(roleId)
+        ? prev.filter((id) => id !== roleId)
+        : [...prev, roleId],
+    );
   };
 
   const isValid =
@@ -135,6 +156,35 @@ export const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
                 At least 8 characters with uppercase, lowercase, and number
               </p>
             </div>
+            {assignableRoles.length > 0 && (
+              <div className="grid gap-2">
+                <Label>Roles</Label>
+                <div className="flex flex-col gap-2 max-h-40 overflow-y-auto">
+                  {assignableRoles.map((role) => (
+                    <div
+                      key={role.id}
+                      className="flex items-center space-x-2"
+                    >
+                      <Checkbox
+                        id={`create-role-${role.id}`}
+                        checked={selectedRoleIds.includes(role.id)}
+                        onCheckedChange={() => handleToggleRole(role.id)}
+                      />
+                      <label
+                        htmlFor={`create-role-${role.id}`}
+                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      >
+                        {role.name}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Optional. Roles are assigned immediately after the user is
+                  created.
+                </p>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button
