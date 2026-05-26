@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Versioned, configString, configNumber } from "@checkstack/backend-api";
+import { Versioned, configString, requestTimeoutMs } from "@checkstack/backend-api";
 import type {
   IntegrationProvider,
   IntegrationDeliveryContext,
@@ -22,11 +22,7 @@ export const scriptConfigSchemaV1 = z.object({
     "TypeScript/JavaScript code to execute. Access event data via `context.event.payload`.",
   ),
 
-  timeout: configNumber({})
-    .min(1000)
-    .max(60_000)
-    .default(10_000)
-    .describe("Maximum execution time in milliseconds"),
+  timeout: requestTimeoutMs().describe("Maximum execution time in milliseconds"),
 });
 
 export type ScriptConfig = z.infer<typeof scriptConfigSchemaV1>;

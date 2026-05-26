@@ -131,6 +131,13 @@ type TlsAggregatedResult = InferAggregatedResult<typeof tlsAggregatedFields>;
 // TLS CLIENT INTERFACE (for testability)
 // ============================================================================
 
+/**
+ * Raw `node:tls` peer-certificate shape used by the in-process TLS client
+ * implementation. Exported only so the package's own tests can build mock
+ * `TlsConnection`s; not part of the plugin's public surface. Use
+ * [[TlsCertificateInfo]] from `./transport-client` for the transport contract.
+ * @internal
+ */
 export interface CertificateInfo {
   subject: { CN?: string };
   issuer: { CN?: string; O?: string };
@@ -138,6 +145,7 @@ export interface CertificateInfo {
   valid_to: string;
 }
 
+/** @internal */
 export interface TlsConnection {
   authorized: boolean;
   getPeerCertificate(): CertificateInfo;

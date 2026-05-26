@@ -4,6 +4,15 @@ import { z } from "zod";
 export const ImportanceSchema = z.enum(["info", "warning", "critical"]);
 export type Importance = z.infer<typeof ImportanceSchema>;
 
+// Optional health/status hint for affected subjects.
+export const SubjectStatusSchema = z.enum([
+  "healthy",
+  "unhealthy",
+  "degraded",
+  "unknown",
+]);
+export type SubjectStatus = z.infer<typeof SubjectStatusSchema>;
+
 // Notification action for CTA buttons
 export const NotificationActionSchema = z.object({
   label: z.string(),
@@ -48,7 +57,7 @@ export const NotificationSubjectSchema = z.object({
    * Optional health/status hint, used to color the chip and add an icon.
    * Strategies that cannot render color simply ignore it.
    */
-  status: z.enum(["healthy", "unhealthy", "degraded", "unknown"]).optional(),
+  status: SubjectStatusSchema.optional(),
 });
 export type NotificationSubject = z.infer<typeof NotificationSubjectSchema>;
 

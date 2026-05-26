@@ -9,9 +9,13 @@ import {
   type NotificationSubject,
   markdownToPlainText,
 } from "@checkstack/backend-api";
-import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
+import {
+  notificationStrategyExtensionPoint,
+  postJson,
+  SUBJECT_STATUS_EMOJI,
+  IMPORTANCE_EMOJI,
+} from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
-import { extractErrorMessage } from "@checkstack/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Configuration Schemas
@@ -79,13 +83,6 @@ interface DiscordEmbed {
   timestamp?: string;
 }
 
-const SUBJECT_STATUS_EMOJI = {
-  healthy: "🟢",
-  degraded: "🟡",
-  unhealthy: "🔴",
-  unknown: "⚪",
-} as const;
-
 function buildDiscordEmbed(options: DiscordEmbedOptions): DiscordEmbed {
   const { title, body, importance, action, subjects } = options;
 
@@ -96,14 +93,8 @@ function buildDiscordEmbed(options: DiscordEmbedOptions): DiscordEmbed {
     critical: 0xEF_44_44, // Red
   };
 
-  const importanceEmoji: Record<string, string> = {
-    info: "ℹ️",
-    warning: "⚠️",
-    critical: "🚨",
-  };
-
   const embed: DiscordEmbed = {
-    title: `${importanceEmoji[importance]} ${title}`,
+    title: `${IMPORTANCE_EMOJI[importance]} ${title}`,
     color: importanceColors[importance],
     timestamp: new Date().toISOString(),
   };
@@ -192,52 +183,25 @@ const discordStrategy: NotificationStrategy<DiscordConfig, DiscordUserConfig> =
         };
       }
 
-      try {
-        // Build the embed
-        const embed = buildDiscordEmbed({
-          title: notification.title,
-          body: notification.body,
-          importance: notification.importance,
-          action: notification.action,
-          subjects: notification.subjects,
-        });
+      // Build the embed
+      const embed = buildDiscordEmbed({
+        title: notification.title,
+        body: notification.body,
+        importance: notification.importance,
+        action: notification.action,
+        subjects: notification.subjects,
+      });
 
-        // Send to Discord webhook
-        const response = await fetch(userConfig.webhookUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            embeds: [embed],
-          }),
-          signal: AbortSignal.timeout(10_000),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          logger.error("Failed to send Discord message", {
-            status: response.status,
-            error: errorText.slice(0, 500),
-          });
-          return {
-            success: false,
-            error: `Failed to send Discord message: ${response.status}`,
-          };
-        }
-
-        // Discord webhooks return 204 No Content on success
-        return {
-          success: true,
-        };
-      } catch (error) {
-        const message = extractErrorMessage(error, "Unknown Discord API error");
-        logger.error("Discord notification error", { error: message });
-        return {
-          success: false,
-          error: `Failed to send Discord notification: ${message}`,
-        };
-      }
+      // Send to Discord webhook
+      const result = await postJson({
+        url: userConfig.webhookUrl,
+        body: { embeds: [embed] },
+        serviceName: "Discord",
+        logger,
+      });
+      return result.ok
+        ? { success: true }
+        : { success: false, error: result.error };
     },
   };
 
@@ -259,6 +223,11 @@ export default createBackendPlugin({
   },
 });
 
-// Export for testing
+/**
+ * Internal exports for the package's own unit tests. Not part of the plugin's
+ * public API surface.
+ * @internal
+ */
 export { discordConfigSchemaV1, discordUserConfigSchema, buildDiscordEmbed };
+/** @internal */
 export type { DiscordConfig, DiscordUserConfig, DiscordEmbedOptions };

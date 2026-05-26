@@ -8,9 +8,11 @@ import {
   type NotificationDeliveryResult,
   markdownToPlainText,
 } from "@checkstack/backend-api";
-import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
+import {
+  notificationStrategyExtensionPoint,
+  postJson,
+} from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
-import { extractErrorMessage } from "@checkstack/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Configuration Schemas
@@ -132,75 +134,53 @@ const gotifyStrategy: NotificationStrategy<GotifyConfig, GotifyUserConfig> = {
       };
     }
 
-    try {
-      // Build message body. Gotify treats `message` as plain text; subjects
-      // append as a bulleted list with parenthesized URLs.
-      let message = notification.body
-        ? markdownToPlainText(notification.body)
-        : notification.title;
-      const subjects = notification.subjects ?? [];
-      if (subjects.length > 0) {
-        const lines = subjects.map((subject) =>
-          subject.url
-            ? `• ${subject.name} (${subject.url})`
-            : `• ${subject.name}`,
-        );
-        message += `\n\nAffected:\n${lines.join("\n")}`;
-      }
+    // Build message body. Gotify treats `message` as plain text; subjects
+    // append as a bulleted list with parenthesized URLs.
+    let message = notification.body
+      ? markdownToPlainText(notification.body)
+      : notification.title;
+    const subjects = notification.subjects ?? [];
+    if (subjects.length > 0) {
+      const lines = subjects.map((subject) =>
+        subject.url
+          ? `• ${subject.name} (${subject.url})`
+          : `• ${subject.name}`,
+      );
+      message += `\n\nAffected:\n${lines.join("\n")}`;
+    }
 
-      // Add action URL to extras if present
-      const extras: Record<string, unknown> = {};
-      if (notification.action?.url) {
-        extras["client::notification"] = {
-          click: { url: notification.action.url },
-        };
-      }
-
-      // Build request URL with token
-      const serverUrl = strategyConfig.serverUrl.replace(/\/$/, "");
-      const url = `${serverUrl}/message?token=${encodeURIComponent(userConfig.appToken)}`;
-
-      // Send to Gotify
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: notification.title,
-          message,
-          priority: mapImportanceToPriority(notification.importance),
-          extras: Object.keys(extras).length > 0 ? extras : undefined,
-        }),
-        signal: AbortSignal.timeout(10_000),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error("Failed to send Gotify message", {
-          status: response.status,
-          error: errorText.slice(0, 500),
-        });
-        return {
-          success: false,
-          error: `Failed to send Gotify message: ${response.status}`,
-        };
-      }
-
-      const result = (await response.json()) as { id?: number };
-
-      return {
-        success: true,
-        externalId: result.id ? String(result.id) : undefined,
-      };
-    } catch (error) {
-      const message = extractErrorMessage(error, "Unknown Gotify API error");
-      logger.error("Gotify notification error", { error: message });
-      return {
-        success: false,
-        error: `Failed to send Gotify notification: ${message}`,
+    // Add action URL to extras if present
+    const extras: Record<string, unknown> = {};
+    if (notification.action?.url) {
+      extras["client::notification"] = {
+        click: { url: notification.action.url },
       };
     }
+
+    // Build request URL with token
+    const serverUrl = strategyConfig.serverUrl.replace(/\/$/, "");
+    const url = `${serverUrl}/message?token=${encodeURIComponent(userConfig.appToken)}`;
+
+    // Send to Gotify
+    const result = await postJson({
+      url,
+      body: {
+        title: notification.title,
+        message,
+        priority: mapImportanceToPriority(notification.importance),
+        extras: Object.keys(extras).length > 0 ? extras : undefined,
+      },
+      serviceName: "Gotify",
+      logger,
+    });
+    if (!result.ok) {
+      return { success: false, error: result.error };
+    }
+    const body = (await result.response.json()) as { id?: number };
+    return {
+      success: true,
+      externalId: body.id ? String(body.id) : undefined,
+    };
   },
 };
 
@@ -222,10 +202,15 @@ export default createBackendPlugin({
   },
 });
 
-// Export for testing
+/**
+ * Internal exports for the package's own unit tests. Not part of the plugin's
+ * public API surface.
+ * @internal
+ */
 export {
   gotifyConfigSchemaV1,
   gotifyUserConfigSchema,
   mapImportanceToPriority,
 };
+/** @internal */
 export type { GotifyConfig, GotifyUserConfig };

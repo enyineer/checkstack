@@ -146,8 +146,3 @@ export function createMockQueueManager(): QueueManager {
     },
   };
 }
-
-/**
- * @deprecated Use createMockQueueManager instead
- */
-export const createMockQueueFactory = createMockQueueManager;

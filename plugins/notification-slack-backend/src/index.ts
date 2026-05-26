@@ -9,9 +9,13 @@ import {
   type NotificationSubject,
   markdownToSlackMrkdwn,
 } from "@checkstack/backend-api";
-import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
+import {
+  notificationStrategyExtensionPoint,
+  postJson,
+  SUBJECT_STATUS_EMOJI,
+  IMPORTANCE_EMOJI,
+} from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
-import { extractErrorMessage } from "@checkstack/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Configuration Schemas
@@ -92,21 +96,9 @@ function renderSubjectsAsMrkdwn(subjects: NotificationSubject[]): string {
   ].join("\n");
 }
 
-const SUBJECT_STATUS_EMOJI = {
-  healthy: "🟢",
-  degraded: "🟡",
-  unhealthy: "🔴",
-  unknown: "⚪",
-} as const;
-
 function buildSlackPayload(options: SlackBlockOptions): SlackPayload {
   const { title, body, importance, action, subjects } = options;
 
-  const importanceEmoji: Record<string, string> = {
-    info: "ℹ️",
-    warning: "⚠️",
-    critical: "🚨",
-  };
 
   // Attachment colors for importance-based accent
   const importanceColors: Record<string, string> = {
@@ -121,7 +113,7 @@ function buildSlackPayload(options: SlackBlockOptions): SlackPayload {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `${importanceEmoji[importance]} *${title}*`,
+        text: `${IMPORTANCE_EMOJI[importance]} *${title}*`,
       },
     },
   ];
@@ -172,7 +164,7 @@ function buildSlackPayload(options: SlackBlockOptions): SlackPayload {
   }
 
   return {
-    text: `${importanceEmoji[importance]} ${title}`, // Fallback for notifications
+    text: `${IMPORTANCE_EMOJI[importance]} ${title}`, // Fallback for notifications
     blocks,
     attachments: [{ color: importanceColors[importance] }],
   };
@@ -219,50 +211,25 @@ const slackStrategy: NotificationStrategy<SlackConfig, SlackUserConfig> = {
       };
     }
 
-    try {
-      // Build the Slack payload
-      const payload = buildSlackPayload({
-        title: notification.title,
-        body: notification.body,
-        importance: notification.importance,
-        action: notification.action,
-        subjects: notification.subjects,
-      });
+    // Build the Slack payload
+    const payload = buildSlackPayload({
+      title: notification.title,
+      body: notification.body,
+      importance: notification.importance,
+      action: notification.action,
+      subjects: notification.subjects,
+    });
 
-      // Send to Slack webhook
-      const response = await fetch(userConfig.webhookUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(10_000),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error("Failed to send Slack message", {
-          status: response.status,
-          error: errorText.slice(0, 500),
-        });
-        return {
-          success: false,
-          error: `Failed to send Slack message: ${response.status}`,
-        };
-      }
-
-      // Slack webhooks return "ok" on success
-      return {
-        success: true,
-      };
-    } catch (error) {
-      const message = extractErrorMessage(error, "Unknown Slack API error");
-      logger.error("Slack notification error", { error: message });
-      return {
-        success: false,
-        error: `Failed to send Slack notification: ${message}`,
-      };
-    }
+    // Send to Slack webhook
+    const result = await postJson({
+      url: userConfig.webhookUrl,
+      body: payload,
+      serviceName: "Slack",
+      logger,
+    });
+    return result.ok
+      ? { success: true }
+      : { success: false, error: result.error };
   },
 };
 
@@ -284,6 +251,11 @@ export default createBackendPlugin({
   },
 });
 
-// Export for testing
+/**
+ * Internal exports for the package's own unit tests. Not part of the plugin's
+ * public API surface.
+ * @internal
+ */
 export { slackConfigSchemaV1, slackUserConfigSchema, buildSlackPayload };
+/** @internal */
 export type { SlackConfig, SlackUserConfig, SlackBlockOptions, SlackPayload };

@@ -8,7 +8,7 @@ import {
   Versioned,
   z,
   configString,
-  configNumber,
+  requestTimeoutMs,
   type HealthCheckRunForAggregation,
   type CollectorResult,
   type CollectorStrategy,
@@ -449,11 +449,7 @@ const inlineScriptConfigSchema = z.object({
   }).describe(
     "TypeScript/JavaScript module. Use `import { ... } from \"node:os\"` to pull in Node built-ins. The recommended pattern is `export default defineHealthCheck({ success, message?, value? })` — `defineHealthCheck` is provided by `@checkstack/healthcheck` and asserts the return shape at the type level. Throwing also signals failure.",
   ),
-  timeout: configNumber({})
-    .min(1000)
-    .max(60_000)
-    .default(10_000)
-    .describe("Maximum execution time in milliseconds"),
+  timeout: requestTimeoutMs().describe("Maximum execution time in milliseconds"),
 });
 
 export type InlineScriptConfig = z.infer<typeof inlineScriptConfigSchema>;

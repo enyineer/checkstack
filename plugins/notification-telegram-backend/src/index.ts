@@ -8,7 +8,10 @@ import {
   type NotificationSendContext,
   type NotificationDeliveryResult,
 } from "@checkstack/backend-api";
-import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
+import {
+  notificationStrategyExtensionPoint,
+  IMPORTANCE_EMOJI,
+} from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
 import { extractErrorMessage } from "@checkstack/common";
 
@@ -136,13 +139,8 @@ const telegramStrategy: NotificationStrategy<
       );
 
       // Add importance indicator
-      const importanceEmoji = {
-        info: "ℹ️",
-        warning: "⚠️",
-        critical: "🚨",
-      };
       let messageText = `${
-        importanceEmoji[notification.importance]
+        IMPORTANCE_EMOJI[notification.importance]
       } ${messageTitle}`;
       if (messageBody) {
         messageText += `\n\n${messageBody}`;

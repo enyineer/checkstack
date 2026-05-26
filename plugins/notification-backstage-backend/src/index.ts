@@ -301,6 +301,11 @@ export default createBackendPlugin({
   },
 });
 
-// Export for testing
+/**
+ * Internal exports for the package's own unit tests. Not part of the plugin's
+ * public API surface.
+ * @internal
+ */
 export { backstageConfigSchemaV1, userConfigSchemaV1, mapImportanceToSeverity };
+/** @internal */
 export type { BackstageConfig, BackstageUserConfig };

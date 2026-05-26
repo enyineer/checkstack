@@ -8,9 +8,11 @@ import {
   type NotificationDeliveryResult,
   markdownToPlainText,
 } from "@checkstack/backend-api";
-import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
+import {
+  notificationStrategyExtensionPoint,
+  postJson,
+} from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
-import { extractErrorMessage } from "@checkstack/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Configuration Schemas
@@ -146,95 +148,75 @@ const pushoverStrategy: NotificationStrategy<
       };
     }
 
-    try {
-      const priority = mapImportanceToPriority(notification.importance);
+    const priority = mapImportanceToPriority(notification.importance);
 
-      // Build message body. Pushover supports a constrained HTML subset, so
-      // subjects render as an HTML list with anchor tags when URLs exist.
-      let message = notification.body
-        ? markdownToPlainText(notification.body)
-        : notification.title;
-      const subjects = notification.subjects ?? [];
-      if (subjects.length > 0) {
-        const items = subjects
-          .map((subject) =>
-            subject.url
-              ? `<li><a href="${subject.url}">${subject.name}</a></li>`
-              : `<li>${subject.name}</li>`,
-          )
-          .join("");
-        message += `\n\n<b>Affected:</b><ul>${items}</ul>`;
-      }
+    // Build message body. Pushover supports a constrained HTML subset, so
+    // subjects render as an HTML list with anchor tags when URLs exist.
+    let message = notification.body
+      ? markdownToPlainText(notification.body)
+      : notification.title;
+    const subjects = notification.subjects ?? [];
+    if (subjects.length > 0) {
+      const items = subjects
+        .map((subject) =>
+          subject.url
+            ? `<li><a href="${subject.url}">${subject.name}</a></li>`
+            : `<li>${subject.name}</li>`,
+        )
+        .join("");
+      message += `\n\n<b>Affected:</b><ul>${items}</ul>`;
+    }
 
-      // Build request body
-      const body: Record<string, string | number> = {
-        token: strategyConfig.apiToken,
-        user: userConfig.userKey,
-        title: notification.title,
-        message,
-        priority,
-        html: 1, // Enable HTML formatting
-      };
+    // Build request body
+    const body: Record<string, string | number> = {
+      token: strategyConfig.apiToken,
+      user: userConfig.userKey,
+      title: notification.title,
+      message,
+      priority,
+      html: 1, // Enable HTML formatting
+    };
 
-      // Add action URL if present
-      if (notification.action?.url) {
-        body.url = notification.action.url;
-        body.url_title = notification.action.label;
-      }
+    // Add action URL if present
+    if (notification.action?.url) {
+      body.url = notification.action.url;
+      body.url_title = notification.action.label;
+    }
 
-      // Emergency priority requires retry and expire parameters
-      if (priority === 2) {
-        body.retry = EMERGENCY_RETRY_SECONDS;
-        body.expire = EMERGENCY_EXPIRE_SECONDS;
-      }
+    // Emergency priority requires retry and expire parameters
+    if (priority === 2) {
+      body.retry = EMERGENCY_RETRY_SECONDS;
+      body.expire = EMERGENCY_EXPIRE_SECONDS;
+    }
 
-      // Send to Pushover
-      const response = await fetch(PUSHOVER_API_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(10_000),
-      });
+    // Send to Pushover
+    const apiResult = await postJson({
+      url: PUSHOVER_API_URL,
+      body,
+      serviceName: "Pushover",
+      logger,
+    });
+    if (!apiResult.ok) {
+      return { success: false, error: apiResult.error };
+    }
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error("Failed to send Pushover message", {
-          status: response.status,
-          error: errorText.slice(0, 500),
-        });
-        return {
-          success: false,
-          error: `Failed to send Pushover message: ${response.status}`,
-        };
-      }
+    const result = (await apiResult.response.json()) as {
+      status: number;
+      request: string;
+      receipt?: string;
+    };
 
-      const result = (await response.json()) as {
-        status: number;
-        request: string;
-        receipt?: string;
-      };
-
-      if (result.status !== 1) {
-        return {
-          success: false,
-          error: "Pushover API returned error status",
-        };
-      }
-
-      return {
-        success: true,
-        externalId: result.receipt ?? result.request,
-      };
-    } catch (error) {
-      const message = extractErrorMessage(error, "Unknown Pushover API error");
-      logger.error("Pushover notification error", { error: message });
+    if (result.status !== 1) {
       return {
         success: false,
-        error: `Failed to send Pushover notification: ${message}`,
+        error: "Pushover API returned error status",
       };
     }
+
+    return {
+      success: true,
+      externalId: result.receipt ?? result.request,
+    };
   },
 };
 
@@ -256,7 +238,12 @@ export default createBackendPlugin({
   },
 });
 
-// Export for testing
+/**
+ * Internal exports for the package's own unit tests. Not part of the plugin's
+ * public API surface — consumers must depend on the plugin entrypoint, not
+ * these helpers.
+ * @internal
+ */
 export {
   pushoverConfigSchemaV1,
   pushoverUserConfigSchema,
@@ -265,4 +252,5 @@ export {
   EMERGENCY_RETRY_SECONDS,
   EMERGENCY_EXPIRE_SECONDS,
 };
+/** @internal */
 export type { PushoverConfig, PushoverUserConfig };

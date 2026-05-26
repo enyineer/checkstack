@@ -7,7 +7,10 @@ import {
   type NotificationSendContext,
   type NotificationDeliveryResult,
 } from "@checkstack/backend-api";
-import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
+import {
+  notificationStrategyExtensionPoint,
+  IMPORTANCE_EMOJI,
+} from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
 import { extractErrorMessage } from "@checkstack/common";
 
@@ -128,13 +131,7 @@ const webexStrategy: NotificationStrategy<WebexConfig, WebexUserConfig> = {
 
     try {
       // Build message with markdown formatting
-      const importanceEmoji = {
-        info: "ℹ️",
-        warning: "⚠️",
-        critical: "🚨",
-      };
-
-      let markdown = `${importanceEmoji[notification.importance]} **${
+      let markdown = `${IMPORTANCE_EMOJI[notification.importance]} **${
         notification.title
       }**`;
 
