@@ -33,6 +33,8 @@ import {
   useToast,
   ConfirmationModal,
   PageLayout,
+  ResponsiveTable,
+  MobileCardList,
 } from "@checkstack/ui";
 import { Plus, Target, Trash2, Edit2 } from "lucide-react";
 import { extractErrorMessage } from "@checkstack/common";
@@ -132,6 +134,21 @@ const SloConfigPageContent: React.FC = () => {
     }
   };
 
+  const renderStatusBadge = (
+    status: (typeof objectives)[number]["status"],
+  ) => {
+    if (status.isBreaching) {
+      return <Badge variant="destructive">Breaching</Badge>;
+    }
+    if (status.hasOpenDowntime) {
+      return <Badge variant="warning">Degraded</Badge>;
+    }
+    if (status.errorBudgetRemainingPercent <= 20) {
+      return <Badge variant="warning">At Risk</Badge>;
+    }
+    return <Badge variant="success">Healthy</Badge>;
+  };
+
   return (
     <PageLayout
       title="SLO Management"
@@ -195,63 +212,100 @@ const SloConfigPageContent: React.FC = () => {
               }
             />
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>System</TableHead>
-                  <TableHead>Target</TableHead>
-                  <TableHead>Window</TableHead>
-                  <TableHead>Exclusion Mode</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-24">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              <ResponsiveTable>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>System</TableHead>
+                      <TableHead>Target</TableHead>
+                      <TableHead>Window</TableHead>
+                      <TableHead>Exclusion Mode</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="w-24">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {objectives.map((item) => (
+                      <TableRow key={item.objective.id}>
+                        <TableCell className="font-medium">
+                          {getSystemName(item.objective.systemId)}
+                        </TableCell>
+                        <TableCell>{item.objective.target}%</TableCell>
+                        <TableCell>{item.objective.windowDays}d</TableCell>
+                        <TableCell>
+                          {getExclusionBadge(
+                            item.objective.dependencyExclusion,
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {renderStatusBadge(item.status)}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleEdit(item.objective)}
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                setDeleteId(item.objective.id)
+                              }
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ResponsiveTable>
+
+              <MobileCardList className="p-3">
                 {objectives.map((item) => (
-                  <TableRow key={item.objective.id}>
-                    <TableCell className="font-medium">
-                      {getSystemName(item.objective.systemId)}
-                    </TableCell>
-                    <TableCell>{item.objective.target}%</TableCell>
-                    <TableCell>{item.objective.windowDays}d</TableCell>
-                    <TableCell>
-                      {getExclusionBadge(
-                        item.objective.dependencyExclusion,
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {item.status.isBreaching ? (
-                        <Badge variant="destructive">Breaching</Badge>
-                      ) : item.status.hasOpenDowntime ? (
-                        <Badge variant="warning">Degraded</Badge>
-                      ) : item.status.errorBudgetRemainingPercent <= 20 ? (
-                        <Badge variant="warning">At Risk</Badge>
-                      ) : (
-                        <Badge variant="success">Healthy</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEdit(item.objective)}
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleteId(item.objective.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                  <div
+                    key={item.objective.id}
+                    className="rounded-md border border-border bg-card p-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="font-medium truncate">
+                        {getSystemName(item.objective.systemId)}
+                      </span>
+                      {renderStatusBadge(item.status)}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {item.objective.target}% &middot;{" "}
+                      {item.objective.windowDays}d window
+                    </div>
+                    <div className="mt-2">
+                      {getExclusionBadge(item.objective.dependencyExclusion)}
+                    </div>
+                    <div className="mt-3 flex justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleEdit(item.objective)}
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDeleteId(item.objective.id)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </MobileCardList>
+            </>
           )}
         </CardContent>
       </Card>

@@ -149,6 +149,31 @@ import {
 > deliberately the simpler, type-safe shape; callers decide which
 > fields show on mobile.
 
+### Sweeping a list page onto the dual layout
+
+The Phase 6 sweep retrofitted the highest-traffic configuration list
+tables — `HealthCheckList`, `SloConfigPage`, and the integration
+`DeliveryLogsPage` — onto this pattern. The transformation follows the
+same rhythm in every file and keeps the desktop table untouched:
+
+1. Wrap the existing `<Table>` chrome in a `<ResponsiveTable>` so it
+   only renders at `sm` and up.
+2. Add a sibling `<MobileCardList>` that re-iterates the same rows as
+   stacked cards. Surface the two highest-signal fields (typically the
+   resource name and a status badge) at the top of each card, push the
+   remaining columns into a muted secondary line, and keep the row's
+   action buttons in a right-aligned footer.
+3. Mirror the dual layout in the page's `Skeleton` placeholder — both
+   branches need a loading state, otherwise the page jumps on resolve.
+4. Reuse the existing per-row helpers (badges, action handlers,
+   provenance locks) across both branches so business rules can't drift
+   between desktop and mobile.
+
+> [!IMPORTANT]
+> Don't add columns to the mobile card that aren't on the desktop
+> table, and don't reorder desktop columns. The sweep is a presentation
+> change only — same data, two layouts.
+
 ## `toastSuccess` / `toastError`
 
 Two named helpers in `@checkstack/ui` for the canonical post-mutation
