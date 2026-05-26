@@ -379,6 +379,13 @@ afterPluginsReady: async ({ emitHook }) => {
 | **Lifecycle** | | |
 | `platformShutdown` | `{ reason }` | Platform shutting down |
 
+> [!NOTE]
+> Two of the hooks above (`pluginInitialized`, `accessRulesRegistered`)
+> are emitted from inside the plugin loader during boot. The platform
+> applies a deliberate per-hook policy if a subscriber throws — see
+> **[Plugin boot-time hook policy](./plugin-hook-policy.md)** for the
+> rules and the reasoning.
+
 ### Multi-Instance Installation Flow
 
 When a plugin is installed at runtime in a multi-instance setup:
