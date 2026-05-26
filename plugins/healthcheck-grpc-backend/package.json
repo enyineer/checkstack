@@ -17,7 +17,7 @@
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
-    "@grpc/grpc-js": "^1.9.0"
+    "@grpc/grpc-js": "^1.14.4"
   },
   "devDependencies": {
     "@types/bun": "^1.0.0",
