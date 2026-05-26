@@ -62,11 +62,19 @@ const HealthCheckIDEPageContent = () => {
     {},
   );
 
-  // Fetch single configuration for edit mode
+  // Fetch single configuration for edit mode.
+  //
+  // `gcTime: 0` is load-bearing: the form is seeded from this query
+  // exactly once via `useInitOnceForKey` below. Without it, reopening
+  // the editor after a save would synchronously serve the pre-save
+  // cached value (stale-while-revalidate) and the one-shot init would
+  // race the background refetch — deleted collectors would reappear
+  // until a hard refresh. See
+  // `docs/src/content/docs/frontend/query-invalidation.md` (Pillar 3).
   const { data: existingConfig, isLoading: configLoading } =
     healthCheckClient.getConfiguration.useQuery(
       { id: configId ?? "" },
-      { enabled: isEditMode },
+      { enabled: isEditMode, gcTime: 0 },
     );
 
   // Determine the active strategy ID
