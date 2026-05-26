@@ -1,5 +1,12 @@
 # @checkstack/catalog-common
 
+## 2.2.1
+
+### Patch Changes
+
+- Updated dependencies [a06b899]
+  - @checkstack/notification-common@1.1.1
+
 ## 2.2.0
 
 ### Minor Changes

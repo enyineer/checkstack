@@ -1,5 +1,74 @@
 # @checkstack/backend-api
 
+## 0.16.0
+
+### Minor Changes
+
+- a06b899: Dead-code audit cleanup and a small platform of shared notification helpers.
+
+  **Removed (dead code)**
+
+  - `core/backend/src/plugin-manager/deregistration-guard.ts` deleted. The exported `assertCanDeregister()` was never called and was a less-complete version of the dependents+isUninstallable checks already done inline by `previewUninstallOriginator` / `uninstallOriginator` in `plugin-manager-orchestrator.ts`.
+  - `createMockQueueFactory` deprecated alias removed from `@checkstack/test-utils-backend`. Use `createMockQueueManager` directly.
+
+  **New shared helpers**
+
+  - `@checkstack/backend-api` now exports `requestTimeoutMs()` — a Zod field builder for outbound HTTP request timeouts (1s..60s, default 10s). Replaces hand-rolled `configNumber({}).min(1000).max(60_000).default(10_000)` in `integration-webhook-backend`, `integration-script-backend`, and `healthcheck-script-backend`'s inline collector.
+  - `@checkstack/notification-common` now exports `SubjectStatusSchema` / `SubjectStatus`, mirroring the existing `ImportanceSchema`.
+  - `@checkstack/notification-backend` now exports:
+    - `SUBJECT_STATUS_EMOJI` / `IMPORTANCE_EMOJI` — the shared status / importance emoji maps that Discord, Slack, Teams, Webex and Telegram previously each redefined inline.
+    - `postJson(opts)` — a timeout-bounded `fetch` wrapper that handles non-2xx logging and error mapping for webhook-style POSTs. Returns `{ ok: true, response } | { ok: false, error }`.
+
+  **Migrated to shared helpers**
+
+  - Discord, Slack, Gotify, Pushover notification backends now use `postJson`. Outer try/catch + per-plugin error mapping deleted (~140 LOC).
+  - Discord, Slack, Teams, Telegram, Webex notification backends now use `IMPORTANCE_EMOJI`. Discord, Slack, Teams use `SUBJECT_STATUS_EMOJI`.
+  - Teams, Webex, Backstage, Telegram kept their inline fetch/Bot logic: their error strings surface server response bodies to operators, or the transport isn't raw `fetch` (Telegram uses `grammy`'s `Bot`).
+
+  **API surface tightening**
+
+  - Per-plugin test-only re-exports in 6 notification backends (Pushover, Gotify, Backstage, Slack, Discord, Teams) and the `CertificateInfo` interface in `healthcheck-tls-backend/strategy.ts` are now JSDoc-tagged `@internal`. No behaviour change; signals that downstream consumers must not depend on them.
+
+- a06b899: Extract shared `EsmScriptRunner` + `ShellScriptRunner` utilities, fix HIGH-severity privilege amplification in the integration TS provider, and harden the integration shell setupGuide example.
+
+  **SECURITY FIX (HIGH)**
+
+  The integration TS provider (`@checkstack/integration-script-backend` → `scriptProvider`) previously executed user scripts via `new Function(script)` in the satellite's main V8 isolate. A user with `integrationAccess.manage` could read `globalThis.process.env` directly (`DATABASE_URL`, `JWT_SECRET`, queue credentials, signing keys, …) and exfiltrate them through `result.id` — which round-trips into `delivery_logs.externalId` and is readable via the `getDeliveryLog` ORPC procedure. The same permission grants no legitimate API to those secrets; this was a privilege amplification.
+
+  The provider now runs user scripts in a fresh Bun subprocess (matching the healthcheck inline-script collector model). The subprocess receives only a curated `SAFE_ENV_VARS` whitelist (`PATH`, `HOME`, `USER`, `LANG`, `LC_ALL`, `LC_CTYPE`, `TZ`, `TMPDIR`, `HOSTNAME`, `SHELL`) — backend secrets are no longer visible to user code. Filesystem reads, network calls (`fetch`), and the rest of the Node/Bun standard library continue to work, just in an isolated process.
+
+  **BREAKING CHANGE (`@checkstack/integration-script-backend`)**
+
+  User scripts can no longer read the satellite process's environment variables (`process.env.DATABASE_URL` etc. return `undefined`). Scripts that legitimately need configuration should accept it via the provider's `script` field input, not by introspecting the host environment. The full Node/Bun stdlib remains available; only the env scrub is new.
+
+  **REFACTOR — new shared utilities in `@checkstack/backend-api`**
+
+  Both the healthcheck and integration plugins had near-identical inline implementations of "run a user script in a subprocess sandbox" (ESM path) and "run a user shell script through `sh -c`" (shell path). These are now canonical, single-source-of-truth utilities:
+
+  - **`defaultEsmScriptRunner.run({ script, context, timeoutMs, helperModuleName?, helperFunctionName? })`** — writes the user module to a fresh `mkdtemp` directory along with a generated runner module, spawns a Bun subprocess with `pickSafeEnv()`, parses the result back through a UUID-tagged stderr marker, and tears everything down in `finally` (`clearTimeout` + `proc.kill()` + recursive `rm`). The optional `helperModuleName` / `helperFunctionName` pair drops a sibling `_helpers.mjs` file and rewrites `import { <fn> } from "<module>"` to point at it (this is the trick that makes `@checkstack/healthcheck` / `@checkstack/integration` resolve at runtime even though they're not real npm packages).
+  - **`defaultShellScriptRunner.run({ script, timeoutMs, cwd?, env? })`** — invokes `sh -c <script>` via `Bun.spawn` with `SAFE_ENV_VARS` (user-supplied `env` merged on top), `Promise.race` timeout with `proc.kill()` on expiry, and the same `clearTimeout` + `proc.kill()` cleanup in `finally`.
+
+  Both runners expose `EsmScriptRunner` / `ShellScriptRunner` interfaces so tests can inject mocks without touching the spawn path. The four call sites (`plugins/healthcheck-script-backend/src/inline-script-collector.ts`, `strategy.ts` and `plugins/integration-script-backend/src/provider.ts`, `shell-provider.ts`) collapse from full inline implementations to ~8-line adapters.
+
+  **FIXES**
+
+  - Integration shell provider's `setupGuide` example replaced the unsafe `curl -d "{\"title\": \"$PAYLOAD_TITLE\"}"` JSON interpolation with a `jq -n --arg title "$PAYLOAD_TITLE" '{title: $title}'` pattern. The previous example demonstrated a shell-injection vulnerability whenever event payload values contained shell-special or JSON-special characters (which they can, since payloads come from other plugins / events / GitOps reconciles).
+  - The shared shell runner adds `clearTimeout` + idempotent `proc?.kill()` in `finally`, fixing a leaked event-loop timer in the integration shell provider's previous inline implementation.
+
+  **TESTS**
+
+  - New `core/backend-api/src/esm-script-runner.test.ts` covering `normaliseUserScript` + `rewriteHelperImports` across both healthcheck and integration helper-module names, including regex-metacharacter escape coverage.
+  - The plugin-local `inline-script-normaliser.test.ts` was deleted; the same coverage (plus more) lives at the canonical location with the utility.
+  - Integration TS provider console-logging tests updated: in the subprocess model, `console.warn` and `console.error` both write to stderr (Bun matches Node), so the provider forwards every stderr line to `logger.error`. `console.log({…})` uses Bun's native `util.inspect` format rather than `JSON.stringify`, so the JSON-logging test now asserts on substring presence instead of strict serialisation.
+
+  2047 tests pass, lint + typecheck clean.
+
+### Patch Changes
+
+- @checkstack/cache-api@0.3.3
+- @checkstack/queue-api@0.3.3
+- @checkstack/healthcheck-common@1.1.1
+
 ## 0.15.3
 
 ### Patch Changes

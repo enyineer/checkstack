@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/infrastructure-frontend",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "license": "Elastic-2.0",
   "type": "module",
   "main": "./dist/index.js",

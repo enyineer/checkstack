@@ -1,5 +1,20 @@
 # @checkstack/maintenance-frontend
 
+## 0.7.4
+
+### Patch Changes
+
+- Updated dependencies [a06b899]
+- Updated dependencies [a06b899]
+  - @checkstack/notification-common@1.1.1
+  - @checkstack/ui@1.9.0
+  - @checkstack/catalog-common@2.2.1
+  - @checkstack/dashboard-frontend@0.7.4
+  - @checkstack/maintenance-common@1.2.1
+  - @checkstack/notification-frontend@0.4.4
+  - @checkstack/auth-frontend@0.6.4
+  - @checkstack/tips-frontend@0.2.4
+
 ## 0.7.3
 
 ### Patch Changes

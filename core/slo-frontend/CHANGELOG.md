@@ -1,5 +1,17 @@
 # @checkstack/slo-frontend
 
+## 0.4.4
+
+### Patch Changes
+
+- Updated dependencies [a06b899]
+  - @checkstack/ui@1.9.0
+  - @checkstack/catalog-common@2.2.1
+  - @checkstack/dashboard-frontend@0.7.4
+  - @checkstack/dependency-common@1.1.1
+  - @checkstack/healthcheck-common@1.1.1
+  - @checkstack/tips-frontend@0.2.4
+
 ## 0.4.3
 
 ### Patch Changes
