@@ -84,10 +84,6 @@ export const UsersTab: React.FC<UsersTabProps> = ({
   });
 
   const createUserMutation = authClient.createCredentialUser.useMutation({
-    onSuccess: () => {
-      toast.success("User created successfully");
-      void onDataChange();
-    },
     onError: (error) => {
       toast.error(
         extractErrorMessage(error, "Failed to create user"),
@@ -122,8 +118,27 @@ export const UsersTab: React.FC<UsersTabProps> = ({
     name: string;
     email: string;
     password: string;
+    roleIds: string[];
   }) => {
-    createUserMutation.mutate(data);
+    const { roleIds, ...credentials } = data;
+    const { userId } = await createUserMutation.mutateAsync(credentials);
+
+    if (roleIds.length > 0) {
+      try {
+        await updateRolesMutation.mutateAsync({ userId, roles: roleIds });
+        toast.success("User created with roles assigned");
+      } catch {
+        // updateRolesMutation.onError already surfaced a toast; the user
+        // record itself still exists, so flag the partial success.
+        toast.warning(
+          "User created, but role assignment failed. Edit the user to retry.",
+        );
+      }
+    } else {
+      toast.success("User created successfully");
+    }
+
+    await onDataChange();
   };
 
   return (
@@ -242,6 +257,7 @@ export const UsersTab: React.FC<UsersTabProps> = ({
       <CreateUserDialog
         open={createUserDialogOpen}
         onOpenChange={setCreateUserDialogOpen}
+        assignableRoles={roles.filter((role) => role.isAssignable !== false)}
         onSubmit={handleCreateUser}
       />
     </>
