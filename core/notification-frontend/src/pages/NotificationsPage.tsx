@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Bell, Check, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import {
@@ -6,7 +6,11 @@ import {
   Badge,
   Button,
   Card,
+  ListEmptyState,
+  QueryErrorState,
+  Skeleton,
   useToast,
+  toastError,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -14,16 +18,27 @@ import {
   MenuCloseContext,
   Markdown,
 } from "@checkstack/ui";
-import { usePluginClient } from "@checkstack/frontend-api";
+import { usePluginClient, useQueryClient } from "@checkstack/frontend-api";
 import type { Notification } from "@checkstack/notification-common";
 import { NotificationApi } from "@checkstack/notification-common";
-import { extractErrorMessage } from "@checkstack/common";
+import { extractErrorMessage, type InferClient } from "@checkstack/common";
 import { NotificationSubjects } from "../components/NotificationSubjects";
 import { groupByCollapseKey } from "../components/collapse";
 import { CollapsedGroupTimeline } from "../components/CollapsedGroupTimeline";
 
+/**
+ * Cached output of the `notification.getNotifications` query, derived
+ * directly from the contract so a future change to the procedure's
+ * output shape surfaces as a typecheck error in this file rather than
+ * a runtime mismatch between the cache and the optimistic patch.
+ */
+type NotificationsQueryData = Awaited<
+  ReturnType<InferClient<typeof NotificationApi>["getNotifications"]>
+>;
+
 export const NotificationsPage = () => {
   const notificationClient = usePluginClient(NotificationApi);
+  const queryClient = useQueryClient();
   const toast = useToast();
 
   const [filter, setFilter] = useState<"all" | "unread">("all");
@@ -46,30 +61,79 @@ export const NotificationsPage = () => {
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
   const pageSize = 20;
 
+  // Query input — captured once so the loader and the optimistic
+  // `markAsRead` patch agree on the exact query-key oRPC builds. Changes
+  // to filter/page rebuild the memo, which rebuilds the key, which keeps
+  // the optimistic write aimed at the cache entry the user is looking at.
+  const notificationsQueryInput = useMemo(
+    () => ({
+      limit: pageSize,
+      offset: page * pageSize,
+      unreadOnly: filter === "unread",
+    }),
+    [page, pageSize, filter],
+  );
+
+  // Mirrors oRPC's `generateOperationKey([path], { type, input })` shape;
+  // see `docs/frontend/optimistic-updates.md` for the contract.
+  const notificationsQueryKey = useMemo(
+    () =>
+      [
+        ["notification", "getNotifications"],
+        { input: notificationsQueryInput, type: "query" },
+      ] as const,
+    [notificationsQueryInput],
+  );
+
   // Query: Fetch notifications
+  const notificationsQuery =
+    notificationClient.getNotifications.useQuery(notificationsQueryInput);
   const {
     data: notificationsData,
     isLoading: loading,
     refetch,
-  } = notificationClient.getNotifications.useQuery({
-    limit: pageSize,
-    offset: page * pageSize,
-    unreadOnly: filter === "unread",
-  });
+  } = notificationsQuery;
 
-  const notifications = notificationsData?.notifications ?? [];
+  const notifications = notificationsData?.items ?? [];
   const total = notificationsData?.total ?? 0;
 
-  // Mutation: Mark as read
+  // Mutation: Mark as read — optimistic.
+  //
+  // High-frequency click; the perceived latency win matters. Four-step
+  // pattern per `docs/frontend/optimistic-updates.md`:
+  // 1. onMutate: cancel in-flight refetches, snapshot, patch.
+  // 2. onError: roll back from the snapshot, surface a toast.
+  // 3. onSettled: invalidate the exact key so the cache reconciles
+  //    with server truth on both branches.
+  // 4. No success toast — the row fades; that IS the feedback.
   const markAsReadMutation = notificationClient.markAsRead.useMutation({
-    onSuccess: () => {
-      void refetch();
-      toast.success("Notification marked as read");
+    onMutate: async ({ notificationId }) => {
+      await queryClient.cancelQueries({ queryKey: notificationsQueryKey });
+      const previous =
+        queryClient.getQueryData<NotificationsQueryData>(notificationsQueryKey);
+      if (previous) {
+        queryClient.setQueryData<NotificationsQueryData>(
+          notificationsQueryKey,
+          {
+            ...previous,
+            items: previous.items.map((n) =>
+              notificationId === undefined || n.id === notificationId
+                ? { ...n, isRead: true }
+                : n,
+            ),
+          },
+        );
+      }
+      return { previous };
     },
-    onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to mark as read"),
-      );
+    onError: (error, _vars, ctx) => {
+      if (ctx?.previous) {
+        queryClient.setQueryData(notificationsQueryKey, ctx.previous);
+      }
+      toastError(toast, "Failed to mark as read", error);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
     },
   });
 
@@ -149,7 +213,7 @@ export const NotificationsPage = () => {
   };
 
   return (
-    <PageLayout title="Notifications" icon={Bell} loading={loading}>
+    <PageLayout title="Notifications" icon={Bell}>
       <div className="space-y-4">
         {/* Header with filters */}
         <div className="flex items-center justify-between">
@@ -204,11 +268,40 @@ export const NotificationsPage = () => {
         </div>
 
         {/* Notifications list */}
-        {notifications.length === 0 ? (
-          <Card className="p-8 text-center text-muted-foreground">
-            <Bell className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>No notifications</p>
-          </Card>
+        {loading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 3 }, (_, index) => (
+              <Card key={index} className="p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-5 w-16 rounded-full" />
+                      <Skeleton className="h-3 w-20" />
+                    </div>
+                    <Skeleton className="h-5 w-2/3" />
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-1/2" />
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Skeleton className="h-8 w-8" />
+                    <Skeleton className="h-8 w-8" />
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : notificationsQuery.isError ? (
+          <QueryErrorState
+            error={notificationsQuery.error}
+            onRetry={() => void notificationsQuery.refetch()}
+            resource="notifications"
+          />
+        ) : notifications.length === 0 ? (
+          <ListEmptyState
+            resource="notifications"
+            description="You're all caught up. New notifications about systems you're subscribed to will show up here."
+            icon={<Bell className="h-10 w-10" />}
+          />
         ) : (
           <div className="space-y-2">
             {groupByCollapseKey(notifications).map((group) => {

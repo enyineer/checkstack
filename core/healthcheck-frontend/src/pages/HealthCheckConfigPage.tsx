@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   usePluginClient,
+  useQueryClient,
   wrapInSuspense,
   accessApiRef,
   useApi,
@@ -14,20 +15,36 @@ import {
   pluginMetadata as healthcheckPluginMetadata,
 } from "@checkstack/healthcheck-common";
 import { Tip } from "@checkstack/tips-frontend";
-import { HealthCheckList } from "../components/HealthCheckList";
+import {
+  HealthCheckList,
+  HealthCheckListSkeleton,
+} from "../components/HealthCheckList";
 import {
   Button,
   ConfirmationModal,
+  ListEmptyState,
   PageLayout,
+  QueryErrorState,
   useToast,
+  toastError,
 } from "@checkstack/ui";
 import { Plus, History, Activity } from "lucide-react";
 import { Link } from "react-router-dom";
-import { resolveRoute, extractErrorMessage} from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import { useState } from "react";
+
+/**
+ * Shape of the `healthcheck.getConfigurations` query output. Threaded
+ * through the optimistic pause/resume patches so cache reads/writes
+ * match the loader's surface.
+ */
+type ConfigurationsQueryData = {
+  configurations: HealthCheckConfiguration[];
+};
 
 const HealthCheckConfigPageContent = () => {
   const healthCheckClient = usePluginClient(HealthCheckApi);
+  const queryClient = useQueryClient();
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
   const navigate = useNavigate();
@@ -43,9 +60,26 @@ const HealthCheckConfigPageContent = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [idToDelete, setIdToDelete] = useState<string | undefined>();
 
+  // Mirrors oRPC's `generateOperationKey([path], { type, input })` for
+  // the parameterless `getConfigurations` loader. Captured in a memo so
+  // the pause/resume optimistic patches address the exact same cache
+  // entry the loader writes. See `docs/frontend/optimistic-updates.md`
+  // for the query-key contract.
+  const configurationsQueryKey = useMemo(
+    () =>
+      [
+        ["healthcheck", "getConfigurations"],
+        { input: {}, type: "query" },
+      ] as const,
+    [],
+  );
+
   // Fetch configurations with useQuery
-  const { data: configurationsData, refetch: refetchConfigurations } =
-    healthCheckClient.getConfigurations.useQuery({});
+  const configurationsQuery = healthCheckClient.getConfigurations.useQuery({});
+  const {
+    data: configurationsData,
+    refetch: refetchConfigurations,
+  } = configurationsQuery;
 
   // Fetch strategies with useQuery
   const { data: strategies = [] } = healthCheckClient.getStrategies.useQuery(
@@ -72,25 +106,85 @@ const HealthCheckConfigPageContent = () => {
       void refetchConfigurations();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to delete"));
+      toastError(toast, "Failed to delete health check", error);
     },
   });
 
-  const pauseMutation = healthCheckClient.pauseConfiguration.useMutation({
-    onSuccess: () => {
-      void refetchConfigurations();
+  // Mutation: Pause configuration — optimistic.
+  //
+  // Toggle, low risk; same four-step pattern as `markAsRead` on the
+  // notifications page (see `docs/frontend/optimistic-updates.md`):
+  // 1. onMutate flips `paused: true` on the matching row in the cache.
+  // 2. onError rolls back from the snapshot, then surfaces a toast.
+  // 3. onSettled invalidates so server truth settles in either branch.
+  // 4. No success toast — the row's pause badge IS the feedback.
+  const pauseMutation = healthCheckClient.pauseConfiguration.useMutation<{
+    previous: ConfigurationsQueryData | undefined;
+  }>({
+    onMutate: async (configId) => {
+      await queryClient.cancelQueries({ queryKey: configurationsQueryKey });
+      const previous = queryClient.getQueryData<ConfigurationsQueryData>(
+        configurationsQueryKey,
+      );
+      if (previous) {
+        queryClient.setQueryData<ConfigurationsQueryData>(
+          configurationsQueryKey,
+          {
+            ...previous,
+            configurations: previous.configurations.map((c) =>
+              c.id === configId ? { ...c, paused: true } : c,
+            ),
+          },
+        );
+      }
+      return { previous };
     },
-    onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to pause"));
+    onError: (error, _vars, ctx) => {
+      if (ctx?.previous) {
+        queryClient.setQueryData(configurationsQueryKey, ctx.previous);
+      }
+      toastError(toast, "Failed to pause health check", error);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({
+        queryKey: configurationsQueryKey,
+      });
     },
   });
 
-  const resumeMutation = healthCheckClient.resumeConfiguration.useMutation({
-    onSuccess: () => {
-      void refetchConfigurations();
+  // Mutation: Resume configuration — optimistic. Mirror of `pause`
+  // with `paused: false`. See `pauseMutation` above for the contract.
+  const resumeMutation = healthCheckClient.resumeConfiguration.useMutation<{
+    previous: ConfigurationsQueryData | undefined;
+  }>({
+    onMutate: async (configId) => {
+      await queryClient.cancelQueries({ queryKey: configurationsQueryKey });
+      const previous = queryClient.getQueryData<ConfigurationsQueryData>(
+        configurationsQueryKey,
+      );
+      if (previous) {
+        queryClient.setQueryData<ConfigurationsQueryData>(
+          configurationsQueryKey,
+          {
+            ...previous,
+            configurations: previous.configurations.map((c) =>
+              c.id === configId ? { ...c, paused: false } : c,
+            ),
+          },
+        );
+      }
+      return { previous };
     },
-    onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to resume"));
+    onError: (error, _vars, ctx) => {
+      if (ctx?.previous) {
+        queryClient.setQueryData(configurationsQueryKey, ctx.previous);
+      }
+      toastError(toast, "Failed to resume health check", error);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({
+        queryKey: configurationsQueryKey,
+      });
     },
   });
 
@@ -145,15 +239,30 @@ const HealthCheckConfigPageContent = () => {
         </div>
       }
     >
-      <HealthCheckList
-        configurations={configurations}
-        strategies={strategies}
-        onEdit={handleEdit}
-        onDelete={handleDelete}
-        onPause={(id) => pauseMutation.mutate(id)}
-        onResume={(id) => resumeMutation.mutate(id)}
-        canManage={canManage}
-      />
+      {configurationsQuery.isLoading ? (
+        <HealthCheckListSkeleton />
+      ) : configurationsQuery.isError ? (
+        <QueryErrorState
+          error={configurationsQuery.error}
+          onRetry={() => void configurationsQuery.refetch()}
+          resource="health checks"
+        />
+      ) : configurations.length === 0 ? (
+        <ListEmptyState
+          resource="health checks"
+          description="No health checks have been configured yet. Create one to start monitoring a system."
+        />
+      ) : (
+        <HealthCheckList
+          configurations={configurations}
+          strategies={strategies}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+          onPause={(id) => pauseMutation.mutate(id)}
+          onResume={(id) => resumeMutation.mutate(id)}
+          canManage={canManage}
+        />
+      )}
 
       <ConfirmationModal
         isOpen={isDeleteModalOpen}

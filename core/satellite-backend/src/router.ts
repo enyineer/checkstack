@@ -6,6 +6,7 @@ import {
 } from "@checkstack/satellite-common";
 import {
   autoAuthMiddleware,
+  correlationMiddleware,
   type RpcContext,
   type Logger,
 } from "@checkstack/backend-api";
@@ -26,6 +27,7 @@ export function createSatelliteRouter(props: {
 
   const os = implement(satelliteContract)
     .$context<RpcContext>()
+    .use(correlationMiddleware)
     .use(autoAuthMiddleware);
 
   return os.router({

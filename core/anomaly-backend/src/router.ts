@@ -3,6 +3,7 @@ import { anomalyContract } from "@checkstack/anomaly-common";
 import type { AnomalyService } from "./service";
 import {
   autoAuthMiddleware,
+  correlationMiddleware,
   type Logger,
   type RealUser,
   type RpcContext,
@@ -18,6 +19,7 @@ export function createRouter(
 ) {
   const os = implement(anomalyContract)
     .$context<RpcContext>()
+    .use(correlationMiddleware)
     .use(autoAuthMiddleware);
 
   return os.router({

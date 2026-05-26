@@ -22,12 +22,12 @@ import {
   DateTimePicker,
   StatusUpdateTimeline,
   LinksEditor,
+  toastError,
 } from "@checkstack/ui";
 import { Plus, MessageSquare, Loader2, AlertCircle } from "lucide-react";
 import { MaintenanceUpdateForm } from "./MaintenanceUpdateForm";
 import { getMaintenanceStatusBadge } from "../utils/badges";
 import { TeamAccessEditor } from "@checkstack/auth-frontend";
-import { extractErrorMessage } from "@checkstack/common";
 
 interface Props {
   open: boolean;
@@ -75,7 +75,7 @@ export const MaintenanceEditor: React.FC<Props> = ({
       onSave();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to save"));
+      toastError(toast, "Failed to create maintenance", error);
     },
   });
 
@@ -85,7 +85,7 @@ export const MaintenanceEditor: React.FC<Props> = ({
       onSave();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to save"));
+      toastError(toast, "Failed to update maintenance", error);
     },
   });
 
@@ -94,7 +94,7 @@ export const MaintenanceEditor: React.FC<Props> = ({
       void refetchDetail();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to add link"));
+      toastError(toast, "Failed to add link", error);
     },
   });
 
@@ -103,7 +103,7 @@ export const MaintenanceEditor: React.FC<Props> = ({
       void refetchDetail();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to remove link"));
+      toastError(toast, "Failed to remove link", error);
     },
   });
 

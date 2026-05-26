@@ -1,14 +1,20 @@
 import { z } from "zod";
 import { notificationAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
-import { createClientDefinition, proc } from "@checkstack/common";
+import {
+  createClientDefinition,
+  PaginatedResult,
+  proc,
+} from "@checkstack/common";
 import {
   NotificationSchema,
   NotificationGroupSchema,
   EnrichedSubscriptionSchema,
   RetentionSettingsSchema,
-  PaginationInputSchema,
+  ListNotificationsInputSchema,
   NotificationSubjectSchema,
+  DeliveryAttemptSchema,
+  ListDeliveryAttemptsInputSchema,
 } from "./schemas";
 
 // Shared input fragments for the notify* procedures.
@@ -78,13 +84,8 @@ export const notificationContract = {
     userType: "user",
     access: [],
   })
-    .input(PaginationInputSchema)
-    .output(
-      z.object({
-        notifications: z.array(NotificationSchema),
-        total: z.number(),
-      })
-    ),
+    .input(ListNotificationsInputSchema)
+    .output(PaginatedResult(NotificationSchema)),
 
   // Get unread count for badge
   getUnreadCount: proc({
@@ -195,6 +196,30 @@ export const notificationContract = {
   })
     .input(RetentionSettingsSchema)
     .output(z.void()),
+
+  /**
+   * List per-channel delivery attempts (paginated, newest first).
+   *
+   * Admin-only visibility surface for external-delivery outcomes. Each
+   * row corresponds to one `strategy.send(...)` call against an
+   * external notification channel; failures expose the silent-failure
+   * mode the dispatch loop swallowed pre-v1.
+   *
+   * When `notificationId` is supplied, results are scoped to that
+   * notification; otherwise the caller sees every recent attempt
+   * across the platform.
+   *
+   * Visibility-only — there is no retry mechanism in v1; a `failure`
+   * here is a final outcome that an admin actions manually (re-trigger
+   * the source event, fix the misconfigured channel, etc.).
+   */
+  getDeliveryAttempts: proc({
+    operationType: "query",
+    userType: "user",
+    access: [notificationAccess.admin],
+  })
+    .input(ListDeliveryAttemptsInputSchema)
+    .output(PaginatedResult(DeliveryAttemptSchema)),
 
   // ==========================================================================
   // BACKEND-TO-BACKEND GROUP MANAGEMENT (userType: "service")

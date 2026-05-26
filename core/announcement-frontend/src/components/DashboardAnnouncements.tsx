@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { AnnouncementApi, type Announcement } from "@checkstack/announcement-common";
-import { MarkdownBlock } from "@checkstack/ui";
+import { MarkdownBlock, cn, usePerformance } from "@checkstack/ui";
 import {
   Info,
   AlertTriangle,
@@ -55,13 +55,18 @@ function getSeverityColor(severity: Announcement["severity"]): string {
  * A single compact announcement card with expand/collapse.
  */
 function AnnouncementCard({ announcement }: { announcement: Announcement }) {
+  const { isLowPower } = usePerformance();
   const [expanded, setExpanded] = useState(false);
   const severityColor = getSeverityColor(announcement.severity);
   const [borderClass, textClass] = severityColor.split(" ");
 
   return (
     <div
-      className={`bg-card border border-border rounded-lg border-l-4 ${borderClass} transition-all duration-200`}
+      className={cn(
+        "bg-card border border-border rounded-lg border-l-4",
+        borderClass,
+        !isLowPower && "transition-all duration-200",
+      )}
     >
       <button
         type="button"
@@ -83,7 +88,12 @@ function AnnouncementCard({ announcement }: { announcement: Announcement }) {
       </button>
 
       {expanded && (
-        <div className="px-4 pb-3 pl-11 animate-in slide-in-from-top-1 duration-200">
+        <div
+          className={cn(
+            "px-4 pb-3 pl-11",
+            !isLowPower && "animate-in slide-in-from-top-1 duration-200",
+          )}
+        >
           <div className="text-sm text-muted-foreground">
             <MarkdownBlock size="sm">{announcement.message}</MarkdownBlock>
           </div>
@@ -99,6 +109,7 @@ function AnnouncementCard({ announcement }: { announcement: Announcement }) {
  * Only shows when there are active dashboard-mode announcements.
  */
 export const DashboardAnnouncements: React.FC = () => {
+  const { isLowPower } = usePerformance();
   const announcementClient = usePluginClient(AnnouncementApi);
 
   // Always refetch on mount so the dashboard shows fresh data when navigated to.
@@ -121,7 +132,9 @@ export const DashboardAnnouncements: React.FC = () => {
   }
 
   return (
-    <section className="animate-in fade-in duration-300">
+    <section
+      className={cn(!isLowPower && "animate-in fade-in duration-300")}
+    >
       <div className="flex items-center gap-2 mb-3">
         <Megaphone className="w-4 h-4 text-muted-foreground" />
         <h3 className="text-sm font-medium text-muted-foreground">

@@ -1,6 +1,7 @@
 import { implement, ORPCError } from "@orpc/server";
 import {
   autoAuthMiddleware,
+  correlationMiddleware,
   type RpcContext,
   type AuthUser,
   type RealUser,
@@ -50,6 +51,7 @@ export const APPLICATIONS_ROLE_ID = "applications";
  */
 const os = implement(authContract)
   .$context<RpcContext>()
+  .use(correlationMiddleware)
   .use(autoAuthMiddleware);
 
 /**

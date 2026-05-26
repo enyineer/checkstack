@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Bell, Clock, Zap, Send } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Bell, Clock, Zap, Send, Activity } from "lucide-react";
 import {
   PageLayout,
   Card,
@@ -17,8 +18,10 @@ import type { EnrichedSubscription } from "@checkstack/notification-common";
 import {
   NotificationApi,
   notificationAccess,
+  notificationRoutes,
   pluginMetadata as notificationPluginMetadata,
 } from "@checkstack/notification-common";
+import { resolveRoute } from "@checkstack/common";
 import { TipBanner } from "@checkstack/tips-frontend";
 import {
   StrategyCard,
@@ -386,6 +389,34 @@ export const NotificationSettingsPage = () => {
                 ))}
               </div>
             )}
+          </section>
+        )}
+
+        {/* Delivery Attempts inspector link - Admin only */}
+        {isAdmin && (
+          <section>
+            <SectionHeader
+              title="Delivery Attempts"
+              description="Inspect per-channel delivery outcomes for recent notifications (admin only)."
+              icon={<Activity className="h-5 w-5" />}
+            />
+            <Card className="p-4">
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-sm text-muted-foreground">
+                  See every external `strategy.send(...)` outcome - useful
+                  for debugging silent failures on misconfigured channels.
+                </p>
+                <Button asChild variant="outline" size="sm">
+                  <Link
+                    to={resolveRoute(
+                      notificationRoutes.routes.deliveryAttempts,
+                    )}
+                  >
+                    Open inspector
+                  </Link>
+                </Button>
+              </div>
+            </Card>
           </section>
         )}
 

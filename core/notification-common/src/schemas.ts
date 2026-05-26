@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PaginationInput as CanonicalPaginationInput } from "@checkstack/common";
 
 // Notification importance levels
 export const ImportanceSchema = z.enum(["info", "warning", "critical"]);
@@ -145,13 +146,14 @@ export type NotificationGroupInput = z.infer<
   typeof NotificationGroupInputSchema
 >;
 
-// Pagination schema for listing notifications
-export const PaginationInputSchema = z.object({
-  limit: z.number().min(1).max(100).default(20),
-  offset: z.number().min(0).default(0),
+// Notification list input — extends the canonical `PaginationInput` from
+// `@checkstack/common` with the notification-specific `unreadOnly` filter.
+// Compose with `.extend({...})` to add further domain filters; do NOT
+// redefine the base `limit` / `offset` fields.
+export const ListNotificationsInputSchema = CanonicalPaginationInput.extend({
   unreadOnly: z.boolean().default(false),
 });
-export type PaginationInput = z.infer<typeof PaginationInputSchema>;
+export type ListNotificationsInput = z.infer<typeof ListNotificationsInputSchema>;
 
 // --- Notification Strategy Schemas ---
 
@@ -241,3 +243,45 @@ export const TransactionalResultSchema = z.object({
   error: z.string().optional(),
 });
 export type TransactionalResult = z.infer<typeof TransactionalResultSchema>;
+
+// --- Delivery attempt schemas ---
+
+/**
+ * Outcome of one external `strategy.send(...)` call. Visibility-only —
+ * `failure` here is a final, surfaced outcome (no retries in v1).
+ */
+export const DeliveryAttemptStatusSchema = z.enum(["success", "failure"]);
+export type DeliveryAttemptStatus = z.infer<typeof DeliveryAttemptStatusSchema>;
+
+/**
+ * One row from `notification_delivery_attempts`. Mirrors the Drizzle
+ * table 1:1 — keep these in sync; the schema-drift CI check (Phase 10)
+ * will catch column-name skew once it lands.
+ */
+export const DeliveryAttemptSchema = z.object({
+  id: z.string().uuid(),
+  notificationId: z.string().uuid(),
+  /** Qualified strategy id, e.g. `notification-discord.send`. */
+  strategyQualifiedId: z.string(),
+  attemptedAt: z.coerce.date(),
+  status: DeliveryAttemptStatusSchema,
+  /** Sanitised via `extractErrorMessage` on the backend before persistence. */
+  errorMessage: z.string().nullable(),
+  /** Wall-clock duration of the `send()` call in milliseconds. */
+  durationMs: z.number().int().min(0),
+});
+export type DeliveryAttempt = z.infer<typeof DeliveryAttemptSchema>;
+
+/**
+ * Input shape for `getDeliveryAttempts`. Extends the canonical
+ * `PaginationInput` with an optional `notificationId` filter — when
+ * supplied, results are scoped to that notification; otherwise the
+ * caller gets every attempt across the system (newest first), useful
+ * for admin "recent failures" dashboards.
+ */
+export const ListDeliveryAttemptsInputSchema = CanonicalPaginationInput.extend({
+  notificationId: z.string().uuid().optional(),
+});
+export type ListDeliveryAttemptsInput = z.infer<
+  typeof ListDeliveryAttemptsInputSchema
+>;

@@ -1,7 +1,8 @@
 import { implement, ORPCError } from "@orpc/server";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   autoAuthMiddleware,
+  correlationMiddleware,
   type RpcContext,
   type RealUser,
   type ConfigService,
@@ -48,6 +49,7 @@ import {
   createStrategyService,
   type StrategyService,
 } from "./strategy-service";
+import { dispatchWithAttempt } from "./delivery-attempts";
 import { extractErrorMessage } from "@checkstack/common";
 
 /**
@@ -156,6 +158,7 @@ export const createNotificationRouter = (
    */
   const sendToExternalChannels = async (
     userId: string,
+    notificationId: string,
     notification: {
       title: string;
       body?: string;
@@ -282,15 +285,20 @@ export const createNotificationRouter = (
             logger,
           };
 
-        // Send (fire-and-forget, don't block on errors)
+        // Send (fire-and-forget, don't block on errors). Wrap with a
+        // duration measurement + per-attempt persistence so admins can
+        // see silent failures without grepping logs. The attempt
+        // insert itself is best-effort — see `dispatchWithAttempt`.
         logger.debug(
           `[external-delivery] Sending to ${strategy.qualifiedId} with contact ${contact}`
         );
-        const result = await strategy.send(sendContext);
-        logger.debug(
-          `[external-delivery] Send result for ${strategy.qualifiedId}:`,
-          result
-        );
+        await dispatchWithAttempt({
+          database,
+          logger,
+          strategy,
+          sendContext,
+          notificationId,
+        });
       } catch (error) {
         // Log error but continue - external delivery shouldn't block in-app
         logger.error(
@@ -304,6 +312,7 @@ export const createNotificationRouter = (
   // Create contract implementer with context type AND auto auth middleware
   const os = implement(notificationContract)
     .$context<RpcContext>()
+    .use(correlationMiddleware)
     .use(autoAuthMiddleware);
 
   return os.router({
@@ -325,7 +334,7 @@ export const createNotificationRouter = (
           });
 
           return {
-            notifications: result.notifications.map((n) => ({
+            items: result.notifications.map((n) => ({
               id: n.id,
               userId: n.userId,
               title: n.title,
@@ -338,6 +347,8 @@ export const createNotificationRouter = (
               createdAt: n.createdAt,
             })),
             total: result.total,
+            limit: input.limit,
+            offset: input.offset,
           };
         });
       }
@@ -469,6 +480,51 @@ export const createNotificationRouter = (
         RETENTION_CONFIG_VERSION,
         input
       );
+    }),
+
+    /**
+     * Read-only admin endpoint listing recent per-channel delivery
+     * attempts. Fixed shape: paginated newest-first with an optional
+     * `notificationId` filter — we deliberately do NOT accept
+     * user-supplied SQL filters or order-by clauses here.
+     */
+    getDeliveryAttempts: os.getDeliveryAttempts.handler(async ({ input }) => {
+      const whereClause = input.notificationId
+        ? eq(
+            schema.notificationDeliveryAttempts.notificationId,
+            input.notificationId,
+          )
+        : undefined;
+
+      const rowsQuery = database
+        .select()
+        .from(schema.notificationDeliveryAttempts)
+        .orderBy(desc(schema.notificationDeliveryAttempts.attemptedAt))
+        .limit(input.limit)
+        .offset(input.offset);
+      const totalQuery = database
+        .select({ value: count() })
+        .from(schema.notificationDeliveryAttempts);
+
+      const [rows, totalRows] = await Promise.all([
+        whereClause ? rowsQuery.where(whereClause) : rowsQuery,
+        whereClause ? totalQuery.where(whereClause) : totalQuery,
+      ]);
+
+      return {
+        items: rows.map((row) => ({
+          id: row.id,
+          notificationId: row.notificationId,
+          strategyQualifiedId: row.strategyQualifiedId,
+          attemptedAt: row.attemptedAt,
+          status: row.status,
+          errorMessage: row.errorMessage,
+          durationMs: row.durationMs,
+        })),
+        total: totalRows[0]?.value ?? 0,
+        limit: input.limit,
+        offset: input.offset,
+      };
     }),
 
     // ==========================================================================
@@ -1069,8 +1125,24 @@ export const createNotificationRouter = (
             },
           );
         }
+        // Map userId -> notificationId so each external-delivery
+        // attempt links back to the recipient's own notification row
+        // (used by `getDeliveryAttempts` to filter).
+        const notificationIdByUser = new Map(
+          inserted.map((n) => [n.userId, n.id]),
+        );
         for (const userId of recipients) {
-          void sendToExternalChannels(userId, {
+          const notificationId = notificationIdByUser.get(userId);
+          if (!notificationId) {
+            // Insert returned nothing for this user — should not happen
+            // (recipients drive the insert), but guard anyway so we
+            // never record an attempt with a fabricated id.
+            logger.error(
+              `[external-delivery] No notification row for user ${userId}, skipping external send`,
+            );
+            continue;
+          }
+          void sendToExternalChannels(userId, notificationId, {
             title,
             body,
             importance: importance ?? "info",

@@ -16,9 +16,9 @@ import {
   ConfirmationModal,
   useToast,
   Badge,
+  toastError,
 } from "@checkstack/ui";
 import { Plus, RotateCw, Trash2, KeyRound, ChevronDown, ChevronRight } from "lucide-react";
-import { extractErrorMessage } from "@checkstack/common";
 import { SecretEditor } from "./SecretEditor";
 import { SecretRotateDialog } from "./SecretRotateDialog";
 
@@ -97,7 +97,7 @@ export const SecretList = () => {
       void refetch();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to create secret"));
+      toastError(toast, "Failed to create secret", error);
     },
   });
 
@@ -108,7 +108,7 @@ export const SecretList = () => {
       void refetch();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to rotate secret"));
+      toastError(toast, "Failed to rotate secret", error);
     },
   });
 
@@ -119,7 +119,7 @@ export const SecretList = () => {
       void refetch();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to delete secret"));
+      toastError(toast, "Failed to delete secret", error);
     },
   });
 

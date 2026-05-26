@@ -27,12 +27,12 @@ import {
   SelectItem,
   StatusUpdateTimeline,
   LinksEditor,
+  toastError,
 } from "@checkstack/ui";
 import { Plus, MessageSquare, Loader2, AlertCircle } from "lucide-react";
 import { IncidentUpdateForm } from "./IncidentUpdateForm";
 import { getIncidentStatusBadge } from "../utils/badges";
 import { TeamAccessEditor } from "@checkstack/auth-frontend";
-import { extractErrorMessage } from "@checkstack/common";
 
 interface Props {
   open: boolean;
@@ -73,7 +73,7 @@ export const IncidentEditor: React.FC<Props> = ({
       onSave();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to save"));
+      toastError(toast, "Failed to create incident", error);
     },
   });
 
@@ -83,7 +83,7 @@ export const IncidentEditor: React.FC<Props> = ({
       onSave();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to save"));
+      toastError(toast, "Failed to update incident", error);
     },
   });
 
@@ -92,7 +92,7 @@ export const IncidentEditor: React.FC<Props> = ({
       void refetchDetail();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to add link"));
+      toastError(toast, "Failed to add link", error);
     },
   });
 
@@ -101,7 +101,7 @@ export const IncidentEditor: React.FC<Props> = ({
       void refetchDetail();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to remove link"));
+      toastError(toast, "Failed to remove link", error);
     },
   });
 

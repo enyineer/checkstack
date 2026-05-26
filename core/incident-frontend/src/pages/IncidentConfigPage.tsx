@@ -27,6 +27,7 @@ import {
   Badge,
   LoadingSpinner,
   EmptyState,
+  QueryErrorState,
   Table,
   TableHeader,
   TableRow,
@@ -83,15 +84,16 @@ const IncidentConfigPageContent: React.FC = () => {
   const [resolveId, setResolveId] = useState<string | undefined>();
 
   // Fetch incidents with useQuery
-  const {
-    data: incidentsData,
-    isLoading: incidentsLoading,
-    refetch: refetchIncidents,
-  } = incidentClient.listIncidents.useQuery(
+  const incidentsQuery = incidentClient.listIncidents.useQuery(
     statusFilter === "all"
       ? { includeResolved: showResolved }
       : { status: statusFilter, includeResolved: showResolved },
   );
+  const {
+    data: incidentsData,
+    isLoading: incidentsLoading,
+    refetch: refetchIncidents,
+  } = incidentsQuery;
 
   // Fetch systems with useQuery
   const { data: systemsData, isLoading: systemsLoading } =
@@ -272,6 +274,14 @@ const IncidentConfigPageContent: React.FC = () => {
           {loading ? (
             <div className="p-12 flex justify-center">
               <LoadingSpinner />
+            </div>
+          ) : incidentsQuery.isError ? (
+            <div className="p-4">
+              <QueryErrorState
+                error={incidentsQuery.error}
+                onRetry={() => void incidentsQuery.refetch()}
+                resource="incidents"
+              />
             </div>
           ) : incidents.length === 0 ? (
             <EmptyState

@@ -1,5 +1,5 @@
 import { implement, ORPCError } from "@orpc/server";
-import { autoAuthMiddleware, type RpcContext } from "@checkstack/backend-api";
+import { autoAuthMiddleware, correlationMiddleware, type RpcContext } from "@checkstack/backend-api";
 import {
   catalogContract,
   catalogSystemTarget,
@@ -25,6 +25,7 @@ import type { CatalogCache } from "./cache";
  */
 const os = implement(catalogContract)
   .$context<RpcContext>()
+  .use(correlationMiddleware)
   .use(autoAuthMiddleware);
 
 export interface CatalogRouterDeps {

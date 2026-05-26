@@ -5,6 +5,7 @@ import {
 } from "@checkstack/slo-common";
 import {
   autoAuthMiddleware,
+  correlationMiddleware,
   type RpcContext,
   type RpcClient,
 } from "@checkstack/backend-api";
@@ -29,6 +30,7 @@ export function createRouter({
 }) {
   const os = implement(sloContract)
     .$context<RpcContext>()
+    .use(correlationMiddleware)
     .use(autoAuthMiddleware);
 
   return os.router({

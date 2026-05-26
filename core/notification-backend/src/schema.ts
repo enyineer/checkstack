@@ -1,5 +1,6 @@
 import {
   pgTable,
+  pgEnum,
   text,
   boolean,
   uuid,
@@ -7,6 +8,7 @@ import {
   jsonb,
   primaryKey,
   index,
+  integer,
 } from "drizzle-orm/pg-core";
 import type {
   NotificationAction,
@@ -191,5 +193,55 @@ export const subscriptionMigrations = pgTable(
   },
   (t) => ({
     pk: primaryKey({ columns: [t.specId, t.resourceKey] }),
+  }),
+);
+
+/**
+ * Status enum for per-channel delivery attempts. Each attempted send
+ * via an external delivery strategy resolves to exactly one of these
+ * states. Visibility-only — retries are NOT implemented yet (deferred
+ * to v1.1); a failure here is a final, surfaced outcome admins can
+ * action manually.
+ */
+export const notificationDeliveryStatusEnum = pgEnum(
+  "notification_delivery_status",
+  ["success", "failure"],
+);
+
+/**
+ * Per-channel delivery attempt log. Written best-effort by the dispatch
+ * loop on every `strategy.send(...)` call (success or failure). Surfaces
+ * silent external-delivery failures to admins so they can detect a
+ * misconfigured webhook / dead channel without grepping logs.
+ *
+ * - `notificationId` cascades on delete so retention sweeps that drop
+ *   notifications also drop their attempt rows.
+ * - `errorMessage` MUST flow through `extractErrorMessage` so secrets
+ *   embedded in raw error objects (webhook URLs, tokens) are not
+ *   persisted verbatim.
+ * - `durationMs` captures wall-clock time of the `send()` call only —
+ *   not contact resolution or config loading.
+ */
+export const notificationDeliveryAttempts = pgTable(
+  "notification_delivery_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    notificationId: uuid("notification_id")
+      .notNull()
+      .references(() => notifications.id, { onDelete: "cascade" }),
+    /** Qualified strategy id, e.g. `notification-discord.send`. */
+    strategyQualifiedId: text("strategy_qualified_id").notNull(),
+    attemptedAt: timestamp("attempted_at").defaultNow().notNull(),
+    status: notificationDeliveryStatusEnum("status").notNull(),
+    errorMessage: text("error_message"),
+    durationMs: integer("duration_ms").notNull(),
+  },
+  (t) => ({
+    notificationIdx: index("notification_delivery_attempts_notification_idx").on(
+      t.notificationId,
+    ),
+    attemptedAtIdx: index("notification_delivery_attempts_attempted_at_idx").on(
+      t.attemptedAt,
+    ),
   }),
 );
