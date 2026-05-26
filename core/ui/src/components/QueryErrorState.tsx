@@ -1,5 +1,5 @@
 import React from "react";
-import { CircleAlert } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { extractErrorMessage } from "@checkstack/common";
 import {
   Alert,
@@ -45,7 +45,7 @@ export const QueryErrorState: React.FC<QueryErrorStateProps> = ({
   return (
     <Alert variant="error">
       <AlertIcon>
-        <CircleAlert className="h-4 w-4" />
+        <AlertCircle className="h-4 w-4" />
       </AlertIcon>
       <AlertContent>
         <AlertTitle>{title}</AlertTitle>
