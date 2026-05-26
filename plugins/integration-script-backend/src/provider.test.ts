@@ -311,7 +311,13 @@ describe("ScriptProvider", () => {
       );
     });
 
-    it("captures console.warn calls", async () => {
+    it("captures console.warn calls (forwarded to logger.error)", async () => {
+      // In the subprocess execution model both console.warn and
+      // console.error write to stderr (Bun matches Node behaviour);
+      // post-hoc we can't distinguish them, so the provider forwards
+      // every stderr line to `logger.error`. The slight noise on a
+      // pure-warn call is preferable to losing visibility on a true
+      // console.error.
       const context = createTestContext({
         script: `
           console.warn("Warning message");
@@ -321,7 +327,7 @@ describe("ScriptProvider", () => {
 
       await scriptProvider.deliver(context);
 
-      expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect(mockLogger.error).toHaveBeenCalledWith(
         expect.stringContaining("Warning message"),
       );
     });
@@ -341,7 +347,13 @@ describe("ScriptProvider", () => {
       );
     });
 
-    it("logs objects as JSON", async () => {
+    it("captures objects via console.log (Bun's native inspect format)", async () => {
+      // The previous in-process implementation JSON.stringified objects
+      // before logging. The subprocess model just streams Bun's actual
+      // stdout output — which uses util.inspect formatting (`{ key:
+      // "value" }`, not `{"key":"value"}`). The test now asserts both
+      // tokens are present in the log line without requiring a strict
+      // serialisation format.
       const context = createTestContext({
         script: `
           console.log({ key: "value" });
@@ -351,9 +363,11 @@ describe("ScriptProvider", () => {
 
       await scriptProvider.deliver(context);
 
-      expect(mockLogger.debug).toHaveBeenCalledWith(
-        expect.stringContaining('{"key":"value"}'),
-      );
+      const debugCalls = mockLogger.debug.mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .join("\n");
+      expect(debugCalls).toContain("key");
+      expect(debugCalls).toContain("value");
     });
   });
 

@@ -1,4 +1,3 @@
-import { spawn, type Subprocess } from "bun";
 import {
   HealthCheckStrategy,
   HealthCheckRunForAggregation,
@@ -14,6 +13,7 @@ import {
   type ConnectedClient,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
+  defaultShellScriptRunner,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -154,104 +154,21 @@ export interface ScriptExecutor {
 }
 
 /**
- * Environment variables forwarded to user scripts.
- *
- * The full parent environment is _not_ forwarded by design: many backend
- * processes hold secrets (DB URLs, API tokens, signing keys) in their env,
- * and a user-authored script — even a trusted one — should not be a place
- * those leak from. PATH, HOME, LANG etc. are kept so ordinary commands
- * (awk, curl, etc.) can still be found and behave correctly.
- */
-const SAFE_ENV_VARS = [
-  "PATH",
-  "HOME",
-  "USER",
-  "LANG",
-  "LC_ALL",
-  "LC_CTYPE",
-  "TZ",
-  "TMPDIR",
-  "HOSTNAME",
-  "SHELL",
-];
-
-/**
- * Concurrency note: this executor is stateless — every call gets its own
- * subprocess, its own pipes, and its own timeout. There are no shared
- * temp files for the shell path (the user's script is fed to `sh -c`
- * directly via argv), so two concurrent shell checks can't possibly
- * collide on disk.
- *
- * Cleanup is in `finally`: the timeout handle is cleared so a fast
- * script doesn't leak an event-loop timer, and any straggler subprocess
- * is `.kill()`-ed defensively even if we're returning normally.
+ * Default executor — delegates to the shared `ShellScriptRunner` in
+ * `@checkstack/backend-api`. That module is the canonical home for the
+ * `sh -c` + safe-env-vars + timeout/kill/cleanup pattern (also used by
+ * the integration shell provider). This thin adapter exists so tests
+ * can substitute a mock for `ScriptExecutor` without touching the
+ * shared runner.
  */
 const defaultScriptExecutor: ScriptExecutor = {
   async execute(config) {
-    let proc: Subprocess | undefined;
-    let timedOut = false;
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutHandle = setTimeout(() => {
-        timedOut = true;
-        proc?.kill();
-        reject(new Error("Script execution timed out"));
-      }, config.timeout);
+    return defaultShellScriptRunner.run({
+      script: config.script,
+      timeoutMs: config.timeout,
+      cwd: config.cwd,
+      env: config.env,
     });
-
-    const safeEnv: Record<string, string> = {};
-    for (const key of SAFE_ENV_VARS) {
-      if (process.env[key] !== undefined) {
-        safeEnv[key] = process.env[key]!;
-      }
-    }
-
-    try {
-      // Execute through `sh -c` so the user's script can use pipes,
-      // redirects, variable expansion, conditionals, etc. — i.e. behave
-      // like a real shell script rather than a single argv vector.
-      proc = spawn({
-        cmd: ["sh", "-c", config.script],
-        cwd: config.cwd,
-        env: { ...safeEnv, ...config.env },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-
-      const [stdout, stderr, exitCode] = await Promise.race([
-        Promise.all([
-          new Response(proc.stdout as ReadableStream).text(),
-          new Response(proc.stderr as ReadableStream).text(),
-          proc.exited,
-        ]),
-        timeoutPromise,
-      ]);
-
-      return {
-        exitCode,
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-        timedOut: false,
-      };
-    } catch (error) {
-      if (timedOut) {
-        return {
-          exitCode: -1,
-          stdout: "",
-          stderr: "Script execution timed out",
-          timedOut: true,
-        };
-      }
-      throw error;
-    } finally {
-      if (timeoutHandle !== undefined) {
-        clearTimeout(timeoutHandle);
-      }
-      // Idempotent — no-op when the subprocess has already exited cleanly,
-      // but guarantees we never leave a runaway `sh` from an exception path.
-      proc?.kill();
-    }
   },
 };
 

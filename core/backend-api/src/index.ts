@@ -1,3 +1,5 @@
+export * from "./esm-script-runner";
+export * from "./shell-script-runner";
 export * from "./service-ref";
 export * from "./extension-point";
 export * from "./core-services";

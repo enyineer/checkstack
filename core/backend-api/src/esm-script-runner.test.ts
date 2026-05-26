@@ -2,23 +2,30 @@ import { describe, expect, it } from "bun:test";
 import {
   normaliseUserScript,
   rewriteHelperImports,
-} from "./inline-script-collector";
+} from "./esm-script-runner";
 
 /**
- * The inline-script collector applies two text transforms to user source
- * before writing it to a temp `.mjs` file:
+ * The shared ESM-script runner applies two text transforms to user
+ * source before writing it to a temp `.mjs` file:
  *
- *  1. `normaliseUserScript` — wraps legacy `return X;` style scripts in an
- *     async IIFE so they're valid as a module's default export, while
- *     leaving real ESM modules (those with top-level `import`/`export`)
- *     untouched.
+ *  1. `normaliseUserScript` — wraps legacy `return X;` style scripts in
+ *     an async IIFE so they're valid as a module's default export,
+ *     while leaving real ESM modules (those with top-level
+ *     `import`/`export`) untouched.
  *
- *  2. `rewriteHelperImports` — rewrites `from "@checkstack/healthcheck"`
- *     to point at a runtime helper file written next to the user script.
+ *  2. `rewriteHelperImports` — rewrites `from "<helperModuleName>"`
+ *     to point at a runtime helper file written next to the user
+ *     script.
  *
  * Both are easy to regress (a regex tweak that gets greedier than
  * intended, an edge case with comments, …) and both directly affect
  * whether user scripts run at all. Keep this suite tight.
+ *
+ * These were previously tested under
+ * `plugins/healthcheck-script-backend/src/inline-script-normaliser.test.ts`;
+ * the utilities now live in `@checkstack/backend-api` and are shared by
+ * both healthcheck (inline-script-collector) and integration
+ * (script-provider).
  */
 
 describe("normaliseUserScript", () => {
@@ -71,37 +78,42 @@ describe("normaliseUserScript", () => {
 describe("rewriteHelperImports", () => {
   const HELPER_URL = "file:///tmp/checkstack-script-abc/_helpers.mjs";
 
-  it("rewrites a named import from `@checkstack/healthcheck`", () => {
-    const out = rewriteHelperImports(
-      `import { defineHealthCheck } from "@checkstack/healthcheck";`,
-      HELPER_URL,
-    );
-    expect(out).toBe(
-      `import { defineHealthCheck } from "${HELPER_URL}";`,
-    );
+  it("rewrites a named import from the helper module", () => {
+    const out = rewriteHelperImports({
+      userScript: `import { defineHealthCheck } from "@checkstack/healthcheck";`,
+      helperModuleName: "@checkstack/healthcheck",
+      helperUrl: HELPER_URL,
+    });
+    expect(out).toBe(`import { defineHealthCheck } from "${HELPER_URL}";`);
   });
 
   it("works with single-quoted import specs too", () => {
-    const out = rewriteHelperImports(
-      `import { defineHealthCheck } from '@checkstack/healthcheck';`,
-      HELPER_URL,
-    );
-    expect(out).toBe(
-      `import { defineHealthCheck } from "${HELPER_URL}";`,
-    );
+    const out = rewriteHelperImports({
+      userScript: `import { defineHealthCheck } from '@checkstack/healthcheck';`,
+      helperModuleName: "@checkstack/healthcheck",
+      helperUrl: HELPER_URL,
+    });
+    expect(out).toBe(`import { defineHealthCheck } from "${HELPER_URL}";`);
   });
 
   it("rewrites a side-effect import too", () => {
-    const out = rewriteHelperImports(
-      `import "@checkstack/healthcheck";`,
-      HELPER_URL,
-    );
+    const out = rewriteHelperImports({
+      userScript: `import "@checkstack/healthcheck";`,
+      helperModuleName: "@checkstack/healthcheck",
+      helperUrl: HELPER_URL,
+    });
     expect(out).toBe(`import "${HELPER_URL}";`);
   });
 
   it("leaves other imports alone", () => {
     const src = `import { loadavg } from "node:os";\nimport fs from "node:fs/promises";`;
-    expect(rewriteHelperImports(src, HELPER_URL)).toBe(src);
+    expect(
+      rewriteHelperImports({
+        userScript: src,
+        helperModuleName: "@checkstack/healthcheck",
+        helperUrl: HELPER_URL,
+      }),
+    ).toBe(src);
   });
 
   it("rewrites multiple occurrences", () => {
@@ -109,11 +121,13 @@ describe("rewriteHelperImports", () => {
       import { defineHealthCheck } from "@checkstack/healthcheck";
       import type { HealthCheckScriptResult } from "@checkstack/healthcheck";
     `;
-    const out = rewriteHelperImports(src, HELPER_URL);
+    const out = rewriteHelperImports({
+      userScript: src,
+      helperModuleName: "@checkstack/healthcheck",
+      helperUrl: HELPER_URL,
+    });
     expect(out.match(/@checkstack\/healthcheck/g)).toBeNull();
-    expect(
-      [...out.matchAll(new RegExp(HELPER_URL, "g"))].length,
-    ).toBe(2);
+    expect([...out.matchAll(new RegExp(HELPER_URL, "g"))].length).toBe(2);
   });
 
   it("doesn't rewrite the package name if it appears in a string literal", () => {
@@ -121,6 +135,35 @@ describe("rewriteHelperImports", () => {
     // statement (`from "..."` / `import "..."`). A string containing the
     // package name elsewhere must be left alone.
     const src = `console.log("Look up @checkstack/healthcheck on npm");`;
-    expect(rewriteHelperImports(src, HELPER_URL)).toBe(src);
+    expect(
+      rewriteHelperImports({
+        userScript: src,
+        helperModuleName: "@checkstack/healthcheck",
+        helperUrl: HELPER_URL,
+      }),
+    ).toBe(src);
+  });
+
+  it("rewrites the integration helper module too (regex is parameterised)", () => {
+    // The shared runner is used by both healthcheck and integration
+    // plugins; the regex is built from the supplied `helperModuleName`.
+    // Sanity check that the integration variant works.
+    const out = rewriteHelperImports({
+      userScript: `import { defineIntegration } from "@checkstack/integration";`,
+      helperModuleName: "@checkstack/integration",
+      helperUrl: HELPER_URL,
+    });
+    expect(out).toBe(`import { defineIntegration } from "${HELPER_URL}";`);
+  });
+
+  it("escapes regex metacharacters in the helper module name", () => {
+    // Defence-in-depth: if someone ever passes a name with special
+    // chars, we don't want it interpreted as a regex.
+    const out = rewriteHelperImports({
+      userScript: `import x from "weird.pkg+name";`,
+      helperModuleName: "weird.pkg+name",
+      helperUrl: HELPER_URL,
+    });
+    expect(out).toBe(`import x from "${HELPER_URL}";`);
   });
 });

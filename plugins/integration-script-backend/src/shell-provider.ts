@@ -1,6 +1,10 @@
-import { spawn, type Subprocess } from "bun";
 import { z } from "zod";
-import { Versioned, configString, configNumber } from "@checkstack/backend-api";
+import {
+  Versioned,
+  configString,
+  configNumber,
+  defaultShellScriptRunner,
+} from "@checkstack/backend-api";
 import type {
   IntegrationProvider,
   IntegrationDeliveryContext,
@@ -90,96 +94,11 @@ function flattenToEnv(
 // =============================================================================
 // Script Execution
 // =============================================================================
-
-interface ScriptExecutionResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-  timedOut: boolean;
-}
-
-const SAFE_ENV_VARS = [
-  "PATH",
-  "HOME",
-  "USER",
-  "LANG",
-  "LC_ALL",
-  "LC_CTYPE",
-  "TZ",
-  "TMPDIR",
-  "HOSTNAME",
-  "SHELL",
-];
-
-/**
- * Execute a bash script with the given environment variables.
- */
-async function executeBashScript({
-  script,
-  env,
-  cwd,
-  timeoutMs,
-}: {
-  script: string;
-  env: Record<string, string>;
-  cwd?: string;
-  timeoutMs: number;
-}): Promise<ScriptExecutionResult> {
-  let proc: Subprocess | undefined;
-  let timedOut = false;
-
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => {
-      timedOut = true;
-      proc?.kill();
-      reject(new Error("Script execution timed out"));
-    }, timeoutMs);
-  });
-
-  const safeEnv: Record<string, string> = {};
-  for (const key of SAFE_ENV_VARS) {
-    if (process.env[key] !== undefined) {
-      safeEnv[key] = process.env[key]!;
-    }
-  }
-
-  try {
-    // Execute script via bash -c
-    proc = spawn({
-      cmd: ["sh", "-c", script],
-      cwd,
-      env: { ...safeEnv, ...env },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-
-    const [stdout, stderr, exitCode] = await Promise.race([
-      Promise.all([
-        new Response(proc.stdout as ReadableStream).text(),
-        new Response(proc.stderr as ReadableStream).text(),
-        proc.exited,
-      ]),
-      timeoutPromise,
-    ]);
-
-    return {
-      exitCode,
-      stdout: stdout.trim(),
-      stderr: stderr.trim(),
-      timedOut: false,
-    };
-  } catch (error) {
-    if (timedOut) {
-      return {
-        exitCode: -1,
-        stdout: "",
-        stderr: "Script execution timed out",
-        timedOut: true,
-      };
-    }
-    throw error;
-  }
-}
+//
+// `sh -c` subprocess setup, env scrubbing, timeout/kill/cleanup are
+// all handled by the shared `ShellScriptRunner` in
+// `@checkstack/backend-api`. This provider just constructs the env
+// (event + subscription + flattened payload) and delegates.
 
 // =============================================================================
 // Shell Provider Implementation
@@ -232,10 +151,19 @@ echo "Received event: $EVENT_ID"
 echo "Incident title: $PAYLOAD_TITLE"
 echo "Severity: $PAYLOAD_SEVERITY"
 
-# Make an HTTP request
+# Build the JSON body with \`jq\` so payload values that contain quotes,
+# backslashes, or newlines can't break out of the string literal. NEVER
+# build JSON by string-interpolating \`$PAYLOAD_*\` directly into a curl
+# \`-d "{ ... }"\` — payload values come from other plugins / events and
+# can contain shell-special or JSON-special characters.
+body=$(jq -n \\
+  --arg title "$PAYLOAD_TITLE" \\
+  --arg severity "$PAYLOAD_SEVERITY" \\
+  '{title: $title, severity: $severity}')
+
 curl -X POST "https://api.example.com/webhook" \\
   -H "Content-Type: application/json" \\
-  -d "{\\"title\\": \\"$PAYLOAD_TITLE\\", \\"severity\\": \\"$PAYLOAD_SEVERITY\\"}"
+  -d "$body"
 
 # Exit code 0 = success
 exit 0
@@ -277,7 +205,7 @@ exit 0
     );
 
     try {
-      const result = await executeBashScript({
+      const result = await defaultShellScriptRunner.run({
         script: config.script,
         env,
         cwd: config.workingDirectory,
