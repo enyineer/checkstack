@@ -1,6 +1,7 @@
 import { implement, ORPCError } from "@orpc/server";
 import {
   autoAuthMiddleware,
+  correlationMiddleware,
   toJsonSchema,
   type RpcContext,
   type HealthCheckRegistry,
@@ -38,6 +39,7 @@ export const createHealthCheckRouter = (opts: {
   // Create contract implementer with context type AND auto auth middleware
   const os = implement(healthCheckContract)
     .$context<RpcContext>()
+    .use(correlationMiddleware)
     .use(autoAuthMiddleware);
 
   const enforceNotGitOpsLocked = async (kind: string, entityId: string) => {

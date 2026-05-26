@@ -7,6 +7,7 @@ import {
 import type { SignalService } from "@checkstack/signal-common";
 import {
   autoAuthMiddleware,
+  correlationMiddleware,
   type RpcContext,
   type RealUser,
 } from "@checkstack/backend-api";
@@ -49,6 +50,7 @@ export function createAnnouncementRouter(
 ) {
   const os = implement(announcementContract)
     .$context<RpcContext>()
+    .use(correlationMiddleware)
     .use(autoAuthMiddleware);
 
   return os.router({

@@ -2,6 +2,7 @@ import { implement, ORPCError } from "@orpc/server";
 import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   autoAuthMiddleware,
+  correlationMiddleware,
   type RpcContext,
   type RealUser,
   type ConfigService,
@@ -311,6 +312,7 @@ export const createNotificationRouter = (
   // Create contract implementer with context type AND auto auth middleware
   const os = implement(notificationContract)
     .$context<RpcContext>()
+    .use(correlationMiddleware)
     .use(autoAuthMiddleware);
 
   return os.router({

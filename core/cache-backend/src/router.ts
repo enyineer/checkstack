@@ -3,6 +3,7 @@ import {
   ConfigService,
   RpcContext,
   autoAuthMiddleware,
+  correlationMiddleware,
 } from "@checkstack/backend-api";
 import { cacheContract } from "@checkstack/cache-common";
 import { implement, ORPCError } from "@orpc/server";
@@ -10,6 +11,7 @@ import { extractErrorMessage } from "@checkstack/common";
 
 const os = implement(cacheContract)
   .$context<RpcContext>()
+  .use(correlationMiddleware)
   .use(autoAuthMiddleware);
 
 export const createCacheRouter = (configService: ConfigService) => {

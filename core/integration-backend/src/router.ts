@@ -2,6 +2,7 @@ import { implement, ORPCError } from "@orpc/server";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import {
   autoAuthMiddleware,
+  correlationMiddleware,
   type RpcContext,
   type Logger,
 } from "@checkstack/backend-api";
@@ -126,6 +127,7 @@ export function createIntegrationRouter(deps: RouterDeps) {
   // Create contract implementer with context type AND auto auth middleware
   const os = implement(integrationContract)
     .$context<RpcContext>()
+    .use(correlationMiddleware)
     .use(autoAuthMiddleware);
 
   return os.router({

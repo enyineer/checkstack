@@ -3,6 +3,7 @@ import {
   ConfigService,
   RpcContext,
   autoAuthMiddleware,
+  correlationMiddleware,
 } from "@checkstack/backend-api";
 import {
   queueContract,
@@ -15,6 +16,7 @@ import { extractErrorMessage } from "@checkstack/common";
 
 const os = implement(queueContract)
   .$context<RpcContext>()
+  .use(correlationMiddleware)
   .use(autoAuthMiddleware);
 
 // Config key for lag thresholds

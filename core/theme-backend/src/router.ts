@@ -1,6 +1,7 @@
 import { implement } from "@orpc/server";
 import {
   autoAuthMiddleware,
+  correlationMiddleware,
   type RpcContext,
   type RealUser,
 } from "@checkstack/backend-api";
@@ -19,6 +20,7 @@ export const createThemeRouter = (db: SafeDatabase<typeof schema>) => {
   // Create contract implementer with context type AND auto auth middleware
   const os = implement(themeContract)
     .$context<RpcContext>()
+    .use(correlationMiddleware)
     .use(autoAuthMiddleware);
 
   return os.router({

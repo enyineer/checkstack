@@ -1,5 +1,5 @@
 import { implement } from "@orpc/server";
-import { autoAuthMiddleware, type RpcContext } from "@checkstack/backend-api";
+import { autoAuthMiddleware, correlationMiddleware, type RpcContext } from "@checkstack/backend-api";
 import {
   commandContract,
   filterByAccessRules,
@@ -15,6 +15,7 @@ import { getSearchProviders } from "./registry";
  */
 const os = implement(commandContract)
   .$context<RpcContext>()
+  .use(correlationMiddleware)
   .use(autoAuthMiddleware);
 
 /**
