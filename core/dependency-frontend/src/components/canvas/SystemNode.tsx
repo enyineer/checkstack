@@ -1,5 +1,6 @@
 import { memo } from "react";
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
+import { cn, usePerformance } from "@checkstack/ui";
 
 export interface SystemNodeData extends Record<string, unknown> {
   label: string;
@@ -59,6 +60,7 @@ export const SystemNodeComponent = memo(function SystemNodeComponent({
   data,
   selected,
 }: NodeProps<SystemNode>) {
+  const { isLowPower } = usePerformance();
   const effectiveStatus = combineStatus(data.status, data.derivedState);
   const styles = statusStyles[effectiveStatus];
   const hasConnections = data.upstreamCount > 0 || data.downstreamCount > 0;
@@ -73,14 +75,16 @@ export const SystemNodeComponent = memo(function SystemNodeComponent({
       />
 
       <div
-        className={`
-          rounded-xl border-2 shadow-lg backdrop-blur-sm
-          transition-all duration-200
-          ${styles.border} ${styles.bg} ${styles.glow}
-          ${selected ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}
-          hover:scale-[1.02] cursor-grab active:cursor-grabbing
-          min-w-[140px] max-w-[220px] overflow-hidden
-        `}
+        className={cn(
+          "rounded-xl border-2 shadow-lg",
+          !isLowPower && "backdrop-blur-sm transition-all duration-200",
+          styles.border,
+          styles.bg,
+          styles.glow,
+          selected && "ring-2 ring-primary ring-offset-2 ring-offset-background",
+          !isLowPower && "hover:scale-[1.02]",
+          "cursor-grab active:cursor-grabbing min-w-[140px] max-w-[220px] overflow-hidden",
+        )}
       >
         {/* Main body */}
         <div className="px-4 py-3">
@@ -90,7 +94,7 @@ export const SystemNodeComponent = memo(function SystemNodeComponent({
               <div
                 className={`w-2.5 h-2.5 rounded-full ${styles.dot}`}
               />
-              {effectiveStatus !== "operational" && (
+              {effectiveStatus !== "operational" && !isLowPower && (
                 <div
                   className={`absolute inset-0 w-2.5 h-2.5 rounded-full ${styles.dot} animate-ping opacity-75`}
                 />

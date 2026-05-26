@@ -248,7 +248,10 @@ export const Dashboard: React.FC = () => {
           {groupsWithSystems.map((group) => (
             <Card
               key={group.id}
-              className="border-border shadow-sm hover:shadow-md transition-shadow"
+              className={cn(
+                "border-border shadow-sm",
+                !isLowPower && "hover:shadow-md transition-shadow",
+              )}
             >
               <CardHeader className="border-b border-border bg-muted/30">
                 <div className="flex items-center gap-2">
@@ -298,7 +301,12 @@ export const Dashboard: React.FC = () => {
                             context={{ system }}
                           />
                         </div>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground opacity-50 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-2" />
+                        <ChevronRight
+                          className={cn(
+                            "h-4 w-4 text-muted-foreground opacity-50 group-hover:opacity-100 flex-shrink-0 ml-2",
+                            !isLowPower && "transition-opacity",
+                          )}
+                        />
                       </button>
                     ))}
                   </div>
@@ -386,11 +394,10 @@ export const Dashboard: React.FC = () => {
                   ? () => setIncidentSheetOpen(true)
                   : undefined
               }
-              className={
-                activeIncidentsCount > 0
-                  ? "cursor-pointer hover:opacity-90 hover:scale-[1.02]"
-                  : ""
-              }
+              className={cn(
+                activeIncidentsCount > 0 && "cursor-pointer hover:opacity-90",
+                activeIncidentsCount > 0 && !isLowPower && "hover:scale-[1.02]",
+              )}
             />
 
             <StatusCard
@@ -414,11 +421,12 @@ export const Dashboard: React.FC = () => {
                   ? () => setMaintenanceSheetOpen(true)
                   : undefined
               }
-              className={
-                activeMaintenancesCount > 0
-                  ? "cursor-pointer hover:opacity-90 hover:scale-[1.02]"
-                  : ""
-              }
+              className={cn(
+                activeMaintenancesCount > 0 && "cursor-pointer hover:opacity-90",
+                activeMaintenancesCount > 0 &&
+                  !isLowPower &&
+                  "hover:scale-[1.02]",
+              )}
             />
 
             <StatusCard
@@ -438,11 +446,13 @@ export const Dashboard: React.FC = () => {
                   ? () => setAnomalySheetOpen(true)
                   : undefined
               }
-              className={
-                activeAnomaliesCount > 0
-                  ? "cursor-pointer hover:opacity-90 hover:scale-[1.02] bg-gradient-to-br from-warning/20 to-warning/5 border-warning/30"
-                  : ""
-              }
+              className={cn(
+                activeAnomaliesCount > 0 &&
+                  "cursor-pointer hover:opacity-90 bg-gradient-to-br from-warning/20 to-warning/5 border-warning/30",
+                activeAnomaliesCount > 0 &&
+                  !isLowPower &&
+                  "hover:scale-[1.02]",
+              )}
             />
           </div>
         </section>

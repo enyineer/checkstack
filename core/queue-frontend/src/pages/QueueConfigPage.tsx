@@ -23,10 +23,10 @@ import {
   CardHeader,
   CardTitle,
   useToast,
+  toastError,
 } from "@checkstack/ui";
 import { AlertTriangle, Save, Info, Gauge, Activity } from "lucide-react";
 import { QueueLagAlert } from "../components/QueueLagAlert";
-import { extractErrorMessage } from "@checkstack/common";
 
 const QueueConfigPageContent = () => {
   const queueClient = usePluginClient(QueueApi);
@@ -66,8 +66,7 @@ const QueueConfigPageContent = () => {
       toast.success("Configuration saved successfully!");
       refetchConfig();
     } catch (error) {
-      const message = extractErrorMessage(error);
-      toast.error(`Failed to save configuration: ${message}`);
+      toastError(toast, "Failed to save queue configuration", error);
     }
   };
 

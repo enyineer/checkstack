@@ -25,6 +25,7 @@ import {
   Badge,
   LoadingSpinner,
   EmptyState,
+  QueryErrorState,
   Table,
   TableHeader,
   TableRow,
@@ -47,6 +48,7 @@ import {
   Input,
   Label,
   Textarea,
+  toastError,
 } from "@checkstack/ui";
 import {
   Plus,
@@ -61,7 +63,6 @@ import {
   Columns,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
-import { extractErrorMessage } from "@checkstack/common";
 
 // ---------------------------------------------------------------------------
 // Editor Dialog
@@ -136,7 +137,7 @@ const AnnouncementEditor: React.FC<AnnouncementEditorProps> = ({
       onSave();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to create"));
+      toastError(toast, "Failed to create announcement", error);
     },
   });
 
@@ -147,7 +148,7 @@ const AnnouncementEditor: React.FC<AnnouncementEditorProps> = ({
       onSave();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to update"));
+      toastError(toast, "Failed to update announcement", error);
     },
   });
 
@@ -457,11 +458,8 @@ const AnnouncementManageContent: React.FC = () => {
   >();
   const [deleteId, setDeleteId] = useState<string | undefined>();
 
-  const {
-    data: announcementsData,
-    isLoading,
-    refetch,
-  } = announcementClient.listAllAnnouncements.useQuery();
+  const announcementsQuery = announcementClient.listAllAnnouncements.useQuery();
+  const { data: announcementsData, isLoading, refetch } = announcementsQuery;
 
   const deleteMutation = announcementClient.deleteAnnouncement.useMutation({
     onSuccess: () => {
@@ -470,7 +468,7 @@ const AnnouncementManageContent: React.FC = () => {
       setDeleteId(undefined);
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to delete"));
+      toastError(toast, "Failed to delete announcement", error);
     },
   });
 
@@ -529,6 +527,14 @@ const AnnouncementManageContent: React.FC = () => {
           {isLoading ? (
             <div className="p-12 flex justify-center">
               <LoadingSpinner />
+            </div>
+          ) : announcementsQuery.isError ? (
+            <div className="p-4">
+              <QueryErrorState
+                error={announcementsQuery.error}
+                onRetry={() => void announcementsQuery.refetch()}
+                resource="announcements"
+              />
             </div>
           ) : announcements.length === 0 ? (
             <EmptyState

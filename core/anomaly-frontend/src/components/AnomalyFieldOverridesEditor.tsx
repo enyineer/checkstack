@@ -24,6 +24,8 @@ import {
   Slider,
   Input,
   Tooltip,
+  cn,
+  usePerformance,
 } from "@checkstack/ui";
 import type {
   AnomalyFieldConfig,
@@ -362,6 +364,7 @@ function FieldAccordionItem({
   onResetField,
   applyPreset,
 }: FieldAccordionItemProps) {
+  const { isLowPower } = usePerformance();
   const [advancedOpen, setAdvancedOpen] = useState(preset === "custom");
   // Tracks an explicit "Custom" click — needed because clicking Custom doesn't
   // change values, so `detectPreset` still resolves to whatever the prior
@@ -400,10 +403,13 @@ function FieldAccordionItem({
   return (
     <AccordionItem
       value={field}
-      className={`
-        rounded-xl border bg-card text-card-foreground shadow-sm transition-all duration-200 overflow-hidden
-        ${isOverridden ? "border-primary/40 shadow-md" : "border-border/40 opacity-80 hover:opacity-100"}
-      `}
+      className={cn(
+        "rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden",
+        !isLowPower && "transition-all duration-200",
+        isOverridden
+          ? "border-primary/40 shadow-md"
+          : "border-border/40 opacity-80 hover:opacity-100",
+      )}
     >
       <AccordionTrigger className="px-5 py-4 hover:no-underline">
         <div className="flex items-center justify-between flex-1 gap-4 mr-4">
@@ -544,6 +550,7 @@ interface PresetSelectorProps {
 }
 
 function PresetSelector({ value, onChange, disabled }: PresetSelectorProps) {
+  const { isLowPower } = usePerformance();
   const options: Preset[] = ["strict", "balanced", "relaxed", "custom"];
   const description =
     value === "custom"
@@ -567,16 +574,14 @@ function PresetSelector({ value, onChange, disabled }: PresetSelectorProps) {
               type="button"
               onClick={() => onChange(opt)}
               disabled={disabled}
-              className={`
-                px-4 py-1.5 text-xs font-semibold rounded-md transition-all
-                ${
-                  selected
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }
-                disabled:opacity-50 disabled:cursor-not-allowed
-                capitalize
-              `}
+              className={cn(
+                "px-4 py-1.5 text-xs font-semibold rounded-md",
+                !isLowPower && "transition-all",
+                selected
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+                "disabled:opacity-50 disabled:cursor-not-allowed capitalize",
+              )}
             >
               {opt}
             </button>
@@ -667,6 +672,7 @@ function AdvancedDisclosure({
   onToggle,
   children,
 }: AdvancedDisclosureProps) {
+  const { isLowPower } = usePerformance();
   return (
     <div className="border border-border/40 rounded-md bg-background/30">
       <button
@@ -676,7 +682,11 @@ function AdvancedDisclosure({
       >
         <span>Advanced</span>
         <ChevronDown
-          className={`w-4 h-4 transition-transform ${open ? "rotate-180" : ""}`}
+          className={cn(
+            "w-4 h-4",
+            !isLowPower && "transition-transform",
+            open && "rotate-180",
+          )}
         />
       </button>
       {open && (

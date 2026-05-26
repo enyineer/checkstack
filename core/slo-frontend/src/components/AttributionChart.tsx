@@ -1,4 +1,5 @@
 import React from "react";
+import { cn, usePerformance } from "@checkstack/ui";
 
 interface AttributionChartProps {
   attribution: Array<{
@@ -18,6 +19,7 @@ export const AttributionChart: React.FC<AttributionChartProps> = ({
   attribution,
   totalBudgetMinutes,
 }) => {
+  const { isLowPower } = usePerformance();
   if (totalBudgetMinutes <= 0) return;
 
   const selfMinutes = attribution
@@ -47,21 +49,30 @@ export const AttributionChart: React.FC<AttributionChartProps> = ({
       <div className="h-6 rounded-full overflow-hidden flex bg-muted/30 border border-border">
         {selfPercent > 0 && (
           <div
-            className="bg-destructive/80 transition-all duration-500"
+            className={cn(
+              "bg-destructive/80",
+              !isLowPower && "transition-all duration-500",
+            )}
             style={{ width: `${selfPercent}%` }}
             title={`Self: ${selfMinutes.toFixed(1)} min`}
           />
         )}
         {upstreamPercent > 0 && (
           <div
-            className="bg-amber-500/80 transition-all duration-500"
+            className={cn(
+              "bg-amber-500/80",
+              !isLowPower && "transition-all duration-500",
+            )}
             style={{ width: `${upstreamPercent}%` }}
             title={`Upstream: ${upstreamMinutes.toFixed(1)} min`}
           />
         )}
         {remainingPercent > 0 && (
           <div
-            className="bg-emerald-500/30 transition-all duration-500"
+            className={cn(
+              "bg-emerald-500/30",
+              !isLowPower && "transition-all duration-500",
+            )}
             style={{ width: `${remainingPercent}%` }}
             title={`Remaining: ${(totalBudgetMinutes - selfMinutes - upstreamMinutes).toFixed(1)} min`}
           />

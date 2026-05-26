@@ -94,14 +94,19 @@ interface QueryProcedure<TInput, TOutput> {
 /**
  * Mutation procedure hook interface - only exposes useMutation.
  * Mutations don't take input directly - it's passed to mutate/mutateAsync.
+ *
+ * `TContext` is threaded through the options so optimistic-update sites
+ * can return a snapshot from `onMutate` and read it back in `onError`
+ * without resorting to `unknown` casts. See
+ * `docs/frontend/optimistic-updates.md` for the canonical pattern.
  */
 interface MutationProcedure<TInput, TOutput> {
-  useMutation: (
+  useMutation: <TContext = unknown>(
     options?: Omit<
-      UseMutationOptions<TOutput, Error, TInput>,
+      UseMutationOptions<TOutput, Error, TInput, TContext>,
       "mutationFn" | "mutationKey"
     >,
-  ) => UseMutationResult<TOutput, Error, TInput>;
+  ) => UseMutationResult<TOutput, Error, TInput, TContext>;
 }
 
 /**

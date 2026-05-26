@@ -42,10 +42,11 @@ import {
   useToast,
   ConfirmationModal,
   BackLink,
+  toastError,
   type LucideIconName,
 } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
-import { resolveRoute, extractErrorMessage } from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import {
   IntegrationApi,
   integrationRoutes,
@@ -108,7 +109,7 @@ export const ProviderConnectionsPage = () => {
       setSaving(false);
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to create connection"));
+      toastError(toast, "Failed to create connection", error);
       setSaving(false);
     },
   });
@@ -122,7 +123,7 @@ export const ProviderConnectionsPage = () => {
       setSaving(false);
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to update connection"));
+      toastError(toast, "Failed to update connection", error);
       setSaving(false);
     },
   });
@@ -135,7 +136,7 @@ export const ProviderConnectionsPage = () => {
       toast.success("Connection deleted");
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to delete connection"));
+      toastError(toast, "Failed to delete connection", error);
     },
   });
 
@@ -157,7 +158,7 @@ export const ProviderConnectionsPage = () => {
         ...prev,
         [variables.connectionId]: { success: false, message: "Test failed" },
       }));
-      toast.error(extractErrorMessage(error, "Connection test failed"));
+      toastError(toast, "Connection test failed", error);
       setTestingId(undefined);
     },
   });

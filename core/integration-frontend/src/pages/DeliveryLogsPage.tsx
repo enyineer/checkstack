@@ -24,6 +24,8 @@ import {
   usePagination,
   usePaginationSync,
   BackLink,
+  ResponsiveTable,
+  MobileCardList,
 } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
@@ -131,81 +133,141 @@ export const DeliveryLogsPage = () => {
               </div>
             </Card>
           ) : (
-            <Card>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Subscription</TableHead>
-                    <TableHead>Event</TableHead>
-                    <TableHead>Attempts</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Error</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {logs.map((log: DeliveryLog) => {
-                    const config = statusConfig[log.status];
-                    return (
-                      <TableRow key={log.id}>
-                        <TableCell>
-                          <Badge
-                            variant={config.variant}
-                            className="flex items-center gap-1 w-fit"
-                          >
-                            {config.icon}
-                            {log.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-medium">
-                            {log.subscriptionName ?? "Unknown"}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm font-mono">
-                            {log.eventType}
-                          </div>
-                        </TableCell>
-                        <TableCell>{log.attempts}</TableCell>
-                        <TableCell>
-                          <div className="text-sm text-muted-foreground">
-                            {new Date(log.createdAt).toLocaleString()}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {log.errorMessage ? (
-                            <div
-                              className="text-sm text-destructive max-w-[200px] truncate"
-                              title={log.errorMessage}
-                            >
-                              {log.errorMessage}
-                            </div>
-                          ) : undefined}
-                        </TableCell>
-                        <TableCell>
-                          {log.status === "failed" && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleRetry(log.id)}
-                              disabled={retrying === log.id}
-                            >
-                              <RefreshCw
-                                className={`h-4 w-4 mr-1 ${
-                                  retrying === log.id ? "animate-spin" : ""
-                                }`}
-                              />
-                              Retry
-                            </Button>
-                          )}
-                        </TableCell>
+            <>
+              <ResponsiveTable>
+                <Card>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Subscription</TableHead>
+                        <TableHead>Event</TableHead>
+                        <TableHead>Attempts</TableHead>
+                        <TableHead>Created</TableHead>
+                        <TableHead>Error</TableHead>
+                        <TableHead></TableHead>
                       </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {logs.map((log: DeliveryLog) => {
+                        const config = statusConfig[log.status];
+                        return (
+                          <TableRow key={log.id}>
+                            <TableCell>
+                              <Badge
+                                variant={config.variant}
+                                className="flex items-center gap-1 w-fit"
+                              >
+                                {config.icon}
+                                {log.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="font-medium">
+                                {log.subscriptionName ?? "Unknown"}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-sm font-mono">
+                                {log.eventType}
+                              </div>
+                            </TableCell>
+                            <TableCell>{log.attempts}</TableCell>
+                            <TableCell>
+                              <div className="text-sm text-muted-foreground">
+                                {new Date(log.createdAt).toLocaleString()}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {log.errorMessage ? (
+                                <div
+                                  className="text-sm text-destructive max-w-[200px] truncate"
+                                  title={log.errorMessage}
+                                >
+                                  {log.errorMessage}
+                                </div>
+                              ) : undefined}
+                            </TableCell>
+                            <TableCell>
+                              {log.status === "failed" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleRetry(log.id)}
+                                  disabled={retrying === log.id}
+                                >
+                                  <RefreshCw
+                                    className={`h-4 w-4 mr-1 ${
+                                      retrying === log.id ? "animate-spin" : ""
+                                    }`}
+                                  />
+                                  Retry
+                                </Button>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </Card>
+              </ResponsiveTable>
+
+              <MobileCardList>
+                {logs.map((log: DeliveryLog) => {
+                  const config = statusConfig[log.status];
+                  return (
+                    <Card key={log.id} className="p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-medium truncate">
+                          {log.subscriptionName ?? "Unknown"}
+                        </span>
+                        <Badge
+                          variant={config.variant}
+                          className="flex items-center gap-1 w-fit shrink-0"
+                        >
+                          {config.icon}
+                          {log.status}
+                        </Badge>
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground font-mono break-all">
+                        {log.eventType}
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {log.attempts} attempt
+                        {log.attempts === 1 ? "" : "s"} &middot;{" "}
+                        {new Date(log.createdAt).toLocaleString()}
+                      </div>
+                      {log.errorMessage && (
+                        <div
+                          className="mt-2 text-xs text-destructive line-clamp-2"
+                          title={log.errorMessage}
+                        >
+                          {log.errorMessage}
+                        </div>
+                      )}
+                      {log.status === "failed" && (
+                        <div className="mt-3 flex justify-end">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRetry(log.id)}
+                            disabled={retrying === log.id}
+                          >
+                            <RefreshCw
+                              className={`h-4 w-4 mr-1 ${
+                                retrying === log.id ? "animate-spin" : ""
+                              }`}
+                            />
+                            Retry
+                          </Button>
+                        </div>
+                      )}
+                    </Card>
+                  );
+                })}
+              </MobileCardList>
+
               {pagination.totalPages > 1 && (
                 <div className="p-4 border-t flex justify-center gap-2">
                   <Button
@@ -229,7 +291,7 @@ export const DeliveryLogsPage = () => {
                   </Button>
                 </div>
               )}
-            </Card>
+            </>
           )}
         </section>
       </div>

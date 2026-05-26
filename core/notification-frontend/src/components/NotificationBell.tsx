@@ -15,6 +15,8 @@ import {
   stripMarkdown,
   useToast,
   useIsMobile,
+  usePerformance,
+  cn,
 } from "@checkstack/ui";
 import { useApi, usePluginClient } from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
@@ -29,6 +31,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { authApiRef } from "@checkstack/auth-frontend/api";
 
 export const NotificationBell = () => {
+  const { isLowPower } = usePerformance();
   const authApi = useApi(authApiRef);
   const { data: session, isPending: isAuthLoading } = authApi.useSession();
   const notificationClient = usePluginClient(NotificationApi);
@@ -102,10 +105,17 @@ export const NotificationBell = () => {
 
   const trigger = (
     <Button variant="ghost" size="icon" className="relative group">
-      <Bell className="h-5 w-5 transition-transform group-hover:scale-110" />
+      <Bell
+        className={cn(
+          "h-5 w-5",
+          !isLowPower && "transition-transform group-hover:scale-110",
+        )}
+      />
       {unreadCount > 0 && (
         <span className="absolute -top-1 -right-1 flex h-5 min-w-[20px] items-center justify-center">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
+          {!isLowPower && (
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
+          )}
           <Badge
             variant="destructive"
             className="relative h-5 min-w-[20px] flex items-center justify-center p-0 text-xs font-bold"
