@@ -1,6 +1,6 @@
 import { implement, ORPCError } from "@orpc/server";
 import { z } from "zod";
-import { autoAuthMiddleware, type RpcContext } from "@checkstack/backend-api";
+import { autoAuthMiddleware, correlationMiddleware, type RpcContext } from "@checkstack/backend-api";
 import { encrypt, decrypt } from "@checkstack/backend-api";
 import { gitopsContract, deriveSourceUrl } from "@checkstack/gitops-common";
 import type { SafeDatabase } from "@checkstack/backend-api";
@@ -19,6 +19,7 @@ import { v4 as uuidv4 } from "uuid";
  */
 const os = implement(gitopsContract)
   .$context<RpcContext>()
+  .use(correlationMiddleware)
   .use(autoAuthMiddleware);
 
 export interface GitOpsRouterDeps {

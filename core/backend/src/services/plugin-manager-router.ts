@@ -2,6 +2,7 @@ import { implement, ORPCError } from "@orpc/server";
 import { desc } from "drizzle-orm";
 import {
   autoAuthMiddleware,
+  correlationMiddleware,
   coreServices,
   type RpcContext,
   type SafeDatabase,
@@ -109,6 +110,7 @@ export function createPluginManagerRouter({
 
   const impl = implement(pluginManagerContract)
     .$context<RpcContext>()
+    .use(correlationMiddleware)
     .use(autoAuthMiddleware);
 
   return impl.router({

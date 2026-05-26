@@ -6,6 +6,7 @@ import {
 } from "@checkstack/dependency-common";
 import {
   autoAuthMiddleware,
+  correlationMiddleware,
   type Logger,
   type RpcContext,
 } from "@checkstack/backend-api";
@@ -112,6 +113,7 @@ export function createRouter({
 
   const os = implement(dependencyContract)
     .$context<RpcContext>()
+    .use(correlationMiddleware)
     .use(autoAuthMiddleware);
 
   return os.router({

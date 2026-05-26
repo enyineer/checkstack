@@ -1,5 +1,6 @@
 import { mock } from "bun:test";
 import { RpcContext, EmitHookFn } from "./rpc";
+import { Logger } from "./types";
 import { SafeDatabase } from "./plugin-system";
 import { HealthCheckRegistry } from "./health-check";
 import { CollectorRegistry } from "./collector-registry";
@@ -8,6 +9,22 @@ import {
   CachePluginRegistry,
   CacheManager,
 } from "@checkstack/cache-api";
+
+/**
+ * Build a mock `Logger` whose `.child(...)` returns another mock logger
+ * (recursively). Matches the structural contract that
+ * `correlationMiddleware` and other binding sites rely on.
+ */
+function createMockLogger(): Logger {
+  const logger: Logger = {
+    info: mock(),
+    error: mock(),
+    warn: mock(),
+    debug: mock(),
+    child: mock(() => createMockLogger()),
+  };
+  return logger;
+}
 
 /**
  * Creates a mocked oRPC context for testing.
@@ -19,12 +36,7 @@ export function createMockRpcContext(
   return {
     pluginMetadata: { pluginId: "test-plugin" },
     db: mock() as unknown as SafeDatabase<Record<string, unknown>>,
-    logger: {
-      info: mock(),
-      error: mock(),
-      warn: mock(),
-      debug: mock(),
-    },
+    logger: createMockLogger(),
     fetch: {
       fetch: mock(),
       forPlugin: mock().mockReturnValue({

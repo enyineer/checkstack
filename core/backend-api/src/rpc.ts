@@ -53,6 +53,21 @@ export interface RpcContext {
   cacheManager: CacheManager;
   /** Emit a hook event for cross-plugin communication */
   emitHook: EmitHookFn;
+  /**
+   * Inbound HTTP request headers (read-only view). Populated by the
+   * `/api/*` and `/rest/*` Hono handlers in `core/backend`. Optional
+   * because non-HTTP call sites (S2S clients, tests, scheduled queue
+   * jobs) can construct an `RpcContext` without a backing request.
+   */
+  requestHeaders?: Headers;
+  /**
+   * Mutable response headers. Middleware (e.g. `correlationMiddleware`)
+   * can set headers here, and the Hono handler that drives the oRPC
+   * `RPCHandler` / `OpenAPIHandler` merges them onto the actual
+   * `Response` after the procedure has run. Optional for the same
+   * reason as `requestHeaders`.
+   */
+  responseHeaders?: Headers;
 }
 
 /** Context with authenticated real user */
@@ -458,6 +473,91 @@ export const autoAuthMiddleware = os.middleware(
     }
 
     return result;
+  },
+);
+
+// =============================================================================
+// CORRELATION ID MIDDLEWARE
+// =============================================================================
+
+/**
+ * Name of the inbound and outbound HTTP header that carries the correlation
+ * ID. Exported so dev tools, integration tests, and front-end fetch wrappers
+ * can refer to the canonical value rather than hard-coding the string.
+ */
+export const CORRELATION_ID_HEADER = "x-correlation-id";
+
+/**
+ * Per-request observability middleware.
+ *
+ * Behaviour:
+ * - Reads `x-correlation-id` from `context.requestHeaders` (populated by the
+ *   `/api/*` and `/rest/*` Hono handlers in `core/backend`).
+ * - Generates a fresh UUID v4 via `crypto.randomUUID()` if absent. This is
+ *   the ONLY generation site for correlation IDs in the platform — handlers
+ *   must NOT mint new IDs on their own.
+ * - Binds `{ correlationId, pluginId, userId? }` onto a child logger via
+ *   `ctx.logger.child(...)` so every subsequent log line in the request
+ *   carries that metadata automatically.
+ * - Writes the ID back to `context.responseHeaders` (if available) so the
+ *   outer Hono handler can echo `x-correlation-id` on the response, letting
+ *   the caller correlate their own client-side trace to the server log.
+ *
+ * Note on the echo: oRPC middleware has no direct access to the outgoing
+ * `Response` object — the framework constructs it from the procedure's
+ * return value AFTER middleware has finished. We use the mutable
+ * `responseHeaders` bag on `RpcContext` as a thin write-through: the Hono
+ * route handler merges those headers onto the `Response` post-handle. When
+ * an `RpcContext` is constructed without `responseHeaders` (S2S clients,
+ * tests), the echo silently no-ops; the ID is still bound to the child
+ * logger so server-side correlation still works.
+ *
+ * Order matters: in plugin routers, `.use(correlationMiddleware)` MUST
+ * appear BEFORE `.use(autoAuthMiddleware)` so that auth failures still log
+ * with the correlation ID attached.
+ *
+ * Usage:
+ *
+ *   const os = implement(myContract)
+ *     .$context<RpcContext>()
+ *     .use(correlationMiddleware)
+ *     .use(autoAuthMiddleware);
+ */
+export const correlationMiddleware = os.middleware(
+  async ({ next, context }) => {
+    const incoming = context.requestHeaders?.get(CORRELATION_ID_HEADER);
+    const correlationId =
+      incoming && incoming.length > 0 ? incoming : crypto.randomUUID();
+
+    context.responseHeaders?.set(CORRELATION_ID_HEADER, correlationId);
+
+    const meta: Record<string, unknown> = {
+      correlationId,
+      pluginId: context.pluginMetadata.pluginId,
+    };
+    if (context.user && "id" in context.user) {
+      meta.userId = context.user.id;
+    }
+
+    // `child` is optional on the Logger interface so minimal test-mock
+    // loggers don't have to implement it. Production Winston loggers
+    // always do; gracefully fall back to the base logger otherwise so
+    // the middleware never breaks a request just because metadata
+    // binding wasn't possible.
+    const boundLogger = context.logger.child
+      ? context.logger.child(meta)
+      : context.logger;
+
+    // Partial-merge style (no `...context` spread): oRPC merges the
+    // returned context fields onto the existing context. Spreading
+    // would widen TypeScript's inferred chain type and surface
+    // TS2883 "inferred type cannot be named" errors in downstream
+    // packages whose routers compose this middleware.
+    return next({
+      context: {
+        logger: boundLogger,
+      },
+    });
   },
 );
 

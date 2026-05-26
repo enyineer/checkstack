@@ -1,6 +1,7 @@
 import { implement } from "@orpc/server";
 import {
   autoAuthMiddleware,
+  correlationMiddleware,
   type RpcContext,
   type RealUser,
   type SafeDatabase,
@@ -20,6 +21,7 @@ import * as schema from "./schema";
 export const createTipsRouter = (db: SafeDatabase<typeof schema>) => {
   const os = implement(tipsContract)
     .$context<RpcContext>()
+    .use(correlationMiddleware)
     .use(autoAuthMiddleware);
 
   return os.router({

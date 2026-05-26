@@ -5,6 +5,7 @@ import {
 } from "@checkstack/maintenance-common";
 import {
   autoAuthMiddleware,
+  correlationMiddleware,
   Logger,
   type RpcContext,
 } from "@checkstack/backend-api";
@@ -89,6 +90,7 @@ export function createRouter(
 
   const os = implement(maintenanceContract)
     .$context<RpcContext>()
+    .use(correlationMiddleware)
     .use(autoAuthMiddleware);
 
   return os.router({
