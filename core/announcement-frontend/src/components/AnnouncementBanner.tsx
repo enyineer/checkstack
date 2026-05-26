@@ -4,7 +4,7 @@ import {
   AnnouncementApi,
   type Announcement,
 } from "@checkstack/announcement-common";
-import { MarkdownBlock } from "@checkstack/ui";
+import { MarkdownBlock, cn, usePerformance } from "@checkstack/ui";
 import {
   Info,
   AlertTriangle,
@@ -106,6 +106,7 @@ function BannerItem({
   announcement: Announcement;
   onDismiss: (id: string) => void;
 }) {
+  const { isLowPower } = usePerformance();
   const [expanded, setExpanded] = useState(false);
   const styles = getSeverityStyles(announcement.severity);
 
@@ -114,7 +115,12 @@ function BannerItem({
 
   return (
     <div
-      className={`${styles.bg} ${styles.border} border-b px-4 py-2 transition-all duration-200`}
+      className={cn(
+        styles.bg,
+        styles.border,
+        "border-b px-4 py-2",
+        !isLowPower && "transition-all duration-200",
+      )}
     >
       <div className="flex items-center gap-3 max-w-7xl mx-auto">
         <SeverityIcon severity={announcement.severity} />

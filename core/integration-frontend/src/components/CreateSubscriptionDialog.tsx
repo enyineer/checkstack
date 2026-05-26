@@ -23,10 +23,11 @@ import {
   SelectValue,
   Label,
   ConfirmationModal,
+  toastError,
   type LucideIconName,
 } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
-import { resolveRoute, extractErrorMessage } from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import {
   IntegrationApi,
   integrationRoutes,
@@ -128,7 +129,7 @@ export const SubscriptionDialog = ({
       setSaving(false);
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to create subscription"));
+      toastError(toast, "Failed to create subscription", error);
       setSaving(false);
     },
   });
@@ -141,7 +142,7 @@ export const SubscriptionDialog = ({
       setSaving(false);
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to update subscription"));
+      toastError(toast, "Failed to update subscription", error);
       setSaving(false);
     },
   });
@@ -153,7 +154,7 @@ export const SubscriptionDialog = ({
       onOpenChange(false);
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to delete subscription"));
+      toastError(toast, "Failed to delete subscription", error);
     },
   });
 

@@ -21,6 +21,7 @@ import {
   ConfirmationModal,
   Badge,
   useToast,
+  toastError,
 } from "@checkstack/ui";
 import {
   Plus,
@@ -30,7 +31,6 @@ import {
   Github,
   GitlabIcon,
 } from "lucide-react";
-import { extractErrorMessage } from "@checkstack/common";
 import { ProviderEditor } from "./ProviderEditor";
 
 const formatInterval = (seconds: number) => {
@@ -82,7 +82,7 @@ export const ProviderList = () => {
       void refetch();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to create provider"));
+      toastError(toast, "Failed to create provider", error);
     },
   });
 
@@ -94,7 +94,7 @@ export const ProviderList = () => {
       void refetch();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to update provider"));
+      toastError(toast, "Failed to update provider", error);
     },
   });
 
@@ -105,7 +105,7 @@ export const ProviderList = () => {
       void refetch();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to delete provider"));
+      toastError(toast, "Failed to delete provider", error);
     },
   });
 
@@ -115,7 +115,7 @@ export const ProviderList = () => {
       void refetch();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to trigger sync"));
+      toastError(toast, "Failed to trigger sync", error);
     },
   });
 

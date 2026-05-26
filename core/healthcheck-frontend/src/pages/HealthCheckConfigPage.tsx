@@ -25,10 +25,11 @@ import {
   PageLayout,
   QueryErrorState,
   useToast,
+  toastError,
 } from "@checkstack/ui";
 import { Plus, History, Activity } from "lucide-react";
 import { Link } from "react-router-dom";
-import { resolveRoute, extractErrorMessage} from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import { useState } from "react";
 
 const HealthCheckConfigPageContent = () => {
@@ -80,7 +81,7 @@ const HealthCheckConfigPageContent = () => {
       void refetchConfigurations();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to delete"));
+      toastError(toast, "Failed to delete health check", error);
     },
   });
 
@@ -89,7 +90,7 @@ const HealthCheckConfigPageContent = () => {
       void refetchConfigurations();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to pause"));
+      toastError(toast, "Failed to pause health check", error);
     },
   });
 
@@ -98,7 +99,7 @@ const HealthCheckConfigPageContent = () => {
       void refetchConfigurations();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to resume"));
+      toastError(toast, "Failed to resume health check", error);
     },
   });
 

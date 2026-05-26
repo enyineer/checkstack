@@ -48,6 +48,7 @@ import {
   Input,
   Label,
   Textarea,
+  toastError,
 } from "@checkstack/ui";
 import {
   Plus,
@@ -62,7 +63,6 @@ import {
   Columns,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
-import { extractErrorMessage } from "@checkstack/common";
 
 // ---------------------------------------------------------------------------
 // Editor Dialog
@@ -137,7 +137,7 @@ const AnnouncementEditor: React.FC<AnnouncementEditorProps> = ({
       onSave();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to create"));
+      toastError(toast, "Failed to create announcement", error);
     },
   });
 
@@ -148,7 +148,7 @@ const AnnouncementEditor: React.FC<AnnouncementEditorProps> = ({
       onSave();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to update"));
+      toastError(toast, "Failed to update announcement", error);
     },
   });
 
@@ -468,7 +468,7 @@ const AnnouncementManageContent: React.FC = () => {
       setDeleteId(undefined);
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to delete"));
+      toastError(toast, "Failed to delete announcement", error);
     },
   });
 

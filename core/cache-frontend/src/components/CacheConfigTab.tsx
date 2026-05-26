@@ -16,9 +16,9 @@ import {
   CardTitle,
   PluginConfigForm,
   useToast,
+  toastError,
 } from "@checkstack/ui";
 import { AlertTriangle, Save, Info, HardDrive } from "lucide-react";
-import { extractErrorMessage } from "@checkstack/common";
 
 /**
  * Cache configuration tab component.
@@ -57,8 +57,7 @@ export const CacheConfigTab = ({ canUpdate }: { canUpdate: boolean }) => {
       toast.success("Cache configuration saved successfully!");
       refetchConfig();
     } catch (error) {
-      const message = extractErrorMessage(error);
-      toast.error(`Failed to save cache configuration: ${message}`);
+      toastError(toast, "Failed to save cache configuration", error);
     }
   };
 

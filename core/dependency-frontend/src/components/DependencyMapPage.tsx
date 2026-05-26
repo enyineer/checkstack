@@ -27,6 +27,8 @@ import {
   Badge,
   LoadingSpinner,
   useToast,
+  usePerformance,
+  cn,
 } from "@checkstack/ui";
 import { Maximize2, Save, RefreshCw, Trash2 } from "lucide-react";
 import type { ImpactType } from "@checkstack/dependency-common";
@@ -83,6 +85,7 @@ function autoLayout(
 }
 
 function DependencyMapContent() {
+  const { isLowPower } = usePerformance();
   const depClient = usePluginClient(DependencyApi);
   const catalogClient = usePluginClient(CatalogApi);
   const healthCheckClient = usePluginClient(HealthCheckApi);
@@ -469,7 +472,10 @@ function DependencyMapContent() {
         {/* Top-right panel with actions */}
         <Panel position="top-right" className="flex gap-2">
           {hasUnsaved && (
-            <Badge variant="warning" className="animate-pulse">
+            <Badge
+              variant="warning"
+              className={cn(!isLowPower && "animate-pulse")}
+            >
               Unsaved
             </Badge>
           )}
@@ -478,7 +484,7 @@ function DependencyMapContent() {
             size="sm"
             onClick={handleSave}
             disabled={saveMutation.isPending || !hasUnsaved}
-            className="bg-card/90 backdrop-blur-sm"
+            className={cn(isLowPower ? "bg-card" : "bg-card/90 backdrop-blur-sm")}
           >
             <Save className="h-4 w-4 mr-1" />
             {saveMutation.isPending ? "Saving..." : "Save Layout"}
@@ -491,7 +497,7 @@ function DependencyMapContent() {
               void refetchWarnings();
               void refetchPositions();
             }}
-            className="bg-card/90 backdrop-blur-sm"
+            className={cn(isLowPower ? "bg-card" : "bg-card/90 backdrop-blur-sm")}
           >
             <RefreshCw className="h-4 w-4 mr-1" />
             Refresh
@@ -500,7 +506,7 @@ function DependencyMapContent() {
             variant="outline"
             size="sm"
             onClick={() => fitView({ padding: 0.3 })}
-            className="bg-card/90 backdrop-blur-sm"
+            className={cn(isLowPower ? "bg-card" : "bg-card/90 backdrop-blur-sm")}
           >
             <Maximize2 className="h-4 w-4 mr-1" />
             Fit
@@ -509,7 +515,12 @@ function DependencyMapContent() {
 
         {/* Bottom-left legend */}
         <Panel position="bottom-left">
-          <div className="bg-card/90 backdrop-blur-sm border border-border rounded-lg p-3 shadow-lg max-w-64">
+          <div
+            className={cn(
+              "border border-border rounded-lg p-3 shadow-lg max-w-64",
+              isLowPower ? "bg-card" : "bg-card/90 backdrop-blur-sm",
+            )}
+          >
             <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider">
               Legend
             </p>
@@ -590,7 +601,12 @@ function DependencyMapContent() {
           }).isLocked;
           return (
           <Panel position="top-left">
-            <div className="bg-card/95 backdrop-blur-sm border border-border rounded-lg shadow-lg p-4 w-72 space-y-3">
+            <div
+              className={cn(
+                "border border-border rounded-lg shadow-lg p-4 w-72 space-y-3",
+                isLowPower ? "bg-card" : "bg-card/95 backdrop-blur-sm",
+              )}
+            >
               <div className="space-y-1">
                 <p className="text-sm font-semibold text-foreground">
                   {edgeSourceLocked ? "Dependency (GitOps)" : "Edit Dependency"}

@@ -253,3 +253,94 @@ Notes:
   existing `if (!data) return null` early-return and add a sibling
   `if (isError)` branch that renders `QueryErrorState` — the ladder
   pattern is for list pages, not single-record loads.
+
+## Respecting low-power mode
+
+Decorative motion and blur effects should drop to a static state when
+`usePerformance().isLowPower` is true. Use the hook directly with an
+inline ternary (or `cn` for cleaner composition) — there is no helper
+hook, the flag is the API.
+
+```tsx
+import { cn, usePerformance } from "@checkstack/ui";
+
+const { isLowPower } = usePerformance();
+
+// Inline ternary form
+<Bell
+  className={`h-5 w-5 ${isLowPower ? "" : "transition-transform group-hover:scale-110"}`}
+/>;
+
+// `cn` form — preferred when there are several class fragments
+<div
+  className={cn(
+    "rounded-lg border bg-card shadow-sm",
+    !isLowPower && "transition-all duration-200",
+  )}
+/>;
+```
+
+Apply this to: `animate-*` (except `Skeleton`'s own pulse, which is
+already gated), `backdrop-blur-*`, `hover:scale-*`, decorative
+`transition-all` / `transition-transform` / `transition-opacity` /
+`transition-shadow`, and entry animations like `animate-in fade-in`.
+
+Don't wrap:
+
+- **Colour transitions** (`transition-colors`) — they're cheap and
+  don't degrade UX on low-end devices.
+- **Functional UX transitions** — Drawer open/close, Dialog enter/exit,
+  and other Radix-driven animations are already centrally managed by
+  `@checkstack/ui`. Leave them alone.
+- **Skeletons** — the `Skeleton` primitive already drops its pulse in
+  low-power mode. If you see raw `animate-pulse` on loading placeholders
+  it's a candidate for migration to `Skeleton`, not for gating.
+
+For `backdrop-blur`, swap to a solid background when low-power:
+
+```tsx
+<div
+  className={cn(
+    "border border-border rounded-lg p-3 shadow-lg",
+    isLowPower ? "bg-card" : "bg-card/90 backdrop-blur-sm",
+  )}
+/>;
+```
+
+## Toast voice convention
+
+Use `toastError(toast, action, error)` for any error toast that pairs
+an action prefix with an extracted error message. This standardises
+the "Failed to X: <message>" voice and centralises the 100-character
+truncation so verbose backend errors don't blow out the toast surface.
+
+```tsx
+import { useToast, toastError } from "@checkstack/ui";
+
+const toast = useToast();
+
+const createMutation = client.createSecret.useMutation({
+  onSuccess: () => toast.success("Secret created"),
+  onError: (error) => toastError(toast, "Failed to create secret", error),
+});
+
+// `try`/`catch` flows work the same way.
+try {
+  await updateConfigMutation.mutateAsync(payload);
+  toast.success("Configuration saved");
+} catch (error) {
+  toastError(toast, "Failed to save configuration", error);
+}
+```
+
+Conventions:
+
+- The action argument is a verb phrase ending **without** a colon —
+  `toastError` adds the `": "` separator itself.
+- Leave terse one-liners like `toast.success("Saved")` or
+  `toast.error("Title is required")` alone — `toastSuccess`/`toastError`
+  exist for the multi-clause, error-bearing shape, not as a blanket
+  replacement.
+- When you migrate every `extractErrorMessage` call in a file onto
+  `toastError`, drop the now-orphaned import — leaving it triggers the
+  unused-import warning.

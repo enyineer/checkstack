@@ -1,5 +1,5 @@
 import { useDroppable } from "@dnd-kit/core";
-import { EditableText, Button } from "@checkstack/ui";
+import { EditableText, Button, cn, usePerformance } from "@checkstack/ui";
 import { Trash2 } from "lucide-react";
 import {
   useProvenanceLock,
@@ -38,6 +38,7 @@ export const DroppableGroup = ({
   onUpdateGroupName,
   onRemoveSystem,
 }: DroppableGroupProps) => {
+  const { isLowPower } = usePerformance();
   const { setNodeRef } = useDroppable({ id: group.id });
 
   const { isLocked, provenance } = useProvenanceLock({
@@ -56,15 +57,17 @@ export const DroppableGroup = ({
   return (
     <div
       ref={setNodeRef}
-      className={`p-3 rounded-lg border space-y-2 transition-all duration-150 ${
+      className={cn(
+        "p-3 rounded-lg border space-y-2",
+        !isLowPower && "transition-all duration-150",
         isOver && !draggingSystemAlreadyInGroup
           ? "border-primary bg-primary/5 shadow-md shadow-primary/10"
           : isOver && draggingSystemAlreadyInGroup
             ? "border-muted-foreground/40 bg-muted/10"
             : dropzoneActive
               ? "border-border/60 bg-muted/20 border-dashed"
-              : "border-border bg-muted/30"
-      }`}
+              : "border-border bg-muted/30",
+      )}
     >
       {/* Group header */}
       <div className="flex items-center justify-between">
@@ -119,11 +122,13 @@ export const DroppableGroup = ({
             return (
               <div
                 key={sys.id}
-                className={`flex items-center justify-between text-sm bg-background p-2 rounded border transition-all duration-700 ${
+                className={cn(
+                  "flex items-center justify-between text-sm bg-background p-2 rounded border",
+                  !isLowPower && "transition-all duration-700",
                   isNew
                     ? "border-green-500/60 shadow-sm shadow-green-500/30"
-                    : "border-border shadow-none"
-                }`}
+                    : "border-border shadow-none",
+                )}
               >
                 <span className="text-foreground truncate flex items-center gap-1.5">
                   {systemLocked && systemLock.provenance ? (
