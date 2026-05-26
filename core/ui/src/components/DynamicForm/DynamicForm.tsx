@@ -18,6 +18,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   onValidChange,
   optionsResolvers,
   templateProperties,
+  typeDefinitions,
+  shellEnvVars,
+  starterTemplates,
 }) => {
   // Track previous validity to avoid redundant callbacks
   const prevValidRef = React.useRef<boolean | undefined>(undefined);
@@ -113,6 +116,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               formValues={value}
               optionsResolvers={optionsResolvers}
               templateProperties={templateProperties}
+              typeDefinitions={typeDefinitions}
+              shellEnvVars={shellEnvVars}
+              starterTemplates={starterTemplates}
               onChange={(val) => onChange({ ...value, [key]: val })}
             />
           );

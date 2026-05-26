@@ -9,7 +9,11 @@ import {
   type NotificationSubject,
   type StrategyOAuthConfig,
 } from "@checkstack/backend-api";
-import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
+import {
+  notificationStrategyExtensionPoint,
+  SUBJECT_STATUS_EMOJI,
+  IMPORTANCE_EMOJI,
+} from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
 import { extractErrorMessage } from "@checkstack/common";
 
@@ -101,13 +105,6 @@ interface AdaptiveCardOptions {
   subjects?: NotificationSubject[];
 }
 
-const SUBJECT_STATUS_EMOJI = {
-  healthy: "🟢",
-  degraded: "🟡",
-  unhealthy: "🔴",
-  unknown: "⚪",
-} as const;
-
 function buildAdaptiveCard(options: AdaptiveCardOptions): object {
   const { title, body, importance, action, subjects } = options;
 
@@ -117,16 +114,11 @@ function buildAdaptiveCard(options: AdaptiveCardOptions): object {
     critical: "attention",
   };
 
-  const importanceEmoji: Record<string, string> = {
-    info: "ℹ️",
-    warning: "⚠️",
-    critical: "🚨",
-  };
 
   const bodyElements: object[] = [
     {
       type: "TextBlock",
-      text: `${importanceEmoji[importance]} ${title}`,
+      text: `${IMPORTANCE_EMOJI[importance]} ${title}`,
       weight: "bolder",
       size: "large",
       wrap: true,
@@ -410,6 +402,11 @@ export default createBackendPlugin({
   },
 });
 
-// Export for testing
+/**
+ * Internal exports for the package's own unit tests. Not part of the plugin's
+ * public API surface.
+ * @internal
+ */
 export { teamsConfigSchemaV1, buildAdaptiveCard };
+/** @internal */
 export type { TeamsConfig, AdaptiveCardOptions };

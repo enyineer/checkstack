@@ -1,4 +1,3 @@
-import { spawn, type Subprocess } from "bun";
 import {
   HealthCheckStrategy,
   HealthCheckRunForAggregation,
@@ -14,6 +13,7 @@ import {
   type ConnectedClient,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
+  defaultShellScriptRunner,
 } from "@checkstack/backend-api";
 import {
   healthResultBoolean,
@@ -35,7 +35,7 @@ import { extractErrorMessage } from "@checkstack/common";
 
 /**
  * Configuration schema for Script health checks.
- * Global defaults only - action params moved to ExecuteCollector.
+ * Global defaults only - action params live on the per-collector schema.
  */
 export const scriptConfigSchema = baseStrategyConfigSchema.extend({});
 
@@ -146,83 +146,29 @@ interface ScriptExecutionResult {
 
 export interface ScriptExecutor {
   execute(config: {
-    command: string;
-    args: string[];
+    script: string;
     cwd?: string;
     env?: Record<string, string>;
     timeout: number;
   }): Promise<ScriptExecutionResult>;
 }
 
-const SAFE_ENV_VARS = [
-  "PATH",
-  "HOME",
-  "USER",
-  "LANG",
-  "LC_ALL",
-  "LC_CTYPE",
-  "TZ",
-  "TMPDIR",
-  "HOSTNAME",
-  "SHELL",
-];
-
-// Default executor using Bun.spawn
+/**
+ * Default executor — delegates to the shared `ShellScriptRunner` in
+ * `@checkstack/backend-api`. That module is the canonical home for the
+ * `sh -c` + safe-env-vars + timeout/kill/cleanup pattern (also used by
+ * the integration shell provider). This thin adapter exists so tests
+ * can substitute a mock for `ScriptExecutor` without touching the
+ * shared runner.
+ */
 const defaultScriptExecutor: ScriptExecutor = {
   async execute(config) {
-    let proc: Subprocess | undefined;
-    let timedOut = false;
-
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
-        timedOut = true;
-        proc?.kill();
-        reject(new Error("Script execution timed out"));
-      }, config.timeout);
+    return defaultShellScriptRunner.run({
+      script: config.script,
+      timeoutMs: config.timeout,
+      cwd: config.cwd,
+      env: config.env,
     });
-
-    const safeEnv: Record<string, string> = {};
-    for (const key of SAFE_ENV_VARS) {
-      if (process.env[key] !== undefined) {
-        safeEnv[key] = process.env[key]!;
-      }
-    }
-
-    try {
-      proc = spawn({
-        cmd: [config.command, ...config.args],
-        cwd: config.cwd,
-        env: { ...safeEnv, ...config.env },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-
-      const [stdout, stderr, exitCode] = await Promise.race([
-        Promise.all([
-          new Response(proc.stdout as ReadableStream).text(),
-          new Response(proc.stderr as ReadableStream).text(),
-          proc.exited,
-        ]),
-        timeoutPromise,
-      ]);
-
-      return {
-        exitCode,
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-        timedOut: false,
-      };
-    } catch (error) {
-      if (timedOut) {
-        return {
-          exitCode: -1,
-          stdout: "",
-          stderr: "Script execution timed out",
-          timedOut: true,
-        };
-      }
-      throw error;
-    }
   },
 };
 
@@ -310,8 +256,7 @@ export class ScriptHealthCheckStrategy implements HealthCheckStrategy<
       exec: async (request: ScriptRequest): Promise<ScriptResultType> => {
         try {
           const result = await this.executor.execute({
-            command: request.command,
-            args: request.args,
+            script: request.script,
             cwd: request.cwd,
             env: request.env,
             timeout: request.timeout,

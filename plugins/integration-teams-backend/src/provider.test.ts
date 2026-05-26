@@ -4,7 +4,7 @@ import {
   TeamsConnectionSchema,
   TeamsSubscriptionSchema,
   buildAdaptiveCard,
-} from "./index";
+} from "./provider";
 
 /**
  * Unit tests for the Microsoft Teams Integration Provider.

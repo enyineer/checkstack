@@ -13,6 +13,8 @@ import {
   Textarea,
   DynamicForm,
   DynamicIcon,
+  integrationScriptContext,
+  type JsonSchemaProperty,
   useToast,
   Select,
   SelectContent,
@@ -102,6 +104,21 @@ export const SubscriptionDialog = ({
 
   const payloadProperties: PayloadProperty[] =
     payloadSchemaData?.availableProperties ?? [];
+
+  // Build the editor IntelliSense + starter-template + shell-env-var
+  // bundle for this event. When the payload schema isn't available yet,
+  // we still get the result-shape virtual module and the platform-injected
+  // env vars (EVENT_ID, DELIVERY_ID, ...) — just no per-payload-field
+  // PAYLOAD_* hints. Recomputes only when the schema actually changes.
+  const editorScriptContext = useMemo(
+    () =>
+      integrationScriptContext({
+        eventPayloadSchema: payloadSchemaData?.payloadSchema as
+          | JsonSchemaProperty
+          | undefined,
+      }),
+    [payloadSchemaData?.payloadSchema],
+  );
 
   // Mutations
   const createMutation = client.createSubscription.useMutation({
@@ -537,6 +554,11 @@ export const SubscriptionDialog = ({
                             onValidChange={setProviderConfigValid}
                             optionsResolvers={optionsResolvers}
                             templateProperties={payloadProperties}
+                            typeDefinitions={editorScriptContext.typeDefinitions}
+                            shellEnvVars={editorScriptContext.shellEnvVars}
+                            starterTemplates={
+                              editorScriptContext.starterTemplates
+                            }
                           />
                         </div>
                       </div>

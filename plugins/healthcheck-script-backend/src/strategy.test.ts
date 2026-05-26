@@ -2,7 +2,6 @@ import { describe, expect, it, mock } from "bun:test";
 import { ScriptHealthCheckStrategy, ScriptExecutor } from "./strategy";
 
 describe("ScriptHealthCheckStrategy", () => {
-  // Helper to create mock Script executor
   const createMockExecutor = (
     config: {
       exitCode?: number;
@@ -50,8 +49,7 @@ describe("ScriptHealthCheckStrategy", () => {
       const connectedClient = await strategy.createClient({ timeout: 5000 });
 
       const result = await connectedClient.client.exec({
-        command: "/usr/bin/true",
-        args: [],
+        script: "true",
         timeout: 5000,
       });
 
@@ -68,8 +66,7 @@ describe("ScriptHealthCheckStrategy", () => {
       const connectedClient = await strategy.createClient({ timeout: 5000 });
 
       const result = await connectedClient.client.exec({
-        command: "/usr/bin/false",
-        args: [],
+        script: "false",
         timeout: 5000,
       });
 
@@ -85,8 +82,7 @@ describe("ScriptHealthCheckStrategy", () => {
       const connectedClient = await strategy.createClient({ timeout: 5000 });
 
       const result = await connectedClient.client.exec({
-        command: "sleep",
-        args: ["60"],
+        script: "sleep 60",
         timeout: 1000,
       });
 
@@ -102,8 +98,7 @@ describe("ScriptHealthCheckStrategy", () => {
       const connectedClient = await strategy.createClient({ timeout: 5000 });
 
       const result = await connectedClient.client.exec({
-        command: "nonexistent-command",
-        args: [],
+        script: "no-such-binary-anywhere",
         timeout: 5000,
       });
 
@@ -112,14 +107,13 @@ describe("ScriptHealthCheckStrategy", () => {
       connectedClient.close();
     });
 
-    it("should pass arguments, cwd, and env to executor", async () => {
+    it("should pass script, cwd and env through to executor", async () => {
       const mockExecutor = createMockExecutor({ exitCode: 0 });
       const strategy = new ScriptHealthCheckStrategy(mockExecutor);
       const connectedClient = await strategy.createClient({ timeout: 5000 });
 
       await connectedClient.client.exec({
-        command: "./check.sh",
-        args: ["--verbose", "--env=prod"],
+        script: "./check.sh --verbose --env=prod",
         cwd: "/opt/scripts",
         env: { API_KEY: "secret" },
         timeout: 5000,
@@ -127,8 +121,7 @@ describe("ScriptHealthCheckStrategy", () => {
 
       expect(mockExecutor.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          command: "./check.sh",
-          args: ["--verbose", "--env=prod"],
+          script: "./check.sh --verbose --env=prod",
           cwd: "/opt/scripts",
           env: { API_KEY: "secret" },
         }),

@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { Versioned, configNumber, configString } from "@checkstack/backend-api";
+import {
+  Versioned,
+  configNumber,
+  configString,
+  requestTimeoutMs,
+} from "@checkstack/backend-api";
 import type {
   IntegrationProvider,
   IntegrationDeliveryContext,
@@ -107,11 +112,7 @@ export const webhookConfigSchemaV1 = z.object({
       "Custom request body template. Use {{payload.field}} syntax to include event data. Leave empty for default JSON payload.",
     ),
 
-  timeout: configNumber({})
-    .min(1000)
-    .max(60_000)
-    .default(10_000)
-    .describe("Request timeout in milliseconds"),
+  timeout: requestTimeoutMs().describe("Request timeout in milliseconds"),
   retryOnStatus: z
     .array(configNumber({}))
     .optional()

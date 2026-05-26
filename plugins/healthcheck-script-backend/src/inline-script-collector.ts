@@ -2,7 +2,9 @@ import {
   Versioned,
   z,
   configString,
-  configNumber,
+  requestTimeoutMs,
+  defaultEsmScriptRunner,
+  type EsmScriptRunResult,
   type HealthCheckRunForAggregation,
   type CollectorResult,
   type CollectorStrategy,
@@ -24,166 +26,57 @@ import type { ScriptTransportClient } from "./transport-client";
 import { extractErrorMessage } from "@checkstack/common";
 
 // ============================================================================
-// SCRIPT EXECUTION UTILITIES (shared with integration-script-backend pattern)
+// EXECUTOR ADAPTER
 // ============================================================================
+//
+// The collector keeps its own injectable `InlineScriptExecutor`
+// interface for backwards-compatible test mocks. In production it
+// wraps the shared `EsmScriptRunner` from `@checkstack/backend-api` —
+// the canonical subprocess sandbox shared with the integration-script
+// provider. See `core/backend-api/src/esm-script-runner.ts` for the
+// isolation + cleanup model.
 
 /**
- * Context available to inline scripts.
+ * Shape returned by an inline-script executor. Mirrors
+ * `EsmScriptRunResult` from the shared runner, kept as a separate
+ * interface so the test surface of this collector doesn't have to
+ * import from backend-api just to construct a mock.
  */
-interface ScriptContext {
-  /** Health check configuration */
-  config: Record<string, unknown>;
-  /** Fetch API for HTTP requests */
-  fetch: typeof fetch;
-}
-
-/**
- * Safe console interface for scripts.
- */
-interface SafeConsole {
-  log: (...args: unknown[]) => void;
-  warn: (...args: unknown[]) => void;
-  error: (...args: unknown[]) => void;
-  info: (...args: unknown[]) => void;
-}
-
-/**
- * Expected return type from health check scripts.
- */
-interface ScriptHealthResult {
-  /** Whether the health check passed */
-  success: boolean;
-  /** Optional message describing the result */
-  message?: string;
-  /** Optional numeric value for metrics */
-  value?: number;
-}
-
-/**
- * Execute an inline script with the given context.
- */
-async function executeInlineScript({
-  script,
-  context,
-  safeConsole,
-  timeoutMs,
-}: {
-  script: string;
-  context: ScriptContext;
-  safeConsole: SafeConsole;
-  timeoutMs: number;
-}): Promise<{
-  result: ScriptHealthResult | undefined;
+export interface InlineScriptExecutionResult {
+  result?: unknown;
   error?: string;
+  stack?: string;
+  stdout: string;
+  stderr: string;
   timedOut: boolean;
-}> {
-  try {
-    // SECURITY: Execute in isolated Worker to prevent access to process, require, Bun, etc.
-    const workerCode = `
-      self.onmessage = async (event) => {
-        const { script, config } = event.data;
-        const logs = [];
-        const safeConsole = {
-          log: (...args) => logs.push(args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ")),
-          warn: (...args) => logs.push("[WARN] " + args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ")),
-          error: (...args) => logs.push("[ERROR] " + args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ")),
-          info: (...args) => logs.push("[INFO] " + args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ")),
-        };
-        const context = { config, fetch: globalThis.fetch };
-        try {
-          const fn = new Function("context", "console", "fetch",
-            "return (async () => { " + script + " })();"
-          );
-          const result = await fn(context, safeConsole, globalThis.fetch);
-          self.postMessage({ result, logs });
-        } catch (error) {
-          self.postMessage({ error: error.message, logs });
-        }
-      };
-    `;
-    const blob = new Blob([workerCode], { type: "application/javascript" });
-    const workerUrl = URL.createObjectURL(blob);
-    const worker = new Worker(workerUrl);
-
-    const workerResult = await Promise.race([
-      new Promise<{ result?: unknown; error?: string; logs: string[] }>(
-        (resolve) => {
-          worker.addEventListener("message", (event: MessageEvent) =>
-            resolve(event.data),
-          );
-          worker.postMessage({ script, config: context.config });
-        },
-      ),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("__TIMEOUT__")), timeoutMs),
-      ),
-    ]);
-
-    worker.terminate();
-    URL.revokeObjectURL(workerUrl);
-
-    // Replay logs into the outer safeConsole
-    if (workerResult.logs && Array.isArray(workerResult.logs)) {
-      for (const logLine of workerResult.logs) {
-        if (logLine.startsWith("[WARN] ")) {
-          safeConsole.warn(logLine.slice(7));
-        } else if (logLine.startsWith("[ERROR] ")) {
-          safeConsole.error(logLine.slice(8));
-        } else if (logLine.startsWith("[INFO] ")) {
-          safeConsole.info(logLine.slice(7));
-        } else {
-          safeConsole.log(logLine);
-        }
-      }
-    }
-
-    if (workerResult.error) {
-      throw new Error(workerResult.error);
-    }
-
-    const { result } = workerResult;
-
-    // Normalize result
-    if (result === undefined || result === null) {
-      return { result: { success: true }, timedOut: false };
-    }
-
-    if (typeof result === "boolean") {
-      return { result: { success: result }, timedOut: false };
-    }
-
-    if (typeof result === "object") {
-      const resultObj = result as Record<string, unknown>;
-      return {
-        result: {
-          success: Boolean(resultObj.success ?? true),
-          message:
-            typeof resultObj.message === "string"
-              ? resultObj.message
-              : undefined,
-          value:
-            typeof resultObj.value === "number" ? resultObj.value : undefined,
-        },
-        timedOut: false,
-      };
-    }
-
-    return {
-      result: { success: true, message: String(result) },
-      timedOut: false,
-    };
-  } catch (error) {
-    const message = extractErrorMessage(error);
-    if (message === "__TIMEOUT__") {
-      return {
-        result: undefined,
-        error: "Script execution timed out",
-        timedOut: true,
-      };
-    }
-    return { result: undefined, error: message, timedOut: false };
-  }
 }
+
+export interface InlineScriptExecutor {
+  execute(input: {
+    script: string;
+    config: Record<string, unknown>;
+    timeoutMs: number;
+  }): Promise<InlineScriptExecutionResult>;
+}
+
+/**
+ * Default executor — delegates to the shared `EsmScriptRunner`. Wires
+ * `globalThis.context = { config }` (the inline-health-check runtime
+ * surface) and the virtual `@checkstack/healthcheck` module / global
+ * `defineHealthCheck` helper.
+ */
+const defaultInlineScriptExecutor: InlineScriptExecutor = {
+  async execute({ script, config, timeoutMs }) {
+    const res: EsmScriptRunResult = await defaultEsmScriptRunner.run({
+      script,
+      context: { config },
+      timeoutMs,
+      helperModuleName: "@checkstack/healthcheck",
+      helperFunctionName: "defineHealthCheck",
+    });
+    return res;
+  },
+};
 
 // ============================================================================
 // CONFIGURATION SCHEMA
@@ -193,13 +86,9 @@ const inlineScriptConfigSchema = z.object({
   script: configString({
     "x-editor-types": ["typescript"],
   }).describe(
-    "TypeScript/JavaScript code to execute. Return { success: boolean, message?: string, value?: number }",
+    "TypeScript/JavaScript module. Use `import { ... } from \"node:os\"` to pull in Node built-ins. The recommended pattern is `export default defineHealthCheck({ success, message?, value? })` — `defineHealthCheck` is provided by `@checkstack/healthcheck` and asserts the return shape at the type level. Throwing also signals failure.",
   ),
-  timeout: configNumber({})
-    .min(1000)
-    .max(60_000)
-    .default(10_000)
-    .describe("Maximum execution time in milliseconds"),
+  timeout: requestTimeoutMs().describe("Maximum execution time in milliseconds"),
 });
 
 export type InlineScriptConfig = z.infer<typeof inlineScriptConfigSchema>;
@@ -271,35 +160,69 @@ export type InlineScriptAggregatedResult = InferAggregatedResult<
 >;
 
 // ============================================================================
+// RESULT NORMALISATION
+// ============================================================================
+
+interface NormalisedScriptResult {
+  success: boolean;
+  message?: string;
+  value?: number;
+}
+
+function normaliseScriptReturn(raw: unknown): NormalisedScriptResult {
+  if (raw === undefined || raw === null) {
+    return { success: true };
+  }
+  if (typeof raw === "boolean") {
+    return { success: raw };
+  }
+  if (typeof raw === "number") {
+    return { success: true, value: raw };
+  }
+  if (typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    return {
+      success: typeof obj.success === "boolean" ? obj.success : true,
+      message: typeof obj.message === "string" ? obj.message : undefined,
+      value: typeof obj.value === "number" ? obj.value : undefined,
+    };
+  }
+  return { success: true, message: String(raw) };
+}
+
+// ============================================================================
 // INLINE SCRIPT COLLECTOR
 // ============================================================================
 
 /**
  * Inline Script collector for health checks.
- * Executes TypeScript/JavaScript code directly and checks the result.
  *
- * Scripts should return an object with:
- * - success: boolean - Whether the check passed
- * - message?: string - Optional status message
- * - value?: number - Optional numeric value for metrics
+ * The user writes a TypeScript/JavaScript ES module. It can `import` from
+ * Node built-ins (`node:os`, `node:fs/promises`, `node:child_process`,
+ * `node:crypto`, ...), use top-level `await`, and signal its result either
+ * via `export default` or — for backwards compatibility — a top-level
+ * `return X;`. `globalThis.context` exposes `{ config }` for access to the
+ * collector configuration.
  *
- * Scripts have access to:
- * - context.config - The collector configuration
- * - console.log/warn/error - Logging functions
- * - fetch - HTTP client for making requests
+ * Subprocess isolation, env scrubbing, temp-dir lifecycle and result
+ * marshalling all live in the shared `EsmScriptRunner` in
+ * `@checkstack/backend-api`. This collector is just the schema +
+ * result-shape glue.
  *
- * @example
- * ```typescript
- * // Simple check
- * return { success: true, message: "All good!" };
- *
- * // HTTP health check
- * const response = await fetch("https://api.example.com/health");
- * return {
- *   success: response.ok,
- *   message: `Status: ${response.status}`,
- *   value: response.status
+ * @example Modern (ES module)
+ * ```ts
+ * import { loadavg } from "node:os";
+ * const load = loadavg()[0];
+ * export default {
+ *   success: load < 0.6,
+ *   message: `Load: ${load.toFixed(2)}`,
+ *   value: load,
  * };
+ * ```
+ *
+ * @example Legacy (still works)
+ * ```ts
+ * return { success: true, message: "All good!" };
  * ```
  */
 export class InlineScriptCollector implements CollectorStrategy<
@@ -323,6 +246,12 @@ export class InlineScriptCollector implements CollectorStrategy<
     fields: inlineScriptAggregatedFields,
   });
 
+  private executor: InlineScriptExecutor;
+
+  constructor(executor: InlineScriptExecutor = defaultInlineScriptExecutor) {
+    this.executor = executor;
+  }
+
   async execute({
     config,
   }: {
@@ -332,74 +261,68 @@ export class InlineScriptCollector implements CollectorStrategy<
   }): Promise<CollectorResult<InlineScriptResult>> {
     const startTime = Date.now();
 
-    // Build context for the script
-    const scriptContext: ScriptContext = {
-      config: config as unknown as Record<string, unknown>,
-      fetch,
-    };
-
-    // Create a safe console that captures logs
-    const logs: string[] = [];
-    const safeConsole: SafeConsole = {
-      log: (...args) => {
-        logs.push(
-          args
-            .map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a)))
-            .join(" "),
-        );
-      },
-      warn: (...args) => {
-        logs.push(
-          `[WARN] ${args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ")}`,
-        );
-      },
-      error: (...args) => {
-        logs.push(
-          `[ERROR] ${args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ")}`,
-        );
-      },
-      info: (...args) => {
-        logs.push(
-          `[INFO] ${args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ")}`,
-        );
-      },
-    };
-
-    // Execute the script
-    const { result, error, timedOut } = await executeInlineScript({
-      script: config.script,
-      context: scriptContext,
-      safeConsole,
-      timeoutMs: config.timeout,
-    });
-
-    const executionTimeMs = Date.now() - startTime;
-
-    if (error) {
+    let exec: InlineScriptExecutionResult;
+    try {
+      exec = await this.executor.execute({
+        script: config.script,
+        config: config as unknown as Record<string, unknown>,
+        timeoutMs: config.timeout,
+      });
+    } catch (error) {
+      const executionTimeMs = Date.now() - startTime;
+      const message = extractErrorMessage(error);
       return {
         result: {
           success: false,
-          message: error,
+          message,
           executionTimeMs,
-          timedOut,
+          timedOut: false,
         },
-        error,
+        error: message,
       };
     }
 
+    const executionTimeMs = Date.now() - startTime;
+
+    if (exec.timedOut) {
+      return {
+        result: {
+          success: false,
+          message: exec.error ?? "Script execution timed out",
+          executionTimeMs,
+          timedOut: true,
+        },
+        error: exec.error ?? "Script execution timed out",
+      };
+    }
+
+    if (exec.error !== undefined) {
+      return {
+        result: {
+          success: false,
+          message: exec.error,
+          executionTimeMs,
+          timedOut: false,
+        },
+        error: exec.error,
+      };
+    }
+
+    const normalised = normaliseScriptReturn(exec.result);
+    const fallbackMessage =
+      exec.stdout.length > 0 ? exec.stdout : undefined;
+
     return {
       result: {
-        success: result?.success ?? true,
-        message:
-          result?.message ?? (logs.length > 0 ? logs.join("\n") : undefined),
-        value: result?.value,
+        success: normalised.success,
+        message: normalised.message ?? fallbackMessage,
+        value: normalised.value,
         executionTimeMs,
         timedOut: false,
       },
-      error:
-        result?.success === false
-          ? (result.message ?? "Check failed")
-          : undefined,
+      error: normalised.success
+        ? undefined
+        : (normalised.message ?? "Check failed"),
     };
   }
 

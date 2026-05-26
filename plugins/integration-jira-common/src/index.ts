@@ -1,30 +1,19 @@
 // Plugin Metadata
 export { pluginMetadata } from "./plugin-metadata";
 
-// Schemas
+// API response schemas
 export {
-  // Legacy connection schemas (deprecated - use generic connection management)
-  JiraConnectionSchema,
-  type JiraConnection,
-  CreateJiraConnectionInputSchema,
-  type CreateJiraConnectionInput,
-  UpdateJiraConnectionInputSchema,
-  type UpdateJiraConnectionInput,
-  JiraConnectionRedactedSchema,
-  type JiraConnectionRedacted,
-  // API response schemas
   JiraProjectSchema,
   type JiraProject,
   JiraIssueTypeSchema,
   type JiraIssueType,
   JiraFieldSchema,
   type JiraField,
-  // Subscription config schemas
-  JiraFieldMappingSchema,
-  type JiraFieldMapping,
-  JiraSubscriptionConfigSchema,
-  type JiraSubscriptionConfig,
 } from "./schemas";
 
-// RPC Contract
-export { jiraContract, JiraApi, type JiraContract } from "./rpc-contract";
+// Note: a Jira-specific RPC contract (`jiraContract` / `JiraApi`) used
+// to live here for connection-CRUD endpoints, but it was never
+// registered with the backend router and had zero client consumers.
+// Connection management goes through the generic integration contract
+// in `@checkstack/integration-common`; nothing Jira-specific is
+// served over RPC today.

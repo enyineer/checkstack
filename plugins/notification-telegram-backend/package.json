@@ -5,11 +5,7 @@
   "main": "src/index.ts",
   "checkstack": {
     "type": "backend",
-    "pluginId": "notification-telegram",
-    "bundle": [
-      "@checkstack/notification-telegram-common",
-      "@checkstack/notification-telegram-frontend"
-    ]
+    "pluginId": "notification-telegram"
   },
   "exports": {
     ".": "./src/index.ts",

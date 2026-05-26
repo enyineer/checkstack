@@ -13,6 +13,8 @@ export type {
   OptionsResolver,
   ResolverOption,
   EditorType,
+  ShellEnvVar,
+  EditorStarterTemplates,
 } from "./types";
 
 // Utility functions

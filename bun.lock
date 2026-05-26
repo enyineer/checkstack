@@ -37,7 +37,7 @@
     },
     "core/about-frontend": {
       "name": "@checkstack/about-frontend",
-      "version": "0.2.18",
+      "version": "0.2.19",
       "dependencies": {
         "@checkstack/about-common": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -56,7 +56,7 @@
     },
     "core/announcement-backend": {
       "name": "@checkstack/announcement-backend",
-      "version": "0.3.6",
+      "version": "0.3.7",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/auth-backend": "workspace:*",
@@ -97,7 +97,7 @@
     },
     "core/announcement-frontend": {
       "name": "@checkstack/announcement-frontend",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/auth-frontend": "workspace:*",
@@ -120,7 +120,7 @@
     },
     "core/anomaly-backend": {
       "name": "@checkstack/anomaly-backend",
-      "version": "1.1.2",
+      "version": "1.1.3",
       "dependencies": {
         "@checkstack/anomaly-common": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
@@ -170,7 +170,7 @@
     },
     "core/anomaly-frontend": {
       "name": "@checkstack/anomaly-frontend",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "dependencies": {
         "@checkstack/anomaly-common": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
@@ -209,7 +209,7 @@
     },
     "core/api-docs-frontend": {
       "name": "@checkstack/api-docs-frontend",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "dependencies": {
         "@checkstack/api-docs-common": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -228,7 +228,7 @@
     },
     "core/auth-backend": {
       "name": "@checkstack/auth-backend",
-      "version": "0.4.26",
+      "version": "0.4.27",
       "dependencies": {
         "@checkstack/auth-common": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
@@ -268,7 +268,7 @@
     },
     "core/auth-frontend": {
       "name": "@checkstack/auth-frontend",
-      "version": "0.6.2",
+      "version": "0.6.3",
       "dependencies": {
         "@checkstack/auth-common": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -290,7 +290,7 @@
     },
     "core/backend": {
       "name": "@checkstack/backend",
-      "version": "0.10.0",
+      "version": "0.10.1",
       "dependencies": {
         "@checkstack/api-docs-common": "workspace:*",
         "@checkstack/auth-common": "workspace:*",
@@ -330,7 +330,7 @@
     },
     "core/backend-api": {
       "name": "@checkstack/backend-api",
-      "version": "0.15.2",
+      "version": "0.15.3",
       "dependencies": {
         "@checkstack/cache-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -359,7 +359,7 @@
     },
     "core/cache-api": {
       "name": "@checkstack/cache-api",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "zod": "^4.0.0",
@@ -371,7 +371,7 @@
     },
     "core/cache-backend": {
       "name": "@checkstack/cache-backend",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/cache-api": "workspace:*",
@@ -402,7 +402,7 @@
     },
     "core/cache-frontend": {
       "name": "@checkstack/cache-frontend",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "dependencies": {
         "@checkstack/cache-common": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -421,7 +421,7 @@
     },
     "core/cache-utils": {
       "name": "@checkstack/cache-utils",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "dependencies": {
         "@checkstack/cache-api": "workspace:*",
       },
@@ -434,7 +434,7 @@
     },
     "core/catalog-backend": {
       "name": "@checkstack/catalog-backend",
-      "version": "1.1.2",
+      "version": "1.1.3",
       "dependencies": {
         "@checkstack/auth-backend": "workspace:*",
         "@checkstack/auth-common": "workspace:*",
@@ -482,7 +482,7 @@
     },
     "core/catalog-frontend": {
       "name": "@checkstack/catalog-frontend",
-      "version": "0.10.2",
+      "version": "0.10.3",
       "dependencies": {
         "@checkstack/auth-common": "workspace:*",
         "@checkstack/auth-frontend": "workspace:*",
@@ -509,7 +509,7 @@
     },
     "core/command-backend": {
       "name": "@checkstack/command-backend",
-      "version": "0.1.26",
+      "version": "0.1.27",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/command-common": "workspace:*",
@@ -541,7 +541,7 @@
     },
     "core/command-frontend": {
       "name": "@checkstack/command-frontend",
-      "version": "0.2.37",
+      "version": "0.2.38",
       "dependencies": {
         "@checkstack/command-common": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -574,7 +574,7 @@
     },
     "core/dashboard-frontend": {
       "name": "@checkstack/dashboard-frontend",
-      "version": "0.7.2",
+      "version": "0.7.3",
       "dependencies": {
         "@checkstack/anomaly-common": "workspace:*",
         "@checkstack/auth-frontend": "workspace:*",
@@ -607,7 +607,7 @@
     },
     "core/dependency-backend": {
       "name": "@checkstack/dependency-backend",
-      "version": "1.1.2",
+      "version": "1.1.3",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/catalog-backend": "workspace:*",
@@ -656,7 +656,7 @@
     },
     "core/dependency-frontend": {
       "name": "@checkstack/dependency-frontend",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "dependencies": {
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -717,7 +717,7 @@
     },
     "core/frontend": {
       "name": "@checkstack/frontend",
-      "version": "0.6.1",
+      "version": "0.6.2",
       "dependencies": {
         "@checkstack/about-frontend": "workspace:*",
         "@checkstack/announcement-frontend": "workspace:*",
@@ -780,7 +780,7 @@
     },
     "core/gitops-backend": {
       "name": "@checkstack/gitops-backend",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/command-backend": "workspace:*",
@@ -820,7 +820,7 @@
     },
     "core/gitops-frontend": {
       "name": "@checkstack/gitops-frontend",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
@@ -840,7 +840,7 @@
     },
     "core/healthcheck-backend": {
       "name": "@checkstack/healthcheck-backend",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/cache-api": "workspace:*",
@@ -896,7 +896,7 @@
     },
     "core/healthcheck-frontend": {
       "name": "@checkstack/healthcheck-frontend",
-      "version": "0.19.2",
+      "version": "0.19.3",
       "dependencies": {
         "@checkstack/anomaly-common": "workspace:*",
         "@checkstack/auth-frontend": "workspace:*",
@@ -929,7 +929,7 @@
     },
     "core/incident-backend": {
       "name": "@checkstack/incident-backend",
-      "version": "1.1.2",
+      "version": "1.1.3",
       "dependencies": {
         "@checkstack/auth-common": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
@@ -978,7 +978,7 @@
     },
     "core/incident-frontend": {
       "name": "@checkstack/incident-frontend",
-      "version": "0.8.2",
+      "version": "0.8.3",
       "dependencies": {
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
@@ -1020,7 +1020,7 @@
     },
     "core/infrastructure-frontend": {
       "name": "@checkstack/infrastructure-frontend",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
@@ -1039,7 +1039,7 @@
     },
     "core/integration-backend": {
       "name": "@checkstack/integration-backend",
-      "version": "0.1.26",
+      "version": "0.1.27",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/command-backend": "workspace:*",
@@ -1078,7 +1078,7 @@
     },
     "core/integration-frontend": {
       "name": "@checkstack/integration-frontend",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
@@ -1099,7 +1099,7 @@
     },
     "core/maintenance-backend": {
       "name": "@checkstack/maintenance-backend",
-      "version": "1.1.2",
+      "version": "1.1.3",
       "dependencies": {
         "@checkstack/auth-common": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
@@ -1148,7 +1148,7 @@
     },
     "core/maintenance-frontend": {
       "name": "@checkstack/maintenance-frontend",
-      "version": "0.7.2",
+      "version": "0.7.3",
       "dependencies": {
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
@@ -1175,7 +1175,7 @@
     },
     "core/notification-backend": {
       "name": "@checkstack/notification-backend",
-      "version": "1.0.4",
+      "version": "1.0.5",
       "dependencies": {
         "@checkstack/auth-backend": "workspace:*",
         "@checkstack/auth-common": "workspace:*",
@@ -1217,7 +1217,7 @@
     },
     "core/notification-frontend": {
       "name": "@checkstack/notification-frontend",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "dependencies": {
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -1252,7 +1252,7 @@
     },
     "core/pluginmanager-frontend": {
       "name": "@checkstack/pluginmanager-frontend",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
@@ -1272,7 +1272,7 @@
     },
     "core/queue-api": {
       "name": "@checkstack/queue-api",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "zod": "^4.0.0",
@@ -1284,7 +1284,7 @@
     },
     "core/queue-backend": {
       "name": "@checkstack/queue-backend",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -1318,7 +1318,7 @@
     },
     "core/queue-frontend": {
       "name": "@checkstack/queue-frontend",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
@@ -1342,11 +1342,11 @@
     },
     "core/release": {
       "name": "@checkstack/release",
-      "version": "0.84.0",
+      "version": "0.85.0",
     },
     "core/satellite": {
       "name": "@checkstack/satellite",
-      "version": "0.2.7",
+      "version": "0.2.8",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -1361,7 +1361,7 @@
     },
     "core/satellite-backend": {
       "name": "@checkstack/satellite-backend",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -1404,7 +1404,7 @@
     },
     "core/satellite-frontend": {
       "name": "@checkstack/satellite-frontend",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
@@ -1446,7 +1446,7 @@
     },
     "core/signal-backend": {
       "name": "@checkstack/signal-backend",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -1491,7 +1491,7 @@
     },
     "core/slo-backend": {
       "name": "@checkstack/slo-backend",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/cache-api": "workspace:*",
@@ -1542,7 +1542,7 @@
     },
     "core/slo-frontend": {
       "name": "@checkstack/slo-frontend",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "dependencies": {
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -1569,7 +1569,7 @@
     },
     "core/test-utils-backend": {
       "name": "@checkstack/test-utils-backend",
-      "version": "0.1.26",
+      "version": "0.1.27",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -1605,7 +1605,7 @@
     },
     "core/theme-backend": {
       "name": "@checkstack/theme-backend",
-      "version": "0.1.30",
+      "version": "0.1.31",
       "dependencies": {
         "@checkstack/auth-backend": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
@@ -1641,7 +1641,7 @@
     },
     "core/theme-frontend": {
       "name": "@checkstack/theme-frontend",
-      "version": "0.1.40",
+      "version": "0.1.41",
       "dependencies": {
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -1660,7 +1660,7 @@
     },
     "core/tips-backend": {
       "name": "@checkstack/tips-backend",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "dependencies": {
         "@checkstack/auth-backend": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
@@ -1696,7 +1696,7 @@
     },
     "core/tips-frontend": {
       "name": "@checkstack/tips-frontend",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "dependencies": {
         "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -1723,7 +1723,7 @@
     },
     "core/ui": {
       "name": "@checkstack/ui",
-      "version": "1.8.2",
+      "version": "1.8.3",
       "dependencies": {
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
@@ -1759,10 +1759,13 @@
         "@storybook/react": "^10.3.6",
         "@storybook/react-vite": "^10.3.6",
         "@testing-library/react": "^16.0.0",
+        "@types/bun": "^1.3.14",
+        "@types/node": "^20.19.27",
         "@types/react": "^18.2.0",
         "@types/react-dom": "^18.2.0",
         "@vitejs/plugin-react": "^6.0.1",
         "autoprefixer": "^10.4.18",
+        "bun-types": "^1.3.14",
         "postcss": "^8.4.35",
         "storybook": "^10.3.6",
         "tailwindcss": "^3.4.1",
@@ -1785,7 +1788,7 @@
     },
     "plugins/auth-credential-backend": {
       "name": "@checkstack/auth-credential-backend",
-      "version": "0.0.35",
+      "version": "0.0.36",
       "dependencies": {
         "@checkstack/auth-backend": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
@@ -1799,7 +1802,7 @@
     },
     "plugins/auth-github-backend": {
       "name": "@checkstack/auth-github-backend",
-      "version": "0.0.35",
+      "version": "0.0.36",
       "dependencies": {
         "@checkstack/auth-backend": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
@@ -1813,7 +1816,7 @@
     },
     "plugins/auth-ldap-backend": {
       "name": "@checkstack/auth-ldap-backend",
-      "version": "0.1.27",
+      "version": "0.1.28",
       "dependencies": {
         "@checkstack/auth-backend": "workspace:*",
         "@checkstack/auth-common": "workspace:*",
@@ -1832,14 +1835,14 @@
     },
     "plugins/auth-saml-backend": {
       "name": "@checkstack/auth-saml-backend",
-      "version": "0.1.26",
+      "version": "0.1.27",
       "dependencies": {
         "@checkstack/auth-backend": "workspace:*",
         "@checkstack/auth-common": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
         "better-auth": "^1.4.9",
-        "samlify": "^2.12.0",
+        "samlify": "^2.13.1",
         "zod": "^4.0.0",
       },
       "devDependencies": {
@@ -1850,7 +1853,7 @@
     },
     "plugins/cache-memory-backend": {
       "name": "@checkstack/cache-memory-backend",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/cache-api": "workspace:*",
@@ -1877,7 +1880,7 @@
     },
     "plugins/collector-hardware-backend": {
       "name": "@checkstack/collector-hardware-backend",
-      "version": "0.1.31",
+      "version": "0.1.32",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -1893,7 +1896,7 @@
     },
     "plugins/healthcheck-dns-backend": {
       "name": "@checkstack/healthcheck-dns-backend",
-      "version": "0.2.16",
+      "version": "0.2.17",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -1908,12 +1911,12 @@
     },
     "plugins/healthcheck-grpc-backend": {
       "name": "@checkstack/healthcheck-grpc-backend",
-      "version": "0.2.16",
+      "version": "0.2.17",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
-        "@grpc/grpc-js": "^1.9.0",
+        "@grpc/grpc-js": "^1.14.4",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
@@ -1924,7 +1927,7 @@
     },
     "plugins/healthcheck-http-backend": {
       "name": "@checkstack/healthcheck-http-backend",
-      "version": "0.3.16",
+      "version": "0.3.17",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -1940,7 +1943,7 @@
     },
     "plugins/healthcheck-jenkins-backend": {
       "name": "@checkstack/healthcheck-jenkins-backend",
-      "version": "0.3.17",
+      "version": "0.3.18",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -1955,7 +1958,7 @@
     },
     "plugins/healthcheck-mysql-backend": {
       "name": "@checkstack/healthcheck-mysql-backend",
-      "version": "0.2.16",
+      "version": "0.2.17",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -1971,7 +1974,7 @@
     },
     "plugins/healthcheck-ping-backend": {
       "name": "@checkstack/healthcheck-ping-backend",
-      "version": "0.2.16",
+      "version": "0.2.17",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -1986,7 +1989,7 @@
     },
     "plugins/healthcheck-postgres-backend": {
       "name": "@checkstack/healthcheck-postgres-backend",
-      "version": "0.2.16",
+      "version": "0.2.17",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2003,7 +2006,7 @@
     },
     "plugins/healthcheck-rcon-backend": {
       "name": "@checkstack/healthcheck-rcon-backend",
-      "version": "0.3.16",
+      "version": "0.3.17",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2033,7 +2036,7 @@
     },
     "plugins/healthcheck-redis-backend": {
       "name": "@checkstack/healthcheck-redis-backend",
-      "version": "0.2.16",
+      "version": "0.2.17",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2049,7 +2052,7 @@
     },
     "plugins/healthcheck-script-backend": {
       "name": "@checkstack/healthcheck-script-backend",
-      "version": "0.3.16",
+      "version": "0.3.17",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2064,7 +2067,7 @@
     },
     "plugins/healthcheck-ssh-backend": {
       "name": "@checkstack/healthcheck-ssh-backend",
-      "version": "0.2.16",
+      "version": "0.2.17",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2095,7 +2098,7 @@
     },
     "plugins/healthcheck-tcp-backend": {
       "name": "@checkstack/healthcheck-tcp-backend",
-      "version": "0.2.16",
+      "version": "0.2.17",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2110,7 +2113,7 @@
     },
     "plugins/healthcheck-tls-backend": {
       "name": "@checkstack/healthcheck-tls-backend",
-      "version": "0.2.16",
+      "version": "0.2.17",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2125,7 +2128,7 @@
     },
     "plugins/integration-jira-backend": {
       "name": "@checkstack/integration-jira-backend",
-      "version": "0.1.11",
+      "version": "0.1.12",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2147,8 +2150,6 @@
       "version": "0.1.14",
       "dependencies": {
         "@checkstack/common": "workspace:*",
-        "@checkstack/integration-common": "workspace:*",
-        "@orpc/contract": "^1.13.14",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -2160,7 +2161,7 @@
     },
     "plugins/integration-script-backend": {
       "name": "@checkstack/integration-script-backend",
-      "version": "0.2.17",
+      "version": "0.2.18",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2177,7 +2178,7 @@
     },
     "plugins/integration-teams-backend": {
       "name": "@checkstack/integration-teams-backend",
-      "version": "0.0.31",
+      "version": "0.0.32",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2192,7 +2193,7 @@
     },
     "plugins/integration-webex-backend": {
       "name": "@checkstack/integration-webex-backend",
-      "version": "0.0.31",
+      "version": "0.0.32",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2207,7 +2208,7 @@
     },
     "plugins/integration-webhook-backend": {
       "name": "@checkstack/integration-webhook-backend",
-      "version": "0.0.31",
+      "version": "0.0.32",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2224,7 +2225,7 @@
     },
     "plugins/notification-backstage-backend": {
       "name": "@checkstack/notification-backstage-backend",
-      "version": "0.1.31",
+      "version": "0.1.32",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2238,7 +2239,7 @@
     },
     "plugins/notification-discord-backend": {
       "name": "@checkstack/notification-discord-backend",
-      "version": "0.1.27",
+      "version": "0.1.28",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2252,7 +2253,7 @@
     },
     "plugins/notification-gotify-backend": {
       "name": "@checkstack/notification-gotify-backend",
-      "version": "0.1.27",
+      "version": "0.1.28",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2266,7 +2267,7 @@
     },
     "plugins/notification-pushover-backend": {
       "name": "@checkstack/notification-pushover-backend",
-      "version": "0.1.27",
+      "version": "0.1.28",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2280,7 +2281,7 @@
     },
     "plugins/notification-slack-backend": {
       "name": "@checkstack/notification-slack-backend",
-      "version": "0.1.27",
+      "version": "0.1.28",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2294,7 +2295,7 @@
     },
     "plugins/notification-smtp-backend": {
       "name": "@checkstack/notification-smtp-backend",
-      "version": "0.0.35",
+      "version": "0.0.36",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2310,7 +2311,7 @@
     },
     "plugins/notification-teams-backend": {
       "name": "@checkstack/notification-teams-backend",
-      "version": "0.0.35",
+      "version": "0.0.36",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2324,7 +2325,7 @@
     },
     "plugins/notification-telegram-backend": {
       "name": "@checkstack/notification-telegram-backend",
-      "version": "0.0.35",
+      "version": "0.0.36",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2340,7 +2341,7 @@
     },
     "plugins/notification-webex-backend": {
       "name": "@checkstack/notification-webex-backend",
-      "version": "0.0.35",
+      "version": "0.0.36",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2354,7 +2355,7 @@
     },
     "plugins/queue-bullmq-backend": {
       "name": "@checkstack/queue-bullmq-backend",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2384,7 +2385,7 @@
     },
     "plugins/queue-memory-backend": {
       "name": "@checkstack/queue-memory-backend",
-      "version": "0.4.1",
+      "version": "0.4.2",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2918,7 +2919,7 @@
 
     "@grammyjs/types": ["@grammyjs/types@3.26.0", "", {}, "sha512-jlnyfxfev/2o68HlvAGRocAXgdPPX5QabG7jZlbqC2r9DZyWBfzTlg+nu3O3Fy4EhgLWu28hZ/8wr7DsNamP9A=="],
 
-    "@grpc/grpc-js": ["@grpc/grpc-js@1.14.3", "", { "dependencies": { "@grpc/proto-loader": "^0.8.0", "@js-sdsl/ordered-map": "^4.4.2" } }, "sha512-Iq8QQQ/7X3Sac15oB6p0FmUg/klxQvXLeileoqrTRGJYLV+/9tubbr9ipz0GKHjmXVsgFPo/+W+2cA8eNcR+XA=="],
+    "@grpc/grpc-js": ["@grpc/grpc-js@1.14.4", "", { "dependencies": { "@grpc/proto-loader": "^0.8.0", "@js-sdsl/ordered-map": "^4.4.2" } }, "sha512-k9Dj3DV/itK9D06Y8f190Qgop7/Ui+D0njFV3LHMPwPT75DpXLQohE9Wmz0QElrJnzsjB7KPWiKJbOl7IPDArQ=="],
 
     "@grpc/proto-loader": ["@grpc/proto-loader@0.8.0", "", { "dependencies": { "lodash.camelcase": "^4.3.0", "long": "^5.0.0", "protobufjs": "^7.5.3", "yargs": "^17.7.2" }, "bin": { "proto-loader-gen-types": "build/bin/proto-loader-gen-types.js" } }, "sha512-rc1hOQtjIWGxcxpb9aHAfLpIctjEnsDehj0DAiVfBlmT84uvR0uUtN2hEi/ecvWVjXUGf5qPF4qEgiLOx1YIMQ=="],
 
@@ -4722,7 +4723,7 @@
 
     "safer-buffer": ["safer-buffer@2.1.2", "", {}, "sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg=="],
 
-    "samlify": ["samlify@2.12.0", "", { "dependencies": { "@authenio/xml-encryption": "^2.0.2", "@xmldom/xmldom": "^0.8.11", "node-rsa": "^1.1.1", "xml": "^1.0.1", "xml-crypto": "^6.1.2", "xml-escape": "^1.1.0", "xpath": "^0.0.34" } }, "sha512-ewGsHyY4kInDH0BfprlAZ1rHpH1jBmbqYiXDbuI3t1Y8h71gqEt4Z7jdCFyPHFR8jItJkbdckTijUZGg14CDlg=="],
+    "samlify": ["samlify@2.13.1", "", { "dependencies": { "@authenio/xml-encryption": "^2.0.2", "@xmldom/xmldom": "^0.8.11", "node-rsa": "^1.1.1", "xml": "^1.0.1", "xml-crypto": "^6.1.2", "xml-escape": "^1.1.0", "xpath": "^0.0.34" } }, "sha512-vdYr/zohDGBbfWNU4miEzc1jmWOtkLySPViapC6nfGkv9KxzLq4UlGkKyryzwLw4jVlZk88Rw93HaCRVpe+t+g=="],
 
     "sax": ["sax@1.6.0", "", {}, "sha512-6R3J5M4AcbtLUdZmRv2SygeVaM7IhrLXu9BmnOGmmACak8fiUtOsYNWUS4uK7upbmHIBbLBeFeI//477BKLBzA=="],
 
@@ -5010,7 +5011,7 @@
 
     "wrap-ansi": ["wrap-ansi@7.0.0", "", { "dependencies": { "ansi-styles": "^4.0.0", "string-width": "^4.1.0", "strip-ansi": "^6.0.0" } }, "sha512-YVGIj2kamLSTxw6NsZjoBxfSwsn0ycdesmc4p+Q21c5zPuZ1pl+NfxVdxPtdHvmNVOQ6XSYG4AUtyt/Fi7D16Q=="],
 
-    "ws": ["ws@8.20.1", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-It4dO0K5v//JtTXuPkfEOaI3uUN87iYPnqo/ZzqCoG3g8uhA66QUMs/SrM0YK7/NAu+r4LMh/9dq2A7k+rHs+w=="],
+    "ws": ["ws@8.21.0", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g=="],
 
     "wsl-utils": ["wsl-utils@0.1.0", "", { "dependencies": { "is-wsl": "^3.1.0" } }, "sha512-h3Fbisa2nKGPxCpm89Hk33lBLsnaGBvctQopaBSOW/uIs6FTe1ATyAnKFJrzVs9vpGdsTe73WF3V4lIsk4Gacw=="],
 
@@ -5262,6 +5263,8 @@
 
     "globby/ignore": ["ignore@5.3.2", "", {}, "sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g=="],
 
+    "happy-dom/ws": ["ws@8.20.1", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-It4dO0K5v//JtTXuPkfEOaI3uUN87iYPnqo/ZzqCoG3g8uhA66QUMs/SrM0YK7/NAu+r4LMh/9dq2A7k+rHs+w=="],
+
     "import-fresh/resolve-from": ["resolve-from@4.0.0", "", {}, "sha512-pb/MYmXstAkysRFx8piNI1tGFNQIFA3vkE3Gq4EuA1dF6gHp/+vgZqsCGJapvy8N3Q+4o7FwvquPJcnZ7RYy4g=="],
 
     "ioredis-mock/@ioredis/commands": ["@ioredis/commands@1.6.0", "", {}, "sha512-lNa3bQBsR2OQ+IopxlSydDNSPKD4TGUaSBBs+f68ugyTJBtXhcxQE8oqrDflRv2kKOT/QnBQcSPQ7/T2mSMLxQ=="],
@@ -5335,6 +5338,8 @@
     "sitemap/@types/node": ["@types/node@24.12.2", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-A1sre26ke7HDIuY/M23nd9gfB+nrmhtYyMINbjI1zHJxYteKR6qSMX56FsmjMcDb3SMcjJg5BiRRgOCC/yBD0g=="],
 
     "storybook/semver": ["semver@7.7.4", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-vFKC2IEtQnVhpT78h1Yp8wzwrf8CM+MzKMHGJZfBtzhZNycRFnXsHk6E5TxIkkMsgNS7mdX3AGB7x2QM2di4lA=="],
+
+    "storybook/ws": ["ws@8.20.1", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-It4dO0K5v//JtTXuPkfEOaI3uUN87iYPnqo/ZzqCoG3g8uhA66QUMs/SrM0YK7/NAu+r4LMh/9dq2A7k+rHs+w=="],
 
     "sucrase/commander": ["commander@4.1.1", "", {}, "sha512-NOKm8xhkzAjzFx8B2v5OAHT+u5pRQc2UCa2Vq9jYL/31o2wi9mxBA7LIFs3sV5VSC49z6pEhfbMULvShKj26WA=="],
 

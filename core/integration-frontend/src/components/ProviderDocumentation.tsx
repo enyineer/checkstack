@@ -3,6 +3,7 @@ import {
   Card,
   Button,
   Badge,
+  MarkdownBlock,
   Table,
   TableBody,
   TableCell,
@@ -70,8 +71,10 @@ export const ProviderDocumentation = ({
           {documentation.setupGuide && (
             <div>
               <h4 className="text-sm font-medium mb-2">Setup Guide</h4>
-              <div className="bg-muted/50 p-3 rounded-md text-sm whitespace-pre-wrap">
-                {documentation.setupGuide}
+              <div className="bg-muted/50 p-3 rounded-md">
+                <MarkdownBlock size="sm">
+                  {documentation.setupGuide}
+                </MarkdownBlock>
               </div>
             </div>
           )}

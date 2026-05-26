@@ -6,9 +6,6 @@
   "references": [
     {
       "path": "../../core/common"
-    },
-    {
-      "path": "../../core/integration-common"
     }
   ]
 }

@@ -33,6 +33,9 @@ export const FormField: React.FC<FormFieldProps> = ({
   formValues,
   optionsResolvers,
   templateProperties,
+  typeDefinitions,
+  shellEnvVars,
+  starterTemplates,
   onChange,
 }) => {
   const description = propSchema.description || "";
@@ -129,6 +132,9 @@ export const FormField: React.FC<FormFieldProps> = ({
           isRequired={isRequired}
           editorTypes={editorTypes}
           templateProperties={templateProperties}
+          typeDefinitions={typeDefinitions}
+          shellEnvVars={shellEnvVars}
+          starterTemplates={starterTemplates}
           onChange={onChange as (val: string | undefined) => void}
         />
       );
@@ -346,6 +352,9 @@ export const FormField: React.FC<FormFieldProps> = ({
             formValues={formValues}
             optionsResolvers={optionsResolvers}
             templateProperties={templateProperties}
+            typeDefinitions={typeDefinitions}
+            shellEnvVars={shellEnvVars}
+            starterTemplates={starterTemplates}
             onChange={(val) =>
               onChange({ ...(value as Record<string, unknown>), [key]: val })
             }
@@ -454,6 +463,9 @@ export const FormField: React.FC<FormFieldProps> = ({
                   formValues={formValues}
                   optionsResolvers={optionsResolvers}
                   templateProperties={templateProperties}
+                  typeDefinitions={typeDefinitions}
+                  shellEnvVars={shellEnvVars}
+                  starterTemplates={starterTemplates}
                   onChange={(val) => {
                     const next = [...(items as unknown[])];
                     next[index] = val;
@@ -582,6 +594,9 @@ export const FormField: React.FC<FormFieldProps> = ({
                 formValues={formValues}
                 optionsResolvers={optionsResolvers}
                 templateProperties={templateProperties}
+                typeDefinitions={typeDefinitions}
+                shellEnvVars={shellEnvVars}
+                starterTemplates={starterTemplates}
                 onChange={(val) => onChange({ ...currentValue, [key]: val })}
               />
             ))}

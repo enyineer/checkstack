@@ -15,12 +15,12 @@
     "pack": "bunx @checkstack/scripts plugin-pack"
   },
   "dependencies": {
-    "@checkstack/backend-api": "workspace:*",
     "@checkstack/auth-backend": "workspace:*",
     "@checkstack/auth-common": "workspace:*",
+    "@checkstack/backend-api": "workspace:*",
     "@checkstack/common": "workspace:*",
     "better-auth": "^1.4.9",
-    "samlify": "^2.12.0",
+    "samlify": "^2.13.1",
     "zod": "^4.0.0"
   },
   "devDependencies": {
