@@ -26,6 +26,7 @@ import {
   Button,
   LoadingSpinner,
   EmptyState,
+  QueryErrorState,
   Table,
   TableHeader,
   TableRow,
@@ -83,13 +84,14 @@ const MaintenanceConfigPageContent: React.FC = () => {
   const [completeId, setCompleteId] = useState<string | undefined>();
 
   // Fetch maintenances with useQuery
+  const maintenancesQuery = maintenanceClient.listMaintenances.useQuery(
+    statusFilter === "all" ? {} : { status: statusFilter },
+  );
   const {
     data: maintenancesData,
     isLoading: maintenancesLoading,
     refetch: refetchMaintenances,
-  } = maintenanceClient.listMaintenances.useQuery(
-    statusFilter === "all" ? {} : { status: statusFilter },
-  );
+  } = maintenancesQuery;
 
   // Fetch systems with useQuery
   const { data: systemsData, isLoading: systemsLoading } =
@@ -226,6 +228,14 @@ const MaintenanceConfigPageContent: React.FC = () => {
           {loading ? (
             <div className="p-12 flex justify-center">
               <LoadingSpinner />
+            </div>
+          ) : maintenancesQuery.isError ? (
+            <div className="p-4">
+              <QueryErrorState
+                error={maintenancesQuery.error}
+                onRetry={() => void maintenancesQuery.refetch()}
+                resource="maintenances"
+              />
             </div>
           ) : maintenances.length === 0 ? (
             <EmptyState

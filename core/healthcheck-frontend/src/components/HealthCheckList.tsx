@@ -12,6 +12,7 @@ import {
   TableRow,
   Button,
   Badge,
+  Skeleton,
 } from "@checkstack/ui";
 import { Trash2, Edit, Pause, Play } from "lucide-react";
 import { useProvenanceLock } from "@checkstack/gitops-frontend";
@@ -52,26 +53,76 @@ export const HealthCheckList: React.FC<HealthCheckListProps> = ({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {configurations.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={5} className="h-24 text-center">
-                No health checks configured.
+          {configurations.map((config) => (
+            <HealthCheckRow
+              key={config.id}
+              config={config}
+              strategyName={getStrategyName(config.strategyId)}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onPause={onPause}
+              onResume={onResume}
+              canManage={canManage}
+            />
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+};
+
+interface HealthCheckListSkeletonProps {
+  /**
+   * Number of placeholder rows to render. Defaults to 4 so the skeleton
+   * roughly matches a typical first-page configuration list.
+   */
+  rows?: number;
+}
+
+/**
+ * HealthCheckListSkeleton mirrors the shape of {@link HealthCheckList} so
+ * the page doesn't jump on load. Renders the same table chrome with
+ * `Skeleton` placeholders in each cell.
+ */
+export const HealthCheckListSkeleton: React.FC<
+  HealthCheckListSkeletonProps
+> = ({ rows = 4 }) => {
+  return (
+    <div className="rounded-md border bg-card">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>Strategy</TableHead>
+            <TableHead>Interval (s)</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {Array.from({ length: rows }, (_, index) => (
+            <TableRow key={index}>
+              <TableCell>
+                <Skeleton className="h-4 w-32" />
+              </TableCell>
+              <TableCell>
+                <Skeleton className="h-4 w-24" />
+              </TableCell>
+              <TableCell>
+                <Skeleton className="h-4 w-12" />
+              </TableCell>
+              <TableCell>
+                <Skeleton className="h-5 w-16 rounded-full" />
+              </TableCell>
+              <TableCell className="text-right">
+                <div className="flex justify-end gap-2">
+                  <Skeleton className="h-8 w-8" />
+                  <Skeleton className="h-8 w-8" />
+                  <Skeleton className="h-8 w-8" />
+                </div>
               </TableCell>
             </TableRow>
-          ) : (
-            configurations.map((config) => (
-              <HealthCheckRow
-                key={config.id}
-                config={config}
-                strategyName={getStrategyName(config.strategyId)}
-                onEdit={onEdit}
-                onDelete={onDelete}
-                onPause={onPause}
-                onResume={onResume}
-                canManage={canManage}
-              />
-            ))
-          )}
+          ))}
         </TableBody>
       </Table>
     </div>

@@ -14,11 +14,16 @@ import {
   pluginMetadata as healthcheckPluginMetadata,
 } from "@checkstack/healthcheck-common";
 import { Tip } from "@checkstack/tips-frontend";
-import { HealthCheckList } from "../components/HealthCheckList";
+import {
+  HealthCheckList,
+  HealthCheckListSkeleton,
+} from "../components/HealthCheckList";
 import {
   Button,
   ConfirmationModal,
+  ListEmptyState,
   PageLayout,
+  QueryErrorState,
   useToast,
 } from "@checkstack/ui";
 import { Plus, History, Activity } from "lucide-react";
@@ -44,8 +49,11 @@ const HealthCheckConfigPageContent = () => {
   const [idToDelete, setIdToDelete] = useState<string | undefined>();
 
   // Fetch configurations with useQuery
-  const { data: configurationsData, refetch: refetchConfigurations } =
-    healthCheckClient.getConfigurations.useQuery({});
+  const configurationsQuery = healthCheckClient.getConfigurations.useQuery({});
+  const {
+    data: configurationsData,
+    refetch: refetchConfigurations,
+  } = configurationsQuery;
 
   // Fetch strategies with useQuery
   const { data: strategies = [] } = healthCheckClient.getStrategies.useQuery(
@@ -145,15 +153,30 @@ const HealthCheckConfigPageContent = () => {
         </div>
       }
     >
-      <HealthCheckList
-        configurations={configurations}
-        strategies={strategies}
-        onEdit={handleEdit}
-        onDelete={handleDelete}
-        onPause={(id) => pauseMutation.mutate(id)}
-        onResume={(id) => resumeMutation.mutate(id)}
-        canManage={canManage}
-      />
+      {configurationsQuery.isLoading ? (
+        <HealthCheckListSkeleton />
+      ) : configurationsQuery.isError ? (
+        <QueryErrorState
+          error={configurationsQuery.error}
+          onRetry={() => void configurationsQuery.refetch()}
+          resource="health checks"
+        />
+      ) : configurations.length === 0 ? (
+        <ListEmptyState
+          resource="health checks"
+          description="No health checks have been configured yet. Create one to start monitoring a system."
+        />
+      ) : (
+        <HealthCheckList
+          configurations={configurations}
+          strategies={strategies}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+          onPause={(id) => pauseMutation.mutate(id)}
+          onResume={(id) => resumeMutation.mutate(id)}
+          canManage={canManage}
+        />
+      )}
 
       <ConfirmationModal
         isOpen={isDeleteModalOpen}

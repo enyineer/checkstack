@@ -23,6 +23,7 @@ import {
   Badge,
   LoadingSpinner,
   EmptyState,
+  QueryErrorState,
   Table,
   TableHeader,
   TableRow,
@@ -48,11 +49,12 @@ const SloConfigPageContent: React.FC = () => {
     sloAccess.slo.manage,
   );
 
+  const objectivesQuery = sloClient.listObjectives.useQuery({});
   const {
     data: objectivesData,
     isLoading: objectivesLoading,
     refetch: refetchObjectives,
-  } = sloClient.listObjectives.useQuery({});
+  } = objectivesQuery;
 
   const { data: systemsData, isLoading: systemsLoading } =
     catalogClient.getSystems.useQuery({});
@@ -60,6 +62,7 @@ const SloConfigPageContent: React.FC = () => {
   const objectives = objectivesData?.objectives ?? [];
   const systems = systemsData?.systems ?? [];
   const loading = objectivesLoading || systemsLoading;
+  const isError = objectivesQuery.isError;
 
   // Editor state
   const [editorOpen, setEditorOpen] = useState(false);
@@ -163,6 +166,14 @@ const SloConfigPageContent: React.FC = () => {
           {loading ? (
             <div className="p-12 flex justify-center">
               <LoadingSpinner />
+            </div>
+          ) : isError ? (
+            <div className="p-4">
+              <QueryErrorState
+                error={objectivesQuery.error}
+                onRetry={() => void objectivesQuery.refetch()}
+                resource="SLO objectives"
+              />
             </div>
           ) : objectives.length === 0 ? (
             <EmptyState

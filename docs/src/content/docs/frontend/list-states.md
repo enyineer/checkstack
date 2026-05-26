@@ -171,3 +171,60 @@ const { mutateAsync } = healthCheckClient.create.useMutation({
 > template registry. If you need a domain-specific message just pass
 > a string. Adding indirection here just spreads copy across files
 > and obscures grep-ability.
+
+## Standard query-state pattern
+
+Every list page that drives its data from a single `useQuery` should
+branch through the same four-state ladder: loading, error, empty,
+data. Copy this snippet verbatim and only swap the resource noun and
+the skeleton / list markup — the ordering and prop names are
+load-bearing.
+
+```tsx
+import {
+  ListEmptyState,
+  QueryErrorState,
+  Skeleton,
+} from "@checkstack/ui";
+
+const query = healthCheckClient.list.useQuery({});
+const items = query.data?.items ?? [];
+
+return (
+  <>
+    {query.isLoading ? (
+      <Skeleton className="h-32 w-full" />
+    ) : query.isError ? (
+      <QueryErrorState
+        error={query.error}
+        onRetry={() => {
+          void query.refetch();
+        }}
+        resource="health checks"
+      />
+    ) : items.length === 0 ? (
+      <ListEmptyState
+        resource="health checks"
+        description="Create a check to start monitoring an endpoint."
+      />
+    ) : (
+      <HealthCheckList configurations={items} />
+    )}
+  </>
+);
+```
+
+Notes:
+
+- Skeletons should mimic the final layout. When the data path renders
+  a table, render 2-3 placeholder rows that match the column count
+  (`<Skeleton className="h-4 w-32" />` inside `<TableCell>` works well)
+  rather than a single generic block — the page should not jump when
+  data resolves.
+- `onRetry` is wrapped in an arrow that ignores the returned promise
+  so the prop's `() => void` signature is respected without `void`
+  call-site noise inside the JSX expression.
+- For detail pages where `useQuery` returns a single record, keep the
+  existing `if (!data) return null` early-return and add a sibling
+  `if (isError)` branch that renders `QueryErrorState` — the ladder
+  pattern is for list pages, not single-record loads.

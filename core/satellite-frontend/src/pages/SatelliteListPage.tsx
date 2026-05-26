@@ -20,6 +20,7 @@ import {
   Button,
   LoadingSpinner,
   EmptyState,
+  QueryErrorState,
   Table,
   TableHeader,
   TableRow,
@@ -59,11 +60,8 @@ const SatelliteListPageContent: React.FC = () => {
 
   const { getLock } = useProvenanceLocks();
 
-  const {
-    data: satellites,
-    isLoading,
-    refetch,
-  } = satelliteClient.listSatellites.useQuery();
+  const satellitesQuery = satelliteClient.listSatellites.useQuery();
+  const { data: satellites, isLoading, refetch } = satellitesQuery;
 
   const deleteMutation = satelliteClient.deleteSatellite.useMutation({
     onSuccess: () => {
@@ -117,6 +115,14 @@ const SatelliteListPageContent: React.FC = () => {
           {isLoading ? (
             <div className="p-12 flex justify-center">
               <LoadingSpinner />
+            </div>
+          ) : satellitesQuery.isError ? (
+            <div className="p-4">
+              <QueryErrorState
+                error={satellitesQuery.error}
+                onRetry={() => void satellitesQuery.refetch()}
+                resource="satellites"
+              />
             </div>
           ) : satelliteList.length === 0 ? (
             <EmptyState

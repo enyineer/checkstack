@@ -25,6 +25,7 @@ import {
   Badge,
   LoadingSpinner,
   EmptyState,
+  QueryErrorState,
   Table,
   TableHeader,
   TableRow,
@@ -457,11 +458,8 @@ const AnnouncementManageContent: React.FC = () => {
   >();
   const [deleteId, setDeleteId] = useState<string | undefined>();
 
-  const {
-    data: announcementsData,
-    isLoading,
-    refetch,
-  } = announcementClient.listAllAnnouncements.useQuery();
+  const announcementsQuery = announcementClient.listAllAnnouncements.useQuery();
+  const { data: announcementsData, isLoading, refetch } = announcementsQuery;
 
   const deleteMutation = announcementClient.deleteAnnouncement.useMutation({
     onSuccess: () => {
@@ -529,6 +527,14 @@ const AnnouncementManageContent: React.FC = () => {
           {isLoading ? (
             <div className="p-12 flex justify-center">
               <LoadingSpinner />
+            </div>
+          ) : announcementsQuery.isError ? (
+            <div className="p-4">
+              <QueryErrorState
+                error={announcementsQuery.error}
+                onRetry={() => void announcementsQuery.refetch()}
+                resource="announcements"
+              />
             </div>
           ) : announcements.length === 0 ? (
             <EmptyState

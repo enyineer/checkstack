@@ -6,6 +6,9 @@ import {
   Badge,
   Button,
   Card,
+  ListEmptyState,
+  QueryErrorState,
+  Skeleton,
   useToast,
   Popover,
   PopoverContent,
@@ -47,15 +50,16 @@ export const NotificationsPage = () => {
   const pageSize = 20;
 
   // Query: Fetch notifications
-  const {
-    data: notificationsData,
-    isLoading: loading,
-    refetch,
-  } = notificationClient.getNotifications.useQuery({
+  const notificationsQuery = notificationClient.getNotifications.useQuery({
     limit: pageSize,
     offset: page * pageSize,
     unreadOnly: filter === "unread",
   });
+  const {
+    data: notificationsData,
+    isLoading: loading,
+    refetch,
+  } = notificationsQuery;
 
   const notifications = notificationsData?.notifications ?? [];
   const total = notificationsData?.total ?? 0;
@@ -149,7 +153,7 @@ export const NotificationsPage = () => {
   };
 
   return (
-    <PageLayout title="Notifications" icon={Bell} loading={loading}>
+    <PageLayout title="Notifications" icon={Bell}>
       <div className="space-y-4">
         {/* Header with filters */}
         <div className="flex items-center justify-between">
@@ -204,11 +208,40 @@ export const NotificationsPage = () => {
         </div>
 
         {/* Notifications list */}
-        {notifications.length === 0 ? (
-          <Card className="p-8 text-center text-muted-foreground">
-            <Bell className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>No notifications</p>
-          </Card>
+        {loading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 3 }, (_, index) => (
+              <Card key={index} className="p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-5 w-16 rounded-full" />
+                      <Skeleton className="h-3 w-20" />
+                    </div>
+                    <Skeleton className="h-5 w-2/3" />
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-1/2" />
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Skeleton className="h-8 w-8" />
+                    <Skeleton className="h-8 w-8" />
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : notificationsQuery.isError ? (
+          <QueryErrorState
+            error={notificationsQuery.error}
+            onRetry={() => void notificationsQuery.refetch()}
+            resource="notifications"
+          />
+        ) : notifications.length === 0 ? (
+          <ListEmptyState
+            resource="notifications"
+            description="You're all caught up. New notifications about systems you're subscribed to will show up here."
+            icon={<Bell className="h-10 w-10" />}
+          />
         ) : (
           <div className="space-y-2">
             {groupByCollapseKey(notifications).map((group) => {

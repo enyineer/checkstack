@@ -21,6 +21,8 @@ import {
   PageLayout,
   LoadingSpinner,
   Badge,
+  ListEmptyState,
+  QueryErrorState,
 } from "@checkstack/ui";
 import {
   Target,
@@ -39,10 +41,11 @@ const SloDetailPageContent: React.FC = () => {
   const sloClient = usePluginClient(SloApi);
   const catalogClient = usePluginClient(CatalogApi);
 
-  const { data, isLoading } = sloClient.getObjective.useQuery(
+  const objectiveQuery = sloClient.getObjective.useQuery(
     { id: sloId ?? "" },
     { enabled: !!sloId },
   );
+  const { data, isLoading, isError } = objectiveQuery;
 
   const { data: eventsData } = sloClient.getDowntimeEvents.useQuery(
     { objectiveId: sloId ?? "", limit: 20 },
@@ -77,12 +80,36 @@ const SloDetailPageContent: React.FC = () => {
 
   const events = eventsData?.events;
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return (
       <PageLayout title="SLO Detail" icon={Target}>
         <div className="p-12 flex justify-center">
           <LoadingSpinner />
         </div>
+      </PageLayout>
+    );
+  }
+
+  if (isError) {
+    return (
+      <PageLayout title="SLO Detail" icon={Target}>
+        <QueryErrorState
+          error={objectiveQuery.error}
+          onRetry={() => void objectiveQuery.refetch()}
+          resource="SLO"
+        />
+      </PageLayout>
+    );
+  }
+
+  if (!data) {
+    return (
+      <PageLayout title="SLO Detail" icon={Target}>
+        <ListEmptyState
+          resource="SLO"
+          description="This SLO does not exist or has been deleted. It may have been removed by another user or via GitOps."
+          icon={<Target className="h-10 w-10" />}
+        />
       </PageLayout>
     );
   }
