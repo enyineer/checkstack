@@ -1,5 +1,17 @@
 # @checkstack/release
 
+## 0.86.0
+
+### Minor Changes
+
+- a06b899: Dependency security bumps.
+
+  - `samlify` `^2.12.0` → `^2.13.1` (auth-saml-backend) to resolve **CVE-2026-46490** (HIGH): XML injection in `AttributeValue` allowing privilege escalation in signed SAML assertions.
+  - `@grpc/grpc-js` `^1.9.0` → `^1.14.4` (healthcheck-grpc-backend) — precautionary bump to latest patch.
+  - Transitive `ws` resolution lifted from `8.20.1` → `8.21.0` via lockfile-only update (no `package.json` change required since `ws` is pulled in via `happy-dom`, `storybook`, and the optional `@orpc/server` peer).
+
+  The `samlify` finding was surfaced by `trivy fs` against the workspace `bun.lock`. The `@grpc/grpc-js` and `ws` bumps have no verifiable public CVE today but were aligned to current published versions while we were already in the area.
+
 ## 0.85.0
 
 ### Minor Changes

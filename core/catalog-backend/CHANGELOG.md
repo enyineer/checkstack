@@ -1,5 +1,20 @@
 # @checkstack/catalog-backend
 
+## 1.1.4
+
+### Patch Changes
+
+- Updated dependencies [a06b899]
+- Updated dependencies [a06b899]
+  - @checkstack/backend-api@0.16.0
+  - @checkstack/notification-common@1.1.1
+  - @checkstack/auth-backend@0.4.28
+  - @checkstack/cache-api@0.3.3
+  - @checkstack/command-backend@0.1.28
+  - @checkstack/gitops-backend@0.3.4
+  - @checkstack/catalog-common@2.2.1
+  - @checkstack/cache-utils@0.2.8
+
 ## 1.1.3
 
 ### Patch Changes

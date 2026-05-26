@@ -1,5 +1,18 @@
 # @checkstack/satellite-backend
 
+## 0.3.4
+
+### Patch Changes
+
+- Updated dependencies [a06b899]
+- Updated dependencies [a06b899]
+  - @checkstack/backend-api@0.16.0
+  - @checkstack/gitops-backend@0.3.4
+  - @checkstack/healthcheck-backend@1.1.3
+  - @checkstack/queue-api@0.3.3
+  - @checkstack/healthcheck-common@1.1.1
+  - @checkstack/satellite-common@0.5.1
+
 ## 0.3.3
 
 ### Patch Changes
