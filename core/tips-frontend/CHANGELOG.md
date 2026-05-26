@@ -1,5 +1,20 @@
 # @checkstack/tips-frontend
 
+## 0.2.5
+
+### Patch Changes
+
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+  - @checkstack/common@0.11.0
+  - @checkstack/auth-frontend@0.6.5
+  - @checkstack/frontend-api@0.5.2
+  - @checkstack/ui@1.10.0
+  - @checkstack/tips-common@0.2.2
+
 ## 0.2.4
 
 ### Patch Changes

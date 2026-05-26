@@ -1,5 +1,86 @@
 # @checkstack/healthcheck-frontend
 
+## 0.19.5
+
+### Patch Changes
+
+- f23f3c9: Retrofit the highest-traffic configuration list tables
+  (`HealthCheckList`, `SloConfigPage`, and the integration
+  `DeliveryLogsPage`) onto the `ResponsiveTable` + `MobileCardList`
+  primitives from `@checkstack/ui`. On `sm` and up each page still
+  renders the unchanged 5- to 7-column table; below that breakpoint a
+  sibling stacked-card layout surfaces the same data with the resource
+  name + status badge at the top, secondary columns in a muted line, and
+  the existing action buttons in a right-aligned footer. The
+  `HealthCheckListSkeleton` placeholder mirrors both branches so the page
+  no longer jumps when data resolves. No business logic, column order,
+  or query inputs changed.
+- f23f3c9: Establish the canonical optimistic-UI pattern for oRPC mutations
+  (`onMutate` snapshot / patch, `onError` rollback, `onSettled`
+  invalidate) and apply it to the two highest-frequency toggles where
+  perceived latency was most visible:
+
+  - `markAsRead` on the Notifications page — clicking the check on a
+    notification card now flips the read state immediately instead of
+    waiting for the round-trip.
+  - `pauseConfiguration` / `resumeConfiguration` on the Health Check
+    Config page — pause/resume now flip the row's badge instantly,
+    rolling back on server error.
+
+  The wrapper type for `useMutation` on each plugin client gained an
+  optional `TContext` generic so optimistic sites can return a snapshot
+  from `onMutate` and consume it in `onError` without `unknown` casts.
+  The runtime behaviour and the auto-invalidation on success are
+  unchanged; the change is additive on the type surface only.
+
+  Full pattern and "when NOT to use it" guidance live in
+  `docs/frontend/optimistic-updates.md`.
+
+- f23f3c9: Gate decorative motion and blur effects behind
+  `usePerformance().isLowPower` on a focused set of high-traffic plugin
+  pages (Dashboard, Dependency map, System node, Notification bell,
+  Announcement banner / cards, Anomaly field overrides editor, SLO
+  attribution chart, Catalog droppable group). Hover scales, backdrop
+  blurs, `animate-pulse`/`animate-ping` accents, and entry transitions
+  now drop to static states on low-power devices; functional UX
+  transitions (Drawer/Dialog open-close, colour transitions) are left
+  alone.
+
+  Standardise the post-mutation error-toast voice on plugin pages by
+  migrating multi-clause `toast.error(extractErrorMessage(error, "Failed
+to X"))` call sites onto the `toastError(toast, "Failed to X", error)`
+  helper from `@checkstack/ui`. The helper applies the canonical
+  `"action: message"` prefix and 100-character truncation in one place,
+  and the now-orphaned `extractErrorMessage` imports are dropped from
+  the affected files. No business logic or component APIs changed.
+
+- f23f3c9: Standardise the empty / loading / error story on key list pages using
+  the shared `ListEmptyState`, `QueryErrorState`, and `Skeleton`
+  primitives from `@checkstack/ui`. Each affected page now branches
+  through the same `isLoading -> isError -> empty -> data` ladder, so
+  failed queries surface a retry-able inline error instead of silently
+  rendering an empty table, and loading states match the final layout
+  rather than flashing a generic spinner. No layout, business logic, or
+  query input shapes changed.
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+  - @checkstack/common@0.11.0
+  - @checkstack/auth-frontend@0.6.5
+  - @checkstack/frontend-api@0.5.2
+  - @checkstack/dashboard-frontend@0.7.5
+  - @checkstack/gitops-frontend@0.4.5
+  - @checkstack/ui@1.10.0
+  - @checkstack/anomaly-common@1.2.2
+  - @checkstack/catalog-common@2.2.2
+  - @checkstack/healthcheck-common@1.1.2
+  - @checkstack/satellite-common@0.5.2
+  - @checkstack/tips-frontend@0.2.5
+  - @checkstack/signal-frontend@0.1.4
+
 ## 0.19.4
 
 ### Patch Changes

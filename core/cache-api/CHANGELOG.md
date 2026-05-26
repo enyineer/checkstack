@@ -1,5 +1,12 @@
 # @checkstack/cache-api
 
+## 0.3.4
+
+### Patch Changes
+
+- Updated dependencies [f23f3c9]
+  - @checkstack/backend-api@0.17.0
+
 ## 0.3.3
 
 ### Patch Changes

@@ -1,5 +1,98 @@
 # @checkstack/incident-backend
 
+## 1.1.5
+
+### Patch Changes
+
+- f23f3c9: Phase 12 of the v1 polishing plan: three coordinated cleanup items that
+  close out half-finished features ahead of v1.0.
+
+  `@checkstack/incident-backend` adds focused unit-test coverage for
+  `IncidentService.hasActiveIncidentWithSuppression` in
+  `core/incident-backend/src/service.test.ts`. The new tests exercise the
+  real query-builder logic against a programmable mock data source and
+  pin down the active-only silencing contract: returns `true` only when
+  an unresolved incident with `suppressNotifications=true` is associated
+  with the queried `systemId`; returns `false` for resolved incidents,
+  incidents with `suppressNotifications=false`, systems with no incident
+  associations, and other systems' silenced incidents. No runtime
+  changes; the service code was already correct end-to-end (write path
+  through `IncidentEditor`, read path through the healthcheck queue
+  executor and dependency notifications). A companion docs page,
+  `docs/src/content/docs/architecture/alert-silencing.md`, documents the
+  contract, the two read sites, and the dispatch paths silencing does
+  NOT cover so users aren't surprised when an unaware channel keeps
+  firing.
+
+  `@checkstack/auth-frontend` surfaces inline role assignment inside the
+  user-creation dialog so admins can pick role(s) atomically with the
+  create call. `CreateUserDialog` now renders a checkbox list of
+  assignable roles (those with `isAssignable !== false`); on submit,
+  `UsersTab` awaits `createCredentialUser`, then immediately calls
+  `updateUserRoles` with the selected role IDs. On partial failure
+  (user created, role assignment failed) the UI surfaces a warning toast
+  naming the recovery path rather than silently misreporting success. No
+  new endpoints — reuses the existing `createCredentialUser` +
+  `updateUserRoles` contract pair. A companion docs page,
+  `docs/src/content/docs/architecture/users-and-teams.md`, documents the
+  identity / role / team model, the two S2S endpoints
+  (`checkResourceTeamAccess`, `getAccessibleResourceIds`) other plugins
+  should call to honour team grants, and explicitly defers audit
+  logging, CSV export, team-scoped resource-management UI, and deletion
+  side-effect handling to v1.1.
+
+  The third item — deleting the empty `core/status-frontend/` and
+  `core/status-page-backend/` shells — is tooling-only and intentionally
+  ships without a changeset; neither shell had a `package.json`, source
+  file, or downstream importer.
+
+- f23f3c9: Add `correlationMiddleware` to `@checkstack/backend-api` and apply it
+  to every plugin/core router so each request carries a stable
+  `x-correlation-id` (read from the inbound header, or freshly minted
+  via `crypto.randomUUID()` when absent) and an auto-injected child
+  logger bound with `{ correlationId, pluginId, userId? }`. The ID is
+  echoed back on the response header so the caller can correlate their
+  client-side trace to the server logs.
+
+  The `Logger` interface in `@checkstack/backend-api` now formally
+  documents the structured-metadata convention (`logger.info("msg",
+{ ...meta })`) alongside the long-standing varargs shape. Winston's
+  splat handling already routes both shapes through the same vararg
+  slot, so existing call sites are unaffected. A new optional
+  `Logger.child(meta)` method captures the metadata-binding contract the
+  new middleware relies on; production loggers always implement it,
+  minimal test mocks may omit it (the middleware falls back gracefully).
+
+  `RpcContext` grew two optional `Headers` bags, `requestHeaders` and
+  `responseHeaders`, populated by the outer Hono `/api/*` and `/rest/*`
+  handlers in `@checkstack/backend`. They are write-through observation
+  points for middleware; an `RpcContext` constructed without them (S2S
+  clients, tests) keeps working — the echo is a silent no-op and the ID
+  is still bound onto the child logger for server-side correlation.
+
+  The scaffolding template in `@checkstack/scripts` was updated so any
+  new plugin generated via `bun run create` wires the middleware in the
+  expected `.use(correlationMiddleware).use(autoAuthMiddleware)` order
+  out of the box.
+
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+  - @checkstack/common@0.11.0
+  - @checkstack/backend-api@0.17.0
+  - @checkstack/catalog-backend@1.1.5
+  - @checkstack/command-backend@0.1.29
+  - @checkstack/integration-backend@0.1.29
+  - @checkstack/notification-common@1.2.0
+  - @checkstack/integration-common@0.5.0
+  - @checkstack/auth-common@0.7.1
+  - @checkstack/catalog-common@2.2.2
+  - @checkstack/incident-common@1.2.2
+  - @checkstack/signal-common@0.2.4
+  - @checkstack/cache-api@0.3.4
+  - @checkstack/cache-utils@0.2.9
+
 ## 1.1.4
 
 ### Patch Changes

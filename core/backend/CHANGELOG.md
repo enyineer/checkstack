@@ -1,5 +1,83 @@
 # @checkstack/backend
 
+## 0.10.3
+
+### Patch Changes
+
+- f23f3c9: Add `correlationMiddleware` to `@checkstack/backend-api` and apply it
+  to every plugin/core router so each request carries a stable
+  `x-correlation-id` (read from the inbound header, or freshly minted
+  via `crypto.randomUUID()` when absent) and an auto-injected child
+  logger bound with `{ correlationId, pluginId, userId? }`. The ID is
+  echoed back on the response header so the caller can correlate their
+  client-side trace to the server logs.
+
+  The `Logger` interface in `@checkstack/backend-api` now formally
+  documents the structured-metadata convention (`logger.info("msg",
+{ ...meta })`) alongside the long-standing varargs shape. Winston's
+  splat handling already routes both shapes through the same vararg
+  slot, so existing call sites are unaffected. A new optional
+  `Logger.child(meta)` method captures the metadata-binding contract the
+  new middleware relies on; production loggers always implement it,
+  minimal test mocks may omit it (the middleware falls back gracefully).
+
+  `RpcContext` grew two optional `Headers` bags, `requestHeaders` and
+  `responseHeaders`, populated by the outer Hono `/api/*` and `/rest/*`
+  handlers in `@checkstack/backend`. They are write-through observation
+  points for middleware; an `RpcContext` constructed without them (S2S
+  clients, tests) keeps working — the echo is a silent no-op and the ID
+  is still bound onto the child logger for server-side correlation.
+
+  The scaffolding template in `@checkstack/scripts` was updated so any
+  new plugin generated via `bun run create` wires the middleware in the
+  expected `.use(correlationMiddleware).use(autoAuthMiddleware)` order
+  out of the box.
+
+- f23f3c9: Phase 9 of the v1 polishing plan: tighten the plugin loader's boot-time
+  hook policy and backfill notification-router test coverage.
+
+  `@checkstack/backend` adopts an explicit per-hook policy for the two
+  boot-time hooks the plugin loader emits. `pluginInitialized` now
+  **halts the boot** if a subscriber throws — a failing subscriber here
+  means a downstream never wired itself against the freshly initialised
+  plugin, and continuing past that would leave the platform serving
+  traffic in a half-wired state. `accessRulesRegistered` keeps its
+  log-and-continue behaviour but escalates to `error` level and emits a
+  summary count if any subscriber failed; boot-blocking this hook would
+  let one misbehaving plugin DOS every other plugin on the same
+  instance. The policy is documented inline at each emit site and in a
+  new `docs/src/content/docs/backend/plugin-hook-policy.md` page.
+  **BREAKING CHANGE**: subscribers to `pluginInitialized` that
+  previously threw silently (logged and swallowed) now halt platform
+  boot. Audit subscribers and ensure they handle their own internal
+  errors before throwing.
+
+  `@checkstack/notification-backend` ships a real
+  `core/notification-backend/src/router.test.ts` covering the dispatch
+  fan-out (`notifyForSubscription`: zero subscribers, multi-recipient
+  insert, `excludeUserIds`, plus NOT_FOUND/FORBIDDEN guard rails), the
+  canonical paginated read on `getNotifications` (envelope shape,
+  `unreadOnly` filter propagation, null→undefined column mapping), the
+  service-only `createGroup` upsert behaviour (happy path + idempotent
+  re-create), and the multi-strategy `sendTransactional` path with a
+  focused fallback-style assertion: when one strategy throws, the
+  dispatch loop continues to the next and surfaces the failure as a
+  per-strategy `success: false` row instead of short-circuiting. No
+  runtime changes to the notification router.
+
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+  - @checkstack/common@0.11.0
+  - @checkstack/backend-api@0.17.0
+  - @checkstack/api-docs-common@0.1.14
+  - @checkstack/auth-common@0.7.1
+  - @checkstack/pluginmanager-common@0.2.3
+  - @checkstack/signal-backend@0.2.8
+  - @checkstack/signal-common@0.2.4
+  - @checkstack/cache-api@0.3.4
+  - @checkstack/queue-api@0.3.4
+
 ## 0.10.2
 
 ### Patch Changes

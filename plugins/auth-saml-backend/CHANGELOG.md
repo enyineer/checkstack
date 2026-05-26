@@ -1,5 +1,17 @@
 # @checkstack/auth-saml-backend
 
+## 0.1.29
+
+### Patch Changes
+
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+  - @checkstack/common@0.11.0
+  - @checkstack/backend-api@0.17.0
+  - @checkstack/auth-backend@0.4.29
+  - @checkstack/auth-common@0.7.1
+
 ## 0.1.28
 
 ### Patch Changes

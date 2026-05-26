@@ -1,5 +1,13 @@
 # @checkstack/tips-common
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+  - @checkstack/common@0.11.0
+
 ## 0.2.1
 
 ### Patch Changes

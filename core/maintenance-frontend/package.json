@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/maintenance-frontend",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.tsx",

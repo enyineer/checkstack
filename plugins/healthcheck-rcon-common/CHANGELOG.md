@@ -1,5 +1,13 @@
 # @checkstack/healthcheck-rcon-common
 
+## 0.2.14
+
+### Patch Changes
+
+- Updated dependencies [f23f3c9]
+- Updated dependencies [f23f3c9]
+  - @checkstack/common@0.11.0
+
 ## 0.2.13
 
 ### Patch Changes
