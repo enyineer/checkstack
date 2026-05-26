@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Bell, Check, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import {
@@ -10,6 +10,7 @@ import {
   QueryErrorState,
   Skeleton,
   useToast,
+  toastError,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -17,7 +18,7 @@ import {
   MenuCloseContext,
   Markdown,
 } from "@checkstack/ui";
-import { usePluginClient } from "@checkstack/frontend-api";
+import { usePluginClient, useQueryClient } from "@checkstack/frontend-api";
 import type { Notification } from "@checkstack/notification-common";
 import { NotificationApi } from "@checkstack/notification-common";
 import { extractErrorMessage } from "@checkstack/common";
@@ -25,8 +26,19 @@ import { NotificationSubjects } from "../components/NotificationSubjects";
 import { groupByCollapseKey } from "../components/collapse";
 import { CollapsedGroupTimeline } from "../components/CollapsedGroupTimeline";
 
+/**
+ * Shape of the `notification.getNotifications` query output. Kept inline
+ * so the optimistic `markAsRead` patch can type its cache reads against
+ * the same surface the loader writes.
+ */
+type NotificationsQueryData = {
+  notifications: Notification[];
+  total: number;
+};
+
 export const NotificationsPage = () => {
   const notificationClient = usePluginClient(NotificationApi);
+  const queryClient = useQueryClient();
   const toast = useToast();
 
   const [filter, setFilter] = useState<"all" | "unread">("all");
@@ -49,12 +61,33 @@ export const NotificationsPage = () => {
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
   const pageSize = 20;
 
+  // Query input — captured once so the loader and the optimistic
+  // `markAsRead` patch agree on the exact query-key oRPC builds. Changes
+  // to filter/page rebuild the memo, which rebuilds the key, which keeps
+  // the optimistic write aimed at the cache entry the user is looking at.
+  const notificationsQueryInput = useMemo(
+    () => ({
+      limit: pageSize,
+      offset: page * pageSize,
+      unreadOnly: filter === "unread",
+    }),
+    [page, pageSize, filter],
+  );
+
+  // Mirrors oRPC's `generateOperationKey([path], { type, input })` shape;
+  // see `docs/frontend/optimistic-updates.md` for the contract.
+  const notificationsQueryKey = useMemo(
+    () =>
+      [
+        ["notification", "getNotifications"],
+        { input: notificationsQueryInput, type: "query" },
+      ] as const,
+    [notificationsQueryInput],
+  );
+
   // Query: Fetch notifications
-  const notificationsQuery = notificationClient.getNotifications.useQuery({
-    limit: pageSize,
-    offset: page * pageSize,
-    unreadOnly: filter === "unread",
-  });
+  const notificationsQuery =
+    notificationClient.getNotifications.useQuery(notificationsQueryInput);
   const {
     data: notificationsData,
     isLoading: loading,
@@ -64,16 +97,43 @@ export const NotificationsPage = () => {
   const notifications = notificationsData?.notifications ?? [];
   const total = notificationsData?.total ?? 0;
 
-  // Mutation: Mark as read
+  // Mutation: Mark as read — optimistic.
+  //
+  // High-frequency click; the perceived latency win matters. Four-step
+  // pattern per `docs/frontend/optimistic-updates.md`:
+  // 1. onMutate: cancel in-flight refetches, snapshot, patch.
+  // 2. onError: roll back from the snapshot, surface a toast.
+  // 3. onSettled: invalidate the exact key so the cache reconciles
+  //    with server truth on both branches.
+  // 4. No success toast — the row fades; that IS the feedback.
   const markAsReadMutation = notificationClient.markAsRead.useMutation({
-    onSuccess: () => {
-      void refetch();
-      toast.success("Notification marked as read");
+    onMutate: async ({ notificationId }) => {
+      await queryClient.cancelQueries({ queryKey: notificationsQueryKey });
+      const previous =
+        queryClient.getQueryData<NotificationsQueryData>(notificationsQueryKey);
+      if (previous) {
+        queryClient.setQueryData<NotificationsQueryData>(
+          notificationsQueryKey,
+          {
+            ...previous,
+            notifications: previous.notifications.map((n) =>
+              notificationId === undefined || n.id === notificationId
+                ? { ...n, isRead: true }
+                : n,
+            ),
+          },
+        );
+      }
+      return { previous };
     },
-    onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to mark as read"),
-      );
+    onError: (error, _vars, ctx) => {
+      if (ctx?.previous) {
+        queryClient.setQueryData(notificationsQueryKey, ctx.previous);
+      }
+      toastError(toast, "Failed to mark as read", error);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
     },
   });
 
