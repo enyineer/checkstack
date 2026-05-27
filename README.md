@@ -177,7 +177,7 @@ Interactive API documentation. Explore all available endpoints and view response
 
 ## ✨ What is Checkstack?
 
-**Checkstack** is a self-hosted, open-source status page and monitoring platform that helps you:
+**Checkstack** is a self-hosted, source-available status page and monitoring platform that helps you:
 
 - 📊 **Monitor** your services with automated health checks
 - 📢 **Communicate** incidents, maintenance, and announcements to your users

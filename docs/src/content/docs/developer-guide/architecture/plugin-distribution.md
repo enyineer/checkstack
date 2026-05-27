@@ -262,7 +262,7 @@ automatically.
 
 | Channel              | Best for                                    | Pack mode      |
 |----------------------|---------------------------------------------|----------------|
-| npm (public)         | Open-source plugins; broad discoverability   | per-package    |
+| npm (public)         | Community plugins; broad discoverability     | per-package    |
 | npm (private)        | Org-internal plugins behind an npm registry  | per-package    |
 | GitHub release       | Plugins not published to npm; signed artifacts | `--bundle`   |
 | GitHub Enterprise    | Air-gapped / private GHE deployments         | `--bundle`     |
