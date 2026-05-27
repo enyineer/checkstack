@@ -441,158 +441,16 @@ Checkstack is built from the ground up as a **modular plugin system**:
 | **Realtime** | WebSocket (native Bun) |
 | **Queue** | BullMQ (Redis) / In-Memory |
 
-## 📦 Deployment
-
-### Docker
-
-The easiest way to run Checkstack — works for both **production deployment** and **local testing**.
-
-**👉 [Full Docker Getting Started Guide](./docs/getting-started/docker.md)**
-
-#### Quick Start with Docker Compose
-
-The repository includes a ready-to-use `docker-compose.yml`:
-
-```bash
-# Create .env with required secrets (see docs for details)
-# Then start everything
-docker compose up -d
-```
-
-To update to the latest version:
-
-```bash
-docker compose pull && docker compose up -d
-```
-
-#### Single Container
-
-Checkstack requires four environment variables:
-
-| Variable | Description | How to Generate |
-|----------|-------------|-----------------|
-| `DATABASE_URL` | PostgreSQL connection string | Your database provider |
-| `ENCRYPTION_MASTER_KEY` | 64 hex chars (32 bytes) | `openssl rand -hex 32` |
-| `BETTER_AUTH_SECRET` | Min 32 characters | `openssl rand -base64 32` |
-| `BASE_URL` | Exact URL used to access Checkstack in the browser | e.g. `http://192.168.1.123:3000` or `https://status.example.com` |
-
-```bash
-# Pull and run the latest version
-docker pull ghcr.io/enyineer/checkstack:latest
-docker run -d \
-  -e DATABASE_URL="postgresql://user:pass@host:5432/checkstack" \
-  -e ENCRYPTION_MASTER_KEY="$(openssl rand -hex 32)" \
-  -e BETTER_AUTH_SECRET="$(openssl rand -base64 32)" \
-  -e BASE_URL="http://192.168.1.123:3000" \ 
-  -p 3000:3000 \
-  ghcr.io/enyineer/checkstack:latest
-```
-
-> [!TIP]
-> After first start, you'll have to create your first admin user.
->
-> Upon opening the page eg. at `http://localhost:3000` you'll be greeted with a signup form.
-
-#### Satellite Agents
-
-Satellite agents execute health checks from remote locations and report back to the core. Deploy one per region you want to monitor from.
-
-**1. Create a satellite in the UI**
-
-Go to **Settings → Satellites → Create Satellite**. Give it a name and region (e.g. "EU West", "eu-west-1"). You'll receive a **Client ID** and **Token** — save the token, it's shown only once.
-
-**2. Run the satellite container**
-
-```bash
-docker run -d \
-  -e CHECKSTACK_CORE_URL="https://checkstack.example.com" \
-  -e CHECKSTACK_SATELLITE_CLIENT_ID="<client-id-from-ui>" \
-  -e CHECKSTACK_SATELLITE_TOKEN="<token-from-ui>" \
-  ghcr.io/enyineer/checkstack-satellite:latest
-```
-
-| Variable | Description |
-|----------|-------------|
-| `CHECKSTACK_CORE_URL` | URL of your Checkstack core server (WebSocket endpoint is derived automatically) |
-| `CHECKSTACK_SATELLITE_CLIENT_ID` | UUID shown when creating the satellite |
-| `CHECKSTACK_SATELLITE_TOKEN` | Auth token shown once on creation |
-
-**3. Assign health checks**
-
-Open a health check configuration in the Assignment IDE and assign it to your satellite. The configuration is pushed to the satellite in real-time — no restart needed.
-
-**4. View results**
-
-Results appear alongside local runs in the system detail view. Use the **Source filter** (All / Local / per-satellite) to isolate results by origin. Charts and tables both respect the filter.
-
-> [!TIP]
-> The satellite image uses the same version tags as the core image.
-> Always use matching versions: `checkstack:0.5.0` with `checkstack-satellite:0.5.0`.
-
-
-### NPM Packages
-
-All `@checkstack/*` packages are published to npm for plugin developers.
-
-> ⚠️ **Bun Required**: These packages publish TypeScript source directly and require [Bun](https://bun.sh) runtime. They are **not compatible with Node.js**.
-
-```bash
-# Example: Install packages for a custom plugin
-bun add @checkstack/backend-api @checkstack/common
-```
-
-## 🏃 Development Setup
-
-> For **contributors** and **plugin developers**. For just running Checkstack, use [Docker](#docker) instead.
-
-### Prerequisites
-
-- [Bun](https://bun.sh) installed
-- [Docker Desktop](https://www.docker.com/products/docker-desktop) running
-
-### Run the Development Environment
-
-```bash
-# Clone the repository
-git clone https://github.com/enyineer/checkstack.git
-cd checkstack
-
-# Install dependencies
-bun install
-
-# Start everything (Docker + Backend + Frontend)
-bun run dev
-```
-
-This command will automatically:
-1. 🐳 Start the Docker infrastructure (Postgres & PgAdmin)
-2. 🔧 Start the Backend server (Port 3000)
-3. 🎨 Start the Frontend server (Vite default port)
-
-> [!TIP]
-> After first start, you'll have to create your first admin user.
->
-> Upon opening the page eg. at `http://localhost:3000` you'll be greeted with a signup form.
-
-### Infrastructure Details
-
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| **Frontend** | `http://localhost:5173` | - |
-| **Backend API** | `http://localhost:3000` | - |
-| **PgAdmin** | `http://localhost:5050` | `admin@checkstack.com` / `admin` |
-| **PostgreSQL** | `localhost:5432` | `checkstack` / `checkstack` |
-
-```bash
-# Stop Docker containers
-bun run docker:stop
-```
-
 ## 📚 Documentation
 
-For comprehensive guides, API references, and plugin development docs:
+Full documentation — installation, configuration, operator guides, plugin development, and API reference — lives on the docs site:
 
-**👉 [View Full Documentation](./docs/README.md)**
+**👉 [enyineer.github.io/checkstack](https://enyineer.github.io/checkstack/)**
+
+The docs are split into two tracks:
+
+- **User Guide** — for operators running Checkstack (install, configure, monitor)
+- **Developer Guide** — for engineers building plugins or contributing to the platform
 
 ## 🤝 Contributing
 
