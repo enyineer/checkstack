@@ -27,16 +27,6 @@ under [`docs/`](../../docs/). All authored markdown lives in
   via the `remark-github-admonitions-to-directives` plugin, so prefer that
   syntax over hand-rolled HTML.
 
-## Implementation plans
-
-Implementation / design plans **must** be placed under
-[`docs/src/content/docs/plans/`](../../docs/src/content/docs/plans/), not
-in some sibling `plans/` directory or in PR descriptions only. Use the
-existing naming convention `YYYY-MM-DD-<short-slug>.md` (e.g.
-`2026-05-04-storybook-rollout.md`). Add a `title:` and a one-line
-`description:` so the plan shows up cleanly in the Starlight sidebar
-under "Design plans".
-
 ## When updating docs
 
 When you touch any of the following, ship doc updates in the **same PR**:

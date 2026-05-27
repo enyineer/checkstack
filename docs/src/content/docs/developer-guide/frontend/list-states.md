@@ -1,0 +1,345 @@
+---
+title: "List & Query States"
+description: "Shared UI primitives for empty lists, query errors, skeleton loaders, dual desktop/mobile tables, performance-aware classes, and canonical toasts."
+---
+
+
+`@checkstack/ui` ships a small family of primitives that cover the
+recurring "loading / empty / error / responsive list" surfaces every
+plugin frontend ends up reinventing. Reach for these before rolling
+your own — they encode the project's accessibility, performance, and
+copy conventions in one place.
+
+The current page sweeps that retrofit existing screens onto these
+primitives are tracked in Phases 5–7 of the v1 polishing plan.
+
+> [!NOTE]
+> Every helper on this page is additive — adopting them is opt-in and
+> doesn't change the rendering of any existing screen. The page sweeps
+> in Phases 5–7 will migrate consumers one plugin at a time.
+
+## `ListEmptyState`
+
+Thin wrapper around `EmptyState` for list-shaped resources. Supplies a
+consistent "No {resource} yet" headline and an `Inbox` default icon so
+callers don't have to pick one for every list.
+
+```tsx
+import { ListEmptyState, Button } from "@checkstack/ui";
+import { Plus } from "lucide-react";
+
+<ListEmptyState
+  resource="checks"
+  description="Create a health check to start monitoring an endpoint."
+  actions={
+    <Button>
+      <Plus className="h-4 w-4 mr-2" />
+      Create your first check
+    </Button>
+  }
+/>;
+```
+
+## `QueryErrorState`
+
+Canonical inline error UI for a failed TanStack Query. Renders an
+`error`-variant `Alert` with the message extracted via
+`extractErrorMessage` from `@checkstack/common`, plus a Retry button
+wired to `onRetry` (use the failing query's `refetch()`).
+
+```tsx
+import { QueryErrorState } from "@checkstack/ui";
+
+const { data, error, refetch } = healthCheckClient.list.useQuery();
+
+if (error) {
+  return (
+    <QueryErrorState
+      error={error}
+      resource="checks"
+      onRetry={() => refetch()}
+    />
+  );
+}
+```
+
+## `Skeleton`
+
+Pulsing placeholder block for loading states. Honours
+`usePerformance().isLowPower`: when low-power mode is active the pulse
+animation is dropped and a static `bg-muted` block is rendered, so
+non-hardware-accelerated devices aren't forced through an infinite
+animation loop.
+
+```tsx
+import { Skeleton } from "@checkstack/ui";
+
+<div className="space-y-2">
+  <Skeleton className="h-4 w-3/4" />
+  <Skeleton className="h-4 w-full" />
+  <Skeleton className="h-4 w-5/6" />
+</div>;
+```
+
+## `ResponsiveTable` + `MobileCardList`
+
+Dual-layout primitive for tabular data that has to degrade on narrow
+viewports. `ResponsiveTable` renders the standard `Table` markup on
+`sm` and up; `MobileCardList` renders a stacked card layout below the
+`sm` breakpoint. Both wrappers swap purely in CSS via Tailwind's
+`hidden` / `sm:hidden` utilities — no JS media-query gating and no
+SSR/CSR mismatch risk.
+
+```tsx
+import {
+  ResponsiveTable,
+  MobileCardList,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  Badge,
+} from "@checkstack/ui";
+
+<>
+  <ResponsiveTable>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Name</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead className="text-right">Latency</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((row) => (
+          <TableRow key={row.id}>
+            <TableCell>{row.name}</TableCell>
+            <TableCell><Badge>{row.status}</Badge></TableCell>
+            <TableCell className="text-right">{row.latency}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  </ResponsiveTable>
+
+  <MobileCardList>
+    {rows.map((row) => (
+      <div key={row.id} className="rounded-md border bg-card p-3">
+        <div className="flex justify-between">
+          <span className="font-medium">{row.name}</span>
+          <Badge>{row.status}</Badge>
+        </div>
+        <div className="text-xs text-muted-foreground">{row.latency}</div>
+      </div>
+    ))}
+  </MobileCardList>
+</>;
+```
+
+> [!TIP]
+> An earlier draft considered a context-driven `priority` prop on a
+> dedicated `ResponsiveTableHead`. That requires either cloning every
+> cell to inject a context attribute or maintaining a parallel index
+> from `TableHead` children to `TableCell` indices — both leak
+> coordination into the primitive. The `MobileCardList` companion is
+> deliberately the simpler, type-safe shape; callers decide which
+> fields show on mobile.
+
+### Sweeping a list page onto the dual layout
+
+The Phase 6 sweep retrofitted the highest-traffic configuration list
+tables — `HealthCheckList`, `SloConfigPage`, and the integration
+`DeliveryLogsPage` — onto this pattern. The transformation follows the
+same rhythm in every file and keeps the desktop table untouched:
+
+1. Wrap the existing `<Table>` chrome in a `<ResponsiveTable>` so it
+   only renders at `sm` and up.
+2. Add a sibling `<MobileCardList>` that re-iterates the same rows as
+   stacked cards. Surface the two highest-signal fields (typically the
+   resource name and a status badge) at the top of each card, push the
+   remaining columns into a muted secondary line, and keep the row's
+   action buttons in a right-aligned footer.
+3. Mirror the dual layout in the page's `Skeleton` placeholder — both
+   branches need a loading state, otherwise the page jumps on resolve.
+4. Reuse the existing per-row helpers (badges, action handlers,
+   provenance locks) across both branches so business rules can't drift
+   between desktop and mobile.
+
+> [!IMPORTANT]
+> Don't add columns to the mobile card that aren't on the desktop
+> table, and don't reorder desktop columns. The sweep is a presentation
+> change only — same data, two layouts.
+
+## `toastSuccess` / `toastError`
+
+Two named helpers in `@checkstack/ui` for the canonical post-mutation
+toast shapes. `toastSuccess` is a verb-phrase passthrough;
+`toastError` prefixes the action and funnels the error through
+`extractErrorMessage`, truncating the final string to 100 characters.
+
+```tsx
+import { useToast, toastSuccess, toastError } from "@checkstack/ui";
+
+const toast = useToast();
+const { mutateAsync } = healthCheckClient.create.useMutation({
+  onSuccess: () => toastSuccess(toast, "Check created"),
+  onError: (error) => toastError(toast, "Failed to create check", error),
+});
+```
+
+> [!IMPORTANT]
+> There is intentionally **no** toast factory, DSL, or key-based
+> template registry. If you need a domain-specific message just pass
+> a string. Adding indirection here just spreads copy across files
+> and obscures grep-ability.
+
+## Standard query-state pattern
+
+Every list page that drives its data from a single `useQuery` should
+branch through the same four-state ladder: loading, error, empty,
+data. Copy this snippet verbatim and only swap the resource noun and
+the skeleton / list markup — the ordering and prop names are
+load-bearing.
+
+```tsx
+import {
+  ListEmptyState,
+  QueryErrorState,
+  Skeleton,
+} from "@checkstack/ui";
+
+const query = healthCheckClient.list.useQuery({});
+const items = query.data?.items ?? [];
+
+return (
+  <>
+    {query.isLoading ? (
+      <Skeleton className="h-32 w-full" />
+    ) : query.isError ? (
+      <QueryErrorState
+        error={query.error}
+        onRetry={() => {
+          void query.refetch();
+        }}
+        resource="health checks"
+      />
+    ) : items.length === 0 ? (
+      <ListEmptyState
+        resource="health checks"
+        description="Create a check to start monitoring an endpoint."
+      />
+    ) : (
+      <HealthCheckList configurations={items} />
+    )}
+  </>
+);
+```
+
+Notes:
+
+- Skeletons should mimic the final layout. When the data path renders
+  a table, render 2-3 placeholder rows that match the column count
+  (`<Skeleton className="h-4 w-32" />` inside `<TableCell>` works well)
+  rather than a single generic block — the page should not jump when
+  data resolves.
+- `onRetry` is wrapped in an arrow that ignores the returned promise
+  so the prop's `() => void` signature is respected without `void`
+  call-site noise inside the JSX expression.
+- For detail pages where `useQuery` returns a single record, keep the
+  existing `if (!data) return null` early-return and add a sibling
+  `if (isError)` branch that renders `QueryErrorState` — the ladder
+  pattern is for list pages, not single-record loads.
+
+## Respecting low-power mode
+
+Decorative motion and blur effects should drop to a static state when
+`usePerformance().isLowPower` is true. Use the hook directly with an
+inline ternary (or `cn` for cleaner composition) — there is no helper
+hook, the flag is the API.
+
+```tsx
+import { cn, usePerformance } from "@checkstack/ui";
+
+const { isLowPower } = usePerformance();
+
+// Inline ternary form
+<Bell
+  className={`h-5 w-5 ${isLowPower ? "" : "transition-transform group-hover:scale-110"}`}
+/>;
+
+// `cn` form — preferred when there are several class fragments
+<div
+  className={cn(
+    "rounded-lg border bg-card shadow-sm",
+    !isLowPower && "transition-all duration-200",
+  )}
+/>;
+```
+
+Apply this to: `animate-*` (except `Skeleton`'s own pulse, which is
+already gated), `backdrop-blur-*`, `hover:scale-*`, decorative
+`transition-all` / `transition-transform` / `transition-opacity` /
+`transition-shadow`, and entry animations like `animate-in fade-in`.
+
+Don't wrap:
+
+- **Colour transitions** (`transition-colors`) — they're cheap and
+  don't degrade UX on low-end devices.
+- **Functional UX transitions** — Drawer open/close, Dialog enter/exit,
+  and other Radix-driven animations are already centrally managed by
+  `@checkstack/ui`. Leave them alone.
+- **Skeletons** — the `Skeleton` primitive already drops its pulse in
+  low-power mode. If you see raw `animate-pulse` on loading placeholders
+  it's a candidate for migration to `Skeleton`, not for gating.
+
+For `backdrop-blur`, swap to a solid background when low-power:
+
+```tsx
+<div
+  className={cn(
+    "border border-border rounded-lg p-3 shadow-lg",
+    isLowPower ? "bg-card" : "bg-card/90 backdrop-blur-sm",
+  )}
+/>;
+```
+
+## Toast voice convention
+
+Use `toastError(toast, action, error)` for any error toast that pairs
+an action prefix with an extracted error message. This standardises
+the "Failed to X: <message>" voice and centralises the 100-character
+truncation so verbose backend errors don't blow out the toast surface.
+
+```tsx
+import { useToast, toastError } from "@checkstack/ui";
+
+const toast = useToast();
+
+const createMutation = client.createSecret.useMutation({
+  onSuccess: () => toast.success("Secret created"),
+  onError: (error) => toastError(toast, "Failed to create secret", error),
+});
+
+// `try`/`catch` flows work the same way.
+try {
+  await updateConfigMutation.mutateAsync(payload);
+  toast.success("Configuration saved");
+} catch (error) {
+  toastError(toast, "Failed to save configuration", error);
+}
+```
+
+Conventions:
+
+- The action argument is a verb phrase ending **without** a colon —
+  `toastError` adds the `": "` separator itself.
+- Leave terse one-liners like `toast.success("Saved")` or
+  `toast.error("Title is required")` alone — `toastSuccess`/`toastError`
+  exist for the multi-clause, error-bearing shape, not as a blanket
+  replacement.
+- When you migrate every `extractErrorMessage` call in a file onto
+  `toastError`, drop the now-orphaned import — leaving it triggers the
+  unused-import warning.

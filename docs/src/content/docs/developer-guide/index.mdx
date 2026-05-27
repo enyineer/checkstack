@@ -1,0 +1,58 @@
+---
+title: Developer Guide
+description: Build plugins, contribute to the platform, and learn how Checkstack is put together.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+The Developer Guide is for plugin authors and platform contributors. It covers the plugin architecture, the contracts each plugin type implements, and the tooling that ships with the monorepo.
+
+If you are operating Checkstack rather than extending it, the [User Guide](/checkstack/user-guide/) is the right starting point.
+
+<CardGrid>
+  <LinkCard
+    title="Getting started"
+    description="Clone the repo, set up the dev environment, and scaffold your first plugin."
+    href="/checkstack/developer-guide/getting-started/contributing/"
+  />
+  <LinkCard
+    title="Architecture"
+    description="Plugin system, packaging boundaries, distribution, pagination, and identity."
+    href="/checkstack/developer-guide/architecture/plugin-system/"
+  />
+  <LinkCard
+    title="Backend plugins"
+    description="REST APIs, services, queues, signals, integrations, and database schemas."
+    href="/checkstack/developer-guide/backend/plugins/"
+  />
+  <LinkCard
+    title="Frontend plugins"
+    description="Components, routes, slot extensions, config schemas, and theming."
+    href="/checkstack/developer-guide/frontend/plugins/"
+  />
+  <LinkCard
+    title="Common packages"
+    description="Conventions for shared `-common` packages and what belongs in them."
+    href="/checkstack/developer-guide/common/plugins/"
+  />
+  <LinkCard
+    title="Security"
+    description="Custom auth plugins and the auth-error-handling contract."
+    href="/checkstack/developer-guide/security/custom-auth-plugins/"
+  />
+  <LinkCard
+    title="Testing"
+    description="Backend test utilities and Playwright end-to-end testing."
+    href="/checkstack/developer-guide/testing/backend-utilities/"
+  />
+  <LinkCard
+    title="Tooling"
+    description="Changesets, dependency linter, monorepo scripts, and shared tsconfigs."
+    href="/checkstack/developer-guide/tooling/changesets/"
+  />
+  <LinkCard
+    title="Examples"
+    description="Copy-pasteable patterns for plugin config, routing, and queues."
+    href="/checkstack/developer-guide/examples/plugin-templates/"
+  />
+</CardGrid>
