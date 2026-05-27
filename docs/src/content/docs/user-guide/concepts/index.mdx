@@ -1,0 +1,61 @@
+---
+title: Concepts
+description: A plain-language tour of the building blocks you work with in Checkstack, from Systems to Notifications.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+Checkstack is built around a small set of concepts that compose into your full monitoring setup. Read these pages in order if you are new; come back to them as a glossary later.
+
+<CardGrid>
+  <LinkCard
+    title="Overview"
+    description="What Checkstack is and the mental model behind it."
+    href="/checkstack/user-guide/concepts/overview/"
+  />
+  <LinkCard
+    title="Systems and groups"
+    description="The catalog of what you monitor and how it is organised."
+    href="/checkstack/user-guide/concepts/systems-and-groups/"
+  />
+  <LinkCard
+    title="Health checks"
+    description="Strategies, collectors, scheduling, and how a check result becomes a status."
+    href="/checkstack/user-guide/concepts/health-checks/"
+  />
+  <LinkCard
+    title="Incidents"
+    description="The manual lifecycle for tracking an outage from first report to resolution."
+    href="/checkstack/user-guide/concepts/incidents/"
+  />
+  <LinkCard
+    title="Maintenances"
+    description="Planned downtime windows that suppress noise and signal the schedule to the team."
+    href="/checkstack/user-guide/concepts/maintenances/"
+  />
+  <LinkCard
+    title="Notifications"
+    description="Subscriptions, in-app vs external delivery, and how silencing fits in."
+    href="/checkstack/user-guide/concepts/notifications/"
+  />
+  <LinkCard
+    title="Integrations"
+    description="Outbound webhooks to Slack, Jira, Teams, and other external systems."
+    href="/checkstack/user-guide/concepts/integrations/"
+  />
+  <LinkCard
+    title="Teams and access"
+    description="Users, roles, and team-scoped resource access."
+    href="/checkstack/user-guide/concepts/teams-and-access/"
+  />
+  <LinkCard
+    title="Satellites"
+    description="Remote monitoring agents for multi-region and network-isolated checks."
+    href="/checkstack/user-guide/concepts/satellites/"
+  />
+  <LinkCard
+    title="GitOps"
+    description="Store your catalog and health checks as YAML and reconcile them from Git."
+    href="/checkstack/user-guide/concepts/gitops/"
+  />
+</CardGrid>

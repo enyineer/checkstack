@@ -1,0 +1,31 @@
+---
+title: Troubleshooting
+description: Diagnosis-driven fixes for the most common Checkstack failure modes - installation, notifications, plugins, and a general FAQ.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+Find the symptom you see, then follow the steps to diagnose and fix it. Each page is problem-driven: symptom -> how to verify -> fix. If your issue doesn't fit one of the categories below, the FAQ has answers to the questions operators ask most often.
+
+<CardGrid>
+  <LinkCard
+    title="Installation troubleshooting"
+    description="Container won't start, BASE_URL issues, database connectivity, encryption key problems, and satellite handshake failures."
+    href="/checkstack/user-guide/troubleshooting/installation/"
+  />
+  <LinkCard
+    title="Notification troubleshooting"
+    description="I'm not getting notifications - walk the delivery pipeline from event source to subscription to dispatch."
+    href="/checkstack/user-guide/troubleshooting/notifications/"
+  />
+  <LinkCard
+    title="Plugin troubleshooting"
+    description="Install failures, version compatibility, upgrade behaviour, and what happens to your data on uninstall."
+    href="/checkstack/user-guide/troubleshooting/plugins/"
+  />
+  <LinkCard
+    title="FAQ"
+    description="Short answers to the questions operators ask most often - incidents, databases, backups, replicas, secrets, and more."
+    href="/checkstack/user-guide/troubleshooting/faq/"
+  />
+</CardGrid>

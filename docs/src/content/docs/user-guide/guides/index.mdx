@@ -1,0 +1,68 @@
+---
+title: Guides
+description: Step-by-step walkthroughs for the most common Checkstack operator tasks.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+These guides walk through the most common things you do as an operator: configuring your first health check, connecting a satellite, wiring up notifications, setting up SSO, managing teams, opening and resolving incidents, scheduling maintenance, installing plugins, getting started with GitOps, and silencing alerts during a known disruption.
+
+If you are looking for the mental model behind these workflows, read the [Concepts](/checkstack/user-guide/concepts/) section first.
+
+<CardGrid>
+  <LinkCard
+    title="Set up your first health check"
+    description="From a blank install: create a system, attach an HTTP check, see the first result land."
+    href="/checkstack/user-guide/guides/first-health-check/"
+  />
+  <LinkCard
+    title="Connect a satellite"
+    description="Mint a token, boot the satellite container, and pin checks to a remote vantage point."
+    href="/checkstack/user-guide/guides/connect-a-satellite/"
+  />
+  <LinkCard
+    title="Wire up Slack notifications"
+    description="Install the Slack plugin, register a webhook, and subscribe a system to it."
+    href="/checkstack/user-guide/guides/wire-up-slack/"
+  />
+  <LinkCard
+    title="Configure SAML SSO"
+    description="Connect Checkstack to Okta or any SAML 2.0 IdP and map directory groups to roles."
+    href="/checkstack/user-guide/guides/configure-saml-sso/"
+  />
+  <LinkCard
+    title="Configure LDAP"
+    description="Connect Checkstack to LDAP or Active Directory and map memberOf groups to roles."
+    href="/checkstack/user-guide/guides/configure-ldap/"
+  />
+  <LinkCard
+    title="Create your first team"
+    description="Group users, grant the team access to specific resources, and verify scoping."
+    href="/checkstack/user-guide/guides/create-a-team/"
+  />
+  <LinkCard
+    title="Open and resolve an incident"
+    description="Manually walk an incident from investigating through resolved, with status updates."
+    href="/checkstack/user-guide/guides/open-and-resolve-incident/"
+  />
+  <LinkCard
+    title="Schedule a maintenance window"
+    description="Pre-arm a planned disruption with suppression, post updates, and resolve cleanly."
+    href="/checkstack/user-guide/guides/schedule-maintenance/"
+  />
+  <LinkCard
+    title="Install a plugin"
+    description="Install a plugin from npm, GitHub release, or a tarball upload via the Plugin Manager."
+    href="/checkstack/user-guide/guides/install-a-plugin/"
+  />
+  <LinkCard
+    title="GitOps quickstart"
+    description="Connect a Git repo, push a YAML descriptor, and watch the reconciler create the entity."
+    href="/checkstack/user-guide/guides/gitops-quickstart/"
+  />
+  <LinkCard
+    title="Silence alerts during an incident"
+    description="Three ways to silence: incident suppression, maintenance windows, per-subscription mute."
+    href="/checkstack/user-guide/guides/silence-alerts/"
+  />
+</CardGrid>

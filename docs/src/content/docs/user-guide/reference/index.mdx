@@ -1,0 +1,73 @@
+---
+title: Reference
+description: Configuration, retention defaults, public API, GitOps schemas, and the UI navigation glossary for Checkstack operators.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+The reference section is the operator's lookup material. Pages here are authoritative for the values, schemas, and contracts the platform enforces. Reach for them when you need the exact answer for an env var, an API field, or a UI surface, rather than a walkthrough.
+
+## Platform configuration
+
+<CardGrid>
+  <LinkCard
+    title="Configuration reference"
+    description="Every environment variable Checkstack reads at boot, grouped by purpose, with type, default, and effect."
+    href="/checkstack/user-guide/reference/configuration/"
+  />
+  <LinkCard
+    title="UI tour"
+    description="Annotated walkthrough of every page in the UI - what each surface is for and the actions you can take from it."
+    href="/checkstack/user-guide/reference/ui-tour/"
+  />
+  <LinkCard
+    title="Retention and limits"
+    description="Health check storage tiers, default retention windows, per-system overrides, and hardcoded platform ceilings."
+    href="/checkstack/user-guide/reference/retention-and-limits/"
+  />
+  <LinkCard
+    title="Health and readiness probes"
+    description="The /.checkstack/health and /.checkstack/ready endpoints that orchestrators poll while the backend is booting."
+    href="/checkstack/user-guide/reference/health-probes/"
+  />
+</CardGrid>
+
+## Security and secrets
+
+<CardGrid>
+  <LinkCard
+    title="Secret encryption"
+    description="ENCRYPTION_MASTER_KEY generation, rotation, and the AES-256-GCM contract."
+    href="/checkstack/user-guide/reference/secret-encryption/"
+  />
+  <LinkCard
+    title="Authentication strategies"
+    description="SSO, SAML, LDAP, and group mapping setup."
+    href="/checkstack/user-guide/reference/authentication-strategies/"
+  />
+  <LinkCard
+    title="API keys"
+    description="Generate, rotate, and revoke personal API keys for the public REST API."
+    href="/checkstack/user-guide/reference/api-keys/"
+  />
+</CardGrid>
+
+## API and integrations
+
+<CardGrid>
+  <LinkCard
+    title="Public REST API"
+    description="The OpenAPI surface plus curl, JavaScript, and Python examples."
+    href="/checkstack/user-guide/reference/public-rest-api/"
+  />
+  <LinkCard
+    title="GitOps kinds"
+    description="Reference for every YAML kind a Checkstack GitOps provider can sync."
+    href="/checkstack/user-guide/reference/gitops-kinds/"
+  />
+  <LinkCard
+    title="Script health checks"
+    description="The shell and inline TS/JS collectors that run on the satellite, with editor, ESM, and isolation details."
+    href="/checkstack/user-guide/reference/script-health-checks/"
+  />
+</CardGrid>

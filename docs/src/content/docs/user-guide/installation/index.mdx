@@ -1,0 +1,36 @@
+---
+title: Installation
+description: Choose how to run Checkstack, walk through the first-run setup, and learn how to upgrade safely.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+Pick the path that matches your environment. All installs share the same configuration model, so the [Configuration reference](/checkstack/user-guide/reference/) applies regardless of the orchestrator you choose.
+
+<CardGrid>
+  <LinkCard
+    title="Docker"
+    description="The fastest path to a running instance, using one container plus a PostgreSQL you already have."
+    href="/checkstack/user-guide/installation/docker/"
+  />
+  <LinkCard
+    title="Docker Compose"
+    description="Run Checkstack and Postgres together with a single file. Recommended for single-host setups."
+    href="/checkstack/user-guide/installation/docker-compose/"
+  />
+  <LinkCard
+    title="Kubernetes"
+    description="Deploy as a Deployment with a managed Postgres, using the built-in health and readiness probes."
+    href="/checkstack/user-guide/installation/kubernetes/"
+  />
+  <LinkCard
+    title="First-run setup"
+    description="What happens the first time the container starts, and how to create your first admin and system."
+    href="/checkstack/user-guide/installation/first-run-setup/"
+  />
+  <LinkCard
+    title="Upgrading"
+    description="Pin image tags, plan rolling restarts, and review the BETA versioning policy before you upgrade."
+    href="/checkstack/user-guide/installation/upgrading/"
+  />
+</CardGrid>

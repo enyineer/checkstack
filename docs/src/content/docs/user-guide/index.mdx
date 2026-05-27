@@ -1,0 +1,38 @@
+---
+title: User Guide
+description: Install, configure, and operate Checkstack. Start here if you run the platform.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+The User Guide is for operators running Checkstack. It covers installation, the core concepts you will work with day to day, step-by-step walkthroughs, reference material, and troubleshooting.
+
+If you are building a plugin or contributing code, head to the [Developer Guide](/checkstack/developer-guide/) instead.
+
+<CardGrid>
+  <LinkCard
+    title="Installation"
+    description="Run Checkstack with Docker, docker-compose, or Kubernetes."
+    href="/checkstack/user-guide/installation/"
+  />
+  <LinkCard
+    title="Concepts"
+    description="Systems, health checks, incidents, teams, satellites, and more in plain language."
+    href="/checkstack/user-guide/concepts/"
+  />
+  <LinkCard
+    title="Guides"
+    description="Walkthroughs for common tasks like wiring up Slack or configuring SSO."
+    href="/checkstack/user-guide/guides/"
+  />
+  <LinkCard
+    title="Reference"
+    description="Configuration, API endpoints, retention defaults, and the UI tour."
+    href="/checkstack/user-guide/reference/"
+  />
+  <LinkCard
+    title="Troubleshooting"
+    description="Fixes for common installation, notification, and plugin issues."
+    href="/checkstack/user-guide/troubleshooting/"
+  />
+</CardGrid>
