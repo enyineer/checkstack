@@ -44,10 +44,15 @@ import {
   shouldNotifyTransition,
 } from "./notification-policy";
 import {
+  findLastAutoIncidentClose,
+  findUnhealthySince,
+  hasHealthyRunSince,
+  isMaintenanceSuppressed,
   isTransitionToUnhealthy,
   openAutoIncident,
   recordUnhealthyTransition,
-  shouldOpenAutoIncident,
+  shouldOpenForFlapping,
+  shouldOpenForSustainedUnhealthy,
 } from "./auto-incident";
 
 type Db = SafeDatabase<typeof schema>;
@@ -147,30 +152,51 @@ export async function scheduleHealthCheck(props: {
 }
 
 /**
- * Detect a per-check transition to `unhealthy` between two aggregated
- * state snapshots and, when the check's policy allows, record the
- * transition and (re)open an auto-incident on the system.
+ * After every check run, evaluate the per-check auto-incident
+ * triggers. Either trigger can independently open an incident:
  *
- * Runs independently of system-aggregate notification dispatch because
- * a check can transition to unhealthy without changing the aggregate
- * (e.g. another check on the same system was already unhealthy).
+ * - **flapping**: this just-completed run was a transition to
+ *   unhealthy AND `N` such transitions have happened within the
+ *   configured window.
+ * - **sustained**: the check is currently unhealthy AND has been so
+ *   continuously for at least the configured duration.
+ *
+ * Both triggers honour the require-recovery rule: after the most
+ * recent auto-incident close (manual or auto), no new auto-incident
+ * opens until the check has logged at least one healthy run. This
+ * stops a manual close → still-unhealthy → re-open loop.
+ *
+ * Active maintenance with suppression skips both triggers when the
+ * policy opts in.
  */
 async function maybeOpenAutoIncidentForCheck(props: {
   db: Db;
   service: HealthCheckService;
   incidentClient: IncidentClient;
+  maintenanceClient: MaintenanceClient;
   logger: Logger;
   systemId: string;
   systemName: string;
   configurationId: string;
   configurationName: string;
-  previousState: { checkStatuses: Array<{ configurationId: string; status: HealthCheckStatus }> };
-  newState: { checkStatuses: Array<{ configurationId: string; status: HealthCheckStatus }> };
+  previousState: {
+    checkStatuses: Array<{
+      configurationId: string;
+      status: HealthCheckStatus;
+    }>;
+  };
+  newState: {
+    checkStatuses: Array<{
+      configurationId: string;
+      status: HealthCheckStatus;
+    }>;
+  };
 }): Promise<void> {
   const {
     db,
     service,
     incidentClient,
+    maintenanceClient,
     logger,
     systemId,
     systemName,
@@ -180,14 +206,17 @@ async function maybeOpenAutoIncidentForCheck(props: {
     newState,
   } = props;
 
-  const prev = previousState.checkStatuses.find(
-    (c) => c.configurationId === configurationId,
-  );
   const next = newState.checkStatuses.find(
     (c) => c.configurationId === configurationId,
   );
-  if (!next) return;
-  if (!isTransitionToUnhealthy(prev?.status, next.status)) return;
+  // Only auto-incident logic applies when the check is currently
+  // unhealthy — both triggers require it.
+  if (!next || next.status !== "unhealthy") return;
+
+  const prev = previousState.checkStatuses.find(
+    (c) => c.configurationId === configurationId,
+  );
+  const isTransition = isTransitionToUnhealthy(prev?.status, next.status);
 
   let policy;
   try {
@@ -203,25 +232,92 @@ async function maybeOpenAutoIncidentForCheck(props: {
     return;
   }
 
-  let recentTransitionCount: number;
-  try {
-    recentTransitionCount = await recordUnhealthyTransition({
+  if (!policy.autoOpenIncidentOnUnhealthy) return;
+
+  // Honour active maintenance windows — operators have explicitly
+  // said the system is down on purpose.
+  if (policy.skipDuringMaintenance) {
+    const suppressed = await isMaintenanceSuppressed({
+      maintenanceClient,
+      systemId,
+      logger,
+    });
+    if (suppressed) {
+      logger.debug(
+        `Skipping auto-incident for ${systemId}/${configurationId}: active maintenance`,
+      );
+      return;
+    }
+  }
+
+  // Require-recovery: if there's a prior closed auto-incident for
+  // this assignment, the check must have logged at least one healthy
+  // run since the close before we can open another one. Without this,
+  // an operator's manual close on a still-broken system would loop.
+  const lastCloseAt = await findLastAutoIncidentClose({
+    db,
+    systemId,
+    configurationId,
+  });
+  if (lastCloseAt) {
+    const recovered = await hasHealthyRunSince({
+      db,
+      systemId,
+      configurationId,
+      since: lastCloseAt,
+    });
+    if (!recovered) {
+      return;
+    }
+  }
+
+  // Record the transition (if any) and evaluate the flapping trigger
+  // against transitions that happened after the last close window.
+  let flappingOpens = false;
+  if (isTransition) {
+    try {
+      const count = await recordUnhealthyTransition({
+        db,
+        configurationId,
+        systemId,
+        windowMinutes: policy.flappingTrigger.windowMinutes,
+        since: lastCloseAt,
+      });
+      flappingOpens = shouldOpenForFlapping({
+        policy,
+        recentTransitionCount: count,
+      });
+    } catch (error) {
+      logger.warn(
+        `Failed to record unhealthy transition for ${systemId}/${configurationId}:`,
+        error,
+      );
+    }
+  }
+
+  // Evaluate the sustained-duration trigger on every run while the
+  // check is unhealthy (not just on transition).
+  let sustainedOpens = false;
+  if (policy.sustainedUnhealthyTrigger.enabled) {
+    const unhealthySince = await findUnhealthySince({
       db,
       configurationId,
       systemId,
-      windowMinutes: policy.incidentThreshold.windowMinutes,
+      since: lastCloseAt,
     });
-  } catch (error) {
-    logger.warn(
-      `Failed to record unhealthy transition for ${systemId}/${configurationId}:`,
-      error,
-    );
-    return;
+    if (unhealthySince) {
+      sustainedOpens = shouldOpenForSustainedUnhealthy({
+        policy,
+        unhealthyForMs: Date.now() - unhealthySince.getTime(),
+      });
+    }
   }
 
-  if (!shouldOpenAutoIncident({ policy, recentTransitionCount })) {
-    return;
-  }
+  if (!flappingOpens && !sustainedOpens) return;
+
+  const reason = flappingOpens
+    ? `flapping: ≥${policy.flappingTrigger.transitions} transitions in ${policy.flappingTrigger.windowMinutes} min`
+    : `unhealthy ≥${policy.sustainedUnhealthyTrigger.durationMinutes} min continuously`;
 
   await openAutoIncident({
     db,
@@ -232,7 +328,7 @@ async function maybeOpenAutoIncidentForCheck(props: {
     configurationId,
     configurationName,
     policy,
-    triggeringTransitionCount: recentTransitionCount,
+    reason,
   });
 }
 
@@ -759,6 +855,7 @@ async function executeHealthCheckJob(props: {
         db,
         service,
         incidentClient,
+        maintenanceClient,
         logger,
         systemId,
         systemName,
@@ -915,6 +1012,7 @@ async function executeHealthCheckJob(props: {
       db,
       service,
       incidentClient,
+      maintenanceClient,
       logger,
       systemId,
       systemName,
@@ -1063,6 +1161,7 @@ async function executeHealthCheckJob(props: {
       db,
       service,
       incidentClient,
+      maintenanceClient,
       logger,
       systemId,
       systemName,

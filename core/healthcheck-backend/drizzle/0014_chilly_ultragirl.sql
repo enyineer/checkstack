@@ -1,0 +1,2 @@
+ALTER TABLE "health_check_auto_incidents" ADD COLUMN "cooldown_minutes" integer;--> statement-breakpoint
+CREATE INDEX "health_check_auto_incidents_last_close_idx" ON "health_check_auto_incidents" USING btree ("configuration_id","system_id","closed_at");

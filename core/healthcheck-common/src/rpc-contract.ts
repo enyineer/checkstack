@@ -175,6 +175,31 @@ export const healthCheckContract = {
     )
     .output(z.void()),
 
+  /**
+   * Read the platform-wide notification policy defaults. Per-assignment
+   * rows with no override inherit these values; admin tooling reads
+   * them to populate the defaults editor. Compile-time defaults fill
+   * in any unset fields.
+   */
+  getPlatformNotificationDefaults: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.read],
+  }).output(NotificationPolicySchema),
+
+  /**
+   * Update the platform-wide notification policy defaults. Per-
+   * assignment rows that inherit (notificationPolicy = null) will pick
+   * up the new values on the next read.
+   */
+  setPlatformNotificationDefaults: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.manage],
+  })
+    .input(NotificationPolicySchema)
+    .output(z.void()),
+
   disassociateSystem: proc({
     operationType: "mutation",
     userType: "authenticated",

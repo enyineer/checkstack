@@ -852,6 +852,7 @@
         "@checkstack/gitops-backend": "workspace:*",
         "@checkstack/gitops-common": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
+        "@checkstack/incident-backend": "workspace:*",
         "@checkstack/incident-common": "workspace:*",
         "@checkstack/integration-backend": "workspace:*",
         "@checkstack/maintenance-common": "workspace:*",

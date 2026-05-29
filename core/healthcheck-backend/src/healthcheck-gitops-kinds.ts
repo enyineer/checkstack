@@ -85,14 +85,20 @@ const systemHealthcheckExtensionSchema = z
       /**
        * Per-assignment notification policy. Any field omitted falls
        * back to the platform default (see `DEFAULT_NOTIFICATION_POLICY`).
-       * The inner `incidentThreshold` is also accepted partially, so a
-       * spec like `{ incidentThreshold: { transitions: 3 } }` is valid
-       * and `windowMinutes` defaults in via the runtime schema parse.
+       * Inner objects (`sustainedUnhealthyTrigger`, `flappingTrigger`)
+       * are also accepted partially.
        */
       notificationPolicy: NotificationPolicySchema.partial()
         .extend({
-          incidentThreshold: z
+          sustainedUnhealthyTrigger: z
             .object({
+              enabled: z.boolean().optional(),
+              durationMinutes: z.number().int().min(1).optional(),
+            })
+            .optional(),
+          flappingTrigger: z
+            .object({
+              enabled: z.boolean().optional(),
               transitions: z.number().int().min(1).optional(),
               windowMinutes: z.number().int().min(1).optional(),
             })

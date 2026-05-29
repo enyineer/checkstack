@@ -10,6 +10,12 @@ import {
   NotificationPolicySchema,
   DEFAULT_NOTIFICATION_POLICY,
 } from "@checkstack/healthcheck-common";
+import type { ConfigService } from "@checkstack/backend-api";
+import {
+  notificationDefaultsConfigV1,
+  NOTIFICATION_DEFAULTS_CONFIG_ID,
+  NOTIFICATION_DEFAULTS_CONFIG_VERSION,
+} from "./notification-defaults-config";
 import {
   healthCheckConfigurations,
   systemHealthChecks,
@@ -69,7 +75,55 @@ export class HealthCheckService {
     private db: Db,
     private registry: HealthCheckRegistry,
     private collectorRegistry: CollectorRegistry,
+    /**
+     * Optional — only required by code paths that resolve platform
+     * defaults (notification policy fallback). When absent, callers
+     * fall back to the compile-time `DEFAULT_NOTIFICATION_POLICY`.
+     * Kept optional so existing GitOps-only / test constructions don't
+     * have to plumb it through.
+     */
+    private configService?: ConfigService,
   ) {}
+
+  /**
+   * Resolve the platform-wide notification policy defaults. Returns
+   * the compile-time defaults when no `configService` was provided or
+   * nothing has ever been persisted. Stored values are passed through
+   * the schema so missing fields default in.
+   */
+  async getPlatformNotificationDefaults(): Promise<NotificationPolicy> {
+    if (!this.configService) {
+      return DEFAULT_NOTIFICATION_POLICY;
+    }
+    const stored = await this.configService.get(
+      NOTIFICATION_DEFAULTS_CONFIG_ID,
+      notificationDefaultsConfigV1,
+      NOTIFICATION_DEFAULTS_CONFIG_VERSION,
+    );
+    return stored ?? DEFAULT_NOTIFICATION_POLICY;
+  }
+
+  /**
+   * Persist platform-wide notification policy defaults. Per-assignment
+   * rows with `notificationPolicy = null` will read the new defaults
+   * on their next evaluation. In-flight auto-incidents are unaffected
+   * (their cooldown is snapshotted per-row at open time).
+   */
+  async setPlatformNotificationDefaults(
+    policy: NotificationPolicy,
+  ): Promise<void> {
+    if (!this.configService) {
+      throw new Error(
+        "ConfigService not configured; cannot persist platform notification defaults",
+      );
+    }
+    await this.configService.set(
+      NOTIFICATION_DEFAULTS_CONFIG_ID,
+      notificationDefaultsConfigV1,
+      NOTIFICATION_DEFAULTS_CONFIG_VERSION,
+      policy,
+    );
+  }
 
   async createConfiguration(
     data: CreateHealthCheckConfiguration,
@@ -329,10 +383,18 @@ export class HealthCheckService {
 
   /**
    * Resolve the fully-defaulted notification policy for a single
-   * (system, configuration) association. Existing rows persisted before
-   * the auto-incident fields landed will have `null` stored values; the
-   * zod parse fills those in with defaults. Returns the platform
-   * defaults when the association doesn't exist.
+   * (system, configuration) association. Resolution order:
+   *
+   *   1. Per-assignment override (`systemHealthChecks.notificationPolicy`)
+   *      when non-null. Stored as a full policy; missing keys defaulted
+   *      via zod parse.
+   *   2. Platform-wide defaults via `ConfigService`.
+   *   3. Compile-time `DEFAULT_NOTIFICATION_POLICY`.
+   *
+   * The all-or-nothing semantic is intentional: assignment rows are
+   * either fully-overridden or fully-inherited from the platform.
+   * Operators can revert an override by setting the row's policy to
+   * `null`, which is the "Use platform defaults" action in the UI.
    */
   async getAssignmentNotificationPolicy({
     systemId,
@@ -354,10 +416,12 @@ export class HealthCheckService {
       )
       .limit(1);
 
-    if (!row) {
-      return DEFAULT_NOTIFICATION_POLICY;
+    // No assignment row → use platform defaults (the only sensible
+    // value for a configuration nothing has explicitly touched).
+    if (!row || row.notificationPolicy === null) {
+      return this.getPlatformNotificationDefaults();
     }
-    return NotificationPolicySchema.parse(row.notificationPolicy ?? {});
+    return NotificationPolicySchema.parse(row.notificationPolicy);
   }
 
   /**

@@ -162,12 +162,25 @@ export const healthCheckAutoIncidents = pgTable(
       .references(() => healthCheckConfigurations.id, { onDelete: "cascade" }),
     openedAt: timestamp("opened_at").defaultNow().notNull(),
     closedAt: timestamp("closed_at"),
+    /**
+     * Auto-close cooldown snapshot taken when the incident was opened.
+     * `null` means "never auto-close" — the worker leaves this
+     * incident alone and an operator must resolve it manually. Stored
+     * per-row so a later policy change doesn't retroactively alter
+     * the close behaviour of incidents already in flight.
+     */
+    cooldownMinutes: integer("cooldown_minutes"),
   },
   (t) => ({
     // Powers "is there an active auto-incident for this system?" check.
     activeBySystemIdx: index(
       "health_check_auto_incidents_active_by_system_idx",
     ).on(t.systemId, t.closedAt),
+    // Powers "find the most recent close for this assignment" lookup
+    // used by the require-recovery-before-reopen check.
+    lastCloseByAssignmentIdx: index(
+      "health_check_auto_incidents_last_close_idx",
+    ).on(t.configurationId, t.systemId, t.closedAt),
   }),
 );
 

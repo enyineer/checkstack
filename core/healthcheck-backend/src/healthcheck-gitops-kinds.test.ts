@@ -42,7 +42,17 @@ interface MockAssociation {
     suppressDeEscalations: boolean;
     autoOpenIncidentOnUnhealthy: boolean;
     useNotificationSuppression: boolean;
-    incidentThreshold: { transitions: number; windowMinutes: number };
+    skipDuringMaintenance: boolean;
+    sustainedUnhealthyTrigger: {
+      enabled: boolean;
+      durationMinutes: number;
+    };
+    flappingTrigger: {
+      enabled: boolean;
+      transitions: number;
+      windowMinutes: number;
+    };
+    autoCloseAfterMinutes: number | null;
   };
 }
 
@@ -647,10 +657,12 @@ describe("Healthcheck GitOps Kind: System Extension", () => {
       extensionSpec: [
         {
           ref: { kind: "Healthcheck", name: "db-check" },
-          // Operator only sets the flap threshold; every other policy
-          // field should default in via the schema parse.
+          // Operator only sets the flap threshold and disables
+          // auto-close; everything else should default in via the
+          // schema parse.
           notificationPolicy: {
-            incidentThreshold: { transitions: 3 },
+            flappingTrigger: { transitions: 5 },
+            autoCloseAfterMinutes: null,
           },
         },
       ],
@@ -663,10 +675,17 @@ describe("Healthcheck GitOps Kind: System Extension", () => {
     expect(policy?.suppressDeEscalations).toBe(false);
     expect(policy?.autoOpenIncidentOnUnhealthy).toBe(true);
     expect(policy?.useNotificationSuppression).toBe(true);
-    expect(policy?.incidentThreshold).toEqual({
-      transitions: 3,
+    expect(policy?.skipDuringMaintenance).toBe(true);
+    expect(policy?.sustainedUnhealthyTrigger).toEqual({
+      enabled: true,
+      durationMinutes: 30,
+    });
+    expect(policy?.flappingTrigger).toEqual({
+      enabled: true,
+      transitions: 5,
       windowMinutes: 60,
     });
+    expect(policy?.autoCloseAfterMinutes).toBeNull();
   });
 
   it("omits notificationPolicy entirely when the spec doesn't set it", async () => {
