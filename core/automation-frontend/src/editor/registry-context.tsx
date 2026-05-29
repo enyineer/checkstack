@@ -158,6 +158,7 @@ export function useVariableScope(args: {
     return {
       templateProperties: fields.map((f) => ({
         path: f.path,
+        templateRef: f.templateRef,
         type: f.type,
         description: f.description,
         enumValues: f.enumValues,
@@ -182,6 +183,7 @@ export function useVariableScope(args: {
 function toNode(entry: VariableEntry): VariableNode {
   return {
     path: entry.path,
+    templateRef: entry.templateRef,
     type: entry.type,
     description: entry.description,
     children: entry.children?.map((child) => toNode(child)),

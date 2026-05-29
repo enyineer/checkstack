@@ -26,8 +26,21 @@ import type {
 } from "@checkstack/ui";
 
 export interface CompletionField {
-  /** Dot path, e.g. `trigger.payload.severity`. */
+  /**
+   * Canonical dot path, e.g. `trigger.payload.severity` or
+   * `artifact.integration-jira.issue.issueKey`. Used ONLY for shell-env
+   * derivation (path-based, must match the backend) — never inserted
+   * into `{{ }}` (it isn't always runtime-parseable).
+   */
   path: string;
+  /**
+   * Runtime-parseable insertion text — what actually gets written into
+   * the `{{ }}` editor. Plural top-level namespace + bracket notation
+   * for non-identifier segments, e.g.
+   * `artifacts["integration-jira.issue"].issueKey`. Drives the label,
+   * filter/match, insertText, and the value-stage field lookup.
+   */
+  templateRef: string;
   /** Type label shown on the right. */
   type: string;
   description?: string;
@@ -58,6 +71,8 @@ type TokenType =
   | "pipe"
   | "lparen"
   | "rparen"
+  | "lbracket"
+  | "rbracket"
   | "comma"
   | "ws";
 
@@ -127,6 +142,18 @@ function tokenize(expr: string): Token[] {
     }
     if (ch === ",") {
       tokens.push({ type: "comma", value: ch, start: i, end: i + 1 });
+      i += 1;
+      continue;
+    }
+    // Bracket member access — real tokens so `reconstructChain` can rebuild a
+    // `foo["bar"].baz` access chain (it used to swallow these as ws).
+    if (ch === "[") {
+      tokens.push({ type: "lbracket", value: ch, start: i, end: i + 1 });
+      i += 1;
+      continue;
+    }
+    if (ch === "]") {
+      tokens.push({ type: "rbracket", value: ch, start: i, end: i + 1 });
       i += 1;
       continue;
     }
@@ -201,49 +228,198 @@ export function analyzeExpression(expr: string): ExprStage {
 
   // 2. Value stage — after a comparator.
   if (!partial && isComparator(last)) {
+    // The comparator is the last token; the operand chain ends at the
+    // token just before it.
     return {
       kind: "value",
       tokenStart: cursor,
-      fieldPath: pathBefore(nonWs, nonWs.length - 1),
+      fieldPath: reconstructChain(nonWs, nonWs.length - 2).ref,
       query: "",
       quoted: false,
     };
   }
   if (partial && isComparator(beforePartial)) {
     const quoted = partial.type === "string";
+    // The partial value is at indexOf(partial); the comparator is the
+    // token before it, so the operand chain ends two tokens back.
     return {
       kind: "value",
       tokenStart: partial.start,
-      fieldPath: pathBefore(nonWs, nonWs.indexOf(partial) - 1),
+      fieldPath: reconstructChain(nonWs, nonWs.indexOf(partial) - 2).ref,
       query: quoted ? stripQuotes(partial.value) : partial.value,
       quoted,
     };
   }
 
-  // 3. Operator stage — a completed operand followed by whitespace.
+  // 3. Operator stage — a completed operand followed by whitespace. A
+  // `rbracket` closes a bracket member access (`artifacts["x"] `), so it
+  // also counts as a completed operand.
   if (
     trailingWs &&
     last &&
     (last.type === "path" ||
       last.type === "string" ||
       last.type === "number" ||
-      last.type === "rparen")
+      last.type === "rparen" ||
+      last.type === "rbracket")
   ) {
     return { kind: "operator", tokenStart: cursor };
   }
 
-  // 4. Field stage (default).
-  if (partial && partial.type === "path") {
-    return { kind: "field", tokenStart: partial.start, query: partial.value };
+  // 4. Field stage (default). Reconstruct the full access chain being
+  // typed so a partial like `artifacts["integration-jira.issue"].iss`
+  // filters against the field's templateRef (not just the `.iss` tail).
+  if (partial && (partial.type === "path" || partial.type === "rbracket")) {
+    const partialIndex = nonWs.indexOf(partial);
+    const { ref, startIndex } = reconstructChain(nonWs, partialIndex);
+    return {
+      kind: "field",
+      tokenStart: nonWs[startIndex]!.start,
+      query: ref,
+    };
   }
   return { kind: "field", tokenStart: cursor, query: "" };
 }
 
-function pathBefore(nonWs: Token[], index: number): string {
-  for (let i = index; i >= 0; i--) {
-    if (nonWs[i]!.type === "path") return nonWs[i]!.value;
+/**
+ * Reconstruct the full member-access chain that ends at `nonWs[index]`,
+ * rebuilding it in EXACTLY the same string form as
+ * `CompletionField.templateRef` so the value-stage lookup
+ * (`f.templateRef === fieldPath`) matches, AND returning the start index of
+ * the chain so the field stage can map back to a replace offset.
+ *
+ * The chain is a leading identifier followed by any sequence of:
+ *   - `.ident` dotted members (`...issueKey`),
+ *   - `["literal"]` bracket key access (rebuilt double-quoted to match
+ *     `appendTemplateSegment` — see the string branch below), and
+ *   - `[number]` bracket array-index access (rebuilt as a bare number, no
+ *     quotes, to match `appendArrayIndex`).
+ *
+ * e.g. `artifacts["integration-jira.issue"].comments[0].author`. Plain
+ * dotted paths such as `trigger.payload.severity` reconstruct unchanged.
+ *
+ * We scan backward from `index`, collecting a contiguous run of chain
+ * tokens, then join them left-to-right.
+ */
+function reconstructChain(
+  nonWs: Token[],
+  index: number,
+): { ref: string; startIndex: number } {
+  // Collect the contiguous chain ending at `index`, scanning backward.
+  // `path`/`number` tokens (paths may embed leading/trailing dots), plus
+  // matched `[ string ]` and `[ number ]` triples, all belong to the chain.
+  // Anything else ends it.
+  const chain: Token[] = [];
+  let i = index;
+  let startIndex = index;
+  while (i >= 0) {
+    const tok = nonWs[i]!;
+    if (tok.type === "path" || tok.type === "number") {
+      chain.unshift(tok);
+      startIndex = i;
+      i -= 1;
+      continue;
+    }
+    // A bracket index: `] (string|number) [` reading backward.
+    if (
+      tok.type === "rbracket" &&
+      (nonWs[i - 1]?.type === "string" || nonWs[i - 1]?.type === "number") &&
+      nonWs[i - 2]?.type === "lbracket"
+    ) {
+      // unshift in left-to-right order: `[ literal ]`.
+      chain.unshift(nonWs[i - 2]!, nonWs[i - 1]!, nonWs[i]!);
+      startIndex = i - 2;
+      i -= 3;
+      continue;
+    }
+    break;
   }
-  return "";
+  if (chain.length === 0) return { ref: "", startIndex: index };
+
+  // Rebuild left-to-right. A `path` token may carry leading/trailing dots
+  // (the tokenizer eats `.` greedily), which we preserve verbatim so plain
+  // dotted paths round-trip. String bracket triples become `["value"]`;
+  // number bracket triples become a bare `[0]`. A lone member-access dot
+  // between `]` and an identifier (e.g. `].issueKey`) is dropped by the
+  // tokenizer's whitespace fallback, so re-insert a `.` when a `path`
+  // segment directly follows a bracket close — but NOT before another `[`.
+  let out = "";
+  let prevWasBracketClose = false;
+  for (let k = 0; k < chain.length; k++) {
+    const tok = chain[k]!;
+    if (tok.type === "lbracket") {
+      const literal = chain[k + 1];
+      if (literal?.type === "string") {
+        out += `[${JSON.stringify(parseStringLiteral(literal.value))}]`;
+      } else if (literal?.type === "number") {
+        out += `[${literal.value}]`;
+      }
+      k += 2; // skip literal + rbracket
+      prevWasBracketClose = true;
+      continue;
+    }
+    if (prevWasBracketClose && !tok.value.startsWith(".")) {
+      out += ".";
+    }
+    out += tok.value;
+    prevWasBracketClose = false;
+  }
+  return { ref: out, startIndex };
+}
+
+/**
+ * Parse a (possibly single-quoted or unterminated) string literal token to
+ * its true runtime value, so the caller can re-`JSON.stringify` it into the
+ * canonical double-quoted form WITHOUT double-escaping.
+ *
+ * A naive `JSON.stringify(stripQuotes(value))` double-escapes keys that
+ * contain `"` or `\` (the stored templateRef would re-escape an already
+ * escaped sequence). Instead: for a well-formed double-quoted literal use
+ * `JSON.parse` directly; for single-quoted or unterminated input, strip the
+ * outer quotes and interpret the standard JSON escape sequences minimally so
+ * a key like `a"b` round-trips.
+ */
+function parseStringLiteral(value: string): string {
+  const quote = value[0];
+  if (quote === '"') {
+    // Well-formed `"…"` → JSON.parse gives the true value directly.
+    try {
+      const parsed: unknown = JSON.parse(value);
+      if (typeof parsed === "string") return parsed;
+    } catch {
+      // Unterminated or otherwise invalid — fall through to manual unescape.
+    }
+  }
+  return unescapeQuoted(value);
+}
+
+/**
+ * Strip the outer quote(s) and interpret standard escape sequences from a
+ * single-quoted or unterminated literal. Mirrors the JSON escape set the
+ * template engine tokenizer accepts.
+ */
+function unescapeQuoted(value: string): string {
+  const quote = value[0];
+  let inner = value;
+  if (quote === '"' || quote === "'") {
+    inner = value.slice(1);
+    if (inner.endsWith(quote)) inner = inner.slice(0, -1);
+  }
+  // Mirrors the JSON escape set the template engine tokenizer accepts; any
+  // other escaped char (incl. `"` `'` `\` `/`) collapses to the char itself.
+  const escapes: Record<string, string> = { n: "\n", t: "\t", r: "\r" };
+  let out = "";
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i]!;
+    if (ch === "\\" && i + 1 < inner.length) {
+      const next = inner[i + 1]!;
+      out += escapes[next] ?? next;
+      i += 1;
+      continue;
+    }
+    out += ch;
+  }
+  return out;
 }
 
 function stripQuotes(value: string): string {
@@ -342,8 +518,14 @@ function fieldResult(args: {
 }): TemplateCompletionResult | null {
   const { stage, fields, replaceStart, replaceEnd, appendClose } = args;
   const q = stage.query.toLowerCase();
+  // Match + insert in templateRef space (what gets written into `{{ }}`).
+  // Also match against the canonical `path` so typing the dotted form
+  // (or shell-flavoured fragments) still surfaces the field.
   const matches = fields.filter(
-    (f) => q === "" || f.path.toLowerCase().includes(q),
+    (f) =>
+      q === "" ||
+      f.templateRef.toLowerCase().includes(q) ||
+      f.path.toLowerCase().includes(q),
   );
   if (matches.length === 0) return null;
   return {
@@ -359,18 +541,18 @@ function fieldResult(args: {
         // Unclosed `{{` — also append the closing braces, and land the
         // caret after the space but before `}}` (offset -2 into ` }}`).
         return {
-          label: f.path,
+          label: f.templateRef,
           detail: f.type,
           description: f.description,
-          insertText: `${f.path} }}`,
+          insertText: `${f.templateRef} }}`,
           caretOffset: -2,
         } satisfies TemplateCompletionItem;
       }
       return {
-        label: f.path,
+        label: f.templateRef,
         detail: f.type,
         description: f.description,
-        insertText: `${f.path} `,
+        insertText: `${f.templateRef} `,
         caretOffset: 0,
       } satisfies TemplateCompletionItem;
     }),
@@ -410,7 +592,9 @@ function valueResult(args: {
   replaceEnd: number;
 }): TemplateCompletionResult | null {
   const { stage, fields, replaceStart, replaceEnd } = args;
-  const field = fields.find((f) => f.path === stage.fieldPath);
+  // `stage.fieldPath` is reconstructed by `reconstructChain` in templateRef
+  // form, so match against `templateRef` (not the canonical `path`).
+  const field = fields.find((f) => f.templateRef === stage.fieldPath);
   const values = possibleValues(field);
   if (!values || values.length === 0) return null;
 
@@ -421,7 +605,7 @@ function valueResult(args: {
   if (matches.length === 0) return null;
 
   return {
-    heading: field ? `Values for ${field.path}` : "Values",
+    heading: field ? `Values for ${field.templateRef}` : "Values",
     replaceStart,
     replaceEnd,
     items: matches.map((v) => ({

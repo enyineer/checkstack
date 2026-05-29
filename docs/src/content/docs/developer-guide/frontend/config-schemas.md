@@ -334,6 +334,52 @@ with staged field / comparator / value / filter completion inside
 fields like a log action's `message`). The prop is opt-in, so other
 consumers are unaffected.
 
+#### Template namespaces and reference syntax
+
+Inside {% raw %}`{{ … }}`{% endraw %} blocks the top-level namespaces are
+**plural**: `artifacts`, `variables`, plus `trigger`, `repeat`, and
+`now`. The autocomplete (`{% raw %}{{{% endraw %}` typeahead) and the `fx`
+variable picker insert the runtime-parseable form for you, so you rarely
+hand-write these, but the rules matter when editing existing templates:
+
+- **Variables** use `variables.<name>`. If the name is not a plain
+  identifier, switch to bracket notation:
+
+  ```text
+  {% raw %}{{ variables.myVar }}{% endraw %}
+  {% raw %}{{ variables["weird-name"] }}{% endraw %}
+  ```
+
+- **Artifacts** are keyed by id following the `pluginId.localId`
+  pattern, so ids contain dots and hyphens (for example
+  `integration-jira.issue`). The template engine's `.` member access only
+  accepts plain identifiers, so a dotted or hyphenated artifact id **must**
+  use bracket notation:
+
+  ```text
+  {% raw %}{{ artifacts["integration-jira.issue"].issueKey }}{% endraw %}
+  ```
+
+  Writing {% raw %}`{{ artifacts.integration-jira.issue.issueKey }}`{% endraw %}
+  is a parse error.
+
+- **Array values** can be referenced whole or indexed by a numeric
+  index. Arrays of arrays work too:
+
+  ```text
+  {% raw %}{{ artifacts["integration-jira.issue"].tags }}{% endraw %}
+  {% raw %}{{ artifacts["integration-jira.issue"].tags[0] }}{% endraw %}
+  {% raw %}{{ artifacts["integration-jira.issue"].comments[0].author }}{% endraw %}
+  {% raw %}{{ artifacts["x"].matrix[0][0] }}{% endraw %}
+  ```
+
+> [!IMPORTANT]
+> These {% raw %}`{{ }}`{% endraw %} namespaces apply only to text/markup
+> fields. They are **not** the same as the typed `context` object used by
+> TS/JS script actions (`context.artifacts["integration-jira.issue"]`,
+> `context.var`, ...) or the `$CHECKSTACK_*` env vars used by shell
+> actions. See the next two sections for those.
+
 **Typed context (TS/JS editors).** Pass `typeDefinitions` (a
 `declare const context: …` string) and the editor types the `context` global.
 Non-identifier object keys in those definitions (e.g. artifact ids like

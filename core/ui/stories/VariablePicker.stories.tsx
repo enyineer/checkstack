@@ -54,21 +54,36 @@ const sampleScope: VariableNode[] = [
   },
   {
     path: "var",
+    templateRef: "variables",
     type: "object",
     description: "Operator-defined variables.",
-    children: [{ path: "var.outer", type: "string" }],
+    children: [
+      { path: "var.outer", templateRef: "variables.outer", type: "string" },
+    ],
   },
   {
     path: "artifact",
+    templateRef: "artifacts",
     type: "object",
     description: "Artifacts produced upstream.",
     children: [
       {
-        path: "artifact.jira.issue",
+        // Hyphenated/dotted artifact id → templateRef uses bracket notation
+        // so the inserted `{{ }}` text is runtime-parseable.
+        path: "artifact.integration-jira.issue",
+        templateRef: 'artifacts["integration-jira.issue"]',
         type: "object",
         children: [
-          { path: "artifact.jira.issue.key", type: "string" },
-          { path: "artifact.jira.issue.url", type: "string" },
+          {
+            path: "artifact.integration-jira.issue.key",
+            templateRef: 'artifacts["integration-jira.issue"].key',
+            type: "string",
+          },
+          {
+            path: "artifact.integration-jira.issue.url",
+            templateRef: 'artifacts["integration-jira.issue"].url',
+            type: "string",
+          },
         ],
       },
     ],

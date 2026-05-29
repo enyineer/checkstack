@@ -36,6 +36,11 @@ export const TEMPLATE_FILTERS: readonly CompletionFilter[] = [
 export function fieldsToShellEnvVars(
   fields: readonly CompletionField[],
 ): ShellEnvVar[] {
+  // Derive from the canonical dotted `path`, NOT `templateRef`. The
+  // backend's `toShellEnvKey` injection is path-based, so deriving from
+  // `path` keeps the `$CHECKSTACK_*` names suggested here byte-identical
+  // to what the runtime injects (bracket-notation templateRefs would
+  // produce different — and wrong — env var names).
   return fields.map((field) => ({
     name: toShellEnvKey(field.path),
     description: field.type ? `${field.path} (${field.type})` : field.path,
@@ -43,26 +48,32 @@ export function fieldsToShellEnvVars(
 }
 
 /**
- * Flatten a resolved `VariableScope` to the leaf fields the completion
+ * Flatten a resolved `VariableScope` to the fields the completion
  * provider offers in its "field" stage. Object-typed parents are
- * skipped — operators interpolate leaf values, not whole objects. Each
- * leaf carries its `enumValues` (when the schema declared an `enum`) so
- * the provider's "value" stage can suggest concrete comparisons.
+ * skipped — operators interpolate leaf values, not whole objects — but
+ * `referenceable` nodes (arrays) are emitted alongside their element
+ * children so both `{{ ...tags }}` and `{{ ...tags[0] }}` are offered.
+ * Each field carries its `enumValues` (when the schema declared an
+ * `enum`) so the provider's "value" stage can suggest concrete
+ * comparisons.
  */
 export function flattenScopeToFields(scope: VariableScope): CompletionField[] {
   const out: CompletionField[] = [];
   const visit = (entries: readonly VariableEntry[]): void => {
     for (const entry of entries) {
-      if (entry.children && entry.children.length > 0) {
-        visit(entry.children);
-        continue;
+      // Emit a field for every leaf, plus any node explicitly flagged
+      // `referenceable` (arrays — both the whole array and its elements are
+      // insertable). Always recurse into children regardless.
+      if (!entry.children?.length || entry.referenceable) {
+        out.push({
+          path: entry.path,
+          templateRef: entry.templateRef ?? entry.path,
+          type: entry.type,
+          description: entry.description,
+          enumValues: extractEnum(entry.jsonSchema),
+        });
       }
-      out.push({
-        path: entry.path,
-        type: entry.type,
-        description: entry.description,
-        enumValues: extractEnum(entry.jsonSchema),
-      });
+      if (entry.children?.length) visit(entry.children);
     }
   };
   visit(scope.entries);

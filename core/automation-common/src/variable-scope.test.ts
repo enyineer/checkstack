@@ -22,7 +22,10 @@ function variables(record: Record<string, unknown>): ActionInput {
   return { variables: record, enabled: true, continue_on_error: false };
 }
 import {
+  appendArrayIndex,
+  appendTemplateSegment,
   flattenScope,
+  isTemplateIdentifier,
   resolveVariableScope,
   type ActionPath,
 } from "./variable-scope";
@@ -89,6 +92,61 @@ const notifyAction: ActionInfo = {
   ownerPluginId: "automation",
   configSchema: { type: "object" },
   consumes: [],
+};
+
+// Artifact whose qualified id contains both a hyphen and a dot — the kind of
+// id that breaks dot-notation template paths and forces bracket notation.
+const dottedArtifact: ArtifactTypeInfo = {
+  qualifiedId: "integration-jira.issue",
+  displayName: "Jira Issue (dotted id)",
+  ownerPluginId: "integration-jira",
+  schema: {
+    type: "object",
+    properties: {
+      issueKey: { type: "string" },
+    },
+    required: ["issueKey"],
+  },
+};
+
+const dottedArtifactNoSchema: ArtifactTypeInfo = {
+  qualifiedId: "integration-jira.issue",
+  displayName: "Jira Issue (no schema)",
+  ownerPluginId: "integration-jira",
+  schema: { type: "object" },
+};
+
+const createDottedArtifactAction: ActionInfo = {
+  qualifiedId: "integration-jira.create_issue_dotted",
+  displayName: "Create Jira Issue (dotted artifact)",
+  category: "Jira",
+  ownerPluginId: "integration-jira",
+  configSchema: { type: "object" },
+  produces: "integration-jira.issue",
+  consumes: [],
+};
+
+// Artifact whose schema has array properties: an array of objects (comments)
+// and an array of scalars (tags). Exercises the array-element descent.
+const arrayArtifact: ArtifactTypeInfo = {
+  qualifiedId: "integration-jira.issue",
+  displayName: "Jira Issue (with arrays)",
+  ownerPluginId: "integration-jira",
+  schema: {
+    type: "object",
+    properties: {
+      comments: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            author: { type: "string" },
+          },
+        },
+      },
+      tags: { type: "array", items: { type: "string" } },
+    },
+  },
 };
 
 function basicDefinition(
@@ -623,6 +681,262 @@ describe("resolveVariableScope — condition-aware narrowing", () => {
     const flat = flattenScope(scope).map((e) => e.path);
     expect(flat).toContain("trigger.payload.title");
     expect(flat).not.toContain("trigger.payload.resolvedAt");
+  });
+});
+
+describe("isTemplateIdentifier", () => {
+  it("accepts bare identifiers", () => {
+    expect(isTemplateIdentifier("issueKey")).toBe(true);
+    expect(isTemplateIdentifier("_private")).toBe(true);
+    expect(isTemplateIdentifier("$ref")).toBe(true);
+    expect(isTemplateIdentifier("a1_b2")).toBe(true);
+  });
+
+  it("rejects non-identifier segments", () => {
+    expect(isTemplateIdentifier("integration-jira.issue")).toBe(false);
+    expect(isTemplateIdentifier("weird-name")).toBe(false);
+    expect(isTemplateIdentifier("has.dot")).toBe(false);
+    expect(isTemplateIdentifier("1leading")).toBe(false);
+    expect(isTemplateIdentifier("")).toBe(false);
+  });
+});
+
+describe("appendArrayIndex", () => {
+  it("appends a bare numeric index in bracket notation", () => {
+    expect(appendArrayIndex({ base: "artifacts", index: 0 })).toBe(
+      "artifacts[0]",
+    );
+    expect(
+      appendArrayIndex({
+        base: 'artifacts["integration-jira.issue"].tags',
+        index: 0,
+      }),
+    ).toBe('artifacts["integration-jira.issue"].tags[0]');
+  });
+});
+
+describe("appendTemplateSegment", () => {
+  it("uses dot notation for identifier segments", () => {
+    expect(appendTemplateSegment({ base: "variables", segment: "foo" })).toBe(
+      "variables.foo",
+    );
+    expect(
+      appendTemplateSegment({ base: "trigger.payload", segment: "title" }),
+    ).toBe("trigger.payload.title");
+  });
+
+  it("uses JSON-quoted bracket notation for dotted segments", () => {
+    expect(
+      appendTemplateSegment({
+        base: "artifacts",
+        segment: "integration-jira.issue",
+      }),
+    ).toBe('artifacts["integration-jira.issue"]');
+  });
+
+  it("uses bracket notation for hyphenated segments", () => {
+    expect(
+      appendTemplateSegment({ base: "variables", segment: "weird-name" }),
+    ).toBe('variables["weird-name"]');
+  });
+
+  it("uses bracket notation for leading-digit segments", () => {
+    expect(appendTemplateSegment({ base: "variables", segment: "1st" })).toBe(
+      'variables["1st"]',
+    );
+  });
+});
+
+describe("resolveVariableScope — templateRef", () => {
+  it("brackets a dotted/hyphenated artifact id and dots its schema children", () => {
+    const definition = basicDefinition({
+      triggers: [{ event: "incident.created" }],
+      actions: [
+        provider("integration-jira.create_issue_dotted"),
+        provider("automation.notify_user"),
+      ],
+    });
+    const scope = resolveVariableScope({
+      definition,
+      triggers: [triggerInfo],
+      actions: [createDottedArtifactAction, notifyAction],
+      artifactTypes: [dottedArtifact],
+      path: [{ slot: "root", index: 1 }],
+    });
+    const byPath = new Map(flattenScope(scope).map((e) => [e.path, e]));
+
+    // path stays canonical & dotted (other consumers slice it).
+    const child = byPath.get("artifact.integration-jira.issue.issueKey");
+    expect(child).toBeDefined();
+    expect(child?.path).toBe("artifact.integration-jira.issue.issueKey");
+    // templateRef brackets the artifact id, dots the identifier child key.
+    expect(child?.templateRef).toBe(
+      'artifacts["integration-jira.issue"].issueKey',
+    );
+
+    // The artifact node itself.
+    const node = byPath.get("artifact.integration-jira.issue");
+    expect(node?.templateRef).toBe('artifacts["integration-jira.issue"]');
+  });
+
+  it("brackets a dotted artifact id even with no schema children", () => {
+    const definition = basicDefinition({
+      triggers: [{ event: "incident.created" }],
+      actions: [
+        provider("integration-jira.create_issue_dotted"),
+        provider("automation.notify_user"),
+      ],
+    });
+    const scope = resolveVariableScope({
+      definition,
+      triggers: [triggerInfo],
+      actions: [createDottedArtifactAction, notifyAction],
+      artifactTypes: [dottedArtifactNoSchema],
+      path: [{ slot: "root", index: 1 }],
+    });
+    const node = flattenScope(scope).find(
+      (e) => e.path === "artifact.integration-jira.issue",
+    );
+    expect(node).toBeDefined();
+    expect(node?.templateRef).toBe('artifacts["integration-jira.issue"]');
+    expect(node?.children).toBeUndefined();
+  });
+
+  it("maps the var namespace to plural variables in templateRef", () => {
+    const definition = basicDefinition({
+      triggers: [{ event: "incident.created" }],
+      actions: [
+        variables({ foo: "hello" }),
+        provider("automation.notify_user"),
+      ],
+    });
+    const scope = resolveVariableScope({
+      definition,
+      triggers: [triggerInfo],
+      actions: [notifyAction],
+      artifactTypes: [],
+      path: [{ slot: "root", index: 1 }],
+    });
+    const entry = flattenScope(scope).find((e) => e.path === "var.foo");
+    expect(entry?.path).toBe("var.foo");
+    expect(entry?.templateRef).toBe("variables.foo");
+  });
+
+  it("brackets a hyphenated variable name in templateRef", () => {
+    const definition = basicDefinition({
+      triggers: [{ event: "incident.created" }],
+      actions: [
+        variables({ "weird-name": "hello" }),
+        provider("automation.notify_user"),
+      ],
+    });
+    const scope = resolveVariableScope({
+      definition,
+      triggers: [triggerInfo],
+      actions: [notifyAction],
+      artifactTypes: [],
+      path: [{ slot: "root", index: 1 }],
+    });
+    const entry = flattenScope(scope).find(
+      (e) => e.path === "var.weird-name",
+    );
+    expect(entry?.path).toBe("var.weird-name");
+    expect(entry?.templateRef).toBe('variables["weird-name"]');
+  });
+
+  it("descends into an array-of-objects: whole array + element children", () => {
+    const definition = basicDefinition({
+      triggers: [{ event: "incident.created" }],
+      actions: [
+        provider("integration-jira.create_issue_dotted"),
+        provider("automation.notify_user"),
+      ],
+    });
+    const scope = resolveVariableScope({
+      definition,
+      triggers: [triggerInfo],
+      actions: [createDottedArtifactAction, notifyAction],
+      artifactTypes: [arrayArtifact],
+      path: [{ slot: "root", index: 1 }],
+    });
+    const flat = flattenScope(scope);
+    const byRef = new Map(flat.map((e) => [e.templateRef, e]));
+
+    // The whole-array node is referenceable and keeps the array type label.
+    const commentsNode = byRef.get('artifacts["integration-jira.issue"].comments');
+    expect(commentsNode).toBeDefined();
+    expect(commentsNode?.referenceable).toBe(true);
+    expect(commentsNode?.type).toBe("object[]");
+
+    // An element-object child descends via the representative index 0.
+    const authorNode = byRef.get(
+      'artifacts["integration-jira.issue"].comments[0].author',
+    );
+    expect(authorNode).toBeDefined();
+    expect(authorNode?.type).toBe("string");
+  });
+
+  it("descends into an array-of-scalars: whole array + element leaf", () => {
+    const definition = basicDefinition({
+      triggers: [{ event: "incident.created" }],
+      actions: [
+        provider("integration-jira.create_issue_dotted"),
+        provider("automation.notify_user"),
+      ],
+    });
+    const scope = resolveVariableScope({
+      definition,
+      triggers: [triggerInfo],
+      actions: [createDottedArtifactAction, notifyAction],
+      artifactTypes: [arrayArtifact],
+      path: [{ slot: "root", index: 1 }],
+    });
+    const byRef = new Map(
+      flattenScope(scope).map((e) => [e.templateRef, e]),
+    );
+
+    const tagsNode = byRef.get('artifacts["integration-jira.issue"].tags');
+    expect(tagsNode).toBeDefined();
+    expect(tagsNode?.referenceable).toBe(true);
+    expect(tagsNode?.type).toBe("string[]");
+
+    const tagsElem = byRef.get('artifacts["integration-jira.issue"].tags[0]');
+    expect(tagsElem).toBeDefined();
+    expect(tagsElem?.type).toBe("string");
+    // A scalar element is a leaf — no children.
+    expect(tagsElem?.children).toBeUndefined();
+  });
+
+  it("keeps trigger/repeat templateRef equal to path for static identifier paths", () => {
+    const definition = basicDefinition({
+      triggers: [{ event: "incident.created" }],
+      actions: [
+        {
+          repeat: {
+            for_each: "{{ trigger.payload.items }}",
+            sequence: [provider("automation.notify_user")],
+          },
+        },
+      ],
+    });
+    const scope = resolveVariableScope({
+      definition,
+      triggers: [triggerInfo],
+      actions: [notifyAction],
+      artifactTypes: [],
+      path: [
+        { slot: "root", index: 0 },
+        { slot: "repeat", index: 0 },
+      ],
+    });
+    const byPath = new Map(flattenScope(scope).map((e) => [e.path, e]));
+    expect(byPath.get("trigger.event")?.templateRef).toBe("trigger.event");
+    expect(byPath.get("trigger.payload")?.templateRef).toBe("trigger.payload");
+    expect(byPath.get("trigger.payload.title")?.templateRef).toBe(
+      "trigger.payload.title",
+    );
+    expect(byPath.get("repeat.index")?.templateRef).toBe("repeat.index");
+    expect(byPath.get("repeat.item")?.templateRef).toBe("repeat.item");
   });
 });
 

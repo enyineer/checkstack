@@ -422,8 +422,10 @@ const RawEditor: React.FC<{
     if (!templateProperties) return [];
     if (!templateContext.query.trim()) return templateProperties;
     const lowerQuery = templateContext.query.toLowerCase();
-    return templateProperties.filter((prop) =>
-      prop.path.toLowerCase().includes(lowerQuery),
+    return templateProperties.filter(
+      (prop) =>
+        prop.path.toLowerCase().includes(lowerQuery) ||
+        (prop.templateRef?.toLowerCase().includes(lowerQuery) ?? false),
     );
   }, [templateProperties, templateContext.query]);
 
@@ -486,7 +488,7 @@ const RawEditor: React.FC<{
       const textarea = textareaRef.current;
       if (!textarea || templateContext.startPos === -1) return;
 
-      const template = `{{${prop.path}}}`;
+      const template = `{{${prop.templateRef ?? prop.path}}}`;
       const cursorPos = textarea.selectionStart ?? 0;
       const newValue =
         value.slice(0, templateContext.startPos) +
@@ -585,7 +587,9 @@ const RawEditor: React.FC<{
                     : ""
                 }`}
               >
-                <code className="font-mono truncate">{prop.path}</code>
+                <code className="font-mono truncate">
+                  {prop.templateRef ?? prop.path}
+                </code>
                 <span className="text-muted-foreground shrink-0">
                   {prop.type}
                 </span>

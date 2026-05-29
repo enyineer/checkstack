@@ -19,8 +19,14 @@ export type CodeEditorLanguage =
  * `TemplateValueInput` for the simple "insert a `{{ path }}` reference" flow.
  */
 export interface TemplateProperty {
-  /** Full path to the property, e.g., "trigger.payload.title". */
+  /** Full canonical path to the property, e.g., "trigger.payload.title". */
   path: string;
+  /**
+   * Runtime-parseable `{{ }}` insertion text, e.g.
+   * `artifacts["integration-jira.issue"].issueKey`. When present this is
+   * what gets inserted; consumers fall back to `path` when it's absent.
+   */
+  templateRef?: string;
   /** Type label rendered on the right, e.g. "string", "number". */
   type: string;
   /** Optional description of the property. */

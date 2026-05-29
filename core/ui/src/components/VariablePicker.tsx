@@ -13,8 +13,14 @@ import { Popover, PopoverContent, PopoverTrigger } from "./Popover";
  * site.
  */
 export interface VariableNode {
-  /** Dot-separated path inserted as `{{path}}`. */
+  /** Canonical dot-separated path, e.g. `artifact.integration-jira.issue.key`. */
   path: string;
+  /**
+   * Runtime-parseable `{{ }}` insertion form, e.g.
+   * `artifacts["integration-jira.issue"].key`. Inserted in preference to
+   * `path`; callers that don't supply it fall back to `path`.
+   */
+  templateRef?: string;
   /** Human-readable type label rendered next to the name. */
   type: string;
   description?: string;
@@ -31,8 +37,12 @@ export interface VariableNode {
 export interface VariablePickerProps {
   /** Tree of in-scope variables. */
   scope: VariableNode[];
-  /** Called with the path to insert (e.g. `trigger.payload.systemId`). */
-  onSelect: (path: string) => void;
+  /**
+   * Called with the runtime-parseable text to insert (the node's
+   * `templateRef`, falling back to `path`), e.g.
+   * `trigger.payload.systemId` or `artifacts["integration-jira.issue"].key`.
+   */
+  onSelect: (templateRef: string) => void;
   /** Optional element rendered as the popover trigger. Defaults to a small "Insert variable" button. */
   trigger?: React.ReactNode;
   /** Controls open state; defaults to uncontrolled. */
@@ -187,9 +197,9 @@ const VariableTreeNode: React.FC<VariableTreeNodeProps> = ({
         )}
         <button
           type="button"
-          onClick={() => onSelect(node.path)}
+          onClick={() => onSelect(node.templateRef ?? node.path)}
           className="flex flex-1 items-center gap-2 py-1 pr-2 text-left hover:bg-accent hover:text-accent-foreground"
-          title={`Insert {{${node.path}}}`}
+          title={`Insert {{${node.templateRef ?? node.path}}}`}
         >
           <code className="flex-1 truncate font-mono">{leafName(node.path)}</code>
           <span className="shrink-0 font-mono text-[10px] text-muted-foreground">

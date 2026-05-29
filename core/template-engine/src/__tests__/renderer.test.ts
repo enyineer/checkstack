@@ -33,6 +33,14 @@ describe("render", () => {
     expect(out).toBe("first");
   });
 
+  it("resolves a numeric array index after a bracket-key chain", () => {
+    const out = render(
+      parseTemplate('{{ artifacts["x"].tags[0] }}'),
+      { artifacts: { x: { tags: ["first", "second"] } } },
+    );
+    expect(out).toBe("first");
+  });
+
   it("resolves bracket access with string", () => {
     const out = render(parseTemplate('{{ nodes["jira-create"].issueKey }}'), {
       nodes: { "jira-create": { issueKey: "PROJ-42" } },
@@ -94,6 +102,23 @@ describe("render", () => {
       msg: "Hello World",
     });
     expect(out).toBe("Hello…");
+  });
+});
+
+describe("string-literal index access (frontend regression contract)", () => {
+  it("resolves a quoted index key containing a hyphen and dot", () => {
+    const out = render(
+      parseTemplate('{{ artifacts["integration-jira.issue"].issueKey }}'),
+      { artifacts: { "integration-jira.issue": { issueKey: "ABC-1" } } },
+    );
+    expect(out).toBe("ABC-1");
+  });
+
+  it("resolves dotted member access on variables", () => {
+    const out = render(parseTemplate("{{ variables.foo }}"), {
+      variables: { foo: "bar" },
+    });
+    expect(out).toBe("bar");
   });
 });
 

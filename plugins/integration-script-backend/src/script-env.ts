@@ -7,8 +7,10 @@
  * leaf, named via the shared {@link toShellEnvKey} rule so the editor's
  * `$` autocomplete lists exactly the names injected here. Objects recurse
  * into nested keys; arrays become a single newline-separated var at their
- * key (iterate with `while IFS= read -r x`). Everything is a plain string
- * var — there's no JSON blob, since the container has no `jq` to parse it.
+ * key (iterate with `while IFS= read -r x`) AND are additionally indexed
+ * per element (`..._0`, `..._1`, `..._0_<field>`) to match the editor's
+ * array-element suggestions. Everything is a plain string var — there's no
+ * JSON blob, since the container has no `jq` to parse it.
  */
 import type { ActionRunScope } from "@checkstack/automation-backend";
 import { toShellEnvKey } from "@checkstack/automation-common";
@@ -23,8 +25,8 @@ function isScalar(value: unknown): value is string | number | boolean {
 
 /**
  * Walk a value, writing one env var per scalar leaf keyed by its dotted
- * path. Plain objects recurse; arrays become a single newline-separated
- * var at the current path.
+ * path. Plain objects recurse; arrays emit a single newline-separated var
+ * at the current path AND recurse into each element by numeric index.
  */
 function flattenInto(
   value: unknown,
@@ -43,10 +45,21 @@ function flattenInto(
     // newline-separated var (iterate with `while IFS= read -r x; do …;
     // done <<< "$VAR"`). Scalar elements are joined directly; non-scalar
     // elements (rare) fall back to JSON per line. The key stays the
-    // array's own path, matching the editor's `$` suggestion for it.
+    // array's own path, matching the editor's whole-array `$` suggestion.
     out[toShellEnvKey(path)] = value
       .map((element) => (isScalar(element) ? String(element) : JSON.stringify(element)))
       .join("\n");
+    // ADDITIONALLY index each element by position so scalar arrays expose
+    // `..._0`, `..._1`, … and object-element arrays expose
+    // `..._0_<FIELD>`. The editor suggests array elements using index 0 as
+    // the representative (`tags[0]`, `comments[0].author`), and
+    // `toShellEnvKey` collapses `[i]` to `_<i>_`, so recursing here keeps
+    // the injected names byte-identical to those suggestions (editor
+    // parity). Recursion terminates because each step strips one array /
+    // object level, so nested arrays-of-arrays sanely yield `..._0_0`.
+    for (const [index, element] of value.entries()) {
+      flattenInto(element, `${path}[${index}]`, out);
+    }
     return;
   }
   if (typeof value === "object") {

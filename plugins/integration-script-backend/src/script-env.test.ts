@@ -75,6 +75,42 @@ describe("flattenScopeToShellEnv", () => {
     expect(env.CHECKSTACK_TRIGGER_PAYLOAD_SYSTEMIDS).toBe("a\nb");
   });
 
+  it("also exposes scalar array elements by index (editor parity)", () => {
+    const env = flattenScopeToShellEnv(
+      scope({
+        trigger: {
+          event: "incident.created",
+          payload: { systemIds: ["a", "b"] },
+        },
+      }),
+    );
+    // Whole-array var unchanged…
+    expect(env.CHECKSTACK_TRIGGER_PAYLOAD_SYSTEMIDS).toBe("a\nb");
+    // …and each element is now additionally indexed.
+    expect(env.CHECKSTACK_TRIGGER_PAYLOAD_SYSTEMIDS_0).toBe("a");
+    expect(env.CHECKSTACK_TRIGGER_PAYLOAD_SYSTEMIDS_1).toBe("b");
+  });
+
+  it("exposes object-array element fields by index, plus the JSON-per-line whole-array var", () => {
+    const env = flattenScopeToShellEnv(
+      scope({
+        trigger: {
+          event: "incident.created",
+          payload: {
+            comments: [{ author: "alice" }, { author: "bob" }],
+          },
+        },
+      }),
+    );
+    // Object element fields are indexed.
+    expect(env.CHECKSTACK_TRIGGER_PAYLOAD_COMMENTS_0_AUTHOR).toBe("alice");
+    expect(env.CHECKSTACK_TRIGGER_PAYLOAD_COMMENTS_1_AUTHOR).toBe("bob");
+    // Whole-array var holds the JSON-per-line form for non-scalar elements.
+    expect(env.CHECKSTACK_TRIGGER_PAYLOAD_COMMENTS).toBe(
+      '{"author":"alice"}\n{"author":"bob"}',
+    );
+  });
+
   it("exposes repeat context when present", () => {
     const env = flattenScopeToShellEnv(
       scope({ repeat: { index: 2, item: "x" } }),

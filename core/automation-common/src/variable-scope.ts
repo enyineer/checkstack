@@ -56,6 +56,19 @@ import type {
 export interface VariableEntry {
   /** Dot-separated path used at the template site, e.g. `trigger.payload.systemId`. */
   path: string;
+  /**
+   * Runtime-parseable `{{ }}` insertion form for this entry. Differs from
+   * `path` in two ways: the top-level namespace is the plural runtime
+   * context key (`var` → `variables`, `artifact` → `artifacts`; `trigger`,
+   * `repeat`, `now` already match the runtime context and stay as-is), and
+   * any segment that is not a valid template identifier (artifact ids with
+   * dots/hyphens, oddly-named variables, hyphenated payload keys) is
+   * emitted in bracket notation (`artifacts["integration-jira.issue"]`) so
+   * the template engine's tokenizer can read it. Consumers that need the
+   * text to actually insert into `{{ }}` should prefer this field and fall
+   * back to `path` only when it is absent.
+   */
+  templateRef?: string;
   /** Human-readable type label. */
   type: string;
   description?: string;
@@ -67,6 +80,13 @@ export interface VariableEntry {
   jsonSchema?: Record<string, unknown>;
   /** Nested entries for object types — populated for the picker's tree. */
   children?: VariableEntry[];
+  /**
+   * Emit as an insertable field even when it has children — used for
+   * arrays, where both the whole array (`{{ ...tags }}`) and its elements
+   * (`{{ ...tags[0] }}`) are referenceable. Leaf entries (no children) are
+   * always insertable regardless of this flag.
+   */
+  referenceable?: boolean;
   /**
    * When set, the entry only exists when `trigger.event` is one of these
    * qualified ids. Populated on `trigger.payload.*` entries that come from
@@ -80,6 +100,55 @@ export interface VariableEntry {
 export interface VariableScope {
   /** Tree of in-scope entries, grouped under top-level namespaces. */
   entries: VariableEntry[];
+}
+
+// ─── Template-ref helpers ────────────────────────────────────────────────────
+
+/**
+ * Whether `segment` is a bare identifier the template engine can read in dot
+ * notation. MIRRORS the template-engine tokenizer's identifier rule: a start
+ * character in `[A-Za-z_$]` followed by zero or more `[A-Za-z0-9_$]`. Anything
+ * else (dots, hyphens, leading digits, empty) must be bracketed instead.
+ */
+export function isTemplateIdentifier(segment: string): boolean {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(segment);
+}
+
+/**
+ * Append `segment` to `base`, producing a runtime-parseable `{{ }}` member
+ * access. Identifier segments use dot notation (`base.segment`); everything
+ * else uses bracket notation with a JSON-quoted string literal
+ * (`base["seg-ment"]`). `JSON.stringify` yields a valid double-quoted string
+ * literal — which the engine tokenizer supports — and safely escapes any
+ * dots, hyphens, or quotes inside the segment.
+ */
+export function appendTemplateSegment({
+  base,
+  segment,
+}: {
+  base: string;
+  segment: string;
+}): string {
+  return isTemplateIdentifier(segment)
+    ? `${base}.${segment}`
+    : `${base}[${JSON.stringify(segment)}]`;
+}
+
+/**
+ * Append a numeric array-element index to `base`, producing a
+ * runtime-parseable `{{ }}` index access (`base[0]`). The index is a bare
+ * number with NO quotes — the template engine's tokenizer reads a NUMBER
+ * inside the brackets and the renderer resolves it as an array index. This
+ * MUST match the tokenizer's bracket-number reconstruction byte-for-byte.
+ */
+export function appendArrayIndex({
+  base,
+  index,
+}: {
+  base: string;
+  index: number;
+}): string {
+  return `${base}[${index}]`;
 }
 
 /**
@@ -314,22 +383,67 @@ function schemaTypeLabel(schema: JsonSchemaLike | undefined): string {
 function entriesFromSchema(
   schema: JsonSchemaLike | undefined,
   parentPath: string,
+  parentTemplateRef: string,
 ): VariableEntry[] {
   if (!schema || schema.type !== "object" || !schema.properties) return [];
   return Object.entries(schema.properties).map(([key, child]) => {
     const childPath = `${parentPath}.${key}`;
-    const subEntries =
-      child.type === "object" && child.properties
-        ? entriesFromSchema(child, childPath)
-        : undefined;
-    return {
-      path: childPath,
-      type: schemaTypeLabel(child),
-      description: child.description,
-      jsonSchema: child as unknown as Record<string, unknown>,
-      children: subEntries,
-    } satisfies VariableEntry;
+    const childTemplateRef = appendTemplateSegment({
+      base: parentTemplateRef,
+      segment: key,
+    });
+    return entryFromSchemaNode(child, childPath, childTemplateRef);
   });
+}
+
+/**
+ * Build a single `VariableEntry` for a property's schema, recursing into
+ * objects and arrays.
+ *
+ * - `object` with `properties` → container node with `children`.
+ * - `array` with `items` → a referenceable whole-array node carrying a
+ *   single representative-element child at index `0`. The element child
+ *   recurses for nested objects (`tags[0].field`) / arrays (`matrix[0][0]`)
+ *   or is a leaf for scalar items (`tags[0]`).
+ * - anything else → leaf.
+ */
+function entryFromSchemaNode(
+  schema: JsonSchemaLike,
+  path: string,
+  templateRef: string,
+): VariableEntry {
+  if (schema.type === "array" && schema.items) {
+    const elemPath = `${path}[0]`;
+    const elemTemplateRef = appendArrayIndex({ base: templateRef, index: 0 });
+    const elementEntry = entryFromSchemaNode(
+      schema.items,
+      elemPath,
+      elemTemplateRef,
+    );
+    return {
+      path,
+      templateRef,
+      type: schemaTypeLabel(schema),
+      description: schema.description,
+      jsonSchema: schema as unknown as Record<string, unknown>,
+      // Both the whole array and its elements are referenceable.
+      referenceable: true,
+      children: [elementEntry],
+    } satisfies VariableEntry;
+  }
+
+  const subEntries =
+    schema.type === "object" && schema.properties
+      ? entriesFromSchema(schema, path, templateRef)
+      : undefined;
+  return {
+    path,
+    templateRef,
+    type: schemaTypeLabel(schema),
+    description: schema.description,
+    jsonSchema: schema as unknown as Record<string, unknown>,
+    children: subEntries,
+  } satisfies VariableEntry;
 }
 
 // ─── Trigger scope ─────────────────────────────────────────────────────────
@@ -363,6 +477,7 @@ function buildTriggerEntries(args: {
 
   const eventEntry: VariableEntry = {
     path: "trigger.event",
+    templateRef: "trigger.event",
     type: eventType,
     description:
       allEventIds.length <= 1
@@ -378,12 +493,14 @@ function buildTriggerEntries(args: {
     return [
       {
         path: "trigger",
+        templateRef: "trigger",
         type: "object",
         description: "Trigger that fired this run.",
         children: [
           eventEntry,
           {
             path: "trigger.payload",
+            templateRef: "trigger.payload",
             type: "unknown",
             description: "Trigger payload (no registered schema).",
             jsonSchema: {},
@@ -398,6 +515,7 @@ function buildTriggerEntries(args: {
   return [
     {
       path: "trigger",
+      templateRef: "trigger",
       type: "object",
       description: "Trigger that fired this run.",
       children: [eventEntry, payloadEntry],
@@ -422,11 +540,13 @@ function buildPayloadUnion(triggers: TriggerInfo[]): VariableEntry {
     const only = triggers[0]!;
     return {
       path: "trigger.payload",
+      templateRef: "trigger.payload",
       type: schemaTypeLabel(only.payloadSchema as JsonSchemaLike),
       description: "Trigger payload.",
       jsonSchema: only.payloadSchema,
       children: entriesFromSchema(
         only.payloadSchema as JsonSchemaLike,
+        "trigger.payload",
         "trigger.payload",
       ),
     };
@@ -457,30 +577,38 @@ function buildPayloadUnion(triggers: TriggerInfo[]): VariableEntry {
     );
 
     const childPath = `trigger.payload.${key}`;
+    const childTemplateRef = appendTemplateSegment({
+      base: "trigger.payload",
+      segment: key,
+    });
     const baseSchema = contributors[0]!.schema;
 
-    children.push({
-      path: childPath,
-      type: sameShape
-        ? schemaTypeLabel(baseSchema)
-        : contributors
+    // When all contributors agree on the shape, descend into objects/arrays
+    // via the shared builder so payload arrays expose element children too.
+    // Otherwise emit a flat union entry with no children (we can't pick one
+    // canonical shape to recurse into).
+    const node: VariableEntry = sameShape
+      ? entryFromSchemaNode(baseSchema, childPath, childTemplateRef)
+      : {
+          path: childPath,
+          templateRef: childTemplateRef,
+          type: contributors
             .map((c) => schemaTypeLabel(c.schema))
             .filter((t, i, arr) => arr.indexOf(t) === i)
             .join(" | "),
-      description: baseSchema.description,
-      jsonSchema: sameShape
-        ? (baseSchema as unknown as Record<string, unknown>)
-        : undefined,
-      children:
-        sameShape && baseSchema.type === "object" && baseSchema.properties
-          ? entriesFromSchema(baseSchema, childPath)
-          : undefined,
+          description: baseSchema.description,
+          jsonSchema: undefined,
+        };
+
+    children.push({
+      ...node,
       conditionalOnTriggers: universal ? undefined : contributorIds,
     });
   }
 
   return {
     path: "trigger.payload",
+    templateRef: "trigger.payload",
     type: "object",
     description:
       "Trigger payload — discriminated union over trigger.event. Fields contributed by only some triggers carry an `Only when …` hint.",
@@ -605,6 +733,7 @@ function buildRepeatEntries(args: {
   const out: VariableEntry[] = [
     {
       path: "repeat.index",
+      templateRef: "repeat.index",
       type: "number",
       description: "Current iteration index (zero-based).",
       jsonSchema: { type: "integer" },
@@ -613,6 +742,7 @@ function buildRepeatEntries(args: {
   if (mode === "for_each") {
     out.push({
       path: "repeat.item",
+      templateRef: "repeat.item",
       type: "unknown",
       description: "Current item in the iterated collection.",
       jsonSchema: {},
@@ -635,6 +765,10 @@ function accumulatePrefix(args: {
         if (scope.vars.some((v) => v.path === `var.${name}`)) continue;
         scope.vars.push({
           path: `var.${name}`,
+          templateRef: appendTemplateSegment({
+            base: "variables",
+            segment: name,
+          }),
           type: typeof value === "string" ? "string | template" : typeof value,
           description: "Operator-defined variable.",
         });
@@ -647,14 +781,20 @@ function accumulatePrefix(args: {
         const artifactInfo = artifactTypes.find(
           (t) => t.qualifiedId === produces,
         );
+        const path = `artifact.${produces}`;
+        const templateRef = appendTemplateSegment({
+          base: "artifacts",
+          segment: produces,
+        });
         const entries = entriesFromSchema(
           artifactInfo?.schema as JsonSchemaLike | undefined,
-          `artifact.${produces}`,
+          path,
+          templateRef,
         );
-        const path = `artifact.${produces}`;
         if (scope.artifacts.some((a) => a.path === path)) continue;
         scope.artifacts.push({
           path,
+          templateRef,
           type: artifactInfo?.displayName ?? produces,
           description: artifactInfo?.description,
           jsonSchema: artifactInfo?.schema,
@@ -708,6 +848,7 @@ export function resolveVariableScope(
   if (accumulated.vars.length > 0) {
     entries.push({
       path: "var",
+      templateRef: "variables",
       type: "object",
       description: "Variables declared upstream in this run.",
       children: accumulated.vars,
@@ -717,6 +858,7 @@ export function resolveVariableScope(
   if (accumulated.artifacts.length > 0) {
     entries.push({
       path: "artifact",
+      templateRef: "artifacts",
       type: "object",
       description: "Artifacts produced by upstream actions in this run.",
       children: accumulated.artifacts,
@@ -726,6 +868,7 @@ export function resolveVariableScope(
   if (accumulated.repeats.length > 0) {
     entries.push({
       path: "repeat",
+      templateRef: "repeat",
       type: "object",
       description: "Current repeat-iteration context.",
       children: accumulated.repeats,

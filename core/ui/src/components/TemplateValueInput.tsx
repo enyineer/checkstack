@@ -151,7 +151,9 @@ function buildSimpleProvider(
     const matches = properties.filter(
       (prop) =>
         query === "" ||
-        `${prop.path} ${prop.description ?? ""}`.toLowerCase().includes(query),
+        `${prop.templateRef ?? prop.path} ${prop.path} ${prop.description ?? ""}`
+          .toLowerCase()
+          .includes(query),
     );
     if (matches.length === 0) return null;
     return {
@@ -159,10 +161,10 @@ function buildSimpleProvider(
       replaceStart: detected.startPos,
       replaceEnd: cursor,
       items: matches.map((prop) => ({
-        label: prop.path,
+        label: prop.templateRef ?? prop.path,
         detail: prop.type,
         description: prop.description,
-        insertText: `{{${prop.path}}}`,
+        insertText: `{{${prop.templateRef ?? prop.path}}}`,
       })),
     };
   };

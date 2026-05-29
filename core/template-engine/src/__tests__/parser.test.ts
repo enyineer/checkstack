@@ -32,6 +32,19 @@ describe("parseTemplate", () => {
     const t = parseTemplate('{{ "line1\\nline2" }}');
     expect(t.nodes).toHaveLength(1);
   });
+
+  it("parses string-literal index access with hyphen and dot in the key", () => {
+    const t = parseTemplate(
+      '{{ artifacts["integration-jira.issue"].issueKey }}',
+    );
+    expect(t.nodes).toHaveLength(1);
+  });
+
+  it("rejects unbracketed hyphenated member access", () => {
+    expect(() =>
+      parseTemplate("{{ artifacts.integration-jira.issue }}"),
+    ).toThrow(TemplateParseError);
+  });
 });
 
 describe("parseCondition", () => {
