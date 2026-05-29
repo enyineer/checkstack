@@ -207,6 +207,27 @@ export const DEFAULT_STATE_THRESHOLDS: StateThresholds = {
   unhealthy: { minFailureCount: 5 },
 };
 
+// --- Notification Policy ---
+
+/**
+ * Per-association notification preferences for system health-state changes.
+ * Aggregated across all of a system's associations at notification time.
+ */
+export const NotificationPolicySchema = z.object({
+  /**
+   * When true, do not emit notifications for de-escalations (e.g.
+   * `unhealthy → degraded`). Escalations and recoveries to `healthy`
+   * still notify.
+   */
+  suppressDeEscalations: z.boolean().default(false),
+});
+
+export type NotificationPolicy = z.infer<typeof NotificationPolicySchema>;
+
+export const DEFAULT_NOTIFICATION_POLICY: NotificationPolicy = {
+  suppressDeEscalations: false,
+};
+
 export const AssociateHealthCheckSchema = z.object({
   configurationId: z.string().uuid(),
   enabled: z.boolean().default(true),
@@ -215,6 +236,8 @@ export const AssociateHealthCheckSchema = z.object({
   satelliteIds: z.array(z.string()).optional(),
   /** Whether to also run this check locally on the core instance (default: true) */
   includeLocal: z.boolean().default(true),
+  /** Per-association notification policy. Defaults applied when omitted. */
+  notificationPolicy: NotificationPolicySchema.optional(),
 });
 
 export type AssociateHealthCheck = z.infer<typeof AssociateHealthCheckSchema>;

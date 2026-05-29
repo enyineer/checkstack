@@ -17,6 +17,7 @@ import {
   RetentionConfigSchema,
   AggregatedBucketBaseSchema,
   AggregatedBucketSchema,
+  NotificationPolicySchema,
 } from "./schemas";
 
 // --- Response Schemas for Evaluated Status ---
@@ -155,6 +156,8 @@ export const healthCheckContract = {
           satelliteIds: z.array(z.string()).optional(),
           /** Whether to also run this check locally on the core (default: true) */
           includeLocal: z.boolean(),
+          /** Per-association notification policy (omitted = platform defaults) */
+          notificationPolicy: NotificationPolicySchema.optional(),
         }),
       ),
     ),
@@ -238,6 +241,8 @@ export const healthCheckContract = {
         endDate: z.date().optional(),
         /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
         sourceFilter: z.string().optional(),
+        /** Restrict runs to the listed statuses. Omitted/empty = no filter. */
+        statusFilter: z.array(HealthCheckStatusSchema).optional(),
         limit: z.number().optional().default(10),
         offset: z.number().optional().default(0),
         sortOrder: z.enum(["asc", "desc"]),
@@ -263,6 +268,8 @@ export const healthCheckContract = {
         endDate: z.date().optional(),
         /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
         sourceFilter: z.string().optional(),
+        /** Restrict runs to the listed statuses. Omitted/empty = no filter. */
+        statusFilter: z.array(HealthCheckStatusSchema).optional(),
         limit: z.number().optional().default(10),
         offset: z.number().optional().default(0),
         sortOrder: z.enum(["asc", "desc"]),

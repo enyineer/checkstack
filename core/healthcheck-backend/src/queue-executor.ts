@@ -39,6 +39,10 @@ import { HealthCheckService } from "./service";
 import { healthCheckHooks } from "./hooks";
 import { incrementHourlyAggregate } from "./realtime-aggregation";
 import type { HealthCheckCache } from "./cache";
+import {
+  classifyTransition,
+  shouldNotifyTransition,
+} from "./notification-policy";
 
 type Db = SafeDatabase<typeof schema>;
 type CatalogClient = InferClient<typeof CatalogApi>;
@@ -138,13 +142,20 @@ export async function scheduleHealthCheck(props: {
 
 /**
  * Notify system subscribers about a health state change.
- * Skips notification if the system has active maintenance or incident with suppression enabled.
+ * Skips notification when:
+ * - the system has active maintenance/incident with suppression enabled, or
+ * - any associated check opts into de-escalation suppression and this
+ *   transition is a de-escalation (e.g. `unhealthy → degraded`).
+ *
+ * For non-recovery transitions, the action CTA is deep-linked to the
+ * failing-checks filter so operators land directly on the problem.
  */
 async function notifyStateChange(props: {
   systemId: string;
   systemName: string;
   previousStatus: HealthCheckStatus;
   newStatus: HealthCheckStatus;
+  service: HealthCheckService;
   catalogClient: CatalogClient;
   notificationClient: NotificationClient;
   maintenanceClient: MaintenanceClient;
@@ -156,6 +167,7 @@ async function notifyStateChange(props: {
     systemName,
     previousStatus,
     newStatus,
+    service,
     catalogClient,
     notificationClient,
     maintenanceClient,
@@ -163,8 +175,27 @@ async function notifyStateChange(props: {
     logger,
   } = props;
 
-  // Only notify on actual state changes
-  if (newStatus === previousStatus) {
+  const transition = classifyTransition(previousStatus, newStatus);
+  if (transition === "none") {
+    return;
+  }
+
+  // Per-association notification policy (e.g. suppressDeEscalations).
+  // Failure to load policy must not block notification.
+  let policy = { suppressDeEscalations: false };
+  try {
+    policy = await service.getSystemNotificationPolicy(systemId);
+  } catch (error) {
+    logger.warn(
+      `Failed to load notification policy for ${systemId}, applying defaults:`,
+      error,
+    );
+  }
+
+  if (!shouldNotifyTransition(transition, policy)) {
+    logger.debug(
+      `Skipping notification for ${systemId}: ${transition} suppressed by policy`,
+    );
     return;
   }
 
@@ -204,36 +235,38 @@ async function notifyStateChange(props: {
     );
   }
 
-  const isRecovery = newStatus === "healthy" && previousStatus !== "healthy";
-  const isDegraded = newStatus === "degraded";
-  const isUnhealthy = newStatus === "unhealthy";
-
   let title: string;
   let body: string;
   let importance: "info" | "warning" | "critical";
 
-  if (isRecovery) {
+  if (transition === "recovery") {
     title = `System health restored: ${systemName}`;
     body =
       `All health checks for **${systemName}** are now passing. The system has returned to normal operation.`;
     importance = "info";
-  } else if (isUnhealthy) {
+  } else if (newStatus === "unhealthy") {
     title = `System health critical: ${systemName}`;
     body = `Health checks indicate **${systemName}** is unhealthy and may be down.`;
     importance = "critical";
-  } else if (isDegraded) {
+  } else {
+    // degraded — either an escalation from healthy or a partial recovery
     title = `System health degraded: ${systemName}`;
     body =
       `Some health checks for **${systemName}** are failing. The system may be experiencing issues.`;
     importance = "warning";
-  } else {
-    // No notification for healthy → healthy (if somehow missed above)
-    return;
   }
 
   const systemDetailPath = resolveRoute(catalogRoutes.routes.systemDetail, {
     systemId,
   });
+  // Recovery lands on the default (all) view; failing transitions deep-link
+  // operators into the failing-checks filter so they can debug immediately.
+  const actionUrl =
+    transition === "recovery"
+      ? systemDetailPath
+      : `${systemDetailPath}?filter=failing`;
+  const actionLabel =
+    transition === "recovery" ? "View System" : "View failing checks";
 
   void catalogClient; // parents are resolved server-side via stored target edges
 
@@ -244,7 +277,7 @@ async function notifyStateChange(props: {
       title,
       body,
       importance,
-      action: { label: "View System", url: systemDetailPath },
+      action: { label: actionLabel, url: actionUrl },
       collapseKey: systemHealthCollapseKey(systemId),
       subjects: [
         createSystemSubject({
@@ -598,11 +631,12 @@ async function executeHealthCheckJob(props: {
       const newState = await service.getSystemHealthStatus(systemId);
       if (newState.status !== previousStatus) {
         await notifyStateChange({
-        notificationClient,
+          notificationClient,
           systemId,
           systemName,
           previousStatus,
           newStatus: newState.status,
+          service,
           catalogClient,
           maintenanceClient,
           incidentClient,
@@ -698,6 +732,7 @@ async function executeHealthCheckJob(props: {
         systemName,
         previousStatus,
         newStatus: newState.status,
+        service,
         catalogClient,
         maintenanceClient,
         incidentClient,
@@ -830,6 +865,7 @@ async function executeHealthCheckJob(props: {
         systemName,
         previousStatus,
         newStatus: newState.status,
+        service,
         catalogClient,
         maintenanceClient,
         incidentClient,

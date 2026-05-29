@@ -6,8 +6,12 @@ import { SatelliteApi } from "@checkstack/satellite-common";
 import {
   DEFAULT_STATE_THRESHOLDS,
   DEFAULT_RETENTION_CONFIG,
+  DEFAULT_NOTIFICATION_POLICY,
 } from "@checkstack/healthcheck-common";
-import type { StateThresholds } from "@checkstack/healthcheck-common";
+import type {
+  StateThresholds,
+  NotificationPolicy,
+} from "@checkstack/healthcheck-common";
 import { PageLayout, IDELayout, useToast, BackLink, Button } from "@checkstack/ui";
 import { Settings, Plus } from "lucide-react";
 import { extractErrorMessage, resolveRoute } from "@checkstack/common";
@@ -25,6 +29,7 @@ import {
   type RetentionData,
 } from "../components/assignments/RetentionPanel";
 import { ExecutionPanel } from "../components/assignments/ExecutionPanel";
+import { NotificationsPanel } from "../components/assignments/NotificationsPanel";
 import { AssignmentIDEPanelSlot } from "../slots";
 
 // =============================================================================
@@ -32,12 +37,22 @@ import { AssignmentIDEPanelSlot } from "../slots";
 // =============================================================================
 
 function parseNodeId(nodeId: AssignmentNodeId): {
-  panel: "general" | "thresholds" | "retention" | "execution";
+  panel:
+    | "general"
+    | "thresholds"
+    | "retention"
+    | "execution"
+    | "notifications";
   configId: string;
 } {
   const [panel, ...rest] = nodeId.split(":") as [string, ...string[]];
   return {
-    panel: panel as "general" | "thresholds" | "retention" | "execution",
+    panel: panel as
+      | "general"
+      | "thresholds"
+      | "retention"
+      | "execution"
+      | "notifications",
     configId: rest.join(":"),
   };
 }
@@ -79,6 +94,9 @@ const AssignmentIDEPageContent = () => {
   >({});
   const [retentionData, setRetentionData] = useState<
     Record<string, RetentionData>
+  >({});
+  const [localNotificationPolicy, setLocalNotificationPolicy] = useState<
+    Record<string, NotificationPolicy>
   >({});
 
   const configs = useMemo(
@@ -214,6 +232,7 @@ const AssignmentIDEPageContent = () => {
         stateThresholds: assoc.stateThresholds,
         satelliteIds: assoc.satelliteIds,
         includeLocal: assoc.includeLocal,
+        notificationPolicy: assoc.notificationPolicy,
       },
     });
   };
@@ -238,12 +257,56 @@ const AssignmentIDEPageContent = () => {
           configurationId: configId,
           enabled: assoc.enabled,
           stateThresholds: thresholds,
+          satelliteIds: assoc.satelliteIds,
+          includeLocal: assoc.includeLocal,
+          notificationPolicy: assoc.notificationPolicy,
         },
       },
       {
         onSuccess: () => {
           toast.success("Thresholds saved");
           setLocalThresholds((prev) => {
+            const next = { ...prev };
+            delete next[configId];
+            return next;
+          });
+        },
+      },
+    );
+  };
+
+  const handleNotificationPolicyChange = (
+    configId: string,
+    policy: NotificationPolicy,
+  ) => {
+    setLocalNotificationPolicy((prev) => ({ ...prev, [configId]: policy }));
+  };
+
+  const handleSaveNotificationPolicy = (configId: string) => {
+    if (!systemId) return;
+    const assoc = associations.find((a) => a.configurationId === configId);
+    if (!assoc) return;
+    const policy =
+      localNotificationPolicy[configId] ??
+      assoc.notificationPolicy ??
+      DEFAULT_NOTIFICATION_POLICY;
+
+    associateMutation.mutate(
+      {
+        systemId,
+        body: {
+          configurationId: configId,
+          enabled: assoc.enabled,
+          stateThresholds: assoc.stateThresholds,
+          satelliteIds: assoc.satelliteIds,
+          includeLocal: assoc.includeLocal,
+          notificationPolicy: policy,
+        },
+      },
+      {
+        onSuccess: () => {
+          toast.success("Notification policy saved");
+          setLocalNotificationPolicy((prev) => {
             const next = { ...prev };
             delete next[configId];
             return next;
@@ -272,6 +335,7 @@ const AssignmentIDEPageContent = () => {
         stateThresholds: assoc.stateThresholds,
         satelliteIds: newIds,
         includeLocal: assoc.includeLocal,
+        notificationPolicy: assoc.notificationPolicy,
       },
     });
   };
@@ -289,6 +353,7 @@ const AssignmentIDEPageContent = () => {
         stateThresholds: assoc.stateThresholds,
         satelliteIds: assoc.satelliteIds,
         includeLocal: !assoc.includeLocal,
+        notificationPolicy: assoc.notificationPolicy,
       },
     });
   };
@@ -445,6 +510,21 @@ const AssignmentIDEPageContent = () => {
             onToggleSatellite={(satId) =>
               handleToggleSatellite(configId, satId)
             }
+            saving={saving}
+            isLocked={isLocked}
+          />
+        );
+      }
+      case "notifications": {
+        const policy =
+          localNotificationPolicy[configId] ??
+          assoc.notificationPolicy ??
+          DEFAULT_NOTIFICATION_POLICY;
+        return (
+          <NotificationsPanel
+            policy={policy}
+            onChange={(p) => handleNotificationPolicyChange(configId, p)}
+            onSave={() => handleSaveNotificationPolicy(configId)}
             saving={saving}
             isLocked={isLocked}
           />

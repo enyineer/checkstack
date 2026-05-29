@@ -14,6 +14,7 @@ import { ExternalLink, Loader2, Satellite, Server } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { healthcheckRoutes } from "@checkstack/healthcheck-common";
 import { resolveRoute } from "@checkstack/common";
+import { EmptyRunsTableRow } from "./EmptyRunsTableRow";
 
 export interface HealthCheckRunDetailed {
   id: string;
@@ -64,10 +65,6 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
     prevRunsRef.current = runs;
   }
 
-  if (!loading && runs.length === 0 && prevRunsRef.current.length === 0) {
-    return <p className="text-muted-foreground text-sm">{emptyMessage}</p>;
-  }
-
   const handleRowClick = (run: HealthCheckRunDetailed) => {
     navigate(
       resolveRoute(healthcheckRoutes.routes.historyRun, {
@@ -77,6 +74,11 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
       }),
     );
   };
+
+  // 3 base columns (Status, Timestamp, Source) + 3 extras when
+  // showFilterColumns is on (System ID, Configuration ID, link icon).
+  const columnCount = showFilterColumns ? 6 : 3;
+  const showEmptyRow = !loading && displayRuns.length === 0;
 
   return (
     <>
@@ -102,6 +104,11 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
             </TableRow>
           </TableHeader>
           <TableBody>
+            {showEmptyRow && (
+              <EmptyRunsTableRow colSpan={columnCount}>
+                {emptyMessage}
+              </EmptyRunsTableRow>
+            )}
             {displayRuns.map((run) => (
               <TableRow
                 key={run.id}

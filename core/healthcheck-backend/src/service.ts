@@ -6,6 +6,7 @@ import {
   HealthCheckStatus,
   RetentionConfig,
   type HealthCheckRunResult,
+  type NotificationPolicy,
 } from "@checkstack/healthcheck-common";
 import {
   healthCheckConfigurations,
@@ -15,7 +16,16 @@ import {
   VersionedStateThresholds,
 } from "./schema";
 import * as schema from "./schema";
-import { eq, and, InferSelectModel, desc, gte, lte, isNull } from "drizzle-orm";
+import {
+  eq,
+  and,
+  InferSelectModel,
+  desc,
+  gte,
+  lte,
+  isNull,
+  inArray,
+} from "drizzle-orm";
 import { ORPCError } from "@orpc/server";
 import { evaluateHealthStatus } from "./state-evaluator";
 import { stateThresholds } from "./state-thresholds-migrations";
@@ -133,6 +143,7 @@ export class HealthCheckService {
     stateThresholds?: StateThresholds;
     satelliteIds?: string[];
     includeLocal?: boolean;
+    notificationPolicy?: NotificationPolicy;
   }) {
     const {
       systemId,
@@ -141,6 +152,7 @@ export class HealthCheckService {
       stateThresholds: stateThresholds_,
       satelliteIds,
       includeLocal = true,
+      notificationPolicy,
     } = props;
 
     // Wrap thresholds in versioned config if provided
@@ -156,6 +168,7 @@ export class HealthCheckService {
         stateThresholds: versionedThresholds,
         satelliteIds: satelliteIds ?? undefined,
         includeLocal,
+        notificationPolicy: notificationPolicy ?? undefined,
       })
       .onConflictDoUpdate({
         target: [
@@ -167,6 +180,7 @@ export class HealthCheckService {
           stateThresholds: versionedThresholds,
           satelliteIds: satelliteIds ?? undefined,
           includeLocal,
+          notificationPolicy: notificationPolicy ?? undefined,
           updatedAt: new Date(),
         },
       });
@@ -282,6 +296,7 @@ export class HealthCheckService {
         stateThresholds: systemHealthChecks.stateThresholds,
         satelliteIds: systemHealthChecks.satelliteIds,
         includeLocal: systemHealthChecks.includeLocal,
+        notificationPolicy: systemHealthChecks.notificationPolicy,
       })
       .from(systemHealthChecks)
       .innerJoin(
@@ -304,9 +319,40 @@ export class HealthCheckService {
         stateThresholds: thresholds,
         satelliteIds: row.satelliteIds ?? undefined,
         includeLocal: row.includeLocal,
+        notificationPolicy: row.notificationPolicy ?? undefined,
       });
     }
     return results;
+  }
+
+  /**
+   * Aggregate the notification policy across all enabled health-check
+   * associations for a system. The semantics are "any-of": if any enabled
+   * association opts into a suppression, the system-level notification
+   * honours it. This matches operator intent — flagging one noisy check
+   * silences chatter for that system without forcing the toggle on every
+   * association.
+   */
+  async getSystemNotificationPolicy(
+    systemId: string,
+  ): Promise<NotificationPolicy> {
+    const rows = await this.db
+      .select({
+        notificationPolicy: systemHealthChecks.notificationPolicy,
+      })
+      .from(systemHealthChecks)
+      .where(
+        and(
+          eq(systemHealthChecks.systemId, systemId),
+          eq(systemHealthChecks.enabled, true),
+        ),
+      );
+
+    const suppressDeEscalations = rows.some(
+      (r) => r.notificationPolicy?.suppressDeEscalations === true,
+    );
+
+    return { suppressDeEscalations };
   }
 
   /**
@@ -489,6 +535,7 @@ export class HealthCheckService {
     startDate?: Date;
     endDate?: Date;
     sourceFilter?: string;
+    statusFilter?: HealthCheckStatus[];
     limit?: number;
     offset?: number;
     sortOrder: "asc" | "desc";
@@ -499,6 +546,7 @@ export class HealthCheckService {
       startDate,
       endDate,
       sourceFilter,
+      statusFilter,
       limit = 10,
       offset = 0,
       sortOrder,
@@ -516,6 +564,11 @@ export class HealthCheckService {
       conditions.push(isNull(healthCheckRuns.sourceId));
     } else if (sourceFilter) {
       conditions.push(eq(healthCheckRuns.sourceId, sourceFilter));
+    }
+
+    // Status filtering (e.g. only failing runs)
+    if (statusFilter && statusFilter.length > 0) {
+      conditions.push(inArray(healthCheckRuns.status, statusFilter));
     }
 
     // Build where clause
@@ -563,6 +616,7 @@ export class HealthCheckService {
     startDate?: Date;
     endDate?: Date;
     sourceFilter?: string;
+    statusFilter?: HealthCheckStatus[];
     limit?: number;
     offset?: number;
     sortOrder: "asc" | "desc";
@@ -573,6 +627,7 @@ export class HealthCheckService {
       startDate,
       endDate,
       sourceFilter,
+      statusFilter,
       limit = 10,
       offset = 0,
       sortOrder,
@@ -590,6 +645,11 @@ export class HealthCheckService {
       conditions.push(isNull(healthCheckRuns.sourceId));
     } else if (sourceFilter) {
       conditions.push(eq(healthCheckRuns.sourceId, sourceFilter));
+    }
+
+    // Status filtering (e.g. only failing runs)
+    if (statusFilter && statusFilter.length > 0) {
+      conditions.push(inArray(healthCheckRuns.status, statusFilter));
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;

@@ -35,6 +35,11 @@ import {
 } from "../components/HealthCheckRunsTable";
 import { ExpandedResultView } from "../components/ExpandedResultView";
 import { SingleRunChartGrid } from "../auto-charts";
+import {
+  StatusFilterPills,
+  STATUS_FILTER_TO_STATUSES,
+  type StatusFilter,
+} from "../components/StatusFilterPills";
 
 const HealthCheckHistoryDetailPageContent = () => {
   const { systemId, configurationId, runId } = useParams<{
@@ -53,9 +58,10 @@ const HealthCheckHistoryDetailPageContent = () => {
 
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
   const [sourceFilter, setSourceFilter] = useState<string | undefined>();
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   // Pagination state
-  const pagination = usePagination({ defaultLimit: 20 });
+  const pagination = usePagination({ defaultLimit: 25 });
 
   // Fetch satellites for the source filter dropdown
   const { data: satellitesData } = satelliteClient.listSatellites.useQuery({});
@@ -89,6 +95,7 @@ const HealthCheckHistoryDetailPageContent = () => {
     startDate: dateRange.startDate,
     endDate: dateRange.endDate,
     sourceFilter,
+    statusFilter: STATUS_FILTER_TO_STATUSES[statusFilter],
     limit: pagination.limit,
     offset: pagination.offset,
     sortOrder: "desc",
@@ -166,6 +173,13 @@ const HealthCheckHistoryDetailPageContent = () => {
         <CardContent>
           <div className="flex flex-wrap items-center gap-3 mb-4">
             <DateRangeFilter value={dateRange} onChange={setDateRange} />
+            <StatusFilterPills
+              value={statusFilter}
+              onChange={(next) => {
+                setStatusFilter(next);
+                pagination.setPage(1);
+              }}
+            />
             {/* Source filter */}
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Source:</span>
@@ -211,7 +225,11 @@ const HealthCheckHistoryDetailPageContent = () => {
           <HealthCheckRunsTable
             runs={runs}
             loading={isLoading}
-            emptyMessage="No health check runs found for this configuration."
+            emptyMessage={
+              statusFilter !== "all" || sourceFilter !== undefined
+                ? "No runs match the current filters."
+                : "No health check runs found for this configuration."
+            }
             pagination={pagination}
           />
         </CardContent>

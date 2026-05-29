@@ -56,6 +56,12 @@ import { HealthCheckLatencyChart } from "./HealthCheckLatencyChart";
 import { useHealthCheckData } from "../hooks/useHealthCheckData";
 import { AggregatedDataBanner } from "./AggregatedDataBanner";
 import { HealthCheckDiagramSlot } from "../slots";
+import {
+  StatusFilterPills,
+  STATUS_FILTER_TO_STATUSES,
+  type StatusFilter,
+} from "./StatusFilterPills";
+import { EmptyRunsTableRow } from "./EmptyRunsTableRow";
 import { Heart, Clock, CheckCircle, AlertTriangle } from "lucide-react";
 
 import type {
@@ -130,6 +136,8 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
   );
   const [isRollingPreset, setIsRollingPreset] = useState(true);
   const [sourceFilter, setSourceFilter] = useState<string | undefined>();
+  const [runsStatusFilter, setRunsStatusFilter] =
+    useState<StatusFilter>("all");
 
   const activePreset = detectPreset(dateRange);
   const activePresetLabel = PRESETS.find((p) => p.id === activePreset)?.shortLabel ?? "Custom";
@@ -195,7 +203,7 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
   );
 
   // Pagination for history table
-  const pagination = usePagination({ defaultLimit: 5 });
+  const pagination = usePagination({ defaultLimit: 10 });
 
   const { data: historyData, isLoading: historyLoading } =
     healthCheckClient.getHistory.useQuery({
@@ -205,6 +213,7 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
     offset: pagination.offset,
     startDate: dateRange.startDate,
     sourceFilter,
+    statusFilter: STATUS_FILTER_TO_STATUSES[runsStatusFilter],
     sortOrder: "desc",
   });
 
@@ -437,7 +446,7 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
           </div>
 
           {/* Zone 3 — Recent Runs */}
-          {runs.length > 0 && (
+          {(runs.length > 0 || runsStatusFilter !== "all") && (
             <div className="space-y-3">
               <div className="flex items-center gap-4">
                 <div className="flex-1 h-px bg-border" />
@@ -450,6 +459,16 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                 <div className="flex-1 h-px bg-border" />
               </div>
 
+              <div className="flex justify-end">
+                <StatusFilterPills
+                  value={runsStatusFilter}
+                  onChange={(next) => {
+                    setRunsStatusFilter(next);
+                    pagination.setPage(1);
+                  }}
+                />
+              </div>
+
               <div className="rounded-md border">
                 <Table>
                   <TableHeader>
@@ -460,6 +479,13 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
+                    {runs.length === 0 && !historyLoading && (
+                      <EmptyRunsTableRow colSpan={3}>
+                        No runs match the{" "}
+                        <span className="font-medium">{runsStatusFilter}</span>{" "}
+                        filter.
+                      </EmptyRunsTableRow>
+                    )}
                     {runs.map((run) => (
                       <TableRow
                         key={run.id}

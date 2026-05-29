@@ -13,6 +13,7 @@ import {
 import type {
   StateThresholds,
   CollectorConfigEntry,
+  NotificationPolicy,
 } from "@checkstack/healthcheck-common";
 import type { VersionedRecord } from "@checkstack/backend-api";
 
@@ -100,6 +101,12 @@ export const systemHealthChecks = pgTable(
      * Defaults to true. Only relevant when satelliteIds is set.
      */
     includeLocal: boolean("include_local").default(true).notNull(),
+    /**
+     * Per-association notification policy. Null falls back to platform
+     * defaults (no suppression).
+     */
+    notificationPolicy:
+      jsonb("notification_policy").$type<NotificationPolicy>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
