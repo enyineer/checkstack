@@ -9,6 +9,7 @@ import {
   timestamp,
   primaryKey,
   unique,
+  index,
 } from "drizzle-orm/pg-core";
 import type {
   StateThresholds,
@@ -112,6 +113,61 @@ export const systemHealthChecks = pgTable(
   },
   (t) => ({
     pk: primaryKey({ columns: [t.systemId, t.configurationId] }),
+  }),
+);
+
+/**
+ * Records each time a check's *evaluated* state transitions from
+ * non-unhealthy to unhealthy. Used to decide whether the per-check
+ * incident threshold (N transitions in M minutes) has been met.
+ * Pruned by the retention job alongside raw runs.
+ */
+export const healthCheckUnhealthyTransitions = pgTable(
+  "health_check_unhealthy_transitions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    configurationId: uuid("configuration_id")
+      .notNull()
+      .references(() => healthCheckConfigurations.id, { onDelete: "cascade" }),
+    systemId: text("system_id").notNull(),
+    transitionedAt: timestamp("transitioned_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    // Powers the threshold count query
+    // (WHERE config_id = ? AND system_id = ? AND transitioned_at > ?).
+    lookupIdx: index(
+      "health_check_unhealthy_transitions_lookup_idx",
+    ).on(t.configurationId, t.systemId, t.transitionedAt),
+  }),
+);
+
+/**
+ * Mapping of auto-opened incidents back to the system + check that
+ * triggered them. `closedAt` stays null while the incident is active;
+ * the auto-close worker sets it once the linked system has been
+ * steadily healthy for the cooldown.
+ *
+ * No FK to the incident table — that lives in another plugin's schema
+ * and we treat it as a soft reference (incident deletes are handled
+ * by the auto-close worker, which tolerates missing rows).
+ */
+export const healthCheckAutoIncidents = pgTable(
+  "health_check_auto_incidents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    incidentId: uuid("incident_id").notNull(),
+    systemId: text("system_id").notNull(),
+    configurationId: uuid("configuration_id")
+      .notNull()
+      .references(() => healthCheckConfigurations.id, { onDelete: "cascade" }),
+    openedAt: timestamp("opened_at").defaultNow().notNull(),
+    closedAt: timestamp("closed_at"),
+  },
+  (t) => ({
+    // Powers "is there an active auto-incident for this system?" check.
+    activeBySystemIdx: index(
+      "health_check_auto_incidents_active_by_system_idx",
+    ).on(t.systemId, t.closedAt),
   }),
 );
 

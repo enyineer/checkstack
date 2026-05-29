@@ -7,6 +7,8 @@ import {
   RetentionConfig,
   type HealthCheckRunResult,
   type NotificationPolicy,
+  NotificationPolicySchema,
+  DEFAULT_NOTIFICATION_POLICY,
 } from "@checkstack/healthcheck-common";
 import {
   healthCheckConfigurations,
@@ -326,17 +328,20 @@ export class HealthCheckService {
   }
 
   /**
-   * Aggregate the notification policy across all enabled health-check
-   * associations for a system. The semantics are "any-of": if any enabled
-   * association opts into a suppression, the system-level notification
-   * honours it. This matches operator intent — flagging one noisy check
-   * silences chatter for that system without forcing the toggle on every
-   * association.
+   * Resolve the fully-defaulted notification policy for a single
+   * (system, configuration) association. Existing rows persisted before
+   * the auto-incident fields landed will have `null` stored values; the
+   * zod parse fills those in with defaults. Returns the platform
+   * defaults when the association doesn't exist.
    */
-  async getSystemNotificationPolicy(
-    systemId: string,
-  ): Promise<NotificationPolicy> {
-    const rows = await this.db
+  async getAssignmentNotificationPolicy({
+    systemId,
+    configurationId,
+  }: {
+    systemId: string;
+    configurationId: string;
+  }): Promise<NotificationPolicy> {
+    const [row] = await this.db
       .select({
         notificationPolicy: systemHealthChecks.notificationPolicy,
       })
@@ -344,15 +349,15 @@ export class HealthCheckService {
       .where(
         and(
           eq(systemHealthChecks.systemId, systemId),
-          eq(systemHealthChecks.enabled, true),
+          eq(systemHealthChecks.configurationId, configurationId),
         ),
-      );
+      )
+      .limit(1);
 
-    const suppressDeEscalations = rows.some(
-      (r) => r.notificationPolicy?.suppressDeEscalations === true,
-    );
-
-    return { suppressDeEscalations };
+    if (!row) {
+      return DEFAULT_NOTIFICATION_POLICY;
+    }
+    return NotificationPolicySchema.parse(row.notificationPolicy ?? {});
   }
 
   /**

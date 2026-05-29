@@ -3,6 +3,7 @@ import {
   bootstrapHealthChecks,
 } from "./queue-executor";
 import { setupRetentionJob } from "./retention-job";
+import { setupAutoIncidentCloseJob } from "./auto-incident-close-job";
 import * as schema from "./schema";
 import {
   healthCheckAccessRules,
@@ -223,6 +224,16 @@ export default createBackendPlugin({
           db: database,
           logger,
           queueManager,
+        });
+
+        // Setup auto-incident close worker (ticks every 60s, closes
+        // auto-opened incidents whose systems have been steady-healthy
+        // for the cooldown).
+        await setupAutoIncidentCloseJob({
+          db: database,
+          logger,
+          queueManager,
+          incidentClient,
         });
 
         const healthCheckRouter = createHealthCheckRouter({

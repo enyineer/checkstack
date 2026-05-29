@@ -43,6 +43,12 @@ import {
   classifyTransition,
   shouldNotifyTransition,
 } from "./notification-policy";
+import {
+  isTransitionToUnhealthy,
+  openAutoIncident,
+  recordUnhealthyTransition,
+  shouldOpenAutoIncident,
+} from "./auto-incident";
 
 type Db = SafeDatabase<typeof schema>;
 type CatalogClient = InferClient<typeof CatalogApi>;
@@ -141,18 +147,114 @@ export async function scheduleHealthCheck(props: {
 }
 
 /**
+ * Detect a per-check transition to `unhealthy` between two aggregated
+ * state snapshots and, when the check's policy allows, record the
+ * transition and (re)open an auto-incident on the system.
+ *
+ * Runs independently of system-aggregate notification dispatch because
+ * a check can transition to unhealthy without changing the aggregate
+ * (e.g. another check on the same system was already unhealthy).
+ */
+async function maybeOpenAutoIncidentForCheck(props: {
+  db: Db;
+  service: HealthCheckService;
+  incidentClient: IncidentClient;
+  logger: Logger;
+  systemId: string;
+  systemName: string;
+  configurationId: string;
+  configurationName: string;
+  previousState: { checkStatuses: Array<{ configurationId: string; status: HealthCheckStatus }> };
+  newState: { checkStatuses: Array<{ configurationId: string; status: HealthCheckStatus }> };
+}): Promise<void> {
+  const {
+    db,
+    service,
+    incidentClient,
+    logger,
+    systemId,
+    systemName,
+    configurationId,
+    configurationName,
+    previousState,
+    newState,
+  } = props;
+
+  const prev = previousState.checkStatuses.find(
+    (c) => c.configurationId === configurationId,
+  );
+  const next = newState.checkStatuses.find(
+    (c) => c.configurationId === configurationId,
+  );
+  if (!next) return;
+  if (!isTransitionToUnhealthy(prev?.status, next.status)) return;
+
+  let policy;
+  try {
+    policy = await service.getAssignmentNotificationPolicy({
+      systemId,
+      configurationId,
+    });
+  } catch (error) {
+    logger.warn(
+      `Failed to load policy for auto-incident decision (${systemId}/${configurationId}):`,
+      error,
+    );
+    return;
+  }
+
+  let recentTransitionCount: number;
+  try {
+    recentTransitionCount = await recordUnhealthyTransition({
+      db,
+      configurationId,
+      systemId,
+      windowMinutes: policy.incidentThreshold.windowMinutes,
+    });
+  } catch (error) {
+    logger.warn(
+      `Failed to record unhealthy transition for ${systemId}/${configurationId}:`,
+      error,
+    );
+    return;
+  }
+
+  if (!shouldOpenAutoIncident({ policy, recentTransitionCount })) {
+    return;
+  }
+
+  await openAutoIncident({
+    db,
+    incidentClient,
+    logger,
+    systemId,
+    systemName,
+    configurationId,
+    configurationName,
+    policy,
+    triggeringTransitionCount: recentTransitionCount,
+  });
+}
+
+/**
  * Notify system subscribers about a health state change.
  * Skips notification when:
  * - the system has active maintenance/incident with suppression enabled, or
- * - any associated check opts into de-escalation suppression and this
- *   transition is a de-escalation (e.g. `unhealthy → degraded`).
+ * - the policy of the check that just ran opts into de-escalation
+ *   suppression and this transition is a de-escalation (e.g.
+ *   `unhealthy → degraded`).
  *
  * For non-recovery transitions, the action CTA is deep-linked to the
  * failing-checks filter so operators land directly on the problem.
+ *
+ * Policy is resolved per-assignment (per system+configuration) — the
+ * just-ran check is the one driving any aggregate transition in this
+ * execution, so its policy is the authoritative one.
  */
 async function notifyStateChange(props: {
   systemId: string;
   systemName: string;
+  configurationId: string;
   previousStatus: HealthCheckStatus;
   newStatus: HealthCheckStatus;
   service: HealthCheckService;
@@ -165,6 +267,7 @@ async function notifyStateChange(props: {
   const {
     systemId,
     systemName,
+    configurationId,
     previousStatus,
     newStatus,
     service,
@@ -180,19 +283,23 @@ async function notifyStateChange(props: {
     return;
   }
 
-  // Per-association notification policy (e.g. suppressDeEscalations).
-  // Failure to load policy must not block notification.
-  let policy = { suppressDeEscalations: false };
+  // Per-assignment notification policy. Failure to load defaults to
+  // "notify everything" rather than dropping the notification.
+  let suppressDeEscalations = false;
   try {
-    policy = await service.getSystemNotificationPolicy(systemId);
+    const policy = await service.getAssignmentNotificationPolicy({
+      systemId,
+      configurationId,
+    });
+    suppressDeEscalations = policy.suppressDeEscalations;
   } catch (error) {
     logger.warn(
-      `Failed to load notification policy for ${systemId}, applying defaults:`,
+      `Failed to load notification policy for ${systemId}/${configurationId}, applying defaults:`,
       error,
     );
   }
 
-  if (!shouldNotifyTransition(transition, policy)) {
+  if (!shouldNotifyTransition(transition, { suppressDeEscalations })) {
     logger.debug(
       `Skipping notification for ${systemId}: ${transition} suppressed by policy`,
     );
@@ -634,6 +741,7 @@ async function executeHealthCheckJob(props: {
           notificationClient,
           systemId,
           systemName,
+          configurationId: configId,
           previousStatus,
           newStatus: newState.status,
           service,
@@ -643,6 +751,22 @@ async function executeHealthCheckJob(props: {
           logger,
         });
       }
+
+      // Per-check auto-incident: runs whether or not the aggregate
+      // changed (a check can transition to unhealthy without flipping
+      // the aggregate if another check is already unhealthy).
+      await maybeOpenAutoIncidentForCheck({
+        db,
+        service,
+        incidentClient,
+        logger,
+        systemId,
+        systemName,
+        configurationId: configId,
+        configurationName: configRow.configName,
+        previousState,
+        newState,
+      });
 
       return;
     } finally {
@@ -730,6 +854,7 @@ async function executeHealthCheckJob(props: {
         notificationClient,
         systemId,
         systemName,
+        configurationId: configId,
         previousStatus,
         newStatus: newState.status,
         service,
@@ -784,6 +909,20 @@ async function executeHealthCheckJob(props: {
         }
       }
     }
+
+    // Per-check auto-incident: see comment on the failed-execution path.
+    await maybeOpenAutoIncidentForCheck({
+      db,
+      service,
+      incidentClient,
+      logger,
+      systemId,
+      systemName,
+      configurationId: configId,
+      configurationName: configRow.configName,
+      previousState,
+      newState,
+    });
 
     // Note: No manual rescheduling needed - recurring job handles it automatically
   } catch (error) {
@@ -863,6 +1002,7 @@ async function executeHealthCheckJob(props: {
         notificationClient,
         systemId,
         systemName,
+        configurationId: configId,
         previousStatus,
         newStatus: newState.status,
         service,
@@ -917,6 +1057,20 @@ async function executeHealthCheckJob(props: {
         }
       }
     }
+
+    // Per-check auto-incident: see comment on the failed-execution path.
+    await maybeOpenAutoIncidentForCheck({
+      db,
+      service,
+      incidentClient,
+      logger,
+      systemId,
+      systemName,
+      configurationId: configId,
+      configurationName: configName,
+      previousState,
+      newState,
+    });
 
     // Note: No manual rescheduling needed - recurring job handles it automatically
   }

@@ -395,6 +395,100 @@ export function createRouter(
         return { suppressed };
       }),
 
+    createAutoIncident: os.createAutoIncident.handler(
+      async ({ input, context }) => {
+        // No user context for service-initiated incidents; createdBy
+        // stays null and the timeline shows the originating plugin via
+        // the hook payload.
+        const result = await service.createIncident(input, undefined);
+
+        await cache.invalidateForMutation({
+          incidentId: result.id,
+          systemIds: result.systemIds,
+        });
+
+        await signalService.broadcast(INCIDENT_UPDATED, {
+          incidentId: result.id,
+          systemIds: result.systemIds,
+          action: "created",
+        });
+
+        await context.emitHook(incidentHooks.incidentCreated, {
+          incidentId: result.id,
+          systemIds: result.systemIds,
+          title: result.title,
+          description: result.description,
+          severity: result.severity,
+          status: result.status,
+          createdAt: result.createdAt.toISOString(),
+        });
+
+        const systemNames = await resolveSystemNames(result.systemIds);
+        await notifyAffectedSystems({
+          catalogClient,
+          notificationClient,
+          logger,
+          incidentId: result.id,
+          incidentTitle: result.title,
+          systemIds: result.systemIds,
+          systemNames,
+          action: "created",
+          severity: result.severity,
+        });
+
+        return { id: result.id };
+      },
+    ),
+
+    resolveAutoIncident: os.resolveAutoIncident.handler(
+      async ({ input, context }) => {
+        const result = await service.resolveIncident(
+          input.id,
+          input.message,
+          undefined,
+        );
+        // Idempotent: a missing or already-resolved incident is treated
+        // as success so the auto-close worker can be re-run safely.
+        if (!result) {
+          return { success: true };
+        }
+
+        await cache.invalidateForMutation({
+          incidentId: result.id,
+          systemIds: result.systemIds,
+        });
+
+        await signalService.broadcast(INCIDENT_UPDATED, {
+          incidentId: result.id,
+          systemIds: result.systemIds,
+          action: "resolved",
+        });
+
+        await context.emitHook(incidentHooks.incidentResolved, {
+          incidentId: result.id,
+          systemIds: result.systemIds,
+          title: result.title,
+          severity: result.severity,
+          resolvedAt: new Date().toISOString(),
+        });
+
+        const systemNames = await resolveSystemNames(result.systemIds);
+        await notifyAffectedSystems({
+          catalogClient,
+          notificationClient,
+          logger,
+          incidentId: result.id,
+          incidentTitle: result.title,
+          systemIds: result.systemIds,
+          systemNames,
+          action: "resolved",
+          severity: result.severity,
+        });
+
+        return { success: true };
+      },
+    ),
+
     addLink: os.addLink.handler(async ({ input }) => {
       // Verify incident exists so the FK violation surfaces as NOT_FOUND.
       const incident = await service.getIncident(input.incidentId);

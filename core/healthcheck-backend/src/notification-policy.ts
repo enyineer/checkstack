@@ -41,10 +41,14 @@ export function classifyTransition(
  * Decide whether a transition should produce a notification given the
  * effective per-system policy. Escalations and recoveries always notify;
  * de-escalations are suppressed when the policy opts in.
+ *
+ * Accepts the narrowed `Pick` because callers may only have the
+ * suppression flag — full policy resolution requires per-check lookups
+ * that aren't relevant to this decision.
  */
 export function shouldNotifyTransition(
   kind: TransitionKind,
-  policy: NotificationPolicy,
+  policy: Pick<NotificationPolicy, "suppressDeEscalations">,
 ): boolean {
   if (kind === "none") return false;
   if (kind === "deescalation" && policy.suppressDeEscalations) return false;

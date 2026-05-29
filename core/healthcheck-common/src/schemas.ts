@@ -210,8 +210,31 @@ export const DEFAULT_STATE_THRESHOLDS: StateThresholds = {
 // --- Notification Policy ---
 
 /**
- * Per-association notification preferences for system health-state changes.
- * Aggregated across all of a system's associations at notification time.
+ * Threshold for auto-opening an incident based on how often the check
+ * has transitioned to unhealthy. `transitions: 1` means the very first
+ * transition opens an incident; higher values require the check to
+ * keep flipping back to unhealthy before an incident is opened.
+ */
+export const IncidentThresholdSchema = z.object({
+  /** Minimum number of transitions-to-unhealthy needed in the window. */
+  transitions: z.number().int().min(1).default(1),
+  /** Sliding window in minutes the transitions are counted over. */
+  windowMinutes: z.number().int().min(1).default(60),
+});
+
+export type IncidentThreshold = z.infer<typeof IncidentThresholdSchema>;
+
+export const DEFAULT_INCIDENT_THRESHOLD: IncidentThreshold = {
+  transitions: 1,
+  windowMinutes: 60,
+};
+
+/**
+ * Per-association notification preferences for system health-state
+ * changes. `suppressDeEscalations` is aggregated any-of across a
+ * system's enabled checks. The auto-incident fields are evaluated
+ * per-check so a single noisy check can opt out without affecting
+ * other checks on the same system.
  */
 export const NotificationPolicySchema = z.object({
   /**
@@ -220,12 +243,34 @@ export const NotificationPolicySchema = z.object({
    * still notify.
    */
   suppressDeEscalations: z.boolean().default(false),
+  /**
+   * When true, transitioning this check to `unhealthy` opens (or
+   * attaches to) an auto-managed incident on the system once the
+   * configured threshold is met.
+   */
+  autoOpenIncidentOnUnhealthy: z.boolean().default(true),
+  /**
+   * When true, the auto-opened incident is created with
+   * `suppressNotifications` enabled so further health-state
+   * notifications for the system are silenced until the incident is
+   * resolved. Only meaningful when `autoOpenIncidentOnUnhealthy` is on.
+   */
+  useNotificationSuppression: z.boolean().default(true),
+  /**
+   * Controls when the auto-incident is actually opened. Default is
+   * "first transition opens an incident". Raise the transitions count
+   * to require a check to flap before declaring it an incident.
+   */
+  incidentThreshold: IncidentThresholdSchema.default(DEFAULT_INCIDENT_THRESHOLD),
 });
 
 export type NotificationPolicy = z.infer<typeof NotificationPolicySchema>;
 
 export const DEFAULT_NOTIFICATION_POLICY: NotificationPolicy = {
   suppressDeEscalations: false,
+  autoOpenIncidentOnUnhealthy: true,
+  useNotificationSuppression: true,
+  incidentThreshold: DEFAULT_INCIDENT_THRESHOLD,
 };
 
 export const AssociateHealthCheckSchema = z.object({

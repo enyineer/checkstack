@@ -45,8 +45,15 @@ describe("classifyTransition", () => {
 });
 
 describe("shouldNotifyTransition", () => {
-  const off: NotificationPolicy = { suppressDeEscalations: false };
-  const on: NotificationPolicy = { suppressDeEscalations: true };
+  // The helper only reads `suppressDeEscalations`; narrow the fixture
+  // type so the test doesn't need to keep up with unrelated policy
+  // fields added over time.
+  const off: Pick<NotificationPolicy, "suppressDeEscalations"> = {
+    suppressDeEscalations: false,
+  };
+  const on: Pick<NotificationPolicy, "suppressDeEscalations"> = {
+    suppressDeEscalations: true,
+  };
 
   it("never notifies on `none` (no actual change)", () => {
     expect(shouldNotifyTransition("none", off)).toBe(false);
@@ -78,7 +85,9 @@ describe("flapping scenario from the bug report", () => {
   // With suppression on, the intermediate `unhealthy → degraded`
   // notification (the one operators called out as spammy) must be
   // skipped, while escalation and recovery still fire.
-  const policy: NotificationPolicy = { suppressDeEscalations: true };
+  const policy: Pick<NotificationPolicy, "suppressDeEscalations"> = {
+    suppressDeEscalations: true,
+  };
   const sequence: [HealthCheckStatus, HealthCheckStatus, boolean][] = [
     ["healthy", "degraded", true], // escalation
     ["degraded", "unhealthy", true], // escalation
