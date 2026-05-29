@@ -1,11 +1,7 @@
 import React from "react";
 import { Label } from "../Label";
 import { Textarea } from "../Textarea";
-import {
-  CodeEditor,
-  type TemplateProperty,
-  type DottedKeyCompletion,
-} from "../CodeEditor";
+import { CodeEditor, type TemplateProperty } from "../CodeEditor";
 import {
   Select,
   SelectContent,
@@ -52,11 +48,6 @@ export interface MultiTypeEditorFieldProps {
    */
   shellEnvVars?: ShellEnvVar[];
   /**
-   * Bracket-notation key completions for the `typescript` / `javascript`
-   * editor modes (e.g. `context.artifacts["integration-jira.issue"]`).
-   */
-  dottedKeyCompletions?: DottedKeyCompletion[];
-  /**
    * Optional starter templates per editor language. When the field is
    * empty (and the user hasn't typed yet), switching to an editor with a
    * starter for that language pre-populates the editor so users see a
@@ -82,7 +73,6 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
   templateProperties,
   typeDefinitions,
   shellEnvVars,
-  dottedKeyCompletions,
   starterTemplates,
   onChange,
 }) => {
@@ -362,7 +352,6 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
           language="javascript"
           minHeight="150px"
           typeDefinitions={typeDefinitions}
-          dottedKeyCompletions={dottedKeyCompletions}
         />
       )}
 
@@ -374,7 +363,6 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
           language="typescript"
           minHeight="150px"
           typeDefinitions={typeDefinitions}
-          dottedKeyCompletions={dottedKeyCompletions}
         />
       )}
 

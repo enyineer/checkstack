@@ -86,7 +86,6 @@ export const ActionEditor: React.FC<ActionEditorProps> = ({
     expressionCompletion,
     typeDefinitions,
     shellEnvVars,
-    dottedKeyCompletions,
   } = useVariableScope({
     definition,
     path,
@@ -184,7 +183,6 @@ export const ActionEditor: React.FC<ActionEditorProps> = ({
           expressionCompletion={expressionCompletion}
           typeDefinitions={typeDefinitions}
           shellEnvVars={shellEnvVars}
-          dottedKeyCompletions={dottedKeyCompletions}
           disabled={disabled}
         />
       </div>
@@ -205,9 +203,6 @@ const ActionBody: React.FC<{
   >[0]["completionProvider"];
   typeDefinitions: string;
   shellEnvVars: Parameters<typeof ProviderActionBody>[0]["shellEnvVars"];
-  dottedKeyCompletions: Parameters<
-    typeof ProviderActionBody
-  >[0]["dottedKeyCompletions"];
   disabled?: boolean;
 }> = ({
   kind,
@@ -220,7 +215,6 @@ const ActionBody: React.FC<{
   expressionCompletion,
   typeDefinitions,
   shellEnvVars,
-  dottedKeyCompletions,
   disabled,
 }) => {
   switch (kind) {
@@ -233,7 +227,6 @@ const ActionBody: React.FC<{
           completionProvider={templateCompletion}
           typeDefinitions={typeDefinitions}
           shellEnvVars={shellEnvVars}
-          dottedKeyCompletions={dottedKeyCompletions}
           disabled={disabled}
         />
       );

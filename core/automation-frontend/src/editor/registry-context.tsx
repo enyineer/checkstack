@@ -13,7 +13,6 @@ import {
   type VariableEntry,
 } from "@checkstack/automation-common";
 import type {
-  DottedKeyCompletion,
   ShellEnvVar,
   TemplateCompletionProvider,
   TemplateProperty,
@@ -135,13 +134,6 @@ export function useVariableScope(args: {
    * run time (shell scripts read context from env vars, not `{{ }}`).
    */
   shellEnvVars: ShellEnvVar[];
-  /**
-   * Bracket-notation completions for the TS script editor so
-   * `context.artifacts.` lists the in-scope artifact ids and inserts
-   * `context.artifacts["integration-jira.issue"]` (the ids aren't valid
-   * identifiers, so dot-access alone can't surface them).
-   */
-  dottedKeyCompletions: DottedKeyCompletion[];
 } {
   const { triggers, actions, artifactTypes } = useAutomationRegistry();
   return React.useMemo(() => {
@@ -153,16 +145,6 @@ export function useVariableScope(args: {
       path: args.path,
     });
     const fields = flattenScopeToFields(scope);
-    // Artifact ids (e.g. `integration-jira.issue`) aren't valid JS
-    // identifiers, so `context.artifacts.<id>` can't be reached by
-    // dot-access. Offer them as bracket-notation completions instead.
-    const artifactKeys = (
-      scope.entries.find((entry) => entry.path === "artifact")?.children ?? []
-    ).map((child) => child.path.slice("artifact.".length));
-    const dottedKeyCompletions: DottedKeyCompletion[] =
-      artifactKeys.length > 0
-        ? [{ objectExpression: "context.artifacts", keys: artifactKeys }]
-        : [];
     const { typeDefinitions } = generateAutomationContextTypes({
       definition: args.definition,
       triggers,
@@ -193,7 +175,6 @@ export function useVariableScope(args: {
       }),
       typeDefinitions,
       shellEnvVars: fieldsToShellEnvVars(fields),
-      dottedKeyCompletions,
     };
   }, [args.definition, args.path, triggers, actions, artifactTypes]);
 }

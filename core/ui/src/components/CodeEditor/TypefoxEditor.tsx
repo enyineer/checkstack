@@ -63,14 +63,12 @@ import {
   buildShellEnvVarInsertText,
   matchShellEnvVarTrigger,
 } from "./shellEnvVarMatcher";
-// Type-only import (erased at build time) so the legacy monaco stack in
-// MonacoEditor.tsx is never pulled into this browser-only path.
 import type {
   CodeEditorLanguage,
   EditorMarker,
   ShellEnvVar,
   TemplateProperty,
-} from "./MonacoEditor";
+} from "./types";
 import {
   type EditorAppConfig,
   type TextContents,
@@ -125,30 +123,31 @@ const configureStandaloneWorkerFactory = (
   });
 };
 
+// Base compiler options for the standalone TS + JS services. `types` (node +
+// bun-types) is added only once the stdlib bundle has loaded (see
+// ensureStandaloneStdlib), so the service doesn't transiently error on a
+// missing `node` type while the ~3 MB bundle is still fetching.
+const BASE_COMPILER_OPTIONS = {
+  target: ScriptTarget.ESNext,
+  module: ModuleKind.ESNext,
+  moduleResolution: ModuleResolutionKind.NodeJs,
+  lib: ["esnext"],
+  allowNonTsExtensions: false,
+  noEmit: true,
+  strict: true,
+  esModuleInterop: true,
+};
+
 /**
  * Configure the standalone TS + JS language services ONCE at module load.
  * `typescriptDefaults` / `javascriptDefaults` are singletons, so doing this at
  * module scope (not per-mount) guarantees the first editor to mount cannot
  * start the service with stale defaults - the timing race the legacy monaco
- * editor hit. Mirrors the compiler/diagnostics config in `monacoWorkers.ts`.
- *
- * NOTE: `types: ["node", "bun-types"]` is intentionally omitted for now. Those
- * ambient libs come from the ~3 MB stdlib bundle (`monacoStdlib.ts`); wiring
- * that into the standalone service is a separate follow-up. Stage 2a only
- * targets the generated `context` types injected per-editor via addExtraLib.
+ * editor hit.
  */
 const configureTypeScriptDefaults = (): void => {
   for (const defaults of [typescriptDefaults, javascriptDefaults]) {
-    defaults.setCompilerOptions({
-      target: ScriptTarget.ESNext,
-      module: ModuleKind.ESNext,
-      moduleResolution: ModuleResolutionKind.NodeJs,
-      lib: ["esnext"],
-      allowNonTsExtensions: false,
-      noEmit: true,
-      strict: true,
-      esModuleInterop: true,
-    });
+    defaults.setCompilerOptions({ ...BASE_COMPILER_OPTIONS });
     // 1108: a top-level `return` is valid because the runtime wraps scripts in
     // an async IIFE (same suppression as the legacy editor).
     defaults.setDiagnosticsOptions({ diagnosticCodesToIgnore: [1108] });
@@ -159,6 +158,37 @@ const configureTypeScriptDefaults = (): void => {
 };
 
 configureTypeScriptDefaults();
+
+/**
+ * Lazy-load the bundled `@types/node` + `bun-types` declarations into the
+ * standalone TS service so script editors have `console`, `fetch`, `process`,
+ * `Bun`, etc. typed (parity with the legacy editor). The ~3 MB bundle is
+ * code-split into its own chunk and fetched once. Ported from the legacy
+ * `monacoStdlib.ts` (without its `@monaco-editor/react` dependency). Runs at
+ * module load; this file is browser-only so the dynamic import is safe here.
+ */
+let stdlibLoadStarted = false;
+const ensureStandaloneStdlib = async (): Promise<void> => {
+  if (stdlibLoadStarted) {
+    return;
+  }
+  stdlibLoadStarted = true;
+  const stdlibModule = await import("./generated/stdlib-types.json");
+  const bundle = stdlibModule.default;
+  for (const defaults of [typescriptDefaults, javascriptDefaults]) {
+    for (const [path, content] of Object.entries(bundle)) {
+      defaults.addExtraLib(content, `file:///${path}`);
+    }
+    // The @types/node + bun-types declarations now exist at their node_modules
+    // virtual paths, so include them ambiently.
+    defaults.setCompilerOptions({
+      ...BASE_COMPILER_OPTIONS,
+      types: ["node", "bun-types"],
+    });
+  }
+};
+
+void ensureStandaloneStdlib();
 
 // Turn OFF the JSON service's built-in validation. The editor content is a
 // template that renders to JSON, so we validate the template-substituted form
@@ -318,6 +348,10 @@ export type TypefoxEditorProps = {
    * Positions are 1-based (monaco convention) - e.g. YAML definition validation.
    */
   markers?: EditorMarker[];
+  /** Render the editor read-only. */
+  readOnly?: boolean;
+  /** Accessible label / hint for the editor (surfaced via aria-label). */
+  placeholder?: string;
 };
 
 /**
@@ -337,6 +371,8 @@ export const TypefoxEditor = ({
   templateProperties,
   shellEnvVars,
   markers,
+  readOnly = false,
+  placeholder,
 }: TypefoxEditorProps) => {
   // Unique-per-instance id so multiple editors never share a model or clobber
   // each other's extra-lib.
@@ -750,7 +786,9 @@ export const TypefoxEditor = ({
   };
 
   const editorAppConfig: EditorAppConfig = {
-    id,
+    // Unique per instance (modelId includes a useId suffix) so multiple editors
+    // sharing the same `id` prop don't collide in the wrapper's app registry.
+    id: modelId,
     codeResources: {
       modified: {
         text: value,
@@ -769,6 +807,8 @@ export const TypefoxEditor = ({
       // naive word matching.
       wordBasedSuggestions: "off",
       scrollBeyondLastLine: false,
+      readOnly,
+      ariaLabel: placeholder ?? "Code editor",
     },
   };
 

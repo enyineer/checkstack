@@ -89,10 +89,10 @@ declare const context: {
     `);
   }
 
-  // We deliberately don't redeclare `console`, `fetch`, the Node stdlib,
-  // or the Bun globals here — MonacoEditor mounts the bundled upstream
-  // `@types/node` + `bun-types` declarations into Monaco's virtual
-  // filesystem via `ensureMonacoStdlib`, so all of that is already in scope.
+  // We deliberately don't redeclare `console`, `fetch`, the Node stdlib, or
+  // the Bun globals here: the editor mounts the bundled upstream `@types/node`
+  // + `bun-types` declarations into the TypeScript service, so all of that is
+  // already in scope.
   return lines.join("\n");
 }
 

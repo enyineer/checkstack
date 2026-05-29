@@ -129,7 +129,12 @@ export const extractBracketKeyGroups = ({
         j += 1;
       }
       const afterStr = j + 1; // past closing quote
-      const colon = peekNonWs(afterStr);
+      // A quoted property name may be optional: `"key"?: ...` (this is exactly
+      // how generated artifact keys look, e.g. `"integration-jira.issue"?:`).
+      let colon = peekNonWs(afterStr);
+      if (src[colon] === "?") {
+        colon = peekNonWs(colon + 1);
+      }
       if (src[colon] === ":") {
         // Quoted property name. Record under the current object when every
         // ancestor segment is dot-addressable.

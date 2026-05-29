@@ -92,6 +92,23 @@ describe("extractBracketKeyGroups", () => {
     ]);
   });
 
+  it("extracts OPTIONAL quoted keys (`\"key\"?:`) - the real generated shape", () => {
+    // Mirrors generateAutomationContextTypes output for upstream artifacts:
+    // `readonly artifacts: { readonly "integration-jira.issue"?: {...}; }`.
+    const typeDefinitions = `declare const context: {
+      readonly artifacts: {
+        readonly "integration-jira.issue"?: { key: string; url?: string };
+        readonly "integration-github.pr"?: { number: number };
+      };
+    };`;
+    expect(extractBracketKeyGroups({ typeDefinitions })).toEqual([
+      {
+        objectExpression: "context.artifacts",
+        keys: ["integration-jira.issue", "integration-github.pr"],
+      },
+    ]);
+  });
+
   it("respects a custom root name", () => {
     const typeDefinitions = `declare const scope: {
       vars: { "weird key": { x: string } };

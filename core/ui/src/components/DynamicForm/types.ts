@@ -1,8 +1,4 @@
-import type {
-  TemplateProperty,
-  ShellEnvVar,
-  DottedKeyCompletion,
-} from "../CodeEditor";
+import type { TemplateProperty, ShellEnvVar } from "../CodeEditor";
 import type { TemplateCompletionProvider } from "../TemplateValueInput";
 import type { EditorType } from "@checkstack/common";
 
@@ -98,13 +94,6 @@ export interface DynamicFormProps {
    */
   shellEnvVars?: ShellEnvVar[];
   /**
-   * Bracket-notation completions for `typescript` / `javascript`
-   * editor-type fields — surfaces object members whose keys aren't valid
-   * identifiers (e.g. `context.artifacts["integration-jira.issue"]`) via
-   * normal dot-triggered IntelliSense.
-   */
-  dottedKeyCompletions?: DottedKeyCompletion[];
-  /**
    * Optional initial content per editor language, used to populate empty
    * fields with a working example. Keyed by `EditorType`.
    */
@@ -124,7 +113,6 @@ export interface FormFieldProps {
   templateCompletionProvider?: TemplateCompletionProvider;
   typeDefinitions?: string;
   shellEnvVars?: ShellEnvVar[];
-  dottedKeyCompletions?: DottedKeyCompletion[];
   starterTemplates?: EditorStarterTemplates;
   /** Callback when value changes. Omit val to clear the field. */
   onChange: (val?: unknown) => void;

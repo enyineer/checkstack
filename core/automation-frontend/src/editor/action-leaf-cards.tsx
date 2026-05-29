@@ -11,7 +11,6 @@ import {
   TemplateValueInput,
   Toggle,
   KeyValueEditor,
-  type DottedKeyCompletion,
   type ShellEnvVar,
   type TemplateCompletionProvider,
   type VariableNode,
@@ -55,11 +54,6 @@ export const ProviderActionBody: React.FC<{
    * autocomplete — the names the backend injects from the run scope.
    */
   shellEnvVars: ShellEnvVar[];
-  /**
-   * Bracket-notation completions for the TS script editor
-   * (`context.artifacts["…"]`).
-   */
-  dottedKeyCompletions: DottedKeyCompletion[];
   disabled?: boolean;
 }> = ({
   value,
@@ -68,7 +62,6 @@ export const ProviderActionBody: React.FC<{
   completionProvider,
   typeDefinitions,
   shellEnvVars,
-  dottedKeyCompletions,
   disabled,
 }) => {
   const { actions } = useAutomationRegistry();
@@ -123,7 +116,6 @@ export const ProviderActionBody: React.FC<{
             templateCompletionProvider={completionProvider}
             typeDefinitions={typeDefinitions}
             shellEnvVars={shellEnvVars}
-            dottedKeyCompletions={dottedKeyCompletions}
           />
         </div>
       )}

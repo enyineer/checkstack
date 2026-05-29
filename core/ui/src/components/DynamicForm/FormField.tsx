@@ -37,7 +37,6 @@ export const FormField: React.FC<FormFieldProps> = ({
   templateCompletionProvider,
   typeDefinitions,
   shellEnvVars,
-  dottedKeyCompletions,
   starterTemplates,
   onChange,
 }) => {
@@ -137,7 +136,6 @@ export const FormField: React.FC<FormFieldProps> = ({
           templateProperties={templateProperties}
           typeDefinitions={typeDefinitions}
           shellEnvVars={shellEnvVars}
-          dottedKeyCompletions={dottedKeyCompletions}
           starterTemplates={starterTemplates}
           onChange={onChange as (val: string | undefined) => void}
         />
@@ -374,7 +372,6 @@ export const FormField: React.FC<FormFieldProps> = ({
             templateCompletionProvider={templateCompletionProvider}
             typeDefinitions={typeDefinitions}
             shellEnvVars={shellEnvVars}
-            dottedKeyCompletions={dottedKeyCompletions}
             starterTemplates={starterTemplates}
             onChange={(val) =>
               onChange({ ...(value as Record<string, unknown>), [key]: val })
@@ -487,7 +484,6 @@ export const FormField: React.FC<FormFieldProps> = ({
                   templateCompletionProvider={templateCompletionProvider}
                   typeDefinitions={typeDefinitions}
                   shellEnvVars={shellEnvVars}
-                  dottedKeyCompletions={dottedKeyCompletions}
                   starterTemplates={starterTemplates}
                   onChange={(val) => {
                     const next = [...(items as unknown[])];
@@ -620,7 +616,6 @@ export const FormField: React.FC<FormFieldProps> = ({
                 templateCompletionProvider={templateCompletionProvider}
                 typeDefinitions={typeDefinitions}
                 shellEnvVars={shellEnvVars}
-                dottedKeyCompletions={dottedKeyCompletions}
                 starterTemplates={starterTemplates}
                 onChange={(val) => onChange({ ...currentValue, [key]: val })}
               />
