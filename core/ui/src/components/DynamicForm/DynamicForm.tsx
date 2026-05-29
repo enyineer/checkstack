@@ -18,8 +18,10 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   onValidChange,
   optionsResolvers,
   templateProperties,
+  templateCompletionProvider,
   typeDefinitions,
   shellEnvVars,
+  dottedKeyCompletions,
   starterTemplates,
 }) => {
   // Track previous validity to avoid redundant callbacks
@@ -116,8 +118,10 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               formValues={value}
               optionsResolvers={optionsResolvers}
               templateProperties={templateProperties}
+              templateCompletionProvider={templateCompletionProvider}
               typeDefinitions={typeDefinitions}
               shellEnvVars={shellEnvVars}
+              dottedKeyCompletions={dottedKeyCompletions}
               starterTemplates={starterTemplates}
               onChange={(val) => onChange({ ...value, [key]: val })}
             />

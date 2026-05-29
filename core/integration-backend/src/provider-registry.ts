@@ -6,8 +6,11 @@ import type {
 } from "./provider-types";
 
 /**
- * Registry for integration providers.
- * Plugins register their providers here to enable webhook delivery to external systems.
+ * Registry for integration providers — now scoped to connection
+ * management only. Per-subscription `config` + `deliver` moved to the
+ * Automation platform's `ActionDefinition` (see
+ * `@checkstack/automation-backend`); the legacy subscription system is
+ * gone.
  */
 export interface IntegrationProviderRegistry {
   /**
@@ -30,11 +33,6 @@ export interface IntegrationProviderRegistry {
   /** Check if a provider is registered */
   hasProvider(qualifiedId: string): boolean;
 
-  /** Get the JSON Schema for a provider's config */
-  getProviderConfigSchema(
-    qualifiedId: string
-  ): Record<string, unknown> | undefined;
-
   /** Get the JSON Schema for a provider's connection config (if any) */
   getProviderConnectionSchema(
     qualifiedId: string
@@ -46,7 +44,6 @@ export interface IntegrationProviderRegistry {
  */
 export function createIntegrationProviderRegistry(): IntegrationProviderRegistry {
   const providers = new Map<string, RegisteredIntegrationProvider<unknown>>();
-  const configSchemas = new Map<string, Record<string, unknown>>();
   const connectionSchemas = new Map<string, Record<string, unknown>>();
 
   return {
@@ -64,12 +61,6 @@ export function createIntegrationProviderRegistry(): IntegrationProviderRegistry
 
       providers.set(qualifiedId, registered);
 
-      // Convert the provider's config schema to JSON Schema for UI
-      // Uses the platform's toJsonSchema which handles secrets/colors
-      const jsonSchema = toJsonSchema(provider.config.schema);
-      configSchemas.set(qualifiedId, jsonSchema);
-
-      // Also convert connection schema if present
       if (provider.connectionSchema) {
         const connectionJsonSchema = toJsonSchema(
           provider.connectionSchema.schema
@@ -90,12 +81,6 @@ export function createIntegrationProviderRegistry(): IntegrationProviderRegistry
 
     hasProvider(qualifiedId: string): boolean {
       return providers.has(qualifiedId);
-    },
-
-    getProviderConfigSchema(
-      qualifiedId: string
-    ): Record<string, unknown> | undefined {
-      return configSchemas.get(qualifiedId);
     },
 
     getProviderConnectionSchema(

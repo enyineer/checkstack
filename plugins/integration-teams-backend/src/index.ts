@@ -1,16 +1,37 @@
-import { createBackendPlugin } from "@checkstack/backend-api";
+import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
 import { providerExtensionPoint } from "@checkstack/integration-backend";
+import {
+  automationActionExtensionPoint,
+  automationArtifactTypeExtensionPoint,
+} from "@checkstack/automation-backend";
 import { pluginMetadata } from "./plugin-metadata";
 import { teamsProvider } from "./provider";
+import {
+  createTeamsActions,
+  teamsMessageArtifactType,
+} from "./automations";
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
-
   register(env) {
-    // Get the integration provider extension point
-    const extensionPoint = env.getExtensionPoint(providerExtensionPoint);
+    env
+      .getExtensionPoint(providerExtensionPoint)
+      .addProvider(teamsProvider, pluginMetadata);
+    env
+      .getExtensionPoint(automationArtifactTypeExtensionPoint)
+      .registerArtifactType(teamsMessageArtifactType, pluginMetadata);
 
-    // Register the Teams provider with our plugin metadata
-    extensionPoint.addProvider(teamsProvider, pluginMetadata);
+    env.registerInit({
+      deps: {
+        logger: coreServices.logger,
+      },
+      init: async ({ logger }) => {
+        const actions = env.getExtensionPoint(automationActionExtensionPoint);
+        for (const action of createTeamsActions()) {
+          actions.registerAction(action, pluginMetadata);
+        }
+        logger.debug("✅ Teams automation actions registered");
+      },
+    });
   },
 });

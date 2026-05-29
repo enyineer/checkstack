@@ -1,14 +1,18 @@
-import {
-  pgTable,
-  text,
-  boolean,
-  timestamp,
-  jsonb,
-  integer,
-} from "drizzle-orm/pg-core";
+import { boolean, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
 /**
- * Webhook subscriptions - admin-configured routing rules
+ * Legacy webhook subscriptions table.
+ *
+ * Kept in the schema (and DB) so the one-time data migration in
+ * `@checkstack/automation-backend` can read existing rows and convert
+ * them to automations. Once Automation Platform consumers have all
+ * been migrated and at least one release has shipped without
+ * regressions, a follow-up PR will drop this table along with the
+ * schema entry.
+ *
+ * The `delivery_logs` table is also retained in the database for the
+ * same reason but no longer modelled here — nothing in the platform
+ * reads or writes it.
  */
 export const webhookSubscriptions = pgTable("webhook_subscriptions", {
   id: text("id")
@@ -16,63 +20,13 @@ export const webhookSubscriptions = pgTable("webhook_subscriptions", {
     .$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
   description: text("description"),
-
-  /** Fully qualified provider ID: {pluginId}.{providerId} */
   providerId: text("provider_id").notNull(),
-
-  /** Provider-specific configuration (encrypted if contains secrets) */
   providerConfig: jsonb("provider_config")
     .notNull()
     .$type<Record<string, unknown>>(),
-
-  /** Single event to subscribe to (fully qualified event ID) */
   eventId: text("event_id").notNull(),
-
-  /** Optional: Filter by system IDs */
   systemFilter: text("system_filter").array(),
-
-  /** Subscription enabled state */
   enabled: boolean("enabled").notNull().default(true),
-
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
-
-/**
- * Delivery logs - track webhook delivery attempts and results
- */
-export const deliveryLogs = pgTable("delivery_logs", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
-  subscriptionId: text("subscription_id")
-    .notNull()
-    .references(() => webhookSubscriptions.id, { onDelete: "cascade" }),
-
-  eventType: text("event_type").notNull(),
-  eventPayload: jsonb("event_payload")
-    .notNull()
-    .$type<Record<string, unknown>>(),
-
-  /** Delivery status: pending, success, failed, retrying */
-  status: text("status")
-    .notNull()
-    .$type<"pending" | "success" | "failed" | "retrying">(),
-
-  /** Number of delivery attempts */
-  attempts: integer("attempts").notNull().default(0),
-
-  /** Timestamp of last delivery attempt */
-  lastAttemptAt: timestamp("last_attempt_at"),
-
-  /** Next retry timestamp (if status is retrying) */
-  nextRetryAt: timestamp("next_retry_at"),
-
-  /** External ID returned by the target system (e.g., Jira issue key) */
-  externalId: text("external_id"),
-
-  /** Error message from last failed attempt */
-  errorMessage: text("error_message"),
-
-  createdAt: timestamp("created_at").defaultNow().notNull(),
 });

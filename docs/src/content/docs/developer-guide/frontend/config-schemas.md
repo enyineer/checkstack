@@ -269,6 +269,8 @@ const schema = z.object({
 ```
 
 **Available Editor Types:**
+
+Text / markup editors (template-able):
 - `"none"`: Disabled input (value is cleared/undefined)
 - `"raw"`: Plain text textarea
 - `"json"`: JSON code editor with syntax highlighting and auto-indentation
@@ -277,23 +279,40 @@ const schema = z.object({
 - `"markdown"`: Markdown editor with syntax highlighting
 - `"formdata"`: Key-value pair editor (URL-encoded format)
 
-**CodeEditor Features:**
-- **Syntax Highlighting**: Language-specific colors for keys, values, tags, and templates
-- **Smart Indentation**: Custom Enter key behavior with proper indentation for each language
-- **Bracket/Tag Splitting**: Pressing Enter between `{}`, `[]`, or `<tag></tag>` properly splits them
-- **Template Support**: Mustache-style `{{variable}}` syntax with autocomplete
-- **Line Numbers**: Visible with proper gutter styling
-- **Full Click Area**: Entire editor area is clickable (per official CodeMirror best practices)
+Native-code editors (NOT template-able):
+- `"typescript"` / `"javascript"`: Monaco editor with full type-checking
+- `"shell"`: Monaco shell editor
 
-**Features:**
+**Common features:**
 - Dropdown selector when multiple types are available
 - Auto-detects initial editor type from existing value
 - Automatic format conversion when switching between types
-- Template autocomplete ({% raw %}`{{`{% endraw %} syntax) when `templateProperties` are provided to `DynamicForm`
 - All formats serialize to a single string for storage
 
-**Template Autocomplete:**
-When the parent `DynamicForm` receives `templateProperties`, all applicable editor types (raw, json, yaml, xml, markdown) will show autocomplete suggestions when typing {% raw %}`{{`{% endraw %}:
+### How a field accesses run context
+
+There is exactly **one** context-access mechanism per field kind. They
+never overlap, because {% raw %}`{{ }}`{% endraw %} template text is not
+valid TypeScript and Monaco can't type it:
+
+| Field kind | Mechanism | Driven by |
+| --- | --- | --- |
+| Plain single-line string | {% raw %}`{{ … }}`{% endraw %} templates | `templateCompletionProvider` |
+| Text / markup editor (`raw`, `json`, `yaml`, `xml`, `markdown`, `formdata`) | {% raw %}`{{ … }}`{% endraw %} templates | `templateProperties` |
+| `typescript` / `javascript` editor | a typed `context` object | `typeDefinitions` |
+| `shell` editor | `$`-prefixed env vars | `shellEnvVars` |
+
+> [!IMPORTANT]
+> Code editors (`typescript` / `javascript` / `shell`) deliberately do
+> **not** offer {% raw %}`{{ }}`{% endraw %} autocomplete and their
+> {% raw %}`{{ }}`{% endraw %} markers are left un-rendered at run time.
+> Use the native mechanism instead: a `context` object for TS/JS, `$ENV`
+> vars for shell. This keeps a single, unambiguous way to read context in
+> each editor.
+
+**Template autocomplete (text/markup fields).** When the parent
+`DynamicForm` receives `templateProperties`, the text/markup editor types
+show suggestions when typing {% raw %}`{{`{% endraw %}:
 
 ```tsx
 <DynamicForm
@@ -307,6 +326,25 @@ When the parent `DynamicForm` receives `templateProperties`, all applicable edit
 />
 ```
 
+**Staged completion (plain single-line string fields).** Single-line
+string fields render a bare input by default. Pass a
+`templateCompletionProvider` to render them as a `TemplateValueInput`
+with staged field / comparator / value / filter completion inside
+{% raw %}`{{ … }}`{% endraw %} blocks (the automation editor uses this for
+fields like a log action's `message`). The prop is opt-in, so other
+consumers are unaffected.
+
+**Typed context (TS/JS editors).** Pass `typeDefinitions` (a
+`declare const context: …` string) and Monaco types the `context` global.
+The automation editor builds this per-automation via
+`generateAutomationContextTypes`, so `context.trigger.payload` is the
+discriminated union over the automation's subscribed triggers, with
+`context.artifacts` / `context.var` / `context.repeat` in scope.
+
+**Env vars (shell editor).** Pass `shellEnvVars` (a `{ name, description }[]`)
+and the shell editor autocompletes them after `$`. The automation editor
+derives these from the run scope with the shared `toShellEnvKey` rule, so
+the names match the `$CHECKSTACK_*` vars the backend injects at run time.
 
 ## Secret Handling Best Practices
 

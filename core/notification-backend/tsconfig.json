@@ -11,6 +11,9 @@
       "path": "../auth-common"
     },
     {
+      "path": "../automation-backend"
+    },
+    {
       "path": "../backend-api"
     },
     {

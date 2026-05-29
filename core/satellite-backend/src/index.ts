@@ -16,6 +16,9 @@ import { SatelliteWsHandler } from "./satellite-ws-handler";
 import { ConfigRelay } from "./config-relay";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
 import { registerSatelliteGitOpsKinds } from "./satellite-gitops-kinds";
+import { automationTriggerExtensionPoint } from "@checkstack/automation-backend";
+import { satelliteTriggers } from "./automations";
+import { satelliteHooks } from "./hooks";
 
 // Queue and job constants
 const HEARTBEAT_QUEUE = "satellite-heartbeat";
@@ -26,6 +29,14 @@ export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
     env.registerAccessRules(satelliteAccessRules);
+
+    // ─── Automation Platform: triggers ───────────────────────────────
+    const automationTriggers = env.getExtensionPoint(
+      automationTriggerExtensionPoint,
+    );
+    for (const trigger of satelliteTriggers) {
+      automationTriggers.registerTrigger(trigger, pluginMetadata);
+    }
 
     // ─── GitOps Entity Kind Registration ─────────────────────────────
     let gitopsService: SatelliteService | undefined;
@@ -73,6 +84,7 @@ export default createBackendPlugin({
         wsRegistry,
         rpcClient,
         onHook,
+        emitHook,
       }) => {
         const service = new SatelliteService(
           database as SafeDatabase<typeof schema>,
@@ -112,6 +124,11 @@ export default createBackendPlugin({
             },
           },
           logger,
+          {
+            emitHook,
+            connectedHook: satelliteHooks.connected,
+            disconnectedHook: satelliteHooks.disconnected,
+          },
         );
 
         // Register satellite WebSocket endpoint via the scoped WS registry
@@ -124,6 +141,10 @@ export default createBackendPlugin({
           service,
           signalService,
           logger,
+          {
+            emitHook,
+            heartbeatLostHook: satelliteHooks.heartbeatLost,
+          },
         );
 
         const queue = queueManager.getQueue<Record<string, never>>(

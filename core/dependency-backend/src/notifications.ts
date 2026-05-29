@@ -190,6 +190,7 @@ export async function evaluateAndNotifyDownstream({
   incidentClient,
   signalService,
   logger,
+  emitImpactPropagated,
 }: {
   changedSystemId: string;
   db: Db;
@@ -204,6 +205,21 @@ export async function evaluateAndNotifyDownstream({
   incidentClient: InferClient<typeof IncidentApi>;
   signalService: SignalService;
   logger: Logger;
+  /**
+   * Optional callback fired when at least one downstream system's
+   * derived state actually changed. Wired in `afterPluginsReady` to
+   * emit `dependencyHooks.impactPropagated`; left undefined in tests
+   * + stripped-down harnesses to keep them allocation-free.
+   */
+  emitImpactPropagated?: (event: {
+    sourceSystemId: string;
+    affectedSystems: Array<{
+      systemId: string;
+      previousState: string | null;
+      newState: string | null;
+    }>;
+    timestamp: string;
+  }) => Promise<void>;
 }): Promise<void> {
   try {
     // 1. Find all downstream systems that depend on the changed system
@@ -309,6 +325,11 @@ export async function evaluateAndNotifyDownstream({
     // 6. Evaluate state changes and collect systems that need notification
     const changedSystemIds: string[] = [];
     const systemsToNotify: SystemNotificationEntry[] = [];
+    const impactPropagatedAffected: Array<{
+      systemId: string;
+      previousState: string | null;
+      newState: string | null;
+    }> = [];
 
     for (const systemId of downstreamIds) {
       const currentWarning = warningMap.get(systemId);
@@ -319,6 +340,16 @@ export async function evaluateAndNotifyDownstream({
       if (currentState === previousState) {
         continue;
       }
+
+      // Always record every derived-state transition for the
+      // automation hook — including ones suppressed for end-user
+      // notifications, since an operator may want to react to
+      // propagation regardless of suppression.
+      impactPropagatedAffected.push({
+        systemId,
+        previousState: previousState ?? null,
+        newState: currentState ?? null,
+      });
 
       // State changed — update DB first
       await (currentState
@@ -388,6 +419,26 @@ export async function evaluateAndNotifyDownstream({
       await signalService.broadcast(DEPENDENCY_WARNINGS_CHANGED, {
         affectedSystemIds: changedSystemIds,
       });
+    }
+
+    // 9. Fire the `dependency.impact_propagated` automation hook
+    // exactly once per upstream event, with the full set of
+    // downstream state transitions. Best-effort — failures are
+    // logged but never propagated up so a misbehaving subscriber
+    // can't disrupt notifications or signal broadcasts.
+    if (emitImpactPropagated && impactPropagatedAffected.length > 0) {
+      try {
+        await emitImpactPropagated({
+          sourceSystemId: changedSystemId,
+          affectedSystems: impactPropagatedAffected,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        logger.error(
+          `Failed to emit dependency.impact_propagated hook for upstream ${changedSystemId}:`,
+          error,
+        );
+      }
     }
   } catch (error) {
     // Don't crash the hook handler

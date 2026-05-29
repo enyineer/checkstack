@@ -26,7 +26,7 @@
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/incident-backend": "workspace:*",
     "@checkstack/incident-common": "workspace:*",
-    "@checkstack/integration-backend": "workspace:*",
+    "@checkstack/automation-backend": "workspace:*",
     "@checkstack/maintenance-common": "workspace:*",
     "@checkstack/notification-common": "workspace:*",
     "@checkstack/queue-api": "workspace:*",

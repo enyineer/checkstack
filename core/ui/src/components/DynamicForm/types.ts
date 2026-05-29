@@ -1,4 +1,9 @@
-import type { TemplateProperty, ShellEnvVar } from "../CodeEditor";
+import type {
+  TemplateProperty,
+  ShellEnvVar,
+  DottedKeyCompletion,
+} from "../CodeEditor";
+import type { TemplateCompletionProvider } from "../TemplateValueInput";
 import type { EditorType } from "@checkstack/common";
 
 // Re-export types used by multi-type editor
@@ -70,6 +75,15 @@ export interface DynamicFormProps {
    */
   templateProperties?: TemplateProperty[];
   /**
+   * Optional staged, context-aware completion provider for plain
+   * single-line string fields. When supplied, default string inputs
+   * render a {@link TemplateValueInput} wired to this provider instead
+   * of a bare `Input`, so `{{ … }}` expressions get field / comparator /
+   * value / filter autocomplete (the automation editor passes the
+   * template-mode provider here). Omit it and string fields stay plain.
+   */
+  templateCompletionProvider?: TemplateCompletionProvider;
+  /**
    * Optional TypeScript declarations to inject into Monaco for `typescript`
    * or `javascript` editor-type fields. Typically built from a schema via
    * `generateTypeDefinitions()` so users get autocomplete + type errors
@@ -83,6 +97,13 @@ export interface DynamicFormProps {
    * `EVENT_ID`, `PAYLOAD_*` etc. so users don't have to remember the names.
    */
   shellEnvVars?: ShellEnvVar[];
+  /**
+   * Bracket-notation completions for `typescript` / `javascript`
+   * editor-type fields — surfaces object members whose keys aren't valid
+   * identifiers (e.g. `context.artifacts["integration-jira.issue"]`) via
+   * normal dot-triggered IntelliSense.
+   */
+  dottedKeyCompletions?: DottedKeyCompletion[];
   /**
    * Optional initial content per editor language, used to populate empty
    * fields with a working example. Keyed by `EditorType`.
@@ -100,8 +121,10 @@ export interface FormFieldProps {
   formValues: Record<string, unknown>;
   optionsResolvers?: Record<string, OptionsResolver>;
   templateProperties?: TemplateProperty[];
+  templateCompletionProvider?: TemplateCompletionProvider;
   typeDefinitions?: string;
   shellEnvVars?: ShellEnvVar[];
+  dottedKeyCompletions?: DottedKeyCompletion[];
   starterTemplates?: EditorStarterTemplates;
   /** Callback when value changes. Omit val to clear the field. */
   onChange: (val?: unknown) => void;

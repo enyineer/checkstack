@@ -1,16 +1,37 @@
-import { createBackendPlugin } from "@checkstack/backend-api";
+import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
 import { providerExtensionPoint } from "@checkstack/integration-backend";
+import {
+  automationActionExtensionPoint,
+  automationArtifactTypeExtensionPoint,
+} from "@checkstack/automation-backend";
 import { pluginMetadata } from "./plugin-metadata";
 import { webexProvider } from "./provider";
+import {
+  createWebexActions,
+  webexMessageArtifactType,
+} from "./automations";
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
-
   register(env) {
-    // Get the integration provider extension point
-    const extensionPoint = env.getExtensionPoint(providerExtensionPoint);
+    env
+      .getExtensionPoint(providerExtensionPoint)
+      .addProvider(webexProvider, pluginMetadata);
+    env
+      .getExtensionPoint(automationArtifactTypeExtensionPoint)
+      .registerArtifactType(webexMessageArtifactType, pluginMetadata);
 
-    // Register the Webex provider with our plugin metadata
-    extensionPoint.addProvider(webexProvider, pluginMetadata);
+    env.registerInit({
+      deps: {
+        logger: coreServices.logger,
+      },
+      init: async ({ logger }) => {
+        const actions = env.getExtensionPoint(automationActionExtensionPoint);
+        for (const action of createWebexActions()) {
+          actions.registerAction(action, pluginMetadata);
+        }
+        logger.debug("✅ Webex automation actions registered");
+      },
+    });
   },
 });

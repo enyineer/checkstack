@@ -65,6 +65,29 @@ export interface SendableStrategy {
 }
 
 /**
+ * Optional hook-emission callbacks the dispatch funnel can fire to
+ * surface the per-attempt outcome to other plugins (e.g. as
+ * automation triggers). Bound from `afterPluginsReady` where
+ * `emitHook` becomes available — when not provided, no hook fires
+ * and behaviour is unchanged.
+ */
+export interface DispatchAttemptHookSink {
+  onDelivered: (event: {
+    notificationId: string;
+    strategyQualifiedId: string;
+    durationMs: number;
+    timestamp: string;
+  }) => Promise<void>;
+  onFailed: (event: {
+    notificationId: string;
+    strategyQualifiedId: string;
+    errorMessage: string;
+    durationMs: number;
+    timestamp: string;
+  }) => Promise<void>;
+}
+
+/**
  * Invoke `strategy.send(...)` with duration measurement + best-effort
  * attempt persistence on both branches. Centralised so the same
  * "wrap with timing + persist + don't propagate" contract holds for
@@ -88,14 +111,17 @@ export const dispatchWithAttempt = async ({
   strategy,
   sendContext,
   notificationId,
+  hookSink,
 }: {
   database: SafeDatabase<typeof schema>;
   logger: Logger;
   strategy: SendableStrategy;
   sendContext: NotificationSendContext<unknown, unknown, unknown>;
   notificationId: string;
+  hookSink?: DispatchAttemptHookSink;
 }): Promise<void> => {
   const startMs = performance.now();
+  const timestamp = new Date().toISOString();
   try {
     const result = await strategy.send(sendContext);
     const durationMs = Math.round(performance.now() - startMs);
@@ -122,8 +148,36 @@ export const dispatchWithAttempt = async ({
             durationMs,
           },
     });
+    // Fire the per-attempt outcome hook for automation triggers.
+    // Best-effort: failures here are logged but never propagated, the
+    // same as the persist-attempt guarantee.
+    if (hookSink) {
+      try {
+        const hookCall = result.success
+          ? hookSink.onDelivered({
+              notificationId,
+              strategyQualifiedId: strategy.qualifiedId,
+              durationMs,
+              timestamp,
+            })
+          : hookSink.onFailed({
+              notificationId,
+              strategyQualifiedId: strategy.qualifiedId,
+              errorMessage: result.error ?? "Strategy reported failure",
+              durationMs,
+              timestamp,
+            });
+        await hookCall;
+      } catch (hookError) {
+        logger.error(
+          `[external-delivery] Hook sink failed for ${strategy.qualifiedId}:`,
+          hookError,
+        );
+      }
+    }
   } catch (sendError) {
     const durationMs = Math.round(performance.now() - startMs);
+    const sanitisedMessage = extractErrorMessage(sendError);
     logger.error(
       `[external-delivery] Error sending via ${strategy.qualifiedId}:`,
       sendError,
@@ -138,9 +192,25 @@ export const dispatchWithAttempt = async ({
         // `extractErrorMessage` sanitises arbitrary thrown values -
         // never persist the raw error object since it may embed
         // webhook URLs / tokens via the strategy's send context.
-        errorMessage: extractErrorMessage(sendError),
+        errorMessage: sanitisedMessage,
         durationMs,
       },
     });
+    if (hookSink) {
+      try {
+        await hookSink.onFailed({
+          notificationId,
+          strategyQualifiedId: strategy.qualifiedId,
+          errorMessage: sanitisedMessage,
+          durationMs,
+          timestamp,
+        });
+      } catch (hookError) {
+        logger.error(
+          `[external-delivery] Hook sink failed for ${strategy.qualifiedId}:`,
+          hookError,
+        );
+      }
+    }
   }
 };

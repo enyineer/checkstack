@@ -46,6 +46,15 @@
       "path": "./core/auth-frontend"
     },
     {
+      "path": "./core/automation-backend"
+    },
+    {
+      "path": "./core/automation-common"
+    },
+    {
+      "path": "./core/automation-frontend"
+    },
+    {
       "path": "./core/backend"
     },
     {
@@ -218,6 +227,9 @@
     },
     {
       "path": "./core/slo-frontend"
+    },
+    {
+      "path": "./core/template-engine"
     },
     {
       "path": "./core/test-utils-backend"

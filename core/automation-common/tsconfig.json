@@ -1,0 +1,17 @@
+{
+  "extends": "@checkstack/tsconfig/common.json",
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../signal-common"
+    },
+    {
+      "path": "../template-engine"
+    }
+  ]
+}

@@ -1,6 +1,5 @@
 import * as schema from "./schema";
 import type { SafeDatabase } from "@checkstack/backend-api";
-import { z } from "zod";
 import {
   maintenanceAccessRules,
   maintenanceAccess,
@@ -13,7 +12,11 @@ import {
 } from "@checkstack/maintenance-common";
 
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
-import { integrationEventExtensionPoint } from "@checkstack/integration-backend";
+import {
+  automationActionExtensionPoint,
+  automationArtifactTypeExtensionPoint,
+  automationTriggerExtensionPoint,
+} from "@checkstack/automation-backend";
 import {
   NotificationApi,
   specToRegistration,
@@ -24,33 +27,12 @@ import { CatalogApi } from "@checkstack/catalog-common";
 import { AuthApi } from "@checkstack/auth-common";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { resolveRoute, type InferClient } from "@checkstack/common";
-import { maintenanceHooks } from "./hooks";
 import { createMaintenanceCache } from "./cache";
-
-// =============================================================================
-// Integration Event Payload Schemas
-// =============================================================================
-
-const maintenanceCreatedPayloadSchema = z.object({
-  maintenanceId: z.string(),
-  systemIds: z.array(z.string()),
-  title: z.string(),
-  description: z.string().optional(),
-  status: z.string(),
-  startAt: z.string(),
-  endAt: z.string(),
-});
-
-const maintenanceUpdatedPayloadSchema = z.object({
-  maintenanceId: z.string(),
-  systemIds: z.array(z.string()),
-  title: z.string(),
-  description: z.string().optional(),
-  status: z.string(),
-  startAt: z.string(),
-  endAt: z.string(),
-  action: z.enum(["updated", "closed"]),
-});
+import {
+  createMaintenanceActions,
+  maintenanceArtifactType,
+  maintenanceTriggers,
+} from "./automations";
 
 // Queue and job constants
 const STATUS_TRANSITION_QUEUE = "maintenance-status-transitions";
@@ -70,32 +52,19 @@ export default createBackendPlugin({
       maintenanceGroupSubscription,
     ]);
 
-    // Register hooks as integration events
-    const integrationEvents = env.getExtensionPoint(
-      integrationEventExtensionPoint,
+    // ─── Automation Platform: triggers + artifact type ─────────────────
+    // Buffered behind the extension point until automation-backend's
+    // register() runs. Actions are wired in afterPluginsReady so
+    // `emitHook` is available — see below.
+    const automationTriggers = env.getExtensionPoint(
+      automationTriggerExtensionPoint,
     );
-
-    integrationEvents.registerEvent(
-      {
-        hook: maintenanceHooks.maintenanceCreated,
-        displayName: "Maintenance Created",
-        description: "Fired when a new maintenance is scheduled",
-        category: "Maintenance",
-        payloadSchema: maintenanceCreatedPayloadSchema,
-      },
-      pluginMetadata,
-    );
-
-    integrationEvents.registerEvent(
-      {
-        hook: maintenanceHooks.maintenanceUpdated,
-        displayName: "Maintenance Updated",
-        description: "Fired when a maintenance is updated or closed",
-        category: "Maintenance",
-        payloadSchema: maintenanceUpdatedPayloadSchema,
-      },
-      pluginMetadata,
-    );
+    for (const trigger of maintenanceTriggers) {
+      automationTriggers.registerTrigger(trigger, pluginMetadata);
+    }
+    env
+      .getExtensionPoint(automationArtifactTypeExtensionPoint)
+      .registerArtifactType(maintenanceArtifactType, pluginMetadata);
 
     // Store service reference for afterPluginsReady
     let maintenanceService: MaintenanceService;
@@ -172,7 +141,18 @@ export default createBackendPlugin({
 
         logger.debug("✅ Maintenance Backend initialized.");
       },
-      afterPluginsReady: async ({ queueManager, logger }) => {
+      afterPluginsReady: async ({ queueManager, logger, emitHook }) => {
+        // Register automation actions now that `emitHook` is available.
+        const automationActions = env.getExtensionPoint(
+          automationActionExtensionPoint,
+        );
+        for (const action of createMaintenanceActions({
+          service: maintenanceService,
+          emitHook,
+        })) {
+          automationActions.registerAction(action, pluginMetadata);
+        }
+
         // Notification subscription specs. Per-resource group lifecycle
         // is platform-managed by notification-backend — maintenance just
         // declares the specs.

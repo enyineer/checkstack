@@ -1,7 +1,11 @@
 import React from "react";
 import { Label } from "../Label";
 import { Textarea } from "../Textarea";
-import { CodeEditor, type TemplateProperty } from "../CodeEditor";
+import {
+  CodeEditor,
+  type TemplateProperty,
+  type DottedKeyCompletion,
+} from "../CodeEditor";
 import {
   Select,
   SelectContent,
@@ -48,6 +52,11 @@ export interface MultiTypeEditorFieldProps {
    */
   shellEnvVars?: ShellEnvVar[];
   /**
+   * Bracket-notation key completions for the `typescript` / `javascript`
+   * editor modes (e.g. `context.artifacts["integration-jira.issue"]`).
+   */
+  dottedKeyCompletions?: DottedKeyCompletion[];
+  /**
    * Optional starter templates per editor language. When the field is
    * empty (and the user hasn't typed yet), switching to an editor with a
    * starter for that language pre-populates the editor so users see a
@@ -73,6 +82,7 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
   templateProperties,
   typeDefinitions,
   shellEnvVars,
+  dottedKeyCompletions,
   starterTemplates,
   onChange,
 }) => {
@@ -336,6 +346,14 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
         />
       )}
 
+      {/*
+        Native-code editors (javascript / typescript / shell) intentionally
+        do NOT receive `templateProperties`: `{{ }}` template syntax is for
+        text/markup fields only. Code fields access run context through
+        their language's native mechanism instead — a typed `context`
+        object (driven by `typeDefinitions`) for TS/JS, and `$`-prefixed
+        env vars (driven by `shellEnvVars`) for shell.
+      */}
       {selectedType === "javascript" && (
         <CodeEditor
           id={id}
@@ -343,8 +361,8 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
           onChange={onChange}
           language="javascript"
           minHeight="150px"
-          templateProperties={templateProperties}
           typeDefinitions={typeDefinitions}
+          dottedKeyCompletions={dottedKeyCompletions}
         />
       )}
 
@@ -355,8 +373,8 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
           onChange={onChange}
           language="typescript"
           minHeight="150px"
-          templateProperties={templateProperties}
           typeDefinitions={typeDefinitions}
+          dottedKeyCompletions={dottedKeyCompletions}
         />
       )}
 
@@ -367,7 +385,6 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
           onChange={onChange}
           language="shell"
           minHeight="150px"
-          templateProperties={templateProperties}
           shellEnvVars={shellEnvVars}
         />
       )}

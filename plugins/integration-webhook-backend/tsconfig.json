@@ -5,16 +5,16 @@
   ],
   "references": [
     {
+      "path": "../../core/automation-backend"
+    },
+    {
       "path": "../../core/backend-api"
     },
     {
       "path": "../../core/common"
     },
     {
-      "path": "../../core/integration-backend"
-    },
-    {
-      "path": "../../core/integration-common"
+      "path": "../../core/test-utils-backend"
     }
   ]
 }

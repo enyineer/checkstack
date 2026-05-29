@@ -1,6 +1,5 @@
 import * as schema from "./schema";
 import type { SafeDatabase } from "@checkstack/backend-api";
-import { z } from "zod";
 import {
   incidentAccessRules,
   incidentAccess,
@@ -11,7 +10,10 @@ import {
   incidentGroupSubscription,
 } from "@checkstack/incident-common";
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
-import { integrationEventExtensionPoint } from "@checkstack/integration-backend";
+import {
+  automationActionExtensionPoint,
+  automationTriggerExtensionPoint,
+} from "@checkstack/automation-backend";
 import {
   NotificationApi,
   specToRegistration,
@@ -23,40 +25,8 @@ import { AuthApi } from "@checkstack/auth-common";
 import { catalogHooks } from "@checkstack/catalog-backend";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { resolveRoute } from "@checkstack/common";
-import { incidentHooks } from "./hooks";
 import { createIncidentCache } from "./cache";
-
-// =============================================================================
-// Integration Event Payload Schemas
-// =============================================================================
-
-const incidentCreatedPayloadSchema = z.object({
-  incidentId: z.string(),
-  systemIds: z.array(z.string()),
-  title: z.string(),
-  description: z.string().optional(),
-  severity: z.string(),
-  status: z.string(),
-  createdAt: z.string(),
-});
-
-const incidentUpdatedPayloadSchema = z.object({
-  incidentId: z.string(),
-  systemIds: z.array(z.string()),
-  title: z.string(),
-  description: z.string().optional(),
-  severity: z.string(),
-  status: z.string(),
-  statusChange: z.string().optional(),
-});
-
-const incidentResolvedPayloadSchema = z.object({
-  incidentId: z.string(),
-  systemIds: z.array(z.string()),
-  title: z.string(),
-  severity: z.string(),
-  resolvedAt: z.string(),
-});
+import { createIncidentActions, incidentTriggers } from "./automations";
 
 // =============================================================================
 // Plugin Definition
@@ -71,44 +41,16 @@ export default createBackendPlugin({
       incidentGroupSubscription,
     ]);
 
-    // Register hooks as integration events
-    const integrationEvents = env.getExtensionPoint(
-      integrationEventExtensionPoint,
+    // Register hooks as automation triggers — buffered until the
+    // automation plugin's `register()` runs and the extension point
+    // resolves. Triggers expose `contextKey` so wait_for_trigger can
+    // match resume events back to the originating incident.
+    const automationTriggers = env.getExtensionPoint(
+      automationTriggerExtensionPoint,
     );
-
-    integrationEvents.registerEvent(
-      {
-        hook: incidentHooks.incidentCreated,
-        displayName: "Incident Created",
-        description: "Fired when a new incident is created",
-        category: "Incidents",
-        payloadSchema: incidentCreatedPayloadSchema,
-      },
-      pluginMetadata,
-    );
-
-    integrationEvents.registerEvent(
-      {
-        hook: incidentHooks.incidentUpdated,
-        displayName: "Incident Updated",
-        description:
-          "Fired when an incident is updated (info or status change)",
-        category: "Incidents",
-        payloadSchema: incidentUpdatedPayloadSchema,
-      },
-      pluginMetadata,
-    );
-
-    integrationEvents.registerEvent(
-      {
-        hook: incidentHooks.incidentResolved,
-        displayName: "Incident Resolved",
-        description: "Fired when an incident is marked as resolved",
-        category: "Incidents",
-        payloadSchema: incidentResolvedPayloadSchema,
-      },
-      pluginMetadata,
-    );
+    for (const trigger of incidentTriggers) {
+      automationTriggers.registerTrigger(trigger, pluginMetadata);
+    }
 
     let incidentCache:
       | ReturnType<typeof createIncidentCache>
@@ -152,6 +94,18 @@ export default createBackendPlugin({
           cache,
         );
         rpc.registerRouter(router, incidentContract);
+
+        // Register incident actions with the Automation platform. We
+        // capture the service in closure here (rather than via a
+        // service ref + ctx.getService at execute time) because the
+        // service has no per-request state — one instance for the life
+        // of the plugin is correct.
+        const automationActions = env.getExtensionPoint(
+          automationActionExtensionPoint,
+        );
+        for (const action of createIncidentActions({ service })) {
+          automationActions.registerAction(action, pluginMetadata);
+        }
 
         // Register "Create Incident" command in the command palette
         registerSearchProvider({

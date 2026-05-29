@@ -1,0 +1,41 @@
+{
+  "extends": "@checkstack/tsconfig/backend.json",
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../automation-common"
+    },
+    {
+      "path": "../backend-api"
+    },
+    {
+      "path": "../command-backend"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../drizzle-helper"
+    },
+    {
+      "path": "../integration-common"
+    },
+    {
+      "path": "../notification-common"
+    },
+    {
+      "path": "../queue-api"
+    },
+    {
+      "path": "../signal-common"
+    },
+    {
+      "path": "../template-engine"
+    },
+    {
+      "path": "../test-utils-backend"
+    }
+  ]
+}

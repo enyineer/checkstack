@@ -1,8 +1,17 @@
 import { createHook } from "@checkstack/backend-api";
+import type {
+  IncidentSeverity,
+  IncidentStatus,
+} from "@checkstack/incident-common";
 
 /**
  * Incident hooks for cross-plugin communication.
  * Other plugins can subscribe to these hooks to react to incident lifecycle events.
+ *
+ * `severity` / `status` carry the canonical enum values
+ * (`IncidentSeverity` / `IncidentStatus`) rather than loose strings, so
+ * automation triggers built on these hooks can offer the known values
+ * for `==` comparisons in the editor.
  */
 export const incidentHooks = {
   /**
@@ -14,8 +23,8 @@ export const incidentHooks = {
     systemIds: string[];
     title: string;
     description?: string;
-    severity: string;
-    status: string;
+    severity: IncidentSeverity;
+    status: IncidentStatus;
     createdAt: string;
   }>("incident.created"),
 
@@ -28,9 +37,9 @@ export const incidentHooks = {
     systemIds: string[];
     title: string;
     description?: string;
-    severity: string;
-    status: string;
-    statusChange?: string;
+    severity: IncidentSeverity;
+    status: IncidentStatus;
+    statusChange?: IncidentStatus;
   }>("incident.updated"),
 
   /**
@@ -41,7 +50,7 @@ export const incidentHooks = {
     incidentId: string;
     systemIds: string[];
     title: string;
-    severity: string;
+    severity: IncidentSeverity;
     resolvedAt: string;
   }>("incident.resolved"),
 } as const;

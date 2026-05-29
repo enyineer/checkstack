@@ -1,0 +1,41 @@
+{
+  "name": "@checkstack/automation-backend",
+  "version": "0.1.0",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "checkstack": {
+    "type": "backend"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "generate": "drizzle-kit generate",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@checkstack/automation-common": "workspace:*",
+    "@checkstack/backend-api": "workspace:*",
+    "@checkstack/command-backend": "workspace:*",
+    "@checkstack/integration-common": "workspace:*",
+    "@checkstack/notification-common": "workspace:*",
+    "@checkstack/common": "workspace:*",
+    "@checkstack/queue-api": "workspace:*",
+    "@checkstack/signal-common": "workspace:*",
+    "@checkstack/template-engine": "workspace:*",
+    "@orpc/server": "^1.13.2",
+    "drizzle-orm": "^0.45.0",
+    "yaml": "^2.6.1",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@checkstack/drizzle-helper": "workspace:*",
+    "@checkstack/scripts": "workspace:*",
+    "@checkstack/test-utils-backend": "workspace:*",
+    "@checkstack/tsconfig": "workspace:*",
+    "@types/node": "^20.0.0",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^5.0.0"
+  }
+}

@@ -12,12 +12,13 @@
     "typecheck": "tsgo -b",
     "lint": "bun run lint:code",
     "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test",
     "pack": "bunx @checkstack/scripts plugin-pack"
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
-    "@checkstack/integration-backend": "workspace:*",
-    "@checkstack/integration-common": "workspace:*",
+    "@checkstack/automation-backend": "workspace:*",
+    "@checkstack/automation-common": "workspace:*",
     "@checkstack/common": "workspace:*",
     "zod": "^4.2.1"
   },
@@ -25,7 +26,8 @@
     "@types/bun": "^1.0.0",
     "typescript": "^5.0.0",
     "@checkstack/tsconfig": "workspace:*",
-    "@checkstack/scripts": "workspace:*"
+    "@checkstack/scripts": "workspace:*",
+    "@checkstack/test-utils-backend": "workspace:*"
   },
   "description": "Checkstack integration-script-backend plugin",
   "author": {

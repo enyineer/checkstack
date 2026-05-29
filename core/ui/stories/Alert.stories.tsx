@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react";
+import { CircleAlert, CircleCheck, Info, AlertTriangle } from "lucide-react";
 import {
   Alert,
   AlertContent,
@@ -28,7 +28,7 @@ export const Default: Story = {
   render: (args) => (
     <Alert {...args}>
       <AlertIcon>
-        <Info className="h-4 w-4" />
+        <Info className="w-4 h-4" />
       </AlertIcon>
       <AlertContent>
         <AlertTitle>Heads up</AlertTitle>
@@ -45,7 +45,7 @@ export const Success: Story = {
   render: (args) => (
     <Alert {...args}>
       <AlertIcon>
-        <CircleCheck className="h-4 w-4" />
+        <CircleCheck className="w-4 h-4" />
       </AlertIcon>
       <AlertContent>
         <AlertTitle>Saved</AlertTitle>
@@ -60,7 +60,7 @@ export const Warning: Story = {
   render: (args) => (
     <Alert {...args}>
       <AlertIcon>
-        <TriangleAlert className="h-4 w-4" />
+        <AlertTriangle className="w-4 h-4" />
       </AlertIcon>
       <AlertContent>
         <AlertTitle>Heads up</AlertTitle>
@@ -77,7 +77,7 @@ export const Error: Story = {
   render: (args) => (
     <Alert {...args}>
       <AlertIcon>
-        <CircleAlert className="h-4 w-4" />
+        <CircleAlert className="w-4 h-4" />
       </AlertIcon>
       <AlertContent>
         <AlertTitle>Something went wrong</AlertTitle>

@@ -3,6 +3,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { Button } from "../Button";
 import { Input } from "../Input";
 import type { TemplateProperty } from "../CodeEditor";
+import { TemplateValueInput } from "../TemplateValueInput";
 
 export interface KeyValuePair {
   key: string;
@@ -26,24 +27,6 @@ export interface KeyValueEditorProps {
    * rather than CodeMirror, since these are single-line inputs.
    */
   templateProperties?: TemplateProperty[];
-}
-
-/**
- * Detect if cursor is inside an unclosed {{ template context.
- */
-function detectTemplateContext(text: string, cursorPos: number) {
-  const textBefore = text.slice(0, cursorPos);
-  const lastOpenBrace = textBefore.lastIndexOf("{{");
-  const lastCloseBrace = textBefore.lastIndexOf("}}");
-
-  if (lastOpenBrace !== -1 && lastOpenBrace > lastCloseBrace) {
-    return {
-      isInTemplate: true,
-      query: textBefore.slice(lastOpenBrace + 2),
-      startPos: lastOpenBrace,
-    };
-  }
-  return { isInTemplate: false, query: "", startPos: -1 };
 }
 
 /**
@@ -131,7 +114,7 @@ export const KeyValueEditor: React.FC<KeyValueEditorProps> = ({
             className="flex-1 font-mono text-sm"
           />
           <span className="text-muted-foreground">=</span>
-          <TemplateInput
+          <TemplateValueInput
             id={`${id}-value-${index}`}
             value={pair.value}
             onChange={(newValue) => handleValueChange(index, newValue)}
@@ -159,156 +142,6 @@ export const KeyValueEditor: React.FC<KeyValueEditorProps> = ({
         <Plus className="h-4 w-4" />
         Add Item
       </Button>
-    </div>
-  );
-};
-
-/**
- * An input with simple template autocomplete support.
- * Shows a dropdown when user types "{{".
- */
-const TemplateInput: React.FC<{
-  id: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  templateProperties?: TemplateProperty[];
-}> = ({ id, value, onChange, placeholder, templateProperties }) => {
-  const inputRef = React.useRef<HTMLInputElement>(null);
-  const [showPopup, setShowPopup] = React.useState(false);
-  const [selectedIndex, setSelectedIndex] = React.useState(0);
-  const [templateContext, setTemplateContext] = React.useState<{
-    query: string;
-    startPos: number;
-  }>({ query: "", startPos: -1 });
-
-  // Filter properties based on query
-  const filteredProperties = React.useMemo(() => {
-    if (!templateProperties) return [];
-    if (!templateContext.query.trim()) return templateProperties;
-    const lowerQuery = templateContext.query.toLowerCase();
-    return templateProperties.filter((prop) =>
-      prop.path.toLowerCase().includes(lowerQuery),
-    );
-  }, [templateProperties, templateContext.query]);
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value;
-    onChange(newValue);
-
-    if (!templateProperties || templateProperties.length === 0) return;
-
-    const cursorPos = e.target.selectionStart ?? newValue.length;
-    const context = detectTemplateContext(newValue, cursorPos);
-
-    if (context.isInTemplate) {
-      setTemplateContext({ query: context.query, startPos: context.startPos });
-      setShowPopup(true);
-      setSelectedIndex(0);
-    } else {
-      setShowPopup(false);
-    }
-  };
-
-  const insertProperty = (prop: TemplateProperty) => {
-    if (templateContext.startPos === -1) return;
-
-    const cursorPos = inputRef.current?.selectionStart ?? value.length;
-    const template = `{{${prop.path}}}`;
-    const newValue =
-      value.slice(0, templateContext.startPos) +
-      template +
-      value.slice(cursorPos);
-
-    onChange(newValue);
-    setShowPopup(false);
-
-    // Restore focus
-    setTimeout(() => {
-      inputRef.current?.focus();
-      const newPos = templateContext.startPos + template.length;
-      inputRef.current?.setSelectionRange(newPos, newPos);
-    }, 0);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!showPopup || filteredProperties.length === 0) return;
-
-    switch (e.key) {
-      case "ArrowDown": {
-        e.preventDefault();
-        setSelectedIndex((prev) =>
-          prev < filteredProperties.length - 1 ? prev + 1 : 0,
-        );
-        break;
-      }
-      case "ArrowUp": {
-        e.preventDefault();
-        setSelectedIndex((prev) =>
-          prev > 0 ? prev - 1 : filteredProperties.length - 1,
-        );
-        break;
-      }
-      case "Enter":
-      case "Tab": {
-        e.preventDefault();
-        if (filteredProperties[selectedIndex]) {
-          insertProperty(filteredProperties[selectedIndex]);
-        }
-        break;
-      }
-      case "Escape": {
-        e.preventDefault();
-        setShowPopup(false);
-        break;
-      }
-    }
-  };
-
-  // Close popup on blur
-  const handleBlur = () => {
-    // Delay to allow click on popup item
-    setTimeout(() => setShowPopup(false), 150);
-  };
-
-  return (
-    <div className="relative flex-1">
-      <Input
-        ref={inputRef}
-        id={id}
-        value={value}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        onBlur={handleBlur}
-        placeholder={placeholder}
-        className="font-mono text-sm"
-      />
-      {showPopup && filteredProperties.length > 0 && (
-        <div className="absolute z-50 top-full left-0 mt-1 w-64 max-h-48 overflow-y-auto rounded-md border border-border bg-popover shadow-lg">
-          <div className="p-1">
-            {filteredProperties.map((prop, index) => (
-              <button
-                key={prop.path}
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  insertProperty(prop);
-                }}
-                className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 text-xs rounded-sm text-left hover:bg-accent hover:text-accent-foreground ${
-                  index === selectedIndex
-                    ? "bg-accent text-accent-foreground"
-                    : ""
-                }`}
-              >
-                <code className="font-mono truncate">{prop.path}</code>
-                <span className="text-muted-foreground shrink-0">
-                  {prop.type}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 };

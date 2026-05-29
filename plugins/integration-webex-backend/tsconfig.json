@@ -2,6 +2,9 @@
   "extends": "@checkstack/tsconfig/backend.json",
   "references": [
     {
+      "path": "../../core/automation-backend"
+    },
+    {
       "path": "../../core/backend-api"
     },
     {
@@ -9,6 +12,9 @@
     },
     {
       "path": "../../core/integration-backend"
+    },
+    {
+      "path": "../../core/test-utils-backend"
     }
   ]
 }

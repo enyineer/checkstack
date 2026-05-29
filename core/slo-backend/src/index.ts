@@ -7,9 +7,10 @@ import {
   pluginMetadata,
   sloContract,
   sloRoutes,
+  AchievementTypeSchema,
 } from "@checkstack/slo-common";
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
-import { integrationEventExtensionPoint } from "@checkstack/integration-backend";
+import { automationTriggerExtensionPoint } from "@checkstack/automation-backend";
 import { SloService } from "./service";
 import { SloEngine } from "./slo-engine";
 import { createRouter } from "./router";
@@ -60,7 +61,7 @@ const sloStreakBrokenPayloadSchema = z.object({
 
 const sloAchievementUnlockedPayloadSchema = z.object({
   systemId: z.string(),
-  achievement: z.string(),
+  achievement: AchievementTypeSchema,
 });
 
 const sloWeeklyDigestPayloadSchema = z.object({
@@ -93,77 +94,88 @@ export default createBackendPlugin({
   register(env) {
     env.registerAccessRules(sloAccessRules);
 
-    // Register hooks as integration events
-    const integrationEvents = env.getExtensionPoint(
-      integrationEventExtensionPoint,
+    // Register hooks as automation triggers
+    const automationTriggers = env.getExtensionPoint(
+      automationTriggerExtensionPoint,
     );
 
-    integrationEvents.registerEvent(
+    automationTriggers.registerTrigger(
       {
-        hook: sloHooks.sloBudgetWarning,
+        id: "budget.warning",
         displayName: "SLO Budget Warning",
         description:
           "Fired when an SLO error budget consumption exceeds the warning threshold",
         category: "SLO",
         payloadSchema: sloBudgetWarningPayloadSchema,
+        hook: sloHooks.sloBudgetWarning,
+        contextKey: (p) => p.systemId,
       },
       pluginMetadata,
     );
 
-    integrationEvents.registerEvent(
+    automationTriggers.registerTrigger(
       {
-        hook: sloHooks.sloBudgetCritical,
+        id: "budget.critical",
         displayName: "SLO Budget Critical",
         description:
           "Fired when an SLO error budget consumption exceeds the critical threshold",
         category: "SLO",
         payloadSchema: sloBudgetCriticalPayloadSchema,
+        hook: sloHooks.sloBudgetCritical,
+        contextKey: (p) => p.systemId,
       },
       pluginMetadata,
     );
 
-    integrationEvents.registerEvent(
+    automationTriggers.registerTrigger(
       {
-        hook: sloHooks.sloBudgetExhausted,
+        id: "budget.exhausted",
         displayName: "SLO Budget Exhausted",
         description: "Fired when an SLO error budget is fully consumed",
         category: "SLO",
         payloadSchema: sloBudgetExhaustedPayloadSchema,
+        hook: sloHooks.sloBudgetExhausted,
+        contextKey: (p) => p.systemId,
       },
       pluginMetadata,
     );
 
-    integrationEvents.registerEvent(
+    automationTriggers.registerTrigger(
       {
-        hook: sloHooks.sloStreakBroken,
+        id: "streak.broken",
         displayName: "SLO Streak Broken",
         description: "Fired when a reliability streak is broken",
         category: "SLO",
         payloadSchema: sloStreakBrokenPayloadSchema,
+        hook: sloHooks.sloStreakBroken,
+        contextKey: (p) => p.systemId,
       },
       pluginMetadata,
     );
 
-    integrationEvents.registerEvent(
+    automationTriggers.registerTrigger(
       {
-        hook: sloHooks.sloAchievementUnlocked,
+        id: "achievement.unlocked",
         displayName: "SLO Achievement Unlocked",
         description:
           "Fired when a system unlocks a new reliability achievement",
         category: "SLO",
         payloadSchema: sloAchievementUnlockedPayloadSchema,
+        hook: sloHooks.sloAchievementUnlocked,
+        contextKey: (p) => p.systemId,
       },
       pluginMetadata,
     );
 
-    integrationEvents.registerEvent(
+    automationTriggers.registerTrigger(
       {
-        hook: sloHooks.sloWeeklyDigest,
+        id: "weekly.digest",
         displayName: "SLO Weekly Digest",
         description:
           "Weekly summary of SLO performance across all systems (Monday 09:00 UTC)",
         category: "SLO",
         payloadSchema: sloWeeklyDigestPayloadSchema,
+        hook: sloHooks.sloWeeklyDigest,
       },
       pluginMetadata,
     );

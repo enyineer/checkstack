@@ -2,14 +2,14 @@ import { createRoutes } from "@checkstack/common";
 
 /**
  * Route definitions for the integration plugin.
+ *
+ * The legacy subscription list / delivery log routes were removed when
+ * the platform moved to the Automation Platform model. The remaining
+ * surface is the per-provider connection management page.
  */
 export const integrationRoutes = createRoutes("integration", {
-  /** Main integrations management page */
+  /** Main connections landing page */
   list: "/",
-  /** Delivery logs page (all logs) */
-  logs: "/logs",
-  /** Delivery logs filtered by subscription */
-  deliveryLogs: "/logs/:subscriptionId",
   /** Provider connections management */
   connections: "/connections/:providerId",
 });

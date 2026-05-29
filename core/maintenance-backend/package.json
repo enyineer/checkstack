@@ -11,7 +11,8 @@
     "typecheck": "tsgo -b",
     "generate": "drizzle-kit generate",
     "lint": "bun run lint:code",
-    "lint:code": "eslint . --max-warnings 0"
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test"
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
@@ -24,8 +25,7 @@
     "@checkstack/auth-common": "workspace:*",
     "@checkstack/command-backend": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
-    "@checkstack/integration-backend": "workspace:*",
-    "@checkstack/integration-common": "workspace:*",
+    "@checkstack/automation-backend": "workspace:*",
     "drizzle-orm": "^0.45.0",
     "zod": "^4.2.1",
     "@checkstack/common": "workspace:*",

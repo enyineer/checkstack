@@ -1,29 +1,22 @@
-import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
-import { integrationProviderExtensionPoint } from "@checkstack/integration-backend";
+import { createBackendPlugin } from "@checkstack/backend-api";
+import {
+  automationActionExtensionPoint,
+  automationArtifactTypeExtensionPoint,
+} from "@checkstack/automation-backend";
 import { pluginMetadata } from "./plugin-metadata";
-import { webhookProvider } from "./provider";
+import {
+  webhookDeliveryArtifactType,
+  webhookSendAction,
+} from "./automations";
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
-
   register(env) {
-    env.registerInit({
-      deps: {
-        logger: coreServices.logger,
-      },
-      init: async ({ logger }) => {
-        logger.debug("🔌 Registering Webhook Integration Provider...");
-
-        // Get the integration provider extension point
-        const extensionPoint = env.getExtensionPoint(
-          integrationProviderExtensionPoint,
-        );
-
-        // Register the webhook provider
-        extensionPoint.addProvider(webhookProvider, pluginMetadata);
-
-        logger.debug("✅ Webhook Integration Provider registered.");
-      },
-    });
+    env
+      .getExtensionPoint(automationArtifactTypeExtensionPoint)
+      .registerArtifactType(webhookDeliveryArtifactType, pluginMetadata);
+    env
+      .getExtensionPoint(automationActionExtensionPoint)
+      .registerAction(webhookSendAction, pluginMetadata);
   },
 });

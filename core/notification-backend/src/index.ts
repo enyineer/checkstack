@@ -25,6 +25,18 @@ import { createNotificationCache } from "./cache";
 import { authHooks } from "@checkstack/auth-backend";
 import { createOAuthCallbackHandler } from "./oauth-callback-handler";
 import { createStrategyService } from "./strategy-service";
+import {
+  automationActionExtensionPoint,
+  automationArtifactTypeExtensionPoint,
+  automationTriggerExtensionPoint,
+} from "@checkstack/automation-backend";
+import {
+  createNotificationActions,
+  notificationSendArtifactType,
+  notificationTriggers,
+} from "./automations";
+import { notificationHooks } from "./hooks";
+import type { DispatchAttemptHookSink } from "./delivery-attempts";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Extension Point
@@ -158,6 +170,23 @@ export default createBackendPlugin({
       },
     });
 
+    // ─── Automation Platform: triggers + artifact type ─────────────────
+    const automationTriggers = env.getExtensionPoint(
+      automationTriggerExtensionPoint,
+    );
+    for (const trigger of notificationTriggers) {
+      automationTriggers.registerTrigger(trigger, pluginMetadata);
+    }
+    env
+      .getExtensionPoint(automationArtifactTypeExtensionPoint)
+      .registerArtifactType(notificationSendArtifactType, pluginMetadata);
+
+    // Late-bound hook sink. `afterPluginsReady` populates it once
+    // `emitHook` is available; the router reads it lazily on every
+    // dispatch, so until populated, delivery still works but no
+    // automation triggers fire.
+    const dispatchHookSinkRef: { current?: DispatchAttemptHookSink } = {};
+
     env.registerInit({
       schema,
       deps: {
@@ -206,6 +235,7 @@ export default createBackendPlugin({
           rpcClient,
           logger,
           cache,
+          () => dispatchHookSinkRef.current,
         );
         rpc.registerRouter(router, notificationContract);
 
@@ -220,8 +250,34 @@ export default createBackendPlugin({
 
         logger.debug("✅ Notification Backend initialized.");
       },
-      afterPluginsReady: async ({ database, logger, onHook, emitHook }) => {
+      afterPluginsReady: async ({
+        database,
+        logger,
+        onHook,
+        emitHook,
+        rpcClient,
+      }) => {
         const db = database;
+
+        // Populate the late-bound dispatch hook sink. After this
+        // point every external delivery attempt also fires the
+        // matching automation trigger.
+        dispatchHookSinkRef.current = {
+          onDelivered: (event) =>
+            emitHook(notificationHooks.delivered, event),
+          onFailed: (event) =>
+            emitHook(notificationHooks.failed, event),
+        };
+
+        // Register automation actions now that `rpcClient` (= the
+        // service-mode caller for `sendTransactional`) is available
+        // and all other plugins have registered their access rules.
+        const automationActions = env.getExtensionPoint(
+          automationActionExtensionPoint,
+        );
+        for (const action of createNotificationActions({ rpcClient })) {
+          automationActions.registerAction(action, pluginMetadata);
+        }
 
         // Log registered strategies
         const strategies = strategyRegistry.getStrategies();

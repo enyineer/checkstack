@@ -1,314 +1,84 @@
-import { describe, it, expect, beforeEach } from "bun:test";
+/**
+ * Provider registry behaviour tests — scoped to connection-management
+ * after the Automation Platform migration. Subscription / delivery
+ * concerns moved to the trigger / action registries on the automation
+ * side; the integration registry now only owns connection schemas.
+ */
+import { describe, expect, it, beforeEach } from "bun:test";
 import { z } from "zod";
+import { Versioned, configString } from "@checkstack/backend-api";
 import {
   createIntegrationProviderRegistry,
   type IntegrationProviderRegistry,
 } from "./provider-registry";
 import type { IntegrationProvider } from "./provider-types";
-import { Versioned } from "@checkstack/backend-api";
 
-/**
- * Unit tests for IntegrationProviderRegistry.
- *
- * Tests cover:
- * - Provider registration with proper namespacing
- * - Provider retrieval by qualified ID
- * - Config schema JSON conversion
- */
+const testPlugin = { pluginId: "test-plugin" } as const;
 
-// Test plugin metadata
-const testPluginMetadata = {
-  pluginId: "test-plugin",
-  displayName: "Test Plugin",
-} as const;
-
-// Test config schemas
-const webhookConfigSchema = z.object({
-  url: z.string().url(),
-  method: z.enum(["GET", "POST"]),
-  timeout: z.number().default(5000),
+const sampleConnectionSchema = z.object({
+  apiKey: configString({ "x-secret": true }).describe("API key"),
 });
 
-const slackConfigSchema = z.object({
-  webhookUrl: z.string().url(),
-  channel: z.string(),
-});
+type SampleConnection = z.infer<typeof sampleConnectionSchema>;
 
-// Create test providers
-function createTestProvider(
-  id: string,
-  schema: z.ZodType<unknown>
-): IntegrationProvider<unknown> {
-  return {
-    id,
-    displayName: `${id.charAt(0).toUpperCase()}${id.slice(1)} Provider`,
-    description: `Deliver events via ${id}`,
-    icon: "Webhook",
-    config: new Versioned({
-      version: 1,
-      schema,
-    }),
-    deliver: async () => ({ success: true }),
-  };
-}
+const sampleProvider: IntegrationProvider<SampleConnection> = {
+  id: "sample",
+  displayName: "Sample",
+  description: "Sample provider for tests",
+  icon: "Webhook",
+  connectionSchema: new Versioned({
+    version: 1,
+    schema: sampleConnectionSchema,
+  }),
+};
 
 describe("IntegrationProviderRegistry", () => {
   let registry: IntegrationProviderRegistry;
-
   beforeEach(() => {
     registry = createIntegrationProviderRegistry();
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Provider Registration
-  // ─────────────────────────────────────────────────────────────────────────
-
-  describe("register", () => {
-    it("registers a provider with a fully qualified ID", () => {
-      const provider = createTestProvider("webhook", webhookConfigSchema);
-
-      registry.register(provider, testPluginMetadata);
-
-      expect(registry.hasProvider("test-plugin.webhook")).toBe(true);
-    });
-
-    it("generates correct qualified ID", () => {
-      const provider = createTestProvider("webhook", webhookConfigSchema);
-
-      registry.register(provider, testPluginMetadata);
-
-      const registered = registry.getProvider("test-plugin.webhook");
-      expect(registered?.qualifiedId).toBe("test-plugin.webhook");
-      expect(registered?.ownerPluginId).toBe("test-plugin");
-    });
-
-    it("preserves provider metadata", () => {
-      const provider: IntegrationProvider<unknown> = {
-        id: "custom",
-        displayName: "Custom Provider",
-        description: "A custom provider for testing",
-        icon: "Cog",
-        config: new Versioned({ version: 1, schema: webhookConfigSchema }),
-        deliver: async () => ({ success: true }),
-      };
-
-      registry.register(provider, testPluginMetadata);
-
-      const registered = registry.getProvider("test-plugin.custom");
-      expect(registered?.displayName).toBe("Custom Provider");
-      expect(registered?.description).toBe("A custom provider for testing");
-      expect(registered?.icon).toBe("Cog");
-    });
-
-    it("preserves deliver function", () => {
-      const deliverFn = async () => ({ success: true, externalId: "ext-123" });
-      const provider: IntegrationProvider<unknown> = {
-        id: "webhook",
-        displayName: "Webhook",
-        config: new Versioned({ version: 1, schema: webhookConfigSchema }),
-        deliver: deliverFn,
-      };
-
-      registry.register(provider, testPluginMetadata);
-
-      const registered = registry.getProvider("test-plugin.webhook");
-      expect(registered?.deliver).toBeDefined();
-    });
-
-    it("preserves testConnection function if provided", () => {
-      const provider: IntegrationProvider<unknown> = {
-        id: "webhook",
-        displayName: "Webhook",
-        config: new Versioned({ version: 1, schema: webhookConfigSchema }),
-        deliver: async () => ({ success: true }),
-        testConnection: async () => ({ success: true, message: "OK" }),
-      };
-
-      registry.register(provider, testPluginMetadata);
-
-      const registered = registry.getProvider("test-plugin.webhook");
-      expect(registered?.testConnection).toBeDefined();
-    });
+  it("namespaces ids by plugin", () => {
+    registry.register(sampleProvider, testPlugin);
+    const registered = registry.getProvider("test-plugin.sample");
+    expect(registered).toBeDefined();
+    expect(registered?.qualifiedId).toBe("test-plugin.sample");
+    expect(registered?.ownerPluginId).toBe("test-plugin");
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Provider Retrieval
-  // ─────────────────────────────────────────────────────────────────────────
-
-  describe("getProviders", () => {
-    it("returns empty array when no providers registered", () => {
-      expect(registry.getProviders()).toEqual([]);
-    });
-
-    it("returns all registered providers", () => {
-      registry.register(
-        createTestProvider("webhook", webhookConfigSchema),
-        testPluginMetadata
-      );
-      registry.register(
-        createTestProvider("slack", slackConfigSchema),
-        testPluginMetadata
-      );
-
-      const providers = registry.getProviders();
-      expect(providers.length).toBe(2);
-      expect(providers.map((p) => p.id).sort()).toEqual(["slack", "webhook"]);
-    });
+  it("returns all registered providers", () => {
+    registry.register(sampleProvider, testPlugin);
+    registry.register(
+      { ...sampleProvider, id: "other" } as IntegrationProvider<SampleConnection>,
+      testPlugin,
+    );
+    expect(registry.getProviders()).toHaveLength(2);
   });
 
-  describe("getProvider", () => {
-    it("returns undefined for non-existent provider", () => {
-      expect(registry.getProvider("non-existent.provider")).toBeUndefined();
-    });
-
-    it("returns provider by qualified ID", () => {
-      registry.register(
-        createTestProvider("webhook", webhookConfigSchema),
-        testPluginMetadata
-      );
-
-      const provider = registry.getProvider("test-plugin.webhook");
-      expect(provider?.displayName).toBe("Webhook Provider");
-    });
+  it("reports presence via hasProvider", () => {
+    registry.register(sampleProvider, testPlugin);
+    expect(registry.hasProvider("test-plugin.sample")).toBe(true);
+    expect(registry.hasProvider("test-plugin.missing")).toBe(false);
   });
 
-  describe("hasProvider", () => {
-    it("returns false for non-existent provider", () => {
-      expect(registry.hasProvider("non-existent.provider")).toBe(false);
-    });
-
-    it("returns true for registered provider", () => {
-      registry.register(
-        createTestProvider("webhook", webhookConfigSchema),
-        testPluginMetadata
-      );
-
-      expect(registry.hasProvider("test-plugin.webhook")).toBe(true);
-    });
+  it("exposes the connection JSON schema when present", () => {
+    registry.register(sampleProvider, testPlugin);
+    const schema = registry.getProviderConnectionSchema("test-plugin.sample");
+    expect(schema).toBeDefined();
+    expect((schema as Record<string, unknown>).type).toBe("object");
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Config Schema
-  // ─────────────────────────────────────────────────────────────────────────
-
-  describe("getProviderConfigSchema", () => {
-    it("returns undefined for non-existent provider", () => {
-      expect(
-        registry.getProviderConfigSchema("non-existent.provider")
-      ).toBeUndefined();
-    });
-
-    it("returns JSON Schema for provider config", () => {
-      registry.register(
-        createTestProvider("webhook", webhookConfigSchema),
-        testPluginMetadata
-      );
-
-      const schema = registry.getProviderConfigSchema("test-plugin.webhook");
-      expect(schema).toBeDefined();
-      expect(typeof schema).toBe("object");
-      expect(schema?.type).toBe("object");
-    });
-
-    it("JSON Schema includes property definitions", () => {
-      registry.register(
-        createTestProvider("webhook", webhookConfigSchema),
-        testPluginMetadata
-      );
-
-      const schema = registry.getProviderConfigSchema("test-plugin.webhook");
-      const properties = schema?.properties as Record<string, unknown>;
-
-      expect(properties).toBeDefined();
-      expect(properties.url).toBeDefined();
-      expect(properties.method).toBeDefined();
-      expect(properties.timeout).toBeDefined();
-    });
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Multi-Plugin Registration
-  // ─────────────────────────────────────────────────────────────────────────
-
-  describe("multi-plugin registration", () => {
-    it("handles providers from multiple plugins", () => {
-      const plugin1 = { pluginId: "plugin-1" } as const;
-      const plugin2 = { pluginId: "plugin-2" } as const;
-
-      registry.register(
-        createTestProvider("webhook", webhookConfigSchema),
-        plugin1
-      );
-      registry.register(
-        createTestProvider("webhook", webhookConfigSchema),
-        plugin2
-      );
-
-      expect(registry.hasProvider("plugin-1.webhook")).toBe(true);
-      expect(registry.hasProvider("plugin-2.webhook")).toBe(true);
-
-      const providers = registry.getProviders();
-      expect(providers.length).toBe(2);
-    });
-
-    it("correctly namespaces providers by plugin", () => {
-      const plugin1 = { pluginId: "integration-webhook" } as const;
-      const plugin2 = { pluginId: "integration-slack" } as const;
-
-      registry.register(
-        {
-          ...createTestProvider("default", webhookConfigSchema),
-          displayName: "Webhook",
-        },
-        plugin1
-      );
-      registry.register(
-        {
-          ...createTestProvider("default", slackConfigSchema),
-          displayName: "Slack",
-        },
-        plugin2
-      );
-
-      expect(
-        registry.getProvider("integration-webhook.default")?.displayName
-      ).toBe("Webhook");
-      expect(
-        registry.getProvider("integration-slack.default")?.displayName
-      ).toBe("Slack");
-    });
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Supported Events
-  // ─────────────────────────────────────────────────────────────────────────
-
-  describe("supportedEvents", () => {
-    it("preserves supportedEvents array", () => {
-      const provider: IntegrationProvider<unknown> = {
-        id: "limited",
-        displayName: "Limited Provider",
-        config: new Versioned({ version: 1, schema: webhookConfigSchema }),
-        supportedEvents: ["incident.created", "incident.resolved"],
-        deliver: async () => ({ success: true }),
-      };
-
-      registry.register(provider, testPluginMetadata);
-
-      const registered = registry.getProvider("test-plugin.limited");
-      expect(registered?.supportedEvents).toEqual([
-        "incident.created",
-        "incident.resolved",
-      ]);
-    });
-
-    it("handles provider with no supportedEvents (accepts all)", () => {
-      const provider = createTestProvider("webhook", webhookConfigSchema);
-
-      registry.register(provider, testPluginMetadata);
-
-      const registered = registry.getProvider("test-plugin.webhook");
-      expect(registered?.supportedEvents).toBeUndefined();
-    });
+  it("returns undefined for providers without a connection schema", () => {
+    const minimal: IntegrationProvider<undefined> = {
+      id: "minimal",
+      displayName: "Minimal",
+    };
+    registry.register(
+      minimal as IntegrationProvider<unknown>,
+      testPlugin,
+    );
+    expect(
+      registry.getProviderConnectionSchema("test-plugin.minimal"),
+    ).toBeUndefined();
   });
 });

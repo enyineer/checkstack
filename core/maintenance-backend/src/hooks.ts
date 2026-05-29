@@ -1,9 +1,14 @@
 import { createHook } from "@checkstack/backend-api";
+import type { MaintenanceStatus } from "@checkstack/maintenance-common";
 
 /**
  * Maintenance hooks for cross-plugin communication.
  * Other plugins can subscribe to these hooks to react to maintenance lifecycle events.
  * These hooks are registered as integration events for webhook subscriptions.
+ *
+ * `status` carries the canonical `MaintenanceStatus` enum value, so
+ * automation triggers built on these hooks can offer the known values
+ * for `==` comparisons in the editor.
  */
 export const maintenanceHooks = {
   /**
@@ -15,7 +20,7 @@ export const maintenanceHooks = {
     systemIds: string[];
     title: string;
     description?: string;
-    status: string;
+    status: MaintenanceStatus;
     startAt: string;
     endAt: string;
   }>("maintenance.created"),
@@ -29,7 +34,7 @@ export const maintenanceHooks = {
     systemIds: string[];
     title: string;
     description?: string;
-    status: string;
+    status: MaintenanceStatus;
     startAt: string;
     endAt: string;
     action: "updated" | "closed";

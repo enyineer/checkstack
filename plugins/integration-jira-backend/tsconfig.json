@@ -5,6 +5,9 @@
   ],
   "references": [
     {
+      "path": "../../core/automation-backend"
+    },
+    {
       "path": "../../core/backend-api"
     },
     {
@@ -15,6 +18,9 @@
     },
     {
       "path": "../../core/integration-common"
+    },
+    {
+      "path": "../../core/test-utils-backend"
     },
     {
       "path": "../integration-jira-common"

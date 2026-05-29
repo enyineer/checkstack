@@ -7,6 +7,8 @@ export {
   type CodeEditorLanguage,
   type TemplateProperty,
   type ShellEnvVar,
+  type EditorMarker,
+  type DottedKeyCompletion,
 } from "./MonacoEditor";
 
 export {

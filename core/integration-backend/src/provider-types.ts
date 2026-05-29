@@ -1,94 +1,10 @@
 /**
- * Integration Provider Types
- *
- * These types define the contract for integration provider plugins.
- * All backend-only types live here - frontend uses Zod schemas from integration-common.
+ * Integration Provider Types — connection-only after the Automation
+ * Platform migration. Per-event delivery context types are gone; the
+ * Automation engine's `ActionExecutionContext` replaces them.
  */
-import { z } from "zod";
-import type { Versioned, Logger, Hook } from "@checkstack/backend-api";
+import type { Versioned, Logger } from "@checkstack/backend-api";
 import type { LucideIconName } from "@checkstack/common";
-
-// =============================================================================
-// Integration Event Definition Types
-// =============================================================================
-
-/**
- * Metadata for registering a hook as an integration event.
- * Plugins use this to expose their hooks for external webhook subscriptions.
- */
-export interface IntegrationEventDefinition<T = unknown> {
-  /** The hook to expose (from the owning plugin) */
-  hook: Hook<T>;
-
-  /** Human-readable name for the UI */
-  displayName: string;
-
-  /** Description of when this event fires */
-  description?: string;
-
-  /** Category for UI grouping (e.g., "Health", "Incidents", "Maintenance") */
-  category?: string;
-
-  /** Zod schema for the payload (used for UI preview and validation) */
-  payloadSchema: z.ZodType<T>;
-
-  /**
-   * Optional: Transform hook payload before sending to webhooks.
-   * Use this to enrich the payload with additional context or
-   * redact sensitive fields.
-   */
-  transformPayload?: (payload: T) => Record<string, unknown>;
-}
-
-// =============================================================================
-// Integration Provider Types
-// =============================================================================
-
-/**
- * Context passed to the provider's deliver() method.
- */
-export interface IntegrationDeliveryContext<TConfig = unknown> {
-  event: {
-    /** Fully qualified event ID */
-    eventId: string;
-    /** Event payload (possibly transformed) */
-    payload: Record<string, unknown>;
-    /** ISO timestamp when the event was emitted */
-    timestamp: string;
-    /** Unique ID for this delivery attempt */
-    deliveryId: string;
-  };
-  subscription: {
-    /** Subscription ID */
-    id: string;
-    /** Subscription name */
-    name: string;
-  };
-  /** Provider-specific configuration */
-  providerConfig: TConfig;
-  /** Scoped logger for delivery tracing */
-  logger: Logger;
-  /**
-   * Get connection credentials by ID (for providers with connectionSchema).
-   * Only available when provider has a connectionSchema defined.
-   */
-  getConnectionWithCredentials?: (
-    connectionId: string
-  ) => Promise<{ config: Record<string, unknown> } | undefined>;
-}
-
-/**
- * Result of a provider delivery attempt.
- */
-export interface IntegrationDeliveryResult {
-  success: boolean;
-  /** External ID returned by the target system (e.g., Jira issue key) */
-  externalId?: string;
-  /** Error message if delivery failed */
-  error?: string;
-  /** Milliseconds to wait before retrying (if applicable) */
-  retryAfterMs?: number;
-}
 
 /**
  * Result of testing a provider connection.
@@ -144,15 +60,19 @@ export interface GetConnectionOptionsParams {
 
 /**
  * Integration provider definition.
- * Providers define how to deliver events to specific external systems.
+ * Connection-provider definition. Plugins register one per external
+ * system to expose a connection schema, test endpoint, and dynamic
+ * dropdown resolvers used by the Automation editor's config forms.
  *
- * @template TConfig - Per-subscription configuration type
- * @template TConnection - Site-wide connection configuration type (optional)
+ * The legacy `config` (per-subscription) + `deliver` fields are gone:
+ * those responsibilities moved to the Automation platform's
+ * `ActionDefinition` (see `@checkstack/automation-backend`). Existing
+ * subscriptions are migrated to automations on boot — see
+ * `core/automation-backend/src/migration/`.
+ *
+ * @template TConnection - Site-wide connection configuration type
  */
-export interface IntegrationProvider<
-  TConfig = unknown,
-  TConnection = undefined
-> {
+export interface IntegrationProvider<TConnection = undefined> {
   /** Local identifier, namespaced on registration to {pluginId}.{id} */
   id: string;
 
@@ -165,37 +85,20 @@ export interface IntegrationProvider<
   /** Lucide icon name in PascalCase (e.g., 'Webhook') */
   icon?: LucideIconName;
 
-  /** Per-subscription configuration schema */
-  config: Versioned<TConfig>;
-
   /**
    * Optional site-wide connection schema.
    * When provided, the platform will:
    * - Store connections centrally via ConfigService
    * - Show a "Connections" management UI
-   * - Add a connection dropdown to subscription config
+   * - Make connections selectable in automation action config forms
    */
   connectionSchema?: Versioned<TConnection>;
 
   /**
-   * Events this provider can handle.
-   * If undefined, provider accepts all events.
-   * Event IDs are fully qualified: {pluginId}.{hookId}
-   */
-  supportedEvents?: string[];
-
-  /**
-   * Optional documentation to help users configure their endpoints.
-   * Displayed in the UI when creating/editing subscriptions.
+   * Optional documentation to help users configure connections.
+   * Displayed on the connections page.
    */
   documentation?: ProviderDocumentation;
-
-  /**
-   * Transform and deliver the event to the external system.
-   */
-  deliver(
-    context: IntegrationDeliveryContext<TConfig>
-  ): Promise<IntegrationDeliveryResult>;
 
   /**
    * Optional: Test the connection configuration.
@@ -205,9 +108,9 @@ export interface IntegrationProvider<
   testConnection?(config: TConnection): Promise<TestConnectionResult>;
 
   /**
-   * Optional: Fetch dynamic options for cascading dropdowns.
-   * Called when subscription config has fields with x-options-resolver.
-   * Only applicable when connectionSchema is defined.
+   * Optional: Fetch dynamic options for cascading dropdowns inside
+   * automation action config forms. Resolver names are declared via
+   * `configString({ "x-options-resolver": "name" })` in action configs.
    */
   getConnectionOptions?(
     params: GetConnectionOptionsParams
@@ -217,10 +120,8 @@ export interface IntegrationProvider<
 /**
  * Registered provider with full namespace information.
  */
-export interface RegisteredIntegrationProvider<
-  TConfig = unknown,
-  TConnection = unknown
-> extends IntegrationProvider<TConfig, TConnection> {
+export interface RegisteredIntegrationProvider<TConnection = unknown>
+  extends IntegrationProvider<TConnection> {
   /** Fully qualified ID: {pluginId}.{id} */
   qualifiedId: string;
 
@@ -228,30 +129,3 @@ export interface RegisteredIntegrationProvider<
   ownerPluginId: string;
 }
 
-/**
- * Registered integration event with full namespace information.
- */
-export interface RegisteredIntegrationEvent<T = unknown> {
-  /** Fully qualified event ID: {pluginId}.{hookId} */
-  eventId: string;
-
-  /** Original hook reference */
-  hook: Hook<T>;
-
-  /** Plugin that registered this event */
-  ownerPluginId: string;
-
-  /** UI metadata */
-  displayName: string;
-  description?: string;
-  category?: string;
-
-  /** JSON Schema for payload (derived from Zod) */
-  payloadJsonSchema: Record<string, unknown>;
-
-  /** Original Zod schema */
-  payloadSchema: z.ZodType<T>;
-
-  /** Optional payload transformer */
-  transformPayload?: (payload: T) => Record<string, unknown>;
-}

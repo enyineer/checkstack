@@ -5,6 +5,9 @@
   ],
   "references": [
     {
+      "path": "../automation-backend"
+    },
+    {
       "path": "../backend-api"
     },
     {

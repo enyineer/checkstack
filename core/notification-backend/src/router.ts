@@ -144,6 +144,19 @@ export const createNotificationRouter = (
   rpcApi: RpcClient,
   logger: Logger,
   cache: NotificationCache,
+  /**
+   * Late-bound: returns the dispatch hook sink (delivered/failed
+   * automation triggers). `init()` wires this with a closure on a
+   * mutable container; `afterPluginsReady()` populates the container
+   * once `emitHook` is available. Until then — and on stripped-down
+   * test setups — the getter returns `undefined` and hook firing is
+   * skipped without affecting persisted delivery attempts.
+   */
+  getDispatchHookSink: () =>
+    | import("./delivery-attempts").DispatchAttemptHookSink
+    | undefined = () => {
+    return;
+  },
 ) => {
   // Create strategy service for config management
   const strategyService: StrategyService = createStrategyService({
@@ -298,6 +311,7 @@ export const createNotificationRouter = (
           strategy,
           sendContext,
           notificationId,
+          hookSink: getDispatchHookSink(),
         });
       } catch (error) {
         // Log error but continue - external delivery shouldn't block in-app

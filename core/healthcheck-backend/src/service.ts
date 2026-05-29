@@ -242,6 +242,35 @@ export class HealthCheckService {
       });
   }
 
+  /**
+   * Flip the `enabled` flag on an existing `systemHealthChecks` row
+   * without touching any of the other configuration (thresholds,
+   * satellite assignment, notification policy). Returns `true` when a
+   * row was updated, `false` when the assignment doesn't exist.
+   *
+   * Carved out so the automation actions `enable_assignment` /
+   * `disable_assignment` don't have to round-trip through
+   * `associateSystem` (which would otherwise wipe operator-managed
+   * fields when invoked with a sparse partial).
+   */
+  async setAssignmentEnabled(
+    systemId: string,
+    configurationId: string,
+    enabled: boolean,
+  ): Promise<boolean> {
+    const result = await this.db
+      .update(systemHealthChecks)
+      .set({ enabled, updatedAt: new Date() })
+      .where(
+        and(
+          eq(systemHealthChecks.systemId, systemId),
+          eq(systemHealthChecks.configurationId, configurationId),
+        ),
+      )
+      .returning({ systemId: systemHealthChecks.systemId });
+    return result.length > 0;
+  }
+
   async disassociateSystem(systemId: string, configurationId: string) {
     await this.db
       .delete(systemHealthChecks)

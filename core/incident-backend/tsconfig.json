@@ -8,6 +8,12 @@
       "path": "../auth-common"
     },
     {
+      "path": "../automation-backend"
+    },
+    {
+      "path": "../automation-common"
+    },
+    {
       "path": "../backend-api"
     },
     {

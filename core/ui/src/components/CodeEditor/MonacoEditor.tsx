@@ -40,15 +40,25 @@ export type CodeEditorLanguage =
   | "shell";
 
 /**
- * A single payload property available for templating
+ * A single payload property available for templating. Used by both the
+ * Monaco-backed `CodeEditor` and the lightweight single-line
+ * `TemplateValueInput` for the simple "insert a `{{ path }}` reference"
+ * flow.
  */
 export interface TemplateProperty {
-  /** Full path to the property, e.g., "payload.incident.title" */
+  /** Full path to the property, e.g., "trigger.payload.title". */
   path: string;
-  /** Type of the property, e.g., "string", "number", "boolean" */
+  /** Type label rendered on the right, e.g. "string", "number". */
   type: string;
-  /** Optional description of the property */
+  /** Optional description of the property. */
   description?: string;
+  /**
+   * Known discrete values for this field, when the schema declares an
+   * `enum`. Consumed by the staged template-completion provider to
+   * suggest concrete values after a comparator (e.g. `"low"` / `"high"`
+   * for a severity field).
+   */
+  enumValues?: Array<string | number | boolean>;
 }
 
 /**
@@ -62,6 +72,36 @@ export interface ShellEnvVar {
   description?: string;
   /** Optional example value shown in the completion item detail. */
   example?: string;
+}
+
+/**
+ * An externally-supplied diagnostic to render as an inline squiggle.
+ * Positions are 1-based line/column (Monaco's convention). Callers
+ * compute these from their own validation (e.g. mapping a definition
+ * issue path back to a YAML node range) and pass them via `markers`.
+ */
+export interface EditorMarker {
+  startLineNumber: number;
+  startColumn: number;
+  endLineNumber: number;
+  endColumn: number;
+  message: string;
+  severity?: "error" | "warning" | "info";
+}
+
+/**
+ * Offers bracket-notation completions for object members whose keys are
+ * not valid JS identifiers (e.g. `context.artifacts["integration-jira.issue"]`).
+ * Monaco's TS worker doesn't generate these, so for a configured
+ * `objectExpression` we provide them ourselves: typing
+ * `<objectExpression>.` lists `keys`, and accepting one rewrites the dot
+ * to `["key"]` (VS Code's own behaviour).
+ */
+export interface DottedKeyCompletion {
+  /** Member-access expression preceding the dot, e.g. `context.artifacts`. */
+  objectExpression: string;
+  /** Keys to offer; each is inserted as `["<key>"]`. */
+  keys: string[];
 }
 
 export interface CodeEditorProps {
@@ -96,6 +136,22 @@ export interface CodeEditorProps {
    * `PAYLOAD_*` without forcing users to memorise the names.
    */
   shellEnvVars?: ShellEnvVar[];
+  /**
+   * Bracket-notation completions for `typescript` / `javascript` editors.
+   * For each entry, typing `<objectExpression>.` lists the `keys` and
+   * accepting one rewrites it to `<objectExpression>["key"]` — so
+   * non-identifier keys (like artifact ids) are reachable with normal
+   * dot-triggered IntelliSense.
+   */
+  dottedKeyCompletions?: DottedKeyCompletion[];
+  /**
+   * Externally-computed diagnostics rendered as inline squiggles (under
+   * a dedicated marker owner, so they coexist with Monaco's own
+   * language diagnostics). Use this to surface schema / validation
+   * errors at the exact offending location rather than in a separate
+   * panel.
+   */
+  markers?: EditorMarker[];
 }
 
 // Map language names to Monaco language IDs
@@ -180,6 +236,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   typeDefinitions,
   templateProperties,
   shellEnvVars,
+  dottedKeyCompletions,
+  markers,
 }) => {
   const editorRef = React.useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = React.useRef<Monaco | null>(null);
@@ -237,6 +295,35 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     editorRef.current = editor;
     monacoRef.current = monaco;
     setIsEditorMounted(true);
+
+    // Default the suggestion "details" panel to OPEN. Monaco persists
+    // this as a storage flag that defaults to false and exposes no editor
+    // option, so the docs/full-label panel only appears after clicking the
+    // chevron. We flip it open whenever the suggest widget shows, via the
+    // (internal) suggest controller. Guarded so a Monaco-internals change
+    // can never break the editor mount.
+    try {
+      interface DetailsWidget {
+        onDidShow: (listener: () => void) => unknown;
+        toggleDetails: () => void;
+        _isDetailsVisible: () => boolean;
+      }
+      const controller = editor.getContribution(
+        "editor.contrib.suggestController",
+      );
+      const widget = (
+        controller as unknown as { widget?: { value?: DetailsWidget } } | null
+      )?.widget?.value;
+      widget?.onDidShow(() => {
+        try {
+          if (!widget._isDetailsVisible()) widget.toggleDetails();
+        } catch {
+          // Internal API drifted — leave the panel as-is.
+        }
+      });
+    } catch {
+      // Suggest controller shape changed — skip the auto-open.
+    }
 
 
 
@@ -499,7 +586,15 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
             label: `$${v.name}`,
             kind: monaco.languages.CompletionItemKind.Variable,
             detail: v.example ? `e.g. ${v.example}` : "shell env var",
-            documentation: v.description,
+            // The suggest-list label truncates long names (e.g.
+            // CHECKSTACK_ARTIFACT_INTEGRATION_JIRA_ISSUE_*); repeat the
+            // full name in the (wrapping) details panel so it's always
+            // legible on focus.
+            documentation: {
+              value: [`\`$${v.name}\``, v.description]
+                .filter(Boolean)
+                .join("\n\n"),
+            },
             insertText: buildShellEnvVarInsertText(match, v.name),
             sortText: ` ${String(index).padStart(4, "0")}`,
             filterText: `$${v.name}`,
@@ -519,6 +614,107 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
       provider.dispose();
     };
   }, [shellEnvVars, language, isEditorMounted]);
+
+  // Bracket-notation completion for TS/JS editors. Monaco's TS worker
+  // won't offer non-identifier object keys after a `.` (and can't rewrite
+  // the dot to `["…"]`), so for each configured `objectExpression` we
+  // provide those completions ourselves: list the keys after
+  // `<objectExpression>.` and, on accept, replace the typed query with
+  // `["key"]` while deleting the dot via `additionalTextEdits` — exactly
+  // how VS Code converts `obj."a-b"` to `obj["a-b"]`.
+  React.useEffect(() => {
+    if (!isEditorMounted || !monacoRef.current) return;
+    if (language !== "typescript" && language !== "javascript") return;
+    if (!dottedKeyCompletions || dottedKeyCompletions.length === 0) return;
+
+    const monaco = monacoRef.current;
+    const escapeRegExp = (input: string): string =>
+      input.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+
+    const provider = monaco.languages.registerCompletionItemProvider(language, {
+      triggerCharacters: ["."],
+      provideCompletionItems: (model: editor.ITextModel, position: Position) => {
+        const textBefore = model
+          .getLineContent(position.lineNumber)
+          .slice(0, position.column - 1);
+
+        for (const { objectExpression, keys } of dottedKeyCompletions) {
+          // Match `<objectExpression>.<query>` at the cursor, ensuring the
+          // expression isn't the tail of a longer identifier.
+          const match = new RegExp(
+            String.raw`(?:^|[^\w$.])${escapeRegExp(objectExpression)}\.([\w$]*)$`,
+          ).exec(textBefore);
+          if (!match) continue;
+
+          const query = match[1] ?? "";
+          const queryStartColumn = position.column - query.length;
+          const dotColumn = queryStartColumn - 1;
+
+          return {
+            suggestions: keys.map((key) => ({
+              label: `["${key}"]`,
+              kind: monaco.languages.CompletionItemKind.Property,
+              detail: objectExpression,
+              insertText: `["${key}"]`,
+              filterText: key,
+              range: {
+                startLineNumber: position.lineNumber,
+                startColumn: queryStartColumn,
+                endLineNumber: position.lineNumber,
+                endColumn: position.column,
+              },
+              // Delete the triggering `.` so `obj.` becomes `obj["key"]`.
+              additionalTextEdits: [
+                {
+                  range: {
+                    startLineNumber: position.lineNumber,
+                    startColumn: dotColumn,
+                    endLineNumber: position.lineNumber,
+                    endColumn: dotColumn + 1,
+                  },
+                  text: "",
+                },
+              ],
+            })),
+          };
+        }
+        return { suggestions: [] };
+      },
+    });
+
+    return () => {
+      provider.dispose();
+    };
+  }, [dottedKeyCompletions, language, isEditorMounted]);
+
+  // Apply externally-supplied diagnostics as inline squiggles under a
+  // dedicated owner so they coexist with Monaco's own language markers.
+  React.useEffect(() => {
+    if (!isEditorMounted || !monacoRef.current || !editorRef.current) return;
+    const monaco = monacoRef.current;
+    const model = editorRef.current.getModel();
+    if (!model) return;
+    const toSeverity = (severity: EditorMarker["severity"]) => {
+      if (severity === "warning") return monaco.MarkerSeverity.Warning;
+      if (severity === "info") return monaco.MarkerSeverity.Info;
+      return monaco.MarkerSeverity.Error;
+    };
+    monaco.editor.setModelMarkers(
+      model,
+      "external-validation",
+      (markers ?? []).map((marker) => ({
+        startLineNumber: marker.startLineNumber,
+        startColumn: marker.startColumn,
+        endLineNumber: marker.endLineNumber,
+        endColumn: marker.endColumn,
+        message: marker.message,
+        severity: toSeverity(marker.severity),
+      })),
+    );
+    return () => {
+      monaco.editor.setModelMarkers(model, "external-validation", []);
+    };
+  }, [markers, isEditorMounted]);
 
   // Calculate height from minHeight
   const heightValue = minHeight.replace("px", "");
@@ -581,6 +777,10 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         options={{
           readOnly,
           minimap: { enabled: false },
+          // Our completions come from the language service + our own
+          // providers (templates, $env, context keys); word-based
+          // suggestions only add identifier/keyword noise.
+          wordBasedSuggestions: "off",
           lineNumbers: "on",
           lineNumbersMinChars: 3,
           folding: false,

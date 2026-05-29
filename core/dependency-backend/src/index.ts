@@ -8,10 +8,21 @@ import {
   dependencyGroupSubscription,
 } from "@checkstack/dependency-common";
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
+import {
+  automationActionExtensionPoint,
+  automationArtifactTypeExtensionPoint,
+  automationTriggerExtensionPoint,
+} from "@checkstack/automation-backend";
 import { DependencyService } from "./services/dependency-service";
 import { WarningEvaluationService } from "./services/warning-evaluation-service";
 import type { SystemStatus } from "./services/warning-evaluation-service";
 import { createRouter } from "./router";
+import {
+  createDependencyActions,
+  dependencyArtifactType,
+  dependencyTriggers,
+} from "./automations";
+import { dependencyHooks } from "./hooks";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
@@ -35,6 +46,17 @@ export default createBackendPlugin({
       dependencySystemSubscription,
       dependencyGroupSubscription,
     ]);
+
+    // ─── Automation Platform: triggers + artifact type ─────────────────
+    const automationTriggers = env.getExtensionPoint(
+      automationTriggerExtensionPoint,
+    );
+    for (const trigger of dependencyTriggers) {
+      automationTriggers.registerTrigger(trigger, pluginMetadata);
+    }
+    env
+      .getExtensionPoint(automationArtifactTypeExtensionPoint)
+      .registerArtifactType(dependencyArtifactType, pluginMetadata);
 
     // ─── GitOps Entity Kind Registration ─────────────────────────────
     let gitopsService: DependencyService | undefined;
@@ -85,11 +107,34 @@ export default createBackendPlugin({
         rpcClient,
         logger,
         onHook,
+        emitHook,
         signalService,
       }) => {
+        // Bound callback that fires `dependency.impact_propagated`
+        // when `evaluateAndNotifyDownstream` reports actual downstream
+        // state transitions. Local so we don't pass the full
+        // `emitHook` into helper modules that should only know about
+        // the one hook they fire.
+        const emitImpactPropagated = (event: {
+          sourceSystemId: string;
+          affectedSystems: Array<{
+            systemId: string;
+            previousState: string | null;
+            newState: string | null;
+          }>;
+          timestamp: string;
+        }) => emitHook(dependencyHooks.impactPropagated, event);
         const typedDb = database as SafeDatabase<typeof schema>;
         const service = new DependencyService(typedDb);
         const warningService = new WarningEvaluationService();
+
+        // Register automation actions now that `emitHook` is available.
+        const automationActions = env.getExtensionPoint(
+          automationActionExtensionPoint,
+        );
+        for (const action of createDependencyActions({ service, emitHook })) {
+          automationActions.registerAction(action, pluginMetadata);
+        }
 
         const catalogClient = rpcClient.forPlugin(CatalogApi);
         const healthCheckClient = rpcClient.forPlugin(HealthCheckApi);
@@ -189,6 +234,7 @@ export default createBackendPlugin({
               incidentClient,
               signalService,
               logger,
+              emitImpactPropagated,
             });
           },
           {
@@ -215,6 +261,7 @@ export default createBackendPlugin({
               incidentClient,
               signalService,
               logger,
+              emitImpactPropagated,
             });
           },
           {

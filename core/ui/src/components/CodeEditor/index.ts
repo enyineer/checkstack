@@ -4,6 +4,8 @@ export {
   type CodeEditorLanguage,
   type TemplateProperty,
   type ShellEnvVar,
+  type EditorMarker,
+  type DottedKeyCompletion,
 } from "./CodeEditor";
 
 export {

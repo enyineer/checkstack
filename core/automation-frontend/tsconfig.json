@@ -1,0 +1,26 @@
+{
+  "extends": "@checkstack/tsconfig/frontend.json",
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../automation-common"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../frontend-api"
+    },
+    {
+      "path": "../signal-frontend"
+    },
+    {
+      "path": "../template-engine"
+    },
+    {
+      "path": "../ui"
+    }
+  ]
+}

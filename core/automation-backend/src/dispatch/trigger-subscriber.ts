@@ -1,0 +1,379 @@
+/**
+ * Trigger fan-in for the automation dispatch engine.
+ *
+ * Subscribes to every registered hook-backed trigger in `afterPluginsReady`,
+ * routes each emission to the matching enabled automations, and respects
+ * each automation's concurrency mode (single / parallel / queued / restart).
+ *
+ * Also handles `wait_for_trigger` resumption: every incoming event is
+ * cross-referenced against `automation_wait_locks` and matching waits
+ * are woken up.
+ */
+import type {
+  AutomationMode,
+  Trigger,
+} from "@checkstack/automation-common";
+import type { HookSubscribeOptions, Logger } from "@checkstack/backend-api";
+
+import type { AutomationStore } from "../automation-store";
+import { dispatchTrigger, resumeRun } from "./engine";
+import { evaluateCondition } from "./condition";
+import { renderString } from "./render";
+import { buildInitialScope } from "./scope";
+import type {
+  DispatchDeps,
+  LoadedAutomation,
+} from "./types";
+
+/**
+ * Subscription handle returned by `setupTriggerSubscriptions`. Calling
+ * `dispose()` unsubscribes every hook and tears down every setup-backed
+ * trigger. Used at shutdown.
+ */
+export interface TriggerSubscriptions {
+  dispose: () => Promise<void>;
+}
+
+/**
+ * Type of `onHook` injected by the plugin runtime in afterPluginsReady.
+ * Mirrors the shape from `@checkstack/backend-api` — note that the
+ * call returns a sync `HookUnsubscribe` (an async function), not a
+ * Promise<HookUnsubscribe>.
+ */
+export type OnHookFn = <T>(
+  hook: { id: string; _type?: T },
+  listener: (payload: T) => Promise<void>,
+  options?: HookSubscribeOptions,
+) => () => Promise<void>;
+
+export interface SetupTriggerSubscriptionsArgs {
+  deps: DispatchDeps;
+  onHook: OnHookFn;
+  automationStore: AutomationStore;
+  logger: Logger;
+}
+
+export async function setupTriggerSubscriptions(
+  args: SetupTriggerSubscriptionsArgs,
+): Promise<TriggerSubscriptions> {
+  const teardowns: Array<() => Promise<void>> = [];
+
+  const triggers = args.deps.registries.triggers.getTriggers();
+  args.logger.debug(
+    `⚙️  Setting up ${triggers.length} automation trigger subscriptions`,
+  );
+
+  for (const trigger of triggers) {
+    if (trigger.hook) {
+      const teardown = args.onHook(
+        trigger.hook,
+        async (payload) => {
+          await handleTriggerFiring({
+            deps: args.deps,
+            automationStore: args.automationStore,
+            qualifiedEventId: trigger.qualifiedId,
+            triggerPayload: payload as Record<string, unknown>,
+            contextKey:
+              (trigger.contextKey?.(payload) ?? null),
+          });
+        },
+        {
+          mode: "work-queue",
+          workerGroup: `automation-trigger-${trigger.qualifiedId}`,
+        },
+      );
+      teardowns.push(teardown);
+      continue;
+    }
+
+    // Setup-backed triggers (cron, interval, template) — instantiate one
+    // setup per (automation, triggerConfig) pair across enabled
+    // automations referencing this trigger.
+    if (trigger.setup) {
+      const automations = await args.automationStore.listEnabled();
+      const referencing = automations.filter((a) =>
+        a.definition.triggers.some((t) => t.event === trigger.qualifiedId),
+      );
+      for (const automation of referencing) {
+        for (const t of automation.definition.triggers.filter(
+          (t) => t.event === trigger.qualifiedId,
+        )) {
+          const triggerId = t.id ?? deriveTriggerId(t);
+          const teardown = await trigger.setup({
+            config: t.config as never,
+            identity: {
+              automationId: automation.id,
+              triggerId,
+            },
+            fire: async (payload) => {
+              await handleTriggerFiring({
+                deps: args.deps,
+                automationStore: args.automationStore,
+                qualifiedEventId: trigger.qualifiedId,
+                triggerPayload: payload as Record<string, unknown>,
+                contextKey:
+                  trigger.contextKey?.(payload) ?? null,
+              });
+            },
+            logger: args.logger,
+          });
+          teardowns.push(teardown);
+        }
+      }
+    }
+  }
+
+  return {
+    dispose: async () => {
+      for (const teardown of teardowns.toReversed()) {
+        try {
+          await teardown();
+        } catch (error) {
+          args.logger.warn(
+            `Failed to tear down trigger subscription: ${(error as Error).message}`,
+          );
+        }
+      }
+    },
+  };
+}
+
+interface HandleTriggerFiringArgs {
+  deps: DispatchDeps;
+  automationStore: AutomationStore;
+  qualifiedEventId: string;
+  triggerPayload: Record<string, unknown>;
+  contextKey: string | null;
+}
+
+async function handleTriggerFiring(
+  args: HandleTriggerFiringArgs,
+): Promise<void> {
+  // ── Step 1: resume any waiting runs ──
+  await wakeWaitingRuns(args);
+
+  // ── Step 2: route to fresh runs for automations referencing this event ──
+  const matches = await args.automationStore.findEnabledByTriggerEvent(
+    args.qualifiedEventId,
+  );
+
+  for (const automation of matches) {
+    for (const trigger of automation.definition.triggers.filter(
+      (t) => t.event === args.qualifiedEventId,
+    )) {
+      await maybeStartRun({
+        deps: args.deps,
+        automation,
+        trigger,
+        triggerPayload: args.triggerPayload,
+        contextKey: args.contextKey,
+        eventId: args.qualifiedEventId,
+      });
+    }
+  }
+}
+
+async function wakeWaitingRuns(args: HandleTriggerFiringArgs): Promise<void> {
+  const matches = await args.deps.runStore.findWaitLocksFor(
+    args.qualifiedEventId,
+    args.contextKey,
+  );
+  if (matches.length === 0) return;
+
+  for (const lock of matches) {
+    // Evaluate filter template if present.
+    if (lock.filterTemplate) {
+      try {
+        const ctx = buildInitialScope({
+          triggerId: "wait",
+          triggerEventId: args.qualifiedEventId,
+          payload: args.triggerPayload,
+          startedAt: new Date(),
+        });
+        const pass = evaluateCondition(
+          lock.filterTemplate,
+          ctx,
+          args.deps.filters,
+        );
+        if (!pass) continue;
+      } catch (error) {
+        args.deps.logger.warn(
+          `wait_for_trigger filter failed to evaluate; skipping resume: ${(error as Error).message}`,
+        );
+        continue;
+      }
+    }
+
+    // Load the automation so we have the definition to resume against.
+    const run = await args.deps.runStore.loadRun(lock.runId);
+    if (!run) continue;
+    const automation = await args.automationStore.getById(run.automationId);
+    if (!automation) continue;
+
+    await args.deps.runStore.deleteWaitLock(lock.id);
+    await resumeRun(args.deps, {
+      runId: lock.runId,
+      automation: {
+        id: automation.id,
+        name: automation.name,
+        status: automation.status,
+        definition: automation.definition,
+      },
+      waitedAtPath: lock.actionPath,
+      payload: args.triggerPayload,
+    });
+  }
+}
+
+interface MaybeStartRunArgs {
+  deps: DispatchDeps;
+  automation: LoadedAutomation;
+  trigger: Trigger;
+  triggerPayload: Record<string, unknown>;
+  contextKey: string | null;
+  eventId: string;
+}
+
+async function maybeStartRun(args: MaybeStartRunArgs): Promise<void> {
+  // Trigger-level filter check.
+  if (args.trigger.filter) {
+    const ctx = buildInitialScope({
+      triggerId: args.trigger.id ?? deriveTriggerId(args.trigger),
+      triggerEventId: args.eventId,
+      payload: args.triggerPayload,
+      startedAt: new Date(),
+    });
+    let pass: boolean;
+    try {
+      pass = evaluateCondition(
+        args.trigger.filter,
+        ctx,
+        args.deps.filters,
+      );
+    } catch (error) {
+      args.deps.logger.warn(
+        `Trigger filter failed to evaluate; skipping firing: ${(error as Error).message}`,
+      );
+      return;
+    }
+    if (!pass) return;
+  }
+
+  // Top-level conditions gate the run.
+  if (args.automation.definition.conditions.length > 0) {
+    const ctx = buildInitialScope({
+      triggerId: args.trigger.id ?? deriveTriggerId(args.trigger),
+      triggerEventId: args.eventId,
+      payload: args.triggerPayload,
+      startedAt: new Date(),
+    });
+    for (const condition of args.automation.definition.conditions) {
+      try {
+        const pass = evaluateCondition(
+          condition,
+          ctx,
+          args.deps.filters,
+        );
+        if (!pass) return;
+      } catch {
+        return;
+      }
+    }
+  }
+
+  await respectConcurrencyMode({
+    deps: args.deps,
+    automationId: args.automation.id,
+    mode: args.automation.definition.mode,
+    maxRuns: args.automation.definition.max_runs,
+    triggerId: args.trigger.id ?? deriveTriggerId(args.trigger),
+    triggerEventId: args.eventId,
+    triggerPayload: args.triggerPayload,
+    contextKey: args.contextKey,
+    automation: args.automation,
+  });
+}
+
+interface RespectConcurrencyArgs {
+  deps: DispatchDeps;
+  automationId: string;
+  automation: LoadedAutomation;
+  mode: AutomationMode;
+  maxRuns: number;
+  triggerId: string;
+  triggerEventId: string;
+  triggerPayload: Record<string, unknown>;
+  contextKey: string | null;
+}
+
+async function respectConcurrencyMode(
+  args: RespectConcurrencyArgs,
+): Promise<void> {
+  switch (args.mode) {
+    case "single": {
+      const active = await args.deps.runStore.hasActiveRun(args.automationId);
+      if (active) {
+        args.deps.logger.debug(
+          `Skipping trigger for ${args.automationId} — single mode and a run is active`,
+        );
+        return;
+      }
+      break;
+    }
+    case "parallel": {
+      const count = await args.deps.runStore.countActiveRuns(args.automationId);
+      if (count >= args.maxRuns) {
+        args.deps.logger.debug(
+          `Skipping trigger for ${args.automationId} — parallel limit reached (${count}/${args.maxRuns})`,
+        );
+        return;
+      }
+      break;
+    }
+    case "queued": {
+      // v1: queued behaves like parallel within max_runs. Real FIFO
+      // queueing requires its own coordination queue, which we add in a
+      // follow-up. Behaviour stays correct (no double-fire) under the
+      // existing work-queue mode.
+      const count = await args.deps.runStore.countActiveRuns(args.automationId);
+      if (count >= args.maxRuns) return;
+      break;
+    }
+    case "restart": {
+      const cancelled = await args.deps.runStore.cancelActiveRuns(
+        args.automationId,
+        "restart — superseded by newer trigger",
+      );
+      if (cancelled.length > 0) {
+        args.deps.logger.debug(
+          `Restart mode: cancelled ${cancelled.length} prior run(s) for ${args.automationId}`,
+        );
+      }
+      break;
+    }
+  }
+
+  await dispatchTrigger(args.deps, {
+    automation: args.automation,
+    triggerId: args.triggerId,
+    triggerEventId: args.triggerEventId,
+    payload: args.triggerPayload,
+    contextKey: args.contextKey,
+  });
+}
+
+// Suppress unused warning for renderString — the helper is exported via
+// scope.ts and used by the engine's primitives; trigger-subscriber
+// doesn't currently render templates beyond conditions, but the import
+// is convenient for future filter expressions.
+void renderString;
+
+/**
+ * Derive a stable trigger id from the trigger declaration when the
+ * operator hasn't assigned one. Slugifies the event id; collisions
+ * within a single automation are the operator's responsibility (the
+ * editor surfaces the `id` field as soon as a duplicate appears).
+ */
+function deriveTriggerId(trigger: Trigger): string {
+  return trigger.event.replaceAll(/[^a-z0-9]+/gi, "_").toLowerCase();
+}

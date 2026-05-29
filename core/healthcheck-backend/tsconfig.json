@@ -5,6 +5,9 @@
   ],
   "references": [
     {
+      "path": "../automation-backend"
+    },
+    {
       "path": "../backend-api"
     },
     {
@@ -42,9 +45,6 @@
     },
     {
       "path": "../incident-common"
-    },
-    {
-      "path": "../integration-backend"
     },
     {
       "path": "../maintenance-common"

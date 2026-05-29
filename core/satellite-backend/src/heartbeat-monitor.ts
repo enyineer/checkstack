@@ -1,10 +1,26 @@
-import type { Logger } from "@checkstack/backend-api";
+import type { Hook, Logger } from "@checkstack/backend-api";
 import type { SignalService } from "@checkstack/signal-common";
 import type { SatelliteService } from "./service";
 import {
   SATELLITE_STATUS_CHANGED,
   OFFLINE_THRESHOLD_MS,
 } from "@checkstack/satellite-common";
+
+/**
+ * Optional plug-point for firing the automation
+ * `satellite.heartbeat_lost` trigger when the monitor observes a
+ * satellite transitioning `online` → `offline`. Bound from
+ * `afterPluginsReady`; when not provided, no hook fires.
+ */
+export interface SatelliteHeartbeatHookSink {
+  emitHook: <T>(hook: Hook<T>, payload: T) => Promise<void>;
+  heartbeatLostHook: Hook<{
+    satelliteId: string;
+    name: string;
+    region: string;
+    timestamp: string;
+  }>;
+}
 
 /**
  * Monitors satellite heartbeats and broadcasts status change signals.
@@ -21,6 +37,7 @@ export class HeartbeatMonitor {
     private service: SatelliteService,
     private signalService: SignalService,
     private logger: Logger,
+    private hookSink?: SatelliteHeartbeatHookSink,
   ) {}
 
   /**
@@ -46,6 +63,29 @@ export class HeartbeatMonitor {
           name: satellite.name,
           region: satellite.region,
         });
+
+        // Fire the automation `heartbeat_lost` hook only on the
+        // online → offline edge. The opposite transition is observable
+        // via the `satellite.connected` hook fired by the WS handler.
+        if (
+          previousStatus === "online" &&
+          currentStatus === "offline" &&
+          this.hookSink
+        ) {
+          try {
+            await this.hookSink.emitHook(this.hookSink.heartbeatLostHook, {
+              satelliteId: satellite.id,
+              name: satellite.name,
+              region: satellite.region,
+              timestamp: new Date().toISOString(),
+            });
+          } catch (error) {
+            this.logger.error(
+              `Failed to emit satellite.heartbeat_lost hook for ${satellite.name}:`,
+              error,
+            );
+          }
+        }
       }
 
       this.previousStatuses.set(satellite.id, currentStatus);

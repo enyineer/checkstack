@@ -6,15 +6,11 @@ import {
 } from "@checkstack/backend-api";
 import type {
   IntegrationProvider,
-  IntegrationDeliveryContext,
-  IntegrationDeliveryResult,
   TestConnectionResult,
   ConnectionOption,
   GetConnectionOptionsParams,
 } from "@checkstack/integration-backend";
 import { createJiraClientFromConfig } from "./jira-client";
-import { expandTemplate } from "./template-engine";
-import { extractErrorMessage } from "@checkstack/common";
 
 /**
  * Supported Jira authentication modes.
@@ -91,100 +87,27 @@ export const JIRA_RESOLVERS = {
   ISSUE_TYPE_OPTIONS: "issueTypeOptions",
   PRIORITY_OPTIONS: "priorityOptions",
   FIELD_OPTIONS: "fieldOptions",
+  /**
+   * Workflow transitions available on a specific issue. Used by the
+   * `jira.transition_issue` automation action — depends on
+   * `connectionId` + `issueKey` so the cascading dropdown can offer
+   * only the transitions currently valid for that issue.
+   */
+  TRANSITION_OPTIONS: "transitionOptions",
 } as const;
 
-/**
- * Dynamic field mapping schema with options resolver for field key.
- * Uses configString with x-options-resolver to fetch available fields from Jira.
- */
-export const DynamicJiraFieldMappingSchema = z.object({
-  /** Jira field key - fetched dynamically from Jira */
-  fieldKey: configString({
-    "x-options-resolver": JIRA_RESOLVERS.FIELD_OPTIONS,
-    "x-depends-on": ["projectKey", "issueTypeId"],
-    "x-searchable": true,
-  }).describe("Jira field"),
-  /**
-   * Template string with `{{payload.property}}` placeholders. The
-   * `x-editor-types: ["raw"]` annotation routes this field through
-   * DynamicForm's MultiTypeEditorField → RawEditor, which provides
-   * the `{{ … }}` autocomplete popup driven by the templateProperties
-   * passed in from CreateSubscriptionDialog.
-   */
-  template: configString({ "x-editor-types": ["raw"] }).describe(
-    "Template value",
-  ),
-});
-
-/**
- * Provider configuration for Jira subscriptions.
- * Uses configString with x-options-resolver for dynamic dropdowns.
- * Uses configString with x-hidden for connectionId which is auto-populated.
- */
-export const JiraSubscriptionConfigSchema = z.object({
-  /** ID of the site-wide Jira connection to use (auto-populated) */
-  connectionId: configString({ "x-hidden": true }).describe(
-    "Jira connection to use",
-  ),
-  /** Jira project key to create issues in */
-  projectKey: configString({
-    "x-options-resolver": JIRA_RESOLVERS.PROJECT_OPTIONS,
-  }).describe("Project key"),
-  /** Issue type ID for created issues */
-  issueTypeId: configString({
-    "x-options-resolver": JIRA_RESOLVERS.ISSUE_TYPE_OPTIONS,
-    "x-depends-on": ["projectKey"],
-  }).describe("Issue type"),
-  /**
-   * Summary template (required - uses `{{payload.field}}` syntax).
-   * Tagged with `x-editor-types: ["raw"]` so DynamicForm renders it as
-   * MultiTypeEditorField + RawEditor with `{{ … }}` autocomplete.
-   */
-  summaryTemplate: configString({ "x-editor-types": ["raw"] })
-    .min(1)
-    .describe("Issue summary template"),
-  /** Description template (optional, same template-autocomplete path). */
-  descriptionTemplate: configString({ "x-editor-types": ["raw"] })
-    .optional()
-    .describe("Issue description template"),
-  /** Priority ID (optional) */
-  priorityId: configString({
-    "x-options-resolver": JIRA_RESOLVERS.PRIORITY_OPTIONS,
-  })
-    .describe("Priority")
-    .optional(),
-  /** Additional field mappings */
-  fieldMappings: z
-    .array(DynamicJiraFieldMappingSchema)
-    .optional()
-    .describe("Additional field mappings"),
-});
-
-/**
- * Jira subscription config type.
- */
-export type JiraProviderConfig = z.infer<typeof JiraSubscriptionConfigSchema>;
 
 /**
  * Create the Jira integration provider.
  * Uses the generic connection management system for site-wide Jira connections.
  * Connection access is provided through params/context at call time.
  */
-export function createJiraProvider(): IntegrationProvider<
-  JiraProviderConfig,
-  JiraConnectionConfig
-> {
+export function createJiraProvider(): IntegrationProvider<JiraConnectionConfig> {
   return {
     id: "jira",
     displayName: "Jira",
     description: "Create Jira issues from integration events",
     icon: "Ticket",
-
-    // Subscription configuration schema
-    config: new Versioned({
-      version: 1,
-      schema: JiraSubscriptionConfigSchema,
-    }),
 
     // Connection configuration schema for generic connection management
     connectionSchema: new Versioned({
@@ -292,6 +215,21 @@ If a property is missing, the placeholder will be preserved in the output for de
             }));
           }
 
+          case JIRA_RESOLVERS.TRANSITION_OPTIONS: {
+            const issueKey = context?.issueKey as string | undefined;
+            if (!issueKey) {
+              // Without an issue key we can't fetch instance-specific
+              // transitions. Return empty so the dropdown stays blank
+              // until the operator fills in the upstream field.
+              return [];
+            }
+            const transitions = await client.getTransitions(issueKey);
+            return transitions.map((t) => ({
+              value: t.id,
+              label: t.to ? `${t.name} → ${t.to.name}` : t.name,
+            }));
+          }
+
           case JIRA_RESOLVERS.FIELD_OPTIONS: {
             const projectKey = context?.projectKey as string | undefined;
             const issueTypeId = context?.issueTypeId as string | undefined;
@@ -343,108 +281,6 @@ If a property is missing, the placeholder will be preserved in the output for de
 
       const client = createJiraClientFromConfig(config, minimalLogger);
       return client.testConnection();
-    },
-
-    /**
-     * Deliver an event by creating a Jira issue.
-     */
-    async deliver(
-      context: IntegrationDeliveryContext<JiraProviderConfig>,
-    ): Promise<IntegrationDeliveryResult> {
-      const { providerConfig, event, logger } = context;
-      const {
-        connectionId,
-        projectKey,
-        issueTypeId,
-        summaryTemplate,
-        descriptionTemplate,
-        priorityId,
-        fieldMappings,
-      } = providerConfig;
-
-      // Get the connection with credentials from the delivery context
-      if (!context.getConnectionWithCredentials) {
-        return {
-          success: false,
-          error: "Connection access not available in delivery context",
-        };
-      }
-      const connection =
-        await context.getConnectionWithCredentials(connectionId);
-      if (!connection) {
-        return {
-          success: false,
-          error: `Jira connection not found: ${connectionId}`,
-        };
-      }
-
-      // Type-safe config access
-      const config = connection.config as JiraConnectionConfig;
-
-      // Create Jira client (authMode is handled by createJiraClientFromConfig)
-      const client = createJiraClientFromConfig(config, logger);
-
-      // Expand templates using the event payload
-      const payload = event.payload as Record<string, unknown>;
-      const summary = expandTemplate(summaryTemplate, payload);
-      const description = descriptionTemplate
-        ? expandTemplate(descriptionTemplate, payload)
-        : undefined;
-
-      // Build additional fields from field mappings
-      const additionalFields: Record<string, unknown> = {};
-      if (fieldMappings) {
-        for (const mapping of fieldMappings) {
-          const value = expandTemplate(mapping.template, payload);
-          additionalFields[mapping.fieldKey] = value;
-        }
-      }
-
-      try {
-        // Create the issue
-        const result = await client.createIssue({
-          projectKey,
-          issueTypeId,
-          summary,
-          description,
-          priorityId,
-          additionalFields:
-            Object.keys(additionalFields).length > 0
-              ? additionalFields
-              : undefined,
-        });
-
-        logger.info(`Created Jira issue: ${result.key}`, {
-          issueId: result.id,
-          issueKey: result.key,
-          project: projectKey,
-        });
-
-        return {
-          success: true,
-          externalId: result.key,
-        };
-      } catch (error) {
-        const message = extractErrorMessage(error, "Unknown error");
-        logger.error(`Failed to create Jira issue: ${message}`, { error });
-
-        // Check if it's a rate limit error
-        if (
-          message.includes("429") ||
-          message.toLowerCase().includes("rate limit")
-        ) {
-          return {
-            success: false,
-            error: `Rate limited by Jira: ${message}`,
-            retryAfterMs: 60_000, // Retry after 1 minute
-          };
-        }
-
-        return {
-          success: false,
-          error: `Failed to create Jira issue: ${message}`,
-        };
-      }
     },
   };
 }

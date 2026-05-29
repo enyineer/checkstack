@@ -8,6 +8,9 @@
       "path": "../auth-common"
     },
     {
+      "path": "../automation-backend"
+    },
+    {
       "path": "../backend-api"
     },
     {
@@ -30,12 +33,6 @@
     },
     {
       "path": "../drizzle-helper"
-    },
-    {
-      "path": "../integration-backend"
-    },
-    {
-      "path": "../integration-common"
     },
     {
       "path": "../maintenance-common"

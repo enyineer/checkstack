@@ -44,6 +44,45 @@ function setupFetchMock(responseBody: unknown = {}, status = 200) {
   };
 }
 
+/**
+ * Like `setupFetchMock` but cycles through a list of staged responses
+ * so workflows that issue multiple Jira API calls (e.g.
+ * `transitionIssue` = getTransitions + getIssueStatus + POST) can be
+ * exercised end-to-end.
+ */
+interface StagedResponse {
+  body?: unknown;
+  status?: number;
+  /** When true, return an empty body (used for 204 No Content). */
+  empty?: boolean;
+}
+
+function setupFetchSequence(responses: StagedResponse[]) {
+  const calls: CapturedFetchCall[] = [];
+  const originalFetch = globalThis.fetch;
+  let i = 0;
+  globalThis.fetch = (async (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => {
+    calls.push({ url: String(input), init: init ?? {} });
+    const next = responses[i++] ?? { body: {}, status: 200 };
+    if (next.empty) {
+      return new Response(null, { status: next.status ?? 204 });
+    }
+    return new Response(JSON.stringify(next.body ?? {}), {
+      status: next.status ?? 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+  return {
+    calls,
+    restore: () => {
+      globalThis.fetch = originalFetch;
+    },
+  };
+}
+
 let fetchFixture: ReturnType<typeof setupFetchMock>;
 
 beforeEach(() => {
@@ -261,6 +300,180 @@ describe("createJiraClient", () => {
       };
 
       expect(body.fields.description).toBeUndefined();
+    });
+  });
+
+  describe("getTransitions", () => {
+    it("parses transition + destination status", async () => {
+      fetchFixture = setupFetchMock({
+        transitions: [
+          { id: "11", name: "Start Progress", to: { id: "3", name: "In Progress" } },
+          { id: "31", name: "Resolve Issue", to: { id: "10001", name: "Done" } },
+        ],
+      });
+      const client = createJiraClient({
+        authMode: "cloud",
+        baseUrl: "https://mycompany.atlassian.net",
+        email: "user@example.com",
+        apiToken: "token",
+        logger: testLogger,
+      });
+      const transitions = await client.getTransitions("PROJ-1");
+      expect(transitions).toEqual([
+        { id: "11", name: "Start Progress", to: { id: "3", name: "In Progress" } },
+        { id: "31", name: "Resolve Issue", to: { id: "10001", name: "Done" } },
+      ]);
+      expect(fetchFixture.calls[0].url).toContain(
+        "/rest/api/3/issue/PROJ-1/transitions",
+      );
+    });
+  });
+
+  describe("transitionIssue", () => {
+    it("short-circuits when the issue is already in the target status", async () => {
+      const seq = setupFetchSequence([
+        {
+          body: {
+            transitions: [
+              { id: "31", name: "Resolve", to: { id: "10001", name: "Done" } },
+            ],
+          },
+        },
+        {
+          body: {
+            fields: {
+              status: { id: "10001", name: "Done", statusCategory: { key: "done" } },
+            },
+          },
+        },
+      ]);
+      const client = createJiraClient({
+        authMode: "cloud",
+        baseUrl: "https://mycompany.atlassian.net",
+        email: "user@example.com",
+        apiToken: "token",
+        logger: testLogger,
+      });
+      const result = await client.transitionIssue("PROJ-1", "31");
+      expect(result.alreadyApplied).toBe(true);
+      // Only two reads, no POST
+      expect(seq.calls).toHaveLength(2);
+      seq.restore();
+    });
+
+    it("POSTs the transition + optional comment when not already applied", async () => {
+      const seq = setupFetchSequence([
+        {
+          body: {
+            transitions: [
+              { id: "31", name: "Resolve", to: { id: "10001", name: "Done" } },
+            ],
+          },
+        },
+        {
+          body: {
+            fields: {
+              status: { id: "3", name: "In Progress", statusCategory: { key: "indeterminate" } },
+            },
+          },
+        },
+        { empty: true, status: 204 },
+      ]);
+      const client = createJiraClient({
+        authMode: "datacenter",
+        baseUrl: "https://jira.mycompany.com",
+        apiToken: "pat",
+        logger: testLogger,
+      });
+      const result = await client.transitionIssue(
+        "PROJ-1",
+        "31",
+        "Resolved by automation",
+      );
+      expect(result.alreadyApplied).toBe(false);
+      expect(seq.calls).toHaveLength(3);
+      const transitionCall = seq.calls[2];
+      const body = JSON.parse(transitionCall.init.body as string) as {
+        transition: { id: string };
+        update: { comment: Array<{ add: { body: string } }> };
+      };
+      expect(body.transition.id).toBe("31");
+      // datacenter uses plain text for the comment body
+      expect(body.update.comment[0].add.body).toBe("Resolved by automation");
+      seq.restore();
+    });
+
+    it("throws when the transition id is not available on the issue", async () => {
+      const seq = setupFetchSequence([
+        {
+          body: {
+            transitions: [
+              { id: "11", name: "Start", to: { id: "3", name: "In Progress" } },
+            ],
+          },
+        },
+        {
+          body: {
+            fields: {
+              status: { id: "1", name: "Open" },
+            },
+          },
+        },
+      ]);
+      const client = createJiraClient({
+        authMode: "cloud",
+        baseUrl: "https://mycompany.atlassian.net",
+        email: "user@example.com",
+        apiToken: "token",
+        logger: testLogger,
+      });
+      await expect(client.transitionIssue("PROJ-1", "99")).rejects.toThrow(
+        /not available/,
+      );
+      seq.restore();
+    });
+  });
+
+  describe("addComment", () => {
+    it("uses Atlassian Document Format for cloud", async () => {
+      fetchFixture = setupFetchMock({ id: "5001" });
+      const client = createJiraClient({
+        authMode: "cloud",
+        baseUrl: "https://mycompany.atlassian.net",
+        email: "user@example.com",
+        apiToken: "token",
+        logger: testLogger,
+      });
+      const result = await client.addComment("PROJ-1", "Hello");
+      expect(result.id).toBe("5001");
+      const body = JSON.parse(fetchFixture.calls[0].init.body as string) as {
+        body: unknown;
+      };
+      expect(body.body).toEqual({
+        type: "doc",
+        version: 1,
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "Hello" }],
+          },
+        ],
+      });
+    });
+
+    it("uses plain text for datacenter", async () => {
+      fetchFixture = setupFetchMock({ id: "5002" });
+      const client = createJiraClient({
+        authMode: "datacenter",
+        baseUrl: "https://jira.mycompany.com",
+        apiToken: "pat",
+        logger: testLogger,
+      });
+      await client.addComment("PROJ-1", "Hello");
+      const body = JSON.parse(fetchFixture.calls[0].init.body as string) as {
+        body: unknown;
+      };
+      expect(body.body).toBe("Hello");
     });
   });
 });

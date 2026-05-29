@@ -13,6 +13,7 @@ import {
   Textarea,
   Toggle,
   ColorPicker,
+  TemplateValueInput,
 } from "../../index";
 
 import type { FormFieldProps, JsonSchemaProperty } from "./types";
@@ -33,8 +34,10 @@ export const FormField: React.FC<FormFieldProps> = ({
   formValues,
   optionsResolvers,
   templateProperties,
+  templateCompletionProvider,
   typeDefinitions,
   shellEnvVars,
+  dottedKeyCompletions,
   starterTemplates,
   onChange,
 }) => {
@@ -134,6 +137,7 @@ export const FormField: React.FC<FormFieldProps> = ({
           templateProperties={templateProperties}
           typeDefinitions={typeDefinitions}
           shellEnvVars={shellEnvVars}
+          dottedKeyCompletions={dottedKeyCompletions}
           starterTemplates={starterTemplates}
           onChange={onChange as (val: string | undefined) => void}
         />
@@ -232,7 +236,14 @@ export const FormField: React.FC<FormFieldProps> = ({
       );
     }
 
-    // Default string input
+    // Default string input. When a completion provider is supplied the
+    // field is templatable (e.g. automation action config), so render a
+    // TemplateValueInput wired to it for `{{ … }}` autocomplete; without
+    // one, keep the bare Input so other DynamicForm consumers are
+    // unaffected.
+    const placeholder = propSchema.default
+      ? `Default: ${String(propSchema.default)}`
+      : "";
     return (
       <div className="space-y-2">
         <div>
@@ -243,14 +254,22 @@ export const FormField: React.FC<FormFieldProps> = ({
             <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
           )}
         </div>
-        <Input
-          id={id}
-          value={(value as string) || ""}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={
-            propSchema.default ? `Default: ${String(propSchema.default)}` : ""
-          }
-        />
+        {templateCompletionProvider ? (
+          <TemplateValueInput
+            id={id}
+            value={(value as string) || ""}
+            onChange={(next) => onChange(next)}
+            placeholder={placeholder}
+            completionProvider={templateCompletionProvider}
+          />
+        ) : (
+          <Input
+            id={id}
+            value={(value as string) || ""}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={placeholder}
+          />
+        )}
       </div>
     );
   }
@@ -352,8 +371,10 @@ export const FormField: React.FC<FormFieldProps> = ({
             formValues={formValues}
             optionsResolvers={optionsResolvers}
             templateProperties={templateProperties}
+            templateCompletionProvider={templateCompletionProvider}
             typeDefinitions={typeDefinitions}
             shellEnvVars={shellEnvVars}
+            dottedKeyCompletions={dottedKeyCompletions}
             starterTemplates={starterTemplates}
             onChange={(val) =>
               onChange({ ...(value as Record<string, unknown>), [key]: val })
@@ -463,8 +484,10 @@ export const FormField: React.FC<FormFieldProps> = ({
                   formValues={formValues}
                   optionsResolvers={optionsResolvers}
                   templateProperties={templateProperties}
+                  templateCompletionProvider={templateCompletionProvider}
                   typeDefinitions={typeDefinitions}
                   shellEnvVars={shellEnvVars}
+                  dottedKeyCompletions={dottedKeyCompletions}
                   starterTemplates={starterTemplates}
                   onChange={(val) => {
                     const next = [...(items as unknown[])];
@@ -594,8 +617,10 @@ export const FormField: React.FC<FormFieldProps> = ({
                 formValues={formValues}
                 optionsResolvers={optionsResolvers}
                 templateProperties={templateProperties}
+                templateCompletionProvider={templateCompletionProvider}
                 typeDefinitions={typeDefinitions}
                 shellEnvVars={shellEnvVars}
+                dottedKeyCompletions={dottedKeyCompletions}
                 starterTemplates={starterTemplates}
                 onChange={(val) => onChange({ ...currentValue, [key]: val })}
               />

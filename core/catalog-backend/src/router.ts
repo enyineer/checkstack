@@ -243,7 +243,7 @@ export const createCatalogRouter = ({
     };
   });
 
-  const updateSystem = os.updateSystem.handler(async ({ input }) => {
+  const updateSystem = os.updateSystem.handler(async ({ input, context }) => {
     await enforceNotGitOpsLocked("System", input.id);
     // Convert null to undefined and filter out fields
     const cleanData: Partial<{
@@ -251,11 +251,19 @@ export const createCatalogRouter = ({
       description?: string;
       metadata?: Record<string, unknown>;
     }> = {};
-    if (input.data.name !== undefined) cleanData.name = input.data.name;
-    if (input.data.description !== undefined)
+    const changedFields: Array<"name" | "description" | "metadata"> = [];
+    if (input.data.name !== undefined) {
+      cleanData.name = input.data.name;
+      changedFields.push("name");
+    }
+    if (input.data.description !== undefined) {
       cleanData.description = input.data.description ?? undefined;
-    if (input.data.metadata !== undefined)
+      changedFields.push("description");
+    }
+    if (input.data.metadata !== undefined) {
       cleanData.metadata = input.data.metadata ?? undefined;
+      changedFields.push("metadata");
+    }
 
     const result = await entityService.updateSystem(input.id, cleanData);
     if (!result) {
@@ -269,6 +277,17 @@ export const createCatalogRouter = ({
     if (input.data.name !== undefined) {
       await upsertSystemResource({ id: result.id, name: result.name });
     }
+
+    // Emit only when a tracked field actually changed (skip no-op
+    // updates so automations don't fire on every save-with-no-diff).
+    if (changedFields.length > 0) {
+      await context.emitHook(catalogHooks.systemUpdated, {
+        systemId: result.id,
+        systemName: result.name,
+        changedFields,
+      });
+    }
+
     return result as typeof result & {
       metadata: Record<string, unknown> | null;
     };

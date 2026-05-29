@@ -3,100 +3,34 @@ import { integrationAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
 import {
   createClientDefinition,
-  PaginatedResult,
-  PaginationInput,
   proc,
 } from "@checkstack/common";
 import {
-  WebhookSubscriptionSchema,
-  CreateSubscriptionInputSchema,
-  UpdateSubscriptionInputSchema,
-  DeliveryLogSchema,
-  DeliveryLogQueryInputSchema,
   IntegrationProviderInfoSchema,
-  IntegrationEventInfoSchema,
   TestConnectionResultSchema,
   ProviderConnectionRedactedSchema,
   CreateConnectionInputSchema,
   UpdateConnectionInputSchema,
   GetConnectionOptionsInputSchema,
   ConnectionOptionSchema,
-  EventPayloadSchemaOutputSchema,
 } from "./schemas";
 
-// Integration RPC Contract
+/**
+ * Integration RPC contract — scoped to connection management.
+ *
+ * The legacy subscription + delivery-log + event-listing endpoints
+ * moved to the Automation Platform; existing subscriptions are
+ * auto-migrated on boot (see `@checkstack/automation-backend`'s
+ * migration module). All remaining endpoints relate to the connection
+ * store, which the Automation editor uses to pick a connection for
+ * provider-bound actions.
+ */
 export const integrationContract = {
-  // ==========================================================================
-  // SUBSCRIPTION MANAGEMENT (Admin only)
-  // ==========================================================================
-
-  /** List all webhook subscriptions */
-  listSubscriptions: proc({
-    operationType: "query",
-    userType: "authenticated",
-    access: [integrationAccess.manage],
-  })
-    .input(
-      PaginationInput.extend({
-        providerId: z.string().optional(),
-        eventType: z.string().optional(),
-        enabled: z.boolean().optional(),
-      })
-    )
-    .output(PaginatedResult(WebhookSubscriptionSchema)),
-
-  /** Get a single subscription by ID */
-  getSubscription: proc({
-    operationType: "query",
-    userType: "authenticated",
-    access: [integrationAccess.manage],
-  })
-    .input(z.object({ id: z.string() }))
-    .output(WebhookSubscriptionSchema),
-
-  /** Create a new webhook subscription */
-  createSubscription: proc({
-    operationType: "mutation",
-    userType: "authenticated",
-    access: [integrationAccess.manage],
-  })
-    .input(CreateSubscriptionInputSchema)
-    .output(WebhookSubscriptionSchema),
-
-  /** Update an existing subscription */
-  updateSubscription: proc({
-    operationType: "mutation",
-    userType: "authenticated",
-    access: [integrationAccess.manage],
-  })
-    .route({ method: "PATCH" })
-    .input(UpdateSubscriptionInputSchema)
-    .output(WebhookSubscriptionSchema),
-
-  /** Delete a subscription */
-  deleteSubscription: proc({
-    operationType: "mutation",
-    userType: "authenticated",
-    access: [integrationAccess.manage],
-  })
-    .route({ method: "DELETE" })
-    .input(z.object({ id: z.string() }))
-    .output(z.object({ success: z.boolean() })),
-
-  /** Toggle subscription enabled state */
-  toggleSubscription: proc({
-    operationType: "mutation",
-    userType: "authenticated",
-    access: [integrationAccess.manage],
-  })
-    .input(z.object({ id: z.string(), enabled: z.boolean() }))
-    .output(z.object({ success: z.boolean() })),
-
   // ==========================================================================
   // PROVIDER DISCOVERY (Admin only)
   // ==========================================================================
 
-  /** List all registered integration providers */
+  /** List all registered integration providers (connection-capable plugins) */
   listProviders: proc({
     operationType: "query",
     userType: "authenticated",
@@ -119,7 +53,6 @@ export const integrationContract = {
 
   // ==========================================================================
   // CONNECTION MANAGEMENT (Admin only)
-  // Generic CRUD for site-wide provider connections
   // ==========================================================================
 
   /** List all connections for a provider */
@@ -188,111 +121,39 @@ export const integrationContract = {
     .output(z.array(ConnectionOptionSchema)),
 
   // ==========================================================================
-  // EVENT DISCOVERY (Admin only)
+  // ONE-TIME MIGRATION SUPPORT (service-to-service)
+  //
+  // Exposed so `@checkstack/automation-backend` can read the legacy
+  // `webhook_subscriptions` rows during boot and translate them into
+  // automations. Plugins are sandboxed to their own schema, so this is
+  // the only way to reach the legacy table from another plugin.
+  // Once the legacy table is dropped in a follow-up release these
+  // endpoints will be removed.
   // ==========================================================================
 
-  /** List all registered integration events */
-  listEventTypes: proc({
+  listLegacySubscriptions: proc({
     operationType: "query",
-    userType: "authenticated",
-    access: [integrationAccess.manage],
-  }).output(z.array(IntegrationEventInfoSchema)),
-
-  /** Get events grouped by category */
-  getEventsByCategory: proc({
-    operationType: "query",
-    userType: "authenticated",
-    access: [integrationAccess.manage],
+    userType: "service",
+    access: [],
   }).output(
     z.array(
       z.object({
-        category: z.string(),
-        events: z.array(IntegrationEventInfoSchema),
-      })
-    )
-  ),
-
-  /** Get payload schema for a specific event with flattened property list for template hints */
-  getEventPayloadSchema: proc({
-    operationType: "query",
-    userType: "authenticated",
-    access: [integrationAccess.manage],
-  })
-    .input(z.object({ eventId: z.string() }))
-    .output(EventPayloadSchemaOutputSchema),
-
-  // ==========================================================================
-  // DELIVERY LOGS (Admin only)
-  // ==========================================================================
-
-  /** Get delivery logs with filtering */
-  getDeliveryLogs: proc({
-    operationType: "query",
-    userType: "authenticated",
-    access: [integrationAccess.manage],
-  })
-    .input(DeliveryLogQueryInputSchema)
-    .output(PaginatedResult(DeliveryLogSchema)),
-
-  /** Get a single delivery log entry */
-  getDeliveryLog: proc({
-    operationType: "query",
-    userType: "authenticated",
-    access: [integrationAccess.manage],
-  })
-    .input(z.object({ id: z.string() }))
-    .output(DeliveryLogSchema),
-
-  /** Retry a failed delivery */
-  retryDelivery: proc({
-    operationType: "mutation",
-    userType: "authenticated",
-    access: [integrationAccess.manage],
-  })
-    .input(z.object({ logId: z.string() }))
-    .output(z.object({ success: z.boolean(), message: z.string().optional() })),
-
-  /** Get delivery statistics for dashboard */
-  getDeliveryStats: proc({
-    operationType: "query",
-    userType: "authenticated",
-    access: [integrationAccess.manage],
-  })
-    .input(
-      z.object({
-        /** Time range in hours (default: 24) */
-        hours: z.number().min(1).max(720).default(24),
-      })
-    )
-    .output(
-      z.object({
-        total: z.number(),
-        successful: z.number(),
-        failed: z.number(),
-        retrying: z.number(),
-        pending: z.number(),
-        byEvent: z.array(
-          z.object({
-            eventType: z.string(),
-            count: z.number(),
-          })
-        ),
-        byProvider: z.array(
-          z.object({
-            providerId: z.string(),
-            count: z.number(),
-          })
-        ),
-      })
+        id: z.string(),
+        name: z.string(),
+        description: z.string().optional(),
+        providerId: z.string(),
+        providerConfig: z.record(z.string(), z.unknown()),
+        eventId: z.string(),
+        systemFilter: z.array(z.string()).optional(),
+        enabled: z.boolean(),
+      }),
     ),
+  ),
 };
 
-// Export contract type
 export type IntegrationContract = typeof integrationContract;
 
-// Export client definition for type-safe forPlugin usage
-// Use: const client = rpcApi.forPlugin(IntegrationApi);
 export const IntegrationApi = createClientDefinition(
   integrationContract,
-  pluginMetadata
+  pluginMetadata,
 );

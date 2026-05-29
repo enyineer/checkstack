@@ -11,6 +11,9 @@
       "path": "../auth-common"
     },
     {
+      "path": "../automation-backend"
+    },
+    {
       "path": "../backend-api"
     },
     {
@@ -39,6 +42,9 @@
     },
     {
       "path": "../notification-common"
+    },
+    {
+      "path": "../test-utils-backend"
     }
   ]
 }

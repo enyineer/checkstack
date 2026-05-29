@@ -1,4 +1,4 @@
-import type { Logger } from "@checkstack/backend-api";
+import type { Hook, Logger } from "@checkstack/backend-api";
 import type {
   WebSocketRouteHandler,
   WsConnection,
@@ -12,6 +12,27 @@ import {
   type ResultMessage,
   type SatelliteWithStatus,
 } from "@checkstack/satellite-common";
+
+/**
+ * Optional plug-point for firing automation triggers when a satellite
+ * connects or disconnects. Bound from `afterPluginsReady` where
+ * `emitHook` is available — when not provided, no hook fires.
+ */
+export interface SatelliteConnectionHookSink {
+  emitHook: <T>(hook: Hook<T>, payload: T) => Promise<void>;
+  connectedHook: Hook<{
+    satelliteId: string;
+    name: string;
+    region: string;
+    timestamp: string;
+  }>;
+  disconnectedHook: Hook<{
+    satelliteId: string;
+    name: string;
+    region: string;
+    timestamp: string;
+  }>;
+}
 
 /**
  * Callback for handling health check results received from satellites.
@@ -45,6 +66,13 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
     private configRelay: ConfigRelay,
     private resultHandler: SatelliteResultHandler,
     private logger: Logger,
+    /**
+     * Optional. When set, the handler fires `connected` / `disconnected`
+     * hooks at the same lifecycle points it logs. Wired by
+     * `afterPluginsReady` so the action graph stays decoupled from
+     * `emitHook` availability.
+     */
+    private connectionHookSink?: SatelliteConnectionHookSink,
   ) {}
 
   /**
@@ -93,6 +121,27 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
 
         // Track connection
         this.connections.set(satellite.id, { satellite, ws });
+
+        // Fire the automation `connected` hook (best-effort — never
+        // block the auth handshake on a hook subscriber failure).
+        if (this.connectionHookSink) {
+          try {
+            await this.connectionHookSink.emitHook(
+              this.connectionHookSink.connectedHook,
+              {
+                satelliteId: satellite.id,
+                name: satellite.name,
+                region: satellite.region,
+                timestamp: new Date().toISOString(),
+              },
+            );
+          } catch (error) {
+            this.logger.error(
+              `Failed to emit satellite.connected hook for ${satellite.name}:`,
+              error,
+            );
+          }
+        }
 
         // Update heartbeat on connect
         await this.service.updateHeartbeat(satellite.id, {});
@@ -147,10 +196,28 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
 
     const onClose = () => {
       if (authenticatedSatellite) {
-        this.connections.delete(authenticatedSatellite.id);
+        const closedSatellite = authenticatedSatellite;
+        this.connections.delete(closedSatellite.id);
         this.logger.info(
-          `Satellite disconnected: ${authenticatedSatellite.name} (${authenticatedSatellite.region})`,
+          `Satellite disconnected: ${closedSatellite.name} (${closedSatellite.region})`,
         );
+        if (this.connectionHookSink) {
+          // Fire-and-forget — `onClose` is sync, so don't await; we
+          // don't have a place to surface a rejection anyway.
+          void this.connectionHookSink
+            .emitHook(this.connectionHookSink.disconnectedHook, {
+              satelliteId: closedSatellite.id,
+              name: closedSatellite.name,
+              region: closedSatellite.region,
+              timestamp: new Date().toISOString(),
+            })
+            .catch((error: unknown) => {
+              this.logger.error(
+                `Failed to emit satellite.disconnected hook for ${closedSatellite.name}:`,
+                error,
+              );
+            });
+        }
       }
     };
 

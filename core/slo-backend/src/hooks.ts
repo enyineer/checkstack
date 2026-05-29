@@ -1,4 +1,5 @@
 import { createHook } from "@checkstack/backend-api";
+import type { AchievementType } from "@checkstack/slo-common";
 
 /**
  * SLO hooks for cross-plugin communication.
@@ -50,7 +51,7 @@ export const sloHooks = {
    */
   sloAchievementUnlocked: createHook<{
     systemId: string;
-    achievement: string;
+    achievement: AchievementType;
   }>("slo.achievement.unlocked"),
 
   /**

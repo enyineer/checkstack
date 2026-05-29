@@ -52,6 +52,32 @@ export interface CreateIssuePayload {
 }
 
 /**
+ * A workflow transition the current user can apply to a Jira issue.
+ *
+ * Returned by `getTransitions`; the `id` is what you pass back to
+ * `transitionIssue`. `to` describes the destination status so callers
+ * can detect "already there" idempotency.
+ */
+export interface JiraTransition {
+  id: string;
+  name: string;
+  to?: {
+    id: string;
+    name: string;
+  };
+}
+
+/**
+ * Current status of an issue, as returned by `getIssueStatus`.
+ */
+export interface JiraIssueStatus {
+  id: string;
+  name: string;
+  /** Top-level category (e.g. "done", "indeterminate", "new"). */
+  statusCategoryKey?: string;
+}
+
+/**
  * Options for creating a Jira client.
  */
 interface JiraClientOptions {
@@ -314,6 +340,155 @@ export function createJiraClient(options: JiraClientOptions) {
         method: "POST",
         body: JSON.stringify({ fields }),
       });
+    },
+
+    /**
+     * Get the current status of an issue. Used by `transitionIssue` to
+     * short-circuit when the destination already matches.
+     */
+    async getIssueStatus(issueKey: string): Promise<JiraIssueStatus | undefined> {
+      interface IssueResponse {
+        fields?: {
+          status?: {
+            id: string;
+            name: string;
+            statusCategory?: { key: string };
+          };
+        };
+      }
+      const result = await request<IssueResponse>(
+        `/issue/${encodeURIComponent(issueKey)}?fields=status`,
+      );
+      const status = result.fields?.status;
+      if (!status) return;
+      return {
+        id: status.id,
+        name: status.name,
+        statusCategoryKey: status.statusCategory?.key,
+      };
+    },
+
+    /**
+     * Get the workflow transitions currently available on an issue.
+     */
+    async getTransitions(issueKey: string): Promise<JiraTransition[]> {
+      interface TransitionsResponse {
+        transitions: Array<{
+          id: string;
+          name: string;
+          to?: { id: string; name: string };
+        }>;
+      }
+      const result = await request<TransitionsResponse>(
+        `/issue/${encodeURIComponent(issueKey)}/transitions`,
+      );
+      return (result.transitions ?? []).map((t) => ({
+        id: t.id,
+        name: t.name,
+        to: t.to ? { id: t.to.id, name: t.to.name } : undefined,
+      }));
+    },
+
+    /**
+     * Apply a workflow transition to an issue. The optional `comment`
+     * is posted as the transition's accompanying audit note.
+     *
+     * Returns `alreadyApplied: true` if the issue's current status
+     * already matches the requested transition's destination — callers
+     * should treat that as success.
+     */
+    async transitionIssue(
+      issueKey: string,
+      transitionId: string,
+      comment?: string,
+    ): Promise<{ alreadyApplied: boolean }> {
+      // Check destination first so we can short-circuit idempotently.
+      const [available, current] = await Promise.all([
+        this.getTransitions(issueKey),
+        this.getIssueStatus(issueKey),
+      ]);
+      const target = available.find((t) => t.id === transitionId);
+      if (!target) {
+        throw new Error(
+          `Transition ${transitionId} is not available on ${issueKey}`,
+        );
+      }
+      if (target.to && current && target.to.id === current.id) {
+        return { alreadyApplied: true };
+      }
+
+      const body: Record<string, unknown> = {
+        transition: { id: transitionId },
+      };
+      if (comment) {
+        const commentBody =
+          authMode === "datacenter"
+            ? comment
+            : {
+                type: "doc",
+                version: 1,
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [{ type: "text", text: comment }],
+                  },
+                ],
+              };
+        body.update = {
+          comment: [{ add: { body: commentBody } }],
+        };
+      }
+      // Jira returns 204 No Content for transitions — bypass `request`
+      // which always tries to JSON-parse the body.
+      const url = `${baseUrl.replace(/\/$/, "")}/rest/api/${apiVersion}/issue/${encodeURIComponent(issueKey)}/transitions`;
+      const response = await fetch(url, {
+        method: "POST",
+        body: JSON.stringify(body),
+        headers: {
+          Authorization: authHeader,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        logger.error(
+          `Jira API error: ${response.status} ${response.statusText}`,
+          { url, error: errorText },
+        );
+        throw new Error(`Jira API error: ${response.status} - ${errorText}`);
+      }
+      return { alreadyApplied: false };
+    },
+
+    /**
+     * Post a comment on an issue without a workflow transition.
+     */
+    async addComment(issueKey: string, body: string): Promise<{ id: string }> {
+      const commentBody =
+        authMode === "datacenter"
+          ? body
+          : {
+              type: "doc",
+              version: 1,
+              content: [
+                {
+                  type: "paragraph",
+                  content: [{ type: "text", text: body }],
+                },
+              ],
+            };
+      interface CommentResponse {
+        id: string;
+      }
+      const result = await request<CommentResponse>(
+        `/issue/${encodeURIComponent(issueKey)}/comment`,
+        {
+          method: "POST",
+          body: JSON.stringify({ body: commentBody }),
+        },
+      );
+      return { id: result.id };
     },
   };
 }

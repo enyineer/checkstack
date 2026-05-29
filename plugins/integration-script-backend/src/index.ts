@@ -1,31 +1,30 @@
-import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
-import { integrationProviderExtensionPoint } from "@checkstack/integration-backend";
+import { createBackendPlugin } from "@checkstack/backend-api";
+import {
+  automationActionExtensionPoint,
+  automationArtifactTypeExtensionPoint,
+} from "@checkstack/automation-backend";
 import { pluginMetadata } from "./plugin-metadata";
-import { scriptProvider } from "./provider";
-import { shellProvider } from "./shell-provider";
+import {
+  scriptResultArtifactType,
+  scriptRunAction,
+  shellResultArtifactType,
+  shellRunAction,
+} from "./automations";
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
-
   register(env) {
-    env.registerInit({
-      deps: {
-        logger: coreServices.logger,
-      },
-      init: async ({ logger }) => {
-        logger.debug("🔌 Registering Script Integration Providers...");
-
-        // Get the integration provider extension point
-        const extensionPoint = env.getExtensionPoint(
-          integrationProviderExtensionPoint,
-        );
-
-        // Register both providers
-        extensionPoint.addProvider(scriptProvider, pluginMetadata);
-        extensionPoint.addProvider(shellProvider, pluginMetadata);
-
-        logger.debug("✅ Script and Shell Integration Providers registered.");
-      },
-    });
+    env
+      .getExtensionPoint(automationArtifactTypeExtensionPoint)
+      .registerArtifactType(shellResultArtifactType, pluginMetadata);
+    env
+      .getExtensionPoint(automationArtifactTypeExtensionPoint)
+      .registerArtifactType(scriptResultArtifactType, pluginMetadata);
+    env
+      .getExtensionPoint(automationActionExtensionPoint)
+      .registerAction(shellRunAction, pluginMetadata);
+    env
+      .getExtensionPoint(automationActionExtensionPoint)
+      .registerAction(scriptRunAction, pluginMetadata);
   },
 });

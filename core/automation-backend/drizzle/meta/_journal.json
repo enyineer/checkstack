@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1780038470237,
+      "tag": "0000_acoustic_diamondback",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780039854282,
+      "tag": "0001_mute_vindicator",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780046001689,
+      "tag": "0002_silky_omega_red",
+      "breakpoints": true
+    }
+  ]
+}

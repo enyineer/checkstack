@@ -27,11 +27,19 @@ import {
   type CollectorRegistry,
 } from "@checkstack/backend-api";
 import type { QueueManager } from "@checkstack/queue-api";
-import { integrationEventExtensionPoint } from "@checkstack/integration-backend";
+import {
+  automationActionExtensionPoint,
+  automationArtifactTypeExtensionPoint,
+  automationTriggerExtensionPoint,
+} from "@checkstack/automation-backend";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
-import { z } from "zod";
 import { createHealthCheckRouter } from "./router";
 import { HealthCheckService } from "./service";
+import {
+  assignmentArtifactType,
+  createHealthCheckActions,
+  healthCheckTriggers,
+} from "./automations";
 import { registerHealthcheckGitOpsKinds, registerHealthcheckGitOpsDocumentation } from "./healthcheck-gitops-kinds";
 import { catalogHooks } from "@checkstack/catalog-backend";
 import { satelliteHooks } from "@checkstack/satellite-backend";
@@ -42,33 +50,9 @@ import { CatalogApi } from "@checkstack/catalog-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { IncidentApi } from "@checkstack/incident-common";
 import { GitOpsApi } from "@checkstack/gitops-common";
-import { healthCheckHooks } from "./hooks";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { resolveRoute } from "@checkstack/common";
 import { createHealthCheckCache } from "./cache";
-
-// =============================================================================
-// Integration Event Payload Schemas
-// =============================================================================
-
-const systemDegradedPayloadSchema = z.object({
-  systemId: z.string(),
-  systemName: z.string().optional(),
-  previousStatus: z.string(),
-  newStatus: z.string(),
-  healthyChecks: z.number(),
-  totalChecks: z.number(),
-  timestamp: z.string(),
-});
-
-const systemHealthyPayloadSchema = z.object({
-  systemId: z.string(),
-  systemName: z.string().optional(),
-  previousStatus: z.string(),
-  healthyChecks: z.number(),
-  totalChecks: z.number(),
-  timestamp: z.string(),
-});
 
 // Store emitHook reference for use during Phase 2 init
 let storedEmitHook: EmitHookFn | undefined;
@@ -82,33 +66,19 @@ export default createBackendPlugin({
       healthcheckGroupSubscription,
     ]);
 
-    // Register hooks as integration events
-    const integrationEvents = env.getExtensionPoint(
-      integrationEventExtensionPoint,
+    // ─── Automation Platform: triggers + artifact type ─────────────────
+    // Buffered behind the extension point until automation-backend's
+    // register() runs. Actions are wired in afterPluginsReady where
+    // `emitHook` becomes available.
+    const automationTriggers = env.getExtensionPoint(
+      automationTriggerExtensionPoint,
     );
-
-    integrationEvents.registerEvent(
-      {
-        hook: healthCheckHooks.systemDegraded,
-        displayName: "System Health Degraded",
-        description:
-          "Fired when a system's health status transitions from healthy to degraded/unhealthy",
-        category: "Health",
-        payloadSchema: systemDegradedPayloadSchema,
-      },
-      pluginMetadata,
-    );
-
-    integrationEvents.registerEvent(
-      {
-        hook: healthCheckHooks.systemHealthy,
-        displayName: "System Health Restored",
-        description: "Fired when a system's health status recovers to healthy",
-        category: "Health",
-        payloadSchema: systemHealthyPayloadSchema,
-      },
-      pluginMetadata,
-    );
+    for (const trigger of healthCheckTriggers) {
+      automationTriggers.registerTrigger(trigger, pluginMetadata);
+    }
+    env
+      .getExtensionPoint(automationArtifactTypeExtensionPoint)
+      .registerArtifactType(assignmentArtifactType, pluginMetadata);
 
     // ─── GitOps Entity Kind Registration ───────────────────────────────
     // Mutable refs — populated during init(), consumed by reconcile closures.
@@ -325,6 +295,20 @@ export default createBackendPlugin({
           healthCheckRegistry,
           collectorRegistry,
         );
+
+        // Register automation actions now that `emitHook` + `queueManager`
+        // are both available.
+        const automationActions = env.getExtensionPoint(
+          automationActionExtensionPoint,
+        );
+        for (const action of createHealthCheckActions({
+          service,
+          queueManager,
+          emitHook,
+        })) {
+          automationActions.registerAction(action, pluginMetadata);
+        }
+
         onHook(
           catalogHooks.systemDeleted,
           async (payload) => {

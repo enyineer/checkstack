@@ -62,8 +62,13 @@ type IncidentClient = InferClient<typeof IncidentApi>;
 type NotificationClient = InferClient<typeof NotificationApi>;
 
 /**
- * Emit the checkCompleted hook if available.
- * Extracted to avoid duplicating the hook emission pattern across success/error paths.
+ * Emit the checkCompleted hook if available, plus the narrower
+ * `checkFailed` hook when the result wasn't `healthy` (so operators
+ * can wire a typed "trigger on failure" automation without having to
+ * filter `checkCompleted` themselves).
+ *
+ * Extracted to avoid duplicating the hook emission pattern across
+ * success/error paths.
  */
 async function emitCheckCompletedHook({
   getEmitHook,
@@ -81,14 +86,26 @@ async function emitCheckCompletedHook({
   result: Record<string, unknown> | undefined;
 }): Promise<void> {
   const emitHook = getEmitHook();
-  if (emitHook) {
-    await emitHook(healthCheckHooks.checkCompleted, {
+  if (!emitHook) return;
+  const timestamp = new Date().toISOString();
+  await emitHook(healthCheckHooks.checkCompleted, {
+    systemId,
+    configurationId,
+    status,
+    latencyMs,
+    result,
+    timestamp,
+  });
+  // Narrow follow-up — informational for automation triggers; the
+  // auto-incident pipeline still runs on its own thresholds.
+  if (status !== "healthy") {
+    await emitHook(healthCheckHooks.checkFailed, {
       systemId,
       configurationId,
       status,
       latencyMs,
       result,
-      timestamp: new Date().toISOString(),
+      timestamp,
     });
   }
 }
@@ -102,9 +119,11 @@ export interface HealthCheckJobPayload {
 }
 
 /**
- * Queue name for health check execution
+ * Queue name for health check execution. Exported so consumers like
+ * the `healthcheck.run_now` automation action can enqueue a one-off
+ * job without re-importing the recurring-job factory.
  */
-const HEALTH_CHECK_QUEUE = "health-checks";
+export const HEALTH_CHECK_QUEUE = "health-checks";
 
 /**
  * Worker group for health check execution (work-queue mode)
@@ -179,6 +198,14 @@ async function maybeOpenAutoIncidentForCheck(props: {
   systemName: string;
   configurationId: string;
   configurationName: string;
+  /**
+   * Same closure-based getter the queue executor uses elsewhere; let
+   * us fire the `flapping_detected` automation hook from inside the
+   * flapping evaluator without re-threading `emitHook` through every
+   * intermediate caller. Optional — when absent, the hook simply
+   * doesn't fire (e.g. in unit tests that don't care about it).
+   */
+  getEmitHook?: () => EmitHookFn | undefined;
   previousState: {
     checkStatuses: Array<{
       configurationId: string;
@@ -202,6 +229,7 @@ async function maybeOpenAutoIncidentForCheck(props: {
     systemName,
     configurationId,
     configurationName,
+    getEmitHook,
     previousState,
     newState,
   } = props;
@@ -287,6 +315,33 @@ async function maybeOpenAutoIncidentForCheck(props: {
         policy,
         recentTransitionCount: count,
       });
+
+      // Fire the informational `flapping_detected` automation hook
+      // independently of the auto-incident decision: an operator may
+      // care about flapping even with the auto-incident pipeline
+      // turned off.
+      if (
+        policy.flappingTrigger.enabled &&
+        count >= policy.flappingTrigger.transitions
+      ) {
+        const emit = getEmitHook?.();
+        if (emit) {
+          try {
+            await emit(healthCheckHooks.flappingDetected, {
+              systemId,
+              configurationId,
+              transitionCount: count,
+              windowMinutes: policy.flappingTrigger.windowMinutes,
+              timestamp: new Date().toISOString(),
+            });
+          } catch (error) {
+            logger.warn(
+              `Failed to emit healthcheck.flapping_detected hook for ${systemId}/${configurationId}:`,
+              error,
+            );
+          }
+        }
+      }
     } catch (error) {
       logger.warn(
         `Failed to record unhealthy transition for ${systemId}/${configurationId}:`,
@@ -861,6 +916,7 @@ async function executeHealthCheckJob(props: {
         systemName,
         configurationId: configId,
         configurationName: configRow.configName,
+        getEmitHook,
         previousState,
         newState,
       });
@@ -971,16 +1027,20 @@ async function executeHealthCheckJob(props: {
       // Emit integration hooks for external integrations
       const emitHook = getEmitHook();
       if (emitHook) {
+        const healthyChecks = newState.checkStatuses.filter(
+          (c) => c.status === "healthy",
+        ).length;
+        const totalChecks = newState.checkStatuses.length;
+        const timestamp = new Date().toISOString();
+
         if (newState.status === "healthy" && previousStatus !== "healthy") {
           // Recovery: system became healthy
           await emitHook(healthCheckHooks.systemHealthy, {
             systemId,
             previousStatus,
-            healthyChecks: newState.checkStatuses.filter(
-              (c) => c.status === "healthy",
-            ).length,
-            totalChecks: newState.checkStatuses.length,
-            timestamp: new Date().toISOString(),
+            healthyChecks,
+            totalChecks,
+            timestamp,
           });
           logger.debug(
             `Emitted systemHealthy hook: ${previousStatus} → ${newState.status}`,
@@ -994,15 +1054,27 @@ async function executeHealthCheckJob(props: {
             systemId,
             previousStatus,
             newStatus: newState.status,
-            healthyChecks: newState.checkStatuses.filter(
-              (c) => c.status === "healthy",
-            ).length,
-            totalChecks: newState.checkStatuses.length,
-            timestamp: new Date().toISOString(),
+            healthyChecks,
+            totalChecks,
+            timestamp,
           });
           logger.debug(
             `Emitted systemDegraded hook: ${previousStatus} → ${newState.status}`,
           );
+        }
+
+        // Umbrella hook — fires on every transition. Emitted alongside
+        // the directional hooks so existing subscribers stay unchanged
+        // while new automation triggers can react to any change.
+        if (previousStatus !== newState.status) {
+          await emitHook(healthCheckHooks.systemHealthChanged, {
+            systemId,
+            previousStatus,
+            newStatus: newState.status,
+            healthyChecks,
+            totalChecks,
+            timestamp,
+          });
         }
       }
     }
@@ -1018,6 +1090,7 @@ async function executeHealthCheckJob(props: {
       systemName,
       configurationId: configId,
       configurationName: configRow.configName,
+      getEmitHook,
       previousState,
       newState,
     });
@@ -1120,16 +1193,20 @@ async function executeHealthCheckJob(props: {
       // Emit integration hooks for external integrations
       const emitHook = getEmitHook();
       if (emitHook) {
+        const healthyChecks = newState.checkStatuses.filter(
+          (c) => c.status === "healthy",
+        ).length;
+        const totalChecks = newState.checkStatuses.length;
+        const timestamp = new Date().toISOString();
+
         if (newState.status === "healthy" && previousStatus !== "healthy") {
           // Recovery: system became healthy
           await emitHook(healthCheckHooks.systemHealthy, {
             systemId,
             previousStatus,
-            healthyChecks: newState.checkStatuses.filter(
-              (c) => c.status === "healthy",
-            ).length,
-            totalChecks: newState.checkStatuses.length,
-            timestamp: new Date().toISOString(),
+            healthyChecks,
+            totalChecks,
+            timestamp,
           });
           logger.debug(
             `Emitted systemHealthy hook: ${previousStatus} → ${newState.status}`,
@@ -1143,15 +1220,27 @@ async function executeHealthCheckJob(props: {
             systemId,
             previousStatus,
             newStatus: newState.status,
-            healthyChecks: newState.checkStatuses.filter(
-              (c) => c.status === "healthy",
-            ).length,
-            totalChecks: newState.checkStatuses.length,
-            timestamp: new Date().toISOString(),
+            healthyChecks,
+            totalChecks,
+            timestamp,
           });
           logger.debug(
             `Emitted systemDegraded hook: ${previousStatus} → ${newState.status}`,
           );
+        }
+
+        // Umbrella hook — fires on every transition. Emitted alongside
+        // the directional hooks so existing subscribers stay unchanged
+        // while new automation triggers can react to any change.
+        if (previousStatus !== newState.status) {
+          await emitHook(healthCheckHooks.systemHealthChanged, {
+            systemId,
+            previousStatus,
+            newStatus: newState.status,
+            healthyChecks,
+            totalChecks,
+            timestamp,
+          });
         }
       }
     }
@@ -1167,6 +1256,7 @@ async function executeHealthCheckJob(props: {
       systemName,
       configurationId: configId,
       configurationName: configName,
+      getEmitHook,
       previousState,
       newState,
     });

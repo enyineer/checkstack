@@ -4,6 +4,11 @@ import {
 } from "@checkstack/backend-api";
 import { coreServices } from "@checkstack/backend-api";
 import {
+  automationActionExtensionPoint,
+  automationArtifactTypeExtensionPoint,
+  automationTriggerExtensionPoint,
+} from "@checkstack/automation-backend";
+import {
   catalogAccessRules,
   catalogAccess,
   pluginMetadata,
@@ -27,6 +32,12 @@ import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
 import { CHECKSTACK_API_VERSION, entityRefSchema, GitOpsApi } from "@checkstack/gitops-common";
 import { z } from "zod";
 
+import {
+  catalogTriggers,
+  createCatalogActions,
+  systemRecordArtifactType,
+} from "./automations";
+
 // Database schema is still needed for types in creating the router
 import * as schema from "./schema";
 
@@ -39,6 +50,21 @@ export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
     env.registerAccessRules(catalogAccessRules);
+
+    // ─── Automation Platform: triggers + artifact type ─────────────────
+    // Buffered behind the extension point until automation-backend's
+    // register() runs. The action factory is wired in afterPluginsReady
+    // below — that's where `emitHook` becomes available, which the
+    // `update_metadata` action needs in order to fire `systemUpdated`.
+    const automationTriggers = env.getExtensionPoint(
+      automationTriggerExtensionPoint,
+    );
+    for (const trigger of catalogTriggers) {
+      automationTriggers.registerTrigger(trigger, pluginMetadata);
+    }
+    env
+      .getExtensionPoint(automationArtifactTypeExtensionPoint)
+      .registerArtifactType(systemRecordArtifactType, pluginMetadata);
 
     // ─── GitOps Entity Kind Registration ───────────────────────────────
     // Mutable DB reference — populated during init(), consumed by reconcile closures.
@@ -271,7 +297,14 @@ export default createBackendPlugin({
         logger.debug("✅ Catalog Backend initialized.");
       },
       // Phase 3: Safe to make RPC calls after all plugins are ready
-      afterPluginsReady: async ({ database, rpcClient, logger, onHook }) => {
+      afterPluginsReady: async ({
+        database,
+        rpcClient,
+        logger,
+        onHook,
+        emitHook,
+        cacheManager,
+      }) => {
         const typedDb = database as SafeDatabase<typeof schema>;
         const notificationClient = rpcClient.forPlugin(NotificationApi);
 
@@ -282,13 +315,29 @@ export default createBackendPlugin({
         // provisioning happens server-side from this signal.
         await bootstrapNotificationTargets(typedDb, notificationClient, logger);
 
+        // Register automation actions now that `emitHook` is available
+        // — the `update_metadata` action needs to fire `systemUpdated`
+        // downstream so other automations + caches react to the change.
+        const automationActions = env.getExtensionPoint(
+          automationActionExtensionPoint,
+        );
+        const entityService = new EntityService(typedDb);
+        const cache = createCatalogCache({ cacheManager, logger });
+        for (const action of createCatalogActions({
+          entityService,
+          cache,
+          emitHook,
+        })) {
+          automationActions.registerAction(action, pluginMetadata);
+        }
+
         // Subscribe to user deletion to clean up user contacts
         onHook(
           authHooks.userDeleted,
           async ({ userId }) => {
             logger.debug(`Cleaning up contacts for deleted user: ${userId}`);
-            const entityService = new EntityService(typedDb);
-            await entityService.deleteContactsByUserId(userId);
+            const userCleanupService = new EntityService(typedDb);
+            await userCleanupService.deleteContactsByUserId(userId);
             logger.debug(`Cleaned up contacts for user: ${userId}`);
           },
           { mode: "work-queue", workerGroup: "user-cleanup" },
