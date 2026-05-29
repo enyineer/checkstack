@@ -275,13 +275,13 @@ Text / markup editors (template-able):
 - `"raw"`: Plain text textarea
 - `"json"`: JSON code editor with syntax highlighting and auto-indentation
 - `"yaml"`: YAML code editor with syntax highlighting and auto-indentation
-- `"xml"`: XML/HTML code editor with tag highlighting and smart tag splitting
+- `"xml"`: XML/HTML code editor with tag highlighting
 - `"markdown"`: Markdown editor with syntax highlighting
 - `"formdata"`: Key-value pair editor (URL-encoded format)
 
 Native-code editors (NOT template-able):
-- `"typescript"` / `"javascript"`: Monaco editor with full type-checking
-- `"shell"`: Monaco shell editor
+- `"typescript"` / `"javascript"`: code editor with full TypeScript type-checking
+- `"shell"`: shell code editor with `$env` autocomplete
 
 **Common features:**
 - Dropdown selector when multiple types are available
@@ -335,7 +335,10 @@ fields like a log action's `message`). The prop is opt-in, so other
 consumers are unaffected.
 
 **Typed context (TS/JS editors).** Pass `typeDefinitions` (a
-`declare const context: …` string) and Monaco types the `context` global.
+`declare const context: …` string) and the editor types the `context` global.
+Non-identifier object keys in those definitions (e.g. artifact ids like
+`context.artifacts["integration-jira.issue"]`) are offered as `["key"]`
+bracket completions automatically.
 The automation editor builds this per-automation via
 `generateAutomationContextTypes`, so `context.trigger.payload` is the
 discriminated union over the automation's subscribed triggers, with

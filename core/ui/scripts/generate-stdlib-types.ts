@@ -19,8 +19,8 @@
  *
  * Run with `bun run generate:monaco-types` from `core/ui`. The output JSON
  * lives at `src/components/CodeEditor/generated/stdlib-types.json` and is
- * lazy-imported by MonacoEditor (so the ~3 MB payload is code-split into
- * its own chunk and never blocks initial page load).
+ * lazy-imported by the editor (so the ~3 MB payload is code-split into its
+ * own chunk and never blocks initial page load).
  */
 import { createRequire } from "node:module";
 import { readdir, readFile, mkdir, writeFile } from "node:fs/promises";

@@ -89,7 +89,7 @@ standalone Bun script can.
 `defineHealthCheck` from the virtual `@checkstack/healthcheck`
 module is recommended but optional. It's a runtime identity
 function - its only job is to assert at the type level that you
-return a valid `HealthCheckScriptResult`, so Monaco catches
+return a valid `HealthCheckScriptResult`, so the editor catches
 mistakes like `{ success: "yes" }` before the script ever runs.
 
 ### Result shape
@@ -124,7 +124,7 @@ features (`import ...`, top-level `await`).
 
 ### Editor support
 
-The configuration UI uses Monaco with full TypeScript IntelliSense:
+The configuration UI uses a VS Code-powered code editor with full TypeScript IntelliSense:
 
 - The real upstream `@types/node` and `bun-types` declaration files
   are mounted as a virtual filesystem (lazy-loaded as a separate JS
@@ -135,7 +135,7 @@ The configuration UI uses Monaco with full TypeScript IntelliSense:
   from inside the script.
 - A virtual `@checkstack/healthcheck` module exposes `defineHealthCheck`
   and the `HealthCheckScriptResult` interface - when you write
-  `export default defineHealthCheck({ ... })`, Monaco type-checks the
+  `export default defineHealthCheck({ ... })`, the editor type-checks the
   object literal against the expected shape and flags mistakes inline.
 - DOM types (`AudioContext`, `Canvas`, ...) are deliberately excluded
   to keep the suggestion list focused on the backend surface.
