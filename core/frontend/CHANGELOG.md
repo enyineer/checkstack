@@ -1,5 +1,11 @@
 # @checkstack/frontend
 
+## 0.6.5
+
+### Patch Changes
+
+- @checkstack/dependency-frontend@0.4.6
+
 ## 0.6.4
 
 ### Patch Changes

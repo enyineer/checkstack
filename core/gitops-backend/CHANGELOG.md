@@ -1,5 +1,13 @@
 # @checkstack/gitops-backend
 
+## 0.3.6
+
+### Patch Changes
+
+- @checkstack/backend-api@0.17.1
+- @checkstack/command-backend@0.1.30
+- @checkstack/queue-api@0.3.5
+
 ## 0.3.5
 
 ### Patch Changes

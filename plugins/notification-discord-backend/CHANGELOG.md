@@ -1,5 +1,13 @@
 # @checkstack/notification-discord-backend
 
+## 0.1.31
+
+### Patch Changes
+
+- Updated dependencies [ba07ae2]
+  - @checkstack/notification-backend@1.3.0
+  - @checkstack/backend-api@0.17.1
+
 ## 0.1.30
 
 ### Patch Changes

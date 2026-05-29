@@ -1,5 +1,15 @@
 # @checkstack/announcement-backend
 
+## 0.3.10
+
+### Patch Changes
+
+- @checkstack/backend-api@0.17.1
+- @checkstack/auth-backend@0.4.30
+- @checkstack/cache-api@0.3.5
+- @checkstack/command-backend@0.1.30
+- @checkstack/cache-utils@0.2.10
+
 ## 0.3.9
 
 ### Patch Changes
