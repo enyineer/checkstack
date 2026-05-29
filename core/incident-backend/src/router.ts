@@ -400,7 +400,7 @@ export function createRouter(
         // No user context for service-initiated incidents; createdBy
         // stays null and the timeline shows the originating plugin via
         // the hook payload.
-        const result = await service.createIncident(input, undefined);
+        const result = await service.createIncident(input);
 
         await cache.invalidateForMutation({
           incidentId: result.id,
@@ -442,11 +442,7 @@ export function createRouter(
 
     resolveAutoIncident: os.resolveAutoIncident.handler(
       async ({ input, context }) => {
-        const result = await service.resolveIncident(
-          input.id,
-          input.message,
-          undefined,
-        );
+        const result = await service.resolveIncident(input.id, input.message);
         // Idempotent: a missing or already-resolved incident is treated
         // as success so the auto-close worker can be re-run safely.
         if (!result) {

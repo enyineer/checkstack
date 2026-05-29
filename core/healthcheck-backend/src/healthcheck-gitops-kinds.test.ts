@@ -38,6 +38,12 @@ interface MockAssociation {
   systemId: string;
   configurationId: string;
   enabled: boolean;
+  notificationPolicy?: {
+    suppressDeEscalations: boolean;
+    autoOpenIncidentOnUnhealthy: boolean;
+    useNotificationSuppression: boolean;
+    incidentThreshold: { transitions: number; windowMinutes: number };
+  };
 }
 
 function createMockService() {
@@ -80,6 +86,7 @@ function createMockService() {
         systemId: string;
         configurationId: string;
         enabled?: boolean;
+        notificationPolicy?: MockAssociation["notificationPolicy"];
       }) => {
         const existing = associations.find(
           (a) =>
@@ -88,11 +95,13 @@ function createMockService() {
         );
         if (existing) {
           existing.enabled = props.enabled ?? true;
+          existing.notificationPolicy = props.notificationPolicy;
         } else {
           associations.push({
             systemId: props.systemId,
             configurationId: props.configurationId,
             enabled: props.enabled ?? true,
+            notificationPolicy: props.notificationPolicy,
           });
         }
       },
@@ -617,6 +626,71 @@ describe("Healthcheck GitOps Kind: System Extension", () => {
         context: contextEmpty,
       }),
     ).rejects.toThrow(/Cannot resolve Healthcheck ref "nonexistent-check"/);
+  });
+
+  it("passes a fully-defaulted notificationPolicy through when partial fields are supplied", async () => {
+    const ext = buildExtension();
+
+    const contextWithRefs: ReconcileContext = {
+      ...mockContext,
+      resolveEntityRef: async ({ kind, entityName }) =>
+        kind === "Healthcheck" && entityName === "db-check" ? "hc-1" : undefined,
+    };
+
+    await ext.reconcile({
+      entity: {
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "System",
+        metadata: { name: "payment-service" },
+        spec: {},
+      },
+      extensionSpec: [
+        {
+          ref: { kind: "Healthcheck", name: "db-check" },
+          // Operator only sets the flap threshold; every other policy
+          // field should default in via the schema parse.
+          notificationPolicy: {
+            incidentThreshold: { transitions: 3 },
+          },
+        },
+      ],
+      entityId: "sys-123",
+      context: contextWithRefs,
+    });
+
+    const policy = mockService.associations[0]?.notificationPolicy;
+    expect(policy).toBeDefined();
+    expect(policy?.suppressDeEscalations).toBe(false);
+    expect(policy?.autoOpenIncidentOnUnhealthy).toBe(true);
+    expect(policy?.useNotificationSuppression).toBe(true);
+    expect(policy?.incidentThreshold).toEqual({
+      transitions: 3,
+      windowMinutes: 60,
+    });
+  });
+
+  it("omits notificationPolicy entirely when the spec doesn't set it", async () => {
+    const ext = buildExtension();
+
+    const contextWithRefs: ReconcileContext = {
+      ...mockContext,
+      resolveEntityRef: async ({ kind, entityName }) =>
+        kind === "Healthcheck" && entityName === "db-check" ? "hc-1" : undefined,
+    };
+
+    await ext.reconcile({
+      entity: {
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "System",
+        metadata: { name: "payment-service" },
+        spec: {},
+      },
+      extensionSpec: [{ ref: { kind: "Healthcheck", name: "db-check" } }],
+      entityId: "sys-123",
+      context: contextWithRefs,
+    });
+
+    expect(mockService.associations[0]?.notificationPolicy).toBeUndefined();
   });
 
   it("skips when extensionSpec is empty", async () => {

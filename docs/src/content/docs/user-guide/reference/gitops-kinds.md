@@ -155,7 +155,7 @@ spec:
 
 ### `System.healthcheck` (healthcheck)
 
-Bind health checks to a system, with optional threshold overrides.
+Bind health checks to a system, with optional threshold and notification overrides.
 
 ```yaml
 apiVersion: checkstack.io/v1alpha1
@@ -166,7 +166,28 @@ spec:
     - ref: { kind: Healthcheck, name: payment-db-check }
       degradedThreshold: 2
       unhealthyThreshold: 5
+      notificationPolicy:
+        # Defaults: suppressDeEscalations=false,
+        # autoOpenIncidentOnUnhealthy=true,
+        # useNotificationSuppression=true,
+        # incidentThreshold={ transitions: 1, windowMinutes: 60 }.
+        suppressDeEscalations: true
+        autoOpenIncidentOnUnhealthy: true
+        useNotificationSuppression: true
+        incidentThreshold:
+          transitions: 3      # require 3 transitions...
+          windowMinutes: 60   # ...within 60 minutes
 ```
+
+The `notificationPolicy` block is per assignment — different checks on the
+same system are fully independent. Any field omitted falls back to the
+platform default, including individual keys inside `incidentThreshold`.
+
+> [!TIP]
+> Set `autoOpenIncidentOnUnhealthy: false` for checks that are
+> intentionally noisy (canary probes, weather-flapping endpoints) so they
+> don't open auto-incidents. Their state changes still drive the
+> dashboard; they just don't generate Jira tickets / paging.
 
 ### `System.dependencies` (dependency)
 
