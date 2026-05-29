@@ -144,6 +144,34 @@ export const incidentContract = {
   })
     .input(z.object({ systemId: z.string() }))
     .output(z.object({ suppressed: z.boolean() })),
+
+  /**
+   * Open an incident on behalf of another plugin (no user context).
+   * Used by automated systems like the health-check auto-incident flow.
+   * Always single-system. Returns the created incident's id so the
+   * caller can store it for later resolution.
+   */
+  createAutoIncident: proc({
+    operationType: "mutation",
+    userType: "service",
+    access: [],
+  })
+    .input(CreateIncidentInputSchema)
+    .output(z.object({ id: z.string() })),
+
+  /**
+   * Resolve an incident on behalf of another plugin. Used by automated
+   * systems (e.g. the health-check auto-close worker) to close
+   * incidents they previously opened. Idempotent: resolving an already-
+   * resolved incident returns success without error.
+   */
+  resolveAutoIncident: proc({
+    operationType: "mutation",
+    userType: "service",
+    access: [],
+  })
+    .input(z.object({ id: z.string(), message: z.string().optional() }))
+    .output(z.object({ success: z.boolean() })),
 };
 
 // Export contract type

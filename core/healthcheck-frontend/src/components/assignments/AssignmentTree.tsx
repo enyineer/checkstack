@@ -1,5 +1,13 @@
 import React from "react";
-import { Settings, Gauge, Database, Radio, Plus, Check } from "lucide-react";
+import {
+  Settings,
+  Gauge,
+  Database,
+  Radio,
+  Plus,
+  Check,
+  Bell,
+} from "lucide-react";
 import { IDETreeNode, IDETreeSection } from "@checkstack/ui";
 import { ExtensionSlot } from "@checkstack/frontend-api";
 import { AssignmentIDENodeSlot } from "../../slots";
@@ -96,6 +104,18 @@ export const AssignmentTree: React.FC<AssignmentTreeProps> = ({
             onClick={() => onSelectNode(`execution:${assoc.configurationId}`)}
             indent
             badge={assoc.satelliteCount > 0 ? `${assoc.satelliteCount}` : undefined}
+          />
+          <IDETreeNode
+            nodeId={`notifications:${assoc.configurationId}`}
+            label="Notifications"
+            icon={Bell}
+            selected={
+              selectedNode === `notifications:${assoc.configurationId}`
+            }
+            onClick={() =>
+              onSelectNode(`notifications:${assoc.configurationId}`)
+            }
+            indent
           />
           <ExtensionSlot 
             slot={AssignmentIDENodeSlot} 

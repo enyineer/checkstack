@@ -39,6 +39,21 @@ import { HealthCheckService } from "./service";
 import { healthCheckHooks } from "./hooks";
 import { incrementHourlyAggregate } from "./realtime-aggregation";
 import type { HealthCheckCache } from "./cache";
+import {
+  classifyTransition,
+  shouldNotifyTransition,
+} from "./notification-policy";
+import {
+  findLastAutoIncidentClose,
+  findUnhealthySince,
+  hasHealthyRunSince,
+  isMaintenanceSuppressed,
+  isTransitionToUnhealthy,
+  openAutoIncident,
+  recordUnhealthyTransition,
+  shouldOpenForFlapping,
+  shouldOpenForSustainedUnhealthy,
+} from "./auto-incident";
 
 type Db = SafeDatabase<typeof schema>;
 type CatalogClient = InferClient<typeof CatalogApi>;
@@ -137,14 +152,208 @@ export async function scheduleHealthCheck(props: {
 }
 
 /**
+ * After every check run, evaluate the per-check auto-incident
+ * triggers. Either trigger can independently open an incident:
+ *
+ * - **flapping**: this just-completed run was a transition to
+ *   unhealthy AND `N` such transitions have happened within the
+ *   configured window.
+ * - **sustained**: the check is currently unhealthy AND has been so
+ *   continuously for at least the configured duration.
+ *
+ * Both triggers honour the require-recovery rule: after the most
+ * recent auto-incident close (manual or auto), no new auto-incident
+ * opens until the check has logged at least one healthy run. This
+ * stops a manual close → still-unhealthy → re-open loop.
+ *
+ * Active maintenance with suppression skips both triggers when the
+ * policy opts in.
+ */
+async function maybeOpenAutoIncidentForCheck(props: {
+  db: Db;
+  service: HealthCheckService;
+  incidentClient: IncidentClient;
+  maintenanceClient: MaintenanceClient;
+  logger: Logger;
+  systemId: string;
+  systemName: string;
+  configurationId: string;
+  configurationName: string;
+  previousState: {
+    checkStatuses: Array<{
+      configurationId: string;
+      status: HealthCheckStatus;
+    }>;
+  };
+  newState: {
+    checkStatuses: Array<{
+      configurationId: string;
+      status: HealthCheckStatus;
+    }>;
+  };
+}): Promise<void> {
+  const {
+    db,
+    service,
+    incidentClient,
+    maintenanceClient,
+    logger,
+    systemId,
+    systemName,
+    configurationId,
+    configurationName,
+    previousState,
+    newState,
+  } = props;
+
+  const next = newState.checkStatuses.find(
+    (c) => c.configurationId === configurationId,
+  );
+  // Only auto-incident logic applies when the check is currently
+  // unhealthy — both triggers require it.
+  if (!next || next.status !== "unhealthy") return;
+
+  const prev = previousState.checkStatuses.find(
+    (c) => c.configurationId === configurationId,
+  );
+  const isTransition = isTransitionToUnhealthy(prev?.status, next.status);
+
+  let policy;
+  try {
+    policy = await service.getAssignmentNotificationPolicy({
+      systemId,
+      configurationId,
+    });
+  } catch (error) {
+    logger.warn(
+      `Failed to load policy for auto-incident decision (${systemId}/${configurationId}):`,
+      error,
+    );
+    return;
+  }
+
+  if (!policy.autoOpenIncidentOnUnhealthy) return;
+
+  // Honour active maintenance windows — operators have explicitly
+  // said the system is down on purpose.
+  if (policy.skipDuringMaintenance) {
+    const suppressed = await isMaintenanceSuppressed({
+      maintenanceClient,
+      systemId,
+      logger,
+    });
+    if (suppressed) {
+      logger.debug(
+        `Skipping auto-incident for ${systemId}/${configurationId}: active maintenance`,
+      );
+      return;
+    }
+  }
+
+  // Require-recovery: if there's a prior closed auto-incident for
+  // this assignment, the check must have logged at least one healthy
+  // run since the close before we can open another one. Without this,
+  // an operator's manual close on a still-broken system would loop.
+  const lastCloseAt = await findLastAutoIncidentClose({
+    db,
+    systemId,
+    configurationId,
+  });
+  if (lastCloseAt) {
+    const recovered = await hasHealthyRunSince({
+      db,
+      systemId,
+      configurationId,
+      since: lastCloseAt,
+    });
+    if (!recovered) {
+      return;
+    }
+  }
+
+  // Record the transition (if any) and evaluate the flapping trigger
+  // against transitions that happened after the last close window.
+  let flappingOpens = false;
+  if (isTransition) {
+    try {
+      const count = await recordUnhealthyTransition({
+        db,
+        configurationId,
+        systemId,
+        windowMinutes: policy.flappingTrigger.windowMinutes,
+        since: lastCloseAt,
+      });
+      flappingOpens = shouldOpenForFlapping({
+        policy,
+        recentTransitionCount: count,
+      });
+    } catch (error) {
+      logger.warn(
+        `Failed to record unhealthy transition for ${systemId}/${configurationId}:`,
+        error,
+      );
+    }
+  }
+
+  // Evaluate the sustained-duration trigger on every run while the
+  // check is unhealthy (not just on transition).
+  let sustainedOpens = false;
+  if (policy.sustainedUnhealthyTrigger.enabled) {
+    const unhealthySince = await findUnhealthySince({
+      db,
+      configurationId,
+      systemId,
+      since: lastCloseAt,
+    });
+    if (unhealthySince) {
+      sustainedOpens = shouldOpenForSustainedUnhealthy({
+        policy,
+        unhealthyForMs: Date.now() - unhealthySince.getTime(),
+      });
+    }
+  }
+
+  if (!flappingOpens && !sustainedOpens) return;
+
+  const reason = flappingOpens
+    ? `flapping: ≥${policy.flappingTrigger.transitions} transitions in ${policy.flappingTrigger.windowMinutes} min`
+    : `unhealthy ≥${policy.sustainedUnhealthyTrigger.durationMinutes} min continuously`;
+
+  await openAutoIncident({
+    db,
+    incidentClient,
+    logger,
+    systemId,
+    systemName,
+    configurationId,
+    configurationName,
+    policy,
+    reason,
+  });
+}
+
+/**
  * Notify system subscribers about a health state change.
- * Skips notification if the system has active maintenance or incident with suppression enabled.
+ * Skips notification when:
+ * - the system has active maintenance/incident with suppression enabled, or
+ * - the policy of the check that just ran opts into de-escalation
+ *   suppression and this transition is a de-escalation (e.g.
+ *   `unhealthy → degraded`).
+ *
+ * For non-recovery transitions, the action CTA is deep-linked to the
+ * failing-checks filter so operators land directly on the problem.
+ *
+ * Policy is resolved per-assignment (per system+configuration) — the
+ * just-ran check is the one driving any aggregate transition in this
+ * execution, so its policy is the authoritative one.
  */
 async function notifyStateChange(props: {
   systemId: string;
   systemName: string;
+  configurationId: string;
   previousStatus: HealthCheckStatus;
   newStatus: HealthCheckStatus;
+  service: HealthCheckService;
   catalogClient: CatalogClient;
   notificationClient: NotificationClient;
   maintenanceClient: MaintenanceClient;
@@ -154,8 +363,10 @@ async function notifyStateChange(props: {
   const {
     systemId,
     systemName,
+    configurationId,
     previousStatus,
     newStatus,
+    service,
     catalogClient,
     notificationClient,
     maintenanceClient,
@@ -163,8 +374,31 @@ async function notifyStateChange(props: {
     logger,
   } = props;
 
-  // Only notify on actual state changes
-  if (newStatus === previousStatus) {
+  const transition = classifyTransition(previousStatus, newStatus);
+  if (transition === "none") {
+    return;
+  }
+
+  // Per-assignment notification policy. Failure to load defaults to
+  // "notify everything" rather than dropping the notification.
+  let suppressDeEscalations = false;
+  try {
+    const policy = await service.getAssignmentNotificationPolicy({
+      systemId,
+      configurationId,
+    });
+    suppressDeEscalations = policy.suppressDeEscalations;
+  } catch (error) {
+    logger.warn(
+      `Failed to load notification policy for ${systemId}/${configurationId}, applying defaults:`,
+      error,
+    );
+  }
+
+  if (!shouldNotifyTransition(transition, { suppressDeEscalations })) {
+    logger.debug(
+      `Skipping notification for ${systemId}: ${transition} suppressed by policy`,
+    );
     return;
   }
 
@@ -204,36 +438,38 @@ async function notifyStateChange(props: {
     );
   }
 
-  const isRecovery = newStatus === "healthy" && previousStatus !== "healthy";
-  const isDegraded = newStatus === "degraded";
-  const isUnhealthy = newStatus === "unhealthy";
-
   let title: string;
   let body: string;
   let importance: "info" | "warning" | "critical";
 
-  if (isRecovery) {
+  if (transition === "recovery") {
     title = `System health restored: ${systemName}`;
     body =
       `All health checks for **${systemName}** are now passing. The system has returned to normal operation.`;
     importance = "info";
-  } else if (isUnhealthy) {
+  } else if (newStatus === "unhealthy") {
     title = `System health critical: ${systemName}`;
     body = `Health checks indicate **${systemName}** is unhealthy and may be down.`;
     importance = "critical";
-  } else if (isDegraded) {
+  } else {
+    // degraded — either an escalation from healthy or a partial recovery
     title = `System health degraded: ${systemName}`;
     body =
       `Some health checks for **${systemName}** are failing. The system may be experiencing issues.`;
     importance = "warning";
-  } else {
-    // No notification for healthy → healthy (if somehow missed above)
-    return;
   }
 
   const systemDetailPath = resolveRoute(catalogRoutes.routes.systemDetail, {
     systemId,
   });
+  // Recovery lands on the default (all) view; failing transitions deep-link
+  // operators into the failing-checks filter so they can debug immediately.
+  const actionUrl =
+    transition === "recovery"
+      ? systemDetailPath
+      : `${systemDetailPath}?filter=failing`;
+  const actionLabel =
+    transition === "recovery" ? "View System" : "View failing checks";
 
   void catalogClient; // parents are resolved server-side via stored target edges
 
@@ -244,7 +480,7 @@ async function notifyStateChange(props: {
       title,
       body,
       importance,
-      action: { label: "View System", url: systemDetailPath },
+      action: { label: actionLabel, url: actionUrl },
       collapseKey: systemHealthCollapseKey(systemId),
       subjects: [
         createSystemSubject({
@@ -598,17 +834,36 @@ async function executeHealthCheckJob(props: {
       const newState = await service.getSystemHealthStatus(systemId);
       if (newState.status !== previousStatus) {
         await notifyStateChange({
-        notificationClient,
+          notificationClient,
           systemId,
           systemName,
+          configurationId: configId,
           previousStatus,
           newStatus: newState.status,
+          service,
           catalogClient,
           maintenanceClient,
           incidentClient,
           logger,
         });
       }
+
+      // Per-check auto-incident: runs whether or not the aggregate
+      // changed (a check can transition to unhealthy without flipping
+      // the aggregate if another check is already unhealthy).
+      await maybeOpenAutoIncidentForCheck({
+        db,
+        service,
+        incidentClient,
+        maintenanceClient,
+        logger,
+        systemId,
+        systemName,
+        configurationId: configId,
+        configurationName: configRow.configName,
+        previousState,
+        newState,
+      });
 
       return;
     } finally {
@@ -696,8 +951,10 @@ async function executeHealthCheckJob(props: {
         notificationClient,
         systemId,
         systemName,
+        configurationId: configId,
         previousStatus,
         newStatus: newState.status,
+        service,
         catalogClient,
         maintenanceClient,
         incidentClient,
@@ -749,6 +1006,21 @@ async function executeHealthCheckJob(props: {
         }
       }
     }
+
+    // Per-check auto-incident: see comment on the failed-execution path.
+    await maybeOpenAutoIncidentForCheck({
+      db,
+      service,
+      incidentClient,
+      maintenanceClient,
+      logger,
+      systemId,
+      systemName,
+      configurationId: configId,
+      configurationName: configRow.configName,
+      previousState,
+      newState,
+    });
 
     // Note: No manual rescheduling needed - recurring job handles it automatically
   } catch (error) {
@@ -828,8 +1100,10 @@ async function executeHealthCheckJob(props: {
         notificationClient,
         systemId,
         systemName,
+        configurationId: configId,
         previousStatus,
         newStatus: newState.status,
+        service,
         catalogClient,
         maintenanceClient,
         incidentClient,
@@ -881,6 +1155,21 @@ async function executeHealthCheckJob(props: {
         }
       }
     }
+
+    // Per-check auto-incident: see comment on the failed-execution path.
+    await maybeOpenAutoIncidentForCheck({
+      db,
+      service,
+      incidentClient,
+      maintenanceClient,
+      logger,
+      systemId,
+      systemName,
+      configurationId: configId,
+      configurationName: configName,
+      previousState,
+      newState,
+    });
 
     // Note: No manual rescheduling needed - recurring job handles it automatically
   }

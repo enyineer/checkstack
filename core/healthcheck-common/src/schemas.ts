@@ -207,6 +207,121 @@ export const DEFAULT_STATE_THRESHOLDS: StateThresholds = {
   unhealthy: { minFailureCount: 5 },
 };
 
+// --- Notification Policy ---
+
+/**
+ * Trigger that opens an auto-incident after a check has been
+ * continuously `unhealthy` for at least `durationMinutes`. Resets if
+ * the check recovers to non-unhealthy in between.
+ */
+export const SustainedUnhealthyTriggerSchema = z.object({
+  /** When false, this trigger is fully disabled. */
+  enabled: z.boolean().default(true),
+  /** Minimum continuous-unhealthy time before opening. */
+  durationMinutes: z.number().int().min(1).default(30),
+});
+
+export type SustainedUnhealthyTrigger = z.infer<
+  typeof SustainedUnhealthyTriggerSchema
+>;
+
+/**
+ * Trigger that opens an auto-incident when a check has transitioned
+ * to `unhealthy` at least `transitions` times within `windowMinutes`.
+ * Catches flapping that the sustained-duration trigger would miss
+ * because each unhealthy phase is too short.
+ */
+export const FlappingTriggerSchema = z.object({
+  /** When false, this trigger is fully disabled. */
+  enabled: z.boolean().default(true),
+  /** Minimum number of transitions-to-unhealthy needed in the window. */
+  transitions: z.number().int().min(1).default(3),
+  /** Sliding window in minutes the transitions are counted over. */
+  windowMinutes: z.number().int().min(1).default(60),
+});
+
+export type FlappingTrigger = z.infer<typeof FlappingTriggerSchema>;
+
+export const DEFAULT_SUSTAINED_TRIGGER: SustainedUnhealthyTrigger = {
+  enabled: true,
+  durationMinutes: 30,
+};
+
+export const DEFAULT_FLAPPING_TRIGGER: FlappingTrigger = {
+  enabled: true,
+  transitions: 3,
+  windowMinutes: 60,
+};
+
+/**
+ * Per-association notification preferences. All fields are evaluated
+ * per (system, configuration) — different checks on the same system
+ * are fully independent.
+ */
+export const NotificationPolicySchema = z.object({
+  /**
+   * When true, do not emit notifications for de-escalations (e.g.
+   * `unhealthy → degraded`). Escalations and recoveries to `healthy`
+   * still notify.
+   */
+  suppressDeEscalations: z.boolean().default(false),
+  /**
+   * When true, the configured triggers can open auto-managed incidents
+   * on the system. Setting this to false disables both triggers
+   * regardless of their individual `enabled` flags.
+   */
+  autoOpenIncidentOnUnhealthy: z.boolean().default(true),
+  /**
+   * When true, the auto-opened incident is created with
+   * `suppressNotifications` enabled so further health-state
+   * notifications for the system are silenced until the incident is
+   * resolved. Only meaningful when `autoOpenIncidentOnUnhealthy` is on.
+   */
+  useNotificationSuppression: z.boolean().default(true),
+  /**
+   * When true, no auto-incident is opened while the system has an
+   * active maintenance window with notification suppression. The
+   * system is intentionally down and shouldn't trip the on-call.
+   */
+  skipDuringMaintenance: z.boolean().default(true),
+  /**
+   * Trigger A: "this check has been unhealthy for X minutes
+   * continuously." Catches real outages.
+   */
+  sustainedUnhealthyTrigger: SustainedUnhealthyTriggerSchema.default(
+    DEFAULT_SUSTAINED_TRIGGER,
+  ),
+  /**
+   * Trigger B: "this check transitioned to unhealthy N times in M
+   * minutes." Catches persistent flapping where no individual
+   * unhealthy phase is long enough for the sustained trigger.
+   */
+  flappingTrigger: FlappingTriggerSchema.default(DEFAULT_FLAPPING_TRIGGER),
+  /**
+   * Minutes of sustained healthy state required before an auto-opened
+   * incident is auto-closed. `null` disables auto-close — the
+   * incident stays open until an operator resolves it manually.
+   */
+  autoCloseAfterMinutes: z
+    .number()
+    .int()
+    .min(1)
+    .nullable()
+    .default(30),
+});
+
+export type NotificationPolicy = z.infer<typeof NotificationPolicySchema>;
+
+export const DEFAULT_NOTIFICATION_POLICY: NotificationPolicy = {
+  suppressDeEscalations: false,
+  autoOpenIncidentOnUnhealthy: true,
+  useNotificationSuppression: true,
+  skipDuringMaintenance: true,
+  sustainedUnhealthyTrigger: DEFAULT_SUSTAINED_TRIGGER,
+  flappingTrigger: DEFAULT_FLAPPING_TRIGGER,
+  autoCloseAfterMinutes: 30,
+};
+
 export const AssociateHealthCheckSchema = z.object({
   configurationId: z.string().uuid(),
   enabled: z.boolean().default(true),
@@ -215,6 +330,8 @@ export const AssociateHealthCheckSchema = z.object({
   satelliteIds: z.array(z.string()).optional(),
   /** Whether to also run this check locally on the core instance (default: true) */
   includeLocal: z.boolean().default(true),
+  /** Per-association notification policy. Defaults applied when omitted. */
+  notificationPolicy: NotificationPolicySchema.optional(),
 });
 
 export type AssociateHealthCheck = z.infer<typeof AssociateHealthCheckSchema>;

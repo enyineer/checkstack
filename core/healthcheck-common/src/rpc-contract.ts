@@ -17,6 +17,7 @@ import {
   RetentionConfigSchema,
   AggregatedBucketBaseSchema,
   AggregatedBucketSchema,
+  NotificationPolicySchema,
 } from "./schemas";
 
 // --- Response Schemas for Evaluated Status ---
@@ -155,6 +156,8 @@ export const healthCheckContract = {
           satelliteIds: z.array(z.string()).optional(),
           /** Whether to also run this check locally on the core (default: true) */
           includeLocal: z.boolean(),
+          /** Per-association notification policy (omitted = platform defaults) */
+          notificationPolicy: NotificationPolicySchema.optional(),
         }),
       ),
     ),
@@ -170,6 +173,31 @@ export const healthCheckContract = {
         body: AssociateHealthCheckSchema,
       }),
     )
+    .output(z.void()),
+
+  /**
+   * Read the platform-wide notification policy defaults. Per-assignment
+   * rows with no override inherit these values; admin tooling reads
+   * them to populate the defaults editor. Compile-time defaults fill
+   * in any unset fields.
+   */
+  getPlatformNotificationDefaults: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.read],
+  }).output(NotificationPolicySchema),
+
+  /**
+   * Update the platform-wide notification policy defaults. Per-
+   * assignment rows that inherit (notificationPolicy = null) will pick
+   * up the new values on the next read.
+   */
+  setPlatformNotificationDefaults: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.manage],
+  })
+    .input(NotificationPolicySchema)
     .output(z.void()),
 
   disassociateSystem: proc({
@@ -238,6 +266,8 @@ export const healthCheckContract = {
         endDate: z.date().optional(),
         /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
         sourceFilter: z.string().optional(),
+        /** Restrict runs to the listed statuses. Omitted/empty = no filter. */
+        statusFilter: z.array(HealthCheckStatusSchema).optional(),
         limit: z.number().optional().default(10),
         offset: z.number().optional().default(0),
         sortOrder: z.enum(["asc", "desc"]),
@@ -263,6 +293,8 @@ export const healthCheckContract = {
         endDate: z.date().optional(),
         /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
         sourceFilter: z.string().optional(),
+        /** Restrict runs to the listed statuses. Omitted/empty = no filter. */
+        statusFilter: z.array(HealthCheckStatusSchema).optional(),
         limit: z.number().optional().default(10),
         offset: z.number().optional().default(0),
         sortOrder: z.enum(["asc", "desc"]),

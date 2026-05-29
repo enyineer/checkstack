@@ -1,0 +1,1 @@
+ALTER TABLE "system_health_checks" ADD COLUMN "notification_policy" jsonb;

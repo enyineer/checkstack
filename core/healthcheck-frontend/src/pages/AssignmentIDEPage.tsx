@@ -6,10 +6,14 @@ import { SatelliteApi } from "@checkstack/satellite-common";
 import {
   DEFAULT_STATE_THRESHOLDS,
   DEFAULT_RETENTION_CONFIG,
+  DEFAULT_NOTIFICATION_POLICY,
 } from "@checkstack/healthcheck-common";
-import type { StateThresholds } from "@checkstack/healthcheck-common";
+import type {
+  StateThresholds,
+  NotificationPolicy,
+} from "@checkstack/healthcheck-common";
 import { PageLayout, IDELayout, useToast, BackLink, Button } from "@checkstack/ui";
-import { Settings, Plus } from "lucide-react";
+import { Settings, Plus, Bell } from "lucide-react";
 import { extractErrorMessage, resolveRoute } from "@checkstack/common";
 import { catalogRoutes } from "@checkstack/catalog-common";
 import { healthcheckRoutes } from "@checkstack/healthcheck-common";
@@ -25,6 +29,8 @@ import {
   type RetentionData,
 } from "../components/assignments/RetentionPanel";
 import { ExecutionPanel } from "../components/assignments/ExecutionPanel";
+import { NotificationsPanel } from "../components/assignments/NotificationsPanel";
+import { PlatformDefaultsDialog } from "../components/assignments/PlatformDefaultsDialog";
 import { AssignmentIDEPanelSlot } from "../slots";
 
 // =============================================================================
@@ -32,12 +38,22 @@ import { AssignmentIDEPanelSlot } from "../slots";
 // =============================================================================
 
 function parseNodeId(nodeId: AssignmentNodeId): {
-  panel: "general" | "thresholds" | "retention" | "execution";
+  panel:
+    | "general"
+    | "thresholds"
+    | "retention"
+    | "execution"
+    | "notifications";
   configId: string;
 } {
   const [panel, ...rest] = nodeId.split(":") as [string, ...string[]];
   return {
-    panel: panel as "general" | "thresholds" | "retention" | "execution",
+    panel: panel as
+      | "general"
+      | "thresholds"
+      | "retention"
+      | "execution"
+      | "notifications",
     configId: rest.join(":"),
   };
 }
@@ -80,6 +96,16 @@ const AssignmentIDEPageContent = () => {
   const [retentionData, setRetentionData] = useState<
     Record<string, RetentionData>
   >({});
+  const [localNotificationPolicy, setLocalNotificationPolicy] = useState<
+    Record<string, NotificationPolicy>
+  >({});
+  const [platformDefaultsOpen, setPlatformDefaultsOpen] = useState(false);
+
+  // Platform notification defaults — used as the fallback for any
+  // assignment that hasn't overridden them. Refetched whenever the
+  // platform-defaults dialog closes so changes propagate immediately.
+  const { data: platformDefaults } =
+    healthCheckClient.getPlatformNotificationDefaults.useQuery();
 
   const configs = useMemo(
     () => configurationsData?.configurations ?? [],
@@ -214,6 +240,7 @@ const AssignmentIDEPageContent = () => {
         stateThresholds: assoc.stateThresholds,
         satelliteIds: assoc.satelliteIds,
         includeLocal: assoc.includeLocal,
+        notificationPolicy: assoc.notificationPolicy,
       },
     });
   };
@@ -238,6 +265,9 @@ const AssignmentIDEPageContent = () => {
           configurationId: configId,
           enabled: assoc.enabled,
           stateThresholds: thresholds,
+          satelliteIds: assoc.satelliteIds,
+          includeLocal: assoc.includeLocal,
+          notificationPolicy: assoc.notificationPolicy,
         },
       },
       {
@@ -251,6 +281,96 @@ const AssignmentIDEPageContent = () => {
         },
       },
     );
+  };
+
+  const handleNotificationPolicyChange = (
+    configId: string,
+    policy: NotificationPolicy,
+  ) => {
+    setLocalNotificationPolicy((prev) => ({ ...prev, [configId]: policy }));
+  };
+
+  const handleSaveNotificationPolicy = (configId: string) => {
+    if (!systemId) return;
+    const assoc = associations.find((a) => a.configurationId === configId);
+    if (!assoc) return;
+    const policy =
+      localNotificationPolicy[configId] ??
+      assoc.notificationPolicy ??
+      platformDefaults ??
+      DEFAULT_NOTIFICATION_POLICY;
+
+    associateMutation.mutate(
+      {
+        systemId,
+        body: {
+          configurationId: configId,
+          enabled: assoc.enabled,
+          stateThresholds: assoc.stateThresholds,
+          satelliteIds: assoc.satelliteIds,
+          includeLocal: assoc.includeLocal,
+          notificationPolicy: policy,
+        },
+      },
+      {
+        onSuccess: () => {
+          toast.success("Notification policy saved");
+          setLocalNotificationPolicy((prev) => {
+            const next = { ...prev };
+            delete next[configId];
+            return next;
+          });
+        },
+      },
+    );
+  };
+
+  /**
+   * Revert this assignment to platform defaults. Sends an undefined
+   * `notificationPolicy` which is persisted as null and re-resolves to
+   * the platform defaults on the next read.
+   */
+  const handleUseDefaultsForAssignment = (configId: string) => {
+    if (!systemId) return;
+    const assoc = associations.find((a) => a.configurationId === configId);
+    if (!assoc) return;
+
+    associateMutation.mutate(
+      {
+        systemId,
+        body: {
+          configurationId: configId,
+          enabled: assoc.enabled,
+          stateThresholds: assoc.stateThresholds,
+          satelliteIds: assoc.satelliteIds,
+          includeLocal: assoc.includeLocal,
+          notificationPolicy: undefined,
+        },
+      },
+      {
+        onSuccess: () => {
+          toast.success("Reverted to platform defaults");
+          setLocalNotificationPolicy((prev) => {
+            const next = { ...prev };
+            delete next[configId];
+            return next;
+          });
+        },
+      },
+    );
+  };
+
+  /**
+   * Start customising — clone the current platform defaults into the
+   * draft state so the operator has a baseline to edit, then persist.
+   * The persistence step is what flips the row out of "inherit" mode.
+   */
+  const handleOverrideForAssignment = (configId: string) => {
+    const baseline = platformDefaults ?? DEFAULT_NOTIFICATION_POLICY;
+    setLocalNotificationPolicy((prev) => ({ ...prev, [configId]: baseline }));
+    // Defer the actual save: operators may want to tweak the cloned
+    // baseline before persisting. The Save button at the bottom of
+    // the panel handles it.
   };
 
   const handleToggleSatellite = (configId: string, satelliteId: string) => {
@@ -272,6 +392,7 @@ const AssignmentIDEPageContent = () => {
         stateThresholds: assoc.stateThresholds,
         satelliteIds: newIds,
         includeLocal: assoc.includeLocal,
+        notificationPolicy: assoc.notificationPolicy,
       },
     });
   };
@@ -289,6 +410,7 @@ const AssignmentIDEPageContent = () => {
         stateThresholds: assoc.stateThresholds,
         satelliteIds: assoc.satelliteIds,
         includeLocal: !assoc.includeLocal,
+        notificationPolicy: assoc.notificationPolicy,
       },
     });
   };
@@ -450,6 +572,31 @@ const AssignmentIDEPageContent = () => {
           />
         );
       }
+      case "notifications": {
+        // Is the operator actively editing a draft? Drafts are stored
+        // when override starts, so the presence of a draft AND the
+        // assignment being persisted-as-override mean the same thing.
+        const draft = localNotificationPolicy[configId];
+        const isOverridden =
+          draft !== undefined || assoc.notificationPolicy !== undefined;
+        const policy =
+          draft ??
+          assoc.notificationPolicy ??
+          platformDefaults ??
+          DEFAULT_NOTIFICATION_POLICY;
+        return (
+          <NotificationsPanel
+            policy={policy}
+            onChange={(p) => handleNotificationPolicyChange(configId, p)}
+            onSave={() => handleSaveNotificationPolicy(configId)}
+            saving={saving}
+            isLocked={isLocked}
+            isOverridden={isOverridden}
+            onOverride={() => handleOverrideForAssignment(configId)}
+            onUseDefaults={() => handleUseDefaultsForAssignment(configId)}
+          />
+        );
+      }
       default: {
         return (
           <ExtensionSlot 
@@ -482,6 +629,14 @@ const AssignmentIDEPageContent = () => {
       maxWidth="full"
       actions={
         <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setPlatformDefaultsOpen(true)}
+          >
+            <Bell className="mr-2 h-4 w-4" />
+            Notification defaults
+          </Button>
           {!isLocked && systemId && (
             <Button
               size="sm"
@@ -521,6 +676,10 @@ const AssignmentIDEPageContent = () => {
           />
         }
         panel={renderPanel()}
+      />
+      <PlatformDefaultsDialog
+        open={platformDefaultsOpen}
+        onOpenChange={setPlatformDefaultsOpen}
       />
     </PageLayout>
   );

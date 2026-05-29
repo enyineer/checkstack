@@ -31,7 +31,7 @@ const HealthCheckHistoryPageContent = () => {
   );
 
   // Pagination state
-  const pagination = usePagination({ defaultLimit: 20 });
+  const pagination = usePagination({ defaultLimit: 25 });
 
   // Fetch data with useQuery - newest first for table display
   const { data, isLoading } = healthCheckClient.getDetailedHistory.useQuery({

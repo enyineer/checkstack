@@ -13,6 +13,7 @@ import type {
   HealthCheckRegistry,
   CollectorRegistry,
 } from "@checkstack/backend-api";
+import { NotificationPolicySchema } from "@checkstack/healthcheck-common";
 import { HealthCheckService } from "./service";
 import {
   DynamicOperators,
@@ -81,6 +82,29 @@ const systemHealthcheckExtensionSchema = z
       unhealthyThreshold: z.number().int().min(1).optional(),
       satelliteIds: z.array(z.string()).optional(),
       includeLocal: z.boolean().optional(),
+      /**
+       * Per-assignment notification policy. Any field omitted falls
+       * back to the platform default (see `DEFAULT_NOTIFICATION_POLICY`).
+       * Inner objects (`sustainedUnhealthyTrigger`, `flappingTrigger`)
+       * are also accepted partially.
+       */
+      notificationPolicy: NotificationPolicySchema.partial()
+        .extend({
+          sustainedUnhealthyTrigger: z
+            .object({
+              enabled: z.boolean().optional(),
+              durationMinutes: z.number().int().min(1).optional(),
+            })
+            .optional(),
+          flappingTrigger: z
+            .object({
+              enabled: z.boolean().optional(),
+              transitions: z.number().int().min(1).optional(),
+              windowMinutes: z.number().int().min(1).optional(),
+            })
+            .optional(),
+        })
+        .optional(),
     }),
   )
   .optional();
@@ -317,6 +341,15 @@ export function buildSystemHealthcheckExtension(
               }
             : undefined;
 
+        // Materialise the (possibly partial) policy through the full
+        // schema so DEFAULT_NOTIFICATION_POLICY fields fill in any
+        // keys the operator omitted. Omitting `notificationPolicy`
+        // entirely leaves the stored value as null (defaults applied
+        // at read time).
+        const notificationPolicy = entry.notificationPolicy
+          ? NotificationPolicySchema.parse(entry.notificationPolicy)
+          : undefined;
+
         await service.associateSystem({
           systemId: systemEntityId,
           configurationId: configId,
@@ -324,6 +357,7 @@ export function buildSystemHealthcheckExtension(
           stateThresholds,
           satelliteIds: entry.satelliteIds,
           includeLocal: entry.includeLocal,
+          notificationPolicy,
         });
 
         // Retrieve config to get the interval for scheduling

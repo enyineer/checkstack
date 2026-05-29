@@ -38,6 +38,9 @@
       "path": "../healthcheck-common"
     },
     {
+      "path": "../incident-backend"
+    },
+    {
       "path": "../incident-common"
     },
     {

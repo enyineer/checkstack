@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   usePluginClient,
   type SlotContext,
@@ -12,6 +13,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  Button,
 } from "@checkstack/ui";
 import { Heart } from "lucide-react";
 import { HealthCheckSparkline } from "./HealthCheckSparkline";
@@ -21,6 +23,24 @@ import type {
   StateThresholds,
   HealthCheckStatus,
 } from "@checkstack/healthcheck-common";
+
+type HealthFilter = "all" | "failing" | "healthy";
+
+const FILTERS: { value: HealthFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "failing", label: "Failing" },
+  { value: "healthy", label: "Healthy" },
+];
+
+function parseFilter(raw: string | null): HealthFilter {
+  return raw === "failing" || raw === "healthy" ? raw : "all";
+}
+
+function matchesFilter(state: HealthCheckStatus, filter: HealthFilter) {
+  if (filter === "all") return true;
+  if (filter === "healthy") return state === "healthy";
+  return state !== "healthy";
+}
 
 type SlotProps = SlotContext<typeof SystemDetailsSlot>;
 
@@ -54,6 +74,8 @@ interface HealthCheckOverviewItem {
 export function HealthCheckSystemOverview(props: SlotProps) {
   const systemId = props.system.id;
   const healthCheckClient = usePluginClient(HealthCheckApi);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const filter = parseFilter(searchParams.get("filter"));
 
   const [selectedCheck, setSelectedCheck] = useState<
     HealthCheckOverviewItem | undefined
@@ -82,6 +104,21 @@ export function HealthCheckSystemOverview(props: SlotProps) {
     }));
   }, [overviewData]);
 
+  const visible = React.useMemo(
+    () => overview.filter((item) => matchesFilter(item.state, filter)),
+    [overview, filter],
+  );
+
+  const setFilter = (next: HealthFilter) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === "all") {
+      params.delete("filter");
+    } else {
+      params.set("filter", next);
+    }
+    setSearchParams(params, { replace: true });
+  };
+
   if (initialLoading) {
     return <LoadingSpinner />;
   }
@@ -94,16 +131,46 @@ export function HealthCheckSystemOverview(props: SlotProps) {
     <>
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center gap-2">
-            <Heart className="h-4 w-4 text-muted-foreground" />
-            <CardTitle className="text-base font-semibold">
-              Health Checks
-            </CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Heart className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-base font-semibold">
+                Health Checks
+              </CardTitle>
+            </div>
+            <div
+              className="flex items-center gap-1 rounded-md border bg-muted/30 p-0.5"
+              role="tablist"
+              aria-label="Filter health checks"
+            >
+              {FILTERS.map((f) => {
+                const active = filter === f.value;
+                return (
+                  <Button
+                    key={f.value}
+                    size="sm"
+                    variant={active ? "secondary" : "ghost"}
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setFilter(f.value)}
+                    role="tab"
+                    aria-selected={active}
+                  >
+                    {f.label}
+                  </Button>
+                );
+              })}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="divide-y divide-border">
-            {overview.map((item) => (
+          {visible.length === 0 ? (
+            <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+              No health checks match the{" "}
+              <span className="font-medium">{filter}</span> filter.
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {visible.map((item) => (
               <button
                 key={item.configurationId}
                 className="w-full px-4 py-3 text-left hover:bg-muted/50 transition-colors flex items-center gap-3"
@@ -133,8 +200,9 @@ export function HealthCheckSystemOverview(props: SlotProps) {
                   {formatCompactTime(item.lastRunAt)}
                 </span>
               </button>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 

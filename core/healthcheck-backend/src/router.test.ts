@@ -62,6 +62,12 @@ describe("HealthCheck Router", () => {
     getProvenance: mock<any>(() => Promise.resolve(null)),
   };
 
+  const mockConfigService = {
+    get: mock(async () => undefined),
+    set: mock(async () => {}),
+    getRedacted: mock(async () => undefined),
+  };
+
   const router = createHealthCheckRouter({
     database: mockDb as never,
     registry: mockRegistry,
@@ -69,6 +75,7 @@ describe("HealthCheck Router", () => {
     gitOpsClient: mockGitOpsClient as never,
     getEmitHook: () => undefined,
     cache: passthroughCache,
+    configService: mockConfigService as never,
   });
 
   it("getStrategies returns strategies from registry", async () => {

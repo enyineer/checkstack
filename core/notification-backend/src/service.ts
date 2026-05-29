@@ -1,5 +1,5 @@
 import type { SafeDatabase } from "@checkstack/backend-api";
-import { eq, and, count, desc, lt } from "drizzle-orm";
+import { eq, and, count, countDistinct, desc, lt, sql } from "drizzle-orm";
 import * as schema from "./schema";
 
 // --- Internal service functions for router (not namespaced) ---
@@ -41,14 +41,21 @@ export async function getUserNotifications(
 }
 
 /**
- * Get unread count for a user
+ * Get unread count for a user, counted by collapse group so the bell
+ * badge matches the number of cards the user actually sees in the
+ * notifications list. Notifications without a collapse key each count
+ * as their own group via `COALESCE(collapse_key, id::text)`.
  */
 export async function getUnreadCount(
   db: SafeDatabase<typeof schema>,
   userId: string
 ): Promise<number> {
   const result = await db
-    .select({ count: count() })
+    .select({
+      count: countDistinct(
+        sql`COALESCE(${schema.notifications.collapseKey}, ${schema.notifications.id}::text)`
+      ),
+    })
     .from(schema.notifications)
     .where(
       and(

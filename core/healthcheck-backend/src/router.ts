@@ -7,6 +7,7 @@ import {
   type HealthCheckRegistry,
   type SafeDatabase,
   type CollectorRegistry,
+  type ConfigService,
 } from "@checkstack/backend-api";
 import { healthCheckContract } from "@checkstack/healthcheck-common";
 import type { StrategyCategory } from "@checkstack/healthcheck-common";
@@ -31,10 +32,16 @@ export const createHealthCheckRouter = (opts: {
   gitOpsClient: InferClient<typeof GitOpsApi>;
   getEmitHook: () => ((hook: { id: string }, payload: Record<string, unknown>) => Promise<void>) | undefined;
   cache: HealthCheckCache;
+  configService: ConfigService;
 }) => {
-  const { database, registry, collectorRegistry, getEmitHook, cache } = opts;
+  const { database, registry, collectorRegistry, getEmitHook, cache, configService } = opts;
   // Create service instance once - shared across all handlers
-  const service = new HealthCheckService(database, registry, collectorRegistry);
+  const service = new HealthCheckService(
+    database,
+    registry,
+    collectorRegistry,
+    configService,
+  );
 
   // Create contract implementer with context type AND auto auth middleware
   const os = implement(healthCheckContract)
@@ -221,6 +228,16 @@ export const createHealthCheckRouter = (opts: {
         });
       }
     }),
+
+    getPlatformNotificationDefaults:
+      os.getPlatformNotificationDefaults.handler(async () => {
+        return service.getPlatformNotificationDefaults();
+      }),
+
+    setPlatformNotificationDefaults:
+      os.setPlatformNotificationDefaults.handler(async ({ input }) => {
+        await service.setPlatformNotificationDefaults(input);
+      }),
 
     getRetentionConfig: os.getRetentionConfig.handler(async ({ input }) => {
       return service.getRetentionConfig(input.systemId, input.configurationId);

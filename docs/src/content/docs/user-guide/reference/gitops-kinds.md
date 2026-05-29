@@ -155,7 +155,7 @@ spec:
 
 ### `System.healthcheck` (healthcheck)
 
-Bind health checks to a system, with optional threshold overrides.
+Bind health checks to a system, with optional threshold and notification overrides.
 
 ```yaml
 apiVersion: checkstack.io/v1alpha1
@@ -166,7 +166,41 @@ spec:
     - ref: { kind: Healthcheck, name: payment-db-check }
       degradedThreshold: 2
       unhealthyThreshold: 5
+      notificationPolicy:
+        suppressDeEscalations: true
+        autoOpenIncidentOnUnhealthy: true
+        useNotificationSuppression: true
+        skipDuringMaintenance: true
+        sustainedUnhealthyTrigger:
+          enabled: true
+          durationMinutes: 30    # opens after 30 min continuous unhealthy
+        flappingTrigger:
+          enabled: true
+          transitions: 3         # OR after 3 transitions...
+          windowMinutes: 60      # ...within 60 minutes
+        autoCloseAfterMinutes: 30  # null = never auto-close
 ```
+
+The `notificationPolicy` block is per assignment — different checks on the
+same system are fully independent. Any field omitted falls back to the
+platform default. Inner objects (`sustainedUnhealthyTrigger`,
+`flappingTrigger`) are also accepted partially.
+
+Either trigger can independently open an auto-incident; both can be
+individually disabled by setting their `enabled: false`. The cooldown is
+snapshotted per-incident at open time — a later policy edit doesn't
+change in-flight incidents.
+
+> [!TIP]
+> Set `autoOpenIncidentOnUnhealthy: false` for checks that are
+> intentionally noisy (canary probes, weather-flapping endpoints) so they
+> don't open auto-incidents. Their state changes still drive the
+> dashboard; they just don't generate Jira tickets / paging.
+
+> [!NOTE]
+> If both triggers fire on the same run, the flapping reason takes the
+> incident description. The behaviour is identical either way — one
+> incident per system, attached to via `findActiveAutoIncident`.
 
 ### `System.dependencies` (dependency)
 

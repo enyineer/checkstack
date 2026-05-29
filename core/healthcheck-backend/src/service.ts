@@ -6,7 +6,16 @@ import {
   HealthCheckStatus,
   RetentionConfig,
   type HealthCheckRunResult,
+  type NotificationPolicy,
+  NotificationPolicySchema,
+  DEFAULT_NOTIFICATION_POLICY,
 } from "@checkstack/healthcheck-common";
+import type { ConfigService } from "@checkstack/backend-api";
+import {
+  notificationDefaultsConfigV1,
+  NOTIFICATION_DEFAULTS_CONFIG_ID,
+  NOTIFICATION_DEFAULTS_CONFIG_VERSION,
+} from "./notification-defaults-config";
 import {
   healthCheckConfigurations,
   systemHealthChecks,
@@ -15,7 +24,16 @@ import {
   VersionedStateThresholds,
 } from "./schema";
 import * as schema from "./schema";
-import { eq, and, InferSelectModel, desc, gte, lte, isNull } from "drizzle-orm";
+import {
+  eq,
+  and,
+  InferSelectModel,
+  desc,
+  gte,
+  lte,
+  isNull,
+  inArray,
+} from "drizzle-orm";
 import { ORPCError } from "@orpc/server";
 import { evaluateHealthStatus } from "./state-evaluator";
 import { stateThresholds } from "./state-thresholds-migrations";
@@ -57,7 +75,55 @@ export class HealthCheckService {
     private db: Db,
     private registry: HealthCheckRegistry,
     private collectorRegistry: CollectorRegistry,
+    /**
+     * Optional — only required by code paths that resolve platform
+     * defaults (notification policy fallback). When absent, callers
+     * fall back to the compile-time `DEFAULT_NOTIFICATION_POLICY`.
+     * Kept optional so existing GitOps-only / test constructions don't
+     * have to plumb it through.
+     */
+    private configService?: ConfigService,
   ) {}
+
+  /**
+   * Resolve the platform-wide notification policy defaults. Returns
+   * the compile-time defaults when no `configService` was provided or
+   * nothing has ever been persisted. Stored values are passed through
+   * the schema so missing fields default in.
+   */
+  async getPlatformNotificationDefaults(): Promise<NotificationPolicy> {
+    if (!this.configService) {
+      return DEFAULT_NOTIFICATION_POLICY;
+    }
+    const stored = await this.configService.get(
+      NOTIFICATION_DEFAULTS_CONFIG_ID,
+      notificationDefaultsConfigV1,
+      NOTIFICATION_DEFAULTS_CONFIG_VERSION,
+    );
+    return stored ?? DEFAULT_NOTIFICATION_POLICY;
+  }
+
+  /**
+   * Persist platform-wide notification policy defaults. Per-assignment
+   * rows with `notificationPolicy = null` will read the new defaults
+   * on their next evaluation. In-flight auto-incidents are unaffected
+   * (their cooldown is snapshotted per-row at open time).
+   */
+  async setPlatformNotificationDefaults(
+    policy: NotificationPolicy,
+  ): Promise<void> {
+    if (!this.configService) {
+      throw new Error(
+        "ConfigService not configured; cannot persist platform notification defaults",
+      );
+    }
+    await this.configService.set(
+      NOTIFICATION_DEFAULTS_CONFIG_ID,
+      notificationDefaultsConfigV1,
+      NOTIFICATION_DEFAULTS_CONFIG_VERSION,
+      policy,
+    );
+  }
 
   async createConfiguration(
     data: CreateHealthCheckConfiguration,
@@ -133,6 +199,7 @@ export class HealthCheckService {
     stateThresholds?: StateThresholds;
     satelliteIds?: string[];
     includeLocal?: boolean;
+    notificationPolicy?: NotificationPolicy;
   }) {
     const {
       systemId,
@@ -141,6 +208,7 @@ export class HealthCheckService {
       stateThresholds: stateThresholds_,
       satelliteIds,
       includeLocal = true,
+      notificationPolicy,
     } = props;
 
     // Wrap thresholds in versioned config if provided
@@ -156,6 +224,7 @@ export class HealthCheckService {
         stateThresholds: versionedThresholds,
         satelliteIds: satelliteIds ?? undefined,
         includeLocal,
+        notificationPolicy: notificationPolicy ?? undefined,
       })
       .onConflictDoUpdate({
         target: [
@@ -167,6 +236,7 @@ export class HealthCheckService {
           stateThresholds: versionedThresholds,
           satelliteIds: satelliteIds ?? undefined,
           includeLocal,
+          notificationPolicy: notificationPolicy ?? undefined,
           updatedAt: new Date(),
         },
       });
@@ -282,6 +352,7 @@ export class HealthCheckService {
         stateThresholds: systemHealthChecks.stateThresholds,
         satelliteIds: systemHealthChecks.satelliteIds,
         includeLocal: systemHealthChecks.includeLocal,
+        notificationPolicy: systemHealthChecks.notificationPolicy,
       })
       .from(systemHealthChecks)
       .innerJoin(
@@ -304,9 +375,53 @@ export class HealthCheckService {
         stateThresholds: thresholds,
         satelliteIds: row.satelliteIds ?? undefined,
         includeLocal: row.includeLocal,
+        notificationPolicy: row.notificationPolicy ?? undefined,
       });
     }
     return results;
+  }
+
+  /**
+   * Resolve the fully-defaulted notification policy for a single
+   * (system, configuration) association. Resolution order:
+   *
+   *   1. Per-assignment override (`systemHealthChecks.notificationPolicy`)
+   *      when non-null. Stored as a full policy; missing keys defaulted
+   *      via zod parse.
+   *   2. Platform-wide defaults via `ConfigService`.
+   *   3. Compile-time `DEFAULT_NOTIFICATION_POLICY`.
+   *
+   * The all-or-nothing semantic is intentional: assignment rows are
+   * either fully-overridden or fully-inherited from the platform.
+   * Operators can revert an override by setting the row's policy to
+   * `null`, which is the "Use platform defaults" action in the UI.
+   */
+  async getAssignmentNotificationPolicy({
+    systemId,
+    configurationId,
+  }: {
+    systemId: string;
+    configurationId: string;
+  }): Promise<NotificationPolicy> {
+    const [row] = await this.db
+      .select({
+        notificationPolicy: systemHealthChecks.notificationPolicy,
+      })
+      .from(systemHealthChecks)
+      .where(
+        and(
+          eq(systemHealthChecks.systemId, systemId),
+          eq(systemHealthChecks.configurationId, configurationId),
+        ),
+      )
+      .limit(1);
+
+    // No assignment row → use platform defaults (the only sensible
+    // value for a configuration nothing has explicitly touched).
+    if (!row || row.notificationPolicy === null) {
+      return this.getPlatformNotificationDefaults();
+    }
+    return NotificationPolicySchema.parse(row.notificationPolicy);
   }
 
   /**
@@ -489,6 +604,7 @@ export class HealthCheckService {
     startDate?: Date;
     endDate?: Date;
     sourceFilter?: string;
+    statusFilter?: HealthCheckStatus[];
     limit?: number;
     offset?: number;
     sortOrder: "asc" | "desc";
@@ -499,6 +615,7 @@ export class HealthCheckService {
       startDate,
       endDate,
       sourceFilter,
+      statusFilter,
       limit = 10,
       offset = 0,
       sortOrder,
@@ -516,6 +633,11 @@ export class HealthCheckService {
       conditions.push(isNull(healthCheckRuns.sourceId));
     } else if (sourceFilter) {
       conditions.push(eq(healthCheckRuns.sourceId, sourceFilter));
+    }
+
+    // Status filtering (e.g. only failing runs)
+    if (statusFilter && statusFilter.length > 0) {
+      conditions.push(inArray(healthCheckRuns.status, statusFilter));
     }
 
     // Build where clause
@@ -563,6 +685,7 @@ export class HealthCheckService {
     startDate?: Date;
     endDate?: Date;
     sourceFilter?: string;
+    statusFilter?: HealthCheckStatus[];
     limit?: number;
     offset?: number;
     sortOrder: "asc" | "desc";
@@ -573,6 +696,7 @@ export class HealthCheckService {
       startDate,
       endDate,
       sourceFilter,
+      statusFilter,
       limit = 10,
       offset = 0,
       sortOrder,
@@ -590,6 +714,11 @@ export class HealthCheckService {
       conditions.push(isNull(healthCheckRuns.sourceId));
     } else if (sourceFilter) {
       conditions.push(eq(healthCheckRuns.sourceId, sourceFilter));
+    }
+
+    // Status filtering (e.g. only failing runs)
+    if (statusFilter && statusFilter.length > 0) {
+      conditions.push(inArray(healthCheckRuns.status, statusFilter));
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;

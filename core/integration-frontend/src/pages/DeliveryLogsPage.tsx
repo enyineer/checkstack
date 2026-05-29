@@ -69,7 +69,7 @@ export const DeliveryLogsPage = () => {
   const [retrying, setRetrying] = useState<string>();
 
   // Pagination state
-  const pagination = usePagination({ defaultLimit: 20 });
+  const pagination = usePagination({ defaultLimit: 25 });
 
   // Fetch data with useQuery
   const { data, isLoading, refetch } =
