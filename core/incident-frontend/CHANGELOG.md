@@ -1,5 +1,13 @@
 # @checkstack/incident-frontend
 
+## 0.8.6
+
+### Patch Changes
+
+- Updated dependencies [ba07ae2]
+  - @checkstack/incident-common@1.3.0
+  - @checkstack/dashboard-frontend@0.7.6
+
 ## 0.8.5
 
 ### Patch Changes

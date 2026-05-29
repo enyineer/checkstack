@@ -1,5 +1,16 @@
 # @checkstack/maintenance-backend
 
+## 1.1.6
+
+### Patch Changes
+
+- @checkstack/backend-api@0.17.1
+- @checkstack/cache-api@0.3.5
+- @checkstack/catalog-backend@1.1.6
+- @checkstack/command-backend@0.1.30
+- @checkstack/integration-backend@0.1.30
+- @checkstack/cache-utils@0.2.10
+
 ## 1.1.5
 
 ### Patch Changes

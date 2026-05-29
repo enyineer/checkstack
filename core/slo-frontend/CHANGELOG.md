@@ -1,5 +1,13 @@
 # @checkstack/slo-frontend
 
+## 0.4.6
+
+### Patch Changes
+
+- Updated dependencies [ba07ae2]
+  - @checkstack/healthcheck-common@1.2.0
+  - @checkstack/dashboard-frontend@0.7.6
+
 ## 0.4.5
 
 ### Patch Changes

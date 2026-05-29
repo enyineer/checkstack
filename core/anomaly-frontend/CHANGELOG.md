@@ -1,5 +1,13 @@
 # @checkstack/anomaly-frontend
 
+## 0.4.6
+
+### Patch Changes
+
+- Updated dependencies [ba07ae2]
+  - @checkstack/healthcheck-common@1.2.0
+  - @checkstack/healthcheck-frontend@0.20.0
+
 ## 0.4.5
 
 ### Patch Changes
