@@ -12,6 +12,7 @@ import {
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
 import {
   automationActionExtensionPoint,
+  automationArtifactTypeExtensionPoint,
   automationTriggerExtensionPoint,
 } from "@checkstack/automation-backend";
 import {
@@ -26,7 +27,11 @@ import { catalogHooks } from "@checkstack/catalog-backend";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { resolveRoute } from "@checkstack/common";
 import { createIncidentCache } from "./cache";
-import { createIncidentActions, incidentTriggers } from "./automations";
+import {
+  createIncidentActions,
+  incidentArtifactType,
+  incidentTriggers,
+} from "./automations";
 
 // =============================================================================
 // Plugin Definition
@@ -51,6 +56,16 @@ export default createBackendPlugin({
     for (const trigger of incidentTriggers) {
       automationTriggers.registerTrigger(trigger, pluginMetadata);
     }
+
+    // Register the `incident` artifact type so `incident.create` can
+    // `produces` it and the close/update actions can `consumes` it.
+    const automationArtifactTypes = env.getExtensionPoint(
+      automationArtifactTypeExtensionPoint,
+    );
+    automationArtifactTypes.registerArtifactType(
+      incidentArtifactType,
+      pluginMetadata,
+    );
 
     let incidentCache:
       | ReturnType<typeof createIncidentCache>

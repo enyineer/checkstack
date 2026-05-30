@@ -169,4 +169,75 @@ describe("incident automation actions", () => {
       });
     });
   });
+
+  describe("incident artifact (produces / consumes)", () => {
+    it("incident.create declares produces: incident", () => {
+      const [createAction] = createIncidentActions({
+        service: makeServiceStub(),
+      });
+      expect(createAction.produces).toBe("incident");
+    });
+
+    it("incident.resolve consumes the upstream incident artifact when incidentId is omitted", async () => {
+      const resolved = {
+        id: "INC-9",
+        status: "resolved",
+        severity: "critical",
+        systemIds: ["sys-1"],
+      };
+      const service = makeServiceStub({
+        resolveIncident: mock(
+          async () => resolved,
+        ) as unknown as IncidentService["resolveIncident"],
+      });
+      const resolveAction = createIncidentActions({ service })[1];
+      expect(resolveAction.consumes).toEqual(["incident"]);
+
+      const result = await resolveAction.execute({
+        ...actionContext,
+        // No incidentId in config — falls back to the consumed artifact.
+        config: { message: "recovered" } as never,
+        consumedArtifacts: {
+          incident: { incidentId: "INC-9", status: "investigating" },
+        },
+      });
+      expect(result.success).toBe(true);
+      expect(service.resolveIncident).toHaveBeenCalledWith("INC-9", "recovered");
+    });
+
+    it("incident.resolve config incidentId takes priority over the artifact", async () => {
+      const service = makeServiceStub({
+        resolveIncident: mock(
+          async () => ({
+            id: "INC-CONFIG",
+            status: "resolved",
+            severity: "high",
+            systemIds: [],
+          }),
+        ) as unknown as IncidentService["resolveIncident"],
+      });
+      const resolveAction = createIncidentActions({ service })[1];
+      await resolveAction.execute({
+        ...actionContext,
+        config: { incidentId: "INC-CONFIG" } as never,
+        consumedArtifacts: { incident: { incidentId: "INC-ARTIFACT" } },
+      });
+      expect(service.resolveIncident).toHaveBeenCalledWith(
+        "INC-CONFIG",
+        undefined,
+      );
+    });
+
+    it("incident.resolve fails clearly when neither config nor artifact has an id", async () => {
+      const service = makeServiceStub();
+      const resolveAction = createIncidentActions({ service })[1];
+      const result = await resolveAction.execute({
+        ...actionContext,
+        config: {} as never,
+        consumedArtifacts: {},
+      });
+      expect(result.success).toBe(false);
+      expect(service.resolveIncident).not.toHaveBeenCalled();
+    });
+  });
 });
