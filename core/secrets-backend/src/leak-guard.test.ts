@@ -11,6 +11,7 @@
  * surface output below, the test fails.
  */
 import { describe, it, expect } from "bun:test";
+import { z, configString } from "@checkstack/backend-api";
 import { createSecretBackendRegistry } from "./secret-backend-registry";
 import { createActiveBackendStore } from "./active-backend";
 import { createSecretResolverService } from "./resolver-service";
@@ -157,6 +158,32 @@ describe("leak guard: Vault-backed resolution routes + masks", () => {
     });
     expect(env.TOKEN).toBe(SECRET);
     expect(masking.maskText(`x=${SECRET}`)).toBe("x=****");
+  });
+
+  it("gitops/connection-style x-secret field resolves a ${{ secrets.NAME }} reference through the active Vault backend", async () => {
+    // Mirrors how gitops descriptors and connection credentials resolve:
+    // resolveBySchema walks x-secret fields and resolves the template
+    // through whichever backend is active. With Vault active, a referenced
+    // secret originating from Vault resolves through the ONE channel.
+    const backends = createSecretBackendRegistry();
+    backends.register(localBackend());
+    backends.register(vaultBackend({ db_pass: SECRET }));
+    const resolver = createSecretResolverService({
+      secretStore: createActiveBackendStore({
+        backends,
+        getActiveBackendId: async () => "vault",
+      }),
+    });
+    const schema = z.object({
+      host: z.string(),
+      // configString({ "x-secret": true }) marks this resolvable.
+      password: configString({ "x-secret": true }),
+    });
+    const { resolved } = await resolver.resolveBySchema({
+      value: { host: "db.internal", password: "${{ secrets.db_pass }}" },
+      schema,
+    });
+    expect(resolved).toEqual({ host: "db.internal", password: SECRET });
   });
 });
 

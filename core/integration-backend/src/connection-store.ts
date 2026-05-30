@@ -17,6 +17,15 @@ import type {
   ProviderConnection,
   ProviderConnectionRedacted,
 } from "@checkstack/integration-common";
+import {
+  inflateConnectionCredentials,
+  extractInlineCredentials,
+  type ConnectionCredentialDeps,
+} from "./connection-credentials";
+import {
+  migrateConnectionCredentials,
+  type ConnectionForMigration,
+} from "./connection-credentials-migration";
 
 // Schema for connection metadata (stored separately from config)
 const ConnectionMetadataSchema = z.object({
@@ -105,12 +114,27 @@ interface ConnectionStoreDeps {
   configService: ConfigService;
   providerRegistry: IntegrationProviderRegistry;
   logger: Logger;
+  /**
+   * Unified secret-credential resolution. When provided,
+   * `getConnectionWithCredentials` inflates `x-secret` fields through the
+   * ONE secrets channel: `${{ secrets.NAME }}` references resolve via the
+   * active backend (local or Vault), inline values resolve from the local
+   * internal store. Optional so tests / older boots without the secrets
+   * platform degrade to the legacy inline-config behavior.
+   */
+  credentials?: ConnectionCredentialDeps;
 }
+
+/** The public store plus the internal one-time credential migration. */
+export type ConnectionStoreWithMigration = ConnectionStore & {
+  /** Consolidate legacy inline credentials onto the secrets platform. */
+  runCredentialMigration(): Promise<void>;
+};
 
 export function createConnectionStore(
   deps: ConnectionStoreDeps
-): ConnectionStore {
-  const { configService, providerRegistry, logger } = deps;
+): ConnectionStoreWithMigration {
+  const { configService, providerRegistry, logger, credentials } = deps;
 
   // Cache of connectionId -> providerId for efficient lookups
   const connectionProviderCache = new Map<string, string>();
@@ -243,6 +267,33 @@ export function createConnectionStore(
   }
 
   /**
+   * Persist a connection config, extracting any INLINE `x-secret` value into
+   * an internal secret first (so the stored config holds references /
+   * markers, never raw inline credentials). `${{ secrets.NAME }}`
+   * references are left as-is (they resolve via the active backend at use
+   * time). Falls back to plain storage when the credentials deps are absent.
+   */
+  async function persistConnectionConfig(
+    providerId: string,
+    connectionId: string,
+    config: Record<string, unknown>
+  ): Promise<void> {
+    const provider = providerRegistry.getProvider(providerId);
+    if (credentials && provider?.connectionSchema) {
+      const { config: rewritten } = await extractInlineCredentials({
+        providerId,
+        connectionId,
+        config,
+        schema: provider.connectionSchema.schema,
+        internalSecrets: credentials.internalSecrets,
+      });
+      await setConnectionConfig(providerId, connectionId, rewritten);
+      return;
+    }
+    await setConnectionConfig(providerId, connectionId, config);
+  }
+
+  /**
    * Delete connection config and metadata.
    */
   async function deleteConnectionData(
@@ -335,11 +386,29 @@ export function createConnectionStore(
 
       if (!metadata || !config) return;
 
+      // Inflate x-secret fields through the unified secrets channel:
+      // `${{ secrets.NAME }}` references resolve via the active backend
+      // (local or Vault); inline values resolve from the local internal
+      // store. When the credentials deps are absent (legacy / tests), the
+      // raw config is used as-is.
+      const provider = providerRegistry.getProvider(providerId);
+      let resolvedConfig = config;
+      if (credentials && provider?.connectionSchema) {
+        const inflated = await inflateConnectionCredentials({
+          providerId,
+          connectionId,
+          config,
+          schema: provider.connectionSchema.schema,
+          deps: credentials,
+        });
+        resolvedConfig = inflated.config;
+      }
+
       return {
         id: metadata.id,
         providerId: metadata.providerId,
         name: metadata.name,
-        config,
+        config: resolvedConfig,
         createdAt: metadata.createdAt,
         updatedAt: metadata.updatedAt,
       };
@@ -357,9 +426,10 @@ export function createConnectionStore(
         updatedAt: now,
       };
 
-      // Save metadata and config separately
+      // Save metadata and config separately. Inline credentials are
+      // extracted to internal secrets so the stored config holds references.
       await setConnectionMetadata(providerId, id, metadata);
-      await setConnectionConfig(providerId, id, config);
+      await persistConnectionConfig(providerId, id, config);
 
       // Add to index
       const connectionIds = await getConnectionIndex(providerId);
@@ -371,6 +441,9 @@ export function createConnectionStore(
         `Created connection "${name}" (${id}) for provider ${providerId}`
       );
 
+      // Return the caller's config as submitted (so the create call's return
+      // is consistent with what was requested). The stored form is
+      // reference-ized; the router returns the redacted preview separately.
       return { ...metadata, config };
     },
 
@@ -404,7 +477,7 @@ export function createConnectionStore(
         : existingConfig;
 
       await setConnectionMetadata(providerId, connectionId, updatedMetadata);
-      await setConnectionConfig(providerId, connectionId, updatedConfig);
+      await persistConnectionConfig(providerId, connectionId, updatedConfig);
 
       logger.info(
         `Updated connection "${updatedMetadata.name}" (${connectionId})`
@@ -458,6 +531,46 @@ export function createConnectionStore(
       }
 
       return;
+    },
+
+    // Not part of the public ConnectionStore interface (so callers are
+    // unchanged) — invoked once from afterPluginsReady to consolidate any
+    // legacy inline credentials onto the secrets platform.
+    async runCredentialMigration() {
+      if (!credentials) return;
+      await migrateConnectionCredentials({
+        configService,
+        internalSecrets: credentials.internalSecrets,
+        secretResolver: credentials.secretResolver,
+        logger,
+        loadConnections: async () => {
+          const out: ConnectionForMigration[] = [];
+          for (const provider of providerRegistry.getProviders()) {
+            if (!provider.connectionSchema) continue;
+            const ids = await getConnectionIndex(provider.qualifiedId);
+            for (const connectionId of ids) {
+              const config = await getConnectionConfigRaw(
+                provider.qualifiedId,
+                connectionId,
+              );
+              if (!config) continue;
+              out.push({
+                providerId: provider.qualifiedId,
+                connectionId,
+                schema: provider.connectionSchema.schema,
+                schemaVersion: provider.connectionSchema.version,
+                config,
+              });
+            }
+          }
+          return out;
+        },
+        persistConfig: async ({ providerId, connectionId, config }) => {
+          // The config is already reference-ized by the migration; store it
+          // verbatim (do not re-extract).
+          await setConnectionConfig(providerId, connectionId, config);
+        },
+      });
     },
   };
 }

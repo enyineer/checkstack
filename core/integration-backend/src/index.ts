@@ -23,6 +23,10 @@ import {
 } from "./connection-store";
 import { createIntegrationRouter } from "./router";
 import { registerSearchProvider } from "@checkstack/command-backend";
+import {
+  secretResolverRef,
+  internalSecretsRef,
+} from "@checkstack/secrets-backend";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Service References
@@ -62,6 +66,11 @@ export const integrationProviderExtensionPoint =
 // Plugin Definition
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+interface EnvStash {
+  /** Set in `init`, used by `afterPluginsReady` for the credential migration. */
+  runCredentialMigration?: () => Promise<void>;
+}
+
 export default createBackendPlugin({
   metadata: pluginMetadata,
 
@@ -85,16 +94,31 @@ export default createBackendPlugin({
         logger: coreServices.logger,
         rpc: coreServices.rpc,
         config: coreServices.config,
+        secretResolver: secretResolverRef,
+        internalSecrets: internalSecretsRef,
       },
-      init: async ({ logger, rpc, config, database }) => {
+      init: async ({
+        logger,
+        rpc,
+        config,
+        database,
+        secretResolver,
+        internalSecrets,
+      }) => {
         logger.debug("🔌 Initializing Integration Backend...");
 
         const connectionStore = createConnectionStore({
           configService: config,
           providerRegistry,
           logger,
+          // Unified credential resolution through the ONE secrets channel.
+          credentials: { secretResolver, internalSecrets },
         });
         env.registerService(connectionStoreRef, connectionStore);
+        // Stash the migration for afterPluginsReady (all providers + their
+        // connectionSchemas are registered only by then).
+        (env as unknown as EnvStash).runCredentialMigration = () =>
+          connectionStore.runCredentialMigration();
 
         const router = createIntegrationRouter({
           db: database,
@@ -122,6 +146,19 @@ export default createBackendPlugin({
         logger.debug(
           `📡 Integration Backend init complete with ${providerRegistry.getProviders().length} providers`,
         );
+      },
+
+      // Consolidate legacy inline connection credentials onto the secrets
+      // platform once every provider (and its connectionSchema) is
+      // registered. Idempotent + parity-verified + reversible (backup).
+      afterPluginsReady: async ({ logger }) => {
+        try {
+          await (env as unknown as EnvStash).runCredentialMigration?.();
+        } catch (error) {
+          logger.error(
+            `Connection credential migration failed: ${String(error)}`,
+          );
+        }
       },
     });
   },
