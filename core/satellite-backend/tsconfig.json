@@ -32,6 +32,12 @@
       "path": "../satellite-common"
     },
     {
+      "path": "../script-packages-backend"
+    },
+    {
+      "path": "../script-packages-common"
+    },
+    {
       "path": "../signal-common"
     },
     {

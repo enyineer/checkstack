@@ -134,6 +134,13 @@ export function createScriptPackagesRouter({
       items: await satellites.list(),
     })),
 
+    reportSatelliteSyncState: os.reportSatelliteSyncState.handler(
+      async ({ input }) => {
+        await satellites.report(input);
+        return { success: true };
+      },
+    ),
+
     // ─── Authoring / runtime ──────────────────────────────────────────────
     getInstallState: os.getInstallState.handler(async () => installState.load()),
 

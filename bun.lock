@@ -1451,6 +1451,8 @@
         "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/queue-api": "workspace:*",
         "@checkstack/satellite-common": "workspace:*",
+        "@checkstack/script-packages-backend": "workspace:*",
+        "@checkstack/script-packages-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@orpc/server": "^1.13.2",
         "drizzle-orm": "^0.45.0",

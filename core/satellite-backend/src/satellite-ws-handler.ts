@@ -46,6 +46,24 @@ export interface SatelliteResultHandler {
 }
 
 /**
+ * Optional plug-point for script-package distribution to satellites. Wired
+ * from `afterPluginsReady` against the script-packages RPC. When absent,
+ * satellites simply never receive a `scriptPackagesLockfileHash` or refresh
+ * push (graceful no-op on installs without the plugin).
+ */
+export interface SatelliteScriptPackageSink {
+  /** The desired lockfile hash to carry in assignment payloads, or null. */
+  getDesiredLockfileHash(): Promise<string | null>;
+  /** Persist a satellite's reconcile state for the admin UI. */
+  reportSyncState(input: {
+    satelliteId: string;
+    lockfileHash: string | null;
+    status: "pending" | "syncing" | "ready" | "error";
+    errorMessage?: string;
+  }): Promise<void>;
+}
+
+/**
  * Active satellite connection tracking.
  */
 interface SatelliteConnection {
@@ -73,6 +91,12 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
      * `emitHook` availability.
      */
     private connectionHookSink?: SatelliteConnectionHookSink,
+    /**
+     * Optional. When set, assignment payloads carry the desired script-package
+     * lockfile hash and the handler can push `refresh_script_packages` +
+     * persist per-satellite sync state.
+     */
+    private scriptPackageSink?: SatelliteScriptPackageSink,
   ) {}
 
   /**
@@ -146,14 +170,21 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
         // Update heartbeat on connect
         await this.service.updateHeartbeat(satellite.id, {});
 
-        // Send authenticated response with full config
+        // Send authenticated response with full config. Carry the desired
+        // script-package lockfile hash as the durable convergence backstop:
+        // a satellite that missed a refresh push reconciles on connect.
         const assignments =
           await this.configRelay.getAssignmentsForSatellite(satellite.id);
+        const scriptPackagesLockfileHash =
+          await this.resolveDesiredLockfileHash();
 
         this.sendMessage(ws, {
           type: "authenticated",
           satelliteId: satellite.id,
           assignments,
+          ...(scriptPackagesLockfileHash === undefined
+            ? {}
+            : { scriptPackagesLockfileHash }),
         });
 
         this.logger.info(
@@ -182,6 +213,23 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
           this.logger.warn(
             `Satellite ${authenticatedSatellite.name} reports strategy error: ${parsed.strategyId} - ${parsed.message}`,
           );
+          break;
+        }
+        case "script_package_sync_state": {
+          // Persist the satellite's reconcile state for the admin UI.
+          try {
+            await this.scriptPackageSink?.reportSyncState({
+              satelliteId: authenticatedSatellite.id,
+              lockfileHash: parsed.lockfileHash,
+              status: parsed.status,
+              errorMessage: parsed.errorMessage,
+            });
+          } catch (error) {
+            this.logger.error(
+              `Failed to persist script-package sync state for ${authenticatedSatellite.name}:`,
+              error,
+            );
+          }
           break;
         }
         case "authenticate": {
@@ -233,15 +281,54 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
 
     const assignments =
       await this.configRelay.getAssignmentsForSatellite(satelliteId);
+    const scriptPackagesLockfileHash = await this.resolveDesiredLockfileHash();
 
     this.sendMessage(conn.ws, {
       type: "config_updated",
       assignments,
+      ...(scriptPackagesLockfileHash === undefined
+        ? {}
+        : { scriptPackagesLockfileHash }),
     });
 
     this.logger.debug(
       `Pushed config update to satellite ${conn.satellite.name}: ${assignments.length} assignments`,
     );
+  }
+
+  /**
+   * Push a `refresh_script_packages` to every connected satellite. Called by
+   * the `script-packages.changed` broadcast handler so each core instance
+   * fans the refresh out to its own satellites. Best-effort liveness; the
+   * assignment-carried hash is the durable backstop.
+   */
+  pushRefreshScriptPackagesToAll(lockfileHash: string): void {
+    for (const conn of this.connections.values()) {
+      this.sendMessage(conn.ws, {
+        type: "refresh_script_packages",
+        lockfileHash,
+      });
+    }
+    this.logger.debug(
+      `Pushed refresh_script_packages (${lockfileHash}) to ${this.connections.size} satellite(s)`,
+    );
+  }
+
+  /**
+   * Resolve the desired lockfile hash for assignment payloads. Returns
+   * `undefined` when the sink isn't wired (so the field is omitted entirely
+   * for version-skew safety), or `string | null` from the sink.
+   */
+  private async resolveDesiredLockfileHash(): Promise<
+    string | null | undefined
+  > {
+    if (!this.scriptPackageSink) return undefined;
+    try {
+      return await this.scriptPackageSink.getDesiredLockfileHash();
+    } catch (error) {
+      this.logger.error("Failed to resolve desired lockfile hash:", error);
+      return undefined;
+    }
   }
 
   /**

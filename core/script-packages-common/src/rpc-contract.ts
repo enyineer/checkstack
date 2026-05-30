@@ -148,6 +148,27 @@ export const scriptPackagesContract = {
     access: [scriptPackagesAccess.manage],
   }).output(z.object({ items: z.array(SatelliteSyncStateSchema) })),
 
+  /**
+   * Persist a satellite's reconcile state. Called by satellite-backend
+   * (server-side, on a `script_package_sync_state` WS report) so the admin
+   * UI can show per-satellite sync status. Read-gated because it's an
+   * internal server-to-server call, not a user mutation of managed config.
+   */
+  reportSatelliteSyncState: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [scriptPackagesAccess.read],
+  })
+    .input(
+      z.object({
+        satelliteId: z.string(),
+        lockfileHash: z.string().nullable(),
+        status: z.enum(["pending", "syncing", "ready", "error"]),
+        errorMessage: z.string().optional(),
+      }),
+    )
+    .output(z.object({ success: z.boolean() })),
+
   // ─── Authoring / runtime (read) ────────────────────────────────────────
 
   getInstallState: proc({

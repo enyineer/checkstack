@@ -2,6 +2,7 @@ import { describe, it, expect, mock, beforeEach } from "bun:test";
 import {
   SatelliteWsHandler,
   type SatelliteResultHandler,
+  type SatelliteScriptPackageSink,
 } from "./satellite-ws-handler";
 import { createMockLogger } from "@checkstack/test-utils-backend";
 import type { SatelliteService } from "./service";
@@ -260,6 +261,101 @@ describe("SatelliteWsHandler", () => {
     it("should silently skip disconnected satellites", async () => {
       // No satellite connected — should not throw
       await handler.pushConfigUpdate("non-existent");
+    });
+  });
+
+  describe("script-package distribution", () => {
+    function makeSink(
+      lockfileHash: string | null,
+    ): {
+      sink: SatelliteScriptPackageSink;
+      reports: Parameters<SatelliteScriptPackageSink["reportSyncState"]>[0][];
+    } {
+      const reports: Parameters<
+        SatelliteScriptPackageSink["reportSyncState"]
+      >[0][] = [];
+      return {
+        reports,
+        sink: {
+          getDesiredLockfileHash: mock(async () => lockfileHash),
+          reportSyncState: mock(async (input) => {
+            reports.push(input);
+          }),
+        },
+      };
+    }
+
+    async function authedHandlerWithSink(lockfileHash: string | null) {
+      const { sink, reports } = makeSink(lockfileHash);
+      const h = new SatelliteWsHandler(
+        service,
+        configRelay,
+        resultHandler,
+        logger,
+        undefined,
+        sink,
+      );
+      const ws = createMockWs();
+      const { onMessage } = h.onConnection(ws);
+      await onMessage(
+        JSON.stringify({
+          type: "authenticate",
+          clientId: "sat-1",
+          token: "csat_valid-token",
+        }),
+      );
+      return { h, ws, onMessage, reports };
+    }
+
+    it("carries the desired lockfile hash in the authenticated payload", async () => {
+      const { ws } = await authedHandlerWithSink("hash-123");
+      const auth = JSON.parse(ws.messages[0]);
+      expect(auth.type).toBe("authenticated");
+      expect(auth.scriptPackagesLockfileHash).toBe("hash-123");
+    });
+
+    it("omits the hash entirely when no sink is wired (version-skew safe)", async () => {
+      // Default `handler` has no script-package sink.
+      const ws = createMockWs();
+      const { onMessage } = handler.onConnection(ws);
+      await onMessage(
+        JSON.stringify({
+          type: "authenticate",
+          clientId: "sat-1",
+          token: "csat_valid-token",
+        }),
+      );
+      const auth = JSON.parse(ws.messages[0]);
+      expect("scriptPackagesLockfileHash" in auth).toBe(false);
+    });
+
+    it("fans refresh_script_packages out to every connected satellite", async () => {
+      const { h, ws } = await authedHandlerWithSink("hash-123");
+      ws.messages.length = 0;
+
+      h.pushRefreshScriptPackagesToAll("hash-456");
+
+      expect(ws.messages).toHaveLength(1);
+      const msg = JSON.parse(ws.messages[0]);
+      expect(msg.type).toBe("refresh_script_packages");
+      expect(msg.lockfileHash).toBe("hash-456");
+    });
+
+    it("persists a satellite's reported sync state", async () => {
+      const { onMessage, reports } = await authedHandlerWithSink("hash-123");
+      await onMessage(
+        JSON.stringify({
+          type: "script_package_sync_state",
+          lockfileHash: "hash-123",
+          status: "ready",
+        }),
+      );
+      expect(reports).toHaveLength(1);
+      expect(reports[0]).toMatchObject({
+        satelliteId: "sat-1",
+        lockfileHash: "hash-123",
+        status: "ready",
+      });
     });
   });
 });

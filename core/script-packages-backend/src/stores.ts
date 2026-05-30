@@ -293,5 +293,25 @@ export function createSatelliteStateStore(db: SafeDatabase<SatelliteSchema>) {
         syncedAt: r.syncedAt,
       }));
     },
+    async report(input: {
+      satelliteId: string;
+      lockfileHash: string | null;
+      status: SatelliteSyncState["status"];
+      errorMessage?: string | null;
+    }): Promise<void> {
+      const set = {
+        lockfileHash: input.lockfileHash,
+        status: input.status,
+        errorMessage: input.errorMessage ?? null,
+        syncedAt: new Date(),
+      };
+      await db
+        .insert(scriptPackageSatelliteState)
+        .values({ satelliteId: input.satelliteId, ...set })
+        .onConflictDoUpdate({
+          target: scriptPackageSatelliteState.satelliteId,
+          set,
+        });
+    },
   };
 }
