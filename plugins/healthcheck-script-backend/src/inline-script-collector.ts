@@ -26,7 +26,10 @@ import {
 import { pluginMetadata } from "./plugin-metadata";
 import type { ScriptTransportClient } from "./transport-client";
 import { extractErrorMessage } from "@checkstack/common";
-import { secretEnvMappingSchema } from "@checkstack/secrets-common";
+import {
+  secretEnvMappingSchema,
+  maskScriptRunOutput,
+} from "@checkstack/secrets-common";
 import type { ResolutionRootStatus } from "@checkstack/script-packages-backend";
 
 // ============================================================================
@@ -63,6 +66,8 @@ export interface InlineScriptExecutor {
     runContext?: CollectorRunContext;
     /** Managed npm-package resolution root for this run, if ready. */
     resolutionRoot?: string;
+    /** Resolved secret env injected into the runner for this run only. */
+    secretEnv?: Record<string, string>;
   }): Promise<InlineScriptExecutionResult>;
 }
 
@@ -73,7 +78,14 @@ export interface InlineScriptExecutor {
  * module / global `defineHealthCheck` helper.
  */
 export const defaultInlineScriptExecutor: InlineScriptExecutor = {
-  async execute({ script, config, timeoutMs, runContext, resolutionRoot }) {
+  async execute({
+    script,
+    config,
+    timeoutMs,
+    runContext,
+    resolutionRoot,
+    secretEnv,
+  }) {
     const res: EsmScriptRunResult = await defaultEsmScriptRunner.run({
       script,
       context: {
@@ -86,6 +98,10 @@ export const defaultInlineScriptExecutor: InlineScriptExecutor = {
       helperModuleName: "@checkstack/healthcheck",
       helperFunctionName: "defineHealthCheck",
       ...(resolutionRoot ? { resolutionRoot } : {}),
+      // Inject the resolved secrets as process.env for THIS run only.
+      ...(secretEnv && Object.keys(secretEnv).length > 0
+        ? { env: secretEnv }
+        : {}),
     });
     return res;
   },
@@ -105,7 +121,7 @@ const inlineScriptConfigSchema = z.object({
   secretEnv: withConfigMeta(secretEnvMappingSchema, { "x-secret-env": true })
     .optional()
     .describe(
-      'Secret → env mapping, e.g. { "API_TOKEN": "${{ secrets.token }}" }. NOTE: collectors run on satellites; secret injection is delivered just-in-time in Phase 3. This phase only authors + validates the mapping (it is NOT injected yet).',
+      'Secret → env mapping, e.g. { "API_TOKEN": "${{ secrets.token }}" }. Only the named secrets are resolved and injected for this run (read via process.env.API_TOKEN / $API_TOKEN); on a satellite they are delivered just-in-time over the encrypted channel, never persisted. Values are masked out of the collector output.',
     ),
   timeout: requestTimeoutMs().describe("Maximum execution time in milliseconds"),
 });
@@ -279,11 +295,13 @@ export class InlineScriptCollector implements CollectorStrategy<
   async execute({
     config,
     runContext,
+    secretEnv,
   }: {
     config: InlineScriptConfig;
     client: ScriptTransportClient;
     pluginId: string;
     runContext?: CollectorRunContext;
+    secretEnv?: Record<string, string>;
   }): Promise<CollectorResult<InlineScriptResult>> {
     const startTime = Date.now();
 
@@ -304,15 +322,25 @@ export class InlineScriptCollector implements CollectorStrategy<
     const resolutionRoot =
       rootStatus?.mode === "ready" ? rootStatus.root : undefined;
 
+    // Source-side masking values: the run's delivered secret values.
+    const maskValues = Object.values(secretEnv ?? {});
+
     let exec: InlineScriptExecutionResult;
     try {
-      exec = await this.executor.execute({
+      const raw = await this.executor.execute({
         script: config.script,
         config: config as unknown as Record<string, unknown>,
         timeoutMs: config.timeout,
         runContext,
         ...(resolutionRoot ? { resolutionRoot } : {}),
+        ...(secretEnv ? { secretEnv } : {}),
       });
+      // Redact the delivered secret values from the captured output BEFORE
+      // any of it leaves the satellite (defense in depth: core masks again
+      // on receipt). A script echoing a secret it was given is masked here.
+      // `raw` carries `stdout`/`stderr` (required by ScriptRunOutput) plus
+      // `timedOut`, so the masked result keeps the full shape.
+      exec = maskScriptRunOutput({ output: raw, values: maskValues });
     } catch (error) {
       const executionTimeMs = Date.now() - startTime;
       const message = extractErrorMessage(error);

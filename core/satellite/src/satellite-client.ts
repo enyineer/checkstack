@@ -61,6 +61,15 @@ export class SatelliteClient {
     string,
     (data: string | null) => void
   >();
+  // Pending run-secret requests, keyed by requestId, resolved/rejected when
+  // the matching `run_secrets` reply arrives.
+  private readonly pendingRunSecrets = new Map<
+    string,
+    {
+      resolve: (env: Record<string, string>) => void;
+      reject: (error: Error) => void;
+    }
+  >();
 
   constructor(config: SatelliteClientConfig) {
     this.config = config;
@@ -102,6 +111,47 @@ export class SatelliteClient {
         resolve(data);
       });
       this.sendMessage({ type: "request_script_package_blob", integrity });
+    });
+  }
+
+  /**
+   * Request just-in-time secret env for a collector run from core. Core
+   * resolves the collector's declared `secretEnv` (from the satellite's own
+   * assignment) and replies with the env map. Rejects on a resolution error
+   * or timeout so the caller fails the run clearly rather than running
+   * without the secret. The returned env is held in memory only.
+   */
+  requestRunSecrets(
+    input: { configId: string; collectorId: string; runId: string },
+    timeoutMs = 30_000,
+  ): Promise<Record<string, string>> {
+    return new Promise((resolve, reject) => {
+      const requestId = crypto.randomUUID();
+      const timer = setTimeout(() => {
+        this.pendingRunSecrets.delete(requestId);
+        reject(
+          new Error(
+            `Run-secret delivery timed out for ${input.collectorId} (run ${input.runId})`,
+          ),
+        );
+      }, timeoutMs);
+      this.pendingRunSecrets.set(requestId, {
+        resolve: (env) => {
+          clearTimeout(timer);
+          resolve(env);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
+      this.sendMessage({
+        type: "request_run_secrets",
+        requestId,
+        configId: input.configId,
+        collectorId: input.collectorId,
+        runId: input.runId,
+      });
     });
   }
 
@@ -239,6 +289,22 @@ export class SatelliteClient {
       case "script_package_blob": {
         this.pendingBlob.get(msg.integrity)?.(msg.data);
         this.pendingBlob.delete(msg.integrity);
+        break;
+      }
+
+      case "run_secrets": {
+        const pending = this.pendingRunSecrets.get(msg.requestId);
+        this.pendingRunSecrets.delete(msg.requestId);
+        if (!pending) break;
+        if (msg.error !== undefined || msg.env === undefined) {
+          pending.reject(
+            new Error(
+              msg.error ?? "Required secret not available on this satellite",
+            ),
+          );
+        } else {
+          pending.resolve(msg.env);
+        }
         break;
       }
 
