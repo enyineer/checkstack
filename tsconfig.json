@@ -226,6 +226,9 @@
       "path": "./core/script-packages-store-s3"
     },
     {
+      "path": "./core/secrets-common"
+    },
+    {
       "path": "./core/signal-backend"
     },
     {

@@ -1620,6 +1620,21 @@
         "typescript": "^5.0.0",
       },
     },
+    "core/secrets-common": {
+      "name": "@checkstack/secrets-common",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkstack/common": "workspace:*",
+        "@orpc/contract": "^1.13.2",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/bun": "^1.3.5",
+        "typescript": "^5.7.2",
+      },
+    },
     "core/signal-backend": {
       "name": "@checkstack/signal-backend",
       "version": "0.2.10",
@@ -2976,6 +2991,8 @@
     "@checkstack/script-packages-store-s3": ["@checkstack/script-packages-store-s3@workspace:core/script-packages-store-s3"],
 
     "@checkstack/scripts": ["@checkstack/scripts@workspace:core/scripts"],
+
+    "@checkstack/secrets-common": ["@checkstack/secrets-common@workspace:core/secrets-common"],
 
     "@checkstack/signal-backend": ["@checkstack/signal-backend@workspace:core/signal-backend"],
 
