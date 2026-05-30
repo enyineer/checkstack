@@ -32,6 +32,7 @@ import {
   automationTriggerExtensionPoint,
 } from "@checkstack/automation-backend";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
+import { secretResolverRef } from "@checkstack/secrets-backend";
 import { createHealthCheckRouter } from "./router";
 import { HealthCheckService } from "./service";
 import {
@@ -130,6 +131,7 @@ export default createBackendPlugin({
         signalService: coreServices.signalService,
         cacheManager: coreServices.cacheManager,
         config: coreServices.config,
+        secretResolver: secretResolverRef,
       },
       // Phase 2: Register router and setup worker
       init: async ({
@@ -143,6 +145,7 @@ export default createBackendPlugin({
         signalService,
         cacheManager,
         config,
+        secretResolver,
       }) => {
         logger.debug("🏥 Initializing Health Check Backend...");
 
@@ -188,6 +191,7 @@ export default createBackendPlugin({
           incidentClient,
           getEmitHook: () => storedEmitHook,
           cache,
+          secretResolver,
         });
 
         // Setup retention job for tiered storage (daily aggregation)

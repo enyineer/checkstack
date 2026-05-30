@@ -944,6 +944,7 @@
         "@checkstack/queue-api": "workspace:*",
         "@checkstack/satellite-backend": "workspace:*",
         "@checkstack/script-packages-backend": "workspace:*",
+        "@checkstack/secrets-backend": "workspace:*",
         "@checkstack/secrets-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@hono/zod-validator": "^0.7.6",

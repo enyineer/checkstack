@@ -62,6 +62,9 @@
       "path": "../script-packages-backend"
     },
     {
+      "path": "../secrets-backend"
+    },
+    {
       "path": "../secrets-common"
     },
     {

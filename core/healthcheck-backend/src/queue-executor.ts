@@ -36,6 +36,8 @@ import { IncidentApi } from "@checkstack/incident-common";
 import { NotificationApi } from "@checkstack/notification-common";
 import { healthcheckSystemSubscription } from "@checkstack/healthcheck-common";
 import { resolveRoute, type InferClient, extractErrorMessage} from "@checkstack/common";
+import { secretEnvMappingSchema } from "@checkstack/secrets-common";
+import type { SecretResolverService } from "@checkstack/secrets-backend";
 import { HealthCheckService } from "./service";
 import { healthCheckHooks } from "./hooks";
 import { incrementHourlyAggregate } from "./realtime-aggregation";
@@ -436,6 +438,13 @@ async function executeHealthCheckJob(props: {
   incidentClient: IncidentClient;
   getEmitHook: () => EmitHookFn | undefined;
   cache: HealthCheckCache;
+  /**
+   * Central secret resolver. When set, a collector declaring a `secretEnv`
+   * has it resolved + injected for this centrally-executed run; the
+   * collector masks the values out of its output. Optional for version-skew
+   * / test isolation.
+   */
+  secretResolver?: SecretResolverService;
 }): Promise<void> {
   const {
     payload,
@@ -450,6 +459,7 @@ async function executeHealthCheckJob(props: {
     incidentClient,
     getEmitHook,
     cache,
+    secretResolver,
   } = props;
   const { configId, systemId } = payload;
 
@@ -586,11 +596,31 @@ async function executeHealthCheckJob(props: {
             const storageKey = collectorEntry.id;
 
             try {
+              // Resolve the collector's declared secretEnv for THIS run
+              // (central execution). The collector injects it and masks the
+              // values out of its output. A missing required secret throws
+              // and fails the collector clearly.
+              let secretEnv: Record<string, string> | undefined;
+              const declared = secretEnvMappingSchema.safeParse(
+                (collectorEntry.config as { secretEnv?: unknown }).secretEnv,
+              );
+              if (
+                secretResolver &&
+                declared.success &&
+                Object.keys(declared.data).length > 0
+              ) {
+                const resolved = await secretResolver.resolveForRun({
+                  secretEnv: declared.data,
+                });
+                secretEnv = resolved.env;
+              }
+
               const collectorResult = await registered.collector.execute({
                 config: collectorEntry.config,
                 client: connectedClient!.client,
                 pluginId: configRow.strategyId,
                 runContext,
+                ...(secretEnv ? { secretEnv } : {}),
               });
 
               // Check for collector-level error
@@ -1170,6 +1200,7 @@ export async function setupHealthCheckWorker(props: {
   incidentClient: IncidentClient;
   getEmitHook: () => EmitHookFn | undefined;
   cache: HealthCheckCache;
+  secretResolver?: SecretResolverService;
 }): Promise<void> {
   const {
     db,
@@ -1184,6 +1215,7 @@ export async function setupHealthCheckWorker(props: {
     incidentClient,
     getEmitHook,
     cache,
+    secretResolver,
   } = props;
 
   const queue =
@@ -1205,6 +1237,7 @@ export async function setupHealthCheckWorker(props: {
         incidentClient,
         getEmitHook,
         cache,
+        secretResolver,
       });
     },
     {
