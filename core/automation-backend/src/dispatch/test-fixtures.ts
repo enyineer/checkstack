@@ -334,17 +334,13 @@ export function createInMemoryDwellStore(): {
     d.contextKey === contextKey;
 
   const store: DwellStore = {
-    async upsert(input: UpsertDwellInput) {
+    async arm(input: UpsertDwellInput) {
+      // Insert-if-absent: preserve an existing dwell's original fireAt.
       const existing = [...dwells.values()].find((d) =>
         matchesKey(d, input.automationId, input.triggerId, input.contextKey),
       );
       if (existing) {
-        existing.eventId = input.eventId;
-        existing.armedStatus = input.armedStatus;
-        existing.payloadSnapshot = input.payloadSnapshot;
-        existing.actorSnapshot = input.actorSnapshot;
-        existing.fireAt = input.fireAt;
-        return existing.id;
+        return { id: existing.id, created: false, fireAt: existing.fireAt };
       }
       const id = `dwell-${++counter}`;
       dwells.set(id, {
@@ -359,7 +355,7 @@ export function createInMemoryDwellStore(): {
         fireAt: input.fireAt,
         createdAt: new Date(),
       });
-      return id;
+      return { id, created: true, fireAt: input.fireAt };
     },
     async load(id) {
       return dwells.get(id);

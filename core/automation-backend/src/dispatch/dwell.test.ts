@@ -158,7 +158,11 @@ describe("armDwell", () => {
     expect(queue.jobs[0]?.startDelay).toBe(30 * 60);
   });
 
-  it("re-arms (pushes fireAt) on a re-fire rather than stacking timers", async () => {
+  it("re-arm PRESERVES the original fireAt (continuous-since-first-arm), not stacking", async () => {
+    // Critical for sustained `for:`: a continuously re-firing trigger
+    // (e.g. level-triggered numeric_state every 60s with for: 10m) must
+    // NOT keep pushing the deadline, or it would never elapse. The window
+    // measures "matched continuously since first arm" (HA semantics).
     const { deps, dwells } = setup();
     const automation = buildAutomation({
       trigger: { event: EVENT, for: { minutes: 30 } },
@@ -184,7 +188,8 @@ describe("armDwell", () => {
     expect(dwells.dwells.size).toBe(1); // still one row
     const after = [...dwells.dwells.values()][0]!;
     expect(after.id).toBe(first.id);
-    expect(after.fireAt.getTime()).toBeGreaterThanOrEqual(firstFireAt);
+    // fireAt UNCHANGED — original deadline preserved.
+    expect(after.fireAt.getTime()).toBe(firstFireAt);
   });
 });
 
@@ -198,7 +203,7 @@ describe("fireDwell", () => {
     });
     const store = makeAutomationStore([automation]);
 
-    const dwellId = await deps.dwellStore.upsert({
+    const { id: dwellId } = await deps.dwellStore.arm({
       automationId: automation.id,
       triggerId: "test_event",
       eventId: EVENT,
@@ -234,7 +239,7 @@ describe("fireDwell", () => {
     });
     const store = makeAutomationStore([automation]);
 
-    const dwellId = await deps.dwellStore.upsert({
+    const { id: dwellId } = await deps.dwellStore.arm({
       automationId: automation.id,
       triggerId: "test_event",
       eventId: EVENT,
@@ -266,7 +271,7 @@ describe("fireDwell", () => {
     });
     const store = makeAutomationStore([automation]);
 
-    const dwellId = await deps.dwellStore.upsert({
+    const { id: dwellId } = await deps.dwellStore.arm({
       automationId: automation.id,
       triggerId: "test_event",
       eventId: EVENT,
@@ -298,7 +303,7 @@ describe("fireDwell", () => {
     });
     const store = makeAutomationStore([automation]);
 
-    const dwellId = await deps.dwellStore.upsert({
+    const { id: dwellId } = await deps.dwellStore.arm({
       automationId: automation.id,
       triggerId: "test_event",
       eventId: EVENT,
@@ -350,7 +355,7 @@ describe("handleTriggerFiring with for: triggers", () => {
     });
     const store = makeAutomationStore([automation]);
 
-    await deps.dwellStore.upsert({
+    await deps.dwellStore.arm({
       automationId: automation.id,
       triggerId: "test_event",
       eventId: EVENT,
@@ -410,17 +415,17 @@ describe("dwell store — keys + sweep", () => {
       payloadSnapshot: {},
       actorSnapshot: {},
     };
-    await deps.dwellStore.upsert({
+    await deps.dwellStore.arm({
       ...base,
       contextKey: "sys-1",
       fireAt: new Date(),
     });
-    await deps.dwellStore.upsert({
+    await deps.dwellStore.arm({
       ...base,
       contextKey: "sys-1",
       fireAt: new Date(),
     });
-    await deps.dwellStore.upsert({
+    await deps.dwellStore.arm({
       ...base,
       contextKey: "sys-2",
       fireAt: new Date(),
@@ -430,7 +435,7 @@ describe("dwell store — keys + sweep", () => {
 
   it("sweepExpired returns only dwells whose fireAt has passed", async () => {
     const { deps } = setup();
-    await deps.dwellStore.upsert({
+    await deps.dwellStore.arm({
       automationId: "auto-1",
       triggerId: "t",
       eventId: EVENT,
@@ -440,7 +445,7 @@ describe("dwell store — keys + sweep", () => {
       actorSnapshot: {},
       fireAt: new Date(Date.now() - 1000),
     });
-    await deps.dwellStore.upsert({
+    await deps.dwellStore.arm({
       automationId: "auto-1",
       triggerId: "t",
       eventId: EVENT,
@@ -466,7 +471,7 @@ describe("dwell store — keys + sweep", () => {
 
     // Dwell armed and already past its fireAt — simulating a queue job that
     // never arrived (process restart / Redis loss).
-    await deps.dwellStore.upsert({
+    await deps.dwellStore.arm({
       automationId: automation.id,
       triggerId: "test_event",
       eventId: EVENT,
@@ -492,7 +497,7 @@ describe("dwell store — keys + sweep", () => {
 
   it("deleteForAutomation drops every dwell for the automation", async () => {
     const { deps, dwells } = setup();
-    await deps.dwellStore.upsert({
+    await deps.dwellStore.arm({
       automationId: "auto-1",
       triggerId: "t",
       eventId: EVENT,
@@ -502,7 +507,7 @@ describe("dwell store — keys + sweep", () => {
       actorSnapshot: {},
       fireAt: new Date(),
     });
-    await deps.dwellStore.upsert({
+    await deps.dwellStore.arm({
       automationId: "auto-2",
       triggerId: "t",
       eventId: EVENT,
@@ -535,12 +540,11 @@ describe("numeric_state trigger + for: via handleTriggerFiring", () => {
     const actionsReg = createActionRegistry();
     const rec = makeRecordingAction();
     actionsReg.register(rec.definition, testPlugin);
-    const { deps, dwells, rec: _r } = (() => {
-      const d = makeDispatchDeps({ actions: actionsReg, triggers });
-      return { deps: d.deps, dwells: d.dwells, rec };
-    })();
-    void _r;
-    return { deps, dwells, rec };
+    const { deps, dwells, runs } = makeDispatchDeps({
+      actions: actionsReg,
+      triggers,
+    });
+    return { deps, dwells, runs, rec };
   }
 
   function numericAutomation(forDwell: boolean): Automation {
@@ -648,5 +652,62 @@ describe("numeric_state trigger + for: via handleTriggerFiring", () => {
 
     expect(dwells.dwells.size).toBe(0);
     expect(rec.calls).toHaveLength(0);
+  });
+
+  it("headline: repeated above-threshold firings fire the dwell exactly ONCE at first_arm + duration, not pushed indefinitely", async () => {
+    // The bug this guards: a level-triggered numeric_state fires on EVERY
+    // check completion above threshold (e.g. every 60s). With for: 10m,
+    // re-arming must NOT push fireAt forward, or the window never elapses.
+    const { deps, dwells, rec, runs } = setupNumeric();
+    const store = makeAutomationStore([numericAutomation(true)]);
+
+    const fireOnce = () =>
+      handleTriggerFiring({
+        deps,
+        automationStore: store,
+        qualifiedEventId: NUMERIC_EVENT,
+        triggerPayload: {
+          systemId: "sys-1",
+          configurationId: "c",
+          status: "degraded",
+          latencyMs: 600,
+        },
+        actor: SYSTEM_ACTOR,
+        contextKey: "sys-1",
+      });
+
+    // First above-threshold completion arms the dwell.
+    await fireOnce();
+    expect(dwells.dwells.size).toBe(1);
+    const armed = [...dwells.dwells.values()][0]!;
+    const originalFireAt = armed.fireAt.getTime();
+
+    // Many more above-threshold completions arrive within the window. Each
+    // re-arm is a continuation and must preserve the original deadline.
+    for (let i = 0; i < 20; i++) {
+      await fireOnce();
+    }
+    expect(dwells.dwells.size).toBe(1);
+    expect([...dwells.dwells.values()][0]!.fireAt.getTime()).toBe(
+      originalFireAt,
+    );
+    expect(rec.calls).toHaveLength(0); // still dwelling, no run yet
+
+    // Simulate the window elapsing (fireAt now in the past) and the
+    // sweeper picking up the expired dwell.
+    [...dwells.dwells.values()][0]!.fireAt = new Date(Date.now() - 1000);
+    const sweeper = startStalledSweeper({
+      deps,
+      automationStore: store,
+      logger: deps.logger,
+    });
+    await sweeper.sweep();
+    sweeper.stop();
+
+    // Fired exactly once; dwell consumed.
+    expect(rec.calls).toHaveLength(1);
+    expect(rec.calls[0]?.value).toBe("fired");
+    expect(runs.runs.size).toBe(1);
+    expect(dwells.dwells.size).toBe(0);
   });
 });

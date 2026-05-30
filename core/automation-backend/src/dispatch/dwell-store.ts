@@ -44,33 +44,28 @@ function keyWhere(
 
 export function createDwellStore(db: SafeDatabase<Schema>): DwellStore {
   return {
-    async upsert(input: UpsertDwellInput): Promise<string> {
-      const set = {
-        eventId: input.eventId,
-        armedStatus: input.armedStatus,
-        payloadSnapshot: input.payloadSnapshot,
-        actorSnapshot: input.actorSnapshot,
-        fireAt: input.fireAt,
-      };
+    async arm(input: UpsertDwellInput) {
+      // Insert-if-absent. A dwell already armed for this key is preserved
+      // UNCHANGED — its original `fireAt` stands so the `for:` window
+      // measures "continuously matched since first arm", not "since the
+      // most recent matching event". (A genuine recover-then-recur deletes
+      // the row first via inverse-cancel / re-confirm, starting fresh.)
 
-      // Null context keys are "distinct" to a Postgres unique index, so
-      // ON CONFLICT would never match them and duplicate null-key dwells
-      // would stack. Handle that case with an explicit find-then-update.
-      if (input.contextKey === null) {
-        const [existing] = await db
-          .select({ id: automationDwellTimers.id })
-          .from(automationDwellTimers)
-          .where(keyWhere(input.automationId, input.triggerId, null))
-          .limit(1);
-        if (existing) {
-          await db
-            .update(automationDwellTimers)
-            .set(set)
-            .where(eq(automationDwellTimers.id, existing.id));
-          return existing.id;
-        }
+      // Fast path: if a row already exists for the key, return it untouched.
+      // (Also covers the null-context-key case where ON CONFLICT can't
+      // match, since NULLs are distinct in a Postgres unique index.)
+      const [existing] = await db
+        .select()
+        .from(automationDwellTimers)
+        .where(keyWhere(input.automationId, input.triggerId, input.contextKey))
+        .limit(1);
+      if (existing) {
+        return { id: existing.id, created: false, fireAt: existing.fireAt };
       }
 
+      // No row yet — INSERT. ON CONFLICT DO NOTHING guards the race where a
+      // concurrent arm inserted between our SELECT and INSERT; in that case
+      // `returning` is empty and we re-read the winner's row.
       const [row] = await db
         .insert(automationDwellTimers)
         .values({
@@ -83,17 +78,26 @@ export function createDwellStore(db: SafeDatabase<Schema>): DwellStore {
           actorSnapshot: input.actorSnapshot,
           fireAt: input.fireAt,
         })
-        .onConflictDoUpdate({
+        .onConflictDoNothing({
           target: [
             automationDwellTimers.automationId,
             automationDwellTimers.triggerId,
             automationDwellTimers.contextKey,
           ],
-          set,
         })
-        .returning({ id: automationDwellTimers.id });
-      if (!row) throw new Error("upsert dwell: insert returned no rows");
-      return row.id;
+        .returning();
+      if (row) {
+        return { id: row.id, created: true, fireAt: row.fireAt };
+      }
+
+      // Lost the race — another arm won. Re-read the existing row.
+      const [winner] = await db
+        .select()
+        .from(automationDwellTimers)
+        .where(keyWhere(input.automationId, input.triggerId, input.contextKey))
+        .limit(1);
+      if (!winner) throw new Error("arm dwell: row vanished after conflict");
+      return { id: winner.id, created: false, fireAt: winner.fireAt };
     },
 
     async load(id) {

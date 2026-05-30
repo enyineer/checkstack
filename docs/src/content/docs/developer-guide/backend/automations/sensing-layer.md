@@ -60,7 +60,7 @@ actions:
 
 How it works:
 
-- When the trigger fires and its `filter` passes, the engine arms (or re-arms) a row in `automation_dwell_timers`, snapshotting the system's current status, and enqueues an `automation-dwell` wake job with the matching delay. No run starts yet. A re-fire pushes the deadline rather than stacking timers (unique on `(automationId, triggerId, contextKey)`).
+- When the trigger fires and its `filter` passes, the engine arms a row in `automation_dwell_timers` (unique on `(automationId, triggerId, contextKey)`), snapshotting the system's current status, and enqueues an `automation-dwell` wake job with the matching delay. No run starts yet. Arming is idempotent: a re-fire while the dwell is still armed PRESERVES the original deadline rather than pushing it, so the window measures "continuously matched since first arm" (HA semantics). This is essential for continuously-firing triggers like a level-triggered `numeric_state` - pushing the deadline on every check would mean it never elapses. A genuine recover-then-recur deletes the row first (re-confirm / inverse-cancel), so a fresh window starts then.
 - At expiry the dwell re-confirms the system is STILL in the status it was in when armed (via the health-state provider). Only then does it evaluate the automation's pre-run conditions and start the run. A recovery within the window therefore cancels the pending fire even without an explicit inverse event.
 - Cancellation is DB-side: deleting the dwell row makes the queue job no-op when it pops (queue jobs are not cancellable). A state-change event that contradicts an armed dwell (e.g. `system.healthy` after a `system.degraded` dwell on the same system) eagerly deletes the row.
 
@@ -89,6 +89,8 @@ actions:
 
 > [!NOTE]
 > v1 is level-triggered: it fires on every completed check whose field is past the threshold. Use `mode: single` and/or a `for:` dwell to avoid alert storms - false-to-true edge de-duplication is a later refinement.
+>
+> With a `for:` dwell, the window is "continuously above the threshold since first arm" only to the resolution of the cancel signals: a brief dip below the threshold *within* the window is not detected, because `numeric_state` only emits above-threshold events and so produces no below-threshold cancel. The dwell still re-confirms current health status at expiry (so a recovered system won't fire), but precise mid-window numeric edge-cancel is a later refinement. For a true "below threshold cancels" window, model recovery as a separate inverse trigger/automation.
 
 ## Duration filters
 

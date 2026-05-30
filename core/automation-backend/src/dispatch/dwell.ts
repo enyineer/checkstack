@@ -71,7 +71,7 @@ export async function armDwell(args: ArmDwellArgs): Promise<void> {
   });
 
   const fireAt = new Date(Date.now() + forMs);
-  const dwellId = await deps.dwellStore.upsert({
+  const { id: dwellId, created } = await deps.dwellStore.arm({
     automationId: automation.id,
     triggerId,
     eventId,
@@ -82,13 +82,25 @@ export async function armDwell(args: ArmDwellArgs): Promise<void> {
     fireAt,
   });
 
+  // Continuation: a dwell is already armed for this key. Its original
+  // deadline + queue job stand, so the `for:` window measures "since
+  // first arm" (HA semantics). Re-arming MUST NOT push `fireAt`, or a
+  // continuously re-firing trigger (e.g. level-triggered numeric_state)
+  // would never elapse.
+  if (!created) {
+    deps.logger.debug(
+      `Dwell for ${automation.id}/${triggerId} already armed; preserving original deadline`,
+    );
+    return;
+  }
+
   const queue = deps.queueManager.getQueue<DwellFireJob>(DWELL_QUEUE_NAME);
   await queue.enqueue(
     { dwellId },
     {
       startDelay: Math.ceil(forMs / 1000),
-      // Stable per (automation, trigger, contextKey) so a re-arm replaces
-      // rather than stacking jobs (dedup-only enqueue, constraint 2).
+      // Stable per (automation, trigger, contextKey) — the sweeper is the
+      // backstop if the job is ever lost.
       jobId: `${automation.id}:${triggerId}:${contextKey ?? "_"}`,
     },
   );

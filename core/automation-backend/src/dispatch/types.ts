@@ -272,6 +272,7 @@ export interface LoadedWaitLock {
 
 // ─── Dwell-timer store interface ─────────────────────────────────────────
 
+/** Candidate dwell to arm. `fireAt` is used only on a fresh INSERT. */
 export interface UpsertDwellInput {
   automationId: string;
   triggerId: string;
@@ -296,6 +297,22 @@ export interface LoadedDwell {
   createdAt: Date;
 }
 
+/** Result of an idempotent {@link DwellStore.arm}. */
+export interface ArmDwellResult {
+  id: string;
+  /**
+   * True when a NEW dwell row was inserted; false when a dwell already
+   * existed for the key and was preserved unchanged.
+   */
+  created: boolean;
+  /**
+   * The row's `fireAt` — for a continuation this is the ORIGINAL arm
+   * deadline, NOT the incoming candidate, so a `for:` window measures
+   * "continuously matched since first arm" (HA semantics).
+   */
+  fireAt: Date;
+}
+
 /**
  * Persistence for pre-run `for:` dwell timers. The dwell row is the
  * source of truth; the `automation-dwell` queue job is just the wake
@@ -303,11 +320,19 @@ export interface LoadedDwell {
  */
 export interface DwellStore {
   /**
-   * Arm or re-arm a dwell. Upserts on the unique
-   * `(automationId, triggerId, contextKey)` key — a re-fire pushes
-   * `fireAt` and refreshes the snapshot. Returns the row id.
+   * Arm a dwell idempotently on the unique
+   * `(automationId, triggerId, contextKey)` key.
+   *
+   *   - No row exists → INSERT with the supplied `fireAt` + snapshot.
+   *   - A row already exists → preserve it UNCHANGED (same `fireAt`).
+   *
+   * This is the correct `for:` semantic: a re-fire while the dwell is
+   * still armed must NOT push the deadline forward, or a continuously
+   * re-firing trigger (e.g. a level-triggered numeric_state) would never
+   * elapse. A genuine recover-then-recur deletes the row first (via
+   * inverse-cancel / re-confirm), so a fresh window starts then.
    */
-  upsert(input: UpsertDwellInput): Promise<string>;
+  arm(input: UpsertDwellInput): Promise<ArmDwellResult>;
   load(id: string): Promise<LoadedDwell | undefined>;
   /** Look up the single dwell for a key, if armed. */
   findByKey(
