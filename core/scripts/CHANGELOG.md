@@ -1,5 +1,12 @@
 # @checkstack/scripts
 
+## 0.3.4
+
+### Patch Changes
+
+- Updated dependencies [6d52276]
+  - @checkstack/common@0.12.0
+
 ## 0.3.3
 
 ### Patch Changes

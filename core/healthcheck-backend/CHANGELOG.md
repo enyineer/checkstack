@@ -1,5 +1,217 @@
 # @checkstack/healthcheck-backend
 
+## 1.3.0
+
+### Minor Changes
+
+- 41c77f4: feat(automation): type enum-able trigger/artifact fields as enums for editor value autocompletion
+
+  The automation editor's staged completion offers concrete values after a
+  comparator (`{{ trigger.payload.severity == "high" }}`) only when the
+  field's JSON Schema carries an `enum`. Several trigger payload + artifact
+  schemas declared closed-set fields as loose `z.string()`, so no values
+  were suggested. Tightened them to the canonical enums that already
+  existed in each plugin's `-common` package (and matched the hook payload
+  types in lockstep so the trigger's `payloadSchema` and `hook` keep the
+  same `TPayload`):
+
+  - **incident** — trigger payloads: `severity` → `IncidentSeverityEnum`,
+    `status` / `statusChange` → `IncidentStatusEnum`.
+  - **healthcheck** — trigger payloads: `previousStatus` / `newStatus` /
+    `status` → `HealthCheckStatusSchema` (across systemDegraded,
+    systemHealthy, systemHealthChanged, checkFailed; plus checkCompleted's
+    hook type).
+  - **dependency** — trigger + artifact: `impactType` → `ImpactTypeSchema`;
+    impactPropagated `previousState` / `newState` → `DerivedStateSchema`.
+    Also deduped the inline `impactTypeSchema` action-config enum to reuse
+    the canonical `ImpactTypeSchema`.
+  - **maintenance** — trigger + artifact: `status` →
+    `MaintenanceStatusEnum`; deduped the inline `maintenanceStatusEnum`
+    (used by `add_update.statusChange`) to the canonical one.
+  - **slo** — `achievement.unlocked` trigger + hook: `achievement` →
+    `AchievementTypeSchema`.
+
+  Runtime behaviour is unchanged — these fields always carried valid enum
+  values (the underlying records are enum-constrained); only the schema
+  types were loose. The hook payload generics are now precise too, which
+  caught one stale test fixture asserting an invalid `impactType: "soft"`.
+
+  Fields that look enum-ish but are genuinely free-form were intentionally
+  left as `z.string()`: satellite `region` (user-entered), Jira issue
+  `status` (per-instance workflow name), notification `strategyQualifiedId`
+  / `errorMessage`, healthcheck collector `result`, and script
+  `stdout` / `stderr`.
+
+- 41c77f4: feat(healthcheck): Phase 9 — run_now / enable / disable actions + umbrella health-changed trigger
+
+  - New hook `healthCheckHooks.systemHealthChanged`, an umbrella variant
+    of `systemDegraded` + `systemHealthy` that fires on **every**
+    aggregated-health transition (with both `previousStatus` and
+    `newStatus`). Emitted alongside the directional hooks at both
+    emission sites in `queue-executor.ts`, so existing subscribers keep
+    working unchanged.
+  - New hook `healthCheckHooks.checkFailed` — fires alongside the
+    existing `checkCompleted` whenever an individual run's status
+    isn't `healthy`. Exists as a narrow alternative so an automation
+    doesn't need "trigger on completion → filter by status" — useful
+    for incident-style flows.
+  - New hook `healthCheckHooks.flappingDetected` — fires from inside
+    the auto-incident evaluator whenever the unhealthy-transition count
+    crosses `policy.flappingTrigger.transitions` within
+    `policy.flappingTrigger.windowMinutes`, regardless of whether
+    `autoOpenIncidentOnUnhealthy` is enabled. Carries the observed
+    count + window so subscribers can reason about both. Re-fires on
+    every additional transition past the threshold while the check
+    stays flapping — debounce on `(systemId, configurationId)` if
+    "page once and only once" is wanted.
+  - Triggers `healthcheck.system_degraded`,
+    `healthcheck.system_healthy`, the umbrella
+    `healthcheck.system_health_changed`, plus the new
+    `healthcheck.check_failed` and `healthcheck.flapping_detected`.
+    Inline trigger registrations moved out of `register()` into
+    `automations.ts`.
+  - Actions `healthcheck.run_now` (enqueues a one-off job on the
+    shared `HEALTH_CHECK_QUEUE`), `healthcheck.enable_assignment`, and
+    `healthcheck.disable_assignment`. The enable/disable actions use a
+    new service method `setAssignmentEnabled(systemId, configurationId,
+enabled)` that flips just the `enabled` flag without touching
+    thresholds / satellite assignment / notification policy. Both fire
+    the existing `assignmentChanged` hook so the satellite config relay
+    picks up the change.
+  - Artifact type `healthcheck.assignment` for downstream steps to
+    consume.
+
+  `HEALTH_CHECK_QUEUE` is exported so the `run_now` action can enqueue
+  without re-importing the recurring-job factory.
+
+- 35bc682: feat(healthcheck): expose check + system run-context to script collectors
+
+  Script health checks can now read which check and system a run is for.
+  Previously shell scripts got only a curated env whitelist and inline
+  scripts only `context.config`, so a script had no built-in way to know
+  its own check name or the system it was checking.
+
+  - `@checkstack/backend-api`: new `CollectorRunContext` type
+    (`{ check: { id, name, intervalSeconds }, system: { id, name } }`) and
+    an optional `runContext` param on `CollectorStrategy.execute`. Optional,
+    so existing collector implementations are unaffected.
+  - Shell-script collector: injects reserved `CHECKSTACK_CHECK_ID`,
+    `CHECKSTACK_CHECK_NAME`, `CHECKSTACK_CHECK_INTERVAL_SECONDS`,
+    `CHECKSTACK_SYSTEM_ID`, `CHECKSTACK_SYSTEM_NAME` env vars (user-supplied
+    `env` still wins on collision).
+  - Inline-script collector: exposes `context.check` and `context.system`
+    alongside `context.config`; the inline-script editor now types them for
+    autocomplete.
+  - Shell editors (health-check collectors and automation shell actions) now
+    also suggest the user's own `env` (JSON) keys as `$NAME` completions, via
+    the new exported `customShellEnvVars` helper. Keys that aren't valid shell
+    identifiers are omitted.
+  - Fix: the Typefox `CodeEditor` captured a stale `onChange` at editor start,
+    so editing one `DynamicForm` field reverted sibling fields changed since
+    mount (e.g. typing in a shell `script` field wiped an unsaved `env` value,
+    or deleted a sibling automation action added after mount). The change
+    handler now routes through a ref to the current `onChange`.
+  - Fix: focusing a JSON editor threw "LanguageStatusService.addStatus is not
+    supported" because the standalone service set omitted `ILanguageStatusService`.
+    That one service is now registered via `serviceOverrides`.
+  - Fix: the automation trigger card nested a `<Badge>` (a `<div>`) inside a
+    `<p>`, producing a `validateDOMNesting` warning. Switched the wrapper to a
+    `<div>`.
+  - Local runs (`queue-executor`) and satellite runs both populate the
+    context. `SatelliteAssignment` (and the `getAssignmentsForSatellite`
+    RPC output) gained optional `configName` / `systemName` so the metadata
+    reaches satellite-side execution; `HealthCheckService` resolves the
+    system name via the catalog client.
+
+  BREAKING CHANGE: `createHealthCheckRouter` now requires a `catalogClient`
+  option (used to resolve system names for satellite assignments). Update
+  call sites to pass the catalog RPC client.
+
+### Patch Changes
+
+- 41c77f4: feat(automation): one-time migration of webhook subscriptions + remove legacy integration backend
+
+  **BREAKING CHANGES** (platform is in BETA — no major bump):
+
+  - `IntegrationProvider` no longer carries `config` (subscription
+    config) or `deliver`. The interface now models a connection provider
+    only: connection schema + `getConnectionOptions` + `testConnection`.
+  - The legacy subscription / delivery-log / event endpoints
+    (`listSubscriptions`, `createSubscription`, `getDeliveryLogs`,
+    `listEventTypes`, …) are removed from `integrationContract`.
+  - `delivery-coordinator`, `hook-subscriber`, `event-registry`, and the
+    `integrationEventExtensionPoint` are deleted. Plugins that
+    previously called `integrationEvents.registerEvent(...)` now
+    register their hooks as automation triggers via
+    `automationTriggerExtensionPoint.registerTrigger(...)`.
+  - Frontend pages `IntegrationsPage` and `DeliveryLogsPage` are gone;
+    the integration plugin's only remaining UI is connection
+    management. Subscription management lives under `/automation/...`.
+  - `webhook_subscriptions` and `delivery_logs` tables stay in the
+    database for one release as a safety net (no code reads or writes
+    them), and will be dropped in a follow-up migration.
+
+  **New**:
+
+  - `jira.create_issue`, `teams.post_message`, `webex.post_message`,
+    `webhook.send`, `integration-script.run_shell`, and
+    `integration-script.run_script` actions registered against the
+    Automation Platform with matching `*.message`, `*.delivery`,
+    `shell.result`, and `script.result` artifact types. The script
+    plugin exposes **two** actions — `run_shell` runs bash via the
+    shared `ShellScriptRunner` (Monaco `shell` editor), `run_script`
+    runs an ESM module in a Bun subprocess via `EsmScriptRunner`
+    (Monaco `typescript` editor + `defineIntegration` helper) — to
+    preserve the legacy provider split. `jira.create_issue` keeps the
+    dynamic field-mapping dropdown (driven by
+    `JIRA_RESOLVERS.FIELD_OPTIONS`).
+  - One-time data migration runs on boot in
+    `automation-backend.afterPluginsReady`. It reads
+    `webhook_subscriptions` via a new service RPC
+    `IntegrationApi.listLegacySubscriptions`, translates each row into
+    a single-trigger / single-action automation (marked with
+    `managed_by = "migrated-subscription:<id>"`), and is idempotent
+    across restarts.
+  - Failed translations are recorded in a new
+    `automation_migration_failures` table and surfaced via
+    `AutomationApi.listMigrationFailures` /
+    `acknowledgeMigrationFailure` so admins can review and re-create
+    failed entries by hand.
+
+- Updated dependencies [e2d6f25]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [e1a2077]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [6d52276]
+- Updated dependencies [6d52276]
+- Updated dependencies [35bc682]
+  - @checkstack/automation-backend@0.2.0
+  - @checkstack/incident-backend@1.3.0
+  - @checkstack/catalog-backend@1.2.0
+  - @checkstack/satellite-backend@0.4.0
+  - @checkstack/common@0.12.0
+  - @checkstack/backend-api@0.18.0
+  - @checkstack/healthcheck-common@1.3.0
+  - @checkstack/catalog-common@2.2.3
+  - @checkstack/incident-common@1.3.1
+  - @checkstack/maintenance-common@1.2.3
+  - @checkstack/command-backend@0.1.31
+  - @checkstack/gitops-backend@0.3.7
+  - @checkstack/gitops-common@0.4.2
+  - @checkstack/notification-common@1.2.1
+  - @checkstack/signal-common@0.2.5
+  - @checkstack/cache-api@0.3.6
+  - @checkstack/queue-api@0.3.6
+  - @checkstack/cache-utils@0.2.11
+
 ## 1.2.0
 
 ### Minor Changes

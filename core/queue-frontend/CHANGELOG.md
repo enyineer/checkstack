@@ -1,5 +1,25 @@
 # @checkstack/queue-frontend
 
+## 0.4.6
+
+### Patch Changes
+
+- Updated dependencies [e2d6f25]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [4832e33]
+- Updated dependencies [6d52276]
+- Updated dependencies [35bc682]
+- Updated dependencies [c39ee69]
+  - @checkstack/frontend-api@0.6.0
+  - @checkstack/ui@1.11.0
+  - @checkstack/common@0.12.0
+  - @checkstack/infrastructure-common@0.3.3
+  - @checkstack/queue-common@0.5.2
+  - @checkstack/signal-frontend@0.1.5
+
 ## 0.4.5
 
 ### Patch Changes

@@ -1,5 +1,15 @@
 # @checkstack/slo-common
 
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies [e2d6f25]
+- Updated dependencies [6d52276]
+  - @checkstack/frontend-api@0.6.0
+  - @checkstack/common@0.12.0
+  - @checkstack/signal-common@0.2.5
+
 ## 0.4.1
 
 ### Patch Changes
