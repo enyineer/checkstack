@@ -31,6 +31,11 @@ import {
   SelectValue,
   SelectContent,
   SelectItem,
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+  ConfirmationModal,
   usePerformance,
   cn,
 } from "@checkstack/ui";
@@ -69,6 +74,7 @@ const SettingsContent: React.FC = () => {
   const [name, setName] = React.useState("");
   const [version, setVersion] = React.useState("");
   const [migrateTarget, setMigrateTarget] = React.useState<string>("");
+  const [confirmMigrate, setConfirmMigrate] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   if (accessLoading) return <LoadingSpinner />;
@@ -109,6 +115,7 @@ const SettingsContent: React.FC = () => {
 
   const handleMigrate = async () => {
     setError(null);
+    setConfirmMigrate(false);
     if (!migrateTarget) return;
     try {
       const res = await migrateMutation.mutateAsync({ target: migrateTarget });
@@ -249,132 +256,178 @@ const SettingsContent: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Registry + storage summary (read-only here; edited via dedicated controls) */}
+      {/* Advanced configuration — collapsed by default so the common case
+          (install state + allowlist above) stays the focus. Registry /
+          storage are read-only summaries; the storage section also holds
+          the rare, destructive migrate flow behind a confirmation modal. */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Registry &amp; storage</CardTitle>
+          <CardTitle className="text-base">Advanced</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <div>
-            <span className="text-muted-foreground">Registry: </span>
-            <span className="font-mono">{registryQuery.data?.registryUrl}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Ignore install scripts:</span>
-            <Toggle
-              checked={registryQuery.data?.ignoreScripts ?? true}
-              disabled
-              onCheckedChange={() => {}}
-            />
-          </div>
-          <div>
-            <span className="text-muted-foreground">Auth token: </span>
-            {registryQuery.data?.hasAuthToken ? "configured" : "none"}
-          </div>
-        </CardContent>
-      </Card>
+        <CardContent>
+          <Accordion type="multiple" className="w-full">
+            <AccordionItem value="registry" className="border-b">
+              <AccordionTrigger className="text-sm hover:no-underline">
+                Registry &amp; storage
+              </AccordionTrigger>
+              <AccordionContent className="space-y-2 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Registry: </span>
+                  <span className="font-mono">
+                    {registryQuery.data?.registryUrl}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">
+                    Ignore install scripts:
+                  </span>
+                  <Toggle
+                    checked={registryQuery.data?.ignoreScripts ?? true}
+                    disabled
+                    onCheckedChange={() => {}}
+                  />
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Auth token: </span>
+                  {registryQuery.data?.hasAuthToken ? "configured" : "none"}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
 
-      {/* Storage backend + migration */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Storage backend</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Active backend:</span>
-            <Badge variant="secondary">{storage?.activeBackend}</Badge>
-            {migrating && (
-              <Badge variant="secondary">
-                <RefreshCw
-                  className={cn(
-                    "mr-1 h-3 w-3",
-                    !isLowPower && "animate-spin",
+            <AccordionItem value="storage" className="border-b">
+              <AccordionTrigger className="text-sm hover:no-underline">
+                <span className="flex items-center gap-2">
+                  Storage backend
+                  {migrating && (
+                    <Badge variant="secondary" className="font-normal">
+                      <RefreshCw
+                        className={cn(
+                          "mr-1 h-3 w-3",
+                          !isLowPower && "animate-spin",
+                        )}
+                      />
+                      migrating
+                    </Badge>
                   )}
-                />
-                migrating to {storage?.migrationTarget} ({storage?.migratedCount}{" "}
-                copied)
-              </Badge>
-            )}
-          </div>
+                </span>
+              </AccordionTrigger>
+              <AccordionContent className="space-y-3 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Active backend:</span>
+                  <Badge variant="secondary">{storage?.activeBackend}</Badge>
+                  {migrating && (
+                    <Badge variant="secondary">
+                      <RefreshCw
+                        className={cn(
+                          "mr-1 h-3 w-3",
+                          !isLowPower && "animate-spin",
+                        )}
+                      />
+                      migrating to {storage?.migrationTarget} (
+                      {storage?.migratedCount} copied)
+                    </Badge>
+                  )}
+                </div>
 
-          {storage?.migrationStatus === "error" && storage.migrationError && (
-            <p className="text-xs text-destructive">
-              Migration failed: {storage.migrationError}
-            </p>
-          )}
-          {storage?.migrationStatus === "completed" && (
-            <p className="text-xs text-emerald-600">
-              Migration complete. Active backend is now {storage.activeBackend}.
-            </p>
-          )}
+                {storage?.migrationStatus === "error" &&
+                  storage.migrationError && (
+                    <p className="text-xs text-destructive">
+                      Migration failed: {storage.migrationError}
+                    </p>
+                  )}
+                {storage?.migrationStatus === "completed" && (
+                  <p className="text-xs text-emerald-600">
+                    Migration complete. Active backend is now{" "}
+                    {storage.activeBackend}.
+                  </p>
+                )}
 
-          {/* Migrate: copy all blobs to a target backend, then flip. */}
-          {migrationTargets.length > 0 && (
-            <div className="flex items-end gap-2">
-              <div className="w-48">
-                <Label htmlFor="migrate-target">Migrate blobs to</Label>
-                <Select
-                  value={migrateTarget}
-                  onValueChange={setMigrateTarget}
-                  disabled={migrating}
-                >
-                  <SelectTrigger id="migrate-target">
-                    <SelectValue placeholder="Select target backend" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {migrationTargets.map((b) => (
-                      <SelectItem key={b} value={b}>
-                        {b}
-                      </SelectItem>
+                {/* Migrate: copy all blobs to a target backend, then flip.
+                    Guarded by a confirmation modal so the destructive flow
+                    is never a single stray click. */}
+                {migrationTargets.length > 0 && (
+                  <div className="flex items-end gap-2">
+                    <div className="w-48">
+                      <Label htmlFor="migrate-target">Migrate blobs to</Label>
+                      <Select
+                        value={migrateTarget}
+                        onValueChange={setMigrateTarget}
+                        disabled={migrating}
+                      >
+                        <SelectTrigger id="migrate-target">
+                          <SelectValue placeholder="Select target backend" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {migrationTargets.map((b) => (
+                            <SelectItem key={b} value={b}>
+                              {b}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      type="button"
+                      onClick={() => setConfirmMigrate(true)}
+                      disabled={
+                        !migrateTarget || migrating || migrateMutation.isPending
+                      }
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      Migrate
+                    </Button>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Migration copies every blob to the target, verifies each by
+                  content hash, then atomically switches the active backend.
+                  Reads fall back across both backends while it runs, so
+                  scripts keep working. Installs are paused during a migration.
+                </p>
+              </AccordionContent>
+            </AccordionItem>
+
+            {satellites.length > 0 && (
+              <AccordionItem value="satellites" className="border-b-0">
+                <AccordionTrigger className="text-sm hover:no-underline">
+                  Satellite sync
+                </AccordionTrigger>
+                <AccordionContent>
+                  <ul className="divide-y divide-border rounded-md border border-border">
+                    {satellites.map((s) => (
+                      <li
+                        key={s.satelliteId}
+                        className="flex items-center justify-between px-3 py-2 text-sm"
+                      >
+                        <span className="font-mono">{s.satelliteId}</span>
+                        <Badge
+                          variant={
+                            s.status === "error" ? "destructive" : "secondary"
+                          }
+                        >
+                          {s.status}
+                        </Badge>
+                      </li>
                     ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                type="button"
-                onClick={handleMigrate}
-                disabled={!migrateTarget || migrating || migrateMutation.isPending}
-              >
-                <RefreshCw className="h-4 w-4" />
-                Migrate
-              </Button>
-            </div>
-          )}
-          <p className="text-xs text-muted-foreground">
-            Migration copies every blob to the target, verifies each by
-            content hash, then atomically switches the active backend. Reads
-            fall back across both backends while it runs, so scripts keep
-            working. Installs are paused during a migration.
-          </p>
+                  </ul>
+                </AccordionContent>
+              </AccordionItem>
+            )}
+          </Accordion>
         </CardContent>
       </Card>
-
-      {/* Satellite sync */}
-      {satellites.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Satellite sync</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="divide-y divide-border rounded-md border border-border">
-              {satellites.map((s) => (
-                <li
-                  key={s.satelliteId}
-                  className="flex items-center justify-between px-3 py-2 text-sm"
-                >
-                  <span className="font-mono">{s.satelliteId}</span>
-                  <Badge
-                    variant={s.status === "error" ? "destructive" : "secondary"}
-                  >
-                    {s.status}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
       </div>
+
+      <ConfirmationModal
+        isOpen={confirmMigrate}
+        onClose={() => setConfirmMigrate(false)}
+        onConfirm={handleMigrate}
+        title="Migrate storage backend"
+        message={`Copy every blob to "${migrateTarget}", verify by content hash, then atomically switch the active backend. Installs are paused until the migration completes. Continue?`}
+        confirmText="Migrate"
+        variant="warning"
+        isLoading={migrateMutation.isPending}
+      />
     </PageLayout>
   );
 };
