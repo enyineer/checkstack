@@ -29,6 +29,9 @@
       "path": "../healthcheck-common"
     },
     {
+      "path": "../integration-backend"
+    },
+    {
       "path": "../integration-common"
     },
     {
@@ -39,6 +42,9 @@
     },
     {
       "path": "../script-packages-backend"
+    },
+    {
+      "path": "../secrets-backend"
     },
     {
       "path": "../secrets-common"

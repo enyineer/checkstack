@@ -313,7 +313,9 @@
       },
       "devDependencies": {
         "@checkstack/drizzle-helper": "workspace:*",
+        "@checkstack/integration-backend": "workspace:*",
         "@checkstack/scripts": "workspace:*",
+        "@checkstack/secrets-backend": "workspace:*",
         "@checkstack/test-utils-backend": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
         "@types/node": "^20.0.0",
@@ -1138,6 +1140,8 @@
         "@checkstack/common": "workspace:*",
         "@checkstack/integration-common": "workspace:*",
         "@checkstack/queue-api": "workspace:*",
+        "@checkstack/secrets-backend": "workspace:*",
+        "@checkstack/secrets-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@orpc/server": "^1.13.2",
         "drizzle-orm": "^0.45.0",

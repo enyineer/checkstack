@@ -212,6 +212,7 @@ export {
   type SecretStore,
   type SecretResolutionResult,
 } from "./secret-resolver";
+export { walkSecretFields } from "./walk-secret-fields";
 export {
   createSecretResolverService,
   type SecretResolverService,

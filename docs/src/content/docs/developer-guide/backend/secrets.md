@@ -126,6 +126,10 @@ There is no `getSecret` / `resolveSecret` on the browser-facing contract. Resolu
 
 `maskSecrets({ text, values })` replaces every literal occurrence of each known secret value with `****`, skipping trivially short values (under 4 chars) to avoid over-masking. A run-scoped `SecretMaskingContext` holds only the run's resolved values (least privilege), and `maskScriptRunOutput` applies redaction to a run's `result` / `stdout` / `stderr` / `error` at the output boundary before it is persisted or returned. This is wired into the automation `run_script` / `run_shell` actions and the in-UI test panel, so even a script that echoes a secret it was given is redacted.
 
+### Run-wide masking at the persistence choke point
+
+Source-side masking covers script and collector output, but a run also writes step `result_payload` / `error_message` and a run-level `error_message` for EVERY action (provider calls, `log`, etc.), and a provider HTTP error could embed a resolved connection credential. So the automation dispatch run accumulates every secret value it resolves into a run-scoped registry (`RunSecretRegistry`): the engine wraps each run's `getService` so resolving the secret resolver or the connection store registers the resolved values (least-privilege, in memory only, dropped when the run goes terminal). The run-state store then masks step + run output with these values BEFORE persisting, so every downstream read / DTO / run-detail page is masked by construction. This is the run-wide net; the script / satellite-collector source-side masking stays as defense in depth.
+
 ```ts
 import { maskSecrets } from "@checkstack/secrets-common";
 
@@ -148,8 +152,16 @@ Some secrets back a specific feature rather than being user-managed named secret
 
 The script-package registry auth token is stored this way. The `script_package_registry_config.authSecretRef` column holds a stable marker (the internal secret name) once the token lives in the platform; a one-time, idempotent, parity-verified migration moves any legacy inline ciphertext into the internal store and only rewrites the column after the platform copy reads back identically (so the legacy value is never dropped prematurely). Resolution falls back to decrypting legacy ciphertext until the migration runs.
 
-> [!NOTE]
-> Integration connection credentials are NOT migrated onto the secrets platform. They are stored per-connection via `ConfigService` using each provider's `connectionSchema` (which marks credential fields `x-secret`), so they already share the local backend's exact AES-GCM crypto, and ConfigService's per-field redaction (`getRedacted`) is what keeps `listConnections` safe. Splitting the co-mingled secret/non-secret config into separate platform secrets would require per-provider schema-walking and a lossy migration across every live connection, with no real gain, so the `ConnectionStore` public API and storage are unchanged. The one hardening applied here: `createConnection` / `updateConnection` now return the redacted preview instead of echoing the submitted credential fields.
+## Connection credentials through the unified channel
+
+Integration connection credentials resolve through the SAME secrets channel, so a credential can originate from Vault and a connection's credential resolution never drifts from a parallel code path. The provider's `connectionSchema` already marks credential fields `x-secret`; the shared `walkSecretFields` machinery (the same walk behind `resolveSecretsBySchema`) acts only on those fields. There are two entry forms:
+
+- **Reference form:** the field holds a `${{ secrets.NAME }}` template, resolved through the ACTIVE backend (local or Vault) via `secretResolverRef`. This is the "credential originates from Vault" capability.
+- **Inline form:** an operator-typed value is extracted into an internal secret on the local backend, and the stored config keeps only an internal-reference marker. It resolves via `internalSecretsRef`.
+
+`getConnectionWithCredentials` inflates both forms; `listConnections` / `getConnection` stay redacted (a reference shows the reference, an inline shows the redacted marker, never resolved plaintext). The `ConnectionStore` public API is unchanged, and `createConnection` / `updateConnection` return the redacted preview (never echo submitted credentials).
+
+A one-time, idempotent, parity-verified, REVERSIBLE migration (run in `afterPluginsReady`, once every provider's `connectionSchema` is registered) walks each existing connection, backs up its raw config to a backup `ConfigService` entry, extracts inline `x-secret` values into internal secrets, and rewrites the stored config to the reference form. It only rewrites a connection after inflating the rewritten config back and confirming it resolves to the SAME values as the original, so no live connection breaks and no value is dropped before its platform copy is proven identical. Connections already in reference form are skipped.
 
 ## Migration from GitOps
 

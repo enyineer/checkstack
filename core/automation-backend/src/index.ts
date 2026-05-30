@@ -57,6 +57,11 @@ import {
 import { createDwellStore } from "./dispatch/dwell-store";
 import { createRunStore } from "./dispatch/run-state";
 import { createRunStateStore } from "./dispatch/run-state-store";
+import { createRunSecretRegistry } from "./dispatch/run-secret-registry";
+import {
+  SECRET_RESOLVER_REF_ID,
+  CONNECTION_STORE_REF_ID,
+} from "./dispatch/secret-ref-ids";
 import {
   startStalledSweeper,
   type StalledSweeper,
@@ -226,7 +231,11 @@ export default createBackendPlugin({
         gitopsDb = database as SafeDatabase<typeof schema>;
 
         const artifactStore = createArtifactStore(database);
-        const runStore = createRunStore(database, logger);
+        // Run-scoped secret registry: accumulates every secret value
+        // resolved during a run so the run store masks step / run output
+        // before persistence (run-wide leak guard across ALL actions).
+        const secretRegistry = createRunSecretRegistry();
+        const runStore = createRunStore(database, logger, secretRegistry);
         const runStateStore = createRunStateStore(database, advisoryLock);
         const dwellStore = createDwellStore(database);
         const automationStore = createAutomationStore(database);
@@ -305,6 +314,12 @@ export default createBackendPlugin({
               "getService not yet wired — automation dispatch invoked too early",
             );
           },
+          // Run-wide secret masking: the engine wraps each run's getService
+          // to register resolved secrets here, and the run store masks step
+          // / run output before persistence.
+          secretRegistry,
+          secretResolverRefId: SECRET_RESOLVER_REF_ID,
+          connectionStoreRefId: CONNECTION_STORE_REF_ID,
         };
 
         const stash = env as unknown as EnvStash;

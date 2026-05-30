@@ -21,6 +21,8 @@
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/command-backend": "workspace:*",
+    "@checkstack/secrets-common": "workspace:*",
+    "@checkstack/secrets-backend": "workspace:*",
     "drizzle-orm": "^0.45.0",
     "zod": "^4.2.1",
     "@orpc/server": "^1.13.2"

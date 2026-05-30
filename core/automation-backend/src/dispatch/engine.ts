@@ -67,6 +67,7 @@ import type {
 
 import type { ActionRunScope } from "../action-types";
 import { detectActionKind, type ActionKind } from "./action-kind";
+import { wrapGetServiceForRun } from "./run-secret-registry";
 import { evaluateCondition } from "./condition";
 import { parseActionPath } from "./path-nav";
 import {
@@ -91,6 +92,35 @@ import {
   type SequenceOutcome,
   type StepOutcome,
 } from "./types";
+
+/**
+ * Per-run deps whose `getService` registers every resolved secret value
+ * into the run-scoped secret registry (for run-wide output masking). When
+ * the registry / ref-ids aren't configured (tests / minimal installs),
+ * the deps pass through unchanged.
+ */
+function withRunSecretCapture(
+  deps: DispatchDeps,
+  runId: string,
+): DispatchDeps {
+  if (
+    !deps.secretRegistry ||
+    !deps.secretResolverRefId ||
+    !deps.connectionStoreRefId
+  ) {
+    return deps;
+  }
+  return {
+    ...deps,
+    getService: wrapGetServiceForRun({
+      getService: deps.getService,
+      runId,
+      registry: deps.secretRegistry,
+      resolverRefId: deps.secretResolverRefId,
+      connectionStoreRefId: deps.connectionStoreRefId,
+    }),
+  };
+}
 
 /** Name of the durable queue we use for crash-safe delays. */
 export const DELAY_QUEUE_NAME = "automation-delay";
@@ -157,7 +187,7 @@ export async function dispatchTrigger(
   });
 
   const ctx: DispatchContext = {
-    deps,
+    deps: withRunSecretCapture(deps, runId),
     run: {
       runId,
       automation: args.automation,
@@ -283,7 +313,7 @@ export async function resumeRun(
     await deps.runStateStore.heartbeat(args.runId);
 
     const ctx: DispatchContext = {
-      deps,
+      deps: withRunSecretCapture(deps, args.runId),
       run: {
         runId: args.runId,
         automation: args.automation,
@@ -347,7 +377,7 @@ export async function recoverStalledRun(
   await deps.runStateStore.heartbeat(args.runId);
 
   const ctx: DispatchContext = {
-    deps,
+    deps: withRunSecretCapture(deps, args.runId),
     run: {
       runId: args.runId,
       automation: args.automation,

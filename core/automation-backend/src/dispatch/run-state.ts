@@ -26,6 +26,7 @@ import type {
   WaitLockKind,
 } from "./types";
 import { parseWaitConfig } from "./snapshots";
+import type { RunSecretRegistry } from "./run-secret-registry";
 
 type Schema = {
   automationRuns: typeof automationRuns;
@@ -63,6 +64,14 @@ function activeRunsPredicate(
 export function createRunStore(
   db: SafeDatabase<Schema>,
   logger?: Logger,
+  /**
+   * Run-scoped secret values accumulated during dispatch. When provided,
+   * step `resultPayload` / `errorMessage` and run-level `errorMessage` are
+   * masked (Jenkins-style, by-value) BEFORE persistence, so no resolved
+   * secret can reach a DTO / run-detail page. Optional so tests / older
+   * boots degrade to no masking.
+   */
+  secretRegistry?: RunSecretRegistry,
 ): RunStore {
   return {
     async createRun(input: CreateRunInput): Promise<string> {
@@ -87,14 +96,22 @@ export function createRunStore(
         status === "failed" ||
         status === "cancelled" ||
         status === "skipped";
+      // Mask the run-level error before persisting (a provider HTTP error
+      // could embed a resolved credential).
+      const maskedError =
+        errorMessage === undefined
+          ? null
+          : (secretRegistry?.maskText(runId, errorMessage) ?? errorMessage);
       await db
         .update(automationRuns)
         .set({
           status,
-          errorMessage: errorMessage ?? null,
+          errorMessage: maskedError,
           finishedAt: isTerminal ? new Date() : null,
         })
         .where(eq(automationRuns.id, runId));
+      // Drop the run's accumulated mask set once it is terminal (memory-only).
+      if (isTerminal) secretRegistry?.drop(runId);
     },
 
     async loadRun(runId: string): Promise<LoadedRun | undefined> {
@@ -173,6 +190,9 @@ export function createRunStore(
         })
         .returning({ id: automationRunSteps.id });
       if (!row) throw new Error("createStep: insert returned no rows");
+      // Link the step to its run so updateStep (which carries only stepId)
+      // can find the run's mask set.
+      secretRegistry?.linkStep(row.id, input.runId);
       return row.id;
     },
 
@@ -181,10 +201,23 @@ export function createRunStore(
         patch.status === "success" ||
         patch.status === "failed" ||
         patch.status === "skipped";
+      // Mask resolved secret values out of the step output BEFORE persist —
+      // this is the run-wide choke point covering ALL actions (provider,
+      // log, etc.), not just the script/collector source-side masking.
+      const maskedError =
+        patch.errorMessage === undefined
+          ? null
+          : (secretRegistry?.maskTextForStep(stepId, patch.errorMessage) ??
+            patch.errorMessage);
+      const maskedPayload =
+        patch.resultPayload === undefined
+          ? null
+          : (secretRegistry?.maskDeepForStep(stepId, patch.resultPayload) ??
+            patch.resultPayload);
       const set: Record<string, unknown> = {
         status: patch.status,
-        errorMessage: patch.errorMessage ?? null,
-        resultPayload: patch.resultPayload ?? null,
+        errorMessage: maskedError,
+        resultPayload: maskedPayload,
       };
       if (isTerminal) set.finishedAt = new Date();
       if (patch.incrementAttempts) {
