@@ -375,8 +375,13 @@ export interface DwellStore {
     triggerId: string,
     contextKey: string | null,
   ): Promise<LoadedDwell | undefined>;
-  /** Delete one dwell (cancellation / fire). Idempotent. */
-  delete(id: string): Promise<void>;
+  /**
+   * Delete one dwell (cancellation / fire). Idempotent. Returns `true`
+   * only if THIS call deleted the row, so a caller can use the delete as
+   * an atomic claim: whoever gets `true` owns the fire, racing callers
+   * (a second pod, or the sweeper vs the queue consumer) get `false`.
+   */
+  delete(id: string): Promise<boolean>;
   /** Delete by key (early cancel on the inverse signal). Idempotent. */
   deleteByKey(
     automationId: string,

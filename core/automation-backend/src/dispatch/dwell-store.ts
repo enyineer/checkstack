@@ -119,9 +119,16 @@ export function createDwellStore(db: SafeDatabase<Schema>): DwellStore {
     },
 
     async delete(id) {
-      await db
+      // `RETURNING id` makes the delete an atomic claim: exactly one
+      // concurrent caller sees a returned row (the row the DB actually
+      // removed), every other caller gets an empty result. `fireDwell`
+      // relies on this so two pods (or the sweeper vs the queue consumer)
+      // can't both fire the same dwell.
+      const deleted = await db
         .delete(automationDwellTimers)
-        .where(eq(automationDwellTimers.id, id));
+        .where(eq(automationDwellTimers.id, id))
+        .returning({ id: automationDwellTimers.id });
+      return deleted.length > 0;
     },
 
     async deleteByKey(automationId, triggerId, contextKey) {

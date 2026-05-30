@@ -162,9 +162,18 @@ export interface FireDwellArgs {
 export async function fireDwell(args: FireDwellArgs): Promise<void> {
   const { deps, automationStore, dwell, startRun } = args;
 
-  // Delete-first makes firing idempotent: whoever wins the delete owns
-  // the fire; a racing consumer/sweeper finds no row and no-ops.
-  await deps.dwellStore.delete(dwell.id);
+  // Delete-first makes firing idempotent AND mutually exclusive: the
+  // delete is an atomic claim (DELETE ... RETURNING), so only the caller
+  // whose delete actually removed the row proceeds. A racing
+  // consumer/sweeper (even on another pod) gets `false` and no-ops,
+  // preventing a double-fire.
+  const claimed = await deps.dwellStore.delete(dwell.id);
+  if (!claimed) {
+    deps.logger.debug(
+      `Dwell ${dwell.id} already claimed by a concurrent fire; skipping`,
+    );
+    return;
+  }
 
   const automation = await automationStore.getById(dwell.automationId);
   if (!automation || automation.status !== "enabled") {

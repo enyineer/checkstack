@@ -294,6 +294,52 @@ describe("fireDwell", () => {
     expect(rec.calls).toHaveLength(0);
   });
 
+  it("two concurrent fires of the same dwell start exactly ONE run (atomic claim)", async () => {
+    // H1 regression: fireDwell deletes the row FIRST as an atomic claim
+    // (DELETE ... RETURNING). Two racing callers (e.g. the queue consumer
+    // and the stalled sweeper, or two pods) must not both startRun.
+    const { deps, dwells, rec, runs } = setup({
+      statuses: { "sys-1": "unhealthy" },
+    });
+    const automation = buildAutomation({
+      trigger: { event: EVENT, for: { minutes: 30 } },
+    });
+    const store = makeAutomationStore([automation]);
+
+    const { id: dwellId } = await deps.dwellStore.arm({
+      automationId: automation.id,
+      triggerId: "test_event",
+      eventId: EVENT,
+      contextKey: "sys-1",
+      armedStatus: "unhealthy",
+      payloadSnapshot: { id: "sys-1" },
+      actorSnapshot: SYSTEM_ACTOR as unknown as Record<string, unknown>,
+      fireAt: new Date(),
+    });
+    const dwell = (await deps.dwellStore.load(dwellId))!;
+
+    // Both callers see the same loaded dwell and race to fire it.
+    await Promise.all([
+      fireDwell({
+        deps,
+        automationStore: store,
+        dwell,
+        startRun: startRunRespectingMode,
+      }),
+      fireDwell({
+        deps,
+        automationStore: store,
+        dwell,
+        startRun: startRunRespectingMode,
+      }),
+    ]);
+
+    expect(dwells.dwells.size).toBe(0);
+    // Exactly one winner started a run / fired the action.
+    expect(rec.calls).toHaveLength(1);
+    expect(runs.runs.size).toBe(1);
+  });
+
   it("re-checks pre-run conditions at fire time", async () => {
     // condition references live health; system is healthy so it should NOT fire
     const { deps, rec } = setup({ statuses: { "sys-1": "unhealthy" } });

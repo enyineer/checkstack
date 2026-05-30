@@ -372,7 +372,9 @@ export function createInMemoryDwellStore(): {
       );
     },
     async delete(id) {
-      dwells.delete(id);
+      // Map.delete returns true only if the key existed — a faithful
+      // model of the DB's `DELETE ... RETURNING` atomic claim.
+      return dwells.delete(id);
     },
     async deleteByKey(automationId, triggerId, contextKey) {
       for (const [id, d] of dwells.entries()) {
