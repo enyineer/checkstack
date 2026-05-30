@@ -1,0 +1,113 @@
+import { extractErrorMessage } from "@checkstack/common";
+import type {
+  PackageSpec,
+  SizeCapConfig,
+} from "@checkstack/script-packages-common";
+import {
+  performInstall,
+  type BlobIndex,
+  type BlobPublisher,
+  type Resolver,
+} from "./install-service";
+import type { InstallStateStore } from "./install-state-store";
+import { evaluateSizeCap } from "./size-cap";
+
+/**
+ * Coordinates one `installNow`: installer election (advisory lock), resolve
+ * + publish, size-cap enforcement, install-state persistence, and emitting
+ * `script-packages.changed`. Refuses to run while a storage migration is in
+ * flight.
+ *
+ * All collaborators are injected so the orchestration is unit-testable
+ * without a DB, a registry, or a real blob store.
+ */
+
+export interface InstallControllerDeps {
+  installState: InstallStateStore;
+  resolver: Resolver;
+  blobStore: BlobPublisher;
+  blobIndex: BlobIndex;
+  /** Enabled allowlist + registry ignore-scripts flag at install time. */
+  loadInstallInputs(): Promise<{
+    packages: PackageSpec[];
+    ignoreScripts: boolean;
+  }>;
+  sizeCap(): Promise<SizeCapConfig>;
+  /** True while a storage migration is in flight (blocks installs). */
+  isMigrationInFlight(): Promise<boolean>;
+  /** Emit `script-packages.changed { lockfileHash }` after a successful install. */
+  emitChanged(input: { lockfileHash: string }): Promise<void>;
+  logger?: { debug(msg: string): void; error(msg: string): void };
+}
+
+export interface InstallOutcome {
+  started: boolean;
+  reason?: string;
+}
+
+/**
+ * Run an install if eligible. Returns `{ started: false, reason }` when
+ * refused (migration in flight, another installer holds the lock, or the
+ * resolved size exceeds the block threshold). The advisory lock is always
+ * released.
+ */
+export async function runInstallNow(
+  deps: InstallControllerDeps,
+): Promise<InstallOutcome> {
+  if (await deps.isMigrationInFlight()) {
+    return {
+      started: false,
+      reason: "A storage migration is in progress; try again once it completes.",
+    };
+  }
+
+  const acquired = await deps.installState.tryInstallerLock();
+  if (!acquired) {
+    return {
+      started: false,
+      reason: "Another instance is currently installing.",
+    };
+  }
+
+  try {
+    await deps.installState.setInstalling();
+
+    const { packages, ignoreScripts } = await deps.loadInstallInputs();
+    const result = await performInstall({
+      packages,
+      ignoreScripts,
+      resolver: deps.resolver,
+      blobStore: deps.blobStore,
+      blobIndex: deps.blobIndex,
+    });
+
+    const cap = await deps.sizeCap();
+    const verdict = evaluateSizeCap({
+      totalSizeBytes: result.totalSizeBytes,
+      cap,
+    });
+    if (verdict.level === "block") {
+      await deps.installState.setError(verdict.message);
+      return { started: false, reason: verdict.message };
+    }
+
+    await deps.installState.setReady({
+      lockfileHash: result.lockfileHash,
+      manifest: result.manifest,
+      totalSizeBytes: result.totalSizeBytes,
+    });
+    await deps.emitChanged({ lockfileHash: result.lockfileHash });
+
+    deps.logger?.debug(
+      `Script packages installed: ${result.manifest.length} package(s), lockfile ${result.lockfileHash}.`,
+    );
+    return { started: true };
+  } catch (error) {
+    const message = extractErrorMessage(error);
+    await deps.installState.setError(message);
+    deps.logger?.error(`Script package install failed: ${message}`);
+    return { started: false, reason: message };
+  } finally {
+    await deps.installState.releaseInstallerLock();
+  }
+}

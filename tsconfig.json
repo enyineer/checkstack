@@ -217,6 +217,9 @@
       "path": "./core/script-packages-common"
     },
     {
+      "path": "./core/script-packages-frontend"
+    },
+    {
       "path": "./core/script-packages-store-postgres"
     },
     {

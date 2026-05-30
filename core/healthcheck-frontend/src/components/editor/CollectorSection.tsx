@@ -10,6 +10,7 @@ import {
   healthcheckScriptContext,
 } from "@checkstack/ui";
 import { Trash2 } from "lucide-react";
+import { useScriptPackageTypes } from "@checkstack/script-packages-frontend";
 import { AssertionBuilder, type Assertion } from "../AssertionBuilder";
 import { createCollectorScriptTestRenderer } from "./CollectorScriptTestRenderer";
 
@@ -34,6 +35,7 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
     () => createCollectorScriptTestRenderer(entry.config),
     [entry.config],
   );
+  const { dts: packageTypes } = useScriptPackageTypes();
 
   return (
     <div className="space-y-6">
@@ -69,18 +71,30 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
               Configure how this check item behaves.
             </p>
           </div>
-          <DynamicForm
-            schema={collectorDef.configSchema}
-            value={entry.config}
-            onChange={onConfigChange}
-            onValidChange={onValidChange}
-            {...healthcheckScriptContext({
+          {(() => {
+            const ctx = healthcheckScriptContext({
               collectorConfigSchema: collectorDef.configSchema,
               // Surface the user's own `env` keys as `$`-completions.
               customEnv: entry.config.env,
-            })}
-            scriptTestRenderer={scriptTestRenderer}
-          />
+            });
+            // Append installed npm-package `.d.ts` so collector scripts get
+            // package IntelliSense on top of the `context`/config types.
+            const typeDefinitions =
+              packageTypes.length > 0
+                ? `${ctx.typeDefinitions}\n${packageTypes}`
+                : ctx.typeDefinitions;
+            return (
+              <DynamicForm
+                schema={collectorDef.configSchema}
+                value={entry.config}
+                onChange={onConfigChange}
+                onValidChange={onValidChange}
+                {...ctx}
+                typeDefinitions={typeDefinitions}
+                scriptTestRenderer={scriptTestRenderer}
+              />
+            );
+          })()}
         </div>
       )}
 
