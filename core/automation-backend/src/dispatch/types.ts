@@ -5,9 +5,14 @@
  * `@checkstack/automation-common` and the package's index re-exports.
  */
 import type { Logger, ServiceRef } from "@checkstack/backend-api";
-import type { AutomationDefinition } from "@checkstack/automation-common";
+import type {
+  AutomationDefinition,
+  Condition,
+} from "@checkstack/automation-common";
 import type { QueueManager } from "@checkstack/queue-api";
 import type { FilterRegistry } from "@checkstack/template-engine";
+import type { InferClient } from "@checkstack/common";
+import type { HealthCheckApi } from "@checkstack/healthcheck-common";
 
 import type { ActionRegistry } from "../action-registry";
 import type { ArtifactTypeRegistry } from "../artifact-type-registry";
@@ -40,6 +45,16 @@ export interface DispatchDeps {
    * and any future queue-backed continuations.
    */
   queueManager: QueueManager;
+  /**
+   * Health-check client for the sensing layer's scope pre-resolution
+   * (`enrichScopeWithState`) and the `for:` dwell re-confirm. Optional so
+   * test harnesses and minimal installs that don't sense live state can
+   * omit it — enrichment then fails open to an empty `health` namespace,
+   * and a dwell with no client re-confirms without a status gate.
+   */
+  healthCheckClient?: InferClient<typeof HealthCheckApi>;
+  /** Persistence backend for pre-run `for:` dwell timers. */
+  dwellStore: DwellStore;
 }
 
 /**
@@ -152,11 +167,27 @@ export interface RunStore {
     errorMessage?: string,
   ): Promise<void>;
   loadRun(runId: string): Promise<LoadedRun | undefined>;
-  countActiveRuns(automationId: string): Promise<number>;
-  /** Used by `mode: "single"` to detect a pre-existing run. */
-  hasActiveRun(automationId: string): Promise<boolean>;
-  /** Used by `mode: "restart"` to abort prior runs. */
-  cancelActiveRuns(automationId: string, reason: string): Promise<string[]>;
+  /**
+   * Active-run count. When `contextKey` is omitted, counts across the
+   * whole automation (the default per-automation concurrency scope);
+   * when provided (including `null`), counts only runs with that context
+   * key (the per-context-key scope).
+   */
+  countActiveRuns(
+    automationId: string,
+    contextKey?: string | null,
+  ): Promise<number>;
+  /** Used by `mode: "single"` to detect a pre-existing run. See `countActiveRuns` for `contextKey`. */
+  hasActiveRun(
+    automationId: string,
+    contextKey?: string | null,
+  ): Promise<boolean>;
+  /** Used by `mode: "restart"` to abort prior runs. See `countActiveRuns` for `contextKey`. */
+  cancelActiveRuns(
+    automationId: string,
+    reason: string,
+    contextKey?: string | null,
+  ): Promise<string[]>;
 
   // Steps
   createStep(input: CreateStepInput): Promise<string>;
@@ -180,13 +211,15 @@ export interface RunStore {
     actionPath: string,
   ): Promise<LoadedStep | undefined>;
 
-  // Wait locks (for wait_for_trigger + delay durability)
+  // Wait locks (for wait_for_trigger + delay + wait_until durability)
   createWaitLock(input: CreateWaitLockInput): Promise<string>;
   loadWaitLock(id: string): Promise<LoadedWaitLock | undefined>;
   findWaitLocksFor(
     eventId: string,
     contextKey: string | null,
   ): Promise<LoadedWaitLock[]>;
+  /** All wait locks of a given kind — powers the sweeper's `until` re-tick. */
+  findWaitLocksByKind(kind: WaitLockKind): Promise<LoadedWaitLock[]>;
   deleteWaitLock(id: string): Promise<void>;
   sweepExpiredWaitLocks(now: Date): Promise<LoadedWaitLock[]>;
 }
@@ -234,7 +267,18 @@ export interface LoadedStep {
   finishedAt: Date | null;
 }
 
-export type WaitLockKind = "trigger" | "delay";
+export type WaitLockKind = "trigger" | "delay" | "until";
+
+/**
+ * Persisted config for a `kind: "until"` wait lock. The condition can be a
+ * structured object, so it rides in the lock's `waitConfig` jsonb rather
+ * than `filterTemplate`.
+ */
+export interface UntilWaitConfig {
+  condition: Condition;
+  pollSeconds: number;
+  continueOnTimeout: boolean;
+}
 
 export interface CreateWaitLockInput {
   runId: string;
@@ -244,6 +288,8 @@ export interface CreateWaitLockInput {
   contextKey: string | null;
   filterTemplate: string | null;
   timeoutAt: Date | null;
+  /** Only set for `kind: "until"`. */
+  waitConfig?: UntilWaitConfig | null;
 }
 
 export interface LoadedWaitLock {
@@ -255,5 +301,90 @@ export interface LoadedWaitLock {
   contextKey: string | null;
   filterTemplate: string | null;
   timeoutAt: Date | null;
+  waitConfig: UntilWaitConfig | null;
   createdAt: Date;
+}
+
+// ─── Dwell-timer store interface ─────────────────────────────────────────
+
+/** Candidate dwell to arm. `fireAt` is used only on a fresh INSERT. */
+export interface UpsertDwellInput {
+  automationId: string;
+  triggerId: string;
+  eventId: string;
+  contextKey: string | null;
+  armedStatus: string | null;
+  payloadSnapshot: Record<string, unknown>;
+  actorSnapshot: Record<string, unknown>;
+  fireAt: Date;
+}
+
+export interface LoadedDwell {
+  id: string;
+  automationId: string;
+  triggerId: string;
+  eventId: string;
+  contextKey: string | null;
+  armedStatus: string | null;
+  payloadSnapshot: Record<string, unknown>;
+  actorSnapshot: Record<string, unknown>;
+  fireAt: Date;
+  createdAt: Date;
+}
+
+/** Result of an idempotent {@link DwellStore.arm}. */
+export interface ArmDwellResult {
+  id: string;
+  /**
+   * True when a NEW dwell row was inserted; false when a dwell already
+   * existed for the key and was preserved unchanged.
+   */
+  created: boolean;
+  /**
+   * The row's `fireAt` — for a continuation this is the ORIGINAL arm
+   * deadline, NOT the incoming candidate, so a `for:` window measures
+   * "continuously matched since first arm" (HA semantics).
+   */
+  fireAt: Date;
+}
+
+/**
+ * Persistence for pre-run `for:` dwell timers. The dwell row is the
+ * source of truth; the `automation-dwell` queue job is just the wake
+ * signal, and cancellation is a row delete (constraint 2).
+ */
+export interface DwellStore {
+  /**
+   * Arm a dwell idempotently on the unique
+   * `(automationId, triggerId, contextKey)` key.
+   *
+   *   - No row exists → INSERT with the supplied `fireAt` + snapshot.
+   *   - A row already exists → preserve it UNCHANGED (same `fireAt`).
+   *
+   * This is the correct `for:` semantic: a re-fire while the dwell is
+   * still armed must NOT push the deadline forward, or a continuously
+   * re-firing trigger (e.g. a level-triggered numeric_state) would never
+   * elapse. A genuine recover-then-recur deletes the row first (via
+   * inverse-cancel / re-confirm), so a fresh window starts then.
+   */
+  arm(input: UpsertDwellInput): Promise<ArmDwellResult>;
+  load(id: string): Promise<LoadedDwell | undefined>;
+  /** Look up the single dwell for a key, if armed. */
+  findByKey(
+    automationId: string,
+    triggerId: string,
+    contextKey: string | null,
+  ): Promise<LoadedDwell | undefined>;
+  /** Delete one dwell (cancellation / fire). Idempotent. */
+  delete(id: string): Promise<void>;
+  /** Delete by key (early cancel on the inverse signal). Idempotent. */
+  deleteByKey(
+    automationId: string,
+    triggerId: string,
+    contextKey: string | null,
+  ): Promise<void>;
+  /** Drop every dwell for an automation (disabled / deleted). */
+  deleteForAutomation(automationId: string): Promise<void>;
+  /** Dwells whose `fireAt` has passed — the sweeper fallback. */
+  sweepExpired(now: Date): Promise<LoadedDwell[]>;
 }

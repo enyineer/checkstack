@@ -137,6 +137,19 @@ export interface TriggerDefinition<
   hook?: Hook<TPayload>;
   /** Setup-backed flavour. */
   setup?: TriggerSetupFn<TPayload, TConfig>;
+
+  /**
+   * Optional structured config gate for hook-backed triggers. When set,
+   * the trigger fan-in calls this with the incoming payload + the
+   * per-automation trigger `config` BEFORE starting a run; a `false`
+   * result skips the firing for that automation (in addition to, and
+   * before, the operator's template `filter`).
+   *
+   * Used by structured triggers like `numeric_state` whose firing depends
+   * on typed config (`field` / `above` / `below`) rather than a
+   * hand-written filter expression. Pure + synchronous — no I/O.
+   */
+  evaluateConfig?: (payload: TPayload, config: TConfig) => boolean;
 }
 
 export interface RegisteredTrigger<TPayload = unknown, TConfig = unknown>

@@ -26,6 +26,7 @@ export interface JsonSchemaProperty extends JsonSchemaPropertyCore<JsonSchemaPro
   "x-searchable"?: boolean; // Shows search input for filtering dropdown options
   "x-editor-types"?: EditorType[]; // Available editor types for multi-type input
   "x-hidden-when"?: Record<string, string[]>; // Conditionally hide based on sibling field values
+  "x-duration"?: boolean; // Render a DurationInput (single-unit duration object)
 }
 
 /** Option returned by an options resolver */

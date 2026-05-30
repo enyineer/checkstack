@@ -38,7 +38,10 @@ import {
 } from "drizzle-orm";
 import { ORPCError } from "@orpc/server";
 import { evaluateHealthStatus } from "./state-evaluator";
+import { computeHealthState, type HealthState } from "./health-state";
 import { stateThresholds } from "./state-thresholds-migrations";
+import type { MaintenanceApi } from "@checkstack/maintenance-common";
+import type { Logger } from "@checkstack/backend-api";
 import { incrementHourlyAggregate } from "./realtime-aggregation";
 import type {
   HealthCheckRegistry,
@@ -61,6 +64,10 @@ type Db = SafeDatabase<typeof schema>;
 // Catalog client type used to resolve human-readable system names for
 // satellite assignment run-context. Optional on the service.
 type CatalogClient = InferClient<typeof CatalogApi>;
+
+// Maintenance client type used to fold suppression-agnostic maintenance
+// state into the health-state snapshot. Optional on the read path.
+type MaintenanceClient = InferClient<typeof MaintenanceApi>;
 
 interface SystemCheckStatus {
   configurationId: string;
@@ -437,6 +444,46 @@ export class HealthCheckService {
    * Operators can revert an override by setting the row's policy to
    * `null`, which is the "Use platform defaults" action in the UI.
    */
+  /**
+   * Every (system, configuration) assignment with its EFFECTIVE
+   * notification policy (per-assignment override, else platform
+   * defaults) + the configuration's display name. Service-typed; used by
+   * the automation platform's auto-incident migration to seed default
+   * automations whose thresholds mirror each assignment's policy 1:1.
+   */
+  async listAutoIncidentPolicies(): Promise<
+    Array<{
+      systemId: string;
+      configurationId: string;
+      configurationName: string;
+      policy: NotificationPolicy;
+    }>
+  > {
+    const rows = await this.db
+      .select({
+        systemId: systemHealthChecks.systemId,
+        configurationId: systemHealthChecks.configurationId,
+        configurationName: healthCheckConfigurations.name,
+        notificationPolicy: systemHealthChecks.notificationPolicy,
+      })
+      .from(systemHealthChecks)
+      .innerJoin(
+        healthCheckConfigurations,
+        eq(systemHealthChecks.configurationId, healthCheckConfigurations.id),
+      );
+
+    const defaults = await this.getPlatformNotificationDefaults();
+    return rows.map((row) => ({
+      systemId: row.systemId,
+      configurationId: row.configurationId,
+      configurationName: row.configurationName,
+      policy:
+        row.notificationPolicy === null
+          ? defaults
+          : NotificationPolicySchema.parse(row.notificationPolicy),
+    }));
+  }
+
   async getAssignmentNotificationPolicy({
     systemId,
     configurationId,
@@ -556,6 +603,88 @@ export class HealthCheckService {
       evaluatedAt: new Date(),
       checkStatuses,
     };
+  }
+
+  /**
+   * Live health-state snapshot for a single system (Wave-2 sensing
+   * contract). When `configurationId` is given, status reflects that
+   * one check; otherwise it is the aggregate. `inStatusSince` /
+   * `inStatusForMs` come from the state-transitions table, latency from
+   * the newest run, windowed metrics from hourly aggregates, and
+   * `inMaintenance` from the maintenance plugin (suppression-agnostic,
+   * fail-open). `now` is threaded so bulk reads share one timestamp.
+   */
+  async getHealthState({
+    systemId,
+    configurationId,
+    maintenanceClient,
+    logger,
+    transitionWindowMinutes,
+    now,
+  }: {
+    systemId: string;
+    configurationId?: string;
+    maintenanceClient?: MaintenanceClient;
+    logger?: Logger;
+    transitionWindowMinutes?: number;
+    now?: Date;
+  }): Promise<HealthState> {
+    return computeHealthState({
+      db: this.db,
+      systemId,
+      configurationId,
+      maintenanceClient,
+      logger,
+      transitionWindowMinutes,
+      now,
+      resolveStatus: async () => {
+        const overview = await this.getSystemHealthStatus(systemId);
+        if (!configurationId) return overview.status;
+        const check = overview.checkStatuses.find(
+          (c) => c.configurationId === configurationId,
+        );
+        // Unknown check id -> treat as healthy (no signal), mirroring
+        // the "no checks configured" default.
+        return check?.status ?? "healthy";
+      },
+    });
+  }
+
+  /**
+   * Bulk variant of {@link getHealthState}. Resolves every system in
+   * parallel against a single shared `now` so durations are consistent
+   * across the batch. Avoids N+1 from dashboards and multi-system
+   * automation rules.
+   */
+  async getBulkHealthState({
+    systemIds,
+    maintenanceClient,
+    logger,
+    transitionWindowMinutes,
+    now = new Date(),
+  }: {
+    systemIds: string[];
+    maintenanceClient?: MaintenanceClient;
+    logger?: Logger;
+    transitionWindowMinutes?: number;
+    now?: Date;
+  }): Promise<Record<string, HealthState>> {
+    const entries = await Promise.all(
+      systemIds.map(
+        async (systemId) =>
+          [
+            systemId,
+            await this.getHealthState({
+              systemId,
+              maintenanceClient,
+              logger,
+              transitionWindowMinutes,
+              now,
+            }),
+          ] as const,
+      ),
+    );
+    return Object.fromEntries(entries);
   }
 
   /**

@@ -23,6 +23,8 @@ import type {
   LoadedStep,
   LoadedWaitLock,
   RunStore,
+  UntilWaitConfig,
+  WaitLockKind,
 } from "./types";
 
 type Schema = {
@@ -32,6 +34,31 @@ type Schema = {
 };
 
 const ACTIVE_STATUSES = ["pending", "running", "waiting"] as const;
+
+/**
+ * Predicate for "active runs of this automation". When `contextKey` is
+ * `undefined` the filter is per-automation (the default concurrency
+ * scope); when provided (string or `null`) it additionally narrows to
+ * that context key (the per-context-key scope) - `null` matches runs
+ * with no context key.
+ */
+function activeRunsPredicate(
+  automationId: string,
+  contextKey: string | null | undefined,
+) {
+  const conditions = [
+    eq(automationRuns.automationId, automationId),
+    inArray(automationRuns.status, [...ACTIVE_STATUSES]),
+  ];
+  if (contextKey !== undefined) {
+    conditions.push(
+      contextKey === null
+        ? isNull(automationRuns.contextKey)
+        : eq(automationRuns.contextKey, contextKey),
+    );
+  }
+  return and(...conditions);
+}
 
 export function createRunStore(db: SafeDatabase<Schema>): RunStore {
   return {
@@ -89,29 +116,25 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
       };
     },
 
-    async countActiveRuns(automationId: string): Promise<number> {
+    async countActiveRuns(
+      automationId: string,
+      contextKey?: string | null,
+    ): Promise<number> {
       const rows = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(automationRuns)
-        .where(
-          and(
-            eq(automationRuns.automationId, automationId),
-            inArray(automationRuns.status, [...ACTIVE_STATUSES]),
-          ),
-        );
+        .where(activeRunsPredicate(automationId, contextKey));
       return rows[0]?.count ?? 0;
     },
 
-    async hasActiveRun(automationId: string): Promise<boolean> {
+    async hasActiveRun(
+      automationId: string,
+      contextKey?: string | null,
+    ): Promise<boolean> {
       const rows = await db
         .select({ id: automationRuns.id })
         .from(automationRuns)
-        .where(
-          and(
-            eq(automationRuns.automationId, automationId),
-            inArray(automationRuns.status, [...ACTIVE_STATUSES]),
-          ),
-        )
+        .where(activeRunsPredicate(automationId, contextKey))
         .limit(1);
       return rows.length > 0;
     },
@@ -119,6 +142,7 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
     async cancelActiveRuns(
       automationId: string,
       reason: string,
+      contextKey?: string | null,
     ): Promise<string[]> {
       const rows = await db
         .update(automationRuns)
@@ -127,12 +151,7 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
           errorMessage: reason,
           finishedAt: new Date(),
         })
-        .where(
-          and(
-            eq(automationRuns.automationId, automationId),
-            inArray(automationRuns.status, [...ACTIVE_STATUSES]),
-          ),
-        )
+        .where(activeRunsPredicate(automationId, contextKey))
         .returning({ id: automationRuns.id });
       return rows.map((r) => r.id);
     },
@@ -214,6 +233,11 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
           contextKey: input.contextKey,
           filterTemplate: input.filterTemplate,
           timeoutAt: input.timeoutAt,
+          // Serialisation boundary: UntilWaitConfig is a plain JSON object
+          // but its `condition` union isn't structurally a Record, so cast.
+          waitConfig: input.waitConfig
+            ? (input.waitConfig as unknown as Record<string, unknown>)
+            : undefined,
         })
         .returning({ id: automationWaitLocks.id });
       if (!row) throw new Error("createWaitLock: insert returned no rows");
@@ -228,17 +252,7 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
         .limit(1);
       const row = rows[0];
       if (!row) return;
-      return {
-        id: row.id,
-        runId: row.runId,
-        actionPath: row.actionPath,
-        kind: row.kind as "trigger" | "delay",
-        eventId: row.eventId,
-        contextKey: row.contextKey,
-        filterTemplate: row.filterTemplate,
-        timeoutAt: row.timeoutAt,
-        createdAt: row.createdAt,
-      };
+      return mapWaitLock(row);
     },
 
     async findWaitLocksFor(
@@ -255,17 +269,15 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
         .select()
         .from(automationWaitLocks)
         .where(and(...filters));
-      return rows.map((r) => ({
-        id: r.id,
-        runId: r.runId,
-        actionPath: r.actionPath,
-        kind: r.kind as "trigger" | "delay",
-        eventId: r.eventId,
-        contextKey: r.contextKey,
-        filterTemplate: r.filterTemplate,
-        timeoutAt: r.timeoutAt,
-        createdAt: r.createdAt,
-      }));
+      return rows.map((r) => mapWaitLock(r));
+    },
+
+    async findWaitLocksByKind(kind): Promise<LoadedWaitLock[]> {
+      const rows = await db
+        .select()
+        .from(automationWaitLocks)
+        .where(eq(automationWaitLocks.kind, kind));
+      return rows.map((r) => mapWaitLock(r));
     },
 
     async deleteWaitLock(id: string): Promise<void> {
@@ -282,17 +294,25 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
             lte(automationWaitLocks.timeoutAt, now),
           ),
         );
-      return rows.map((r) => ({
-        id: r.id,
-        runId: r.runId,
-        actionPath: r.actionPath,
-        kind: r.kind as "trigger" | "delay",
-        eventId: r.eventId,
-        contextKey: r.contextKey,
-        filterTemplate: r.filterTemplate,
-        timeoutAt: r.timeoutAt,
-        createdAt: r.createdAt,
-      }));
+      return rows.map((r) => mapWaitLock(r));
     },
+  };
+}
+
+/** Map a wait-lock row to the engine's {@link LoadedWaitLock}. */
+function mapWaitLock(
+  row: typeof automationWaitLocks.$inferSelect,
+): LoadedWaitLock {
+  return {
+    id: row.id,
+    runId: row.runId,
+    actionPath: row.actionPath,
+    kind: row.kind as WaitLockKind,
+    eventId: row.eventId,
+    contextKey: row.contextKey,
+    filterTemplate: row.filterTemplate,
+    timeoutAt: row.timeoutAt,
+    waitConfig: (row.waitConfig as UntilWaitConfig | null) ?? null,
+    createdAt: row.createdAt,
   };
 }

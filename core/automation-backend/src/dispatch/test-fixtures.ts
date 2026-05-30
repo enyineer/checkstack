@@ -24,9 +24,12 @@ import type {
   CreateStepInput,
   CreateWaitLockInput,
   DispatchDeps,
+  DwellStore,
+  LoadedDwell,
   LoadedRun,
   LoadedWaitLock,
   RunStore,
+  UpsertDwellInput,
 } from "./types";
 import type { RunStateSnapshot, RunStateStore } from "./run-state-store";
 
@@ -96,27 +99,29 @@ export function createInMemoryRunStore(): {
     async loadRun(runId) {
       return runs.get(runId);
     },
-    async countActiveRuns(automationId) {
+    async countActiveRuns(automationId, contextKey?) {
       let count = 0;
       for (const r of runs.values()) {
         if (
           r.automationId === automationId &&
-          ["pending", "running", "waiting"].includes(r.status)
+          ["pending", "running", "waiting"].includes(r.status) &&
+          (contextKey === undefined || r.contextKey === contextKey)
         ) {
           count += 1;
         }
       }
       return count;
     },
-    async hasActiveRun(automationId) {
-      return (await this.countActiveRuns(automationId)) > 0;
+    async hasActiveRun(automationId, contextKey?) {
+      return (await this.countActiveRuns(automationId, contextKey)) > 0;
     },
-    async cancelActiveRuns(automationId, reason) {
+    async cancelActiveRuns(automationId, reason, contextKey?) {
       const cancelled: string[] = [];
       for (const r of runs.values()) {
         if (
           r.automationId === automationId &&
-          ["pending", "running", "waiting"].includes(r.status)
+          ["pending", "running", "waiting"].includes(r.status) &&
+          (contextKey === undefined || r.contextKey === contextKey)
         ) {
           r.status = "cancelled";
           r.errorMessage = reason;
@@ -181,6 +186,7 @@ export function createInMemoryRunStore(): {
         contextKey: input.contextKey,
         filterTemplate: input.filterTemplate,
         timeoutAt: input.timeoutAt,
+        waitConfig: input.waitConfig ?? null,
         createdAt: new Date(),
       });
       return id;
@@ -196,6 +202,9 @@ export function createInMemoryRunStore(): {
         }
       }
       return matches;
+    },
+    async findWaitLocksByKind(kind) {
+      return [...waitLocks.values()].filter((lock) => lock.kind === kind);
     },
     async deleteWaitLock(id) {
       waitLocks.delete(id);
@@ -311,6 +320,78 @@ export function createInMemoryRunStateStore(): {
   };
 
   return { store, states, locks };
+}
+
+export function createInMemoryDwellStore(): {
+  store: DwellStore;
+  dwells: Map<string, LoadedDwell>;
+} {
+  const dwells = new Map<string, LoadedDwell>();
+  let counter = 0;
+
+  const matchesKey = (
+    d: LoadedDwell,
+    automationId: string,
+    triggerId: string,
+    contextKey: string | null,
+  ) =>
+    d.automationId === automationId &&
+    d.triggerId === triggerId &&
+    d.contextKey === contextKey;
+
+  const store: DwellStore = {
+    async arm(input: UpsertDwellInput) {
+      // Insert-if-absent: preserve an existing dwell's original fireAt.
+      const existing = [...dwells.values()].find((d) =>
+        matchesKey(d, input.automationId, input.triggerId, input.contextKey),
+      );
+      if (existing) {
+        return { id: existing.id, created: false, fireAt: existing.fireAt };
+      }
+      const id = `dwell-${++counter}`;
+      dwells.set(id, {
+        id,
+        automationId: input.automationId,
+        triggerId: input.triggerId,
+        eventId: input.eventId,
+        contextKey: input.contextKey,
+        armedStatus: input.armedStatus,
+        payloadSnapshot: input.payloadSnapshot,
+        actorSnapshot: input.actorSnapshot,
+        fireAt: input.fireAt,
+        createdAt: new Date(),
+      });
+      return { id, created: true, fireAt: input.fireAt };
+    },
+    async load(id) {
+      return dwells.get(id);
+    },
+    async findByKey(automationId, triggerId, contextKey) {
+      return [...dwells.values()].find((d) =>
+        matchesKey(d, automationId, triggerId, contextKey),
+      );
+    },
+    async delete(id) {
+      dwells.delete(id);
+    },
+    async deleteByKey(automationId, triggerId, contextKey) {
+      for (const [id, d] of dwells.entries()) {
+        if (matchesKey(d, automationId, triggerId, contextKey)) dwells.delete(id);
+      }
+    },
+    async deleteForAutomation(automationId) {
+      for (const [id, d] of dwells.entries()) {
+        if (d.automationId === automationId) dwells.delete(id);
+      }
+    },
+    async sweepExpired(now) {
+      return [...dwells.values()].filter(
+        (d) => d.fireAt.getTime() <= now.getTime(),
+      );
+    },
+  };
+
+  return { store, dwells };
 }
 
 /**
@@ -442,16 +523,20 @@ export function makeDispatchDeps(opts?: {
   actions?: ActionRegistry;
   artifactTypes?: ArtifactTypeRegistry;
   triggers?: TriggerRegistry;
+  /** Optional health-check client for sensing-layer enrichment tests. */
+  healthCheckClient?: DispatchDeps["healthCheckClient"];
 }): {
   deps: DispatchDeps;
   runs: ReturnType<typeof createInMemoryRunStore>;
   artifacts: ReturnType<typeof createInMemoryArtifactStore>;
   state: ReturnType<typeof createInMemoryRunStateStore>;
+  dwells: ReturnType<typeof createInMemoryDwellStore>;
   queue: FakeQueueManager;
 } {
   const runs = createInMemoryRunStore();
   const artifacts = createInMemoryArtifactStore();
   const state = createInMemoryRunStateStore();
+  const dwells = createInMemoryDwellStore();
   const queue = createFakeQueueManager();
   const noopLogger = {
     debug: () => {},
@@ -470,12 +555,14 @@ export function makeDispatchDeps(opts?: {
     runStore: runs.store,
     artifactStore: artifacts.store,
     runStateStore: state.store,
+    dwellStore: dwells.store,
     queueManager: queue.manager,
+    healthCheckClient: opts?.healthCheckClient,
     getService: async () => {
       throw new Error("getService not stubbed for this test");
     },
   };
-  return { deps, runs, artifacts, state, queue };
+  return { deps, runs, artifacts, state, dwells, queue };
 }
 
 // ─── Shared fixtures ────────────────────────────────────────────────────

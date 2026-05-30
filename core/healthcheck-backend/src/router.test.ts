@@ -72,6 +72,17 @@ describe("HealthCheck Router", () => {
     getSystem: mock(async () => null),
   };
 
+  const mockMaintenanceClient = {
+    hasActiveMaintenance: mock(async () => ({ active: false })),
+  };
+
+  const mockLogger = {
+    debug: mock(() => {}),
+    info: mock(() => {}),
+    warn: mock(() => {}),
+    error: mock(() => {}),
+  };
+
   const router = createHealthCheckRouter({
     database: mockDb as never,
     registry: mockRegistry,
@@ -81,6 +92,8 @@ describe("HealthCheck Router", () => {
     cache: passthroughCache,
     configService: mockConfigService as never,
     catalogClient: mockCatalogClient as never,
+    maintenanceClient: mockMaintenanceClient as never,
+    logger: mockLogger as never,
   });
 
   it("getStrategies returns strategies from registry", async () => {

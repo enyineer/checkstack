@@ -20,6 +20,15 @@
       "path": "../drizzle-helper"
     },
     {
+      "path": "../gitops-backend"
+    },
+    {
+      "path": "../gitops-common"
+    },
+    {
+      "path": "../healthcheck-common"
+    },
+    {
       "path": "../integration-common"
     },
     {

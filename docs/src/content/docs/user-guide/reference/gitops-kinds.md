@@ -127,6 +127,34 @@ spec:
 
 The reconciler adopts pre-existing satellites by `metadata.name` on first sync, so manually-created satellites are absorbed safely.
 
+### `kind: Automation` (automation)
+
+Declares an automation - its triggers, conditions, and actions - so the whole workflow lives in Git. The `spec` is the full automation definition (the same shape the visual / YAML editor produces). On reconcile the automation is upserted; reconciled rows are marked GitOps-managed, so the editor shows a lock banner and disables Save / Delete until the change is made in Git.
+
+```yaml
+apiVersion: checkstack.io/v1alpha1
+kind: Automation
+metadata:
+  name: jira-on-incident
+  title: Open a Jira ticket on incident
+spec:
+  triggers:
+    - event: incident.created
+  conditions:
+    - "trigger.payload.severity == 'critical'"
+  actions:
+    - id: file_ticket
+      action: integration-jira.create_issue
+      config:
+        connectionId: "prod-jira"
+        projectKey: "OPS"
+        summary: "{{ trigger.payload.title }}"
+  mode: single
+  concurrency_scope: automation
+```
+
+The `spec` accepts every automation field: `triggers` (with optional `for:` dwells), structured `conditions`, the full action catalog, `mode`, `concurrency_scope`, `max_runs`, `uses_state`, and `state_window_minutes`. Validation is the same `AutomationDefinitionSchema` the editor uses, so a definition that round-trips in the UI is a valid descriptor.
+
 ## Built-in extensions
 
 Extensions add namespaced fields to an existing kind. They appear under `spec.<namespace>:` in the descriptor.

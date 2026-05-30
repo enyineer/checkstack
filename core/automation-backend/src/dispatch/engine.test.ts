@@ -1194,5 +1194,191 @@ describe("dispatch engine — run lifecycle", () => {
   });
 });
 
+// ─── sensing layer — state in scope ──────────────────────────────────────
+
+describe("dispatch engine — health.* scope enrichment", () => {
+  function healthClient(
+    status: string,
+    inStatusSince: Date,
+    transitionsInWindow = 0,
+  ) {
+    return {
+      getBulkHealthState: async ({
+        systemIds,
+        transitionWindowMinutes,
+      }: {
+        systemIds: string[];
+        transitionWindowMinutes?: number;
+      }) => {
+        const states: Record<string, unknown> = {};
+        for (const id of systemIds) {
+          states[id] = {
+            status,
+            inStatusSince,
+            inStatusForMs: Date.now() - inStatusSince.getTime(),
+            inMaintenance: false,
+            transitionsInWindow,
+            transitionWindowMinutes: transitionWindowMinutes ?? 60,
+            evaluatedAt: new Date(),
+          };
+        }
+        return { states };
+      },
+    } as unknown as ReturnType<typeof makeDispatchDeps>["deps"]["healthCheckClient"];
+  }
+
+  it("makes health.system.* readable in an action config template", async () => {
+    const actionsReg = createActionRegistry();
+    const rec = makeRecordingAction();
+    actionsReg.register(rec.definition, testPlugin);
+
+    const since = new Date("2026-05-30T11:00:00.000Z");
+    const { deps } = makeDispatchDeps({
+      actions: actionsReg,
+      healthCheckClient: healthClient("unhealthy", since),
+    });
+
+    const result = await dispatchTrigger(deps, {
+      automation: automation([
+        {
+          action: "test.record",
+          config: { value: "{{ health.system.status }}" },
+        },
+      ]),
+      triggerId: "test_event",
+      triggerEventId: "test.event",
+      payload: { id: "sys-9" },
+      contextKey: "sys-9",
+    });
+
+    expect(result.status).toBe("success");
+    expect(rec.calls[0]?.value).toBe("unhealthy");
+  });
+
+  it("supports a dwell condition over health.system using duration filters", async () => {
+    const actionsReg = createActionRegistry();
+    const rec = makeRecordingAction();
+    actionsReg.register(rec.definition, testPlugin);
+
+    // Unhealthy since 45 min ago -> older_than(30 | minutes) is true.
+    const since = new Date(Date.now() - 45 * 60_000);
+    const { deps } = makeDispatchDeps({
+      actions: actionsReg,
+      healthCheckClient: healthClient("unhealthy", since),
+    });
+
+    const result = await dispatchTrigger(deps, {
+      automation: automation([
+        {
+          // A condition-guard halts the run when false; success here means
+          // the dwell condition evaluated true against enriched scope.
+          condition:
+            "health.system.status == 'unhealthy' && (health.system.in_status_since | older_than(30 | minutes))",
+        },
+        { action: "test.record", config: { value: "fired" } },
+      ]),
+      triggerId: "test_event",
+      triggerEventId: "test.event",
+      payload: { id: "sys-9" },
+      contextKey: "sys-9",
+    });
+
+    expect(result.status).toBe("success");
+    expect(rec.calls[0]?.value).toBe("fired");
+  });
+
+  it("fails open: no client wired leaves health namespace empty, run still proceeds", async () => {
+    const actionsReg = createActionRegistry();
+    const rec = makeRecordingAction();
+    actionsReg.register(rec.definition, testPlugin);
+    const { deps } = makeDispatchDeps({ actions: actionsReg });
+
+    const result = await dispatchTrigger(deps, {
+      automation: automation([
+        {
+          action: "test.record",
+          config: { value: "{{ health.system.status | default('unknown') }}" },
+        },
+      ]),
+      triggerId: "test_event",
+      triggerEventId: "test.event",
+      payload: { id: "sys-9" },
+      contextKey: "sys-9",
+    });
+
+    expect(result.status).toBe("success");
+    expect(rec.calls[0]?.value).toBe("unknown");
+  });
+
+  it("exposes health.system.transitions_in_window for custom flapping rules", async () => {
+    const actionsReg = createActionRegistry();
+    const rec = makeRecordingAction();
+    actionsReg.register(rec.definition, testPlugin);
+    const since = new Date("2026-05-30T11:00:00.000Z");
+    const { deps } = makeDispatchDeps({
+      actions: actionsReg,
+      healthCheckClient: healthClient("unhealthy", since, 4),
+    });
+
+    // Flapping rule: a numeric_state condition over the windowed count.
+    // 4 transitions >= 3 → the guard passes and the action fires.
+    const result = await dispatchTrigger(deps, {
+      automation: automation([
+        {
+          condition: {
+            numeric_state: {
+              value: "health.system.transitions_in_window",
+              above: 2,
+            },
+          },
+        },
+        { action: "test.record", config: { value: "flapping" } },
+      ]),
+      triggerId: "test_event",
+      triggerEventId: "test.event",
+      payload: { id: "sys-9" },
+      contextKey: "sys-9",
+    });
+
+    expect(result.status).toBe("success");
+    expect(rec.calls[0]?.value).toBe("flapping");
+  });
+
+  it("does not fire the flapping rule below the transition threshold", async () => {
+    const actionsReg = createActionRegistry();
+    const rec = makeRecordingAction();
+    actionsReg.register(rec.definition, testPlugin);
+    const since = new Date("2026-05-30T11:00:00.000Z");
+    const { deps } = makeDispatchDeps({
+      actions: actionsReg,
+      healthCheckClient: healthClient("unhealthy", since, 1),
+    });
+
+    // 1 transition is NOT above 2 → the condition guard halts the run.
+    const result = await dispatchTrigger(deps, {
+      automation: automation([
+        {
+          condition: {
+            numeric_state: {
+              value: "health.system.transitions_in_window",
+              above: 2,
+            },
+          },
+        },
+        { action: "test.record", config: { value: "flapping" } },
+      ]),
+      triggerId: "test_event",
+      triggerEventId: "test.event",
+      payload: { id: "sys-9" },
+      contextKey: "sys-9",
+    });
+
+    // A falsy condition guard halts the run cleanly (status "success",
+    // no error) BEFORE the downstream action — so the action never fires.
+    expect(rec.calls).toHaveLength(0);
+    expect(result.status).toBe("success");
+  });
+});
+
 // Make use of the artifact-type registry helper to keep its import live.
 void createArtifactTypeRegistry;

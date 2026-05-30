@@ -30,6 +30,7 @@ const BLOCK_KINDS: ActionKind[] = [
   "stop",
   "variables",
   "wait_for_trigger",
+  "wait_until",
 ];
 
 const TAB_ITEMS = [

@@ -68,6 +68,106 @@ describe("incident automation actions", () => {
         suppressNotifications: false,
       });
     });
+
+    it("dedupe_open_for_system reuses an existing open incident on the system", async () => {
+      const existing = {
+        id: "INC-OPEN",
+        status: "investigating",
+        severity: "critical",
+        systemIds: ["sys-1"],
+      };
+      const service = makeServiceStub({
+        findActiveIncidentForSystem: mock(
+          async () => existing,
+        ) as unknown as IncidentService["findActiveIncidentForSystem"],
+        createIncident: mock() as unknown as IncidentService["createIncident"],
+      });
+      const [createAction] = createIncidentActions({ service });
+      const result = await createAction.execute({
+        ...actionContext,
+        config: {
+          title: "DB down",
+          severity: "critical",
+          systemIds: ["sys-1"],
+          suppressNotifications: false,
+          dedupe_open_for_system: true,
+        } as never,
+      });
+      expect(result.success).toBe(true);
+      expect((result.artifact as { incidentId: string }).incidentId).toBe(
+        "INC-OPEN",
+      );
+      // Reused — no new incident created.
+      expect(service.createIncident).not.toHaveBeenCalled();
+    });
+
+    it("dedupe_open_for_system creates when no open incident exists", async () => {
+      const created = {
+        id: "INC-NEW",
+        status: "investigating",
+        severity: "critical",
+        systemIds: ["sys-1"],
+      };
+      const service = makeServiceStub({
+        findActiveIncidentForSystem: mock(
+          async () => undefined,
+        ) as unknown as IncidentService["findActiveIncidentForSystem"],
+        createIncident: mock(
+          async () => created,
+        ) as unknown as IncidentService["createIncident"],
+      });
+      const [createAction] = createIncidentActions({ service });
+      const result = await createAction.execute({
+        ...actionContext,
+        config: {
+          title: "DB down",
+          severity: "critical",
+          systemIds: ["sys-1"],
+          suppressNotifications: false,
+          dedupe_open_for_system: true,
+        } as never,
+      });
+      expect((result.artifact as { incidentId: string }).incidentId).toBe(
+        "INC-NEW",
+      );
+      expect(service.createIncident).toHaveBeenCalledTimes(1);
+    });
+
+    it("without the flag always creates (no dedup lookup)", async () => {
+      const service = makeServiceStub({
+        findActiveIncidentForSystem: mock(
+          async () => ({
+            id: "INC-OPEN",
+            status: "investigating",
+            severity: "critical",
+            systemIds: ["sys-1"],
+          }),
+        ) as unknown as IncidentService["findActiveIncidentForSystem"],
+        createIncident: mock(
+          async () => ({
+            id: "INC-NEW",
+            status: "investigating",
+            severity: "critical",
+            systemIds: ["sys-1"],
+          }),
+        ) as unknown as IncidentService["createIncident"],
+      });
+      const [createAction] = createIncidentActions({ service });
+      const result = await createAction.execute({
+        ...actionContext,
+        config: {
+          title: "DB down",
+          severity: "critical",
+          systemIds: ["sys-1"],
+          suppressNotifications: false,
+          // dedupe_open_for_system omitted (defaults false)
+        } as never,
+      });
+      expect((result.artifact as { incidentId: string }).incidentId).toBe(
+        "INC-NEW",
+      );
+      expect(service.findActiveIncidentForSystem).not.toHaveBeenCalled();
+    });
   });
 
   describe("incident.resolve", () => {
@@ -167,6 +267,77 @@ describe("incident automation actions", () => {
         message: "Status changed to monitoring",
         statusChange: "monitoring",
       });
+    });
+  });
+
+  describe("incident artifact (produces / consumes)", () => {
+    it("incident.create declares produces: incident", () => {
+      const [createAction] = createIncidentActions({
+        service: makeServiceStub(),
+      });
+      expect(createAction.produces).toBe("incident");
+    });
+
+    it("incident.resolve consumes the upstream incident artifact when incidentId is omitted", async () => {
+      const resolved = {
+        id: "INC-9",
+        status: "resolved",
+        severity: "critical",
+        systemIds: ["sys-1"],
+      };
+      const service = makeServiceStub({
+        resolveIncident: mock(
+          async () => resolved,
+        ) as unknown as IncidentService["resolveIncident"],
+      });
+      const resolveAction = createIncidentActions({ service })[1];
+      expect(resolveAction.consumes).toEqual(["incident"]);
+
+      const result = await resolveAction.execute({
+        ...actionContext,
+        // No incidentId in config — falls back to the consumed artifact.
+        config: { message: "recovered" } as never,
+        consumedArtifacts: {
+          incident: { incidentId: "INC-9", status: "investigating" },
+        },
+      });
+      expect(result.success).toBe(true);
+      expect(service.resolveIncident).toHaveBeenCalledWith("INC-9", "recovered");
+    });
+
+    it("incident.resolve config incidentId takes priority over the artifact", async () => {
+      const service = makeServiceStub({
+        resolveIncident: mock(
+          async () => ({
+            id: "INC-CONFIG",
+            status: "resolved",
+            severity: "high",
+            systemIds: [],
+          }),
+        ) as unknown as IncidentService["resolveIncident"],
+      });
+      const resolveAction = createIncidentActions({ service })[1];
+      await resolveAction.execute({
+        ...actionContext,
+        config: { incidentId: "INC-CONFIG" } as never,
+        consumedArtifacts: { incident: { incidentId: "INC-ARTIFACT" } },
+      });
+      expect(service.resolveIncident).toHaveBeenCalledWith(
+        "INC-CONFIG",
+        undefined,
+      );
+    });
+
+    it("incident.resolve fails clearly when neither config nor artifact has an id", async () => {
+      const service = makeServiceStub();
+      const resolveAction = createIncidentActions({ service })[1];
+      const result = await resolveAction.execute({
+        ...actionContext,
+        config: {} as never,
+        consumedArtifacts: {},
+      });
+      expect(result.success).toBe(false);
+      expect(service.resolveIncident).not.toHaveBeenCalled();
     });
   });
 });

@@ -164,6 +164,7 @@ function basicDefinition(
     conditions: [],
     actions: [],
     mode: "single",
+    concurrency_scope: "automation",
     max_runs: 1,
     ...overrides,
   };
@@ -235,6 +236,33 @@ describe("resolveVariableScope", () => {
     ).map((e) => e.path);
     expect(unmatched).toContain("trigger.actor");
     expect(unmatched).toContain("trigger.actor.type");
+  });
+
+  it("exposes the health.* sensing namespace on every automation", () => {
+    const flat = flattenScope(
+      resolveVariableScope({
+        definition: basicDefinition(),
+        triggers: [triggerInfo],
+        actions: [],
+        artifactTypes: [],
+        path: [{ slot: "root", index: 0 }],
+      }),
+    );
+    const byPath = new Map(flat.map((e) => [e.path, e]));
+    expect(byPath.has("health")).toBe(true);
+    expect(byPath.has("health.system")).toBe(true);
+    expect(byPath.has("health.systems")).toBe(true);
+    expect(byPath.has("health.system.status")).toBe(true);
+    expect(byPath.has("health.system.in_status_since")).toBe(true);
+    expect(byPath.has("health.system.in_maintenance")).toBe(true);
+    // status leaf is typed as the status literal union
+    expect(byPath.get("health.system.status")?.type).toBe(
+      '"healthy" | "degraded" | "unhealthy"',
+    );
+    // never gated on a trigger subset — the engine always folds it in.
+    expect(
+      byPath.get("health.system.status")?.conditionalOnTriggers,
+    ).toBeUndefined();
   });
 
   it("exposes trigger.id typed as the literal union of the automation's trigger ids", () => {

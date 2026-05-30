@@ -40,6 +40,30 @@ export type SystemHealthStatusResponse = z.infer<
   typeof SystemHealthStatusResponseSchema
 >;
 
+/**
+ * Live health-state snapshot used by the automation sensing layer.
+ * Service-typed (backend-to-backend). `inStatusSince` is null when no
+ * transition has been recorded; `inStatusForMs` is 0 in that case.
+ */
+const HealthStateSchema = z.object({
+  status: HealthCheckStatusSchema,
+  inStatusSince: z.date().nullable(),
+  inStatusForMs: z.number(),
+  latencyMs: z.number().optional(),
+  avgLatencyMs: z.number().optional(),
+  p95LatencyMs: z.number().optional(),
+  successRate: z.number().optional(),
+  lastRunAt: z.date().optional(),
+  inMaintenance: z.boolean(),
+  /** Count of aggregate status transitions in the trailing window (flapping). */
+  transitionsInWindow: z.number(),
+  /** The window (minutes) `transitionsInWindow` was counted over. */
+  transitionWindowMinutes: z.number(),
+  evaluatedAt: z.date(),
+});
+
+export type HealthStateResponse = z.infer<typeof HealthStateSchema>;
+
 // Health Check RPC Contract using oRPC's contract-first pattern
 export const healthCheckContract = {
   // ==========================================================================
@@ -482,6 +506,46 @@ export const healthCheckContract = {
     )
     .output(z.void()),
 
+  /**
+   * Live health-state snapshot for a single system (Wave-2 sensing
+   * contract). Returns status, in-status duration, latency, windowed
+   * metrics, and suppression-agnostic maintenance state.
+   */
+  getHealthState: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .input(
+      z.object({
+        systemId: z.string(),
+        configurationId: z.string().optional(),
+        /** Trailing window (minutes) for `transitionsInWindow`. Default 60. */
+        transitionWindowMinutes: z.number().int().min(1).optional(),
+      }),
+    )
+    .output(HealthStateSchema),
+
+  /**
+   * Bulk variant of {@link getHealthState}. POST to avoid N+1 from
+   * dashboards and multi-system automation rules; all systems share one
+   * evaluation timestamp.
+   */
+  getBulkHealthState: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .route({ method: "POST" })
+    .input(
+      z.object({
+        systemIds: z.array(z.string()),
+        /** Trailing window (minutes) for `transitionsInWindow`. Default 60. */
+        transitionWindowMinutes: z.number().int().min(1).optional(),
+      }),
+    )
+    .output(z.object({ states: z.record(z.string(), HealthStateSchema) })),
+
   getRunsForAnalysis: proc({
     operationType: "query",
     userType: "service",
@@ -506,6 +570,27 @@ export const healthCheckContract = {
         }),
       ),
     ),
+
+  /**
+   * Every (system, configuration) assignment with its effective
+   * notification policy. Service-typed; the automation platform's
+   * auto-incident migration reads this to seed per-system default
+   * automations whose thresholds mirror each policy 1:1.
+   */
+  listAutoIncidentPolicies: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  }).output(
+    z.array(
+      z.object({
+        systemId: z.string(),
+        configurationId: z.string(),
+        configurationName: z.string(),
+        policy: NotificationPolicySchema,
+      }),
+    ),
+  ),
 };
 // Export contract type
 export type HealthCheckContract = typeof healthCheckContract;

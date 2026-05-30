@@ -58,6 +58,7 @@ import type {
   StopInput,
   VariablesInput,
   WaitForTriggerInput,
+  WaitUntilInput,
 } from "@checkstack/automation-common";
 import { SYSTEM_ACTOR, type Actor } from "@checkstack/common";
 import type {
@@ -80,6 +81,7 @@ import {
   resolveConsumedArtifacts,
   withRepeatContext,
 } from "./scope";
+import { enrichScopeWithState } from "./state-scope";
 import {
   formatActionPath,
   type ActionPath,
@@ -98,6 +100,19 @@ export const DELAY_QUEUE_NAME = "automation-delay";
  * carries the timing; the payload tells the consumer which run to wake.
  */
 export interface DelayResumeJob {
+  runId: string;
+  waitLockId: string;
+}
+
+/** Name of the durable queue we use for `wait_until` condition re-checks. */
+export const WAIT_UNTIL_QUEUE_NAME = "automation-wait-until";
+
+/**
+ * Job payload for a `wait_until` re-check. Each tick re-enriches scope,
+ * re-evaluates the condition, and either resumes the run, re-enqueues
+ * another tick, or applies the timeout policy.
+ */
+export interface WaitUntilCheckJob {
   runId: string;
   waitLockId: string;
 }
@@ -161,6 +176,18 @@ export async function dispatchTrigger(
     }),
     resuming: false,
   };
+
+  // Pre-resolve live health state into scope before any condition or
+  // template evaluation (the engine is sync, so this is the only place
+  // live state can be fetched). Fail-open inside the helper.
+  await enrichScopeWithState({
+    scope: ctx.scope,
+    client: deps.healthCheckClient,
+    logger: deps.logger,
+    contextKey: args.contextKey,
+    usesState: args.automation.definition.uses_state,
+    transitionWindowMinutes: args.automation.definition.state_window_minutes,
+  });
 
   // Initial scope snapshot — gives the stalled sweeper something to
   // work with even if we crash before the first step finishes.
@@ -239,6 +266,18 @@ export async function resumeRun(
     if (args.payload !== undefined) {
       scope.resume = { payload: args.payload };
     }
+
+    // Re-resolve live state on resume: the system may have changed during
+    // the wait, so conditions after a wait must see current state, not
+    // the snapshot taken at suspension time.
+    await enrichScopeWithState({
+      scope,
+      client: deps.healthCheckClient,
+      logger: deps.logger,
+      contextKey: run.contextKey,
+      usesState: args.automation.definition.uses_state,
+      transitionWindowMinutes: args.automation.definition.state_window_minutes,
+    });
 
     await deps.runStore.updateRunStatus(args.runId, "running");
     await deps.runStateStore.heartbeat(args.runId);
@@ -362,6 +401,109 @@ export async function recoverStalledRun(
     { resumeRemainder: remainder },
   );
   return await finaliseRun(ctx, outcome);
+}
+
+/**
+ * Outcome of a single `wait_until` re-check.
+ *   - "resumed"      → condition satisfied (or timed-out-continue); the run
+ *                      was resumed past the wait_until.
+ *   - "failed"       → timed out with continue_on_timeout=false; run failed.
+ *   - "still-waiting"→ not yet true and not timed out; caller re-enqueues.
+ *   - "gone"         → lock/run/automation no longer valid; nothing to do.
+ */
+export type WaitUntilCheckOutcome =
+  | "resumed"
+  | "failed"
+  | "still-waiting"
+  | "gone";
+
+/**
+ * Re-check a suspended `wait_until`: re-enrich scope, evaluate the
+ * condition, and either resume the run (satisfied or timeout-continue),
+ * fail it (timeout-fail), or report "still waiting" so the caller
+ * re-schedules another check.
+ *
+ * Read-only until it acts; `resumeRun` takes the per-run advisory lock so
+ * a concurrent re-check / sweep can't double-resume. Idempotent: the lock
+ * is deleted before resuming, so a duplicate check finds nothing.
+ */
+export async function checkWaitUntil(
+  deps: DispatchDeps,
+  args: { runId: string; waitLockId: string; automation: LoadedAutomation },
+): Promise<WaitUntilCheckOutcome> {
+  const lock = await deps.runStore.loadWaitLock(args.waitLockId);
+  if (!lock || lock.kind !== "until" || !lock.waitConfig) return "gone";
+
+  const run = await deps.runStore.loadRun(args.runId);
+  if (!run) {
+    await deps.runStore.deleteWaitLock(args.waitLockId);
+    return "gone";
+  }
+  if (run.status !== "waiting") {
+    // Already resumed / cancelled / terminal — drop the stale lock.
+    await deps.runStore.deleteWaitLock(args.waitLockId);
+    return "gone";
+  }
+
+  // Rebuild the scope from the snapshot + re-enrich live state so the
+  // condition sees CURRENT health, not the value at suspension time.
+  const persisted = await deps.runStateStore.load(args.runId);
+  const scope = persisted?.scopeSnapshot
+    ? { ...persisted.scopeSnapshot }
+    : buildInitialScope({
+        triggerId: run.triggerId,
+        triggerEventId: run.triggerEventId,
+        payload: run.triggerPayload,
+        startedAt: run.startedAt,
+      });
+  await enrichScopeWithState({
+    scope,
+    client: deps.healthCheckClient,
+    logger: deps.logger,
+    contextKey: run.contextKey,
+    usesState: args.automation.definition.uses_state,
+    transitionWindowMinutes: args.automation.definition.state_window_minutes,
+  });
+
+  let satisfied = false;
+  try {
+    satisfied = evaluateCondition(
+      lock.waitConfig.condition,
+      scope as TemplateContext,
+      deps.filters,
+    );
+  } catch (error) {
+    deps.logger.warn(
+      `wait_until re-check threw (treating as not-yet): ${(error as Error).message}`,
+    );
+  }
+
+  const timedOut =
+    lock.timeoutAt !== null && lock.timeoutAt.getTime() <= Date.now();
+
+  if (satisfied || (timedOut && lock.waitConfig.continueOnTimeout)) {
+    await deps.runStore.deleteWaitLock(args.waitLockId);
+    await resumeRun(deps, {
+      runId: args.runId,
+      automation: args.automation,
+      waitedAtPath: lock.actionPath,
+    });
+    return "resumed";
+  }
+
+  if (timedOut) {
+    // continue_on_timeout = false → fail the run.
+    await deps.runStore.deleteWaitLock(args.waitLockId);
+    await deps.runStore.updateRunStatus(
+      args.runId,
+      "failed",
+      `wait_until timed out after waiting for its condition`,
+    );
+    await deps.runStateStore.clear(args.runId);
+    return "failed";
+  }
+
+  return "still-waiting";
 }
 
 // ─── Run finalisation ─────────────────────────────────────────────────────
@@ -577,6 +719,9 @@ async function executeAction(
         path,
         ctx,
       );
+    }
+    case "wait_until": {
+      return await executeWaitUntil(action as WaitUntilInput, path, ctx);
     }
     case "sequence": {
       return await executeSequence(
@@ -1593,6 +1738,99 @@ async function executeWaitForTrigger(
   await checkpoint(ctx, path);
 
   await ctx.deps.runStore.updateStep(stepId, { status: "waiting" });
+  return { kind: "suspended", stepId };
+}
+
+// ─── Primitive: `wait_until` ─────────────────────────────────────────────
+
+/**
+ * Suspend the run until a condition becomes true, with an optional
+ * timeout. Unlike `wait_for_trigger` (wait for an event), this polls the
+ * condition on an interval, re-resolving live state each tick.
+ *
+ * Fast path: if the condition is ALREADY true against the current
+ * (enriched) scope, continue inline without suspending. Otherwise persist
+ * a `kind: "until"` wait lock carrying the condition + poll interval +
+ * timeout policy, enqueue the first re-check, and suspend. The wait-until
+ * queue consumer (and the sweeper, as a backstop) drive the re-checks.
+ */
+async function executeWaitUntil(
+  action: WaitUntilInput,
+  path: ActionPath,
+  ctx: DispatchContext,
+): Promise<StepOutcome> {
+  const stepId = await ctx.deps.runStore.createStep({
+    runId: ctx.run.runId,
+    actionPath: formatActionPath(path),
+    actionId: action.id ?? null,
+    actionKind: "wait_until",
+    providerActionId: null,
+  });
+
+  const cfg = action.wait_until;
+
+  // Fast path — already satisfied. Evaluate against the current scope
+  // (enriched at run start / resume). Errors are treated as "not yet".
+  let satisfied = false;
+  try {
+    satisfied = evaluateCondition(
+      cfg.condition,
+      templateContext(ctx),
+      ctx.deps.filters,
+    );
+  } catch (error) {
+    ctx.deps.logger.debug(
+      `wait_until initial eval threw (treating as not-yet): ${(error as Error).message}`,
+    );
+  }
+  if (satisfied) {
+    await ctx.deps.runStore.updateStep(stepId, {
+      status: "success",
+      resultPayload: { satisfied: true, immediate: true },
+    });
+    return { kind: "ok" };
+  }
+
+  const pollSeconds = cfg.poll_seconds ?? 30;
+  const continueOnTimeout = cfg.continue_on_timeout ?? true;
+  const timeoutAt = cfg.timeout_seconds
+    ? new Date(Date.now() + cfg.timeout_seconds * 1000)
+    : null;
+
+  const waitLockId = await ctx.deps.runStore.createWaitLock({
+    runId: ctx.run.runId,
+    actionPath: formatActionPath(path),
+    kind: "until",
+    // Synthetic marker — `until` locks aren't woken by events.
+    eventId: `@@until:${ctx.run.runId}:${formatActionPath(path)}`,
+    contextKey: ctx.run.contextKey,
+    filterTemplate: null,
+    timeoutAt,
+    waitConfig: {
+      condition: cfg.condition,
+      pollSeconds,
+      continueOnTimeout,
+    },
+  });
+
+  // Persist scope before suspending so each re-check rebuilds it.
+  await checkpoint(ctx, path);
+
+  const queue = ctx.deps.queueManager.getQueue<WaitUntilCheckJob>(
+    WAIT_UNTIL_QUEUE_NAME,
+  );
+  await queue.enqueue(
+    { runId: ctx.run.runId, waitLockId },
+    {
+      startDelay: pollSeconds,
+      jobId: `${ctx.run.runId}:${waitLockId}`,
+    },
+  );
+
+  await ctx.deps.runStore.updateStep(stepId, {
+    status: "waiting",
+    resultPayload: { waitLockId, pollSeconds, timeoutAt: timeoutAt?.toISOString() },
+  });
   return { kind: "suspended", stepId };
 }
 

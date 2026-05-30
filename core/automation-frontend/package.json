@@ -16,6 +16,7 @@
     "@checkstack/automation-common": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",
+    "@checkstack/gitops-frontend": "workspace:*",
     "@checkstack/integration-common": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/template-engine": "workspace:*",

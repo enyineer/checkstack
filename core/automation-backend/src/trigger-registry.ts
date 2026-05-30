@@ -64,6 +64,7 @@ export function createTriggerRegistry(): TriggerRegistry {
         contextKey: definition.contextKey,
         hook: definition.hook,
         setup: definition.setup,
+        evaluateConfig: definition.evaluateConfig,
         qualifiedId,
         ownerPluginId: pluginMetadata.pluginId,
         payloadJsonSchema,

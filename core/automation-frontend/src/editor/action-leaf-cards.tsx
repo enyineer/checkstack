@@ -27,6 +27,7 @@ import type {
   StopInput,
   VariablesInput,
   WaitForTriggerInput,
+  WaitUntilInput,
 } from "@checkstack/automation-common";
 import { useAutomationRegistry } from "./registry-context";
 import { ItemPicker } from "./ItemPicker";
@@ -424,3 +425,83 @@ export const ConditionGuardActionBody: React.FC<{
     />
   </div>
 );
+
+/**
+ * `wait_until` card — mirrors {@link WaitForTriggerActionBody} but waits on
+ * a CONDITION (re-checked on a poll interval) rather than an event. Reuses
+ * the expression-based {@link ConditionEditor}; the structured
+ * numeric/time/state condition branches arrive with the rest of the
+ * sensing-layer editor work.
+ */
+export const WaitUntilActionBody: React.FC<{
+  value: WaitUntilInput;
+  onChange: (next: WaitUntilInput) => void;
+  variableNodes: VariableNode[];
+  completionProvider: TemplateCompletionProvider;
+  disabled?: boolean;
+}> = ({ value, onChange, variableNodes, completionProvider, disabled }) => {
+  const wu = value.wait_until;
+  const patch = (next: Partial<WaitUntilInput["wait_until"]>) =>
+    onChange({ ...value, wait_until: { ...wu, ...next } });
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <Label className="text-xs">Wait until condition</Label>
+        <ConditionEditor
+          value={wu.condition}
+          onChange={(next: ConditionInput) => patch({ condition: next })}
+          variableNodes={variableNodes}
+          completionProvider={completionProvider}
+          bare
+        />
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label className="text-xs">Poll interval (seconds)</Label>
+          <Input
+            type="number"
+            min={1}
+            value={wu.poll_seconds ?? ""}
+            onChange={(event) =>
+              patch({
+                poll_seconds: event.target.value
+                  ? Number(event.target.value)
+                  : undefined,
+              })
+            }
+            disabled={disabled}
+            placeholder="30"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Timeout (seconds)</Label>
+          <Input
+            type="number"
+            min={1}
+            value={wu.timeout_seconds ?? ""}
+            onChange={(event) =>
+              patch({
+                timeout_seconds: event.target.value
+                  ? Number(event.target.value)
+                  : undefined,
+              })
+            }
+            disabled={disabled}
+            placeholder="No timeout"
+          />
+        </div>
+      </div>
+      <div className="flex items-center justify-between">
+        <Label className="text-xs">
+          Continue on timeout (off = fail the run on timeout)
+        </Label>
+        <Toggle
+          checked={wu.continue_on_timeout ?? true}
+          onCheckedChange={(checked) => patch({ continue_on_timeout: checked })}
+          disabled={disabled}
+        />
+      </div>
+    </div>
+  );
+};

@@ -18,6 +18,8 @@ import { toJsonSchemaWithChartMeta } from "./schema-utils";
 import type { InferClient } from "@checkstack/common";
 import { GitOpsApi } from "@checkstack/gitops-common";
 import { CatalogApi } from "@checkstack/catalog-common";
+import { MaintenanceApi } from "@checkstack/maintenance-common";
+import type { Logger } from "@checkstack/backend-api";
 import type { HealthCheckCache } from "./cache";
 
 /**
@@ -35,6 +37,8 @@ export const createHealthCheckRouter = (opts: {
   cache: HealthCheckCache;
   configService: ConfigService;
   catalogClient: InferClient<typeof CatalogApi>;
+  maintenanceClient: InferClient<typeof MaintenanceApi>;
+  logger: Logger;
 }) => {
   const {
     database,
@@ -44,6 +48,8 @@ export const createHealthCheckRouter = (opts: {
     cache,
     configService,
     catalogClient,
+    maintenanceClient,
+    logger,
   } = opts;
   // Create service instance once - shared across all handlers
   const service = new HealthCheckService(
@@ -326,6 +332,26 @@ export const createHealthCheckRouter = (opts: {
       },
     ),
 
+    getHealthState: os.getHealthState.handler(async ({ input }) => {
+      return service.getHealthState({
+        systemId: input.systemId,
+        configurationId: input.configurationId,
+        transitionWindowMinutes: input.transitionWindowMinutes,
+        maintenanceClient,
+        logger,
+      });
+    }),
+
+    getBulkHealthState: os.getBulkHealthState.handler(async ({ input }) => {
+      const states = await service.getBulkHealthState({
+        systemIds: input.systemIds,
+        transitionWindowMinutes: input.transitionWindowMinutes,
+        maintenanceClient,
+        logger,
+      });
+      return { states };
+    }),
+
     // ========================================================================
     // SERVICE INTERFACE (S2S — satellite-backend)
     // ========================================================================
@@ -348,6 +374,12 @@ export const createHealthCheckRouter = (opts: {
     getRunsForAnalysis: os.getRunsForAnalysis.handler(
       async ({ input }) => {
         return service.getRunsForAnalysis(input);
+      },
+    ),
+
+    listAutoIncidentPolicies: os.listAutoIncidentPolicies.handler(
+      async () => {
+        return service.listAutoIncidentPolicies();
       },
     ),
   });
