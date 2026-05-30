@@ -24,6 +24,7 @@ import {
 
 import type { AutomationStore } from "../automation-store";
 import type { DispatchDeps, LoadedAutomation, LoadedDwell } from "./types";
+import { parseActorSnapshot } from "./snapshots";
 
 /** Queue carrying dwell wake-up jobs. */
 export const DWELL_QUEUE_NAME = "automation-dwell";
@@ -215,7 +216,14 @@ export async function fireDwell(args: FireDwellArgs): Promise<void> {
     eventId: dwell.eventId,
     contextKey: dwell.contextKey,
     triggerPayload: dwell.payloadSnapshot,
-    actor: dwell.actorSnapshot as unknown as Actor,
+    // Parse the stored actor on load — a drifted/hand-edited snapshot
+    // degrades to the system actor (logged) instead of flowing through as
+    // an untyped value.
+    actor: parseActorSnapshot({
+      value: dwell.actorSnapshot,
+      logger: deps.logger,
+      context: `Dwell ${dwell.id}`,
+    }),
   });
 }
 

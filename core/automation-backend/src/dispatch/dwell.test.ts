@@ -340,6 +340,45 @@ describe("fireDwell", () => {
     expect(runs.runs.size).toBe(1);
   });
 
+  it("degrades a malformed stored actorSnapshot to the system actor instead of crashing (L1)", async () => {
+    // A drifted / hand-edited actorSnapshot must not flow through untyped:
+    // the load-time parse degrades it to the system actor so the run still
+    // fires (dropping a legitimate alert over a bad snapshot would be worse).
+    const { deps, rec, runs } = setup({ statuses: { "sys-1": "unhealthy" } });
+    const automation = buildAutomation({
+      trigger: { event: EVENT, for: { minutes: 30 } },
+    });
+    const store = makeAutomationStore([automation]);
+
+    const { id: dwellId } = await deps.dwellStore.arm({
+      automationId: automation.id,
+      triggerId: "test_event",
+      eventId: EVENT,
+      contextKey: "sys-1",
+      armedStatus: "unhealthy",
+      payloadSnapshot: { id: "sys-1" },
+      // Garbage actor snapshot (e.g. a row hand-edited or written by an
+      // older/drifted schema).
+      actorSnapshot: { type: "bogus", nope: 1 } as unknown as Record<
+        string,
+        unknown
+      >,
+      fireAt: new Date(),
+    });
+    const dwell = (await deps.dwellStore.load(dwellId))!;
+
+    await fireDwell({
+      deps,
+      automationStore: store,
+      dwell,
+      startRun: startRunRespectingMode,
+    });
+
+    // Still fired (degraded gracefully), did not throw.
+    expect(rec.calls).toHaveLength(1);
+    expect(runs.runs.size).toBe(1);
+  });
+
   it("re-checks pre-run conditions at fire time", async () => {
     // condition references live health; system is healthy so it should NOT fire
     const { deps, rec } = setup({ statuses: { "sys-1": "unhealthy" } });

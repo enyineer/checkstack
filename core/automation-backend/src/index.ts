@@ -226,7 +226,7 @@ export default createBackendPlugin({
         gitopsDb = database as SafeDatabase<typeof schema>;
 
         const artifactStore = createArtifactStore(database);
-        const runStore = createRunStore(database);
+        const runStore = createRunStore(database, logger);
         const runStateStore = createRunStateStore(database, advisoryLock);
         const dwellStore = createDwellStore(database);
         const automationStore = createAutomationStore(database);

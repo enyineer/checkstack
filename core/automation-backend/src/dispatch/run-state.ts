@@ -8,7 +8,7 @@
  * trigger subscriber).
  */
 import { and, desc, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
-import type { SafeDatabase } from "@checkstack/backend-api";
+import type { Logger, SafeDatabase } from "@checkstack/backend-api";
 
 import {
   automationRunSteps,
@@ -23,9 +23,9 @@ import type {
   LoadedStep,
   LoadedWaitLock,
   RunStore,
-  UntilWaitConfig,
   WaitLockKind,
 } from "./types";
+import { parseWaitConfig } from "./snapshots";
 
 type Schema = {
   automationRuns: typeof automationRuns;
@@ -60,7 +60,10 @@ function activeRunsPredicate(
   return and(...conditions);
 }
 
-export function createRunStore(db: SafeDatabase<Schema>): RunStore {
+export function createRunStore(
+  db: SafeDatabase<Schema>,
+  logger?: Logger,
+): RunStore {
   return {
     async createRun(input: CreateRunInput): Promise<string> {
       const [row] = await db
@@ -252,7 +255,7 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
         .limit(1);
       const row = rows[0];
       if (!row) return;
-      return mapWaitLock(row);
+      return mapWaitLock(row, logger);
     },
 
     async findWaitLocksFor(
@@ -269,7 +272,7 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
         .select()
         .from(automationWaitLocks)
         .where(and(...filters));
-      return rows.map((r) => mapWaitLock(r));
+      return rows.map((r) => mapWaitLock(r, logger));
     },
 
     async findWaitLocksByKind(kind): Promise<LoadedWaitLock[]> {
@@ -277,7 +280,7 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
         .select()
         .from(automationWaitLocks)
         .where(eq(automationWaitLocks.kind, kind));
-      return rows.map((r) => mapWaitLock(r));
+      return rows.map((r) => mapWaitLock(r, logger));
     },
 
     async deleteWaitLock(id: string): Promise<void> {
@@ -294,7 +297,7 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
             lte(automationWaitLocks.timeoutAt, now),
           ),
         );
-      return rows.map((r) => mapWaitLock(r));
+      return rows.map((r) => mapWaitLock(r, logger));
     },
   };
 }
@@ -302,6 +305,7 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
 /** Map a wait-lock row to the engine's {@link LoadedWaitLock}. */
 function mapWaitLock(
   row: typeof automationWaitLocks.$inferSelect,
+  logger?: Logger,
 ): LoadedWaitLock {
   return {
     id: row.id,
@@ -312,7 +316,14 @@ function mapWaitLock(
     contextKey: row.contextKey,
     filterTemplate: row.filterTemplate,
     timeoutAt: row.timeoutAt,
-    waitConfig: (row.waitConfig as UntilWaitConfig | null) ?? null,
+    // Parse the stored config on load — a drifted/hand-edited row degrades
+    // to null (engine treats the `until` lock as gone) instead of being
+    // trusted as a wrongly-typed UntilWaitConfig.
+    waitConfig: parseWaitConfig({
+      value: row.waitConfig,
+      logger,
+      context: `Wait lock ${row.id}`,
+    }),
     createdAt: row.createdAt,
   };
 }
