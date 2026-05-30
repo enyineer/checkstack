@@ -71,6 +71,7 @@ import {
   type TriggerSubscriptions,
 } from "./dispatch/trigger-subscriber";
 import type { DispatchDeps } from "./dispatch/types";
+import { assembleDispatchGetService } from "./dispatch/assemble-get-service";
 import {
   automationActionExtensionPoint,
   automationArtifactStoreRef,
@@ -309,11 +310,14 @@ export default createBackendPlugin({
           // through this client. forPlugin is lazy; the actual RPC only
           // fires at evaluation time.
           healthCheckClient: rpcClient.forPlugin(HealthCheckApi),
-          getService: async () => {
-            throw new Error(
-              "getService not yet wired — automation dispatch invoked too early",
-            );
-          },
+          // Registry-backed resolution of provider-action deps (connection
+          // store, secret resolver, ...) at execute time. Safe here because
+          // dispatch only runs from afterPluginsReady onward, by which point
+          // every service is registered. `env.getService` resolves through
+          // the real ServiceRegistry and throws clearly on a missing ref.
+          getService: assembleDispatchGetService({
+            envGetService: env.getService,
+          }),
           // Run-wide secret masking: the engine wraps each run's getService
           // to register resolved secrets here, and the run store masks step
           // / run output before persistence.

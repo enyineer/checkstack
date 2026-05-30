@@ -312,6 +312,7 @@
         "zod": "^4.2.1",
       },
       "devDependencies": {
+        "@checkstack/backend": "workspace:*",
         "@checkstack/drizzle-helper": "workspace:*",
         "@checkstack/integration-backend": "workspace:*",
         "@checkstack/scripts": "workspace:*",

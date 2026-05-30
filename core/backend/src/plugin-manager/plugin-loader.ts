@@ -149,6 +149,14 @@ export function registerPlugin({
       providedBy.set(ref.id, pluginId);
       rootLogger.debug(`   -> Registered service '${ref.id}'`);
     },
+    // Registry-backed resolver for arbitrary cross-plugin refs. The
+    // consumer identity is THIS plugin (`pluginId`), which is the correct
+    // audit identity for scoped factories. `registry.get` throws a clear
+    // error when the ref is unregistered, so a missing service (e.g. a
+    // connection store the automation dispatch path needs) fails loudly
+    // rather than silently resolving `undefined`.
+    getService: <T>(ref: ServiceRef<T>): Promise<T> =>
+      deps.registry.get(ref, { pluginId }),
     registerExtensionPoint: (ref, impl) => {
       deps.extensionPointManager.registerExtensionPoint(ref, impl);
     },

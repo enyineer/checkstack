@@ -8,6 +8,9 @@
       "path": "../automation-common"
     },
     {
+      "path": "../backend"
+    },
+    {
       "path": "../backend-api"
     },
     {

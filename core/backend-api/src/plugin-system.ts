@@ -85,6 +85,20 @@ export type BackendPluginRegistry = {
     ) => Promise<void>;
   }) => void;
   registerService: <S>(ref: ServiceRef<S>, impl: S) => void;
+  /**
+   * Resolve a platform service registered by another plugin under `ref`,
+   * using THIS plugin's identity as the consumer (for audit / scoped
+   * factories). Mirrors the standard dependency-injection resolution used
+   * for declared `deps`, but allows resolving ARBITRARY cross-plugin refs
+   * at runtime — the path used by the automation dispatch engine to hand
+   * `getService` to provider actions at execute time.
+   *
+   * Resolves the service, or throws a clear error if `ref` is not
+   * registered (it never silently returns `undefined`). Safe to call from
+   * `init` / `afterPluginsReady` onward, by which point services are
+   * registered.
+   */
+  getService: <S>(ref: ServiceRef<S>) => Promise<S>;
   registerExtensionPoint: <T>(ref: ExtensionPoint<T>, impl: T) => void;
   getExtensionPoint: <T>(ref: ExtensionPoint<T>) => T;
   /**

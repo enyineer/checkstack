@@ -520,6 +520,37 @@ env.registerService(myServiceRef, {
 });
 ```
 
+#### `env.getService<S>(ref: ServiceRef<S>): Promise<S>`
+
+Resolve a service registered by another plugin, by its ref. This is the
+runtime counterpart to declaring `deps` on `env.registerInit`: use `deps`
+when you know your dependencies up front (they are resolved and injected
+for you), and use `env.getService` when you must resolve an arbitrary ref
+dynamically (for example, an engine that hands a `getService` to
+plugin-contributed callbacks at execution time).
+
+```typescript
+import { connectionStoreRef } from "@checkstack/integration-backend";
+
+env.registerInit({
+  deps: { logger: coreServices.logger },
+  init: async ({ logger }) => {
+    // Resolve a cross-plugin service on demand.
+    const connectionStore = await env.getService(connectionStoreRef);
+    logger.debug("resolved connection store");
+  },
+});
+```
+
+Resolution uses the calling plugin's identity (for audit and scoped
+factories) and throws a clear error if the ref is not registered - it
+never silently returns `undefined`. Safe to call from `init` /
+`afterPluginsReady` onward, by which point every service is registered.
+
+> [!NOTE]
+> Prefer declaring static dependencies via `env.registerInit`'s `deps`.
+> Reach for `env.getService` only when the ref is not known until runtime.
+
 #### `env.registerExtensionPoint<T>(ref: ExtensionPoint<T>, impl: T)`
 
 Register an implementation for an extension point.

@@ -1,6 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { PluginManager } from "./plugin-manager";
-import { coreServices, os, RpcContext } from "@checkstack/backend-api";
+import { coreServices, os, createBackendPlugin } from "@checkstack/backend-api";
 import { Hono } from "hono";
 import { createMockDbModule } from "@checkstack/test-utils-backend";
 import { createMockLoggerModule } from "@checkstack/test-utils-backend";
@@ -10,7 +10,27 @@ mock.module("./db", () => createMockDbModule());
 
 mock.module("./logger", () => createMockLoggerModule());
 
-describe("RPC REST Compatibility", () => {
+/**
+ * Guards the oRPC router REGISTRATION + MOUNTING wiring contract.
+ *
+ * Background (silent-failure seam): the core/backend test preload used to
+ * register a mock `rpc` service whose `registerRouter` was a no-op, so across
+ * the ENTIRE suite a plugin's router never landed in the shared maps the
+ * `/api/:pluginId/*` dispatcher reads. The one "reachability" test that
+ * existed only asserted on a 200 inside an `if`, so it passed forever on a
+ * 404. These tests assert the concrete wiring that was silently broken:
+ *
+ *   1. Resolving `coreServices.rpc` for a plugin and calling `registerRouter`
+ *      lands the router AND its contract in the shared maps, keyed by the
+ *      resolving plugin id (consumed by `createApiRouteHandler`).
+ *   2. `loadPlugins` mounts the `/api/:pluginId/*` route on the Hono app, so
+ *      requests to a registered plugin reach the handler (no Hono-level 404).
+ *
+ * Note: exercising oRPC's RPC wire protocol end-to-end requires the plugin's
+ * real contract + protocol encoding; that is out of scope here. These guards
+ * cover the registration/mounting seam — the exact thing the no-op mock hid.
+ */
+describe("oRPC router registration + mounting wiring", () => {
   let pluginManager: PluginManager;
   let app: Hono;
 
@@ -19,69 +39,58 @@ describe("RPC REST Compatibility", () => {
     app = new Hono();
   });
 
-  it("should handle GET /api/auth/accessRules via oRPC router", async () => {
-    // 1. Setup a mock auth router
+  it("registers a plugin router + contract into the shared maps the API handler reads", async () => {
     const authRouter = os.router({
-      accessRules: os.handler(async () => {
-        return { accessRules: ["test-perm"] };
-      }),
+      accessRules: os.handler(async () => ({ accessRules: ["test-perm"] })),
     });
+    const contract = { accessRules: {} };
 
-    // 2. Register it in plugin manager (now using new pattern - router AND contract required)
-    // Note: In real usage, the path is derived from pluginId. For test, we manually set it.
-    const rpcService = await pluginManager.getService(coreServices.rpc);
-    // The new API auto-prefixes based on pluginId, but for test we need to manually set the map key
-    // Since we're testing the router handler directly, we use the derived name "auth"
-    // Second argument is the contract (for OpenAPI generation) - using a mock object for test
-    rpcService?.registerRouter(authRouter, { accessRules: {} });
+    // Resolve the rpc service scoped to the `auth` plugin and register the
+    // router — exactly how a plugin does it during init().
+    const rpcService = await pluginManager
+      .getRegistry()
+      .get(coreServices.rpc, { pluginId: "auth" });
+    rpcService.registerRouter(authRouter, contract);
 
-    // 3. Mock the auth service to skip real authentication
-    const mockAuth: any = {
-      authenticate: mock(async () => ({ id: "user-1", accessRules: ["*"] })),
-    };
-    pluginManager.registerService(coreServices.auth, mockAuth);
+    // The contract MUST land in the shared registry the API route handler
+    // (and OpenAPI generation) consumes, keyed by the plugin id —
+    // `registerRouter` sets the router map and the contract map together. A
+    // no-op `registerRouter` (the prior regression) would leave this empty.
+    expect(pluginManager.getAllContracts().get("auth")).toBe(contract);
+  });
 
-    // Register other dummy services needed for context
-    pluginManager.registerService(coreServices.logger, {
-      info: mock(),
-      debug: mock(),
-      error: mock(),
-      warn: mock(),
-    } as any);
-    pluginManager.registerService(coreServices.database, {} as any);
-    pluginManager.registerService(coreServices.fetch, {} as any);
-    pluginManager.registerService(coreServices.healthCheckRegistry, {} as any);
-    pluginManager.registerService(coreServices.queuePluginRegistry, {
-      getPlugins: () => [],
-    } as any);
-    pluginManager.registerService(coreServices.queueManager, {
-      getActivePlugin: () => "none",
-      getQueue: () => ({}),
-    } as any);
-    pluginManager.registerService(coreServices.cachePluginRegistry, {
-      getPlugins: () => [],
-    } as any);
-    pluginManager.registerService(coreServices.cacheManager, {
-      getActivePlugin: () => "memory",
-      getProvider: () => ({}),
-    } as any);
-
-    // 4. Mount the plugins
-    await pluginManager.loadPlugins(app);
-
-    // 5. Simulate the request that frontend makes (now /api/auth instead of /api/auth-backend)
-    const res = await app.request("/api/auth/accessRules", {
-      method: "GET",
+  it("mounts the /api/:pluginId/* route so a registered plugin reaches the handler (not a Hono 404)", async () => {
+    const authRouter = os.router({
+      accessRules: os.handler(async () => ({ accessRules: ["test-perm"] })),
     });
+    const rpcService = await pluginManager
+      .getRegistry()
+      .get(coreServices.rpc, { pluginId: "auth" });
+    rpcService.registerRouter(authRouter, { accessRules: {} });
+    pluginManager.registerCorePluginMetadata({ pluginId: "auth" });
 
-    // If it's a 404, my theory about dots vs slashes or GET vs POST is correct
-    console.log("Response status:", res.status);
-    if (res.status === 200) {
-      const body = await res.json();
-      console.log("Response body:", JSON.stringify(body));
-      expect(body.accessRules).toContain("test-perm");
-    } else {
-      console.log("Response text:", await res.text());
-    }
+    // At least one (manual) plugin is required for loadPlugins to proceed
+    // past its "no plugins" early-return and actually mount the
+    // `/api/:pluginId/*` route.
+    const noopPlugin = createBackendPlugin({
+      metadata: { pluginId: "noop" },
+      register: () => {},
+    });
+    await pluginManager.loadPlugins(app, [noopPlugin], { skipDiscovery: true });
+
+    // A request to `/api/:pluginId/*` must REACH the assembled API handler
+    // (the dispatcher), not fall through to a Hono 404. The dispatcher
+    // resolves the RpcContext first and, in this minimal harness, returns a
+    // handler-level 500 ("Core services not initialized") — which is exactly
+    // the proof we want: the route is mounted and the request reached the
+    // handler. (A regression that fails to mount the route would surface as
+    // a Hono 404 here instead.)
+    const reached = await app.request("/api/auth/accessRules", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(reached.status).not.toBe(404);
+    expect(reached.status).toBe(500);
   });
 });

@@ -35,6 +35,7 @@
     "zod": "^4.2.1"
   },
   "devDependencies": {
+    "@checkstack/backend": "workspace:*",
     "@checkstack/drizzle-helper": "workspace:*",
     "@checkstack/scripts": "workspace:*",
     "@checkstack/test-utils-backend": "workspace:*",
