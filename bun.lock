@@ -1503,6 +1503,24 @@
         "typescript": "^5.0.0",
       },
     },
+    "core/script-packages-backend": {
+      "name": "@checkstack/script-packages-backend",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/backend-api": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/script-packages-common": "workspace:*",
+        "@orpc/server": "^1.13.2",
+        "drizzle-orm": "^0.45.0",
+        "zod": "^4.0.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "drizzle-kit": "^0.31.10",
+        "typescript": "^5.7.2",
+      },
+    },
     "core/script-packages-common": {
       "name": "@checkstack/script-packages-common",
       "version": "0.1.0",
@@ -2878,6 +2896,8 @@
     "@checkstack/satellite-common": ["@checkstack/satellite-common@workspace:core/satellite-common"],
 
     "@checkstack/satellite-frontend": ["@checkstack/satellite-frontend@workspace:core/satellite-frontend"],
+
+    "@checkstack/script-packages-backend": ["@checkstack/script-packages-backend@workspace:core/script-packages-backend"],
 
     "@checkstack/script-packages-common": ["@checkstack/script-packages-common@workspace:core/script-packages-common"],
 
