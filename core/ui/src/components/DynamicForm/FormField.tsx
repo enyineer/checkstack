@@ -14,6 +14,8 @@ import {
   Toggle,
   ColorPicker,
   TemplateValueInput,
+  DurationInput,
+  type DurationValue,
 } from "../../index";
 
 import type { FormFieldProps, JsonSchemaProperty } from "./types";
@@ -72,6 +74,34 @@ export const FormField: React.FC<FormFieldProps> = ({
 
   if (isConstField) {
     return <></>;
+  }
+
+  // Duration field — render the DurationInput (single-unit duration
+  // object). Marked via `x-duration: true` or `format: "duration"`. This
+  // branch is intentionally additive and sits before the generic union /
+  // object handlers so a `for:` / threshold-window config renders the
+  // widget rather than the raw oneOf discriminator picker.
+  const isDuration =
+    propSchema["x-duration"] === true || propSchema.format === "duration";
+  if (isDuration) {
+    const cleanDesc = getCleanDescription(description);
+    return (
+      <div className="space-y-2">
+        <div>
+          <Label htmlFor={id}>
+            {label} {isRequired && "*"}
+          </Label>
+          {cleanDesc && (
+            <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
+          )}
+        </div>
+        <DurationInput
+          id={id}
+          value={value as DurationValue | undefined}
+          onChange={(next) => onChange(next)}
+        />
+      </div>
+    );
   }
 
   // Enum handling

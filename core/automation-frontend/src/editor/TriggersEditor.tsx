@@ -9,11 +9,15 @@ import {
   Input,
   Label,
   DynamicForm,
+  DurationInput,
   TemplateValueInput,
+  Toggle,
   Badge,
+  type DurationValue,
 } from "@checkstack/ui";
 import type {
   AutomationDefinition,
+  Duration,
   Trigger,
 } from "@checkstack/automation-common";
 import { useAutomationRegistry, useVariableScope } from "./registry-context";
@@ -250,6 +254,32 @@ const TriggerCard: React.FC<{
                 />
               </div>
             )}
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Toggle
+                  checked={value.for !== undefined}
+                  onCheckedChange={(checked) =>
+                    onChange({
+                      ...value,
+                      for: checked ? { minutes: 30 } : undefined,
+                    })
+                  }
+                  disabled={disabled}
+                />
+                <Label className="text-xs">
+                  Dwell: fire only if the matched state still holds after
+                </Label>
+              </div>
+              {value.for !== undefined && (
+                <DurationInput
+                  value={value.for as DurationValue}
+                  onChange={(next) =>
+                    onChange({ ...value, for: (next as Duration) ?? undefined })
+                  }
+                  disabled={disabled}
+                />
+              )}
+            </div>
           </div>
           <Button
             type="button"

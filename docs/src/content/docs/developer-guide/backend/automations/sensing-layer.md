@@ -172,6 +172,9 @@ A filter whose name collides with a built-in is skipped with a warning rather th
 
 Beyond raw template strings and the `and` / `or` / `not` combinators, conditions support three typed variants. Each evaluates over the pre-resolved scope plus a fresh `now` (the `time` variant recomputes `now` per evaluation - never the frozen scope timestamp). The raw template string stays the escape hatch for anything these don't cover.
 
+> [!TIP]
+> In the visual builder, the condition kind selector offers "numeric state", "time of day", and "system state" alongside expression / and / or / not. Each renders dedicated widgets (an operator dropdown + threshold for numeric, `TimeOfDayInput` + weekday toggles + timezone for time, a status dropdown + a `DurationInput` dwell for state). A trigger card also has a `for:` dwell toggle with a `DurationInput`. The visual and YAML views round-trip losslessly, so anything authored in one is editable in the other.
+
 ### numeric_state
 
 Compare a numeric `value` (a literal number, or a template/path string resolved against scope) to `above` / `below` bounds.
