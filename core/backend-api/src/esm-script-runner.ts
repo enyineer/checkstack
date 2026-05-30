@@ -86,6 +86,21 @@ export interface EsmScriptRunOptions {
   helperModuleName?: string;
   /** Name of the helper function injected as a global AND exported by the virtual module. */
   helperFunctionName?: string;
+  /**
+   * Optional directory the per-run temp dir is created *inside*, so Node /
+   * Bun module resolution walks up to `<resolutionRoot>/node_modules` and
+   * the user's script can `import` managed npm packages.
+   *
+   * When unset (the default), the per-run dir is created under
+   * `os.tmpdir()` exactly as before - backward-compatible, no node_modules
+   * visible, isolation unchanged. The script-packages reconciler points
+   * this at `<store>/current` (the atomically-flipped symlink to the
+   * active materialized tree).
+   *
+   * Execution isolation is unchanged either way: the subprocess still gets
+   * only `SAFE_ENV_VARS`, so packages cannot read backend secrets.
+   */
+  resolutionRoot?: string;
 }
 
 /**
@@ -301,12 +316,18 @@ export const defaultEsmScriptRunner: EsmScriptRunner = {
     timeoutMs,
     helperModuleName,
     helperFunctionName,
+    resolutionRoot,
   }) {
     const sessionId = randomUUID();
     const markerStart = `##__CS_SCRIPT_RESULT_${sessionId}_START__##`;
     const markerEnd = `##__CS_SCRIPT_RESULT_${sessionId}_END__##`;
 
-    const tmpDir = await mkdtemp(path.join(tmpdir(), "checkstack-script-"));
+    // When a `resolutionRoot` is given, create the per-run dir *inside* it
+    // so module resolution walks up to `<resolutionRoot>/node_modules`.
+    // Otherwise fall back to `os.tmpdir()` (today's behavior - no
+    // node_modules visible, fully backward compatible).
+    const tmpBase = resolutionRoot ?? tmpdir();
+    const tmpDir = await mkdtemp(path.join(tmpBase, "checkstack-script-"));
     const userScriptPath = path.join(tmpDir, "user.mjs");
     const runnerPath = path.join(tmpDir, "runner.mjs");
 

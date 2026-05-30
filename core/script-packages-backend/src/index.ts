@@ -92,4 +92,19 @@ export {
   evaluateSizeCap,
   type SizeCapVerdict,
 } from "./size-cap";
+export { packDir, unpackInto } from "./cache-archive";
+export { computeMissingBlobs } from "./reconcile-diff";
+export { atomicSymlinkSwap, readCurrentTarget } from "./atomic-symlink";
+export {
+  reconcileToHash,
+  type ReconcileDeps,
+  type ReconcileResult,
+} from "./reconciler";
+export { scriptPackagesChangedHook } from "./hooks";
+export {
+  createCentralResolver,
+  type CentralResolverOptions,
+} from "./resolver";
+export { createReconcileFsDeps } from "./reconcile-fs";
+export { findCacheEntry, type CacheEntryLocation } from "./cache-layout";
 export * as schema from "./schema";
