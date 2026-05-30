@@ -444,6 +444,46 @@ export class HealthCheckService {
    * Operators can revert an override by setting the row's policy to
    * `null`, which is the "Use platform defaults" action in the UI.
    */
+  /**
+   * Every (system, configuration) assignment with its EFFECTIVE
+   * notification policy (per-assignment override, else platform
+   * defaults) + the configuration's display name. Service-typed; used by
+   * the automation platform's auto-incident migration to seed default
+   * automations whose thresholds mirror each assignment's policy 1:1.
+   */
+  async listAutoIncidentPolicies(): Promise<
+    Array<{
+      systemId: string;
+      configurationId: string;
+      configurationName: string;
+      policy: NotificationPolicy;
+    }>
+  > {
+    const rows = await this.db
+      .select({
+        systemId: systemHealthChecks.systemId,
+        configurationId: systemHealthChecks.configurationId,
+        configurationName: healthCheckConfigurations.name,
+        notificationPolicy: systemHealthChecks.notificationPolicy,
+      })
+      .from(systemHealthChecks)
+      .innerJoin(
+        healthCheckConfigurations,
+        eq(systemHealthChecks.configurationId, healthCheckConfigurations.id),
+      );
+
+    const defaults = await this.getPlatformNotificationDefaults();
+    return rows.map((row) => ({
+      systemId: row.systemId,
+      configurationId: row.configurationId,
+      configurationName: row.configurationName,
+      policy:
+        row.notificationPolicy === null
+          ? defaults
+          : NotificationPolicySchema.parse(row.notificationPolicy),
+    }));
+  }
+
   async getAssignmentNotificationPolicy({
     systemId,
     configurationId,

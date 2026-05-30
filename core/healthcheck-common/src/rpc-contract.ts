@@ -570,6 +570,27 @@ export const healthCheckContract = {
         }),
       ),
     ),
+
+  /**
+   * Every (system, configuration) assignment with its effective
+   * notification policy. Service-typed; the automation platform's
+   * auto-incident migration reads this to seed per-system default
+   * automations whose thresholds mirror each policy 1:1.
+   */
+  listAutoIncidentPolicies: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  }).output(
+    z.array(
+      z.object({
+        systemId: z.string(),
+        configurationId: z.string(),
+        configurationName: z.string(),
+        policy: NotificationPolicySchema,
+      }),
+    ),
+  ),
 };
 // Export contract type
 export type HealthCheckContract = typeof healthCheckContract;

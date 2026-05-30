@@ -376,6 +376,12 @@ export const createHealthCheckRouter = (opts: {
         return service.getRunsForAnalysis(input);
       },
     ),
+
+    listAutoIncidentPolicies: os.listAutoIncidentPolicies.handler(
+      async () => {
+        return service.listAutoIncidentPolicies();
+      },
+    ),
   });
 };
 

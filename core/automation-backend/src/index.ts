@@ -33,6 +33,7 @@ import { createArtifactStore } from "./artifact-store";
 import { createAutomationStore } from "./automation-store";
 import { createAutomationRouter } from "./router";
 import { runWebhookSubscriptionMigration } from "./migration/from-webhook-subscriptions";
+import { runAutoIncidentMigration } from "./migration/from-auto-incident-policies";
 import {
   startDelayQueueConsumer,
   type DelayQueueConsumer,
@@ -412,6 +413,22 @@ export default createBackendPlugin({
         } catch (error) {
           logger.error(
             `Subscription migration failed unexpectedly: ${extractErrorMessage(error, "unknown error")}`,
+          );
+        }
+
+        // One-time migration (Phase 20): replace the removed hardcoded
+        // auto-incident path with default automations seeded per
+        // assignment from each system's NotificationPolicy. Idempotent
+        // (managed_by tagged), so safe on every boot.
+        try {
+          await runAutoIncidentMigration({
+            db: database,
+            rpcClient,
+            logger,
+          });
+        } catch (error) {
+          logger.error(
+            `Auto-incident migration failed unexpectedly: ${extractErrorMessage(error, "unknown error")}`,
           );
         }
 
