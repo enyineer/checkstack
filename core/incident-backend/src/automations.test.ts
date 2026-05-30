@@ -77,9 +77,12 @@ describe("incident automation actions", () => {
         systemIds: ["sys-1"],
       };
       const service = makeServiceStub({
-        findActiveIncidentForSystem: mock(
-          async () => existing,
-        ) as unknown as IncidentService["findActiveIncidentForSystem"],
+        // The action now delegates the dedup-serialized find-then-create to
+        // the service (which wraps it in an advisory lock).
+        createIncidentDedupedForSystem: mock(async () => ({
+          incident: existing,
+          reused: true,
+        })) as unknown as IncidentService["createIncidentDedupedForSystem"],
         createIncident: mock() as unknown as IncidentService["createIncident"],
       });
       const [createAction] = createIncidentActions({ service });
@@ -97,8 +100,9 @@ describe("incident automation actions", () => {
       expect((result.artifact as { incidentId: string }).incidentId).toBe(
         "INC-OPEN",
       );
-      // Reused — no new incident created.
+      // Reused via the dedup method — no direct createIncident call.
       expect(service.createIncident).not.toHaveBeenCalled();
+      expect(service.createIncidentDedupedForSystem).toHaveBeenCalledTimes(1);
     });
 
     it("dedupe_open_for_system creates when no open incident exists", async () => {
@@ -109,12 +113,10 @@ describe("incident automation actions", () => {
         systemIds: ["sys-1"],
       };
       const service = makeServiceStub({
-        findActiveIncidentForSystem: mock(
-          async () => undefined,
-        ) as unknown as IncidentService["findActiveIncidentForSystem"],
-        createIncident: mock(
-          async () => created,
-        ) as unknown as IncidentService["createIncident"],
+        createIncidentDedupedForSystem: mock(async () => ({
+          incident: created,
+          reused: false,
+        })) as unknown as IncidentService["createIncidentDedupedForSystem"],
       });
       const [createAction] = createIncidentActions({ service });
       const result = await createAction.execute({
@@ -130,7 +132,7 @@ describe("incident automation actions", () => {
       expect((result.artifact as { incidentId: string }).incidentId).toBe(
         "INC-NEW",
       );
-      expect(service.createIncident).toHaveBeenCalledTimes(1);
+      expect(service.createIncidentDedupedForSystem).toHaveBeenCalledTimes(1);
     });
 
     it("without the flag always creates (no dedup lookup)", async () => {
