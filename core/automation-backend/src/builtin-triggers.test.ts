@@ -16,6 +16,7 @@ import { createMockLogger } from "@checkstack/test-utils-backend";
 import {
   _resetBuiltinTriggerTickHandlersForTests,
   BUILTIN_TRIGGER_QUEUE,
+  createNumericStateTrigger,
   createTemplateTrigger,
   createTimeCronTrigger,
   createTimeIntervalTrigger,
@@ -260,5 +261,73 @@ describe("builtin trigger consumer", () => {
 
   it("uses the shared queue name", () => {
     expect(BUILTIN_TRIGGER_QUEUE).toBe("automation-builtin-triggers");
+  });
+});
+
+describe("numeric_state trigger", () => {
+  const trigger = createNumericStateTrigger();
+
+  it("is hook-backed on healthcheck.check.completed", () => {
+    expect(trigger.hook?.id).toBe("healthcheck.check.completed");
+    expect(trigger.setup).toBeUndefined();
+  });
+
+  it("extracts systemId as the context key", () => {
+    expect(
+      trigger.contextKey?.({
+        systemId: "sys-1",
+        configurationId: "c",
+        status: "unhealthy",
+        field: "latencyMs",
+        value: 1,
+      }),
+    ).toBe("sys-1");
+  });
+
+  it("evaluateConfig fires when top-level latencyMs is above the bound", () => {
+    const payload = {
+      systemId: "sys-1",
+      configurationId: "c",
+      status: "degraded",
+      latencyMs: 600,
+    } as unknown as Parameters<NonNullable<typeof trigger.evaluateConfig>>[0];
+    expect(
+      trigger.evaluateConfig!(payload, { field: "latencyMs", above: 500 }),
+    ).toBe(true);
+    expect(
+      trigger.evaluateConfig!(payload, { field: "latencyMs", above: 700 }),
+    ).toBe(false);
+  });
+
+  it("evaluateConfig reads a collector field under result (collectors map)", () => {
+    const payload = {
+      systemId: "sys-1",
+      configurationId: "c",
+      status: "healthy",
+      result: { http: { responseTimeMs: 120 } },
+    } as unknown as Parameters<NonNullable<typeof trigger.evaluateConfig>>[0];
+    expect(
+      trigger.evaluateConfig!(payload, {
+        field: "collectors.http.responseTimeMs",
+        below: 200,
+      }),
+    ).toBe(true);
+    expect(
+      trigger.evaluateConfig!(payload, {
+        field: "collectors.http.responseTimeMs",
+        below: 100,
+      }),
+    ).toBe(false);
+  });
+
+  it("evaluateConfig is false when the field is missing", () => {
+    const payload = {
+      systemId: "sys-1",
+      configurationId: "c",
+      status: "healthy",
+    } as unknown as Parameters<NonNullable<typeof trigger.evaluateConfig>>[0];
+    expect(
+      trigger.evaluateConfig!(payload, { field: "latencyMs", above: 1 }),
+    ).toBe(false);
   });
 });

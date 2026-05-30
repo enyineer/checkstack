@@ -110,17 +110,118 @@ export type Trigger = z.infer<typeof TriggerSchema>;
 // ─── Condition (recursive) ────────────────────────────────────────────────
 
 /**
+ * Structured condition variants (Wave 2 Phase 16). Each evaluates over the
+ * pre-resolved scope (Phase 14 `health.*`) plus a FRESH `now` computed per
+ * evaluation (constraint 7 — never the frozen scope `now`).
+ */
+
+/**
+ * `numeric_state` — compare a numeric `value` (a template/path string or a
+ * literal number) against optional `above` / `below` bounds.
+ */
+export const NumericStateConditionSchema = z
+  .object({
+    numeric_state: z.object({
+      value: z
+        .union([z.string().min(1), z.number()])
+        .describe("Template/path string or literal number to compare."),
+      above: z.number().optional(),
+      below: z.number().optional(),
+    }),
+  })
+  .refine(
+    (c) =>
+      c.numeric_state.above !== undefined ||
+      c.numeric_state.below !== undefined,
+    { message: "numeric_state requires at least one of `above` / `below`" },
+  );
+
+export type NumericStateCondition = z.infer<
+  typeof NumericStateConditionSchema
+>;
+
+/**
+ * `time` — on-call / quiet-hours gating. `after` / `before` are `HH:mm`
+ * (24h). `weekday` is a list of 0-6 (Sunday = 0). `timezone` is an IANA
+ * zone (defaults to UTC).
+ */
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export const TimeConditionSchema = z
+  .object({
+    time: z.object({
+      after: z
+        .string()
+        .regex(HHMM, "Expected HH:mm (24h)")
+        .optional()
+        .describe("Inclusive lower bound, local to `timezone`."),
+      before: z
+        .string()
+        .regex(HHMM, "Expected HH:mm (24h)")
+        .optional()
+        .describe("Exclusive upper bound, local to `timezone`."),
+      weekday: z
+        .array(z.number().int().min(0).max(6))
+        .min(1)
+        .optional()
+        .describe("Allowed weekdays (0 = Sunday … 6 = Saturday)."),
+      timezone: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("IANA timezone (e.g. `Europe/Berlin`). Defaults to UTC."),
+    }),
+  })
+  .refine(
+    (c) =>
+      c.time.after !== undefined ||
+      c.time.before !== undefined ||
+      c.time.weekday !== undefined,
+    { message: "time requires at least one of `after` / `before` / `weekday`" },
+  );
+
+export type TimeCondition = z.infer<typeof TimeConditionSchema>;
+
+/**
+ * `state` — condition-side dwell. True when `entity` (a system id) has been
+ * in `status` for at least `for` (read from the pre-resolved
+ * `health.*.in_status_for_ms`; NO new timer — it reads, it doesn't time).
+ */
+export const StateConditionSchema = z.object({
+  state: z.object({
+    entity: z
+      .string()
+      .min(1)
+      .describe("System id whose live health state to read."),
+    status: z
+      .enum(["healthy", "degraded", "unhealthy"])
+      .describe("Status the entity must currently be in."),
+    for: DurationSchema.optional().describe(
+      "Optional minimum dwell — the entity must have held `status` at least this long.",
+    ),
+  }),
+});
+
+export type StateCondition = z.infer<typeof StateConditionSchema>;
+
+/**
  * A condition is either:
- *   - A template string that evaluates truthy/falsy, OR
- *   - A `{ and | or | not }` combinator wrapping nested conditions.
+ *   - A template string that evaluates truthy/falsy,
+ *   - A `{ and | or | not }` combinator wrapping nested conditions, OR
+ *   - A structured variant (`numeric_state`, `time`, `state`).
  *
- * Recursive — uses `z.lazy` for the combinator branches.
+ * Recursive — uses `z.lazy` for the combinator branches. The raw template
+ * string stays the escape hatch for anything the structured variants don't
+ * cover.
  */
 export type ConditionInput =
   | string
   | { and: ConditionInput[] }
   | { or: ConditionInput[] }
-  | { not: ConditionInput };
+  | { not: ConditionInput }
+  | NumericStateCondition
+  | TimeCondition
+  | StateCondition;
 
 export const ConditionSchema: z.ZodType<ConditionInput> = z.lazy(() =>
   z.union([
@@ -137,6 +238,9 @@ export const ConditionSchema: z.ZodType<ConditionInput> = z.lazy(() =>
     z.object({
       not: ConditionSchema,
     }),
+    NumericStateConditionSchema,
+    TimeConditionSchema,
+    StateConditionSchema,
   ]),
 );
 

@@ -67,6 +67,29 @@ How it works:
 > [!IMPORTANT]
 > The dwell row is the source of truth; the queue job is just the wake signal. If the job is lost (process restart, queue backend loss), the stalled sweeper catches the expired row and fires it. Both paths are idempotent via delete-on-fire, so a dwell fires at most once.
 
+## numeric_state trigger
+
+The built-in `numeric_state` trigger fires off `healthcheck.check.completed` when a numeric field crosses an `above` / `below` threshold. Pair it with a trigger-level `for:` for "above X for Y minutes".
+
+```yaml
+triggers:
+  - event: automation.numeric_state
+    config:
+      field: p95LatencyMs      # or latencyMs, or collectors.<id>.<field>
+      above: 500
+    for: { minutes: 10 }
+actions:
+  - action: notification.send
+    config: { title: "p95 latency high", body: "{{ trigger.payload.systemId }}" }
+```
+
+- `field` supports `latencyMs` (top-level), `p95LatencyMs`, and dotted collector paths like `collectors.http.responseTimeMs` (resolved under `result.metadata`).
+- `above` / `below` are strict bounds; at least one is required. With both, the value must fall in the open band between them.
+- The threshold is enforced per-automation by a structured config gate that runs before the operator's template `filter` - so the trigger only fires for automations whose `above` / `below` the completed check actually crossed.
+
+> [!NOTE]
+> v1 is level-triggered: it fires on every completed check whose field is past the threshold. Use `mode: single` and/or a `for:` dwell to avoid alert storms - false-to-true edge de-duplication is a later refinement.
+
 ## Duration filters
 
 Duration helpers are pure, synchronous template filters - transforms over already-resolved values, never database calls. They compute against real time at call time, so "now" is fresh per evaluation rather than the frozen run-start timestamp.
@@ -115,3 +138,46 @@ ext.registerFilter(
 ```
 
 A filter whose name collides with a built-in is skipped with a warning rather than overwriting the built-in.
+
+## Structured conditions
+
+Beyond raw template strings and the `and` / `or` / `not` combinators, conditions support three typed variants. Each evaluates over the pre-resolved scope plus a fresh `now` (the `time` variant recomputes `now` per evaluation - never the frozen scope timestamp). The raw template string stays the escape hatch for anything these don't cover.
+
+### numeric_state
+
+Compare a numeric `value` (a literal number, or a template/path string resolved against scope) to `above` / `below` bounds.
+
+```yaml
+conditions:
+  - numeric_state:
+      value: "health.system.p95_latency_ms"
+      above: 500
+```
+
+### time
+
+On-call / quiet-hours gating. `after` / `before` are `HH:mm` (24h) local to `timezone` (IANA, defaults to UTC); `weekday` is a list of `0`-`6` (Sunday = 0). An `after` greater than `before` is treated as an overnight window wrapping midnight.
+
+```yaml
+conditions:
+  - time:
+      after: "22:00"
+      before: "06:00"
+      weekday: [1, 2, 3, 4, 5]
+      timezone: "Europe/Berlin"
+```
+
+### state
+
+A condition-side dwell: true when `entity` (a system id) is in `status`, optionally held for at least `for`. It reads the pre-resolved `health.systems[entity].in_status_for_ms` - no new timer, it reads the duration the provider already computed.
+
+```yaml
+conditions:
+  - state:
+      entity: "payments-api"
+      status: unhealthy
+      for: { minutes: 30 }
+```
+
+> [!NOTE]
+> The system referenced by a `state` condition's `entity` must be resolved into scope - it is the trigger's context system by default, or listed in the automation's `uses_state`.

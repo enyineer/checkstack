@@ -315,6 +315,27 @@ interface MaybeStartRunArgs {
 }
 
 async function maybeStartRun(args: MaybeStartRunArgs): Promise<void> {
+  // Structured config gate (e.g. numeric_state's above/below threshold).
+  // Runs before the operator's template filter. A registered trigger that
+  // declares `evaluateConfig` decides per-automation whether this payload
+  // fires, using the trigger's typed `config`.
+  const registered = args.deps.registries.triggers.getTrigger(args.eventId);
+  if (registered?.evaluateConfig) {
+    let pass: boolean;
+    try {
+      pass = registered.evaluateConfig(
+        args.triggerPayload,
+        args.trigger.config,
+      );
+    } catch (error) {
+      args.deps.logger.warn(
+        `Trigger config gate threw; skipping firing: ${(error as Error).message}`,
+      );
+      return;
+    }
+    if (!pass) return;
+  }
+
   // Trigger-level filter gates BOTH the immediate run and arming a dwell.
   // (Conditions, by contrast, gate the run itself and are evaluated at
   // fire time so a dwell re-checks them after the duration.)

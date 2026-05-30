@@ -33,7 +33,7 @@
  * back in place by the time the consumer would dispatch.
  */
 import { z } from "zod";
-import type { Logger } from "@checkstack/backend-api";
+import { createHook, type Logger } from "@checkstack/backend-api";
 import type { QueueManager } from "@checkstack/queue-api";
 import type { PluginMetadata } from "@checkstack/common";
 import {
@@ -42,6 +42,7 @@ import {
 } from "@checkstack/template-engine";
 
 import type { TriggerDefinition } from "./action-types";
+import { extractNumericField, matchesThreshold } from "./dispatch/numeric";
 
 // ─── Shared queue plumbing ─────────────────────────────────────────────
 
@@ -326,6 +327,105 @@ export function createTemplateTrigger(
   };
 }
 
+// ─── numeric_state ───────────────────────────────────────────────────────
+
+/**
+ * The `healthcheck.check.completed` hook this trigger rides. Referenced
+ * by id only (a `Hook` is just `{ id }`), so automation-backend needs no
+ * compile-time dependency on healthcheck-backend — the id must match what
+ * healthcheck emits.
+ */
+const HEALTHCHECK_CHECK_COMPLETED = "healthcheck.check.completed";
+
+interface CheckCompletedPayload {
+  systemId: string;
+  configurationId: string;
+  status: string;
+  latencyMs?: number;
+  result?: Record<string, unknown>;
+  timestamp?: string;
+}
+
+const numericStateConfigSchema = z
+  .object({
+    field: z
+      .string()
+      .min(1)
+      .describe(
+        "Numeric field to watch: `latencyMs`, `p95LatencyMs`, or a collector path like `collectors.http.responseTimeMs`.",
+      ),
+    above: z
+      .number()
+      .optional()
+      .describe("Fire when the field is strictly greater than this."),
+    below: z
+      .number()
+      .optional()
+      .describe("Fire when the field is strictly less than this."),
+  })
+  .refine((c) => c.above !== undefined || c.below !== undefined, {
+    message: "numeric_state trigger requires at least one of `above` / `below`",
+  });
+
+export type NumericStateConfig = z.infer<typeof numericStateConfigSchema>;
+
+const numericStatePayloadSchema = z.object({
+  systemId: z.string(),
+  configurationId: z.string(),
+  status: z.string(),
+  field: z.string().describe("The watched field path."),
+  value: z.number().describe("The numeric value that crossed the threshold."),
+  timestamp: z.string().optional(),
+});
+
+export type NumericStatePayload = z.infer<typeof numericStatePayloadSchema>;
+
+/**
+ * `numeric_state` — fires off `healthcheck.check.completed` when a numeric
+ * field crosses an `above` / `below` threshold. Hook-backed; the per-
+ * automation threshold is enforced via `evaluateConfig` (a structured gate
+ * the trigger fan-in calls before starting a run). Combine with a
+ * trigger-level `for:` (Phase 15) for "above X for Y minutes".
+ *
+ * v1 is LEVEL-triggered: it fires on every completed check whose field is
+ * past the threshold. Edge (false → true) de-duplication is deferred;
+ * `mode: single` + `for:` already prevent alert storms in practice.
+ */
+export function createNumericStateTrigger(): TriggerDefinition<
+  NumericStatePayload,
+  NumericStateConfig
+> {
+  return {
+    id: "numeric_state",
+    displayName: "Numeric Threshold",
+    description:
+      "Fires when a health-check numeric field (latency, p95, a collector metric) crosses an above/below threshold. Pair with `for:` for sustained thresholds.",
+    category: "Health",
+    icon: "Gauge",
+    payloadSchema: numericStatePayloadSchema,
+    configSchema: numericStateConfigSchema,
+    // Rides the healthcheck check-completed hook; the threshold gate below
+    // decides whether a given completion fires this automation.
+    hook: createHook<NumericStatePayload>(HEALTHCHECK_CHECK_COMPLETED),
+    contextKey: (payload) => payload.systemId,
+    evaluateConfig: (payload, config) => {
+      // The hook delivers the raw `healthcheck.check.completed` payload
+      // (latencyMs top-level, `result` = collectors map). extractNumericField
+      // knows that shape.
+      const raw = payload as unknown as CheckCompletedPayload;
+      const value = extractNumericField(
+        raw as unknown as Record<string, unknown>,
+        config.field,
+      );
+      return matchesThreshold({
+        value,
+        above: config.above,
+        below: config.below,
+      });
+    },
+  };
+}
+
 // ─── Public registry helper ────────────────────────────────────────────
 
 /**
@@ -352,6 +452,13 @@ export function registerBuiltinTriggers(args: {
   );
   args.registerTrigger(
     createTemplateTrigger(deps) as unknown as TriggerDefinition<unknown, unknown>,
+    args.pluginMetadata,
+  );
+  args.registerTrigger(
+    createNumericStateTrigger() as unknown as TriggerDefinition<
+      unknown,
+      unknown
+    >,
     args.pluginMetadata,
   );
 }

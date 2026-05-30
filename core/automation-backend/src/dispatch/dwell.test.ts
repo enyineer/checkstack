@@ -11,6 +11,9 @@ import { handleTriggerFiring, startRunRespectingMode } from "./trigger-subscribe
 import { startStalledSweeper } from "./stalled-sweeper";
 import { makeDispatchDeps, makeRecordingAction, testPlugin } from "./test-fixtures";
 import { createActionRegistry } from "../action-registry";
+import { createTriggerRegistry } from "../trigger-registry";
+import { createNumericStateTrigger } from "../builtin-triggers";
+import type { TriggerDefinition } from "../action-types";
 import type { LoadedAutomation } from "./types";
 
 const EVENT = "test.event";
@@ -512,5 +515,138 @@ describe("dwell store — keys + sweep", () => {
     await deps.dwellStore.deleteForAutomation("auto-1");
     expect(dwells.dwells.size).toBe(1);
     expect([...dwells.dwells.values()][0]?.automationId).toBe("auto-2");
+  });
+});
+
+describe("numeric_state trigger + for: via handleTriggerFiring", () => {
+  const NUMERIC_EVENT = "test.numeric_state";
+
+  function setupNumeric() {
+    const triggers = createTriggerRegistry();
+    triggers.register(
+      // re-id the built-in numeric_state under the `test` plugin so the
+      // registered qualifiedId matches the automation's trigger event.
+      {
+        ...createNumericStateTrigger(),
+        id: "numeric_state",
+      } as unknown as TriggerDefinition<unknown, unknown>,
+      testPlugin,
+    );
+    const actionsReg = createActionRegistry();
+    const rec = makeRecordingAction();
+    actionsReg.register(rec.definition, testPlugin);
+    const { deps, dwells, rec: _r } = (() => {
+      const d = makeDispatchDeps({ actions: actionsReg, triggers });
+      return { deps: d.deps, dwells: d.dwells, rec };
+    })();
+    void _r;
+    return { deps, dwells, rec };
+  }
+
+  function numericAutomation(forDwell: boolean): Automation {
+    const trigger: Record<string, unknown> = {
+      event: NUMERIC_EVENT,
+      config: { field: "latencyMs", above: 500 },
+    };
+    if (forDwell) trigger.for = { minutes: 30 };
+    const definition = AutomationDefinitionSchema.parse({
+      name: "Numeric",
+      triggers: [trigger],
+      conditions: [],
+      actions: [{ action: "test.record", config: { value: "fired" } }],
+      mode: "single",
+      max_runs: 10,
+    });
+    return {
+      id: "auto-num",
+      name: "Numeric",
+      status: "enabled",
+      definition,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  }
+
+  it("arms a dwell only when the numeric threshold crosses (with for:)", async () => {
+    const { deps, dwells, rec } = setupNumeric();
+    const store = makeAutomationStore([numericAutomation(true)]);
+
+    // Below threshold → no arm.
+    await handleTriggerFiring({
+      deps,
+      automationStore: store,
+      qualifiedEventId: NUMERIC_EVENT,
+      triggerPayload: {
+        systemId: "sys-1",
+        configurationId: "c",
+        status: "healthy",
+        latencyMs: 100,
+      },
+      actor: SYSTEM_ACTOR,
+      contextKey: "sys-1",
+    });
+    expect(dwells.dwells.size).toBe(0);
+
+    // Above threshold → arm.
+    await handleTriggerFiring({
+      deps,
+      automationStore: store,
+      qualifiedEventId: NUMERIC_EVENT,
+      triggerPayload: {
+        systemId: "sys-1",
+        configurationId: "c",
+        status: "degraded",
+        latencyMs: 600,
+      },
+      actor: SYSTEM_ACTOR,
+      contextKey: "sys-1",
+    });
+    expect(dwells.dwells.size).toBe(1);
+    expect(rec.calls).toHaveLength(0); // armed, not fired
+  });
+
+  it("starts a run immediately when the threshold crosses without for:", async () => {
+    const { deps, dwells, rec } = setupNumeric();
+    const store = makeAutomationStore([numericAutomation(false)]);
+
+    await handleTriggerFiring({
+      deps,
+      automationStore: store,
+      qualifiedEventId: NUMERIC_EVENT,
+      triggerPayload: {
+        systemId: "sys-1",
+        configurationId: "c",
+        status: "degraded",
+        latencyMs: 600,
+      },
+      actor: SYSTEM_ACTOR,
+      contextKey: "sys-1",
+    });
+
+    expect(dwells.dwells.size).toBe(0);
+    expect(rec.calls).toHaveLength(1);
+    expect(rec.calls[0]?.value).toBe("fired");
+  });
+
+  it("does not fire below the threshold (no dwell)", async () => {
+    const { deps, dwells, rec } = setupNumeric();
+    const store = makeAutomationStore([numericAutomation(false)]);
+
+    await handleTriggerFiring({
+      deps,
+      automationStore: store,
+      qualifiedEventId: NUMERIC_EVENT,
+      triggerPayload: {
+        systemId: "sys-1",
+        configurationId: "c",
+        status: "healthy",
+        latencyMs: 100,
+      },
+      actor: SYSTEM_ACTOR,
+      contextKey: "sys-1",
+    });
+
+    expect(dwells.dwells.size).toBe(0);
+    expect(rec.calls).toHaveLength(0);
   });
 });
