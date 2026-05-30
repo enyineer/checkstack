@@ -18,6 +18,7 @@
     "@checkstack/gitops-common": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/command-backend": "workspace:*",
+    "@checkstack/secrets-backend": "workspace:*",
     "@checkstack/queue-api": "workspace:*",
     "@orpc/server": "^1.13.2",
     "drizzle-orm": "^0.45.0",

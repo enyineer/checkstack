@@ -5,8 +5,9 @@ import {
   type RpcContext,
 } from "@checkstack/backend-api";
 import { secretsContract } from "@checkstack/secrets-common";
-import type { SecretBackend } from "./secret-backend";
+import { extractErrorMessage } from "@checkstack/common";
 import type { SecretBackendRegistry } from "./secret-backend-registry";
+import { createSecretAdminService } from "./admin-service";
 
 const os = implement(secretsContract)
   .$context<RpcContext>()
@@ -29,63 +30,55 @@ export function createSecretsRouter({
   getActiveBackendId,
   emitChanged,
 }: SecretsRouterDeps) {
-  const active = async (): Promise<SecretBackend> =>
-    backends.get(await getActiveBackendId());
+  // The router shares the admin service so write semantics + change events
+  // stay identical whether a secret is managed via the central UI or via a
+  // consumer plugin (e.g. gitops) delegating to secretAdminRef.
+  const admin = createSecretAdminService({
+    getActiveBackend: async () => backends.get(await getActiveBackendId()),
+    onChanged: emitChanged,
+  });
 
   const listSecrets = os.listSecrets.handler(async () => {
-    const backend = await active();
     // Metadata only — never values.
-    return backend.list();
+    return admin.list();
   });
 
   const listSecretNames = os.listSecretNames.handler(async () => {
-    const backend = await active();
-    const metadata = await backend.list();
+    const metadata = await admin.list();
     return metadata.map((m) => m.name);
   });
 
   const setSecret = os.setSecret.handler(async ({ input, context }) => {
-    const backend = await active();
-    if (!backend.set) {
-      throw new ORPCError("NOT_IMPLEMENTED", {
-        message: `Backend "${backend.id}" is read-only; secrets must be managed in the external store.`,
-      });
-    }
-
-    const existing = await backend.list();
-    const already = existing.find((m) => m.name === input.name);
-
     const actor = context.user;
     const createdBy =
       actor && actor.type !== "service" ? actor.id : undefined;
 
-    await backend.set({
-      name: input.name,
-      value: input.value,
-      description: input.description,
-      createdBy,
-    });
+    try {
+      await admin.setSecret({
+        name: input.name,
+        value: input.value,
+        description: input.description,
+        createdBy,
+      });
+    } catch (error) {
+      throw new ORPCError("NOT_IMPLEMENTED", {
+        message: extractErrorMessage(error),
+      });
+    }
 
-    await emitChanged({
-      name: input.name,
-      change: already ? "rotated" : "created",
-    });
-
-    // Re-read metadata to return the stable id (never the value).
-    const after = await backend.list();
+    const after = await admin.list();
     const meta = after.find((m) => m.name === input.name);
     return { id: meta?.id ?? input.name, name: input.name };
   });
 
   const deleteSecret = os.deleteSecret.handler(async ({ input }) => {
-    const backend = await active();
-    if (!backend.delete) {
+    try {
+      await admin.deleteSecret({ name: input.name });
+    } catch (error) {
       throw new ORPCError("NOT_IMPLEMENTED", {
-        message: `Backend "${backend.id}" is read-only; secrets must be managed in the external store.`,
+        message: extractErrorMessage(error),
       });
     }
-    await backend.delete({ name: input.name });
-    await emitChanged({ name: input.name, change: "deleted" });
     return { success: true };
   });
 

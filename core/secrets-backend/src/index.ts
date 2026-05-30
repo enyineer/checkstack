@@ -21,6 +21,10 @@ import {
   createSecretResolverService,
   type SecretResolverService,
 } from "./resolver-service";
+import {
+  createSecretAdminService,
+  type SecretAdminService,
+} from "./admin-service";
 import type { SecretStore } from "./secret-resolver";
 import { createSecretsRouter } from "./router";
 import { secretsChangedHook } from "./hooks";
@@ -36,6 +40,15 @@ const DEFAULT_BACKEND_ID = "local";
  */
 export const secretResolverRef = createServiceRef<SecretResolverService>(
   "secrets.resolver",
+);
+
+/**
+ * Cross-plugin secret administration service. Consumers (e.g. gitops)
+ * inject this to manage secrets through the active backend so there is a
+ * single source of truth. Metadata/write only — never returns a value.
+ */
+export const secretAdminRef = createServiceRef<SecretAdminService>(
+  "secrets.admin",
 );
 
 interface EnvStash {
@@ -93,6 +106,22 @@ export default createBackendPlugin({
     const resolver = createSecretResolverService({ secretStore });
     env.registerService(secretResolverRef, resolver);
 
+    const emitChanged = async (input: {
+      name: string;
+      change: "created" | "rotated" | "deleted";
+    }): Promise<void> => {
+      await (env as unknown as EnvStash).emitChanged?.(input);
+    };
+
+    const getActiveBackend = async (): Promise<SecretBackend> =>
+      backends.get(await getActiveBackendId());
+
+    const adminService = createSecretAdminService({
+      getActiveBackend,
+      onChanged: emitChanged,
+    });
+    env.registerService(secretAdminRef, adminService);
+
     env.registerInit({
       deps: {
         logger: coreServices.logger,
@@ -104,9 +133,7 @@ export default createBackendPlugin({
         const router = createSecretsRouter({
           backends,
           getActiveBackendId,
-          emitChanged: async (input) => {
-            await (env as unknown as EnvStash).emitChanged?.(input);
-          },
+          emitChanged,
         });
         rpc.registerRouter(router, secretsContract);
 
@@ -143,6 +170,10 @@ export {
   createSecretResolverService,
   type SecretResolverService,
 } from "./resolver-service";
+export {
+  createSecretAdminService,
+  type SecretAdminService,
+} from "./admin-service";
 export {
   createMaskingContext,
   EMPTY_MASKING_CONTEXT,
