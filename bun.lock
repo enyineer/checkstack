@@ -1686,6 +1686,25 @@
         "typescript": "^5.7.2",
       },
     },
+    "core/secrets-frontend": {
+      "name": "@checkstack/secrets-frontend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkstack/common": "workspace:*",
+        "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/secrets-common": "workspace:*",
+        "@checkstack/ui": "workspace:*",
+        "lucide-react": "0.562.0",
+        "react": "^18.3.1",
+        "react-router-dom": "^6.20.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/react": "^18.3.18",
+        "typescript": "^5.7.2",
+      },
+    },
     "core/signal-backend": {
       "name": "@checkstack/signal-backend",
       "version": "0.2.10",
@@ -3049,6 +3068,8 @@
     "@checkstack/secrets-backend-local": ["@checkstack/secrets-backend-local@workspace:core/secrets-backend-local"],
 
     "@checkstack/secrets-common": ["@checkstack/secrets-common@workspace:core/secrets-common"],
+
+    "@checkstack/secrets-frontend": ["@checkstack/secrets-frontend@workspace:core/secrets-frontend"],
 
     "@checkstack/signal-backend": ["@checkstack/signal-backend@workspace:core/signal-backend"],
 
@@ -5503,6 +5524,8 @@
     "@checkstack/queue-frontend/react-router-dom": ["react-router-dom@7.14.2", "", { "dependencies": { "react-router": "7.14.2" }, "peerDependencies": { "react": ">=18", "react-dom": ">=18" } }, "sha512-YZcM5ES8jJSM+KrJ9BdvHHqlnGTg5tH3sC5ChFRj4inosKctdyzBDhOyyHdGk597q2OT6NTrCA1OvB/YDwfekQ=="],
 
     "@checkstack/script-packages-frontend/lucide-react": ["lucide-react@0.562.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-82hOAu7y0dbVuFfmO4bYF1XEwYk/mEbM5E+b1jgci/udUBEE/R7LF5Ip0CCEmXe8AybRM8L+04eP+LGZeDvkiw=="],
+
+    "@checkstack/secrets-frontend/lucide-react": ["lucide-react@0.562.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-82hOAu7y0dbVuFfmO4bYF1XEwYk/mEbM5E+b1jgci/udUBEE/R7LF5Ip0CCEmXe8AybRM8L+04eP+LGZeDvkiw=="],
 
     "@checkstack/ui/lucide-react": ["lucide-react@0.562.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-82hOAu7y0dbVuFfmO4bYF1XEwYk/mEbM5E+b1jgci/udUBEE/R7LF5Ip0CCEmXe8AybRM8L+04eP+LGZeDvkiw=="],
 

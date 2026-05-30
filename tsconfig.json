@@ -235,6 +235,9 @@
       "path": "./core/secrets-common"
     },
     {
+      "path": "./core/secrets-frontend"
+    },
+    {
       "path": "./core/signal-backend"
     },
     {
