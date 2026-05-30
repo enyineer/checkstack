@@ -61,6 +61,7 @@ export * from "./components/VariablePicker";
 export * from "./components/TemplateInput";
 export * from "./components/TemplateInputToggle";
 export * from "./components/ActionCard";
+export * from "./components/ScriptTestPanel";
 export * from "./components/AnimatedNumber";
 export * from "./hooks/useAnimatedNumber";
 export * from "./components/IDELayout";

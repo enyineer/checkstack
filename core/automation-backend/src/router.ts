@@ -43,6 +43,7 @@ import type { AutomationStore } from "./automation-store";
 import { dispatchTrigger } from "./dispatch/engine";
 import type { DispatchDeps } from "./dispatch/types";
 import { collectDefinitionIssues } from "./validate-definition";
+import { runScriptTest } from "./script-test";
 import * as schema from "./schema";
 
 interface RouterDeps {
@@ -513,6 +514,12 @@ export function createAutomationRouter(deps: RouterDeps) {
         return { success: true };
       },
     ),
+
+    // ─── Inline script testing ───────────────────────────────────────────
+
+    testScript: os.testScript.handler(async ({ input }) => {
+      return runScriptTest({ input });
+    }),
 
     // ─── Template playground ─────────────────────────────────────────────
 

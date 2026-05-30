@@ -15,6 +15,7 @@ export type {
   EditorType,
   ShellEnvVar,
   EditorStarterTemplates,
+  ScriptTestRenderer,
 } from "./types";
 
 // Utility functions

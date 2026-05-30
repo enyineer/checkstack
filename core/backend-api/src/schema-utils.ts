@@ -67,6 +67,9 @@ function addSchemaMetadata(
       if (meta["x-editor-types"]) {
         jsonField["x-editor-types"] = meta["x-editor-types"];
       }
+      if (meta["x-script-testable"]) {
+        jsonField["x-script-testable"] = true;
+      }
       if (meta["x-hidden-when"]) {
         jsonField["x-hidden-when"] = meta["x-hidden-when"];
       }

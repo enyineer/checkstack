@@ -22,6 +22,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   typeDefinitions,
   shellEnvVars,
   starterTemplates,
+  scriptTestRenderer,
 }) => {
   // Track previous validity to avoid redundant callbacks
   const prevValidRef = React.useRef<boolean | undefined>(undefined);
@@ -121,6 +122,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               typeDefinitions={typeDefinitions}
               shellEnvVars={shellEnvVars}
               starterTemplates={starterTemplates}
+              scriptTestRenderer={scriptTestRenderer}
               onChange={(val) => onChange({ ...value, [key]: val })}
             />
           );

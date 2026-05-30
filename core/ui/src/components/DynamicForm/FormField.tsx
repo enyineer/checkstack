@@ -38,6 +38,7 @@ export const FormField: React.FC<FormFieldProps> = ({
   typeDefinitions,
   shellEnvVars,
   starterTemplates,
+  scriptTestRenderer,
   onChange,
 }) => {
   const description = propSchema.description || "";
@@ -137,6 +138,12 @@ export const FormField: React.FC<FormFieldProps> = ({
           typeDefinitions={typeDefinitions}
           shellEnvVars={shellEnvVars}
           starterTemplates={starterTemplates}
+          scriptTestRenderer={
+            propSchema["x-script-testable"] === true
+              ? scriptTestRenderer
+              : undefined
+          }
+          fieldId={id}
           onChange={onChange as (val: string | undefined) => void}
         />
       );
@@ -373,6 +380,7 @@ export const FormField: React.FC<FormFieldProps> = ({
             typeDefinitions={typeDefinitions}
             shellEnvVars={shellEnvVars}
             starterTemplates={starterTemplates}
+            scriptTestRenderer={scriptTestRenderer}
             onChange={(val) =>
               onChange({ ...(value as Record<string, unknown>), [key]: val })
             }
@@ -485,6 +493,7 @@ export const FormField: React.FC<FormFieldProps> = ({
                   typeDefinitions={typeDefinitions}
                   shellEnvVars={shellEnvVars}
                   starterTemplates={starterTemplates}
+                  scriptTestRenderer={scriptTestRenderer}
                   onChange={(val) => {
                     const next = [...(items as unknown[])];
                     next[index] = val;
@@ -617,6 +626,7 @@ export const FormField: React.FC<FormFieldProps> = ({
                 typeDefinitions={typeDefinitions}
                 shellEnvVars={shellEnvVars}
                 starterTemplates={starterTemplates}
+                scriptTestRenderer={scriptTestRenderer}
                 onChange={(val) => onChange({ ...currentValue, [key]: val })}
               />
             ))}

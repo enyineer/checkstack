@@ -8,6 +8,10 @@ import {
 import { automationAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
 import {
+  ScriptTestInputSchema,
+  ScriptTestResultSchema,
+} from "./script-test-schemas";
+import {
   ActionInfoSchema,
   ArtifactTypeInfoSchema,
   AutomationArtifactSchema,
@@ -199,6 +203,27 @@ export const automationContract = {
   })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
+
+  // ─── Inline script testing ─────────────────────────────────────────────
+
+  /**
+   * Run a `run_script` (TypeScript) or `run_shell` (shell) script against
+   * an editable sample context, using the same sandboxed runner the real
+   * action uses. Lets operators test a script directly in the editor
+   * without dispatching a whole automation.
+   *
+   * Gated by `manage` because authoring + running a script already
+   * executes code on the central backend — this is the same privilege.
+   * The run is time-bounded and always central (real satellite runs may
+   * differ; the UI notes this).
+   */
+  testScript: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [automationAccess.manage],
+  })
+    .input(ScriptTestInputSchema)
+    .output(ScriptTestResultSchema),
 
   // ─── Template playground ───────────────────────────────────────────────
 

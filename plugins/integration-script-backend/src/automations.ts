@@ -53,6 +53,7 @@ const EMPTY_SCOPE: ActionRunScope = {
 const shellRunConfigSchema = z.object({
   script: configString({
     "x-editor-types": ["shell"],
+    "x-script-testable": true,
   }).describe("Bash script to execute"),
   env: z
     .record(z.string(), configString({}))
@@ -195,6 +196,7 @@ export const shellRunAction = createShellRunAction();
 const scriptRunConfigSchema = z.object({
   script: configString({
     "x-editor-types": ["typescript"],
+    "x-script-testable": true,
   }).describe(
     "TypeScript/JavaScript module to execute. Default-export an async function that receives `context` and returns a JSON-serialisable value (e.g. `{ id }`). The Monaco editor for this field consumes `generateAutomationContextTypes` from `@checkstack/automation-frontend` so `context.trigger.payload` is typed as a discriminated union over the automation's subscribed triggers.",
   ),

@@ -32,6 +32,7 @@ import { useAutomationRegistry } from "./registry-context";
 import { ItemPicker } from "./ItemPicker";
 import { ConditionEditor } from "./ConditionEditor";
 import { useConnectionOptionResolvers } from "./useConnectionOptionResolvers";
+import { automationScriptTestRenderer } from "./ScriptTestRenderer";
 
 /**
  * Provider action body. Picks an action id from `listActions()` then
@@ -144,6 +145,7 @@ export const ProviderActionBody: React.FC<{
         templateCompletionProvider={completionProvider}
         typeDefinitions={typeDefinitions}
         shellEnvVars={mergedShellEnvVars}
+        scriptTestRenderer={automationScriptTestRenderer}
       />
     </div>
   );

@@ -1,0 +1,236 @@
+import { describe, expect, test } from "bun:test";
+import type {
+  EsmScriptRunner,
+  ShellScriptRunner,
+} from "@checkstack/backend-api";
+import {
+  buildScriptContext,
+  runScriptTest,
+  type ScriptTestContext,
+} from "./script-test";
+
+function fakeEsmRunner(
+  impl: EsmScriptRunner["run"],
+): { runner: EsmScriptRunner; calls: Parameters<EsmScriptRunner["run"]>[0][] } {
+  const calls: Parameters<EsmScriptRunner["run"]>[0][] = [];
+  return {
+    calls,
+    runner: {
+      run: (options) => {
+        calls.push(options);
+        return impl(options);
+      },
+    },
+  };
+}
+
+function fakeShellRunner(
+  impl: ShellScriptRunner["run"],
+): {
+  runner: ShellScriptRunner;
+  calls: Parameters<ShellScriptRunner["run"]>[0][];
+} {
+  const calls: Parameters<ShellScriptRunner["run"]>[0][] = [];
+  return {
+    calls,
+    runner: {
+      run: (options) => {
+        calls.push(options);
+        return impl(options);
+      },
+    },
+  };
+}
+
+describe("buildScriptContext", () => {
+  test("fills defaults for an empty sample", () => {
+    const ctx = buildScriptContext(undefined);
+    expect(ctx).toEqual({
+      trigger: { event: "", payload: {} },
+      artifacts: {},
+      var: {},
+      automation: {
+        runId: "test-run",
+        automationId: "test-automation",
+        contextKey: null,
+      },
+    });
+  });
+
+  test("passes through provided trigger / artifacts / var and includes repeat only when present", () => {
+    const sample: ScriptTestContext = {
+      trigger: { event: "incident.created", payload: { id: "INC-1" } },
+      artifacts: { jira_issue: { key: "PROJ-1" } },
+      var: { count: 3 },
+      repeat: { index: 2, item: { name: "a" } },
+    };
+    const ctx = buildScriptContext(sample);
+    expect(ctx.trigger).toEqual({
+      event: "incident.created",
+      payload: { id: "INC-1" },
+    });
+    expect(ctx.artifacts).toEqual({ jira_issue: { key: "PROJ-1" } });
+    expect(ctx.var).toEqual({ count: 3 });
+    expect(ctx.repeat).toEqual({ index: 2, item: { name: "a" } });
+  });
+
+  test("omits repeat when not in the sample", () => {
+    const ctx = buildScriptContext({ trigger: { event: "x" } });
+    expect("repeat" in ctx).toBe(false);
+  });
+});
+
+describe("runScriptTest — typescript", () => {
+  test("invokes the ESM runner with the built context + helper module", async () => {
+    const { runner, calls } = fakeEsmRunner(async () => ({
+      result: { id: "ok" },
+      stdout: "log line",
+      stderr: "",
+      timedOut: false,
+    }));
+
+    const out = await runScriptTest({
+      input: {
+        kind: "typescript",
+        script: "export default { id: 'ok' }",
+        context: { trigger: { event: "e", payload: { a: 1 } } },
+        timeoutMs: 5000,
+      },
+      deps: { esmRunner: runner },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.helperModuleName).toBe("@checkstack/integration");
+    expect(calls[0]?.helperFunctionName).toBe("defineIntegration");
+    expect(calls[0]?.timeoutMs).toBe(5000);
+    expect(out.result).toEqual({ id: "ok" });
+    expect(out.stdout).toBe("log line");
+    expect(out.error).toBeUndefined();
+    expect(out.timedOut).toBe(false);
+    expect(out.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  test("surfaces a thrown-script error", async () => {
+    const { runner } = fakeEsmRunner(async () => ({
+      error: "boom",
+      stack: "Error: boom",
+      stdout: "",
+      stderr: "",
+      timedOut: false,
+    }));
+
+    const out = await runScriptTest({
+      input: { kind: "typescript", script: "throw new Error('boom')", timeoutMs: 1000 },
+      deps: { esmRunner: runner },
+    });
+    expect(out.error).toBe("boom");
+  });
+
+  test("reports timeout as an error", async () => {
+    const { runner } = fakeEsmRunner(async () => ({
+      stdout: "",
+      stderr: "",
+      timedOut: true,
+      error: "Script execution timed out",
+    }));
+
+    const out = await runScriptTest({
+      input: { kind: "typescript", script: "while(true){}", timeoutMs: 100 },
+      deps: { esmRunner: runner },
+    });
+    expect(out.timedOut).toBe(true);
+    expect(out.error).toBe("Script execution timed out");
+  });
+
+  test("catches an unexpected runner rejection instead of throwing", async () => {
+    const { runner } = fakeEsmRunner(async () => {
+      throw new Error("spawn failed");
+    });
+    const out = await runScriptTest({
+      input: { kind: "typescript", script: "x", timeoutMs: 1000 },
+      deps: { esmRunner: runner },
+    });
+    expect(out.error).toBe("spawn failed");
+  });
+});
+
+describe("runScriptTest — shell", () => {
+  test("flattens the sample context into CHECKSTACK_* env and merges explicit env", async () => {
+    const { runner, calls } = fakeShellRunner(async () => ({
+      exitCode: 0,
+      stdout: "hello",
+      stderr: "",
+      timedOut: false,
+    }));
+
+    const out = await runScriptTest({
+      input: {
+        kind: "shell",
+        script: "echo $CHECKSTACK_TRIGGER_PAYLOAD_ID",
+        context: { trigger: { event: "e", payload: { id: "INC-9" } } },
+        env: { EXTRA: "1" },
+        timeoutMs: 3000,
+      },
+      deps: { shellRunner: runner },
+    });
+
+    expect(calls).toHaveLength(1);
+    const env = calls[0]?.env ?? {};
+    expect(env.CHECKSTACK_TRIGGER_EVENT).toBe("e");
+    expect(env.CHECKSTACK_TRIGGER_PAYLOAD_ID).toBe("INC-9");
+    expect(env.EXTRA).toBe("1");
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toBe("hello");
+    expect(out.error).toBeUndefined();
+  });
+
+  test("explicit env wins on key collision", async () => {
+    const { runner, calls } = fakeShellRunner(async () => ({
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      timedOut: false,
+    }));
+    await runScriptTest({
+      input: {
+        kind: "shell",
+        script: "true",
+        context: { trigger: { event: "from-context" } },
+        env: { CHECKSTACK_TRIGGER_EVENT: "from-env" },
+        timeoutMs: 1000,
+      },
+      deps: { shellRunner: runner },
+    });
+    expect(calls[0]?.env?.CHECKSTACK_TRIGGER_EVENT).toBe("from-env");
+  });
+
+  test("reports a non-zero exit code as an error", async () => {
+    const { runner } = fakeShellRunner(async () => ({
+      exitCode: 2,
+      stdout: "",
+      stderr: "nope",
+      timedOut: false,
+    }));
+    const out = await runScriptTest({
+      input: { kind: "shell", script: "exit 2", timeoutMs: 1000 },
+      deps: { shellRunner: runner },
+    });
+    expect(out.exitCode).toBe(2);
+    expect(out.error).toContain("exited with code 2");
+  });
+
+  test("reports a shell timeout", async () => {
+    const { runner } = fakeShellRunner(async () => ({
+      exitCode: -1,
+      stdout: "",
+      stderr: "Script execution timed out",
+      timedOut: true,
+    }));
+    const out = await runScriptTest({
+      input: { kind: "shell", script: "sleep 100", timeoutMs: 50 },
+      deps: { shellRunner: runner },
+    });
+    expect(out.timedOut).toBe(true);
+    expect(out.error).toBe("Script execution timed out");
+  });
+});

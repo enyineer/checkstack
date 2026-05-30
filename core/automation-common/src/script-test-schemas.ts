@@ -1,0 +1,51 @@
+import { z } from "zod";
+
+/**
+ * Wire schemas for the in-UI script test endpoint (`testScript`).
+ *
+ * The editable sample context mirrors what a `run_script` action sees as
+ * `globalThis.context` and what `run_shell` flattens into `$CHECKSTACK_*`
+ * env vars. Every field is optional so a partial sample still runs.
+ */
+
+export const ScriptTestKindSchema = z.enum(["typescript", "shell"]);
+export type ScriptTestKind = z.infer<typeof ScriptTestKindSchema>;
+
+export const ScriptTestContextSchema = z.object({
+  trigger: z
+    .object({
+      event: z.string().optional(),
+      payload: z.record(z.string(), z.unknown()).optional(),
+    })
+    .optional(),
+  artifacts: z.record(z.string(), z.unknown()).optional(),
+  var: z.record(z.string(), z.unknown()).optional(),
+  repeat: z
+    .object({
+      index: z.number().int(),
+      item: z.unknown().optional(),
+    })
+    .optional(),
+});
+export type ScriptTestContext = z.infer<typeof ScriptTestContextSchema>;
+
+export const ScriptTestInputSchema = z.object({
+  kind: ScriptTestKindSchema,
+  script: z.string(),
+  context: ScriptTestContextSchema.optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  workingDirectory: z.string().optional(),
+  timeoutMs: z.number().int().min(100).max(300_000).default(30_000),
+});
+export type ScriptTestInputDto = z.infer<typeof ScriptTestInputSchema>;
+
+export const ScriptTestResultSchema = z.object({
+  result: z.unknown().optional(),
+  stdout: z.string(),
+  stderr: z.string(),
+  exitCode: z.number().int().optional(),
+  durationMs: z.number().int().nonnegative(),
+  timedOut: z.boolean(),
+  error: z.string().optional(),
+});
+export type ScriptTestResultDto = z.infer<typeof ScriptTestResultSchema>;

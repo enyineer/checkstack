@@ -721,4 +721,48 @@ describe("Automation Router", () => {
       expect(typeof res.error?.column).toBe("number");
     });
   });
+
+  describe("testScript", () => {
+    it("runs a shell script against the flattened sample context", async () => {
+      const res = await call(
+        h.router.testScript,
+        {
+          kind: "shell",
+          script: 'echo "$CHECKSTACK_TRIGGER_PAYLOAD_ID"',
+          context: { trigger: { event: "incident.created", payload: { id: "INC-7" } } },
+          timeoutMs: 10_000,
+        },
+        { context: h.context },
+      );
+      expect(res.exitCode).toBe(0);
+      expect(res.stdout).toBe("INC-7");
+      expect(res.error).toBeUndefined();
+      expect(res.timedOut).toBe(false);
+    });
+
+    it("surfaces a non-zero shell exit code as an error", async () => {
+      const res = await call(
+        h.router.testScript,
+        { kind: "shell", script: "exit 3", timeoutMs: 10_000 },
+        { context: h.context },
+      );
+      expect(res.exitCode).toBe(3);
+      expect(res.error).toContain("exited with code 3");
+    });
+
+    it("runs a typescript script and returns its default export", async () => {
+      const res = await call(
+        h.router.testScript,
+        {
+          kind: "typescript",
+          script: "export default { ok: context.trigger.payload.id };",
+          context: { trigger: { event: "e", payload: { id: "INC-9" } } },
+          timeoutMs: 10_000,
+        },
+        { context: h.context },
+      );
+      expect(res.result).toEqual({ ok: "INC-9" });
+      expect(res.error).toBeUndefined();
+    });
+  });
 });
