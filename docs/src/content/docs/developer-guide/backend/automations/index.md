@@ -36,4 +36,4 @@ Plugins register into these in their `register()` phase:
 
 The automation backend also exposes read-only service refs (`automationRegistriesRef`, `automationArtifactStoreRef`) for cross-plugin introspection and artifact lookups, and a GitOps `Automation` entity kind so automations can be declared in Git.
 
-See [extending the automation platform](/checkstack/developer-guide/backend/automations/extending/) for the registration API, and [the sensing layer](/checkstack/developer-guide/backend/automations/sensing-layer/) for live state, duration filters, dwells, and structured conditions.
+See the [primitives reference](/checkstack/developer-guide/backend/automations/primitives/) for the shape and a runnable YAML example of every action, trigger, and condition, [extending the automation platform](/checkstack/developer-guide/backend/automations/extending/) for the registration API, and [the sensing layer](/checkstack/developer-guide/backend/automations/sensing-layer/) for live state, duration filters, dwells, and structured conditions.
