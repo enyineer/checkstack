@@ -4,9 +4,10 @@ import {
   healthCheckRuns,
   systemHealthChecks,
   healthCheckAggregates,
+  healthCheckStateTransitions,
   DEFAULT_RETENTION_CONFIG,
 } from "./schema";
-import { eq, and, lt, sql } from "drizzle-orm";
+import { eq, and, lt, sql, desc } from "drizzle-orm";
 import type { QueueManager } from "@checkstack/queue-api";
 
 type Db = SafeDatabase<typeof schema>;
@@ -68,6 +69,29 @@ export async function runRetentionJob(deps: RetentionJobDeps) {
 
   // Get all unique system-config assignments
   const assignments = await db.select().from(systemHealthChecks);
+
+  // State transitions are system-level (not per-config), so prune them
+  // once per unique system rather than once per assignment. Use the
+  // longest rawRetentionDays among the system's assignments so a single
+  // short-retention check can't drop history another check still wants.
+  const rawRetentionBySystem = new Map<string, number>();
+  for (const assignment of assignments) {
+    const days = (
+      assignment.retentionConfig ?? DEFAULT_RETENTION_CONFIG
+    ).rawRetentionDays;
+    const existing = rawRetentionBySystem.get(assignment.systemId);
+    if (existing === undefined || days > existing) {
+      rawRetentionBySystem.set(assignment.systemId, days);
+    }
+  }
+
+  for (const [systemId, rawRetentionDays] of rawRetentionBySystem) {
+    try {
+      await pruneStateTransitions({ db, systemId, rawRetentionDays });
+    } catch (error) {
+      logger.error(`State-transition prune failed for ${systemId}`, { error });
+    }
+  }
 
   for (const assignment of assignments) {
     const retentionConfig =
@@ -132,6 +156,46 @@ async function deleteExpiredRawRuns(params: DeleteExpiredRawRunsParams) {
         lt(healthCheckRuns.timestamp, cutoffDate),
       ),
     );
+}
+
+interface PruneStateTransitionsParams {
+  db: Db;
+  systemId: string;
+  rawRetentionDays: number;
+}
+
+/**
+ * Prune aggregate state-transition rows older than the raw-run retention
+ * window, but ALWAYS keep the single most-recent transition for the
+ * system so "in current status since" never blanks for an active streak
+ * (decision D3). Deletes rows that are both older than the cutoff AND
+ * not the newest row.
+ */
+export async function pruneStateTransitions(
+  params: PruneStateTransitionsParams,
+): Promise<void> {
+  const { db, systemId, rawRetentionDays } = params;
+
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - rawRetentionDays);
+
+  const [newest] = await db
+    .select({ id: healthCheckStateTransitions.id })
+    .from(healthCheckStateTransitions)
+    .where(eq(healthCheckStateTransitions.systemId, systemId))
+    .orderBy(desc(healthCheckStateTransitions.transitionedAt))
+    .limit(1);
+
+  const conditions = [
+    eq(healthCheckStateTransitions.systemId, systemId),
+    lt(healthCheckStateTransitions.transitionedAt, cutoffDate),
+  ];
+  if (newest) {
+    // Never delete the most-recent row, even if it predates the cutoff.
+    conditions.push(sql`${healthCheckStateTransitions.id} <> ${newest.id}`);
+  }
+
+  await db.delete(healthCheckStateTransitions).where(and(...conditions));
 }
 
 interface RollupParams {

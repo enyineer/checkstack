@@ -55,6 +55,7 @@ import {
   shouldOpenForFlapping,
   shouldOpenForSustainedUnhealthy,
 } from "./auto-incident";
+import { recordStateTransition } from "./state-transitions";
 
 type Db = SafeDatabase<typeof schema>;
 type CatalogClient = InferClient<typeof CatalogApi>;
@@ -901,6 +902,16 @@ async function executeHealthCheckJob(props: {
 
       const newState = await service.getSystemHealthStatus(systemId);
       if (newState.status !== previousStatus) {
+        // Record the aggregate transition so the sensing layer has a
+        // reliable "in status since" for every status (Wave 2).
+        await recordStateTransition({
+          db,
+          systemId,
+          configurationId: configId,
+          fromStatus: previousStatus,
+          toStatus: newState.status,
+        });
+
         await notifyStateChange({
           notificationClient,
           systemId,
@@ -1016,6 +1027,16 @@ async function executeHealthCheckJob(props: {
     // Check if aggregated state changed and notify subscribers
     const newState = await service.getSystemHealthStatus(systemId);
     if (newState.status !== previousStatus) {
+      // Record the aggregate transition so the sensing layer has a
+      // reliable "in status since" for every status (Wave 2).
+      await recordStateTransition({
+        db,
+        systemId,
+        configurationId: configId,
+        fromStatus: previousStatus,
+        toStatus: newState.status,
+      });
+
       await notifyStateChange({
         notificationClient,
         systemId,
@@ -1182,6 +1203,16 @@ async function executeHealthCheckJob(props: {
     // Check if aggregated state changed and notify subscribers
     const newState = await service.getSystemHealthStatus(systemId);
     if (newState.status !== previousStatus) {
+      // Record the aggregate transition so the sensing layer has a
+      // reliable "in status since" for every status (Wave 2).
+      await recordStateTransition({
+        db,
+        systemId,
+        configurationId: configId,
+        fromStatus: previousStatus,
+        toStatus: newState.status,
+      });
+
       await notifyStateChange({
         notificationClient,
         systemId,

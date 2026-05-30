@@ -410,6 +410,39 @@ export class MaintenanceService {
   }
 
   /**
+   * Check if a system currently has an active maintenance window,
+   * regardless of whether notification suppression is enabled. A
+   * maintenance is "active" when its status is "in_progress".
+   *
+   * Unlike {@link hasActiveMaintenanceWithSuppression}, this is
+   * suppression-agnostic: it answers "is this system in a maintenance
+   * window right now?" so automations can gate on maintenance state
+   * without being coupled to the notification-suppression flag.
+   */
+  async hasActiveMaintenance(systemId: string): Promise<boolean> {
+    const systemMaintenances = await this.db
+      .select({ maintenanceId: maintenanceSystems.maintenanceId })
+      .from(maintenanceSystems)
+      .where(eq(maintenanceSystems.systemId, systemId));
+
+    const ids = systemMaintenances.map((r) => r.maintenanceId);
+    if (ids.length === 0) return false;
+
+    const [match] = await this.db
+      .select({ id: maintenances.id })
+      .from(maintenances)
+      .where(
+        and(
+          inArray(maintenances.id, ids),
+          eq(maintenances.status, "in_progress"),
+        ),
+      )
+      .limit(1);
+
+    return !!match;
+  }
+
+  /**
    * Get maintenances that should transition from 'scheduled' to 'in_progress'.
    * These are maintenances where status = 'scheduled' AND startAt <= now.
    */

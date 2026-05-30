@@ -220,6 +220,8 @@ export default createBackendPlugin({
           cache,
           configService: config,
           catalogClient,
+          maintenanceClient,
+          logger,
         });
         rpc.registerRouter(healthCheckRouter, healthCheckContract);
 

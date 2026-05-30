@@ -129,6 +129,54 @@ A daily background job manages the data lifecycle:
 
 Deletes daily aggregates older than `dailyRetentionDays`.
 
+### Stage 4: State-transition prune
+
+Deletes `health_check_state_transitions` rows older than the longest `rawRetentionDays` across a system's assignments, but always keeps the single most-recent row per system so the "in current status since" timestamp never blanks for an active streak.
+
+## Aggregate state transitions
+
+The `health_check_state_transitions` table records every aggregate health-status transition for a system (for example `healthy` -> `degraded` -> `unhealthy` -> `healthy`). One row is written wherever an aggregate transition is detected, at the same point the `systemHealthChanged` hook fires.
+
+Unlike `health_check_unhealthy_transitions` (which is unhealthy-only, conditional on the auto-incident policy, and pruned with raw runs), this table is unconditional and covers all statuses. It is the source of truth for "how long has this system been in its current status?", which powers the automation sensing layer.
+
+| Column | Meaning |
+|--------|---------|
+| `systemId` | The system whose aggregate status changed |
+| `configurationId` | The check whose run drove the transition |
+| `fromStatus` | Previous aggregate status (`null` on the first recorded transition) |
+| `toStatus` | New aggregate status |
+| `transitionedAt` | When the transition occurred |
+
+## Health-state provider
+
+The health-state provider exposes the live, computed health snapshot any plugin needs to answer "is this system unhealthy, and for how long?" without re-deriving the math. These are service-typed RPCs (backend-to-backend) on `HealthCheckApi`.
+
+```typescript
+getHealthState({ systemId, configurationId? }): Promise<{
+  status: HealthCheckStatus;
+  inStatusSince: Date | null;   // null when no transition recorded
+  inStatusForMs: number;        // 0 when inStatusSince is null
+  latencyMs?: number;           // newest run
+  avgLatencyMs?: number;        // windowed (hourly aggregates)
+  p95LatencyMs?: number;        // windowed
+  successRate?: number;         // windowed, [0, 1]
+  lastRunAt?: Date;
+  inMaintenance: boolean;       // suppression-agnostic
+  evaluatedAt: Date;
+}>
+
+// POST variant: resolves many systems against one shared timestamp,
+// avoiding N+1 from dashboards and multi-system automation rules.
+getBulkHealthState({ systemIds }): Promise<{
+  states: Record<string, /* same shape as above */>;
+}>
+```
+
+`status` reflects the single check when `configurationId` is supplied, otherwise the aggregate. `inStatusSince` / `inStatusForMs` come from the aggregate state-transition table; `inMaintenance` comes from the maintenance plugin's suppression-agnostic `hasActiveMaintenance` RPC.
+
+> [!NOTE]
+> The provider is fail-safe by design. A missing transition row yields `inStatusSince: null` (never throws), and a maintenance-plugin error fails open to `inMaintenance: false` so a downstream outage never wedges health-state reads.
+
 ## Configurable Retention
 
 Retention can be customized per system-assignment via the `RetentionConfig` schema:
