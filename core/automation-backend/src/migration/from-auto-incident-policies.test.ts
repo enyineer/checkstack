@@ -1,6 +1,11 @@
 import { describe, it, expect } from "bun:test";
 import { AutomationDefinitionSchema } from "@checkstack/automation-common";
 import {
+  createDefaultFilterRegistry,
+  evaluateBoolean,
+  parseCondition,
+} from "@checkstack/template-engine";
+import {
   buildFlappingAutomation,
   buildSustainedAutomation,
   planForAssignment,
@@ -151,6 +156,62 @@ describe("buildFlappingAutomation", () => {
   it("produces a schema-valid definition", () => {
     const def = buildFlappingAutomation(assignment())!;
     expect(AutomationDefinitionSchema.safeParse(def).success).toBe(true);
+  });
+});
+
+describe("filter id escaping (L3)", () => {
+  const filters = createDefaultFilterRegistry();
+
+  /** Evaluate a trigger filter expression against a payload. */
+  const matches = (filter: string, payload: Record<string, unknown>) =>
+    evaluateBoolean(parseCondition(filter), { trigger: { payload } }, {
+      filters,
+    });
+
+  it("escapes a systemId containing a double quote so the filter is valid + exact", () => {
+    // An id with a quote would, with naive interpolation, produce
+    //   trigger.payload.systemId == "sys-"evil"-1"
+    // which is a broken/injectable expression. JSON.stringify must escape it.
+    const evilId = 'sys-"evil"-1';
+    const def = buildSustainedAutomation({
+      ...assignment(),
+      systemId: evilId,
+    })!;
+    const filter = def.triggers[0]!.filter!;
+
+    // Parses without throwing and matches ONLY the exact id.
+    expect(matches(filter, { systemId: evilId })).toBe(true);
+    expect(matches(filter, { systemId: "sys-evil-1" })).toBe(false);
+    expect(matches(filter, { systemId: 'sys-"evil"-2' })).toBe(false);
+  });
+
+  it("escapes a backslash in the id", () => {
+    const backslashId = "sys\\1";
+    const def = buildSustainedAutomation({
+      ...assignment(),
+      systemId: backslashId,
+    })!;
+    const filter = def.triggers[0]!.filter!;
+    expect(matches(filter, { systemId: backslashId })).toBe(true);
+    expect(matches(filter, { systemId: "sys1" })).toBe(false);
+  });
+
+  it("escapes both systemId and configurationId in the flapping filter", () => {
+    const evilSystem = 'sys-"x"';
+    const evilConfig = 'cfg-"y"';
+    const def = buildFlappingAutomation({
+      ...assignment(),
+      systemId: evilSystem,
+      configurationId: evilConfig,
+    })!;
+    const filter = def.triggers[0]!.filter!;
+    expect(
+      matches(filter, { systemId: evilSystem, configurationId: evilConfig }),
+    ).toBe(true);
+    // Wrong config → no match (the && both-sides escaping holds).
+    expect(
+      matches(filter, { systemId: evilSystem, configurationId: "cfg-other" }),
+    ).toBe(false);
   });
 });
 

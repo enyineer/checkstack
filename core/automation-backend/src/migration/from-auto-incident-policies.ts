@@ -48,6 +48,17 @@ import * as schema from "../schema";
 
 type Db = SafeDatabase<typeof schema>;
 
+/**
+ * Render a `trigger.payload.<field> == <id>` equality for the filter
+ * expression, JSON-encoding the id so a `"` or `\` in the value can't break
+ * out of the string literal and corrupt (or inject into) the expression.
+ * `JSON.stringify` produces a correctly-escaped double-quoted literal, which
+ * is also valid syntax for the filter language's string literals.
+ */
+function payloadEquals(field: string, value: string): string {
+  return `trigger.payload.${field} == ${JSON.stringify(value)}`;
+}
+
 interface AssignmentPolicy {
   systemId: string;
   configurationId: string;
@@ -156,7 +167,7 @@ export function buildSustainedAutomation(
     triggers: [
       {
         event: TRIGGER_SYSTEM_DEGRADED,
-        filter: `trigger.payload.systemId == "${a.systemId}"`,
+        filter: payloadEquals("systemId", a.systemId),
         for: { minutes: p.sustainedUnhealthyTrigger.durationMinutes },
       },
     ],
@@ -192,7 +203,7 @@ export function buildFlappingAutomation(
     triggers: [
       {
         event: TRIGGER_FLAPPING,
-        filter: `trigger.payload.systemId == "${a.systemId}" && trigger.payload.configurationId == "${a.configurationId}"`,
+        filter: `${payloadEquals("systemId", a.systemId)} && ${payloadEquals("configurationId", a.configurationId)}`,
       },
     ],
     conditions,
