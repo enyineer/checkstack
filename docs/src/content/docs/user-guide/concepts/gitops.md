@@ -106,9 +106,9 @@ spec:
     connectionString: "postgres://user:${{ secrets.DB_PASS }}@host/db"
 ```
 
-The reconciler resolves these only in fields the registering plugin marked as secret. That means a secret reference accidentally placed in `metadata.title` will not get expanded and leak. When you rotate a secret in the store, every entity referencing it is flagged for re-reconciliation on the next sync.
+The reconciler resolves these only in fields the registering plugin marked as secret. That means a secret reference accidentally placed in `metadata.title` will not get expanded and leak. When you rotate a secret, every entity referencing it is flagged for re-reconciliation on the next sync.
 
-Secrets themselves are managed from the GitOps UI: **Infrastructure -> GitOps -> Secrets**. They are encrypted at rest using your `ENCRYPTION_MASTER_KEY`, the same way other secrets in Checkstack are.
+Secrets are managed centrally in **Settings -> Secrets** (the platform-wide secret store), and the same `${{ secrets.NAME }}` references work everywhere, not just in GitOps. By default they are encrypted at rest with your `ENCRYPTION_MASTER_KEY`; an external backend (HashiCorp Vault) can be selected instead. See the [Secrets platform](/checkstack/developer-guide/backend/secrets/) reference for the full model.
 
 ## Providers
 
@@ -152,7 +152,7 @@ A few honest trade-offs:
 | Where to go | What you do there |
 |-------------|-------------------|
 | **Infrastructure -> GitOps -> Providers** | Connect a Git repo, set the branch and path. |
-| **Infrastructure -> GitOps -> Secrets** | Manage the secrets `${{ secrets.NAME }}` references. |
+| **Settings -> Secrets** | Manage the secrets that `${{ secrets.NAME }}` references resolve to (platform-wide). |
 | **Infrastructure -> GitOps -> Entities** | See which resources are GitOps-managed and their last sync status. |
 | **Sync now** button | Trigger an immediate reconciliation outside the schedule. |
 

@@ -5,13 +5,15 @@ description: "How Checkstack manages secrets centrally with pluggable backends, 
 
 The Secrets platform is the central, plugin-agnostic home for secrets. Secrets are created and managed in one place, stored by a pluggable backend (a local AES-256-GCM store by default), referenced from descriptors and configs via `${{ secrets.NAME }}`, and resolved on demand by any plugin through a service reference. No endpoint ever returns a secret value to a browser, and a Jenkins-style masking layer redacts known secret values out of any output before it is persisted or returned.
 
+This page is the canonical contract for the platform. It covers the backend extension point, `${{ secrets.NAME }}` / `x-secret` resolution, the `secretEnv` env-mapping with least-privilege injection, the masking guarantee (and its documented limit), satellite just-in-time delivery, the Vault backend, internal secrets, and the test-panel behavior.
+
 > [!NOTE]
-> This page documents Phases 1 to 4: the core plugin, the local backend, the resolver service, the masking layer, secret to env-var injection for scripts (central and satellite), just-in-time satellite delivery, and the HashiCorp Vault backend. Satellite-direct-Vault (a satellite reading Vault itself for core-unreachable topologies) is deferred to a follow-up; core-mediated delivery is the default.
+> Satellite-direct-Vault (a satellite reading Vault itself for core-unreachable topologies) is a deferred follow-up; core-mediated delivery is the default and already routes through whichever backend is active, including Vault.
 
 ## Packages
 
 - `@checkstack/secrets-common` - schemas (`secretNameSchema`, the `${{ secrets.NAME }}` template, the secret metadata DTO, the secret to env mapping, the backend-config DTOs), the oRPC contract, the `secrets.read` / `secrets.manage` access rules, the `secrets.changed` hook id, and the pure masking utilities (`maskSecrets`, `maskSecretsDeep`, `maskScriptRunOutput`).
-- `@checkstack/secrets-backend` - the `SecretBackend` extension point, the backend registry, the promoted schema-driven resolver (`resolveSecretsBySchema`), the cross-plugin `secretResolverRef` / `secretAdminRef` services, the run-scoped `SecretMaskingContext`, the `secrets.changed` hook, the active-backend selection (persisted via `ConfigService`), and the RPC router.
+- `@checkstack/secrets-backend` - the `SecretBackend` extension point, the backend registry, the promoted schema-driven resolver (`resolveSecretsBySchema`), the cross-plugin `secretResolverRef` / `secretAdminRef` / `internalSecretsRef` services, the run-scoped `SecretMaskingContext`, the `secrets.changed` hook, the active-backend selection (persisted via `ConfigService`), and the RPC router.
 - `@checkstack/secrets-backend-local` - the default backend: AES-256-GCM values in the `secrets` table. Owns the table (promoted from gitops).
 - `@checkstack/secrets-backend-vault` - the HashiCorp Vault backend (optional / opt-in). Owns a name → KV v2 path index table.
 - `@checkstack/secrets-frontend` - the admin Settings page (create / rotate / delete, backend selection + Vault config, values write-only).
@@ -42,7 +44,7 @@ The active backend is config-selected (persisted via `ConfigService`, set in Set
 `@checkstack/secrets-backend-vault` is an optional, opt-in `SecretBackend` against HashiCorp Vault. Install the plugin and select `vault` as the active backend.
 
 - **Auth:** token, AppRole (`role_id` + `secret_id`), and OIDC/JWT (`role` + JWT) are all supported. The client logs in once, caches the session until the lease TTL (capped), and re-logs in on expiry.
-- **Reads:** `get(name)` maps the name via the backend's own `secret_index` table (name → KV v2 path + key), reads `<mount>/data/<path>`, and returns the chosen key. `list()` returns the index metadata only — NEVER values. Vault is read-through (no `set` / `delete`); secrets are authored in Vault and indexed here.
+- **Reads:** `get(name)` maps the name via the backend's own `secret_index` table (name to a KV v2 path + key), reads `<mount>/data/<path>`, and returns the chosen key. `list()` returns the index metadata only, NEVER values. Vault is read-through (no `set` / `delete`); secrets are authored in Vault and indexed here.
 - **Caching:** resolved values are cached in memory with a capped TTL so rotated values are re-read; the cache is cleared on config change. Nothing is persisted to disk.
 - **`testBackend`** validates auth/connectivity and returns status only.
 
@@ -102,7 +104,7 @@ Healthcheck collectors run on satellites, which must NEVER persist a secret to d
 
 If delivery fails or a required secret can't resolve, the collector run errors clearly ("required secret not available on this satellite") rather than running without it.
 
-Source-side masking is applied on the satellite: the collector runs `maskSecrets` over its `stdout` / `stderr` / `result` / `error` using the run's delivered values BEFORE the result leaves the satellite, so a secret is redacted at the source even if the result is logged downstream. (Satellite-direct-Vault — a satellite resolving from Vault itself using its own identity, for core-unreachable topologies — is deferred to a follow-up; core-mediated delivery works for Vault today since the resolver simply reads through the active backend.)
+Source-side masking is applied on the satellite: the collector runs `maskSecrets` over its `stdout` / `stderr` / `result` / `error` using the run's delivered values BEFORE the result leaves the satellite, so a secret is redacted at the source even if the result is logged downstream. (Satellite-direct-Vault, a satellite resolving from Vault itself using its own identity for core-unreachable topologies, is deferred to a follow-up; core-mediated delivery works for Vault today since the resolver simply reads through the active backend.)
 
 ## Test panel: placeholders + overrides
 
@@ -112,12 +114,13 @@ The in-UI test panel (`testScript` / `testCollectorScript`) NEVER resolves real 
 
 The RPC contract exposes only metadata:
 
-- `listSecrets` returns `SecretMetadata` (`id`, `name`, `description`, `hasValue`, `backend`, timestamps) - never the value.
+- `listSecrets` returns `SecretMetadata` (`id`, `name`, `description`, `hasValue`, `backend`, timestamps) - never the value. Internal secrets (see below) are excluded.
 - `listSecretNames` returns names only (for editor autocomplete + the env-mapping UI).
 - `setSecret` is write-only (create or rotate); `deleteSecret` removes by name.
-- `getBackendConfig` returns the active backend id + available ids.
+- `getBackendConfig` returns the active backend id, the available ids, and (for Vault) the connection metadata with `hasCredential` - never the credential.
+- `setBackendConfig` accepts the Vault credential as write-only input (stored encrypted, never returned); `testBackend` returns connectivity/auth status only.
 
-There is no `getSecret` / `resolveSecret` on the browser-facing contract. Resolution to values is the service-only `secretResolverRef`.
+There is no `getSecret` / `resolveSecret` on the browser-facing contract. Resolution to values is the service-only `secretResolverRef` / `internalSecretsRef`.
 
 ## Universal masking (the leak guarantee)
 
@@ -141,12 +144,12 @@ const safe = maskSecrets({
 Some secrets back a specific feature rather than being user-managed named secrets. These use `internalSecretsRef` (get/set/delete) and are:
 
 - stored under the reserved `__internal__:` name prefix, so the user-facing Secrets UI (`listSecrets` / `listSecretNames`) never shows them and they aren't `${{ secrets.NAME }}`-referenceable;
-- ALWAYS kept on the local (always-writable, AES-GCM) backend, never the active external backend — Vault is read-through with no `set`, so routing internal writes through the active backend would break when Vault is selected.
+- ALWAYS kept on the local (always-writable, AES-GCM) backend, never the active external backend. Vault is read-through with no `set`, so routing internal writes through the active backend would break when Vault is selected.
 
 The script-package registry auth token is stored this way. The `script_package_registry_config.authSecretRef` column holds a stable marker (the internal secret name) once the token lives in the platform; a one-time, idempotent, parity-verified migration moves any legacy inline ciphertext into the internal store and only rewrites the column after the platform copy reads back identically (so the legacy value is never dropped prematurely). Resolution falls back to decrypting legacy ciphertext until the migration runs.
 
 > [!NOTE]
-> Integration connection credentials are NOT migrated onto the secrets platform. They are stored per-connection via `ConfigService` using each provider's `connectionSchema` (which marks credential fields `x-secret`), so they already share the local backend's exact AES-GCM crypto, and ConfigService's per-field redaction (`getRedacted`) is what keeps `listConnections` safe. Splitting the co-mingled secret/non-secret config into separate platform secrets would require per-provider schema-walking and a lossy migration across every live connection, with no real gain — so the `ConnectionStore` public API and storage are unchanged. The one hardening applied here: `createConnection` / `updateConnection` now return the redacted preview instead of echoing the submitted credential fields.
+> Integration connection credentials are NOT migrated onto the secrets platform. They are stored per-connection via `ConfigService` using each provider's `connectionSchema` (which marks credential fields `x-secret`), so they already share the local backend's exact AES-GCM crypto, and ConfigService's per-field redaction (`getRedacted`) is what keeps `listConnections` safe. Splitting the co-mingled secret/non-secret config into separate platform secrets would require per-provider schema-walking and a lossy migration across every live connection, with no real gain, so the `ConnectionStore` public API and storage are unchanged. The one hardening applied here: `createConnection` / `updateConnection` now return the redacted preview instead of echoing the submitted credential fields.
 
 ## Migration from GitOps
 
