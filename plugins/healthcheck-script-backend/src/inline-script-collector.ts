@@ -14,6 +14,7 @@ import {
   aggregatedAverage,
   aggregatedRate,
   type InferAggregatedResult,
+  type CollectorRunContext,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -56,20 +57,26 @@ export interface InlineScriptExecutor {
     script: string;
     config: Record<string, unknown>;
     timeoutMs: number;
+    runContext?: CollectorRunContext;
   }): Promise<InlineScriptExecutionResult>;
 }
 
 /**
  * Default executor — delegates to the shared `EsmScriptRunner`. Wires
- * `globalThis.context = { config }` (the inline-health-check runtime
- * surface) and the virtual `@checkstack/healthcheck` module / global
- * `defineHealthCheck` helper.
+ * `globalThis.context = { config, check?, system? }` (the inline
+ * health-check runtime surface) and the virtual `@checkstack/healthcheck`
+ * module / global `defineHealthCheck` helper.
  */
 const defaultInlineScriptExecutor: InlineScriptExecutor = {
-  async execute({ script, config, timeoutMs }) {
+  async execute({ script, config, timeoutMs, runContext }) {
     const res: EsmScriptRunResult = await defaultEsmScriptRunner.run({
       script,
-      context: { config },
+      context: {
+        config,
+        ...(runContext
+          ? { check: runContext.check, system: runContext.system }
+          : {}),
+      },
       timeoutMs,
       helperModuleName: "@checkstack/healthcheck",
       helperFunctionName: "defineHealthCheck",
@@ -254,10 +261,12 @@ export class InlineScriptCollector implements CollectorStrategy<
 
   async execute({
     config,
+    runContext,
   }: {
     config: InlineScriptConfig;
     client: ScriptTransportClient;
     pluginId: string;
+    runContext?: CollectorRunContext;
   }): Promise<CollectorResult<InlineScriptResult>> {
     const startTime = Date.now();
 
@@ -267,6 +276,7 @@ export class InlineScriptCollector implements CollectorStrategy<
         script: config.script,
         config: config as unknown as Record<string, unknown>,
         timeoutMs: config.timeout,
+        runContext,
       });
     } catch (error) {
       const executionTimeMs = Date.now() - startTime;

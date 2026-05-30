@@ -340,6 +340,49 @@ describe("InlineScriptCollector", () => {
     });
   });
 
+  describe("context.runContext", () => {
+    it("exposes run-context metadata as `context.check` / `context.system`", async () => {
+      const config = createConfig({
+        script: `
+          // @ts-ignore — context is injected by the runner
+          export default { success: true, message: \`\${context.system.name}:\${context.check.id}\` };
+        `,
+      });
+
+      const result = await collector.execute({
+        config,
+        client: mockClient,
+        pluginId: "script",
+        runContext: {
+          check: { id: "check-7", name: "CPU load", intervalSeconds: 30 },
+          system: { id: "system-3", name: "web-02" },
+        },
+      });
+
+      expect(result.result.success).toBe(true);
+      expect(result.result.message).toBe("web-02:check-7");
+    });
+
+    it("still exposes `context.config` and does not crash when runContext is absent (back-compat)", async () => {
+      const config = createConfig({
+        script: `
+          // @ts-ignore — context is injected by the runner
+          export default { success: true, value: context.config.timeout, message: typeof context.system };
+        `,
+      });
+
+      const result = await collector.execute({
+        config,
+        client: mockClient,
+        pluginId: "script",
+      });
+
+      expect(result.result.success).toBe(true);
+      expect(result.result.value).toBe(10_000);
+      expect(result.result.message).toBe("undefined");
+    });
+  });
+
   describe("mergeResult", () => {
     it("aggregates execution time and success rate", () => {
       const run1 = {

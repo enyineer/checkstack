@@ -13,6 +13,7 @@ export {
 } from "./generateTypeDefinitions";
 
 export {
+  customShellEnvVars,
   healthcheckScriptContext,
   integrationScriptContext,
   type ScriptEditorContext,

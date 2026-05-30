@@ -11,6 +11,8 @@ import {
   DEFAULT_NOTIFICATION_POLICY,
 } from "@checkstack/healthcheck-common";
 import type { ConfigService } from "@checkstack/backend-api";
+import type { InferClient } from "@checkstack/common";
+import type { CatalogApi } from "@checkstack/catalog-common";
 import {
   notificationDefaultsConfigV1,
   NOTIFICATION_DEFAULTS_CONFIG_ID,
@@ -56,6 +58,10 @@ import {
 // Drizzle type helper - uses SafeDatabase to prevent relational query API usage
 type Db = SafeDatabase<typeof schema>;
 
+// Catalog client type used to resolve human-readable system names for
+// satellite assignment run-context. Optional on the service.
+type CatalogClient = InferClient<typeof CatalogApi>;
+
 interface SystemCheckStatus {
   configurationId: string;
   configurationName: string;
@@ -83,6 +89,12 @@ export class HealthCheckService {
      * have to plumb it through.
      */
     private configService?: ConfigService,
+    /**
+     * Optional — used to resolve human-readable system names when building
+     * satellite assignment run-context. When absent (e.g. GitOps-only /
+     * test constructions), `systemName` falls back to the `systemId`.
+     */
+    private catalogClient?: CatalogClient,
   ) {}
 
   /**
@@ -1226,6 +1238,27 @@ export class HealthCheckService {
 
     if (matchingAssociations.length === 0) return [];
 
+    // Resolve human-readable system names once per distinct systemId.
+    // Falls back to the systemId when no catalog client is wired or the
+    // lookup fails, mirroring the queue-executor's resolution behaviour.
+    const systemNameCache = new Map<string, string>();
+    const resolveSystemName = async (systemId: string): Promise<string> => {
+      const cached = systemNameCache.get(systemId);
+      if (cached !== undefined) return cached;
+
+      let systemName = systemId;
+      if (this.catalogClient) {
+        try {
+          const system = await this.catalogClient.getSystem({ systemId });
+          if (system) systemName = system.name;
+        } catch {
+          // Fall back to systemId if catalog lookup fails.
+        }
+      }
+      systemNameCache.set(systemId, systemName);
+      return systemName;
+    };
+
     // Get configurations for each matching association
     const assignments = [];
     for (const assoc of matchingAssociations) {
@@ -1243,6 +1276,9 @@ export class HealthCheckService {
         config: config.config,
         collectors: config.collectors ?? undefined,
         intervalSeconds: config.intervalSeconds,
+        // Curated run-context metadata exposed to satellite collectors.
+        configName: config.name,
+        systemName: await resolveSystemName(assoc.systemId),
       });
     }
 

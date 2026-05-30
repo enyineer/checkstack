@@ -219,6 +219,7 @@ export default createBackendPlugin({
           getEmitHook: () => storedEmitHook,
           cache,
           configService: config,
+          catalogClient,
         });
         rpc.registerRouter(healthCheckRouter, healthCheckContract);
 

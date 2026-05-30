@@ -5,10 +5,12 @@ import type {
 import type {
   ConnectedClient,
   TransportClient,
+  CollectorRunContext,
 } from "@checkstack/backend-api";
 import { SatelliteClient } from "./satellite-client";
 import { Scheduler } from "./scheduler";
 import { loadStrategies } from "./strategy-loader";
+import { buildRunContext } from "./run-context";
 
 // =============================================================================
 // Environment validation — fail fast if required vars are missing
@@ -92,6 +94,11 @@ async function executeAssignment(
     };
   }
 
+  // Curated, read-only run-context metadata exposed to collectors.
+  // Mirrors the core queue-executor; falls back to IDs when the optional
+  // name fields are absent (version-skew safety).
+  const runContext: CollectorRunContext = buildRunContext({ assignment });
+
   const start = performance.now();
   let connectedClient:
     | ConnectedClient<TransportClient<never, unknown>>
@@ -125,6 +132,7 @@ async function executeAssignment(
             config: collectorEntry.config,
             client: connectedClient!.client,
             pluginId: assignment.strategyId,
+            runContext,
           });
 
           return {

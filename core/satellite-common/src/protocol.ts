@@ -38,6 +38,9 @@ export const SatelliteAssignmentSchema = z.object({
   config: z.record(z.string(), z.unknown()),
   collectors: z.array(SatelliteCollectorConfigSchema).optional(),
   intervalSeconds: z.number(),
+  /** Curated run-context metadata. Optional for version-skew safety. */
+  configName: z.string().optional(),
+  systemName: z.string().optional(),
 });
 
 export type SatelliteAssignment = z.infer<typeof SatelliteAssignmentSchema>;

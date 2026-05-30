@@ -55,6 +55,27 @@ custom vars (e.g. `API_TOKEN`) via the collector's `env` field, in
 which case they're merged on top of the whitelist for that one
 invocation.
 
+### Run context (reserved variables)
+
+The satellite also injects a set of reserved variables that describe
+the run, so the script knows which check and which system it's running
+for:
+
+- `CHECKSTACK_CHECK_ID` - the health check configuration id.
+- `CHECKSTACK_CHECK_NAME` - the check's display name (falls back to the id).
+- `CHECKSTACK_CHECK_INTERVAL_SECONDS` - the configured run interval in seconds.
+- `CHECKSTACK_SYSTEM_ID` - the id of the system being checked.
+- `CHECKSTACK_SYSTEM_NAME` - the system's display name (falls back to the id).
+
+These are merged on top of the whitelist for that one invocation. A
+user-supplied `env` value with the same name overrides the injected
+one.
+
+```sh
+echo "checking ${CHECKSTACK_CHECK_NAME} for system \"$CHECKSTACK_SYSTEM_NAME\""
+echo "next run in ${CHECKSTACK_CHECK_INTERVAL_SECONDS}s"
+```
+
 ### Working directory
 
 `cwd` is optional and defaults to the satellite's current directory.
@@ -63,8 +84,9 @@ Set it explicitly when your script reads relative paths.
 ## Inline scripts (TypeScript / JavaScript)
 
 The collector takes a `script` field - a TypeScript/JavaScript module
-source - plus a `timeout`. The runner exposes one runtime global
-(`context.config`) and otherwise gives you the full Node/Bun stdlib.
+source - plus a `timeout`. The runner exposes a `globalThis.context`
+runtime global (`context.config`, `context.check`, `context.system`)
+and otherwise gives you the full Node/Bun stdlib.
 
 ### Example - load average via `node:os`
 
@@ -91,6 +113,27 @@ module is recommended but optional. It's a runtime identity
 function - its only job is to assert at the type level that you
 return a valid `HealthCheckScriptResult`, so the editor catches
 mistakes like `{ success: "yes" }` before the script ever runs.
+
+### Run context (`context.check` and `context.system`)
+
+Alongside `context.config`, `globalThis.context` exposes the run
+context describing which check and which system the run is for:
+
+- `context.check`: `{ id: string; name: string; intervalSeconds: number }`
+  - `name` falls back to the id when no display name is set.
+- `context.system`: `{ id: string; name: string }`
+  - `name` falls back to the id when no display name is set.
+
+The inline-script editor types these, so they autocomplete.
+
+```ts
+import { defineHealthCheck } from "@checkstack/healthcheck";
+
+export default defineHealthCheck({
+  success: true,
+  message: `${context.system.name} checked every ${context.check.intervalSeconds}s`,
+});
+```
 
 ### Result shape
 
@@ -132,7 +175,8 @@ The configuration UI uses a VS Code-powered code editor with full TypeScript Int
   the `Bun` global, `process.env`, etc. all autocomplete and check.
 - `context.config` is typed from the collector's own JSON Schema, so
   the fields you've added to the configuration are autocompletable
-  from inside the script.
+  from inside the script. `context.check` and `context.system` are
+  typed too, so the run-context fields autocomplete as well.
 - A virtual `@checkstack/healthcheck` module exposes `defineHealthCheck`
   and the `HealthCheckScriptResult` interface - when you write
   `export default defineHealthCheck({ ... })`, the editor type-checks the

@@ -1817,6 +1817,7 @@
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
         "@codingame/monaco-vscode-editor-api": "25.1.2",
+        "@codingame/monaco-vscode-languages-service-override": "25.1.2",
         "@codingame/monaco-vscode-standalone-json-language-features": "25.1.2",
         "@codingame/monaco-vscode-standalone-languages": "25.1.2",
         "@codingame/monaco-vscode-standalone-typescript-language-features": "25.1.2",

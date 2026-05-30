@@ -36,6 +36,10 @@ import {
 // (see validateJsonTemplate), so templates work in any position - including
 // unquoted ones like a numeric `"timeout": {{x}}`.
 import { jsonDefaults } from "@codingame/monaco-vscode-standalone-json-language-features";
+// Default export is `getServiceOverride()`, returning a service-id -> descriptor
+// map. We register ONLY its `ILanguageStatusService` entry (see
+// `languageStatusServiceOverride` below).
+import getLanguagesServiceOverride from "@codingame/monaco-vscode-languages-service-override";
 
 // Worker entry URLs, bundled and resolved by Vite via the `?worker&url`
 // suffix. We import them as URL STRINGS (not Worker constructors) because
@@ -50,7 +54,7 @@ import editorWorkerUrl from "@codingame/monaco-vscode-editor-api/esm/vs/editor/e
 import tsWorkerUrl from "@codingame/monaco-vscode-standalone-typescript-language-features/worker?worker&url";
 import jsonWorkerUrl from "@codingame/monaco-vscode-standalone-json-language-features/worker?worker&url";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import * as monaco from "@codingame/monaco-vscode-editor-api";
 import { MonacoEditorReactComp } from "@typefox/monaco-editor-react";
 import { extractBracketKeyGroups } from "./bracketKeyGroups";
@@ -361,6 +365,23 @@ export type TypefoxEditorProps = {
  * bracket completions; for markup/text languages it offers `{{ }}` template
  * completions.
  */
+// The standalone ("classic") service set omits `ILanguageStatusService`, but
+// the JSON language features register a language-status indicator (the active
+// formatter) on editor focus and throw "LanguageStatusService.addStatus is not
+// supported" without it. We register ONLY that service: the full languages
+// override would also swap `ILanguageService` for the workbench impl and pull
+// in the files-service override, both of which conflict with the standalone
+// language setup. The override map is keyed by the service-decorator id
+// (`createDecorator('ILanguageStatusService')`), so we pick that one entry.
+const LANGUAGE_STATUS_SERVICE_ID = "ILanguageStatusService";
+const languageStatusServiceOverride: monaco.editor.IEditorOverrideServices =
+  (() => {
+    const all = getLanguagesServiceOverride();
+    return LANGUAGE_STATUS_SERVICE_ID in all
+      ? { [LANGUAGE_STATUS_SERVICE_ID]: all[LANGUAGE_STATUS_SERVICE_ID] }
+      : {};
+  })();
+
 export const TypefoxEditor = ({
   id,
   value,
@@ -374,6 +395,15 @@ export const TypefoxEditor = ({
   readOnly = false,
   placeholder,
 }: TypefoxEditorProps) => {
+  // `MonacoEditorReactComp` captures `onTextChanged` once at editor-start, so
+  // the handler it calls would otherwise close over a stale `onChange` (bound
+  // to the value/sibling-config at mount time). Routing through a ref that we
+  // keep current on every render means content changes always invoke the
+  // latest `onChange` — without this, editing one DynamicForm field reverts
+  // sibling fields (e.g. a shell action's `env`) to their mount-time values.
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
   // Unique-per-instance id so multiple editors never share a model or clobber
   // each other's extra-lib.
   const reactId = useId();
@@ -778,6 +808,10 @@ export const TypefoxEditor = ({
     // 'classic' is the standalone axis (no extension host); 'extended' is the
     // extension-host axis we deliberately avoid in this migration.
     $type: "classic",
+    // Register the missing ILanguageStatusService (see the override comment
+    // above) so focusing a JSON editor doesn't throw "addStatus is not
+    // supported".
+    serviceOverrides: { ...languageStatusServiceOverride },
     viewsConfig: {
       // Plain editor, no workbench views.
       $type: "EditorService",
@@ -813,7 +847,7 @@ export const TypefoxEditor = ({
   };
 
   const handleTextChanged = (textChanges: TextContents): void => {
-    onChange?.(textChanges.modified ?? "");
+    onChangeRef.current?.(textChanges.modified ?? "");
   };
 
   return (

@@ -70,6 +70,8 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
             onValidChange={onValidChange}
             {...healthcheckScriptContext({
               collectorConfigSchema: collectorDef.configSchema,
+              // Surface the user's own `env` keys as `$`-completions.
+              customEnv: entry.config.env,
             })}
           />
         </div>

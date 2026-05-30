@@ -17,6 +17,7 @@ import * as schema from "./schema";
 import { toJsonSchemaWithChartMeta } from "./schema-utils";
 import type { InferClient } from "@checkstack/common";
 import { GitOpsApi } from "@checkstack/gitops-common";
+import { CatalogApi } from "@checkstack/catalog-common";
 import type { HealthCheckCache } from "./cache";
 
 /**
@@ -33,14 +34,24 @@ export const createHealthCheckRouter = (opts: {
   getEmitHook: () => ((hook: { id: string }, payload: Record<string, unknown>) => Promise<void>) | undefined;
   cache: HealthCheckCache;
   configService: ConfigService;
+  catalogClient: InferClient<typeof CatalogApi>;
 }) => {
-  const { database, registry, collectorRegistry, getEmitHook, cache, configService } = opts;
+  const {
+    database,
+    registry,
+    collectorRegistry,
+    getEmitHook,
+    cache,
+    configService,
+    catalogClient,
+  } = opts;
   // Create service instance once - shared across all handlers
   const service = new HealthCheckService(
     database,
     registry,
     collectorRegistry,
     configService,
+    catalogClient,
   );
 
   // Create contract implementer with context type AND auto auth middleware

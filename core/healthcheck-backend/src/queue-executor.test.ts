@@ -72,6 +72,7 @@ const createMockCatalogClient = () => ({
   // Other methods not used in queue-executor
   getEntities: mock(async () => ({ systems: [], groups: [] })),
   getSystems: mock(async () => ({ systems: [] })),
+  getSystem: mock(async () => null),
   getGroups: mock(async () => []),
   createSystem: mock(async () => ({})),
   updateSystem: mock(async () => ({})),
@@ -413,6 +414,142 @@ describe("Queue-Based Health Check Executor", () => {
 
       // Verify no signal was broadcast (since execution was skipped)
       expect(mockSignalService.getRecordedSignals()).toHaveLength(0);
+    });
+  });
+
+  describe("executeHealthCheckJob - collector run-context", () => {
+    it("passes curated run-context to the collector (name falls back to id when configName is null)", async () => {
+      const mockDb = createMockDb();
+      const mockRegistry = createMockRegistry();
+      const mockLogger = createMockLogger();
+      const mockQueueManager = createMockQueueManager();
+      const mockCatalogClient = createMockCatalogClient();
+      const mockMaintenanceClient = createMockMaintenanceClient();
+      const mockIncidentClient = createMockIncidentClient();
+      const mockSignalService = createMockSignalService();
+
+      // Catalog resolves the system name.
+      (mockCatalogClient.getSystem as any) = mock(async () => ({
+        id: "system-1",
+        name: "web-01",
+      }));
+
+      // configName is null -> run-context check.name must fall back to id.
+      let selectCallCount = 0;
+      (mockDb.select as any) = mock(() => {
+        selectCallCount++;
+        if (selectCallCount === 2) {
+          return {
+            from: mock(() => ({
+              innerJoin: mock(() => ({
+                where: mock(() =>
+                  Promise.resolve([
+                    {
+                      configId: "config-1",
+                      configName: null,
+                      strategyId: "test-strategy",
+                      config: { timeout: 5000 },
+                      collectors: [
+                        { id: "col-1", collectorId: "test-collector", config: {} },
+                      ],
+                      interval: 45,
+                      enabled: true,
+                      paused: false,
+                      includeLocal: true,
+                      satelliteIds: [],
+                    },
+                  ]),
+                ),
+              })),
+            })),
+          };
+        }
+        return {
+          from: mock(() => ({
+            innerJoin: mock(() => ({
+              where: mock(() => Promise.resolve([])),
+            })),
+          })),
+        };
+      });
+
+      // Capture the run-context the collector receives.
+      let capturedRunContext: unknown;
+      const collectorExecute = mock(
+        async (params: { runContext?: unknown }) => {
+          capturedRunContext = params.runContext;
+          return { result: {} };
+        },
+      );
+      const mockCollectorRegistry = {
+        register: mock(() => {}),
+        getCollector: mock(() => ({
+          collector: {
+            id: "test-collector",
+            execute: collectorExecute,
+            mergeResult: mock(() => ({})),
+          },
+        })),
+        getCollectors: mock(() => []),
+      };
+
+      const queue =
+        mockQueueManager.getQueue<HealthCheckJobPayload>("health-checks");
+      let capturedHandler:
+        | ((job: { data: HealthCheckJobPayload }) => Promise<void>)
+        | undefined;
+      (queue.consume as any) = mock(
+        async (
+          handler: (job: { data: HealthCheckJobPayload }) => Promise<void>,
+        ) => {
+          capturedHandler = handler;
+        },
+      );
+
+      await setupHealthCheckWorker({
+        db: mockDb as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["db"],
+        registry: mockRegistry,
+        collectorRegistry: mockCollectorRegistry as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["collectorRegistry"],
+        logger: mockLogger,
+        queueManager: mockQueueManager,
+        signalService: mockSignalService,
+        catalogClient: mockCatalogClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["catalogClient"],
+        notificationClient: {
+          notifyForSubscription: () => Promise.resolve({ notifiedCount: 0 }),
+        } as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["notificationClient"],
+        maintenanceClient: mockMaintenanceClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["maintenanceClient"],
+        incidentClient: mockIncidentClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["incidentClient"],
+        getEmitHook: () => undefined,
+        cache: passthroughCache,
+      });
+
+      if (capturedHandler) {
+        // The collector runs early in the execution sequence; downstream
+        // aggregation/persistence touches DB surfaces the lightweight mock
+        // doesn't model, so tolerate a later throw — the run-context we
+        // assert on is captured synchronously at collector-execute time.
+        await capturedHandler({
+          data: { configId: "config-1", systemId: "system-1" },
+        }).catch(() => {});
+      }
+
+      expect(collectorExecute).toHaveBeenCalled();
+      expect(capturedRunContext).toEqual({
+        check: { id: "config-1", name: "config-1", intervalSeconds: 45 },
+        system: { id: "system-1", name: "web-01" },
+      });
     });
   });
 });

@@ -11,6 +11,7 @@ import {
   TemplateValueInput,
   Toggle,
   KeyValueEditor,
+  customShellEnvVars,
   type ShellEnvVar,
   type TemplateCompletionProvider,
   type VariableNode,
@@ -65,6 +66,16 @@ export const ProviderActionBody: React.FC<{
   disabled,
 }) => {
   const { actions } = useAutomationRegistry();
+  // The shell script action exposes a user-editable `env` field; surface
+  // its keys as `$`-completions alongside the run-scope `$CHECKSTACK_*`
+  // vars (memoised so the editor's completion provider isn't re-registered
+  // on every keystroke).
+  const mergedShellEnvVars = React.useMemo(
+    // User's own declared `env` keys first (most relevant), then the
+    // run-scope `$CHECKSTACK_*` vars — the suggest list orders by insertion.
+    () => [...customShellEnvVars(value.config.env), ...shellEnvVars],
+    [shellEnvVars, value.config.env],
+  );
   const pickerItems = React.useMemo(
     () =>
       actions.map((action) => ({
@@ -115,7 +126,7 @@ export const ProviderActionBody: React.FC<{
             templateProperties={templateProperties}
             templateCompletionProvider={completionProvider}
             typeDefinitions={typeDefinitions}
-            shellEnvVars={shellEnvVars}
+            shellEnvVars={mergedShellEnvVars}
           />
         </div>
       )}

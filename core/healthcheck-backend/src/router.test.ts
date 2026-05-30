@@ -68,6 +68,10 @@ describe("HealthCheck Router", () => {
     getRedacted: mock(async () => undefined),
   };
 
+  const mockCatalogClient = {
+    getSystem: mock(async () => null),
+  };
+
   const router = createHealthCheckRouter({
     database: mockDb as never,
     registry: mockRegistry,
@@ -76,6 +80,7 @@ describe("HealthCheck Router", () => {
     getEmitHook: () => undefined,
     cache: passthroughCache,
     configService: mockConfigService as never,
+    catalogClient: mockCatalogClient as never,
   });
 
   it("getStrategies returns strategies from registry", async () => {

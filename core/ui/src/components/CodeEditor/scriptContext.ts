@@ -89,6 +89,22 @@ interface HealthCheckScriptResult {
 interface HealthCheckScriptContext {
   /** Strongly-typed collector configuration. */
   readonly config: ${configType};
+  /** Metadata about the health check this run is for. */
+  readonly check: {
+    /** The health check configuration id. */
+    readonly id: string;
+    /** The health check's display name (falls back to the id). */
+    readonly name: string;
+    /** The configured run interval, in seconds. */
+    readonly intervalSeconds: number;
+  };
+  /** Metadata about the system this check runs for. */
+  readonly system: {
+    /** The system id. */
+    readonly id: string;
+    /** The system's display name (falls back to the id). */
+    readonly name: string;
+  };
 }
 
 /**
@@ -329,6 +345,51 @@ const SAFE_SHELL_VARS: ShellEnvVar[] = [
 ];
 
 /**
+ * Run-context vars the satellite injects into every shell health-check
+ * run, describing the check + system it's for. Mirrors the reserved
+ * `CHECKSTACK_*` keys set by `healthcheck-script-backend`'s shell
+ * collector. User-supplied `env` values override these.
+ */
+const HEALTHCHECK_RUN_CONTEXT_VARS: ShellEnvVar[] = [
+  { name: "CHECKSTACK_CHECK_ID", description: "This health check's configuration id." },
+  {
+    name: "CHECKSTACK_CHECK_NAME",
+    description: "This health check's display name (falls back to the id).",
+  },
+  {
+    name: "CHECKSTACK_CHECK_INTERVAL_SECONDS",
+    description: "The configured run interval, in seconds.",
+  },
+  { name: "CHECKSTACK_SYSTEM_ID", description: "The id of the system being checked." },
+  {
+    name: "CHECKSTACK_SYSTEM_NAME",
+    description: "The system's display name (falls back to the id).",
+  },
+];
+
+/** A valid POSIX shell identifier — only these can be referenced as `$NAME`. */
+const SHELL_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Turn a user's custom `env` object (e.g. a script action's or health
+ * check's "Env (JSON)" field) into `$`-completion hints. Defensive about
+ * the loosely-typed form value: non-objects yield nothing, and only keys
+ * that are valid shell identifiers are surfaced (a `$my-var` completion
+ * wouldn't be usable). Exported so editors that build their shell env
+ * suggestions outside the `*ScriptContext` helpers (e.g. the automation
+ * action editor) can merge custom env keys the same way.
+ */
+export function customShellEnvVars(env: unknown): ShellEnvVar[] {
+  if (typeof env !== "object" || env === null || Array.isArray(env)) return [];
+  return Object.keys(env)
+    .filter((name) => SHELL_IDENTIFIER.test(name))
+    .map((name) => ({
+      name,
+      description: "Custom variable from this check's Env (JSON) field.",
+    }));
+}
+
+/**
  * Vars injected by the integration platform on every delivery. Per-
  * payload-field `PAYLOAD_*` vars are appended at call time based on the
  * concrete event schema.
@@ -406,6 +467,13 @@ function flattenSchemaToEnvVars(
  */
 export function healthcheckScriptContext(input: {
   collectorConfigSchema?: JsonSchemaProperty;
+  /**
+   * The collector's current `env` value (the "Env (JSON)" field). Its
+   * keys are surfaced as `$`-completions so a user's own declared vars
+   * autocomplete alongside the whitelist + reserved run-context vars.
+   * Typed `unknown` because it comes from the loosely-typed form value.
+   */
+  customEnv?: unknown;
 }): ScriptEditorContext {
   const configType = input.collectorConfigSchema
     ? jsonSchemaToTypeScript(input.collectorConfigSchema)
@@ -418,7 +486,14 @@ export function healthcheckScriptContext(input: {
       javascript: HEALTHCHECK_INLINE_TS_STARTER,
       shell: HEALTHCHECK_SHELL_STARTER,
     },
-    shellEnvVars: SAFE_SHELL_VARS,
+    // Most-relevant-first: the user's own declared env, then this check's
+    // run-context metadata, then the generic OS whitelist (the suggest list
+    // is ordered by insertion index, so order here is what the user sees).
+    shellEnvVars: [
+      ...customShellEnvVars(input.customEnv),
+      ...HEALTHCHECK_RUN_CONTEXT_VARS,
+      ...SAFE_SHELL_VARS,
+    ],
   };
 }
 

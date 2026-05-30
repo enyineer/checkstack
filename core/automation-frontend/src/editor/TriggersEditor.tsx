@@ -181,12 +181,12 @@ const TriggerCard: React.FC<{
                 disabled={disabled}
               />
               {selected && (
-                <p className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                   <Badge variant="outline" className="text-[10px]">
                     {selected.ownerPluginId}
                   </Badge>
                   {selected.description}
-                </p>
+                </div>
               )}
             </div>
             <div className="grid gap-2 sm:grid-cols-2">

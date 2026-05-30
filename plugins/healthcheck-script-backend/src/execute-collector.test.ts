@@ -101,6 +101,66 @@ describe("ExecuteCollector", () => {
         timeout: 3000,
       });
     });
+
+    it("injects run-context metadata into the script env", async () => {
+      const collector = new ExecuteCollector();
+      const client = createMockClient();
+
+      await collector.execute({
+        config: { script: "echo hi", timeout: 3000 },
+        client,
+        pluginId: "test",
+        runContext: {
+          check: { id: "check-1", name: "CPU load", intervalSeconds: 60 },
+          system: { id: "system-9", name: "web-01" },
+        },
+      });
+
+      const call = (client.exec as ReturnType<typeof mock>).mock.calls[0][0];
+      expect(call.env.CHECKSTACK_CHECK_ID).toBe("check-1");
+      expect(call.env.CHECKSTACK_CHECK_NAME).toBe("CPU load");
+      expect(call.env.CHECKSTACK_CHECK_INTERVAL_SECONDS).toBe("60");
+      expect(call.env.CHECKSTACK_SYSTEM_ID).toBe("system-9");
+      expect(call.env.CHECKSTACK_SYSTEM_NAME).toBe("web-01");
+    });
+
+    it("lets a user config.env key win over a metadata key on collision", async () => {
+      const collector = new ExecuteCollector();
+      const client = createMockClient();
+
+      await collector.execute({
+        config: {
+          script: "echo hi",
+          env: { CHECKSTACK_CHECK_NAME: "user override" },
+          timeout: 3000,
+        },
+        client,
+        pluginId: "test",
+        runContext: {
+          check: { id: "check-1", name: "metadata name", intervalSeconds: 60 },
+          system: { id: "system-9", name: "web-01" },
+        },
+      });
+
+      const call = (client.exec as ReturnType<typeof mock>).mock.calls[0][0];
+      expect(call.env.CHECKSTACK_CHECK_NAME).toBe("user override");
+      // Non-colliding metadata keys are still present.
+      expect(call.env.CHECKSTACK_SYSTEM_ID).toBe("system-9");
+    });
+
+    it("leaves env unchanged when no runContext is supplied (back-compat)", async () => {
+      const collector = new ExecuteCollector();
+      const client = createMockClient();
+
+      await collector.execute({
+        config: { script: "echo hi", env: { MY_VAR: "value" }, timeout: 3000 },
+        client,
+        pluginId: "test",
+      });
+
+      const call = (client.exec as ReturnType<typeof mock>).mock.calls[0][0];
+      expect(call.env).toEqual({ MY_VAR: "value" });
+    });
   });
 
   describe("migration", () => {

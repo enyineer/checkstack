@@ -457,6 +457,8 @@ export const healthCheckContract = {
             )
             .optional(),
           intervalSeconds: z.number(),
+          configName: z.string().optional(),
+          systemName: z.string().optional(),
         }),
       ),
     ),

@@ -8,6 +8,7 @@ import {
   type BaseStrategyConfig,
   type ConnectedClient,
   type TransportClient,
+  type CollectorRunContext,
 } from "@checkstack/backend-api";
 import { QueueManager } from "@checkstack/queue-api";
 import {
@@ -667,6 +668,17 @@ async function executeHealthCheckJob(props: {
       logger.debug(`Could not fetch system name for ${systemId}, using ID`);
     }
 
+    // Curated, read-only run-context metadata exposed to collectors.
+    // Metadata only - never secrets or config.
+    const runContext: CollectorRunContext = {
+      check: {
+        id: configId,
+        name: configRow.configName || configId,
+        intervalSeconds: configRow.interval,
+      },
+      system: { id: systemId, name: systemName },
+    };
+
     const strategy = registry.getStrategy(configRow.strategyId);
     if (!strategy) {
       logger.warn(
@@ -717,6 +729,7 @@ async function executeHealthCheckJob(props: {
                 config: collectorEntry.config,
                 client: connectedClient!.client,
                 pluginId: configRow.strategyId,
+                runContext,
               });
 
               // Check for collector-level error

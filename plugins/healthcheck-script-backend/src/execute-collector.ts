@@ -11,6 +11,7 @@ import {
   aggregatedAverage,
   aggregatedRate,
   type InferAggregatedResult,
+  type CollectorRunContext,
 } from "@checkstack/backend-api";
 import {
   healthResultNumber,
@@ -20,6 +21,35 @@ import {
 } from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "./plugin-metadata";
 import type { ScriptTransportClient } from "./transport-client";
+
+// ============================================================================
+// RUN-CONTEXT ENV INJECTION
+// ============================================================================
+//
+// Reserved env var names exposing curated run-context metadata to the
+// shell script. These mirror the automation `CHECKSTACK_` shell
+// convention; intentionally NOT imported from automation-common to keep
+// this plugin's dependency surface minimal.
+
+const CHECKSTACK_CHECK_ID = "CHECKSTACK_CHECK_ID";
+const CHECKSTACK_CHECK_NAME = "CHECKSTACK_CHECK_NAME";
+const CHECKSTACK_CHECK_INTERVAL_SECONDS = "CHECKSTACK_CHECK_INTERVAL_SECONDS";
+const CHECKSTACK_SYSTEM_ID = "CHECKSTACK_SYSTEM_ID";
+const CHECKSTACK_SYSTEM_NAME = "CHECKSTACK_SYSTEM_NAME";
+
+/**
+ * Map curated run-context metadata to the reserved `CHECKSTACK_*` env
+ * vars exposed to the shell script.
+ */
+function runContextEnv(ctx: CollectorRunContext): Record<string, string> {
+  return {
+    [CHECKSTACK_CHECK_ID]: ctx.check.id,
+    [CHECKSTACK_CHECK_NAME]: ctx.check.name,
+    [CHECKSTACK_CHECK_INTERVAL_SECONDS]: String(ctx.check.intervalSeconds),
+    [CHECKSTACK_SYSTEM_ID]: ctx.system.id,
+    [CHECKSTACK_SYSTEM_NAME]: ctx.system.name,
+  };
+}
 
 // ============================================================================
 // LEGACY CONFIG (v1) — kept for migration
@@ -212,17 +242,26 @@ export class ExecuteCollector implements CollectorStrategy<
   async execute({
     config,
     client,
+    runContext,
   }: {
     config: ExecuteConfig;
     client: ScriptTransportClient;
     pluginId: string;
+    runContext?: CollectorRunContext;
   }): Promise<CollectorResult<ExecuteResult>> {
     const startTime = Date.now();
+
+    // Merge run-context metadata under the user-supplied env so a user
+    // `config.env` key always wins on collision (matches the runner's
+    // existing merge order against the safe-vars whitelist).
+    const env = runContext
+      ? { ...runContextEnv(runContext), ...config.env }
+      : config.env;
 
     const response = await client.exec({
       script: config.script,
       cwd: config.cwd,
-      env: config.env,
+      env,
       timeout: config.timeout,
     });
 

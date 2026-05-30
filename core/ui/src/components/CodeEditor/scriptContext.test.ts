@@ -52,6 +52,15 @@ describe("healthcheckScriptContext", () => {
     expect(ctx.typeDefinitions).toContain("HealthCheckScriptContext");
   });
 
+  it("exposes `context.check` and `context.system` run-context metadata", () => {
+    // The runner injects check/system metadata alongside config, so the
+    // editor must type them or `context.system.name` would error.
+    const ctx = healthcheckScriptContext({});
+    expect(ctx.typeDefinitions).toContain("readonly check: {");
+    expect(ctx.typeDefinitions).toContain("readonly system: {");
+    expect(ctx.typeDefinitions).toContain("readonly intervalSeconds: number");
+  });
+
   it("types the `defineHealthCheck` callback parameter from the schema (not `unknown`)", () => {
     // Regression guard: the previous version had `(ctx: unknown) => …`,
     // so `ctx.config.host` produced "'ctx' is of type 'unknown'". The
@@ -95,9 +104,41 @@ describe("healthcheckScriptContext", () => {
     expect(names).toContain("PATH");
     expect(names).toContain("HOME");
     expect(names).toContain("TZ");
+    // Run-context vars the shell collector injects are suggested too.
+    expect(names).toContain("CHECKSTACK_CHECK_NAME");
+    expect(names).toContain("CHECKSTACK_SYSTEM_NAME");
+    expect(names).toContain("CHECKSTACK_CHECK_INTERVAL_SECONDS");
     // Integration-only vars must NOT leak into the healthcheck context.
     expect(names).not.toContain("EVENT_ID");
     expect(names).not.toContain("PAYLOAD_TITLE");
+  });
+
+  it("surfaces the user's custom Env (JSON) keys as shell completions", () => {
+    const ctx = healthcheckScriptContext({
+      customEnv: { API_TOKEN: "secret", "not-an-ident": "x" },
+    });
+    const names = ctx.shellEnvVars.map((v) => v.name);
+    // Valid shell identifier from the user's env is suggested...
+    expect(names).toContain("API_TOKEN");
+    // ...alongside the whitelist + reserved run-context vars.
+    expect(names).toContain("PATH");
+    expect(names).toContain("CHECKSTACK_SYSTEM_NAME");
+    // Keys that aren't valid `$NAME` identifiers are dropped.
+    expect(names).not.toContain("not-an-ident");
+    // The user's own var must be ordered ahead of the whitelist + run-context
+    // vars so it's not buried at the bottom of the suggest list.
+    expect(names.indexOf("API_TOKEN")).toBeLessThan(names.indexOf("PATH"));
+    expect(names.indexOf("API_TOKEN")).toBeLessThan(
+      names.indexOf("CHECKSTACK_SYSTEM_NAME"),
+    );
+  });
+
+  it("ignores a non-object customEnv without throwing", () => {
+    const names = healthcheckScriptContext({
+      customEnv: "not an object",
+    }).shellEnvVars.map((v) => v.name);
+    expect(names).toContain("PATH");
+    expect(names).toContain("CHECKSTACK_CHECK_ID");
   });
 });
 

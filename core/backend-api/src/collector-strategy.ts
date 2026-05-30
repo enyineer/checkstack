@@ -18,6 +18,15 @@ export interface CollectorResult<TResult> {
 }
 
 /**
+ * Curated, read-only metadata about the health check + system a collector
+ * run is for. Metadata only - never secrets/config.
+ */
+export interface CollectorRunContext {
+  check: { id: string; name: string; intervalSeconds: number };
+  system: { id: string; name: string };
+}
+
+/**
  * Generic collector strategy interface.
  *
  * Collectors extend health check strategies by providing additional metrics
@@ -71,12 +80,15 @@ export interface CollectorStrategy<
    * @param params.config - Validated collector configuration
    * @param params.client - Connected transport client
    * @param params.pluginId - ID of the transport strategy invoking this collector
+   * @param params.runContext - Curated, read-only metadata about the health
+   *   check + system this run is for (metadata only, never secrets/config)
    * @returns Collector result with typed metadata
    */
   execute(params: {
     config: TConfig;
     client: TClient;
     pluginId: string;
+    runContext?: CollectorRunContext;
   }): Promise<CollectorResult<TResult>>;
 
   /**
