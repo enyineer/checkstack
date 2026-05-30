@@ -23,6 +23,7 @@ import {
   type ShellScriptRunner,
 } from "@checkstack/backend-api";
 import { extractErrorMessage } from "@checkstack/common";
+import { maskScriptRunOutput } from "@checkstack/secrets-common";
 import { flattenScopeToShellEnv } from "./script-test-shell-env";
 
 // =============================================================================
@@ -82,6 +83,14 @@ export interface ScriptTestDeps {
    * managed resolutionRoot once Feature 1 lands."
    */
   resolutionRoot?: string;
+  /**
+   * Run-scoped, least-privilege secret VALUES to redact (Jenkins-style)
+   * from the test result before it is returned to the browser. Empty in
+   * Phase 1 (the test panel resolves no real secrets yet); Phase 2 supplies
+   * the user-override / placeholder values. With no values, masking is a
+   * no-op — the seam just guarantees the boundary exists.
+   */
+  maskValues?: Iterable<string>;
 }
 
 // =============================================================================
@@ -134,6 +143,25 @@ export async function runScriptTest({
   deps?: ScriptTestDeps;
 }): Promise<ScriptTestResult> {
   const startedAt = Date.now();
+  // Universal leak masking at the output boundary: redact any run-scoped
+  // secret value out of result/stdout/stderr/error before it is returned
+  // to the browser. No-op when `maskValues` is empty (Phase 1 default).
+  const maskValues = deps.maskValues ?? [];
+  const mask = (
+    res: ScriptTestResult,
+  ): ScriptTestResult => {
+    const masked = maskScriptRunOutput({
+      output: {
+        result: res.result,
+        stdout: res.stdout,
+        stderr: res.stderr,
+        error: res.error,
+      },
+      values: maskValues,
+    });
+    return { ...res, ...masked };
+  };
+
   try {
     if (input.kind === "shell") {
       const runner = deps.shellRunner ?? defaultShellScriptRunner;
@@ -146,16 +174,16 @@ export async function runScriptTest({
       });
       const durationMs = Date.now() - startedAt;
       if (res.timedOut) {
-        return {
+        return mask({
           stdout: res.stdout,
           stderr: res.stderr,
           exitCode: res.exitCode,
           durationMs,
           timedOut: true,
           error: "Script execution timed out",
-        };
+        });
       }
-      return {
+      return mask({
         stdout: res.stdout,
         stderr: res.stderr,
         exitCode: res.exitCode,
@@ -165,7 +193,7 @@ export async function runScriptTest({
           res.exitCode === 0
             ? undefined
             : `Shell script exited with code ${res.exitCode}`,
-      };
+      });
     }
 
     const runner = deps.esmRunner ?? defaultEsmScriptRunner;
@@ -178,23 +206,21 @@ export async function runScriptTest({
       ...(deps.resolutionRoot ? { resolutionRoot: deps.resolutionRoot } : {}),
     });
     const durationMs = Date.now() - startedAt;
-    return {
+    return mask({
       result: res.result,
       stdout: res.stdout,
       stderr: res.stderr,
       durationMs,
       timedOut: res.timedOut,
-      error: res.timedOut
-        ? "Script execution timed out"
-        : res.error,
-    };
+      error: res.timedOut ? "Script execution timed out" : res.error,
+    });
   } catch (error) {
-    return {
+    return mask({
       stdout: "",
       stderr: "",
       durationMs: Date.now() - startedAt,
       timedOut: false,
       error: extractErrorMessage(error),
-    };
+    });
   }
 }

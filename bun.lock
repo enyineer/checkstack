@@ -303,6 +303,7 @@
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/queue-api": "workspace:*",
         "@checkstack/script-packages-backend": "workspace:*",
+        "@checkstack/secrets-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@checkstack/template-engine": "workspace:*",
         "@orpc/server": "^1.13.2",
@@ -2433,6 +2434,7 @@
         "@checkstack/common": "workspace:*",
         "@checkstack/script-packages-backend": "workspace:*",
         "@checkstack/script-packages-common": "workspace:*",
+        "@checkstack/secrets-common": "workspace:*",
         "zod": "^4.2.1",
       },
       "devDependencies": {

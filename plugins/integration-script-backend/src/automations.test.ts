@@ -541,3 +541,72 @@ describe("integration-script.run_script", () => {
     expect(result.artifact).toBeUndefined();
   });
 });
+
+describe("script-action secret masking (leak guard)", () => {
+  it("redacts run-scoped secret values from run_script artifact + result", async () => {
+    const runner = makeEsmRunner({
+      result: { token: "gh_injectedSecret999" },
+      stdout: "echo gh_injectedSecret999",
+      stderr: "warn gh_injectedSecret999",
+      timedOut: false,
+    });
+    const action = createScriptRunAction({
+      runner,
+      getMaskValues: async () => ["gh_injectedSecret999"],
+    });
+    const result = await action.execute({
+      ...ctxBase,
+      consumedArtifacts: {},
+      config: scriptBaseConfig,
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    const artifact = result.artifact as ScriptResultArtifact;
+    expect(artifact.stdout).toBe("echo ****");
+    expect(artifact.stderr).toBe("warn ****");
+    expect(artifact.result).toEqual({ token: "****" });
+    expect(JSON.stringify(artifact)).not.toContain("gh_injectedSecret999");
+  });
+
+  it("redacts run-scoped secret values from run_shell artifact", async () => {
+    const runner = makeShellRunner({
+      exitCode: 0,
+      stdout: "printing db-password-456",
+      stderr: "",
+      timedOut: false,
+    });
+    const action = createShellRunAction({
+      runner,
+      getMaskValues: async () => ["db-password-456"],
+    });
+    const result = await action.execute({
+      ...ctxBase,
+      consumedArtifacts: {},
+      config: shellBaseConfig,
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    const artifact = result.artifact as ShellResultArtifact;
+    expect(artifact.stdout).toBe("printing ****");
+    expect(JSON.stringify(artifact)).not.toContain("db-password-456");
+  });
+
+  it("is a no-op when no mask values are configured (Phase 1 default)", async () => {
+    const runner = makeShellRunner({
+      exitCode: 0,
+      stdout: "no secrets here",
+      stderr: "",
+      timedOut: false,
+    });
+    const action = createShellRunAction({ runner });
+    const result = await action.execute({
+      ...ctxBase,
+      consumedArtifacts: {},
+      config: shellBaseConfig,
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    const artifact = result.artifact as ShellResultArtifact;
+    expect(artifact.stdout).toBe("no secrets here");
+  });
+});

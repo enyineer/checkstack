@@ -23,6 +23,10 @@ export {
   MIN_MASKABLE_LENGTH,
 } from "./masking";
 export {
+  maskScriptRunOutput,
+  type ScriptRunOutput,
+} from "./mask-run-result";
+export {
   SECRETS_CHANGED_HOOK_ID,
   secretsChangedPayloadSchema,
   type SecretsChangedPayload,

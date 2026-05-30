@@ -36,7 +36,30 @@ import type {
 } from "@checkstack/automation-backend";
 import type { ResolutionRootStatus } from "@checkstack/script-packages-backend";
 import { extractErrorMessage, SYSTEM_ACTOR } from "@checkstack/common";
+import { maskSecrets, maskSecretsDeep } from "@checkstack/secrets-common";
 import { flattenScopeToShellEnv } from "./script-env";
+
+/**
+ * Run-scoped secret values to redact from a run's output (Jenkins-style
+ * leak masking). Phase 1 supplies an empty set (no run-scoped secret
+ * injection yet); Phase 2 wires the resolved per-run allowlist here. With
+ * no values these helpers are no-ops, but the masking SEAM is in place at
+ * every output boundary now.
+ */
+export interface ScriptMaskingDeps {
+  /** Resolve the run-scoped secret values for masking this run's output. */
+  getMaskValues?: () => Promise<Iterable<string>>;
+}
+
+function maskText(text: string, values: string[]): string {
+  if (values.length === 0) return text;
+  return maskSecrets({ text, values });
+}
+
+function maskUnknown(value: unknown, values: string[]): unknown {
+  if (values.length === 0) return value;
+  return maskSecretsDeep({ value, values });
+}
 
 /**
  * Fallback scope for the (test-only) case where `execute` is invoked
@@ -92,7 +115,7 @@ export const shellResultArtifactType = {
   schema: shellResultDataSchema,
 } as const;
 
-export interface ShellActionDeps {
+export interface ShellActionDeps extends ScriptMaskingDeps {
   /**
    * Shell runner. Defaults to `defaultShellScriptRunner`; tests inject
    * a mock so the action can be exercised without spawning a real `sh`
@@ -118,8 +141,10 @@ export function createShellRunAction(
     produces: "shell_result",
     execute: async ({ config, logger, scope = EMPTY_SCOPE }) => {
       const startedAt = Date.now();
+      // Run-scoped masking values (empty in Phase 1).
+      const maskValues = [...((await deps.getMaskValues?.()) ?? [])];
       try {
-        const result = await runner.run({
+        const raw = await runner.run({
           script: config.script,
           // Run context is exposed as `$CHECKSTACK_*` env vars (not
           // `{{ }}` templates). The operator's own `config.env` wins on
@@ -128,6 +153,12 @@ export function createShellRunAction(
           cwd: config.workingDirectory,
           timeoutMs: config.timeout,
         });
+        // Mask captured output at the boundary before logging / persisting.
+        const result = {
+          ...raw,
+          stdout: maskText(raw.stdout, maskValues),
+          stderr: maskText(raw.stderr, maskValues),
+        };
         const durationMs = Date.now() - startedAt;
 
         if (result.timedOut) {
@@ -284,7 +315,7 @@ function extractExternalId(value: unknown): string | undefined {
   return;
 }
 
-export interface ScriptActionDeps {
+export interface ScriptActionDeps extends ScriptMaskingDeps {
   /**
    * ESM script runner. Defaults to `defaultEsmScriptRunner`; tests
    * inject a mock so the action can be exercised without spawning a
@@ -342,8 +373,10 @@ export function createScriptRunAction(
       }
       const resolutionRoot =
         rootStatus?.mode === "ready" ? rootStatus.root : undefined;
+      // Run-scoped masking values (empty in Phase 1).
+      const maskValues = [...((await deps.getMaskValues?.()) ?? [])];
       try {
-        const execResult = await runner.run({
+        const raw = await runner.run({
           script: config.script,
           context: scriptContext,
           timeoutMs: config.timeout,
@@ -351,6 +384,20 @@ export function createScriptRunAction(
           helperFunctionName: "defineIntegration",
           ...(resolutionRoot ? { resolutionRoot } : {}),
         });
+        // Mask captured output at the boundary (stdout/stderr go to logs,
+        // result + stdout/stderr to the persisted artifact). A script that
+        // echoes a secret it was given is redacted here too.
+        const execResult = {
+          ...raw,
+          stdout: maskText(raw.stdout, maskValues),
+          stderr: maskText(raw.stderr, maskValues),
+          ...(raw.error === undefined
+            ? {}
+            : { error: maskText(raw.error, maskValues) }),
+          ...(raw.result === undefined
+            ? {}
+            : { result: maskUnknown(raw.result, maskValues) }),
+        };
         const durationMs = Date.now() - startedAt;
 
         if (execResult.stdout.length > 0) {

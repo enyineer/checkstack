@@ -234,3 +234,50 @@ describe("runScriptTest — shell", () => {
     expect(out.error).toBe("Script execution timed out");
   });
 });
+
+describe("runScriptTest secret masking (leak guard)", () => {
+  test("redacts run-scoped secret values from a TS test result/stdout/stderr", async () => {
+    const { runner } = fakeEsmRunner(async () => ({
+      result: { token: "gh_injectedSecret999" },
+      stdout: "echoing gh_injectedSecret999 to stdout",
+      stderr: "warn: gh_injectedSecret999 seen",
+      timedOut: false,
+    }));
+    const out = await runScriptTest({
+      input: { kind: "typescript", script: "export default () => {}", timeoutMs: 1000 },
+      deps: { esmRunner: runner, maskValues: ["gh_injectedSecret999"] },
+    });
+    expect(out.stdout).toBe("echoing **** to stdout");
+    expect(out.stderr).toBe("warn: **** seen");
+    expect(out.result).toEqual({ token: "****" });
+    expect(JSON.stringify(out)).not.toContain("gh_injectedSecret999");
+  });
+
+  test("redacts secret values from shell test stdout/stderr", async () => {
+    const { runner } = fakeShellRunner(async () => ({
+      exitCode: 0,
+      stdout: "$ echo db-password-456",
+      stderr: "",
+      timedOut: false,
+    }));
+    const out = await runScriptTest({
+      input: { kind: "shell", script: "echo $X", timeoutMs: 1000 },
+      deps: { shellRunner: runner, maskValues: ["db-password-456"] },
+    });
+    expect(out.stdout).toBe("$ echo ****");
+  });
+
+  test("is a no-op when no mask values are provided (Phase 1 default)", async () => {
+    const { runner } = fakeEsmRunner(async () => ({
+      result: undefined,
+      stdout: "no secrets here",
+      stderr: "",
+      timedOut: false,
+    }));
+    const out = await runScriptTest({
+      input: { kind: "typescript", script: "export default () => {}", timeoutMs: 1000 },
+      deps: { esmRunner: runner },
+    });
+    expect(out.stdout).toBe("no secrets here");
+  });
+});

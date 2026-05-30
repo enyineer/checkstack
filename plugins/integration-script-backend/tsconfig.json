@@ -23,6 +23,9 @@
       "path": "../../core/script-packages-common"
     },
     {
+      "path": "../../core/secrets-common"
+    },
+    {
       "path": "../../core/test-utils-backend"
     }
   ]

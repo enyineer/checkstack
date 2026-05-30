@@ -18,6 +18,7 @@
     "@checkstack/automation-common": "workspace:*",
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/command-backend": "workspace:*",
+    "@checkstack/secrets-common": "workspace:*",
     "@checkstack/gitops-backend": "workspace:*",
     "@checkstack/gitops-common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
