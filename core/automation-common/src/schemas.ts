@@ -629,6 +629,27 @@ export const AutomationModeSchema = z
 
 export type AutomationMode = z.infer<typeof AutomationModeSchema>;
 
+/**
+ * Scope the concurrency `mode` is evaluated over.
+ *
+ *   - `automation` (default): one concurrency bucket for the whole
+ *     automation. `single` allows one in-flight run total; `restart`
+ *     cancels every active run.
+ *   - `context_key`: an independent bucket per `contextKey` (typically
+ *     per system / incident). `single` allows one in-flight run *per
+ *     context key* (system A and system B run concurrently, but a second
+ *     run for system A is deduped); `restart` cancels only the active
+ *     runs sharing the incoming context key.
+ *
+ * Backward-compatible: omitted defaults to `automation`, so existing
+ * automations behave exactly as before.
+ */
+export const ConcurrencyScopeSchema = z
+  .enum(["automation", "context_key"])
+  .default("automation");
+
+export type ConcurrencyScope = z.infer<typeof ConcurrencyScopeSchema>;
+
 // ─── Automation definition (top-level) ────────────────────────────────────
 
 /**
@@ -648,6 +669,8 @@ export const AutomationDefinitionSchema = z.object({
   actions: z.array(ActionSchema).default([]),
   /** Concurrency mode. */
   mode: AutomationModeSchema,
+  /** Scope the concurrency mode is evaluated over (per-automation vs per-context-key). */
+  concurrency_scope: ConcurrencyScopeSchema,
   /** Max parallel runs (only meaningful in parallel/queued modes). */
   max_runs: z.number().int().min(1).max(1000).default(10),
   /**

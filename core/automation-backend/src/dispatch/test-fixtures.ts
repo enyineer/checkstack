@@ -99,27 +99,29 @@ export function createInMemoryRunStore(): {
     async loadRun(runId) {
       return runs.get(runId);
     },
-    async countActiveRuns(automationId) {
+    async countActiveRuns(automationId, contextKey?) {
       let count = 0;
       for (const r of runs.values()) {
         if (
           r.automationId === automationId &&
-          ["pending", "running", "waiting"].includes(r.status)
+          ["pending", "running", "waiting"].includes(r.status) &&
+          (contextKey === undefined || r.contextKey === contextKey)
         ) {
           count += 1;
         }
       }
       return count;
     },
-    async hasActiveRun(automationId) {
-      return (await this.countActiveRuns(automationId)) > 0;
+    async hasActiveRun(automationId, contextKey?) {
+      return (await this.countActiveRuns(automationId, contextKey)) > 0;
     },
-    async cancelActiveRuns(automationId, reason) {
+    async cancelActiveRuns(automationId, reason, contextKey?) {
       const cancelled: string[] = [];
       for (const r of runs.values()) {
         if (
           r.automationId === automationId &&
-          ["pending", "running", "waiting"].includes(r.status)
+          ["pending", "running", "waiting"].includes(r.status) &&
+          (contextKey === undefined || r.contextKey === contextKey)
         ) {
           r.status = "cancelled";
           r.errorMessage = reason;

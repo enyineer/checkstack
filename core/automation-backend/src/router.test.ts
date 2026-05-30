@@ -97,6 +97,7 @@ const sampleDefinition: AutomationDefinition = {
   conditions: [],
   actions: [],
   mode: "single",
+  concurrency_scope: "automation",
   max_runs: 10,
 };
 

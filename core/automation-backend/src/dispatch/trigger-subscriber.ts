@@ -467,9 +467,21 @@ interface RespectConcurrencyArgs {
 async function respectConcurrencyMode(
   args: RespectConcurrencyArgs,
 ): Promise<void> {
+  // Per the automation's concurrency scope, the active-run bucket is
+  // either the whole automation (`undefined` → no context filter) or just
+  // the incoming context key. Passing `undefined` keeps the original
+  // per-automation behaviour for the default scope.
+  const scopeKey =
+    args.automation.definition.concurrency_scope === "context_key"
+      ? args.contextKey
+      : undefined;
+
   switch (args.mode) {
     case "single": {
-      const active = await args.deps.runStore.hasActiveRun(args.automationId);
+      const active = await args.deps.runStore.hasActiveRun(
+        args.automationId,
+        scopeKey,
+      );
       if (active) {
         args.deps.logger.debug(
           `Skipping trigger for ${args.automationId} — single mode and a run is active`,
@@ -479,7 +491,10 @@ async function respectConcurrencyMode(
       break;
     }
     case "parallel": {
-      const count = await args.deps.runStore.countActiveRuns(args.automationId);
+      const count = await args.deps.runStore.countActiveRuns(
+        args.automationId,
+        scopeKey,
+      );
       if (count >= args.maxRuns) {
         args.deps.logger.debug(
           `Skipping trigger for ${args.automationId} — parallel limit reached (${count}/${args.maxRuns})`,
@@ -493,7 +508,10 @@ async function respectConcurrencyMode(
       // queueing requires its own coordination queue, which we add in a
       // follow-up. Behaviour stays correct (no double-fire) under the
       // existing work-queue mode.
-      const count = await args.deps.runStore.countActiveRuns(args.automationId);
+      const count = await args.deps.runStore.countActiveRuns(
+        args.automationId,
+        scopeKey,
+      );
       if (count >= args.maxRuns) return;
       break;
     }
@@ -501,6 +519,7 @@ async function respectConcurrencyMode(
       const cancelled = await args.deps.runStore.cancelActiveRuns(
         args.automationId,
         "restart — superseded by newer trigger",
+        scopeKey,
       );
       if (cancelled.length > 0) {
         args.deps.logger.debug(

@@ -88,6 +88,7 @@ function baseDefinition(
       },
     ],
     mode: "single",
+    concurrency_scope: "automation",
     max_runs: 1,
     ...overrides,
   };

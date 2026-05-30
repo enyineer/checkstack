@@ -167,11 +167,27 @@ export interface RunStore {
     errorMessage?: string,
   ): Promise<void>;
   loadRun(runId: string): Promise<LoadedRun | undefined>;
-  countActiveRuns(automationId: string): Promise<number>;
-  /** Used by `mode: "single"` to detect a pre-existing run. */
-  hasActiveRun(automationId: string): Promise<boolean>;
-  /** Used by `mode: "restart"` to abort prior runs. */
-  cancelActiveRuns(automationId: string, reason: string): Promise<string[]>;
+  /**
+   * Active-run count. When `contextKey` is omitted, counts across the
+   * whole automation (the default per-automation concurrency scope);
+   * when provided (including `null`), counts only runs with that context
+   * key (the per-context-key scope).
+   */
+  countActiveRuns(
+    automationId: string,
+    contextKey?: string | null,
+  ): Promise<number>;
+  /** Used by `mode: "single"` to detect a pre-existing run. See `countActiveRuns` for `contextKey`. */
+  hasActiveRun(
+    automationId: string,
+    contextKey?: string | null,
+  ): Promise<boolean>;
+  /** Used by `mode: "restart"` to abort prior runs. See `countActiveRuns` for `contextKey`. */
+  cancelActiveRuns(
+    automationId: string,
+    reason: string,
+    contextKey?: string | null,
+  ): Promise<string[]>;
 
   // Steps
   createStep(input: CreateStepInput): Promise<string>;

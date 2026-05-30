@@ -80,6 +80,7 @@ const STARTER_DEFINITION: AutomationDefinition = {
     new Set(),
   ),
   mode: "single",
+  concurrency_scope: "automation",
   max_runs: 10,
 };
 

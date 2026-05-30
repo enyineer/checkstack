@@ -35,6 +35,31 @@ type Schema = {
 
 const ACTIVE_STATUSES = ["pending", "running", "waiting"] as const;
 
+/**
+ * Predicate for "active runs of this automation". When `contextKey` is
+ * `undefined` the filter is per-automation (the default concurrency
+ * scope); when provided (string or `null`) it additionally narrows to
+ * that context key (the per-context-key scope) - `null` matches runs
+ * with no context key.
+ */
+function activeRunsPredicate(
+  automationId: string,
+  contextKey: string | null | undefined,
+) {
+  const conditions = [
+    eq(automationRuns.automationId, automationId),
+    inArray(automationRuns.status, [...ACTIVE_STATUSES]),
+  ];
+  if (contextKey !== undefined) {
+    conditions.push(
+      contextKey === null
+        ? isNull(automationRuns.contextKey)
+        : eq(automationRuns.contextKey, contextKey),
+    );
+  }
+  return and(...conditions);
+}
+
 export function createRunStore(db: SafeDatabase<Schema>): RunStore {
   return {
     async createRun(input: CreateRunInput): Promise<string> {
@@ -91,29 +116,25 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
       };
     },
 
-    async countActiveRuns(automationId: string): Promise<number> {
+    async countActiveRuns(
+      automationId: string,
+      contextKey?: string | null,
+    ): Promise<number> {
       const rows = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(automationRuns)
-        .where(
-          and(
-            eq(automationRuns.automationId, automationId),
-            inArray(automationRuns.status, [...ACTIVE_STATUSES]),
-          ),
-        );
+        .where(activeRunsPredicate(automationId, contextKey));
       return rows[0]?.count ?? 0;
     },
 
-    async hasActiveRun(automationId: string): Promise<boolean> {
+    async hasActiveRun(
+      automationId: string,
+      contextKey?: string | null,
+    ): Promise<boolean> {
       const rows = await db
         .select({ id: automationRuns.id })
         .from(automationRuns)
-        .where(
-          and(
-            eq(automationRuns.automationId, automationId),
-            inArray(automationRuns.status, [...ACTIVE_STATUSES]),
-          ),
-        )
+        .where(activeRunsPredicate(automationId, contextKey))
         .limit(1);
       return rows.length > 0;
     },
@@ -121,6 +142,7 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
     async cancelActiveRuns(
       automationId: string,
       reason: string,
+      contextKey?: string | null,
     ): Promise<string[]> {
       const rows = await db
         .update(automationRuns)
@@ -129,12 +151,7 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
           errorMessage: reason,
           finishedAt: new Date(),
         })
-        .where(
-          and(
-            eq(automationRuns.automationId, automationId),
-            inArray(automationRuns.status, [...ACTIVE_STATUSES]),
-          ),
-        )
+        .where(activeRunsPredicate(automationId, contextKey))
         .returning({ id: automationRuns.id });
       return rows.map((r) => r.id);
     },
