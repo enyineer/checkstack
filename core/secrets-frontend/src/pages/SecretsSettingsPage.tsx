@@ -31,6 +31,7 @@ import {
   DialogFooter,
 } from "@checkstack/ui";
 import { extractErrorMessage } from "@checkstack/common";
+import { BackendConfigCard } from "../components/BackendConfigCard";
 
 const SettingsContent: React.FC = () => {
   const client = usePluginClient(SecretsApi);
@@ -120,26 +121,8 @@ const SettingsContent: React.FC = () => {
           </Alert>
         )}
 
-        {/* Backend summary */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Backend</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm">
-            <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">Active backend:</span>
-              <Badge variant="secondary">
-                {backend?.activeBackend ?? "unknown"}
-              </Badge>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Secret values are write-only. They are stored encrypted and are
-              never displayed or returned by the API; the list below shows only
-              names and metadata. Reference a secret in a descriptor with{" "}
-              <code>{"${{ secrets.NAME }}"}</code>.
-            </p>
-          </CardContent>
-        </Card>
+        {/* Backend selection + Vault config */}
+        <BackendConfigCard config={backend} onError={setError} />
 
         {/* Create / rotate */}
         <Card>
