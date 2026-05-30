@@ -130,6 +130,12 @@ There is no `getSecret` / `resolveSecret` on the browser-facing contract. Resolu
 
 Source-side masking covers script and collector output, but a run also writes step `result_payload` / `error_message` and a run-level `error_message` for EVERY action (provider calls, `log`, etc.), and a provider HTTP error could embed a resolved connection credential. So the automation dispatch run accumulates every secret value it resolves into a run-scoped registry (`RunSecretRegistry`): the engine wraps each run's `getService` so resolving the secret resolver or the connection store registers the resolved values (least-privilege, in memory only, dropped when the run goes terminal). The run-state store then masks step + run output with these values BEFORE persisting, so every downstream read / DTO / run-detail page is masked by construction. This is the run-wide net; the script / satellite-collector source-side masking stays as defense in depth.
 
+The choke point covers EVERY persisted run surface, not just step / run output. The same `RunSecretRegistry` is threaded into the **run-state scope snapshot** (`RunStateStore.upsert` masks `scopeSnapshot` before write) and into **produced artifacts** (`ArtifactStore.record` masks `data` before insert). This matters because the replay endpoint `getRunScopeForReplay` (gated only on `automationAccess.read`) reads the persisted `scope_snapshot` and `automation_artifacts` rows back verbatim - so a resolved credential threaded into `scope.variables` or surfaced into an artifact would otherwise reach a read-only user unmasked. Masking happens at persist time on purpose: the registry is in-memory and gone by replay time, so the persisted row is the only place the guarantee can be enforced.
+
+The masking guarantee therefore now genuinely covers, for every action: step `result_payload` / `error_message`, the run-level `error_message`, the durable **scope snapshot**, and produced **artifact data** - all masked by construction before they can be read or replayed.
+
+The integration `testConnection` / `testProviderConnection` RPCs sit outside a dispatch run (no `RunSecretRegistry`), so they build a per-call mask set from the resolved/submitted connection config's string leaves and run any provider error through `maskSecrets` before returning - a provider error that echoes a token can't cross back to the browser unmasked.
+
 ```ts
 import { maskSecrets } from "@checkstack/secrets-common";
 
@@ -142,6 +148,9 @@ const safe = maskSecrets({
 
 > [!IMPORTANT]
 > Masking is by literal occurrence only. Encoded or transformed forms of a secret (base64, hashed, split across lines) cannot be detected. Scripts must not transform-then-print a secret they were given.
+
+> [!WARNING]
+> Values shorter than `MIN_MASKABLE_LENGTH` (4 characters) are NOT auto-redacted - masking such a short value would over-mask coincidental substrings of normal output. `setSecret` logs a warning when given a too-short value so the operator knows it won't be scrubbed from logs / errors. The threshold is intentionally not lowered.
 
 ## Internal (platform-managed) secrets
 

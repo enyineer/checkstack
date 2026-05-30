@@ -7,6 +7,7 @@ import {
   type SafeDatabase,
 } from "@checkstack/backend-api";
 import { extractErrorMessage } from "@checkstack/common";
+import { maskSecrets } from "@checkstack/secrets-common";
 import { integrationContract } from "@checkstack/integration-common";
 
 import type { IntegrationProviderRegistry } from "./provider-registry";
@@ -80,9 +81,17 @@ export function createIntegrationRouter(deps: RouterDeps) {
           const result = await provider.testConnection(config);
           return result;
         } catch (error) {
+          // Mask any credential the submitted config carries out of the
+          // provider error before returning (same guard as the saved-
+          // connection testConnection path below).
+          const values: string[] = [];
+          collectStringLeaves(config, values);
           return {
             success: false,
-            message: extractErrorMessage(error),
+            message: maskSecrets({
+              text: extractErrorMessage(error),
+              values,
+            }),
           };
         }
       },
@@ -238,9 +247,19 @@ export function createIntegrationRouter(deps: RouterDeps) {
         const result = await provider.testConnection(connection.config);
         return result;
       } catch (error) {
+        // The resolved connection config carries live credentials. A
+        // provider error may echo a token (e.g. "401 with Bearer <token>").
+        // There is no run-scoped secret registry on this path, so build a
+        // per-call mask set from the resolved config's string leaves and
+        // run the error through it before returning to the browser.
+        const values: string[] = [];
+        collectStringLeaves(connection.config, values);
         return {
           success: false,
-          message: extractErrorMessage(error),
+          message: maskSecrets({
+            text: extractErrorMessage(error),
+            values,
+          }),
         };
       }
     }),
@@ -305,3 +324,19 @@ export function createIntegrationRouter(deps: RouterDeps) {
 }
 
 export type IntegrationRouter = ReturnType<typeof createIntegrationRouter>;
+
+/**
+ * Collect every string leaf in a JSON-like value into `out`. Used to build
+ * a per-call secret mask set from a resolved/submitted connection config so
+ * a provider error echoing a credential can be redacted before it crosses
+ * back to the browser. Mirrors the dispatch engine's run-secret capture.
+ */
+function collectStringLeaves(value: unknown, out: string[]): void {
+  if (typeof value === "string") {
+    out.push(value);
+  } else if (Array.isArray(value)) {
+    for (const v of value) collectStringLeaves(v, out);
+  } else if (value !== null && typeof value === "object") {
+    for (const v of Object.values(value)) collectStringLeaves(v, out);
+  }
+}

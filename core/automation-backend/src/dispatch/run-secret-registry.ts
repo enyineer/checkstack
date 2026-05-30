@@ -184,27 +184,39 @@ function collectStrings(value: unknown, out: string[]): void {
 
 function wrapResolver<T>(service: T, runId: string, registry: RunSecretRegistry): T {
   if (!hasResolverShape(service)) return service;
-  const inner = service;
-  const proxy: ResolverLike = {
-    async resolveSecret(input) {
-      const value = await inner.resolveSecret(input);
-      registry.register(runId, [value]);
-      return value;
+  const inner = service as ResolverLike & Record<string, unknown>;
+  // Proxy that intercepts ONLY the three value-returning methods (to
+  // register resolved secrets) and forwards every other method / property
+  // untouched via Reflect.get. Mirrors `wrapConnectionStore` — a hand-built
+  // literal would silently drop any resolver method we didn't re-declare.
+  return new Proxy(inner, {
+    get(target, prop, receiver) {
+      if (prop === "resolveSecret") {
+        return async (input: { name: string }) => {
+          const value = await inner.resolveSecret(input);
+          registry.register(runId, [value]);
+          return value;
+        };
+      }
+      if (prop === "resolveForRun") {
+        return async (input: { secretEnv: Record<string, string> }) => {
+          const result = await inner.resolveForRun(input);
+          registry.register(runId, Object.values(result.env));
+          return result;
+        };
+      }
+      if (prop === "resolveBySchema") {
+        return async (input: { value: unknown; schema: unknown }) => {
+          const result = await inner.resolveBySchema(input);
+          const strings: string[] = [];
+          collectStrings(result.resolved, strings);
+          registry.register(runId, strings);
+          return result;
+        };
+      }
+      return Reflect.get(target, prop, receiver);
     },
-    async resolveForRun(input) {
-      const result = await inner.resolveForRun(input);
-      registry.register(runId, Object.values(result.env));
-      return result;
-    },
-    async resolveBySchema(input) {
-      const result = await inner.resolveBySchema(input);
-      const strings: string[] = [];
-      collectStrings(result.resolved, strings);
-      registry.register(runId, strings);
-      return result;
-    },
-  };
-  return proxy as unknown as T;
+  }) as unknown as T;
 }
 
 function wrapConnectionStore<T>(

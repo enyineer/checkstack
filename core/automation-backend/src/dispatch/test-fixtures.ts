@@ -33,7 +33,15 @@ import type {
 } from "./types";
 import type { RunStateSnapshot, RunStateStore } from "./run-state-store";
 
-export function createInMemoryRunStore(): {
+export function createInMemoryRunStore(opts?: {
+  /**
+   * Called with the ids of runs cancelled by `cancelActiveRuns`, so a
+   * caller (makeDispatchDeps) can clear the corresponding run-state rows -
+   * faithfully modelling the real store, which deletes wait locks AND
+   * run-state in the same operation.
+   */
+  onCancel?: (cancelledRunIds: string[]) => void;
+}): {
   store: RunStore;
   runs: Map<string, LoadedRun>;
   steps: Array<{
@@ -64,6 +72,7 @@ export function createInMemoryRunStore(): {
     resultPayload?: Record<string, unknown>;
   }> = [];
   const waitLocks = new Map<string, LoadedWaitLock>();
+  const onCancel = opts?.onCancel;
   let runCounter = 0;
   let stepCounter = 0;
   let lockCounter = 0;
@@ -128,6 +137,16 @@ export function createInMemoryRunStore(): {
           r.finishedAt = new Date();
           cancelled.push(r.id);
         }
+      }
+      // Faithful model of the real store: tear down the cancelled runs'
+      // wait locks in the same operation so a later wake can't resurrect
+      // them. (Run-state clearing happens via the optional hook wired in
+      // makeDispatchDeps.)
+      if (cancelled.length > 0) {
+        for (const [id, lock] of waitLocks) {
+          if (cancelled.includes(lock.runId)) waitLocks.delete(id);
+        }
+        onCancel?.(cancelled);
       }
       return cancelled;
     },
@@ -206,6 +225,9 @@ export function createInMemoryRunStore(): {
     async findWaitLocksByKind(kind) {
       return [...waitLocks.values()].filter((lock) => lock.kind === kind);
     },
+    async findWaitLocksByRun(runId) {
+      return [...waitLocks.values()].filter((lock) => lock.runId === runId);
+    },
     async deleteWaitLock(id) {
       waitLocks.delete(id);
     },
@@ -276,7 +298,15 @@ export function createInMemoryArtifactStore(): {
   return { store, artifacts };
 }
 
-export function createInMemoryRunStateStore(): {
+/**
+ * @param runs - the run store's `runs` map, so `findStalledRunIds`
+ *   faithfully models the real DB join that filters to `status =
+ *   'running'`. Without it the fake would skip the status filter and a
+ *   test couldn't observe the C1 fix (a `waiting` run must NOT be swept).
+ */
+export function createInMemoryRunStateStore(
+  runs?: Map<string, LoadedRun>,
+): {
   store: RunStateStore;
   states: Map<string, RunStateSnapshot>;
   locks: Set<string>;
@@ -286,9 +316,16 @@ export function createInMemoryRunStateStore(): {
 
   const store: RunStateStore = {
     async upsert(input) {
+      const existing = states.get(input.runId);
+      // Mirror the real store: omitting `lastActionPath` on an existing
+      // row preserves the prior checkpoint; passing it (incl. null) sets it.
+      const lastActionPath =
+        input.lastActionPath === undefined
+          ? (existing?.lastActionPath ?? null)
+          : input.lastActionPath;
       states.set(input.runId, {
         scopeSnapshot: input.scopeSnapshot,
-        lastActionPath: input.lastActionPath,
+        lastActionPath,
         lastHeartbeatAt: new Date(),
       });
     },
@@ -305,7 +342,10 @@ export function createInMemoryRunStateStore(): {
     async findStalledRunIds(threshold) {
       const ids: string[] = [];
       for (const [runId, s] of states.entries()) {
-        if (s.lastHeartbeatAt < threshold) ids.push(runId);
+        if (s.lastHeartbeatAt >= threshold) continue;
+        // Faithful model of the DB join: only `running` runs are stalled.
+        if (runs && runs.get(runId)?.status !== "running") continue;
+        ids.push(runId);
       }
       return ids;
     },
@@ -531,6 +571,13 @@ export function makeDispatchDeps(opts?: {
   triggers?: TriggerRegistry;
   /** Optional health-check client for sensing-layer enrichment tests. */
   healthCheckClient?: DispatchDeps["healthCheckClient"];
+  /**
+   * Wire a faithful in-memory serializing lock for the concurrency-mode
+   * check-then-create (models the real transaction-scoped advisory lock:
+   * keyed, blocks until granted). Off by default so the natural
+   * check-then-create race is observable in tests that don't opt in.
+   */
+  withConcurrencyLock?: boolean;
 }): {
   deps: DispatchDeps;
   runs: ReturnType<typeof createInMemoryRunStore>;
@@ -539,9 +586,20 @@ export function makeDispatchDeps(opts?: {
   dwells: ReturnType<typeof createInMemoryDwellStore>;
   queue: FakeQueueManager;
 } {
-  const runs = createInMemoryRunStore();
+  // `cancelActiveRuns` clears the cancelled runs' run-state rows too (the
+  // real store deletes wait locks + run-state in one op). The run-state map
+  // doesn't exist yet, so let the cancel hook reach it lazily via a holder.
+  const stateHolder: {
+    store?: ReturnType<typeof createInMemoryRunStateStore>;
+  } = {};
+  const runs = createInMemoryRunStore({
+    onCancel: (ids) => {
+      for (const id of ids) stateHolder.store?.states.delete(id);
+    },
+  });
   const artifacts = createInMemoryArtifactStore();
-  const state = createInMemoryRunStateStore();
+  const state = createInMemoryRunStateStore(runs.runs);
+  stateHolder.store = state;
   const dwells = createInMemoryDwellStore();
   const queue = createFakeQueueManager();
   const noopLogger = {
@@ -568,6 +626,26 @@ export function makeDispatchDeps(opts?: {
       throw new Error("getService not stubbed for this test");
     },
   };
+  if (opts?.withConcurrencyLock) {
+    // A faithful keyed async mutex: a second caller for the same key awaits
+    // the first's completion, exactly like pg_advisory_xact_lock blocking
+    // until COMMIT. Distinct keys never contend.
+    const chains = new Map<string, Promise<unknown>>();
+    deps.withConcurrencyLock = <T>(key: string, fn: () => Promise<T>) => {
+      const prior = chains.get(key) ?? Promise.resolve();
+      const next = prior.then(() => fn());
+      // Keep the chain alive even if fn rejects, so the lock still releases
+      // (catch swallows both outcomes into a settled void promise).
+      chains.set(
+        key,
+        next.then(
+          () => {},
+          () => {},
+        ),
+      );
+      return next;
+    };
+  }
   return { deps, runs, artifacts, state, dwells, queue };
 }
 

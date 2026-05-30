@@ -111,6 +111,44 @@ describe("wrapGetServiceForRun", () => {
     );
   });
 
+  it("L3: forwards a non-intercepted resolver method untouched (Proxy + Reflect.get)", async () => {
+    const reg = createRunSecretRegistry();
+    // Resolver carries an extra method the wrapper does NOT intercept; a
+    // hand-built literal would have dropped it.
+    const resolver: ResolverShape & {
+      describeNamedSecret: (name: string) => string;
+    } = {
+      resolveSecret: async (_input: { name: string }) =>
+        "intercepted-secret-value",
+      resolveForRun: async (_input: { secretEnv: Record<string, string> }) => ({
+        env: {},
+        masking: {},
+      }),
+      resolveBySchema: async (_input: { value: unknown; schema: unknown }) => ({
+        resolved: {},
+        warnings: [],
+      }),
+      // Not one of the three value-returning methods — must survive.
+      describeNamedSecret: (name: string) => `meta:${name}`,
+    };
+    const wrapped = wrapGetServiceForRun({
+      getService: constGetService(resolver),
+      runId: RUN,
+      registry: reg,
+      resolverRefId: "secrets.resolver",
+      connectionStoreRefId: "integration.connectionStore",
+    });
+    const svc = (await wrapped(
+      ref("secrets.resolver") as ServiceRef<typeof resolver>,
+    )) as typeof resolver;
+    // The non-intercepted method is forwarded via Reflect.get, not dropped.
+    expect(typeof svc.describeNamedSecret).toBe("function");
+    expect(svc.describeNamedSecret("API")).toBe("meta:API");
+    // And the intercepted method still registers its resolved value.
+    await svc.resolveSecret({ name: "x" });
+    expect(reg.maskText(RUN, "v=intercepted-secret-value")).toBe("v=****");
+  });
+
   it("registers values resolved via the connection store credentials", async () => {
     const reg = createRunSecretRegistry();
     const store: StoreShape = {

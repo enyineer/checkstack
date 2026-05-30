@@ -11,6 +11,7 @@ import { and, desc, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm
 import type { Logger, SafeDatabase } from "@checkstack/backend-api";
 
 import {
+  automationRunState,
   automationRunSteps,
   automationRuns,
   automationWaitLocks,
@@ -32,6 +33,7 @@ type Schema = {
   automationRuns: typeof automationRuns;
   automationRunSteps: typeof automationRunSteps;
   automationWaitLocks: typeof automationWaitLocks;
+  automationRunState: typeof automationRunState;
 };
 
 const ACTIVE_STATUSES = ["pending", "running", "waiting"] as const;
@@ -173,7 +175,24 @@ export function createRunStore(
         })
         .where(activeRunsPredicate(automationId, contextKey))
         .returning({ id: automationRuns.id });
-      return rows.map((r) => r.id);
+      const ids = rows.map((r) => r.id);
+      // Tear down the cancelled runs' suspension state in the SAME
+      // operation: delete their wait locks and durable run-state so a
+      // later wake (wakeWaitingRuns / delay-expiry / a racing queue job)
+      // can't resurrect a cancelled run. Mirrors the operator cancelRun
+      // path. (resumeRun also guards on status, but cleaning up here stops
+      // the sweeper from even re-ticking an orphaned lock.)
+      if (ids.length > 0) {
+        await db
+          .delete(automationWaitLocks)
+          .where(inArray(automationWaitLocks.runId, ids));
+        await db
+          .delete(automationRunState)
+          .where(inArray(automationRunState.runId, ids));
+        // Drop each run's in-memory mask set (terminal).
+        for (const id of ids) secretRegistry?.drop(id);
+      }
+      return ids;
     },
 
     async createStep(input: CreateStepInput): Promise<string> {
@@ -313,6 +332,14 @@ export function createRunStore(
         .select()
         .from(automationWaitLocks)
         .where(eq(automationWaitLocks.kind, kind));
+      return rows.map((r) => mapWaitLock(r, logger));
+    },
+
+    async findWaitLocksByRun(runId): Promise<LoadedWaitLock[]> {
+      const rows = await db
+        .select()
+        .from(automationWaitLocks)
+        .where(eq(automationWaitLocks.runId, runId));
       return rows.map((r) => mapWaitLock(r, logger));
     },
 

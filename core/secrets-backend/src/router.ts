@@ -2,6 +2,7 @@ import { implement, ORPCError } from "@orpc/server";
 import {
   autoAuthMiddleware,
   correlationMiddleware,
+  type Logger,
   type RpcContext,
 } from "@checkstack/backend-api";
 import {
@@ -29,6 +30,8 @@ export interface SecretsRouterDeps {
     name: string;
     change: "created" | "rotated" | "deleted";
   }) => Promise<void>;
+  /** Logger for the admin service's short-secret warning. */
+  logger?: Logger;
 }
 
 export function createSecretsRouter({
@@ -36,6 +39,7 @@ export function createSecretsRouter({
   getActiveBackendId,
   setActiveBackendId,
   emitChanged,
+  logger,
 }: SecretsRouterDeps) {
   // The router shares the admin service so write semantics + change events
   // stay identical whether a secret is managed via the central UI or via a
@@ -43,6 +47,7 @@ export function createSecretsRouter({
   const admin = createSecretAdminService({
     getActiveBackend: async () => backends.get(await getActiveBackendId()),
     onChanged: emitChanged,
+    logger,
   });
 
   const listSecrets = os.listSecrets.handler(async () => {

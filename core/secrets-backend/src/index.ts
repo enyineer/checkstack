@@ -152,6 +152,8 @@ export default createBackendPlugin({
     const adminService = createSecretAdminService({
       getActiveBackend,
       onChanged: emitChanged,
+      // No logger in the register() phase; the short-secret warning is
+      // surfaced on the user-facing setSecret RPC (router, which has one).
     });
     env.registerService(secretAdminRef, adminService);
 
@@ -180,6 +182,7 @@ export default createBackendPlugin({
           getActiveBackendId,
           setActiveBackendId,
           emitChanged,
+          logger,
         });
         rpc.registerRouter(router, secretsContract);
 

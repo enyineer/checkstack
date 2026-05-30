@@ -19,11 +19,19 @@ An automation's definition (triggers + conditions + actions + mode) is stored as
 
 1. A trigger fires (a hook emission, or a setup-backed schedule tick).
 2. The trigger fan-in resolves the `contextKey`, pre-resolves live state into scope (the `health.*` namespace), and evaluates the trigger `filter` and pre-run `conditions`.
-3. Concurrency is applied per `mode` (single / parallel / queued / restart), scoped per `concurrency_scope` (whole automation, or per context key).
+3. Concurrency is applied per `mode` (single / parallel / queued / restart), scoped per `concurrency_scope` (whole automation, or per context key). The check-then-create is serialized under a transaction-scoped advisory lock keyed on `(automationId, scope)`, so two concurrent fires (or a dwell-fire racing a fresh fire, or two pods) can't both pass a `single`-mode "no active run" check and both start a run.
 4. The engine walks the action tree, persisting a step row per action and a durable scope snapshot after each step.
 5. Suspending actions (`delay`, `wait_for_trigger`, `wait_until`, a `for:` dwell) persist a durable lock + enqueue a wake job; the run resumes under a per-run advisory lock when the lock fires. A stalled-run sweeper is the restart-safety backstop.
 
 Every suspend survives a process restart: the durable row is the source of truth, the queue job is just the wake signal, and resumes take an advisory lock so no run double-fires.
+
+### Suspend / resume invariants
+
+These guarantees keep suspended runs from being re-run or resurrected:
+
+- **A suspended (`waiting`) run is owned by the wait-lock / queue resume paths, never the sweeper.** `findStalledRunIds` only returns `status = 'running'` runs (it joins `automation_runs`), and the suspend-finalisation does NOT clobber the run's `lastActionPath` checkpoint to `null`. Together this stops the sweeper from re-walking an intentional wait from the top (which would re-fire pre-wait side effects and leak a second wait lock).
+- **Stalled recovery refuses a run that still holds a live wait lock.** `recoverStalledRun` only recovers a genuinely-`running` run with no wait lock; if a lock exists it leaves the run to the wait/resume paths and deletes nothing - so a crash-mid-wait recovery can't create a duplicate lock or duplicate delay job.
+- **A cancelled / terminal run can never resume.** `resumeRun` guards on `status === 'waiting'` (mirroring `checkWaitUntil`): any other status drops the stale wait lock and returns without resuming. Cancellation (operator `cancelRun` or `restart`-mode `cancelActiveRuns`) deletes the affected runs' wait locks and run-state in the same operation, so a later trigger / delay-expiry / racing queue job can't wake a cancelled run.
 
 ## Extension points
 

@@ -457,6 +457,12 @@ export class IncidentService {
     return withXactLock({
       db: this.db,
       key: `incident.dedupe-open-for-system:${dedupeSystemId}`,
+      // The find + create run on `this.db` (the pool), NOT on `tx`. That is
+      // safe here because `pg_advisory_xact_lock` BLOCKS every other holder
+      // of this key until this transaction commits: a racing caller waits
+      // at lock-acquire, so its find can't observe "no open incident" until
+      // ours has already committed the insert. The critical section is thus
+      // serialized by the lock window even though it doesn't ride `tx`.
       fn: async () => {
         const existing = await this.findActiveIncidentForSystem(dedupeSystemId);
         if (existing) {

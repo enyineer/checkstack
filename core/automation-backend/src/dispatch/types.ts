@@ -68,6 +68,16 @@ export interface DispatchDeps {
   secretRegistry?: RunSecretRegistry;
   secretResolverRefId?: string;
   connectionStoreRefId?: string;
+  /**
+   * Serialize a short critical section under a transaction-scoped advisory
+   * lock keyed on `key` (blocks until granted, auto-releases at COMMIT).
+   * Used to make the concurrency-mode check-then-create atomic per
+   * `(automationId, scopeKey)` so two concurrent fires / a dwell-fire /
+   * cross-pod can't both pass a `single`-mode "no active run" check and
+   * both create a run. Optional so tests / minimal installs degrade to the
+   * unserialized check (correct under a single in-process caller).
+   */
+  withConcurrencyLock?: <T>(key: string, fn: () => Promise<T>) => Promise<T>;
 }
 
 /**
@@ -233,6 +243,13 @@ export interface RunStore {
   ): Promise<LoadedWaitLock[]>;
   /** All wait locks of a given kind — powers the sweeper's `until` re-tick. */
   findWaitLocksByKind(kind: WaitLockKind): Promise<LoadedWaitLock[]>;
+  /**
+   * All wait locks belonging to a run. Used by stalled-recovery to detect
+   * a live wait (refuse to from-top recover a genuinely-suspended run) and
+   * to delete leftover locks before a from-top re-walk (so recovery
+   * doesn't leak a second lock + duplicate delay job).
+   */
+  findWaitLocksByRun(runId: string): Promise<LoadedWaitLock[]>;
   deleteWaitLock(id: string): Promise<void>;
   sweepExpiredWaitLocks(now: Date): Promise<LoadedWaitLock[]>;
 }

@@ -129,6 +129,13 @@ export function createAdvisoryLockService(
  * Because the scoped DB runs an entire `transaction()` callback on a single
  * dedicated connection, the lock + the work + the implicit release all share
  * one session, which is exactly the affinity session locks require.
+ *
+ * `fn` receives the transaction handle `tx` and MUST run its
+ * read-then-write critical section on it (not on the outer pool). Running
+ * the work on the pool would put it on a DIFFERENT connection than the one
+ * holding the lock — so two concurrent callers' critical sections could
+ * interleave even though both "hold" the lock. Using `tx` keeps the
+ * read-check + write atomic with respect to the lock.
  */
 export async function withXactLock<
   S extends Record<string, unknown>,
@@ -140,12 +147,12 @@ export async function withXactLock<
 }: {
   db: SafeDatabase<S>;
   key: string;
-  fn: () => Promise<T>;
+  fn: (tx: Parameters<Parameters<SafeDatabase<S>["transaction"]>[0]>[0]) => Promise<T>;
 }): Promise<T> {
   return db.transaction(async (tx) => {
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`,
     );
-    return fn();
+    return fn(tx);
   });
 }

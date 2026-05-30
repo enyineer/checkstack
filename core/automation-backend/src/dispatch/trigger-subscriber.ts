@@ -476,6 +476,27 @@ async function respectConcurrencyMode(
       ? args.contextKey
       : undefined;
 
+  // Serialize the check-then-create. Without a lock, two concurrent fires
+  // (two trigger events, a dwell-fire racing a fresh fire, or two pods) can
+  // both read "no active run" and both `dispatchTrigger`, double-running a
+  // `single`-mode automation. The lock is keyed on (automationId, scope) so
+  // it doesn't serialize unrelated automations or distinct context keys.
+  const lockKey = `automation.concurrency:${args.automationId}:${
+    scopeKey ?? "@@all"
+  }`;
+  const run = args.deps.withConcurrencyLock
+    ? <T>(fn: () => Promise<T>) => args.deps.withConcurrencyLock!(lockKey, fn)
+    : <T>(fn: () => Promise<T>) => fn();
+
+  await run(async () => {
+    await respectConcurrencyModeInner(args, scopeKey);
+  });
+}
+
+async function respectConcurrencyModeInner(
+  args: RespectConcurrencyArgs,
+  scopeKey: string | null | undefined,
+): Promise<void> {
   switch (args.mode) {
     case "single": {
       const active = await args.deps.runStore.hasActiveRun(

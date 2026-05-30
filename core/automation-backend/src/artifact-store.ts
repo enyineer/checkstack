@@ -1,6 +1,7 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import { automationArtifacts } from "./schema";
+import type { RunSecretRegistry } from "./dispatch/run-secret-registry";
 
 /**
  * Inputs for recording a new artifact.
@@ -62,6 +63,15 @@ export interface ArtifactStore {
 
 export function createArtifactStore(
   db: SafeDatabase<{ automationArtifacts: typeof automationArtifacts }>,
+  /**
+   * Run-scoped secret values accumulated during dispatch. When provided,
+   * an artifact's `data` is masked (Jenkins-style, by-value) BEFORE
+   * insert — so a resolved connection credential surfaced into a produced
+   * artifact can't reach a replay / run-detail reader unmasked. Same
+   * persist-time choke-point pattern as the run-state + run stores.
+   * Optional so tests / older boots degrade to no masking.
+   */
+  secretRegistry?: RunSecretRegistry,
 ): ArtifactStore {
   const mapRow = (
     row: typeof automationArtifacts.$inferSelect,
@@ -80,6 +90,11 @@ export function createArtifactStore(
 
   return {
     async record(input) {
+      // Mask resolved secret values out of the artifact data BEFORE insert
+      // — the persistence choke point, so a credential surfaced into a
+      // produced artifact never reaches a replay / run-detail reader.
+      const maskedData = (secretRegistry?.maskDeep(input.runId, input.data) ??
+        input.data) as Record<string, unknown>;
       const [row] = await db
         .insert(automationArtifacts)
         .values({
@@ -88,7 +103,7 @@ export function createArtifactStore(
           stepId: input.stepId,
           actionId: input.actionId,
           artifactType: input.artifactType,
-          data: input.data,
+          data: maskedData,
           contextKey: input.contextKey,
         })
         .returning();

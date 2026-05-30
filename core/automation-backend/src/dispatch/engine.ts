@@ -272,6 +272,22 @@ export async function resumeRun(
   const run = await deps.runStore.loadRun(args.runId);
   if (!run) throw new Error(`Cannot resume — run ${args.runId} not found`);
 
+  // Only a `waiting` run may be resumed. A run that was cancelled (restart
+  // mode / operator cancel) or already reached a terminal state must NEVER
+  // be resurrected by a late wake (wakeWaitingRuns, delay-expiry sweep, a
+  // racing queue job). Drop any stale wait lock for the run and return —
+  // mirrors the guard `checkWaitUntil` already applies for `until` locks.
+  if (run.status !== "waiting") {
+    const stale = await deps.runStore.findWaitLocksByRun(args.runId);
+    for (const lock of stale) {
+      await deps.runStore.deleteWaitLock(lock.id);
+    }
+    deps.logger.debug(
+      `resumeRun: run ${args.runId} is "${run.status}", not "waiting"; dropped ${stale.length} stale wait lock(s) and skipped resume`,
+    );
+    return { status: run.status };
+  }
+
   const waitedAt = parseActionPath(args.waitedAtPath);
 
   // Try to acquire the advisory lock so two resumers don't race.
@@ -356,7 +372,23 @@ export async function recoverStalledRun(
 ): Promise<{ status: string }> {
   const run = await deps.runStore.loadRun(args.runId);
   if (!run) throw new Error(`recoverStalledRun: run ${args.runId} not found`);
-  if (run.status !== "running" && run.status !== "waiting") {
+  if (run.status !== "running") {
+    // Only genuinely-running runs are recoverable here. A `waiting` run is
+    // owned by the wait-lock / queue resume paths; recovering it would
+    // re-walk an intentional wait. (The sweeper now filters to `running`,
+    // but guard here too so a direct caller can't resurrect a wait.)
+    return { status: run.status };
+  }
+
+  // A live wait lock means this run is intentionally suspended (a wait the
+  // status update may not yet reflect, or a racing path). Refuse rather
+  // than from-top re-walk: re-running pre-wait actions has observable side
+  // effects. The wait-lock / queue resume paths own this run.
+  const existingLocks = await deps.runStore.findWaitLocksByRun(args.runId);
+  if (existingLocks.length > 0) {
+    deps.logger.debug(
+      `recoverStalledRun: run ${args.runId} holds ${existingLocks.length} live wait lock(s); leaving it to the wait/resume paths`,
+    );
     return { status: run.status };
   }
 
@@ -565,11 +597,14 @@ async function finaliseRun(
     errorMessage,
   );
   // Terminal runs drop their durable state. Suspended runs keep it so
-  // resumption has the scope to work with.
+  // resumption has the scope to work with — but we must NOT clobber
+  // `lastActionPath`: the suspending action already checkpointed its real
+  // path, and a crash recovery needs that to resume from the wait rather
+  // than re-walking from actions[0] (which would re-fire pre-wait side
+  // effects). Omit it so the existing checkpoint survives.
   await (status === "waiting" ? ctx.deps.runStateStore.upsert({
       runId: ctx.run.runId,
       scopeSnapshot: ctx.scope,
-      lastActionPath: null,
     }) : ctx.deps.runStateStore.clear(ctx.run.runId));
   return { runId: ctx.run.runId, status };
 }

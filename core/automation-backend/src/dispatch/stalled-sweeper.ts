@@ -53,10 +53,15 @@ export function startStalledSweeper(
   const intervalMs = args.intervalMs ?? DEFAULT_INTERVAL_MS;
 
   const sweep = async (): Promise<void> => {
-    await sweepStalledRuns(args, staleMs);
+    // Wait-aware sweeps run FIRST: they own `waiting` runs (delay / trigger
+    // / until expiry + resume). The stalled-run sweep is strictly for
+    // genuinely-`running` crashes and must not race ahead of them. (It now
+    // also filters to status='running', so it can't pick up a waiting run,
+    // but ordering keeps the wait paths authoritative within a cycle.)
     await sweepExpiredWaitLocks(args);
     await sweepExpiredDwells(args);
     await sweepWaitUntilLocks(args);
+    await sweepStalledRuns(args, staleMs);
   };
 
   let timer: ReturnType<typeof setInterval> | undefined = setInterval(() => {

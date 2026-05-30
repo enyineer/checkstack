@@ -1,6 +1,7 @@
 import {
   createBackendPlugin,
   coreServices,
+  withXactLock,
   type SafeDatabase,
 } from "@checkstack/backend-api";
 import {
@@ -231,13 +232,19 @@ export default createBackendPlugin({
         // Populate the mutable DB ref the GitOps reconcile closures read.
         gitopsDb = database as SafeDatabase<typeof schema>;
 
-        const artifactStore = createArtifactStore(database);
         // Run-scoped secret registry: accumulates every secret value
-        // resolved during a run so the run store masks step / run output
-        // before persistence (run-wide leak guard across ALL actions).
+        // resolved during a run so every persistence choke point (run
+        // store step/run output, run-state scope snapshot, artifact data)
+        // masks before write (run-wide leak guard across ALL actions, and
+        // across replay reads).
         const secretRegistry = createRunSecretRegistry();
+        const artifactStore = createArtifactStore(database, secretRegistry);
         const runStore = createRunStore(database, logger, secretRegistry);
-        const runStateStore = createRunStateStore(database, advisoryLock);
+        const runStateStore = createRunStateStore(
+          database,
+          advisoryLock,
+          secretRegistry,
+        );
         const dwellStore = createDwellStore(database);
         const automationStore = createAutomationStore(database);
 
@@ -324,6 +331,12 @@ export default createBackendPlugin({
           secretRegistry,
           secretResolverRefId: SECRET_RESOLVER_REF_ID,
           connectionStoreRefId: CONNECTION_STORE_REF_ID,
+          // Serialize the concurrency-mode check-then-create with a
+          // transaction-scoped advisory lock (blocks until granted,
+          // auto-releases at COMMIT) so racing fires can't double-run a
+          // single-mode automation.
+          withConcurrencyLock: <T>(key: string, fn: () => Promise<T>) =>
+            withXactLock({ db: database, key, fn: () => fn() }),
         };
 
         const stash = env as unknown as EnvStash;
