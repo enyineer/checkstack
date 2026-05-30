@@ -1536,6 +1536,40 @@
         "typescript": "^5.7.2",
       },
     },
+    "core/script-packages-store-postgres": {
+      "name": "@checkstack/script-packages-store-postgres",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/backend-api": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/script-packages-backend": "workspace:*",
+        "@checkstack/script-packages-common": "workspace:*",
+        "drizzle-orm": "^0.45.0",
+        "zod": "^4.0.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "drizzle-kit": "^0.31.10",
+        "typescript": "^5.7.2",
+      },
+    },
+    "core/script-packages-store-s3": {
+      "name": "@checkstack/script-packages-store-s3",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/backend-api": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/script-packages-backend": "workspace:*",
+        "zod": "^4.0.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/bun": "^1.0.0",
+        "typescript": "^5.7.2",
+      },
+    },
     "core/scripts": {
       "name": "@checkstack/scripts",
       "version": "0.3.4",
@@ -2900,6 +2934,10 @@
     "@checkstack/script-packages-backend": ["@checkstack/script-packages-backend@workspace:core/script-packages-backend"],
 
     "@checkstack/script-packages-common": ["@checkstack/script-packages-common@workspace:core/script-packages-common"],
+
+    "@checkstack/script-packages-store-postgres": ["@checkstack/script-packages-store-postgres@workspace:core/script-packages-store-postgres"],
+
+    "@checkstack/script-packages-store-s3": ["@checkstack/script-packages-store-s3@workspace:core/script-packages-store-s3"],
 
     "@checkstack/scripts": ["@checkstack/scripts@workspace:core/scripts"],
 

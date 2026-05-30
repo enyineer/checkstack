@@ -217,6 +217,12 @@
       "path": "./core/script-packages-common"
     },
     {
+      "path": "./core/script-packages-store-postgres"
+    },
+    {
+      "path": "./core/script-packages-store-s3"
+    },
+    {
       "path": "./core/signal-backend"
     },
     {
