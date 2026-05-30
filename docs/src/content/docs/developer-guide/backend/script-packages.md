@@ -122,6 +122,46 @@ Properties:
 - **Mutually exclusive with installs.** Migration and `installNow` share the installer advisory lock; `installNow` is refused while a migration is in flight and vice-versa.
 - **Optional source GC.** With `gcSource`, each blob is deleted from the source after its verified copy.
 
+## Garbage collection
+
+Two things accumulate as the allowlist changes over time and are reclaimed by GC: content-addressed blobs in the shared store (Postgres / S3) and per-host materialized `trees/<lockfileHash>/` dirs on every host's local disk.
+
+### Blob GC (shared storage)
+
+`gcBlobs` prunes blobs no longer referenced by any **retained** lockfile manifest. It runs automatically on a daily schedule (`queueManager.scheduleRecurring`) and is also admin-triggerable via the `gcBlobs` RPC (manage-gated); both return a `BlobGcSummary` (`candidates`, `deleted`, `keptWithinGrace`, `bytesReclaimed`). The settings UI surfaces last-run and total-reclaimed figures.
+
+```ts
+import { createBlobGcTrigger } from "@checkstack/script-packages-backend";
+
+const triggerBlobGc = createBlobGcTrigger({
+  installerLock,
+  blobStores,
+  loadCurrent,
+  recentHistory,
+  pruneHistory,
+  listBlobs,
+  removeBlobRow,
+  isBusy,
+  recordRun,
+  // retainPrevious defaults to 1, graceMs to 24h
+});
+const summary = await triggerBlobGc();
+```
+
+Safety guards (every deletion is provably safe; when in doubt, retain):
+
+- **Retained set.** The current desired `lockfileHash`'s manifest PLUS the previous `N` hashes' manifests (`DEFAULT_BLOB_GC_RETAIN_PREVIOUS`, default `1`, for rollback / in-flight reconciles toward a just-superseded hash). The installer records each successful manifest in `script_package_lockfile_history` so this set is computable. A blob whose integrity is not in the union of those manifests is a candidate. The live install-state manifest is also unioned in, in case history hasn't caught up.
+- **Grace window.** A candidate is deleted only when it is older than `DEFAULT_BLOB_GC_GRACE_MS` (default 24h, keyed on `script_package_blob.created_at`), so a pod / satellite mid-reconcile toward a just-superseded hash can still pull a blob that was just dropped from the retained set.
+- **Mutual exclusion.** The trigger holds the installer-election advisory lock for the whole pass, so GC is mutually exclusive with `installNow` and `migrateStorage` (which contend for the same lock). On top of the lock, the pass re-checks an `isBusy()` guard (install or migration in flight) before deleting.
+- **Per-backend routing.** Each blob's bytes are deleted from the backend recorded in its index row, then the index row is removed. A single failed delete is logged and skipped (retained for the next pass), never aborting the whole pass.
+
+### Tree GC (host-local disk)
+
+After a successful symlink flip (and on every reconcile), each host sweeps its own `trees/` dir, deleting non-current tree dirs older than a grace window. `current`'s target is never a candidate.
+
+- **Active-run safety via conservative grace.** The runner pins an in-flight run to the tree it started on (its `resolutionRoot` dereferences `current` at run start), so deleting a non-current tree with a live run would break it. There is no robust cross-process refcount available (runs are throwaway Bun subprocesses with no reliable release signal, and a crashed run would leak a refcount), so the sweep uses a grace window keyed on the tree dir's mtime (`DEFAULT_TREE_GC_GRACE_MS`, default 1h) chosen to comfortably exceed the longest possible run timeout. A tree only becomes eligible once it has been non-current longer than any run could still be using it.
+- **Shared on core and satellites.** The sweep lives in the materialize/flip adapter (`reconcile-fs.ts`), so it applies identically to core pods and satellites. It is best-effort: a sweep failure never fails a reconcile (the new tree is already live).
+
 ## Data directory
 
 The on-disk package store lives at `<dataDir>/script-packages/`, where `dataDir` is `CHECKSTACK_DATA_DIR` (defaulting to `.data/` under the backend). The cold-start cost (a fresh host pulls the full blob set once) is accepted and bounded by the size cap; a persistent cache volume is an optional deployment-side optimization, not required.

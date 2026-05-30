@@ -1,5 +1,5 @@
 import React from "react";
-import { Package, Trash2, Download, RefreshCw } from "lucide-react";
+import { Package, Trash2, Download, RefreshCw, Recycle } from "lucide-react";
 import {
   usePluginClient,
   accessApiRef,
@@ -63,12 +63,14 @@ const SettingsContent: React.FC = () => {
   });
   const backendsQuery = client.listStorageBackends.useQuery();
   const satellitesQuery = client.listSatelliteSyncState.useQuery();
+  const blobGcQuery = client.getBlobGcState.useQuery();
 
   const addMutation = client.addPackage.useMutation();
   const removeMutation = client.removePackage.useMutation();
   const setEnabledMutation = client.setPackageEnabled.useMutation();
   const installMutation = client.installNow.useMutation();
   const migrateMutation = client.migrateStorage.useMutation();
+  const gcMutation = client.gcBlobs.useMutation();
 
   const { isLowPower } = usePerformance();
   const [name, setName] = React.useState("");
@@ -113,6 +115,16 @@ const SettingsContent: React.FC = () => {
     }
   };
 
+  const handleGc = async () => {
+    setError(null);
+    try {
+      const res = await gcMutation.mutateAsync({});
+      if (!res.ran && res.reason) setError(res.reason);
+    } catch (error_) {
+      setError(extractErrorMessage(error_));
+    }
+  };
+
   const handleMigrate = async () => {
     setError(null);
     setConfirmMigrate(false);
@@ -130,6 +142,7 @@ const SettingsContent: React.FC = () => {
       ? installState.totalSizeBytes > sizeCap.warnBytes
       : false;
 
+  const blobGc = blobGcQuery.data;
   const availableBackends = backendsQuery.data?.backends ?? [];
   const migrating = storage?.migrationStatus === "migrating";
   const migrationTargets = availableBackends.filter(
@@ -384,6 +397,53 @@ const SettingsContent: React.FC = () => {
                   Reads fall back across both backends while it runs, so
                   scripts keep working. Installs are paused during a migration.
                 </p>
+              </AccordionContent>
+            </AccordionItem>
+
+            <AccordionItem value="gc" className="border-b">
+              <AccordionTrigger className="text-sm hover:no-underline">
+                <span className="flex items-center gap-2">
+                  <Recycle className="h-3.5 w-3.5 text-muted-foreground" />
+                  Storage cleanup
+                </span>
+              </AccordionTrigger>
+              <AccordionContent className="space-y-3 text-sm">
+                <p className="text-xs text-muted-foreground">
+                  Garbage collection prunes content-addressed blobs no longer
+                  referenced by the current or recently-superseded package set,
+                  reclaiming Postgres / S3 storage. It runs automatically once a
+                  day; unreferenced blobs are kept for a grace period before
+                  deletion so in-flight syncs are never disrupted.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-muted-foreground">Last run:</span>
+                  <Badge variant="secondary">
+                    {blobGc?.lastRunAt
+                      ? new Date(blobGc.lastRunAt).toLocaleString()
+                      : "never"}
+                  </Badge>
+                  {blobGc && blobGc.lastRunAt && (
+                    <Badge variant="secondary">
+                      {blobGc.lastDeleted} blob(s), {mb(blobGc.lastBytesReclaimed)}{" "}
+                      reclaimed
+                    </Badge>
+                  )}
+                </div>
+                {blobGc && blobGc.totalBytesReclaimed > 0 && (
+                  <div className="text-xs text-muted-foreground">
+                    Total reclaimed to date: {mb(blobGc.totalBytesReclaimed)}
+                  </div>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleGc}
+                  disabled={gcMutation.isPending || migrating}
+                >
+                  <Recycle className="h-4 w-4" />
+                  {gcMutation.isPending ? "Cleaning up…" : "Run cleanup now"}
+                </Button>
               </AccordionContent>
             </AccordionItem>
 

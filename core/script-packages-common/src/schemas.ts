@@ -212,3 +212,64 @@ export type SizeCapConfig = z.infer<typeof SizeCapConfigSchema>;
 
 export const DEFAULT_WARN_BYTES = 150 * 1024 * 1024;
 export const DEFAULT_BLOCK_BYTES = 300 * 1024 * 1024;
+
+// ─── Garbage collection ──────────────────────────────────────────────────────
+
+/**
+ * How many *previous* lockfile hashes (beyond the current desired one) the
+ * blob GC keeps blobs for. Small by design: enough for rollback / an
+ * in-flight reconcile toward a just-superseded hash, not an archive. The
+ * current hash is ALWAYS retained on top of this.
+ */
+export const DEFAULT_BLOB_GC_RETAIN_PREVIOUS = 1;
+
+/**
+ * Grace window (ms) below which an unreferenced blob is kept even though no
+ * retained manifest references it. Protects a core pod / satellite that is
+ * mid-reconcile toward a just-superseded hash: it may still pull a blob that
+ * was just dropped from the retained set. Keyed on `script_package_blob`
+ * `created_at`. Default: 24h.
+ */
+export const DEFAULT_BLOB_GC_GRACE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Grace window (ms) below which a non-current tree dir is kept even though
+ * `current` no longer points at it. Keyed on the tree dir's mtime and chosen
+ * to comfortably exceed the longest possible script-run timeout so a live run
+ * pinned to that tree (via its `resolutionRoot`) can never have its
+ * node_modules deleted out from under it. Default: 1h.
+ */
+export const DEFAULT_TREE_GC_GRACE_MS = 60 * 60 * 1000;
+
+/**
+ * Result summary of a blob-GC pass, returned by `gcBlobs` and surfaced in the
+ * Script Packages settings UI.
+ */
+export const BlobGcSummarySchema = z.object({
+  /** True when the pass actually ran (false when refused, e.g. lock held). */
+  ran: z.boolean(),
+  /** Populated when the pass was refused or aborted. */
+  reason: z.string().optional(),
+  /** Candidate blobs unreferenced by any retained manifest. */
+  candidates: z.number().int().nonnegative(),
+  /** Blobs actually deleted (past-grace candidates). */
+  deleted: z.number().int().nonnegative(),
+  /** Candidates kept because they are still within the grace window. */
+  keptWithinGrace: z.number().int().nonnegative(),
+  /** Bytes reclaimed by the deletions. */
+  bytesReclaimed: z.number().int().nonnegative(),
+});
+export type BlobGcSummary = z.infer<typeof BlobGcSummarySchema>;
+
+/**
+ * Persisted last-run state for the blob GC, so the admin UI can show "last
+ * reclaimed N bytes at T" without re-running the (destructive) pass.
+ */
+export const BlobGcStateSchema = z.object({
+  lastRunAt: z.coerce.date().nullable(),
+  lastDeleted: z.number().int().nonnegative(),
+  lastBytesReclaimed: z.number().int().nonnegative(),
+  /** Cumulative bytes reclaimed across every run. */
+  totalBytesReclaimed: z.number().int().nonnegative(),
+});
+export type BlobGcState = z.infer<typeof BlobGcStateSchema>;

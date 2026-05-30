@@ -1,6 +1,8 @@
-import { eq, ne } from "drizzle-orm";
+import { eq, ne, desc, sql } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import type {
+  BlobGcState,
+  ManifestEntry,
   PackageSpec,
   RegistryConfig,
   SatelliteSyncState,
@@ -11,12 +13,15 @@ import {
   DEFAULT_BLOCK_BYTES,
   DEFAULT_WARN_BYTES,
 } from "@checkstack/script-packages-common";
+import type { GcBlob } from "./blob-gc";
 import {
   scriptPackages,
   scriptPackageRegistryConfig,
   scriptPackageStorageConfig,
   scriptPackageSizeCap,
   scriptPackageBlob,
+  scriptPackageBlobGcState,
+  scriptPackageLockfileHistory,
   scriptPackageSatelliteState,
 } from "./schema";
 
@@ -353,6 +358,135 @@ export function createBlobIndexStore(db: SafeDatabase<BlobIndexSchema>) {
         .update(scriptPackageBlob)
         .set({ backend })
         .where(eq(scriptPackageBlob.integrity, integrity));
+    },
+    /** Every indexed blob with the metadata the GC needs (size + created_at). */
+    async listWithMeta(): Promise<GcBlob[]> {
+      const rows = await db
+        .select({
+          integrity: scriptPackageBlob.integrity,
+          backend: scriptPackageBlob.backend,
+          sizeBytes: scriptPackageBlob.sizeBytes,
+          createdAt: scriptPackageBlob.createdAt,
+        })
+        .from(scriptPackageBlob);
+      return rows;
+    },
+    /** Remove the index row for a GC'd blob (after deleting its bytes). */
+    async remove(integrity: string): Promise<void> {
+      await db
+        .delete(scriptPackageBlob)
+        .where(eq(scriptPackageBlob.integrity, integrity));
+    },
+  };
+}
+
+// ─── Lockfile history store ──────────────────────────────────────────────────
+
+type LockfileHistorySchema = {
+  scriptPackageLockfileHistory: typeof scriptPackageLockfileHistory;
+};
+
+export function createLockfileHistoryStore(
+  db: SafeDatabase<LockfileHistorySchema>,
+) {
+  return {
+    /** Record a successful install's manifest (idempotent on hash). */
+    async record(input: {
+      lockfileHash: string;
+      manifest: ManifestEntry[];
+    }): Promise<void> {
+      await db
+        .insert(scriptPackageLockfileHistory)
+        .values({
+          lockfileHash: input.lockfileHash,
+          manifest: input.manifest,
+          recordedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: scriptPackageLockfileHistory.lockfileHash,
+          // Re-installing the same hash refreshes its recency so it stays in
+          // the retained window.
+          set: { recordedAt: new Date() },
+        });
+    },
+    /** Manifests for the most-recent `limit` hashes (newest first). */
+    async recent(limit: number): Promise<ManifestEntry[][]> {
+      const rows = await db
+        .select({ manifest: scriptPackageLockfileHistory.manifest })
+        .from(scriptPackageLockfileHistory)
+        .orderBy(desc(scriptPackageLockfileHistory.recordedAt))
+        .limit(limit);
+      return rows.map((r) => r.manifest);
+    },
+    /** Hashes to keep (the most-recent `limit`); used to prune the rest. */
+    async retainedHashes(limit: number): Promise<string[]> {
+      const rows = await db
+        .select({ lockfileHash: scriptPackageLockfileHistory.lockfileHash })
+        .from(scriptPackageLockfileHistory)
+        .orderBy(desc(scriptPackageLockfileHistory.recordedAt))
+        .limit(limit);
+      return rows.map((r) => r.lockfileHash);
+    },
+    /** Prune history rows older than the most-recent `keep` hashes. */
+    async pruneOlderThan(keep: number): Promise<void> {
+      const keepHashes = await this.retainedHashes(keep);
+      if (keepHashes.length === 0) return;
+      await db
+        .delete(scriptPackageLockfileHistory)
+        .where(
+          sql`${scriptPackageLockfileHistory.lockfileHash} NOT IN (${sql.join(
+            keepHashes.map((h) => sql`${h}`),
+            sql`, `,
+          )})`,
+        );
+    },
+  };
+}
+
+// ─── Blob-GC state store ─────────────────────────────────────────────────────
+
+type BlobGcStateSchema = {
+  scriptPackageBlobGcState: typeof scriptPackageBlobGcState;
+};
+
+export function createBlobGcStateStore(db: SafeDatabase<BlobGcStateSchema>) {
+  return {
+    async get(): Promise<BlobGcState> {
+      const [row] = await db
+        .select()
+        .from(scriptPackageBlobGcState)
+        .where(eq(scriptPackageBlobGcState.id, SINGLETON))
+        .limit(1);
+      return {
+        lastRunAt: row?.lastRunAt ?? null,
+        lastDeleted: row?.lastDeleted ?? 0,
+        lastBytesReclaimed: row?.lastBytesReclaimed ?? 0,
+        totalBytesReclaimed: row?.totalBytesReclaimed ?? 0,
+      };
+    },
+    /** Record a completed run, accumulating total reclaimed bytes. */
+    async recordRun(input: {
+      deleted: number;
+      bytesReclaimed: number;
+    }): Promise<void> {
+      await db
+        .insert(scriptPackageBlobGcState)
+        .values({
+          id: SINGLETON,
+          lastRunAt: new Date(),
+          lastDeleted: input.deleted,
+          lastBytesReclaimed: input.bytesReclaimed,
+          totalBytesReclaimed: input.bytesReclaimed,
+        })
+        .onConflictDoUpdate({
+          target: scriptPackageBlobGcState.id,
+          set: {
+            lastRunAt: new Date(),
+            lastDeleted: input.deleted,
+            lastBytesReclaimed: input.bytesReclaimed,
+            totalBytesReclaimed: sql`${scriptPackageBlobGcState.totalBytesReclaimed} + ${input.bytesReclaimed}`,
+          },
+        });
     },
   };
 }

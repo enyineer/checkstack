@@ -7,6 +7,8 @@ import { unpackInto } from "./cache-archive";
 import { verifyBlobSha256 } from "./blob-hash";
 import { atomicSymlinkSwap, readCurrentTarget } from "./atomic-symlink";
 import { storePaths } from "./data-dir";
+import { sweepTreeGc } from "./tree-gc";
+import { extractErrorMessage } from "@checkstack/common";
 
 /**
  * Concrete filesystem/Bun adapter for the host {@link ReconcileDeps}.
@@ -43,6 +45,12 @@ export function createReconcileFsDeps(input: {
   storeRoot: string;
   /** Fetch a blob (shared store on core; HTTP on satellite). */
   fetchBlob: (input: { integrity: string }) => Promise<Uint8Array>;
+  /**
+   * Tree-GC grace window (ms). Defaults inside {@link sweepTreeGc} to a value
+   * comfortably exceeding the max run timeout so a live run pinned to an
+   * old tree is never deleted. Injectable for tests.
+   */
+  treeGcGraceMs?: number;
   logger?: { debug(msg: string): void; error(msg: string): void };
 }): ReconcileDeps {
   const paths = storePaths(input.storeRoot);
@@ -134,6 +142,22 @@ export function createReconcileFsDeps(input: {
         linkPath: paths.current,
         target: path.join("trees", lockfileHash),
       });
+
+      // Host-local tree GC after a successful flip: prune old non-current
+      // trees past the grace window. Best-effort — a sweep failure must never
+      // fail a reconcile (the new tree is already live). The grace window
+      // guards live runs still pinned to a just-superseded tree.
+      try {
+        await sweepTreeGc({
+          storeRoot: input.storeRoot,
+          graceMs: input.treeGcGraceMs,
+          logger: input.logger,
+        });
+      } catch (error) {
+        input.logger?.error(
+          `Tree GC after flip to ${lockfileHash} failed: ${extractErrorMessage(error)}`,
+        );
+      }
     },
   };
 }

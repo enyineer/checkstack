@@ -53,3 +53,11 @@ To move existing blobs from one backend to another, pick a target in **Storage b
 ## Watch per-host sync
 
 After an install, each core instance and satellite reconciles to the new package set by pulling only the blobs it is missing. The **Satellite sync** section shows each satellite's status (`pending`, `syncing`, `ready`, or `error`). A satellite that cannot sync reports an error and its scripts fail clearly on a package import rather than silently using a stale set.
+
+## Reclaim storage
+
+As you change the allowlist over time, blobs from superseded package sets pile up in the store and old package trees accumulate on each host's disk. Cleanup runs automatically once a day, but you can trigger it from **Advanced -> Storage cleanup**:
+
+- Unreferenced blobs are kept for the current package set plus the most recent previous set (for rollback), and only deleted after a 24-hour grace period so an in-flight sync is never disrupted.
+- The panel shows the last run (blobs deleted, storage reclaimed) and the total reclaimed to date.
+- Click **Run cleanup now** to reclaim immediately. Cleanup is paused while an install or storage migration is running.

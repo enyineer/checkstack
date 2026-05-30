@@ -125,6 +125,29 @@ describe("runInstallNow", () => {
     expect(emitted).toHaveLength(0);
   });
 
+  test("records lockfile history on a successful install", async () => {
+    const recorded: string[] = [];
+    const { deps } = baseDeps({
+      recordHistory: async ({ lockfileHash }) =>
+        void recorded.push(lockfileHash),
+    });
+    const out = await runInstallNow(deps);
+    expect(out.started).toBe(true);
+    expect(recorded).toHaveLength(1);
+  });
+
+  test("a history-record failure does NOT fail an otherwise-successful install", async () => {
+    const { deps, emitted } = baseDeps({
+      recordHistory: async () => {
+        throw new Error("history table missing");
+      },
+    });
+    const out = await runInstallNow(deps);
+    expect(out.started).toBe(true);
+    // The change hook still fires; the install succeeded.
+    expect(emitted).toHaveLength(1);
+  });
+
   test("records error + releases lock on a resolve failure", async () => {
     const { deps, stateCalls } = baseDeps({
       resolver: {

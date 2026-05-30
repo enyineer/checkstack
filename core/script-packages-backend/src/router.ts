@@ -11,6 +11,7 @@ import type { RegistryTokenStore } from "./registry-token";
 import { extractErrorMessage } from "@checkstack/common";
 import {
   scriptPackagesContract,
+  type BlobGcSummary,
   type PackageTypes,
 } from "@checkstack/script-packages-common";
 import type { BlobStoreRegistry } from "./blob-store-registry";
@@ -20,6 +21,7 @@ import {
   createSizeCapStore,
   createStorageConfigStore,
   createSatelliteStateStore,
+  createBlobGcStateStore,
 } from "./stores";
 import { createInstallStateStore } from "./install-state-store";
 import { rollupPackageTypes } from "./package-types";
@@ -43,6 +45,12 @@ export interface ScriptPackagesRouterDeps {
     target: string;
   }): Promise<{ started: boolean; reason?: string }>;
   /**
+   * Run a blob-GC pass (elected via the installer advisory lock; refuses
+   * while an install / migration is in flight). Provided by the plugin
+   * (wires the blob stores + retention/grace). Returns a summary.
+   */
+  triggerBlobGc(): Promise<BlobGcSummary>;
+  /**
    * Registry auth-token store, backed by the secrets platform's internal
    * secrets. Provided by the plugin (which injects `internalSecretsRef`).
    */
@@ -56,6 +64,7 @@ export function createScriptPackagesRouter({
   logger,
   triggerInstall,
   triggerMigration,
+  triggerBlobGc,
   registryToken,
 }: ScriptPackagesRouterDeps) {
   const packages = createPackageStore(db);
@@ -64,6 +73,7 @@ export function createScriptPackagesRouter({
   const sizeCap = createSizeCapStore(db);
   const satellites = createSatelliteStateStore(db);
   const installState = createInstallStateStore(db);
+  const blobGcState = createBlobGcStateStore(db);
 
   const os = implement(scriptPackagesContract)
     .$context<RpcContext>()
@@ -166,6 +176,11 @@ export function createScriptPackagesRouter({
     getStorageMigrationState: os.getStorageMigrationState.handler(async () =>
       storage.get(),
     ),
+
+    // ─── Garbage collection ───────────────────────────────────────────────
+    gcBlobs: os.gcBlobs.handler(async () => triggerBlobGc()),
+
+    getBlobGcState: os.getBlobGcState.handler(async () => blobGcState.get()),
 
     // ─── Per-host status ──────────────────────────────────────────────────
     listSatelliteSyncState: os.listSatelliteSyncState.handler(async () => ({

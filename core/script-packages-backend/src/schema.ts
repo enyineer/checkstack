@@ -114,6 +114,44 @@ export const scriptPackageStorageConfig = pgTable(
   },
 );
 
+/**
+ * Recent lockfile-manifest history. The installer records each successful
+ * `lockfileHash` + its manifest here so the blob GC can compute the
+ * "retained set" (current + the previous N hashes) without that history
+ * being reconstructable from the singleton install state (which only holds
+ * the CURRENT desired manifest). Old rows beyond the retention window are
+ * pruned by the GC itself.
+ */
+export const scriptPackageLockfileHistory = pgTable(
+  "script_package_lockfile_history",
+  {
+    lockfileHash: text("lockfile_hash").primaryKey(),
+    manifest: jsonb("manifest").$type<ManifestEntry[]>().notNull().default([]),
+    recordedAt: timestamp("recorded_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    recordedIdx: index("script_package_lockfile_history_recorded_idx").on(
+      t.recordedAt,
+    ),
+  }),
+);
+
+/** Singleton blob-GC last-run state (for the admin UI; never gates safety). */
+export const scriptPackageBlobGcState = pgTable(
+  "script_package_blob_gc_state",
+  {
+    id: text("id").primaryKey().default("singleton"),
+    lastRunAt: timestamp("last_run_at"),
+    lastDeleted: integer("last_deleted").notNull().default(0),
+    lastBytesReclaimed: bigint("last_bytes_reclaimed", { mode: "number" })
+      .notNull()
+      .default(0),
+    totalBytesReclaimed: bigint("total_bytes_reclaimed", { mode: "number" })
+      .notNull()
+      .default(0),
+  },
+);
+
 /** Per-satellite reconcile state (satellites are individually addressable). */
 export const scriptPackageSatelliteState = pgTable(
   "script_package_satellite_state",

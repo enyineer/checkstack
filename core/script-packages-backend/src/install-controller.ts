@@ -1,5 +1,6 @@
 import { extractErrorMessage } from "@checkstack/common";
 import type {
+  ManifestEntry,
   PackageSpec,
   SizeCapConfig,
 } from "@checkstack/script-packages-common";
@@ -38,6 +39,15 @@ export interface InstallControllerDeps {
   isMigrationInFlight(): Promise<boolean>;
   /** Emit `script-packages.changed { lockfileHash }` after a successful install. */
   emitChanged(input: { lockfileHash: string }): Promise<void>;
+  /**
+   * Record the just-installed manifest in lockfile history so the blob GC can
+   * compute its retained set (current + previous N). Best-effort: a failure
+   * here must not fail the install, but it must not silently throw either.
+   */
+  recordHistory?(input: {
+    lockfileHash: string;
+    manifest: ManifestEntry[];
+  }): Promise<void>;
   logger?: { debug(msg: string): void; error(msg: string): void };
 }
 
@@ -97,6 +107,19 @@ export async function runInstallNow(
       manifest: result.manifest,
       totalSizeBytes: result.totalSizeBytes,
     });
+    // Record the manifest in lockfile history so the blob GC's retained set
+    // (current + previous N) is computable. Best-effort: a history failure
+    // must not fail an otherwise-successful install.
+    try {
+      await deps.recordHistory?.({
+        lockfileHash: result.lockfileHash,
+        manifest: result.manifest,
+      });
+    } catch (error) {
+      deps.logger?.error(
+        `Failed to record lockfile history for ${result.lockfileHash}: ${extractErrorMessage(error)}`,
+      );
+    }
     await deps.emitChanged({ lockfileHash: result.lockfileHash });
 
     deps.logger?.debug(

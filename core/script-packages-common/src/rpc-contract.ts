@@ -3,6 +3,8 @@ import { createClientDefinition, proc } from "@checkstack/common";
 import { scriptPackagesAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
 import {
+  BlobGcStateSchema,
+  BlobGcSummarySchema,
   InstallStateSchema,
   ManifestEntrySchema,
   PackageNameSchema,
@@ -146,6 +148,28 @@ export const scriptPackagesContract = {
     userType: "authenticated",
     access: [scriptPackagesAccess.manage],
   }).output(StorageConfigSchema),
+
+  // ─── Garbage collection (manage) ───────────────────────────────────────
+
+  /**
+   * Admin-triggered blob GC: prune content-addressed blobs no longer
+   * referenced by any RETAINED lockfile manifest (current + the previous N),
+   * older than the grace window. Refuses while an install or storage
+   * migration is in flight (takes the installer-election advisory lock).
+   * Returns a summary (candidates, deleted, bytes reclaimed).
+   */
+  gcBlobs: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [scriptPackagesAccess.manage],
+  }).output(BlobGcSummarySchema),
+
+  /** Last blob-GC run state (for the settings UI). */
+  getBlobGcState: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [scriptPackagesAccess.manage],
+  }).output(BlobGcStateSchema),
 
   // ─── Per-host status (manage) ──────────────────────────────────────────
 

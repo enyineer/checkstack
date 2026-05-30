@@ -10,6 +10,7 @@ import {
   pluginMetadata,
   scriptPackagesAccessRules,
   scriptPackagesContract,
+  type BlobGcSummary,
 } from "@checkstack/script-packages-common";
 import type { PluginMetadata } from "@checkstack/common";
 import { extractErrorMessage } from "@checkstack/common";
@@ -25,7 +26,10 @@ import {
   createSizeCapStore,
   createStorageConfigStore,
   createBlobIndexStore,
+  createBlobGcStateStore,
+  createLockfileHistoryStore,
 } from "./stores";
+import { createBlobGcTrigger } from "./blob-gc-runner";
 import {
   createInstallStateStore,
   createInstallerLock,
@@ -52,6 +56,11 @@ interface EnvStash {
   emitChanged?: (lockfileHash: string) => Promise<void>;
   /** Registry token store (internal secrets), set in `init`. */
   registryToken?: RegistryTokenStore;
+  /**
+   * Blob-GC trigger built in `init` (wires stores + the installer lock).
+   * Reused by the scheduled recurring job registered in `afterPluginsReady`.
+   */
+  triggerBlobGc?: () => Promise<BlobGcSummary>;
 }
 
 export default createBackendPlugin({
@@ -75,6 +84,7 @@ export default createBackendPlugin({
         logger: coreServices.logger,
         rpc: coreServices.rpc,
         advisoryLock: coreServices.advisoryLock,
+        queueManager: coreServices.queueManager,
         internalSecrets: internalSecretsRef,
       },
       init: async ({ logger, database, rpc, advisoryLock, internalSecrets }) => {
@@ -88,8 +98,44 @@ export default createBackendPlugin({
         (env as unknown as EnvStash).registryToken = registryToken;
         const sizeCap = createSizeCapStore(database);
         const blobIndex = createBlobIndexStore(database);
+        const lockfileHistory = createLockfileHistoryStore(database);
+        const blobGcState = createBlobGcStateStore(database);
         const installState = createInstallStateStore(database);
         const installerLock = createInstallerLock(advisoryLock);
+
+        // Whether an install OR storage migration is in flight — the guard
+        // both `triggerInstall` (migration check) and the blob GC use.
+        const isBusy = async () => {
+          const [cfg, state] = await Promise.all([
+            storage.get(),
+            installState.load(),
+          ]);
+          return (
+            cfg.migrationStatus === "migrating" || state.status === "installing"
+          );
+        };
+
+        // Blob GC trigger: shared by the admin `gcBlobs` RPC and the
+        // scheduled recurring job. Holds the installer lock for the pass.
+        const triggerBlobGc = createBlobGcTrigger({
+          installerLock,
+          blobStores,
+          loadCurrent: async () => {
+            const state = await installState.load();
+            return {
+              lockfileHash: state.lockfileHash,
+              manifest: state.manifest,
+            };
+          },
+          recentHistory: (limit) => lockfileHistory.recent(limit),
+          pruneHistory: (keep) => lockfileHistory.pruneOlderThan(keep),
+          listBlobs: () => blobIndex.listWithMeta(),
+          removeBlobRow: (integrity) => blobIndex.remove(integrity),
+          isBusy,
+          recordRun: (r) => blobGcState.recordRun(r),
+          logger,
+        });
+        (env as unknown as EnvStash).triggerBlobGc = triggerBlobGc;
 
         // Build the install orchestration. The resolver + active blob store
         // are resolved lazily at install time so config/registry changes
@@ -147,6 +193,8 @@ export default createBackendPlugin({
               const cfg = await storage.get();
               return cfg.migrationStatus === "migrating";
             },
+            recordHistory: ({ lockfileHash, manifest }) =>
+              lockfileHistory.record({ lockfileHash, manifest }),
             emitChanged: async ({ lockfileHash }) => {
               await (env as unknown as EnvStash).emitChanged?.(lockfileHash);
             },
@@ -207,6 +255,7 @@ export default createBackendPlugin({
           logger,
           triggerInstall,
           triggerMigration,
+          triggerBlobGc,
           registryToken,
         });
         rpc.registerRouter(router, scriptPackagesContract);
@@ -220,6 +269,7 @@ export default createBackendPlugin({
         onHook,
         emitHook,
         advisoryLock,
+        queueManager,
       }) => {
         const stash = env as unknown as EnvStash;
         const blobStores = stash.blobStores;
@@ -369,6 +419,48 @@ export default createBackendPlugin({
           );
         }
 
+        // Scheduled recurring blob GC: prune unreferenced, past-grace blobs
+        // from the active/recorded backends so Postgres/S3 storage is
+        // reclaimed. The trigger (built in `init`) holds the installer
+        // advisory lock for the pass, so exactly one pod GCs at a time and it
+        // is mutually exclusive with installs / migrations. Runs daily; the
+        // grace window (default 24h) makes a once-a-day cadence safe.
+        const triggerBlobGc = stash.triggerBlobGc;
+        if (triggerBlobGc) {
+          try {
+            const gcQueue = queueManager.getQueue<Record<string, never>>(
+              "script-packages-blob-gc",
+            );
+            await gcQueue.consume(
+              async () => {
+                const summary = await triggerBlobGc();
+                if (summary.ran) {
+                  logger.debug(
+                    `Scheduled blob GC: ${summary.deleted} deleted (${summary.bytesReclaimed} bytes), ${summary.keptWithinGrace} kept within grace.`,
+                  );
+                } else {
+                  logger.debug(
+                    `Scheduled blob GC skipped: ${summary.reason ?? "unknown"}.`,
+                  );
+                }
+              },
+              { consumerGroup: "script-packages-blob-gc-worker", maxRetries: 0 },
+            );
+            await gcQueue.scheduleRecurring(
+              {},
+              {
+                jobId: "script-packages-blob-gc-daily",
+                intervalSeconds: 24 * 60 * 60,
+              },
+            );
+            logger.debug("🧹 Script-packages blob GC scheduled (daily).");
+          } catch (error) {
+            logger.error(
+              `Failed to schedule blob GC: ${extractErrorMessage(error)}`,
+            );
+          }
+        }
+
         logger.debug("✅ Script Packages Backend afterPluginsReady complete.");
       },
     });
@@ -451,4 +543,14 @@ export {
   type ResumeCrashedMigrationResult,
   type MigrationStateSnapshot,
 } from "./storage-migration";
+export { runBlobGc, type BlobGcDeps, type GcBlob } from "./blob-gc";
+export {
+  createBlobGcTrigger,
+  type BlobGcRunnerDeps,
+} from "./blob-gc-runner";
+export { sweepTreeGc, type TreeGcResult } from "./tree-gc";
+export {
+  createLockfileHistoryStore,
+  createBlobGcStateStore,
+} from "./stores";
 export * as schema from "./schema";
