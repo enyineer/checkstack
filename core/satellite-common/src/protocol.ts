@@ -93,6 +93,26 @@ const ScriptPackageSyncStateMessageSchema = z.object({
 });
 
 /**
+ * Satellite -> core request for the manifest of a lockfile hash, so the
+ * satellite can diff against its local cache. The core replies with a
+ * `script_package_manifest` message. Delivered over the existing
+ * authenticated WS channel (no separate satellite HTTP auth surface).
+ */
+const RequestScriptPackageManifestMessageSchema = z.object({
+  type: z.literal("request_script_package_manifest"),
+  lockfileHash: z.string(),
+});
+
+/**
+ * Satellite -> core request for one content-addressed blob by integrity.
+ * The core replies with a `script_package_blob` message (base64 bytes).
+ */
+const RequestScriptPackageBlobMessageSchema = z.object({
+  type: z.literal("request_script_package_blob"),
+  integrity: z.string(),
+});
+
+/**
  * Discriminated union of all messages that a satellite can send to the core.
  */
 export const SatelliteToCoreMessageSchema = z.discriminatedUnion("type", [
@@ -101,6 +121,8 @@ export const SatelliteToCoreMessageSchema = z.discriminatedUnion("type", [
   ResultMessageSchema,
   StrategyErrorMessageSchema,
   ScriptPackageSyncStateMessageSchema,
+  RequestScriptPackageManifestMessageSchema,
+  RequestScriptPackageBlobMessageSchema,
 ]);
 
 export type SatelliteToCoreMessage = z.infer<
@@ -114,6 +136,12 @@ export type ResultMessage = z.infer<typeof ResultMessageSchema>;
 export type StrategyErrorMessage = z.infer<typeof StrategyErrorMessageSchema>;
 export type ScriptPackageSyncStateMessage = z.infer<
   typeof ScriptPackageSyncStateMessageSchema
+>;
+export type RequestScriptPackageManifestMessage = z.infer<
+  typeof RequestScriptPackageManifestMessageSchema
+>;
+export type RequestScriptPackageBlobMessage = z.infer<
+  typeof RequestScriptPackageBlobMessageSchema
 >;
 
 // =============================================================================
@@ -162,6 +190,28 @@ const RefreshScriptPackagesMessageSchema = z.object({
   lockfileHash: z.string(),
 });
 
+/** One resolved package in a manifest reply. */
+const ManifestEntryWireSchema = z.object({
+  name: z.string(),
+  version: z.string(),
+  integrity: z.string(),
+});
+
+/** Core reply to `request_script_package_manifest`. */
+const ScriptPackageManifestMessageSchema = z.object({
+  type: z.literal("script_package_manifest"),
+  lockfileHash: z.string(),
+  entries: z.array(ManifestEntryWireSchema),
+});
+
+/** Core reply to `request_script_package_blob` (base64 compressed bytes). */
+const ScriptPackageBlobMessageSchema = z.object({
+  type: z.literal("script_package_blob"),
+  integrity: z.string(),
+  /** base64-encoded compressed blob bytes, or null if not found. */
+  data: z.string().nullable(),
+});
+
 /**
  * Discriminated union of all messages that the core can send to a satellite.
  */
@@ -171,6 +221,8 @@ export const CoreToSatelliteMessageSchema = z.discriminatedUnion("type", [
   ConfigUpdatedMessageSchema,
   ShutdownMessageSchema,
   RefreshScriptPackagesMessageSchema,
+  ScriptPackageManifestMessageSchema,
+  ScriptPackageBlobMessageSchema,
 ]);
 
 export type CoreToSatelliteMessage = z.infer<
@@ -184,4 +236,10 @@ export type ConfigUpdatedMessage = z.infer<typeof ConfigUpdatedMessageSchema>;
 export type ShutdownMessage = z.infer<typeof ShutdownMessageSchema>;
 export type RefreshScriptPackagesMessage = z.infer<
   typeof RefreshScriptPackagesMessageSchema
+>;
+export type ScriptPackageManifestMessage = z.infer<
+  typeof ScriptPackageManifestMessageSchema
+>;
+export type ScriptPackageBlobMessage = z.infer<
+  typeof ScriptPackageBlobMessageSchema
 >;

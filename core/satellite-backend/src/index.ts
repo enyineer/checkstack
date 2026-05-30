@@ -145,6 +145,20 @@ export default createBackendPlugin({
               const spClient = rpcClient.forPlugin(ScriptPackagesApi);
               await spClient.reportSatelliteSyncState(input);
             },
+            getManifest: async ({ lockfileHash }) => {
+              const spClient = rpcClient.forPlugin(ScriptPackagesApi);
+              const res = await spClient.getManifest({ lockfileHash });
+              return res.entries;
+            },
+            getBlobBase64: async ({ integrity }) => {
+              const spClient = rpcClient.forPlugin(ScriptPackagesApi);
+              try {
+                const res = await spClient.downloadBlob({ integrity });
+                return res.data;
+              } catch {
+                return null;
+              }
+            },
           },
         );
 

@@ -1430,6 +1430,7 @@
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/satellite-common": "workspace:*",
+        "@checkstack/script-packages-backend": "workspace:*",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",

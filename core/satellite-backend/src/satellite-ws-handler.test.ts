@@ -281,6 +281,10 @@ describe("SatelliteWsHandler", () => {
           reportSyncState: mock(async (input) => {
             reports.push(input);
           }),
+          getManifest: mock(async () => [
+            { name: "leftpad", version: "0.0.1", integrity: "sha-1" },
+          ]),
+          getBlobBase64: mock(async () => "YmxvYg=="),
         },
       };
     }
@@ -356,6 +360,34 @@ describe("SatelliteWsHandler", () => {
         lockfileHash: "hash-123",
         status: "ready",
       });
+    });
+
+    it("answers a manifest request over the WS channel", async () => {
+      const { ws, onMessage } = await authedHandlerWithSink("hash-123");
+      ws.messages.length = 0;
+      await onMessage(
+        JSON.stringify({
+          type: "request_script_package_manifest",
+          lockfileHash: "hash-123",
+        }),
+      );
+      const reply = JSON.parse(ws.messages[0]);
+      expect(reply.type).toBe("script_package_manifest");
+      expect(reply.entries[0].name).toBe("leftpad");
+    });
+
+    it("answers a blob request over the WS channel", async () => {
+      const { ws, onMessage } = await authedHandlerWithSink("hash-123");
+      ws.messages.length = 0;
+      await onMessage(
+        JSON.stringify({
+          type: "request_script_package_blob",
+          integrity: "sha-1",
+        }),
+      );
+      const reply = JSON.parse(ws.messages[0]);
+      expect(reply.type).toBe("script_package_blob");
+      expect(reply.data).toBe("YmxvYg==");
     });
   });
 });

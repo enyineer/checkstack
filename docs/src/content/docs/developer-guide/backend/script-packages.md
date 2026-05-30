@@ -61,6 +61,17 @@ await defaultEsmScriptRunner.run({
 
 When unset it falls back to `os.tmpdir()` (no `node_modules` visible) - fully backward compatible. Execution isolation is unchanged: the subprocess still only receives `SAFE_ENV_VARS`, so packages cannot read backend secrets. The new risk is purely at install time, mitigated by admin-only + pinned versions + `--ignore-scripts`.
 
+## Satellite distribution
+
+Satellites are not on the backend event bus, so each core instance's `script-packages.changed` broadcast handler pushes a `refresh_script_packages { lockfileHash }` control message to its currently connected satellites over the existing WS channel. The desired hash is also carried in the `authenticated` / `config_updated` assignment payloads as the durable convergence backstop: a satellite that was offline (or missed the push) reconciles on its next connect regardless.
+
+A satellite reconciles with the same Phase 2 reconciler (`reconcileToHash` + `createReconcileFsDeps`), differing only in transport - it pulls the manifest and blobs from core over the WS channel (`request_script_package_manifest` / `request_script_package_blob`), never from the registry. It diffs the desired manifest against its local cache, pulls only the missing blobs (delta), materializes via `bun install --offline`, and atomically flips `current`. After each attempt it reports `script_package_sync_state` back to core, which persists it for the admin UI. Reconciles are serialized, coalesced to the latest desired hash, and idempotent (already-at-hash is a no-op).
+
+> [!NOTE]
+> Blobs travel over the authenticated WS channel as base64 rather than a separate satellite HTTP endpoint, so there is no extra satellite auth surface. This is bounded by the same size cap and lightweight-pure-JS regime as core.
+
+Graceful degradation: a satellite that can't reconcile (a blob fetch fails) records an `error` sync state and does not materialize a tree, so any package import fails clearly rather than hitting the registry or resolving a stale tree. Bun auto-install stays disabled (`bunfig.toml [install] auto = "disable"`) on every materialized tree.
+
 ## Storage backends
 
 Blob persistence is an extension point. Two stores ship as plugins; the active backend is selected in `script_package_storage_config` (admin UI). Because blobs are content-addressed, the integrity hash is the stable identity across backends.

@@ -61,6 +61,12 @@ export interface SatelliteScriptPackageSink {
     status: "pending" | "syncing" | "ready" | "error";
     errorMessage?: string;
   }): Promise<void>;
+  /** Manifest entries for a lockfile hash (for satellite delta diffing). */
+  getManifest(input: {
+    lockfileHash: string;
+  }): Promise<{ name: string; version: string; integrity: string }[]>;
+  /** One content-addressed blob as base64, or null if not found. */
+  getBlobBase64(input: { integrity: string }): Promise<string | null>;
 }
 
 /**
@@ -230,6 +236,30 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
               error,
             );
           }
+          break;
+        }
+        case "request_script_package_manifest": {
+          const entries =
+            (await this.scriptPackageSink?.getManifest({
+              lockfileHash: parsed.lockfileHash,
+            })) ?? [];
+          this.sendMessage(ws, {
+            type: "script_package_manifest",
+            lockfileHash: parsed.lockfileHash,
+            entries,
+          });
+          break;
+        }
+        case "request_script_package_blob": {
+          const data =
+            (await this.scriptPackageSink?.getBlobBase64({
+              integrity: parsed.integrity,
+            })) ?? null;
+          this.sendMessage(ws, {
+            type: "script_package_blob",
+            integrity: parsed.integrity,
+            data,
+          });
           break;
         }
         case "authenticate": {
