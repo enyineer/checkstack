@@ -1,5 +1,12 @@
 import React from "react";
-import { Play, ChevronDown, ChevronRight, CheckCircle2, XCircle } from "lucide-react";
+import {
+  Play,
+  ChevronDown,
+  ChevronRight,
+  CheckCircle2,
+  XCircle,
+  FlaskConical,
+} from "lucide-react";
 import { Button } from "./Button";
 import { Badge } from "./Badge";
 import { CodeEditor } from "./CodeEditor";
@@ -42,6 +49,13 @@ export interface ScriptTestPanelProps {
    * caveat. Pass `null` to hide it.
    */
   note?: React.ReactNode;
+  /**
+   * Whether the panel is expanded on first render. Defaults to `false`
+   * so a compact "Test script" affordance shows under every testable
+   * field and the sample-context editor + results only mount on demand.
+   * A successful/failed run auto-expands regardless of this.
+   */
+  defaultOpen?: boolean;
   className?: string;
 }
 
@@ -61,11 +75,16 @@ export const ScriptTestPanel: React.FC<ScriptTestPanelProps> = ({
   disabled,
   contextEditor,
   note = DEFAULT_NOTE,
+  defaultOpen = false,
   className,
 }) => {
   const { isLowPower } = usePerformance();
   const [running, setRunning] = React.useState(false);
-  const [expanded, setExpanded] = React.useState(true);
+  // Whole-panel disclosure: collapsed by default so a testable field shows
+  // only a compact "Test script" affordance and the sample-context editor +
+  // results mount on demand. A run forces it open.
+  const [panelOpen, setPanelOpen] = React.useState(defaultOpen);
+  const [resultExpanded, setResultExpanded] = React.useState(true);
   const [result, setResult] = React.useState<ScriptTestPanelResult | null>(null);
 
   const handleRun = React.useCallback(async () => {
@@ -73,10 +92,10 @@ export const ScriptTestPanel: React.FC<ScriptTestPanelProps> = ({
     try {
       const res = await onRun();
       setResult(res);
-      setExpanded(true);
+      setResultExpanded(true);
     } catch (error) {
       setResult(rejectionResult(error));
-      setExpanded(true);
+      setResultExpanded(true);
     } finally {
       setRunning(false);
     }
@@ -87,88 +106,123 @@ export const ScriptTestPanel: React.FC<ScriptTestPanelProps> = ({
   return (
     <div
       className={cn(
-        "rounded-lg border border-border/60 bg-muted/20 p-3 space-y-3",
+        "rounded-lg border border-border/60 bg-muted/20",
         className,
       )}
     >
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <button
+        type="button"
+        onClick={() => setPanelOpen((prev) => !prev)}
+        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+        aria-expanded={panelOpen}
+      >
+        <span className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          <FlaskConical className="h-3.5 w-3.5" />
           Test script
-        </span>
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          onClick={handleRun}
-          disabled={disabled || running}
-        >
-          <Play
-            className={cn(
-              "h-3.5 w-3.5",
-              running && !isLowPower && "animate-pulse",
-            )}
-          />
-          {running ? "Running…" : "Run"}
-        </Button>
-      </div>
-
-      {contextEditor}
-
-      {note !== null && (
-        <p className="text-xs text-muted-foreground">{note}</p>
-      )}
-
-      {result !== null && (
-        <div className="rounded-md border border-border bg-card">
-          <button
-            type="button"
-            onClick={() => setExpanded((prev) => !prev)}
-            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
-          >
-            <span className="flex items-center gap-2 text-sm font-medium">
-              {failed ? (
-                <XCircle className="h-4 w-4 text-destructive" />
-              ) : (
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              )}
+          {/* When collapsed, surface the last run's outcome as a hint. */}
+          {!panelOpen && result !== null && (
+            <Badge
+              variant={failed ? "destructive" : "secondary"}
+              className="font-normal normal-case"
+            >
               {failed ? "Failed" : "Success"}
-              <Badge variant="secondary" className="font-normal">
-                {result.durationMs}ms
-              </Badge>
-              {result.exitCode !== undefined && (
-                <Badge variant="secondary" className="font-normal">
-                  exit {result.exitCode}
-                </Badge>
-              )}
-            </span>
-            {expanded ? (
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            )}
-          </button>
+            </Badge>
+          )}
+        </span>
+        {panelOpen ? (
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+        )}
+      </button>
 
-          {expanded && (
-            <div className="space-y-3 border-t border-border px-3 py-3">
-              {result.error !== undefined && (
-                <ResultBlock label="Error" tone="error" value={result.error} />
-              )}
-              {result.result !== undefined && (
-                <ResultBlock
-                  label="Return value"
-                  value={formatReturnValue(result.result)}
-                />
-              )}
-              {result.stdout.length > 0 && (
-                <ResultBlock label="stdout" value={result.stdout} />
-              )}
-              {result.stderr.length > 0 && (
-                <ResultBlock label="stderr" tone="error" value={result.stderr} />
-              )}
-              {hasNoOutput(result) && (
-                <p className="text-xs italic text-muted-foreground">
-                  No output.
-                </p>
+      {panelOpen && (
+        <div className="space-y-3 border-t border-border/60 p-3">
+          <div className="flex items-center justify-end">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={handleRun}
+              disabled={disabled || running}
+            >
+              <Play
+                className={cn(
+                  "h-3.5 w-3.5",
+                  running && !isLowPower && "animate-pulse",
+                )}
+              />
+              {running ? "Running…" : "Run"}
+            </Button>
+          </div>
+
+          {contextEditor}
+
+          {note !== null && (
+            <p className="text-xs text-muted-foreground">{note}</p>
+          )}
+
+          {result !== null && (
+            <div className="rounded-md border border-border bg-card">
+              <button
+                type="button"
+                onClick={() => setResultExpanded((prev) => !prev)}
+                className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+              >
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  {failed ? (
+                    <XCircle className="h-4 w-4 text-destructive" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  )}
+                  {failed ? "Failed" : "Success"}
+                  <Badge variant="secondary" className="font-normal">
+                    {result.durationMs}ms
+                  </Badge>
+                  {result.exitCode !== undefined && (
+                    <Badge variant="secondary" className="font-normal">
+                      exit {result.exitCode}
+                    </Badge>
+                  )}
+                </span>
+                {resultExpanded ? (
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                )}
+              </button>
+
+              {resultExpanded && (
+                <div className="space-y-3 border-t border-border px-3 py-3">
+                  {result.error !== undefined && (
+                    <ResultBlock
+                      label="Error"
+                      tone="error"
+                      value={result.error}
+                    />
+                  )}
+                  {result.result !== undefined && (
+                    <ResultBlock
+                      label="Return value"
+                      value={formatReturnValue(result.result)}
+                    />
+                  )}
+                  {result.stdout.length > 0 && (
+                    <ResultBlock label="stdout" value={result.stdout} />
+                  )}
+                  {result.stderr.length > 0 && (
+                    <ResultBlock
+                      label="stderr"
+                      tone="error"
+                      value={result.stderr}
+                    />
+                  )}
+                  {hasNoOutput(result) && (
+                    <p className="text-xs italic text-muted-foreground">
+                      No output.
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           )}

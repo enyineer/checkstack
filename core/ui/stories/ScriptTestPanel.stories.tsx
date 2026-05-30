@@ -43,7 +43,7 @@ const failureResult: ScriptTestPanelResult = {
   error: "Cannot read properties of undefined (reading 'id')",
 };
 
-export const TypeScriptSuccess: Story = {
+export const CollapsedByDefault: Story = {
   render: () => (
     <div className="max-w-xl">
       <ScriptTestPanel onRun={() => delay(successResult)} />
@@ -51,10 +51,18 @@ export const TypeScriptSuccess: Story = {
   ),
 };
 
+export const TypeScriptSuccess: Story = {
+  render: () => (
+    <div className="max-w-xl">
+      <ScriptTestPanel onRun={() => delay(successResult)} defaultOpen />
+    </div>
+  ),
+};
+
 export const ShellSuccess: Story = {
   render: () => (
     <div className="max-w-xl">
-      <ScriptTestPanel onRun={() => delay(shellSuccessResult)} />
+      <ScriptTestPanel onRun={() => delay(shellSuccessResult)} defaultOpen />
     </div>
   ),
 };
@@ -62,7 +70,7 @@ export const ShellSuccess: Story = {
 export const Failure: Story = {
   render: () => (
     <div className="max-w-xl">
-      <ScriptTestPanel onRun={() => delay(failureResult)} />
+      <ScriptTestPanel onRun={() => delay(failureResult)} defaultOpen />
     </div>
   ),
 };
@@ -77,6 +85,7 @@ export const WithSampleContextEditor: Story = {
         <div className="max-w-xl">
           <ScriptTestPanel
             onRun={() => delay(successResult)}
+            defaultOpen
             contextEditor={
               <ContextSampleEditor value={context} onChange={setContext} />
             }
@@ -91,7 +100,7 @@ export const WithSampleContextEditor: Story = {
 export const Disabled: Story = {
   render: () => (
     <div className="max-w-xl">
-      <ScriptTestPanel onRun={() => delay(successResult)} disabled />
+      <ScriptTestPanel onRun={() => delay(successResult)} defaultOpen disabled />
     </div>
   ),
 };
