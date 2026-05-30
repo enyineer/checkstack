@@ -42,6 +42,10 @@ export function createDefaultFilterRegistry(): FilterRegistry {
   registry.register("join", filterJoin);
   registry.register("replace", filterReplace);
   registry.register("not", filterNot);
+  registry.register("minutes", filterMinutes);
+  registry.register("hours", filterHours);
+  registry.register("duration_since", filterDurationSince);
+  registry.register("older_than", filterOlderThan);
   return registry;
 }
 
@@ -128,6 +132,68 @@ function filterReplace(value: unknown, search: unknown, replacement: unknown): u
 
 function filterNot(value: unknown): unknown {
   return !isTruthy(value);
+}
+
+// ─── Duration helpers ────────────────────────────────────────────────────
+//
+// All pure and synchronous (no DB, no async). `duration_since` /
+// `older_than` compute against `Date.now()` at call time, so "now" is
+// fresh per evaluation rather than the run-start `now` in scope. This is
+// deliberate: dwell re-checks and time-of-day logic must use real time,
+// not the frozen scope timestamp.
+
+/** Coerce an unknown to a finite number, or 0. */
+function toFiniteNumber(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Parse an unknown into epoch-ms, or null when unparseable. */
+function toEpochMs(value: unknown): number | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.getTime();
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string") {
+    const ms = new Date(value).getTime();
+    return Number.isNaN(ms) ? null : ms;
+  }
+  return null;
+}
+
+/** `{{ 30 | minutes }}` -> 1_800_000 (a number of minutes to ms). */
+function filterMinutes(value: unknown): unknown {
+  return toFiniteNumber(value) * 60_000;
+}
+
+/** `{{ 2 | hours }}` -> 7_200_000 (a number of hours to ms). */
+function filterHours(value: unknown): unknown {
+  return toFiniteNumber(value) * 3_600_000;
+}
+
+/**
+ * `{{ someIso | duration_since }}` -> milliseconds elapsed since the
+ * given timestamp. Fail-safe: null/undefined/unparseable -> 0 (never
+ * negative, never throws). Clamped at 0 to absorb clock skew.
+ */
+function filterDurationSince(value: unknown): unknown {
+  const ms = toEpochMs(value);
+  if (ms === null) return 0;
+  return Math.max(0, Date.now() - ms);
+}
+
+/**
+ * `{{ someIso | older_than(30 | minutes) }}` -> boolean. True when the
+ * timestamp is at least `thresholdMs` in the past. Fail-safe: a
+ * null/unparseable timestamp returns false (an unknown age is never
+ * "older than" a threshold).
+ */
+function filterOlderThan(value: unknown, thresholdMs: unknown): unknown {
+  const ms = toEpochMs(value);
+  if (ms === null) return false;
+  return Date.now() - ms >= toFiniteNumber(thresholdMs);
 }
 
 /**

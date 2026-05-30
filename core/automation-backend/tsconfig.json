@@ -20,6 +20,9 @@
       "path": "../drizzle-helper"
     },
     {
+      "path": "../healthcheck-common"
+    },
+    {
       "path": "../integration-common"
     },
     {

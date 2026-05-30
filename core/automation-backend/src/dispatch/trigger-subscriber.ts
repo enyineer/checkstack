@@ -25,6 +25,7 @@ import { dispatchTrigger, resumeRun } from "./engine";
 import { evaluateCondition } from "./condition";
 import { renderString } from "./render";
 import { buildInitialScope } from "./scope";
+import { enrichScopeWithState } from "./state-scope";
 import type {
   DispatchDeps,
   LoadedAutomation,
@@ -202,6 +203,12 @@ async function wakeWaitingRuns(args: HandleTriggerFiringArgs): Promise<void> {
           actor: args.actor,
           startedAt: new Date(),
         });
+        await enrichScopeWithState({
+          scope: ctx,
+          client: args.deps.healthCheckClient,
+          logger: args.deps.logger,
+          contextKey: args.contextKey,
+        });
         const pass = evaluateCondition(
           lock.filterTemplate,
           ctx,
@@ -248,20 +255,39 @@ interface MaybeStartRunArgs {
 }
 
 async function maybeStartRun(args: MaybeStartRunArgs): Promise<void> {
-  // Trigger-level filter check.
-  if (args.trigger.filter) {
-    const ctx = buildInitialScope({
+  const needsGate =
+    !!args.trigger.filter ||
+    args.automation.definition.conditions.length > 0;
+
+  // Build + enrich the gate scope once, shared by the trigger filter and
+  // the pre-run conditions. Pre-resolving live state here is what lets a
+  // poll-style automation (interval trigger + a `health.*` condition)
+  // gate on "unhealthy for 30 min" without a dwell timer.
+  let gateScope: Record<string, unknown> | undefined;
+  if (needsGate) {
+    gateScope = buildInitialScope({
       triggerId: args.trigger.id ?? deriveTriggerId(args.trigger),
       triggerEventId: args.eventId,
       payload: args.triggerPayload,
       actor: args.actor,
       startedAt: new Date(),
     });
+    await enrichScopeWithState({
+      scope: gateScope,
+      client: args.deps.healthCheckClient,
+      logger: args.deps.logger,
+      contextKey: args.contextKey,
+      usesState: args.automation.definition.uses_state,
+    });
+  }
+
+  // Trigger-level filter check.
+  if (args.trigger.filter && gateScope) {
     let pass: boolean;
     try {
       pass = evaluateCondition(
         args.trigger.filter,
-        ctx,
+        gateScope,
         args.deps.filters,
       );
     } catch (error) {
@@ -274,19 +300,12 @@ async function maybeStartRun(args: MaybeStartRunArgs): Promise<void> {
   }
 
   // Top-level conditions gate the run.
-  if (args.automation.definition.conditions.length > 0) {
-    const ctx = buildInitialScope({
-      triggerId: args.trigger.id ?? deriveTriggerId(args.trigger),
-      triggerEventId: args.eventId,
-      payload: args.triggerPayload,
-      actor: args.actor,
-      startedAt: new Date(),
-    });
+  if (args.automation.definition.conditions.length > 0 && gateScope) {
     for (const condition of args.automation.definition.conditions) {
       try {
         const pass = evaluateCondition(
           condition,
-          ctx,
+          gateScope,
           args.deps.filters,
         );
         if (!pass) return;

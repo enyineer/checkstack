@@ -12,7 +12,11 @@ import {
 import { resolveRoute, extractErrorMessage } from "@checkstack/common";
 import type { PluginMetadata } from "@checkstack/common";
 import { registerSearchProvider } from "@checkstack/command-backend";
-import { createDefaultFilterRegistry } from "@checkstack/template-engine";
+import {
+  createDefaultFilterRegistry,
+  type FilterRegistry,
+} from "@checkstack/template-engine";
+import { HealthCheckApi } from "@checkstack/healthcheck-common";
 
 import type {
   ActionDefinition,
@@ -48,6 +52,7 @@ import {
   automationActionExtensionPoint,
   automationArtifactStoreRef,
   automationArtifactTypeExtensionPoint,
+  automationFilterExtensionPoint,
   automationRegistriesRef,
   automationTriggerExtensionPoint,
 } from "./extension-points";
@@ -85,6 +90,11 @@ export default createBackendPlugin({
     const triggerRegistry = createTriggerRegistry();
     const actionRegistry = createActionRegistry();
     const artifactTypeRegistry = createArtifactTypeRegistry();
+    // Shared filter registry — seeded with the built-in defaults (incl.
+    // the Wave-2 duration helpers) and extended by plugins via the
+    // filter extension point in Phase 1. The dispatch engine reads from
+    // this same instance, so plugin filters are live by `init()`.
+    const filterRegistry: FilterRegistry = createDefaultFilterRegistry();
 
     env.registerAccessRules(automationAccessRules);
 
@@ -121,6 +131,24 @@ export default createBackendPlugin({
           definition as ArtifactTypeDefinition<unknown>,
           metadata,
         );
+      },
+    });
+
+    // Filters registered by plugins in Phase 1 are collected here and
+    // applied (with collision-warning) in `init()` where a logger is
+    // available. Collecting first keeps `register()` logger-free.
+    const pendingFilters: Array<{
+      name: string;
+      filter: Parameters<FilterRegistry["register"]>[1];
+      pluginId: string;
+    }> = [];
+    env.registerExtensionPoint(automationFilterExtensionPoint, {
+      registerFilter: (definition, metadata) => {
+        pendingFilters.push({
+          name: definition.name,
+          filter: definition.filter,
+          pluginId: metadata.pluginId,
+        });
       },
     });
 
@@ -188,9 +216,21 @@ export default createBackendPlugin({
         );
         await registerBuiltinTriggerConsumer({ queueManager, logger });
 
+        // Apply plugin-contributed filters collected in register(),
+        // skipping any that would shadow a built-in (warn, don't clobber).
+        for (const pf of pendingFilters) {
+          if (filterRegistry.has(pf.name)) {
+            logger.warn(
+              `Plugin ${pf.pluginId} tried to register filter "${pf.name}" which already exists; skipping.`,
+            );
+            continue;
+          }
+          filterRegistry.register(pf.name, pf.filter);
+        }
+
         const dispatchDeps: DispatchDeps = {
           logger,
-          filters: createDefaultFilterRegistry(),
+          filters: filterRegistry,
           registries: {
             triggers: triggerRegistry,
             actions: actionRegistry,
@@ -200,6 +240,10 @@ export default createBackendPlugin({
           runStore,
           runStateStore,
           queueManager,
+          // Sensing-layer scope pre-resolution reads live health state
+          // through this client. forPlugin is lazy; the actual RPC only
+          // fires at evaluation time.
+          healthCheckClient: rpcClient.forPlugin(HealthCheckApi),
           getService: async () => {
             throw new Error(
               "getService not yet wired — automation dispatch invoked too early",

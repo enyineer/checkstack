@@ -442,6 +442,8 @@ export function makeDispatchDeps(opts?: {
   actions?: ActionRegistry;
   artifactTypes?: ArtifactTypeRegistry;
   triggers?: TriggerRegistry;
+  /** Optional health-check client for sensing-layer enrichment tests. */
+  healthCheckClient?: DispatchDeps["healthCheckClient"];
 }): {
   deps: DispatchDeps;
   runs: ReturnType<typeof createInMemoryRunStore>;
@@ -471,6 +473,7 @@ export function makeDispatchDeps(opts?: {
     artifactStore: artifacts.store,
     runStateStore: state.store,
     queueManager: queue.manager,
+    healthCheckClient: opts?.healthCheckClient,
     getService: async () => {
       throw new Error("getService not stubbed for this test");
     },

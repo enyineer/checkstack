@@ -80,6 +80,7 @@ import {
   resolveConsumedArtifacts,
   withRepeatContext,
 } from "./scope";
+import { enrichScopeWithState } from "./state-scope";
 import {
   formatActionPath,
   type ActionPath,
@@ -162,6 +163,17 @@ export async function dispatchTrigger(
     resuming: false,
   };
 
+  // Pre-resolve live health state into scope before any condition or
+  // template evaluation (the engine is sync, so this is the only place
+  // live state can be fetched). Fail-open inside the helper.
+  await enrichScopeWithState({
+    scope: ctx.scope,
+    client: deps.healthCheckClient,
+    logger: deps.logger,
+    contextKey: args.contextKey,
+    usesState: args.automation.definition.uses_state,
+  });
+
   // Initial scope snapshot — gives the stalled sweeper something to
   // work with even if we crash before the first step finishes.
   await deps.runStateStore.upsert({
@@ -239,6 +251,17 @@ export async function resumeRun(
     if (args.payload !== undefined) {
       scope.resume = { payload: args.payload };
     }
+
+    // Re-resolve live state on resume: the system may have changed during
+    // the wait, so conditions after a wait must see current state, not
+    // the snapshot taken at suspension time.
+    await enrichScopeWithState({
+      scope,
+      client: deps.healthCheckClient,
+      logger: deps.logger,
+      contextKey: run.contextKey,
+      usesState: args.automation.definition.uses_state,
+    });
 
     await deps.runStore.updateRunStatus(args.runId, "running");
     await deps.runStateStore.heartbeat(args.runId);

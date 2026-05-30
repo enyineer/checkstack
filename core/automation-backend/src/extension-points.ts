@@ -3,6 +3,7 @@ import {
   createServiceRef,
 } from "@checkstack/backend-api";
 import type { PluginMetadata } from "@checkstack/common";
+import type { Filter } from "@checkstack/template-engine";
 import type {
   ActionDefinition,
   ArtifactTypeDefinition,
@@ -59,6 +60,40 @@ export interface AutomationArtifactTypeExtensionPoint {
 export const automationArtifactTypeExtensionPoint =
   createExtensionPoint<AutomationArtifactTypeExtensionPoint>(
     "automation.artifactTypeExtensionPoint",
+  );
+
+/**
+ * A plugin-contributed template filter. Filters MUST be pure and
+ * synchronous (no I/O, no async, no DB) — the template engine evaluates
+ * them inline during condition/value rendering. `description` and
+ * `signature` feed the editor's autocomplete catalogue.
+ */
+export interface FilterDefinition {
+  /** Pipe name, e.g. `older_than`. Used as `{{ value | older_than(...) }}`. */
+  name: string;
+  /** The pure transform. First arg is the piped value. */
+  filter: Filter;
+  /** One-line description for the autocomplete catalogue. */
+  description?: string;
+  /** Human-readable call signature, e.g. `older_than(thresholdMs)`. */
+  signature?: string;
+}
+
+/**
+ * Extension point for registering pure template filters. Lets plugins
+ * contribute domain-specific transforms (e.g. a duration or unit helper)
+ * without forking the template engine's default registry.
+ */
+export interface AutomationFilterExtensionPoint {
+  registerFilter(
+    definition: FilterDefinition,
+    pluginMetadata: PluginMetadata,
+  ): void;
+}
+
+export const automationFilterExtensionPoint =
+  createExtensionPoint<AutomationFilterExtensionPoint>(
+    "automation.filterExtensionPoint",
   );
 
 // ─── Service refs ─────────────────────────────────────────────────────────

@@ -520,6 +520,101 @@ function buildActorEntry(): VariableEntry {
 }
 
 /**
+ * Static `health.*` namespace (sensing layer). The dispatch engine
+ * pre-resolves live health state into scope before evaluating any
+ * condition/template, so `health.system` (the trigger's context system)
+ * and `health.systems[<id>]` (any `uses_state` ids) are always readable
+ * as plain data. Offered unconditionally - the engine always folds the
+ * namespace in (empty when nothing resolves), so referencing it never
+ * throws.
+ */
+const HEALTH_STATE_PROPERTIES: Record<string, Record<string, unknown>> = {
+  status: { type: "string", enum: ["healthy", "degraded", "unhealthy"] },
+  in_status_since: { type: ["string", "null"] },
+  in_status_for_ms: { type: "number" },
+  latency_ms: { type: "number" },
+  avg_latency_ms: { type: "number" },
+  p95_latency_ms: { type: "number" },
+  success_rate: { type: "number" },
+  last_run_at: { type: "string" },
+  in_maintenance: { type: "boolean" },
+  evaluated_at: { type: "string" },
+};
+
+const HEALTH_STATE_DESCRIPTIONS: Record<string, string> = {
+  status: "Aggregate health status of the system.",
+  in_status_since: "ISO timestamp the system entered its current status (null if unknown).",
+  in_status_for_ms: "Milliseconds the system has held its current status.",
+  latency_ms: "Latency of the newest run.",
+  avg_latency_ms: "Windowed average latency.",
+  p95_latency_ms: "Windowed p95 latency.",
+  success_rate: "Windowed success rate in [0, 1].",
+  last_run_at: "ISO timestamp of the newest run.",
+  in_maintenance: "Whether the system is in an active maintenance window.",
+  evaluated_at: "ISO timestamp this snapshot was computed.",
+};
+
+function buildHealthStateChildren(prefix: string): VariableEntry[] {
+  return Object.entries(HEALTH_STATE_PROPERTIES).map(([key, jsonSchema]) => ({
+    path: `${prefix}.${key}`,
+    templateRef: `${prefix}.${key}`,
+    type:
+      key === "status"
+        ? '"healthy" | "degraded" | "unhealthy"'
+        : key === "in_maintenance"
+          ? "boolean"
+          : jsonSchema.type === "number"
+            ? "number"
+            : "string",
+    description: HEALTH_STATE_DESCRIPTIONS[key],
+    jsonSchema,
+  }));
+}
+
+function buildHealthEntry(): VariableEntry {
+  const stateSchema = {
+    type: "object",
+    properties: HEALTH_STATE_PROPERTIES,
+  };
+  return {
+    path: "health",
+    templateRef: "health",
+    type: "object",
+    description:
+      "Live health state, pre-resolved before evaluation. Use with duration filters, e.g. {{ health.system.in_status_since | older_than(30 | minutes) }}.",
+    jsonSchema: {
+      type: "object",
+      properties: {
+        system: stateSchema,
+        systems: { type: "object", additionalProperties: stateSchema },
+      },
+    },
+    children: [
+      {
+        path: "health.system",
+        templateRef: "health.system",
+        type: "object",
+        description:
+          "Live state of the system named by the trigger's context key.",
+        jsonSchema: stateSchema,
+        children: buildHealthStateChildren("health.system"),
+      },
+      {
+        path: "health.systems",
+        templateRef: "health.systems",
+        type: "Record<string, HealthState>",
+        description:
+          "Live state of every resolved system keyed by id (context system + uses_state).",
+        jsonSchema: {
+          type: "object",
+          additionalProperties: stateSchema,
+        },
+      },
+    ],
+  };
+}
+
+/**
  * Derive a stable, identifier-safe id for a trigger from its event id, used
  * when the operator hasn't assigned an explicit `id`. Mirrors the backend
  * dispatcher's derivation so editor autocomplete, the generated script types,
@@ -976,7 +1071,7 @@ export function resolveVariableScope(
     registeredTriggers: triggers,
   });
 
-  const entries: VariableEntry[] = [...triggerEntries];
+  const entries: VariableEntry[] = [...triggerEntries, buildHealthEntry()];
 
   if (accumulated.vars.length > 0) {
     entries.push({

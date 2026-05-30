@@ -8,6 +8,8 @@ import type { Logger, ServiceRef } from "@checkstack/backend-api";
 import type { AutomationDefinition } from "@checkstack/automation-common";
 import type { QueueManager } from "@checkstack/queue-api";
 import type { FilterRegistry } from "@checkstack/template-engine";
+import type { InferClient } from "@checkstack/common";
+import type { HealthCheckApi } from "@checkstack/healthcheck-common";
 
 import type { ActionRegistry } from "../action-registry";
 import type { ArtifactTypeRegistry } from "../artifact-type-registry";
@@ -40,6 +42,13 @@ export interface DispatchDeps {
    * and any future queue-backed continuations.
    */
   queueManager: QueueManager;
+  /**
+   * Health-check client for the sensing layer's scope pre-resolution
+   * (`enrichScopeWithState`). Optional so test harnesses and minimal
+   * installs that don't sense live state can omit it — enrichment then
+   * fails open to an empty `health` namespace.
+   */
+  healthCheckClient?: InferClient<typeof HealthCheckApi>;
 }
 
 /**

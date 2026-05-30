@@ -455,6 +455,21 @@ export const AutomationDefinitionSchema = z.object({
   mode: AutomationModeSchema,
   /** Max parallel runs (only meaningful in parallel/queued modes). */
   max_runs: z.number().int().min(1).max(1000).default(10),
+  /**
+   * Explicit live-state resolution list (sensing layer). By default the
+   * engine resolves the state of the system named by the trigger's
+   * `contextKey` (the common single-system case). Listing system ids here
+   * resolves their state too, surfaced in templates under
+   * `health.systems[<id>]` for cross-system rules. Bounded to keep the
+   * pre-evaluation batch query cheap.
+   */
+  uses_state: z
+    .array(z.string().min(1))
+    .max(50)
+    .optional()
+    .describe(
+      "Extra system ids whose live health state is resolved into scope under health.systems[id].",
+    ),
 });
 
 export type AutomationDefinition = z.infer<typeof AutomationDefinitionSchema>;
