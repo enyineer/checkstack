@@ -42,6 +42,47 @@ describe("maskSecrets", () => {
     expect(out).toBe("absolutely fabulous tabular");
   });
 
+  it("masks a value at exactly the minimum length boundary", () => {
+    const value = "a".repeat(MIN_MASKABLE_LENGTH); // exactly 4 chars -> masked
+    const out = maskSecrets({ text: `x=${value}`, values: [value] });
+    expect(out).toBe("x=****");
+    const tooShort = "a".repeat(MIN_MASKABLE_LENGTH - 1); // 3 chars -> skipped
+    expect(maskSecrets({ text: `y=${tooShort}`, values: [tooShort] })).toBe(
+      `y=${tooShort}`,
+    );
+  });
+
+  it("redacts a value embedded mid-string with no surrounding whitespace", () => {
+    const out = maskSecrets({
+      text: "prefix" + "tok-abcdef" + "suffix",
+      values: ["tok-abcdef"],
+    });
+    expect(out).toBe("prefix****suffix");
+  });
+
+  it("redacts a value across multiple lines of output", () => {
+    const out = maskSecrets({
+      text: "line1 sk-live-9999\nline2 sk-live-9999\nclean",
+      values: ["sk-live-9999"],
+    });
+    expect(out).toBe("line1 ****\nline2 ****\nclean");
+  });
+
+  it("DOCUMENTED LIMIT: an encoded/transformed form of a secret is NOT masked", () => {
+    const secret = "topsecretvalue";
+    const base64 = Buffer.from(secret).toString("base64");
+    // Masking is by literal occurrence only. A script that base64-encodes a
+    // secret before printing it defeats masking — this is the documented
+    // limitation, asserted here so the contract is explicit + regression-safe.
+    const out = maskSecrets({
+      text: `encoded=${base64} raw=${secret}`,
+      values: [secret],
+    });
+    expect(out).toContain(base64); // encoded form survives (NOT masked)
+    expect(out).toContain("raw=****"); // literal form IS masked
+    expect(out).not.toContain(`raw=${secret}`);
+  });
+
   it("masks longer values before shorter overlapping ones", () => {
     // "supersecret" contains "secret"; both are secrets. The whole long
     // value must be redacted as one unit, not partially by the short one.
