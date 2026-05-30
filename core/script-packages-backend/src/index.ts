@@ -26,6 +26,7 @@ import {
 } from "./stores";
 import { createInstallStateStore } from "./install-state-store";
 import { runInstallNow } from "./install-controller";
+import { runStorageMigration } from "./storage-migration";
 import { createCentralResolver } from "./resolver";
 import { createReconcileFsDeps } from "./reconcile-fs";
 import { reconcileToHash } from "./reconciler";
@@ -135,12 +136,59 @@ export default createBackendPlugin({
           });
         };
 
+        // Kick a storage migration in the background. Mutually exclusive
+        // with installs via the installer advisory lock (an install refuses
+        // while a migration is in flight via `isMigrationInFlight`; this
+        // refuses while an install holds the lock). Returns immediately;
+        // progress is polled via `getStorageMigrationState`.
+        const triggerMigration = async ({ target }: { target: string }) => {
+          const current = await storage.get();
+          if (current.migrationStatus === "migrating") {
+            return {
+              started: false,
+              reason: "A storage migration is already in progress.",
+            };
+          }
+          if (current.activeBackend === target) {
+            return {
+              started: false,
+              reason: `"${target}" is already the active backend.`,
+            };
+          }
+          if (!blobStores.has(target)) {
+            return {
+              started: false,
+              reason: `Target blob store "${target}" is not registered.`,
+            };
+          }
+          const acquired = await installState.tryInstallerLock();
+          if (!acquired) {
+            return {
+              started: false,
+              reason: "An install is in progress; try again once it completes.",
+            };
+          }
+          // Run in the background; release the lock when done.
+          void runStorageMigration({
+            blobIndex,
+            storage,
+            getStore: (id) => blobStores.get(id),
+            activeBackend: current.activeBackend,
+            target,
+            logger,
+          }).finally(() => {
+            void installState.releaseInstallerLock();
+          });
+          return { started: true };
+        };
+
         const router = createScriptPackagesRouter({
           db: database,
           blobStores,
           storeRoot,
           logger,
           triggerInstall,
+          triggerMigration,
         });
         rpc.registerRouter(router, scriptPackagesContract);
 
@@ -291,4 +339,9 @@ export {
   type InstallControllerDeps,
   type InstallOutcome,
 } from "./install-controller";
+export {
+  runStorageMigration,
+  type StorageMigrationDeps,
+  type StorageMigrationResult,
+} from "./storage-migration";
 export * as schema from "./schema";

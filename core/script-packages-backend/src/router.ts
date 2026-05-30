@@ -34,6 +34,14 @@ export interface ScriptPackagesRouterDeps {
   logger: Logger;
   /** Trigger an install (elected). Provided by the plugin (wires the resolver). */
   triggerInstall(): Promise<{ started: boolean; reason?: string }>;
+  /**
+   * Kick a storage migration to `target` in the background. Provided by the
+   * plugin (wires the blob stores). Returns immediately; progress is polled
+   * via `getStorageMigrationState`.
+   */
+  triggerMigration(input: {
+    target: string;
+  }): Promise<{ started: boolean; reason?: string }>;
 }
 
 export function createScriptPackagesRouter({
@@ -42,6 +50,7 @@ export function createScriptPackagesRouter({
   storeRoot,
   logger,
   triggerInstall,
+  triggerMigration,
 }: ScriptPackagesRouterDeps) {
   const packages = createPackageStore(db);
   const registry = createRegistryConfigStore(db);
@@ -110,20 +119,38 @@ export function createScriptPackagesRouter({
     // ─── Storage ──────────────────────────────────────────────────────────
     getStorageConfig: os.getStorageConfig.handler(async () => storage.get()),
 
+    listStorageBackends: os.listStorageBackends.handler(async () => ({
+      backends: blobStores.ids(),
+    })),
+
     setStorageBackend: os.setStorageBackend.handler(async ({ input }) => {
       if (!blobStores.has(input.backend)) {
         throw new ORPCError("BAD_REQUEST", {
           message: `Blob store backend "${input.backend}" is not available.`,
         });
       }
+      const current = await storage.get();
+      if (current.migrationStatus === "migrating") {
+        throw new ORPCError("CONFLICT", {
+          message:
+            "A storage migration is in progress; cannot change the active backend until it completes.",
+        });
+      }
+      // Directly setting the active backend does NOT move existing blobs. Use
+      // `migrateStorage` to copy blobs to the new backend. This is for an
+      // initial selection / when both backends already hold the blobs.
       await storage.setActiveBackend(input.backend);
       return storage.get();
     }),
 
-    migrateStorage: os.migrateStorage.handler(async () => ({
-      started: false,
-      reason: "Storage migration is implemented in a later phase.",
-    })),
+    migrateStorage: os.migrateStorage.handler(async ({ input }) => {
+      if (!blobStores.has(input.target)) {
+        throw new ORPCError("BAD_REQUEST", {
+          message: `Target blob store backend "${input.target}" is not available.`,
+        });
+      }
+      return triggerMigration({ target: input.target });
+    }),
 
     getStorageMigrationState: os.getStorageMigrationState.handler(async () =>
       storage.get(),

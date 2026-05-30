@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, ne } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import type {
   PackageSpec,
@@ -209,6 +209,54 @@ export function createStorageConfigStore(db: SafeDatabase<StorageSchema>) {
           set,
         });
     },
+    /** Mark a migration as started (idempotent; resets count + error). */
+    async beginMigration(target: string): Promise<void> {
+      const set = {
+        migrationStatus: "migrating" as const,
+        migrationTarget: target,
+        migratedCount: 0,
+        migrationError: null,
+        updatedAt: new Date(),
+      };
+      await db
+        .insert(scriptPackageStorageConfig)
+        .values({ id: SINGLETON, ...set })
+        .onConflictDoUpdate({ target: scriptPackageStorageConfig.id, set });
+    },
+    /** Update the migrated-blob counter (progress). */
+    async setMigratedCount(count: number): Promise<void> {
+      await db
+        .update(scriptPackageStorageConfig)
+        .set({ migratedCount: count, updatedAt: new Date() })
+        .where(eq(scriptPackageStorageConfig.id, SINGLETON));
+    },
+    /**
+     * Atomically complete a migration: flip the active backend to the target
+     * and mark completed. Done in one UPDATE so a reader never sees a
+     * "completed but old active backend" state.
+     */
+    async completeMigration(target: string): Promise<void> {
+      await db
+        .update(scriptPackageStorageConfig)
+        .set({
+          activeBackend: target,
+          migrationStatus: "completed",
+          migrationError: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(scriptPackageStorageConfig.id, SINGLETON));
+    },
+    /** Record a migration failure (leaves the active backend unchanged). */
+    async failMigration(message: string): Promise<void> {
+      await db
+        .update(scriptPackageStorageConfig)
+        .set({
+          migrationStatus: "error",
+          migrationError: message,
+          updatedAt: new Date(),
+        })
+        .where(eq(scriptPackageStorageConfig.id, SINGLETON));
+    },
   };
 }
 
@@ -271,6 +319,40 @@ export function createBlobIndexStore(db: SafeDatabase<BlobIndexSchema>) {
         .where(eq(scriptPackageBlob.integrity, integrity))
         .limit(1);
       return row?.backend;
+    },
+    /** All indexed blobs (integrity + current backend). */
+    async list(): Promise<{ integrity: string; backend: string }[]> {
+      const rows = await db
+        .select({
+          integrity: scriptPackageBlob.integrity,
+          backend: scriptPackageBlob.backend,
+        })
+        .from(scriptPackageBlob);
+      return rows;
+    },
+    /**
+     * Blobs whose recorded backend is NOT `target` - the work set for a
+     * migration to `target`. Resumability: a resumed migration re-derives
+     * this set, so blobs already flipped to `target` are skipped.
+     */
+    async listNotOnBackend(
+      target: string,
+    ): Promise<{ integrity: string; backend: string }[]> {
+      const rows = await db
+        .select({
+          integrity: scriptPackageBlob.integrity,
+          backend: scriptPackageBlob.backend,
+        })
+        .from(scriptPackageBlob)
+        .where(ne(scriptPackageBlob.backend, target));
+      return rows;
+    },
+    /** Flip a blob's recorded backend after a verified copy. */
+    async setBackend(integrity: string, backend: string): Promise<void> {
+      await db
+        .update(scriptPackageBlob)
+        .set({ backend })
+        .where(eq(scriptPackageBlob.integrity, integrity));
     },
   };
 }

@@ -84,6 +84,26 @@ Blob persistence is an extension point. Two stores ship as plugins; the active b
 - Postgres (default): blobs stored base64-encoded; no extra infrastructure.
 - S3: configured via env: `CHECKSTACK_SCRIPT_PACKAGES_S3_ENDPOINT`, `_BUCKET`, `_REGION`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`, `_FORCE_PATH_STYLE`. Credentials never touch the database.
 
+### Migrating between backends
+
+`migrateStorage({ target })` copies every blob from the active backend to the target, then atomically flips the active backend. It runs in the background; the admin UI polls `getStorageMigrationState` for progress (`migratedCount`, status, error).
+
+```ts
+import { runStorageMigration } from "@checkstack/script-packages-backend";
+
+// Copies each blob, verifies the copy, flips the active backend.
+await runStorageMigration({ blobIndex, storage, getStore, activeBackend, target });
+```
+
+Properties:
+
+- **Verified copies.** Each blob is read back from the target and compared byte-for-byte against the source (a SHA-256 of the copy vs the source). A mismatch aborts the migration cleanly - the active backend is left untouched and the status becomes `error`. (The SRI `integrity` key hashes the npm tarball, not our archive bytes, so verification checks the copy is faithful rather than re-deriving the SRI.)
+- **Resumable.** The per-blob `backend` column is flipped only after a verified copy, so a crash leaves a well-defined partial state. A re-run derives its work set from the index (blobs not yet on the target) and skips ones already migrated.
+- **No downtime.** During migration the active backend is still the source and reads fall back across both backends (the blob-store registry's `readWithFallback`), so script execution never breaks.
+- **Atomic flip.** The active backend changes in a single update at the end, so a reader never sees "completed but old backend".
+- **Mutually exclusive with installs.** Migration and `installNow` share the installer advisory lock; `installNow` is refused while a migration is in flight and vice-versa.
+- **Optional source GC.** With `gcSource`, each blob is deleted from the source after its verified copy.
+
 ## Data directory
 
 The on-disk package store lives at `<dataDir>/script-packages/`, where `dataDir` is `CHECKSTACK_DATA_DIR` (defaulting to `.data/` under the backend). The cold-start cost (a fresh host pulls the full blob set once) is accepted and bounded by the size cap; a persistent cache volume is an optional deployment-side optimization, not required.

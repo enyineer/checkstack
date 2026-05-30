@@ -26,6 +26,13 @@ import {
   AlertDescription,
   AccessDenied,
   LoadingSpinner,
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+  usePerformance,
+  cn,
 } from "@checkstack/ui";
 import { extractErrorMessage } from "@checkstack/common";
 
@@ -44,16 +51,24 @@ const SettingsContent: React.FC = () => {
   const installStateQuery = client.getInstallState.useQuery();
   const registryQuery = client.getRegistryConfig.useQuery();
   const sizeCapQuery = client.getSizeCapConfig.useQuery();
-  const storageQuery = client.getStorageConfig.useQuery();
+  const storageQuery = client.getStorageConfig.useQuery(undefined, {
+    // Poll while a migration is running so progress + completion show live.
+    refetchInterval: (query) =>
+      query.state.data?.migrationStatus === "migrating" ? 1500 : false,
+  });
+  const backendsQuery = client.listStorageBackends.useQuery();
   const satellitesQuery = client.listSatelliteSyncState.useQuery();
 
   const addMutation = client.addPackage.useMutation();
   const removeMutation = client.removePackage.useMutation();
   const setEnabledMutation = client.setPackageEnabled.useMutation();
   const installMutation = client.installNow.useMutation();
+  const migrateMutation = client.migrateStorage.useMutation();
 
+  const { isLowPower } = usePerformance();
   const [name, setName] = React.useState("");
   const [version, setVersion] = React.useState("");
+  const [migrateTarget, setMigrateTarget] = React.useState<string>("");
   const [error, setError] = React.useState<string | null>(null);
 
   if (accessLoading) return <LoadingSpinner />;
@@ -92,10 +107,27 @@ const SettingsContent: React.FC = () => {
     }
   };
 
+  const handleMigrate = async () => {
+    setError(null);
+    if (!migrateTarget) return;
+    try {
+      const res = await migrateMutation.mutateAsync({ target: migrateTarget });
+      if (!res.started && res.reason) setError(res.reason);
+    } catch (error_) {
+      setError(extractErrorMessage(error_));
+    }
+  };
+
   const overWarn =
     installState && sizeCap
       ? installState.totalSizeBytes > sizeCap.warnBytes
       : false;
+
+  const availableBackends = backendsQuery.data?.backends ?? [];
+  const migrating = storage?.migrationStatus === "migrating";
+  const migrationTargets = availableBackends.filter(
+    (b) => b !== storage?.activeBackend,
+  );
 
   return (
     <PageLayout title="Script packages" icon={Package}>
@@ -239,16 +271,81 @@ const SettingsContent: React.FC = () => {
             <span className="text-muted-foreground">Auth token: </span>
             {registryQuery.data?.hasAuthToken ? "configured" : "none"}
           </div>
-          <div>
-            <span className="text-muted-foreground">Storage backend: </span>
+        </CardContent>
+      </Card>
+
+      {/* Storage backend + migration */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Storage backend</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">Active backend:</span>
             <Badge variant="secondary">{storage?.activeBackend}</Badge>
-            {storage?.migrationStatus === "migrating" && (
-              <Badge variant="secondary" className="ml-2">
-                <RefreshCw className="mr-1 h-3 w-3" />
-                migrating
+            {migrating && (
+              <Badge variant="secondary">
+                <RefreshCw
+                  className={cn(
+                    "mr-1 h-3 w-3",
+                    !isLowPower && "animate-spin",
+                  )}
+                />
+                migrating to {storage?.migrationTarget} ({storage?.migratedCount}{" "}
+                copied)
               </Badge>
             )}
           </div>
+
+          {storage?.migrationStatus === "error" && storage.migrationError && (
+            <p className="text-xs text-destructive">
+              Migration failed: {storage.migrationError}
+            </p>
+          )}
+          {storage?.migrationStatus === "completed" && (
+            <p className="text-xs text-emerald-600">
+              Migration complete. Active backend is now {storage.activeBackend}.
+            </p>
+          )}
+
+          {/* Migrate: copy all blobs to a target backend, then flip. */}
+          {migrationTargets.length > 0 && (
+            <div className="flex items-end gap-2">
+              <div className="w-48">
+                <Label htmlFor="migrate-target">Migrate blobs to</Label>
+                <Select
+                  value={migrateTarget}
+                  onValueChange={setMigrateTarget}
+                  disabled={migrating}
+                >
+                  <SelectTrigger id="migrate-target">
+                    <SelectValue placeholder="Select target backend" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {migrationTargets.map((b) => (
+                      <SelectItem key={b} value={b}>
+                        {b}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                type="button"
+                onClick={handleMigrate}
+                disabled={!migrateTarget || migrating || migrateMutation.isPending}
+              >
+                <RefreshCw className="h-4 w-4" />
+                Migrate
+              </Button>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Migration copies every blob to the target, verifies each by
+            content hash, then atomically switches the active backend. Reads
+            fall back across both backends while it runs, so scripts keep
+            working. Installs are paused during a migration.
+          </p>
         </CardContent>
       </Card>
 

@@ -118,6 +118,13 @@ export const scriptPackagesContract = {
     access: [scriptPackagesAccess.manage],
   }).output(StorageConfigSchema),
 
+  /** Registered blob-store backend ids available as migration targets. */
+  listStorageBackends: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [scriptPackagesAccess.manage],
+  }).output(z.object({ backends: z.array(z.string()) })),
+
   setStorageBackend: proc({
     operationType: "mutation",
     userType: "authenticated",
