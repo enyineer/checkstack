@@ -41,6 +41,10 @@ import {
   startDwellQueueConsumer,
   type DwellQueueConsumer,
 } from "./dispatch/dwell-queue";
+import {
+  startWaitUntilQueueConsumer,
+  type WaitUntilQueueConsumer,
+} from "./dispatch/wait-until-queue";
 import { createDwellStore } from "./dispatch/dwell-store";
 import { createRunStore } from "./dispatch/run-state";
 import { createRunStateStore } from "./dispatch/run-state-store";
@@ -87,6 +91,7 @@ interface EnvStash {
   stalledSweeper?: StalledSweeper;
   delayConsumer?: DelayQueueConsumer;
   dwellConsumer?: DwellQueueConsumer;
+  waitUntilConsumer?: WaitUntilQueueConsumer;
 }
 
 export default createBackendPlugin({
@@ -315,6 +320,7 @@ export default createBackendPlugin({
           s.stalledSweeper?.stop();
           await s.delayConsumer?.stop();
           await s.dwellConsumer?.stop();
+          await s.waitUntilConsumer?.stop();
         });
 
         logger.debug("✅ Automation Backend initialized.");
@@ -369,6 +375,14 @@ export default createBackendPlugin({
         // `for:` dwell: register the consumer that fires when a dwell's
         // scheduled job pops, re-confirming state before starting the run.
         stash.dwellConsumer = await startDwellQueueConsumer({
+          deps: stash.dispatchDeps,
+          automationStore: stash.automationStore,
+          logger,
+        });
+
+        // `wait_until`: register the consumer that re-checks a suspended
+        // run's condition on each poll tick.
+        stash.waitUntilConsumer = await startWaitUntilQueueConsumer({
           deps: stash.dispatchDeps,
           automationStore: stash.automationStore,
           logger,

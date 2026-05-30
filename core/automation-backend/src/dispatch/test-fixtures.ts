@@ -184,6 +184,7 @@ export function createInMemoryRunStore(): {
         contextKey: input.contextKey,
         filterTemplate: input.filterTemplate,
         timeoutAt: input.timeoutAt,
+        waitConfig: input.waitConfig ?? null,
         createdAt: new Date(),
       });
       return id;
@@ -199,6 +200,9 @@ export function createInMemoryRunStore(): {
         }
       }
       return matches;
+    },
+    async findWaitLocksByKind(kind) {
+      return [...waitLocks.values()].filter((lock) => lock.kind === kind);
     },
     async deleteWaitLock(id) {
       waitLocks.delete(id);

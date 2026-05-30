@@ -20,6 +20,7 @@ import type {
   StopInput,
   VariablesInput,
   WaitForTriggerInput,
+  WaitUntilInput,
 } from "@checkstack/automation-common";
 import {
   ACTION_KIND_META,
@@ -37,6 +38,7 @@ import {
   StopActionBody,
   VariablesActionBody,
   WaitForTriggerActionBody,
+  WaitUntilActionBody,
 } from "./action-leaf-cards";
 import {
   ChooseActionBody,
@@ -339,6 +341,17 @@ const ActionBody: React.FC<{
           value={value as WaitForTriggerInput}
           onChange={(next) => onChange(next)}
           completionProvider={templateCompletion}
+          disabled={disabled}
+        />
+      );
+    }
+    case "wait_until": {
+      return (
+        <WaitUntilActionBody
+          value={value as WaitUntilInput}
+          onChange={(next) => onChange(next)}
+          variableNodes={variableNodes}
+          completionProvider={expressionCompletion}
           disabled={disabled}
         />
       );

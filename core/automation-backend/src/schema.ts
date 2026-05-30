@@ -201,19 +201,35 @@ export const automationWaitLocks = pgTable(
       .references(() => automationRuns.id, { onDelete: "cascade" }),
     /** Action path of the suspended node — used to resume from the next sibling. */
     actionPath: text("action_path").notNull(),
-    /** Discriminator: "trigger" (wait_for_trigger) or "delay" (queue-backed sleep). */
+    /**
+     * Discriminator:
+     *   - "trigger" — wait_for_trigger (woken by a matching event)
+     *   - "delay"   — queue-backed sleep
+     *   - "until"   — wait_until: polled condition re-check on an interval
+     */
     kind: text("kind").notNull().default("trigger"),
-    /** Fully qualified event id being awaited (only meaningful when kind = "trigger"). */
+    /**
+     * Fully qualified event id being awaited (only meaningful when
+     * kind = "trigger"). For "delay" / "until" a synthetic marker.
+     */
     eventId: text("event_id").notNull(),
     /** Optional context-key filter (e.g. same incidentId). */
     contextKey: text("context_key"),
     /** Optional template that must evaluate truthy on the arriving payload. */
     filterTemplate: text("filter_template"),
     /**
+     * Config for `kind = "until"` — the condition to re-evaluate, the
+     * poll interval, and the timeout behaviour. JSON because the
+     * condition may be a structured object, not just a template string.
+     */
+    waitConfig: jsonb("wait_config").$type<Record<string, unknown>>(),
+    /**
      * Absolute deadline. For `kind = "trigger"`: nullable; if set, the
      * sweeper fails the run when exceeded. For `kind = "delay"`:
      * required; the firing time after which the run should resume even
-     * if the queue job is lost.
+     * if the queue job is lost. For `kind = "until"`: optional wait
+     * deadline (null = wait forever); the sweeper re-ticks "until" locks
+     * regardless, so a lost re-check job still self-heals.
      */
     timeoutAt: timestamp("timeout_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -228,6 +244,8 @@ export const automationWaitLocks = pgTable(
     timeoutIdx: index("automation_wait_locks_timeout_idx").on(t.timeoutAt),
     /** Powers the run-detail UI's "what are we waiting on?" view. */
     runIdx: index("automation_wait_locks_run_idx").on(t.runId),
+    /** Powers the sweeper's "re-tick all until locks" scan. */
+    kindIdx: index("automation_wait_locks_kind_idx").on(t.kind),
   }),
 );
 

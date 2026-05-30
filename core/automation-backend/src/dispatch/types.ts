@@ -5,7 +5,10 @@
  * `@checkstack/automation-common` and the package's index re-exports.
  */
 import type { Logger, ServiceRef } from "@checkstack/backend-api";
-import type { AutomationDefinition } from "@checkstack/automation-common";
+import type {
+  AutomationDefinition,
+  Condition,
+} from "@checkstack/automation-common";
 import type { QueueManager } from "@checkstack/queue-api";
 import type { FilterRegistry } from "@checkstack/template-engine";
 import type { InferClient } from "@checkstack/common";
@@ -192,13 +195,15 @@ export interface RunStore {
     actionPath: string,
   ): Promise<LoadedStep | undefined>;
 
-  // Wait locks (for wait_for_trigger + delay durability)
+  // Wait locks (for wait_for_trigger + delay + wait_until durability)
   createWaitLock(input: CreateWaitLockInput): Promise<string>;
   loadWaitLock(id: string): Promise<LoadedWaitLock | undefined>;
   findWaitLocksFor(
     eventId: string,
     contextKey: string | null,
   ): Promise<LoadedWaitLock[]>;
+  /** All wait locks of a given kind — powers the sweeper's `until` re-tick. */
+  findWaitLocksByKind(kind: WaitLockKind): Promise<LoadedWaitLock[]>;
   deleteWaitLock(id: string): Promise<void>;
   sweepExpiredWaitLocks(now: Date): Promise<LoadedWaitLock[]>;
 }
@@ -246,7 +251,18 @@ export interface LoadedStep {
   finishedAt: Date | null;
 }
 
-export type WaitLockKind = "trigger" | "delay";
+export type WaitLockKind = "trigger" | "delay" | "until";
+
+/**
+ * Persisted config for a `kind: "until"` wait lock. The condition can be a
+ * structured object, so it rides in the lock's `waitConfig` jsonb rather
+ * than `filterTemplate`.
+ */
+export interface UntilWaitConfig {
+  condition: Condition;
+  pollSeconds: number;
+  continueOnTimeout: boolean;
+}
 
 export interface CreateWaitLockInput {
   runId: string;
@@ -256,6 +272,8 @@ export interface CreateWaitLockInput {
   contextKey: string | null;
   filterTemplate: string | null;
   timeoutAt: Date | null;
+  /** Only set for `kind: "until"`. */
+  waitConfig?: UntilWaitConfig | null;
 }
 
 export interface LoadedWaitLock {
@@ -267,6 +285,7 @@ export interface LoadedWaitLock {
   contextKey: string | null;
   filterTemplate: string | null;
   timeoutAt: Date | null;
+  waitConfig: UntilWaitConfig | null;
   createdAt: Date;
 }
 

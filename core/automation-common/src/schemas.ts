@@ -300,6 +300,7 @@ export type ActionInput =
   | ConditionGuardInput
   | StopInput
   | WaitForTriggerInput
+  | WaitUntilInput
   | SequenceInput;
 
 export interface ChooseInput {
@@ -375,6 +376,21 @@ export interface WaitForTriggerInput {
     filter?: string;
     timeout_seconds?: number;
     context_key?: string;
+  };
+}
+
+export interface WaitUntilInput {
+  id?: string;
+  description?: string;
+  enabled?: boolean;
+  continue_on_error?: boolean;
+  wait_until: {
+    condition: ConditionInput;
+    timeout_seconds?: number;
+    /** Default true (HA semantics): on timeout, continue rather than fail. */
+    continue_on_timeout?: boolean;
+    /** How often to re-check the condition (seconds). Default 30. */
+    poll_seconds?: number;
   };
 }
 
@@ -541,6 +557,36 @@ export const WaitForTriggerActionSchema = z.object({
 });
 
 /**
+ * 11. Wait until — suspend the run until a CONDITION becomes true, with an
+ * optional timeout. Unlike `wait_for_trigger` (wait for an *event*), this
+ * polls the condition on an interval, re-resolving live state each tick.
+ *
+ * `continue_on_timeout` defaults to true (HA's `wait_template` semantics):
+ * on timeout the run continues rather than failing.
+ */
+export const WaitUntilActionSchema: z.ZodType<WaitUntilInput> = z.lazy(() =>
+  z.object({
+    ...ActionBase,
+    wait_until: z.object({
+      condition: ConditionSchema,
+      timeout_seconds: z
+        .number()
+        .int()
+        .min(1)
+        .max(60 * 60 * 24 * 30) // 30 days
+        .optional(),
+      continue_on_timeout: z.boolean().default(true),
+      poll_seconds: z
+        .number()
+        .int()
+        .min(1)
+        .max(60 * 60) // 1h max poll interval
+        .default(30),
+    }),
+  }),
+);
+
+/**
  * The discriminated union of all 9 action primitives. Discrimination is by
  * presence of a key (action / choose / parallel / etc.), matching the
  * YAML-friendly authoring style.
@@ -559,6 +605,7 @@ export const ActionSchema: z.ZodType<ActionInput> = z.lazy(() =>
     ConditionGuardActionSchema,
     StopActionSchema,
     WaitForTriggerActionSchema,
+    WaitUntilActionSchema,
     SequenceActionSchema,
   ]),
 );

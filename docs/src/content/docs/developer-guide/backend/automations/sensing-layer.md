@@ -183,3 +183,28 @@ conditions:
 
 > [!NOTE]
 > The system referenced by a `state` condition's `entity` must be resolved into scope - it is the trigger's context system by default, or listed in the automation's `uses_state`.
+
+## wait_until action
+
+`wait_until` suspends a running automation until a condition becomes true, with an optional timeout. It is the condition counterpart to `wait_for_trigger` (which waits for an *event*): instead of waiting for something to happen, it polls the condition on an interval, re-resolving live state each tick.
+
+```yaml
+actions:
+  - action: incident.create
+    config: { title: "{{ trigger.payload.systemName }} down", severity: critical }
+  - wait_until:
+      condition: "health.system.status == 'healthy'"
+      timeout_seconds: 3600       # wait up to 1h
+      continue_on_timeout: true   # default; false = fail the run on timeout
+      poll_seconds: 30            # re-check interval (default 30)
+  - action: incident.resolve
+    config: { incidentId: "{{ artifacts.incident.id }}" }
+```
+
+- `condition` accepts any condition shape - a template string or a structured `numeric_state` / `time` / `state` variant.
+- If the condition is ALREADY true when reached, the run continues inline without suspending.
+- Otherwise the run suspends with a durable `kind: "until"` wait lock carrying the condition + poll interval + timeout policy, and an `automation-wait-until` job is enqueued. Each tick re-enriches `health.*` and re-evaluates: true resumes the run; `timeout_seconds` elapsed resumes (continue) or fails per `continue_on_timeout` (default true, matching HA's `wait_template`); still-false re-schedules the next tick.
+- Works nested inside `choose` / `parallel` / `repeat` - the engine resumes through the same remainder mechanism as every other suspend.
+
+> [!IMPORTANT]
+> Like every suspend, `wait_until` survives a restart: the wait lock is the source of truth, the queue job is the wake signal, and the stalled sweeper re-ticks `until` locks as a backstop if a re-check job is lost (essential for a `wait_until` with no timeout). Resumes take the per-run advisory lock, so a queue tick and a sweep can't double-resume.

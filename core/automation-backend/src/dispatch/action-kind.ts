@@ -17,6 +17,7 @@ export type ActionKind =
   | "condition"
   | "stop"
   | "wait_for_trigger"
+  | "wait_until"
   | "sequence";
 
 /**
@@ -35,6 +36,7 @@ export function detectActionKind(action: Action): ActionKind {
   if ("condition" in a) return "condition";
   if ("stop" in a) return "stop";
   if ("wait_for_trigger" in a) return "wait_for_trigger";
+  if ("wait_until" in a) return "wait_until";
   if ("sequence" in a) return "sequence";
   throw new Error(
     `Unknown action shape — none of the discriminator keys are present: ${JSON.stringify(
