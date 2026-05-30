@@ -41,14 +41,18 @@ function automation(actions: unknown[]): LoadedAutomation {
 describe("dispatch engine — action primitive", () => {
   it("executes a registered action with templated config", async () => {
     const actionsReg = createActionRegistry();
-    const rec = makeRecordingAction();
+    const rec = makeRecordingAction({ produces: true });
     actionsReg.register(rec.definition, testPlugin);
 
     const { deps, runs, artifacts } = makeDispatchDeps({ actions: actionsReg });
 
     const result = await dispatchTrigger(deps, {
       automation: automation([
-        { action: "test.record", config: { value: "{{ trigger.payload.id }}" } },
+        {
+          id: "rec_step",
+          action: "test.record",
+          config: { value: "{{ trigger.payload.id }}" },
+        },
       ]),
       triggerId: "test_event",
       triggerEventId: "test.event",
@@ -61,8 +65,47 @@ describe("dispatch engine — action primitive", () => {
     expect(rec.calls[0]?.value).toBe("incident-42");
     expect(artifacts.artifacts).toHaveLength(1);
     expect(artifacts.artifacts[0]?.artifactType).toBe("test.recorded");
+    expect(artifacts.artifacts[0]?.actionId).toBe("rec_step");
     expect(runs.steps).toHaveLength(1);
     expect(runs.steps[0]?.status).toBe("success");
+  });
+
+  it("nests the produced artifact under artifacts.<id>.<localName> and resolves it downstream", async () => {
+    const actionsReg = createActionRegistry();
+    const rec = makeRecordingAction({ produces: true });
+    actionsReg.register(rec.definition, testPlugin);
+    const { deps } = makeDispatchDeps({ actions: actionsReg });
+
+    const result = await dispatchTrigger(deps, {
+      automation: automation([
+        {
+          id: "produce_it",
+          action: "test.record",
+          config: { value: "PROJ-1" },
+        },
+        {
+          // This action also produces (it reuses `test.record`), so it must
+          // carry an id too — the engine fails producers without one.
+          id: "consume_it",
+          action: "test.record",
+          // The local artifact name for `test.recorded` is `recorded`; the
+          // recording action's artifact shape is `{ recorded: <value> }`.
+          config: {
+            value: "{{ artifacts.produce_it.recorded.recorded }}",
+          },
+        },
+      ]),
+      triggerId: "test_event",
+      triggerEventId: "test.event",
+      payload: {},
+      contextKey: "ck-1",
+    });
+
+    expect(result.status).toBe("success");
+    expect(rec.calls).toHaveLength(2);
+    // The downstream action's templated config resolved to the produced
+    // artifact field.
+    expect(rec.calls[1]?.value).toBe("PROJ-1");
   });
 
   it("fails the run when the action is unknown", async () => {
@@ -129,7 +172,10 @@ describe("dispatch engine — action primitive", () => {
   it("resolves consumed artifacts via the artifact store", async () => {
     const actionsReg = createActionRegistry();
     // Producer
-    actionsReg.register(makeRecordingAction().definition, testPlugin);
+    actionsReg.register(
+      makeRecordingAction({ produces: true }).definition,
+      testPlugin,
+    );
     // Consumer
     const consumed: Array<Record<string, unknown>> = [];
     actionsReg.register(
@@ -151,7 +197,7 @@ describe("dispatch engine — action primitive", () => {
     const { deps } = makeDispatchDeps({ actions: actionsReg });
     await dispatchTrigger(deps, {
       automation: automation([
-        { action: "test.record", config: { value: "x" } },
+        { id: "producer", action: "test.record", config: { value: "x" } },
         { action: "test.consumer", config: {} },
       ]),
       triggerId: "test_event",

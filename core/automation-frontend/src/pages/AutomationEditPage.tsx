@@ -48,6 +48,7 @@ import {
 import { extractErrorMessage, resolveRoute } from "@checkstack/common";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { AutomationDefinitionEditor } from "../editor/AutomationDefinitionEditor";
+import { assignDefaultIds } from "../editor/action-helpers";
 import { computeYamlMarkers } from "../editor/yaml-markers";
 import {
   ValidationProvider,
@@ -58,17 +59,23 @@ const STARTER_DEFINITION: AutomationDefinition = {
   name: "New Automation",
   triggers: [{ event: "incident.created" }],
   conditions: [],
-  actions: [
-    {
-      action: "automation.log",
-      config: {
-        message: "Incident {{ trigger.payload.title }} fired",
-        level: "info",
+  // Run the seeded starter action through the same default-id assignment the
+  // "Add step" path uses, so its `id` is filled in (and shown) immediately
+  // rather than appearing blank until the field is focused.
+  actions: assignDefaultIds(
+    [
+      {
+        action: "automation.log",
+        config: {
+          message: "Incident {{ trigger.payload.title }} fired",
+          level: "info",
+        },
+        enabled: true,
+        continue_on_error: false,
       },
-      enabled: true,
-      continue_on_error: false,
-    },
-  ],
+    ],
+    new Set(),
+  ),
   mode: "single",
   max_runs: 10,
 };
@@ -271,16 +278,22 @@ const AutomationEditContent: React.FC = () => {
     const committed = commitActiveTab();
     if (!committed) return;
 
-    const validation = await validateMutation.mutateAsync({
-      definition: committed,
-    });
-    if (!validation.valid) return;
-
+    // The top-level form `name`/`description` are the source of truth and
+    // overwrite whatever the definition carried (e.g. the starter's "New
+    // Automation"). Merge BEFORE validating so we validate exactly what we
+    // submit — otherwise an empty name passes definition validation (which
+    // sees the starter name) but is rejected at the create RPC's input
+    // boundary with a generic toast.
     const merged: AutomationDefinition = {
       ...committed,
       name,
       description: description || undefined,
     };
+
+    const validation = await validateMutation.mutateAsync({
+      definition: merged,
+    });
+    if (!validation.valid) return;
 
     if (isNew) {
       createMutation.mutate({
@@ -335,6 +348,15 @@ const AutomationEditContent: React.FC = () => {
     [validationErrors],
   );
 
+  // The top-level `name` lives outside `definition`, so the definition
+  // validator never checks it — an empty name slipped through to the create
+  // RPC, which rejected it at its input boundary with a generic
+  // "Input validation failed" toast. Validate it here so the Name field can
+  // surface the error and Save can be disabled instead.
+  const nameError = name.trim().length === 0 ? "Name is required" : undefined;
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+  const canSave = !nameError && validationErrors.length === 0 && !isSaving;
+
   return (
     <PageLayout
       title={isNew ? "New automation" : name || "Edit automation"}
@@ -379,11 +401,7 @@ const AutomationEditContent: React.FC = () => {
             <Button
               size="sm"
               onClick={handleSave}
-              disabled={
-                validateMutation.isPending ||
-                createMutation.isPending ||
-                updateMutation.isPending
-              }
+              disabled={!canSave || validateMutation.isPending}
             >
               <Save className="mr-1 h-4 w-4" />
               Save
@@ -414,7 +432,12 @@ const AutomationEditContent: React.FC = () => {
                   onChange={(e) => setName(e.target.value)}
                   disabled={!canManage}
                   placeholder="Open Jira issue when incident fires"
+                  aria-invalid={nameError ? true : undefined}
+                  className={nameError ? "border-destructive" : undefined}
                 />
+                {nameError && (
+                  <p className="text-xs text-destructive">{nameError}</p>
+                )}
               </div>
               <div className="space-y-1">
                 <Label htmlFor="description">Description</Label>

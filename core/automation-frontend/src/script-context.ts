@@ -14,7 +14,7 @@
  *          trigger:
  *            | { event: "incident.created"; payload: { incidentId: string; … } }
  *            | { event: "incident.resolved"; payload: { incidentId: string; … } };
- *          artifacts: { "jira.issue": { key: string; url?: string }; … };
+ *          artifacts: { open_jira: { issue: { key: string; url?: string } }; … };
  *          var: { foo: string; count: number; … };
  *          repeat: { index: number; item?: unknown };
  *        };
@@ -86,7 +86,14 @@ export function generateAutomationContextTypes(
       qualifiedId: a.qualifiedId,
       displayName: a.qualifiedId,
       category: "Uncategorized",
-      ownerPluginId: "",
+      // Derive the owning plugin id from the qualified action id (the part
+      // before the first dot) so the resolver can strip it off `produces`
+      // to recover the local artifact name (e.g. `integration-jira.issue`
+      // -> `issue`). An unqualified id yields an empty owner, leaving the
+      // produces id intact.
+      ownerPluginId: a.qualifiedId.includes(".")
+        ? a.qualifiedId.slice(0, a.qualifiedId.indexOf("."))
+        : "",
       configSchema: {},
       produces: a.produces,
       consumes: [],
@@ -113,25 +120,37 @@ export function generateAutomationContextTypes(
           .join("\n  | ");
 
   // ─── Artifacts map ─────────────────────────────────────────────────────
-  const artifactEntries = (scope.entries.find((e) => e.path === "artifact")
-    ?.children ?? []) as readonly { path: string }[];
+  // The resolver nests artifacts as `artifact.<actionId>.<localName>`, mirroring
+  // the runtime `artifacts.<actionId>.<localName>.<field>` shape. Each top-level
+  // child is an action-id node; its own children are the produced artifact(s)
+  // keyed by local name, each carrying the artifact's JSON Schema.
+  const artifactIdNodes = scope.entries.find((e) => e.path === "artifact")
+    ?.children;
   const artifactsType =
-    artifactEntries.length === 0
+    !artifactIdNodes || artifactIdNodes.length === 0
       ? "Record<string, unknown>"
-      : `{\n${artifactEntries
-          .map((entry) => {
-            const typeId = entry.path.slice("artifact.".length);
-            const artifactSchema = artifactTypes?.find(
-              (a) => a.qualifiedId === typeId,
-            );
-            const dataType = artifactSchema
-              ? jsonSchemaToTypeScript(
-                  artifactSchema.schema as Parameters<
-                    typeof jsonSchemaToTypeScript
-                  >[0],
-                )
-              : "unknown";
-            return `  readonly ${JSON.stringify(typeId)}?: ${dataType};`;
+      : `{\n${artifactIdNodes
+          .map((idNode) => {
+            const actionId = idNode.path.split(".").pop() ?? idNode.path;
+            const localNodes = idNode.children ?? [];
+            const inner =
+              localNodes.length === 0
+                ? "Record<string, unknown>"
+                : `{\n${localNodes
+                    .map((localNode) => {
+                      const localName =
+                        localNode.path.split(".").pop() ?? localNode.path;
+                      const dataType = localNode.jsonSchema
+                        ? jsonSchemaToTypeScript(
+                            localNode.jsonSchema as Parameters<
+                              typeof jsonSchemaToTypeScript
+                            >[0],
+                          )
+                        : "unknown";
+                      return `    readonly ${JSON.stringify(localName)}: ${dataType};`;
+                    })
+                    .join("\n")}\n  }`;
+            return `  readonly ${JSON.stringify(actionId)}: ${inner};`;
           })
           .join("\n")}\n}`;
 

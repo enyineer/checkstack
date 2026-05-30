@@ -750,23 +750,46 @@ async function executeProviderAction(
   }
 
   if (registered.produces && result.artifact !== undefined) {
+    // Producers MUST have an id (enforced by validate-definition). Guard
+    // defensively so a malformed definition fails loud rather than via a
+    // non-null assertion.
+    if (!action.id) {
+      const message = `Action "${action.action}" produces an artifact but has no id; it cannot be referenced as artifacts.<id>.<name>`;
+      await ctx.deps.runStore.updateStep(stepId, {
+        status: "failed",
+        errorMessage: message,
+      });
+      return { kind: "failed", error: message };
+    }
     await ctx.deps.artifactStore.record({
       automationId: ctx.run.automation.id,
       runId: ctx.run.runId,
       stepId,
-      actionId: action.id ?? null,
+      actionId: action.id,
       artifactType: registered.produces,
       data: result.artifact as Record<string, unknown>,
       contextKey: ctx.run.contextKey,
     });
+    // The local artifact name is `produces` with the owning plugin prefix
+    // stripped (e.g. `integration-jira.issue` → `issue`). Falls back to the
+    // full `produces` if it somehow lacks the expected prefix.
+    const prefix = `${registered.ownerPluginId}.`;
+    const localName = registered.produces.startsWith(prefix)
+      ? registered.produces.slice(prefix.length)
+      : registered.produces;
     const existingArtifacts =
       (ctx.scope.artifacts as Record<string, unknown>) ?? {};
-    const nextArtifacts: Record<string, unknown> = {
+    const existingForAction = existingArtifacts[action.id];
+    const nestedForAction =
+      existingForAction !== null &&
+      typeof existingForAction === "object" &&
+      !Array.isArray(existingForAction)
+        ? (existingForAction as Record<string, unknown>)
+        : {};
+    ctx.scope.artifacts = {
       ...existingArtifacts,
-      [registered.produces]: result.artifact,
+      [action.id]: { ...nestedForAction, [localName]: result.artifact },
     };
-    if (action.id) nextArtifacts[action.id] = result.artifact;
-    ctx.scope.artifacts = nextArtifacts;
   }
 
   await ctx.deps.runStore.updateStep(stepId, {

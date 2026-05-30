@@ -484,8 +484,14 @@ export const testPlugin = { pluginId: "test" } as const;
 
 /**
  * A no-op action that just records its config and returns success.
+ *
+ * By default this is a NON-producing action (no `produces`), so it can be
+ * used freely as a "did it run" probe without an action `id`. Pass
+ * `{ produces: true }` to make it emit a `recorded` artifact — producers
+ * MUST be given an `id` in the automation so the artifact is referenceable
+ * as `artifacts.<id>.recorded.*`.
  */
-export function makeRecordingAction(): {
+export function makeRecordingAction(opts?: { produces?: boolean }): {
   definition: ActionDefinition<{ value: string }, { recorded: string }>;
   calls: Array<{ value: string; consumedArtifacts: Record<string, unknown> }>;
 } {
@@ -493,6 +499,7 @@ export function makeRecordingAction(): {
     value: string;
     consumedArtifacts: Record<string, unknown>;
   }> = [];
+  const produces = opts?.produces ?? false;
   return {
     definition: {
       id: "record",
@@ -503,7 +510,7 @@ export function makeRecordingAction(): {
       }),
       // Local artifact id — the registry qualifies it to `test.recorded`
       // (pluginId `test`).
-      produces: "recorded",
+      ...(produces ? { produces: "recorded" } : {}),
       execute: async (ctx) => {
         calls.push({
           value: ctx.config.value,

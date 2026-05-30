@@ -5,7 +5,7 @@
  *
  *   trigger.id, trigger.eventId, trigger.payload.*
  *   variables.*                                  (from `variables` blocks)
- *   artifacts.<type>.*, artifacts.<actionId>.*  (resolved on demand)
+ *   artifacts.<actionId>.<localArtifactName>.*  (set when an action produces)
  *   repeat.item, repeat.index                    (only inside a repeat)
  *   now (helper, ISO string of dispatch start)
  *
@@ -79,9 +79,9 @@ export function withRepeatContext(
  *
  * Conflict policy: if multiple actions in the same automation produced
  * the same artifact type, the most-recent open artifact wins. Operators
- * who want explicit producer pinning should reference by action id
- * (`artifacts.<actionId>`) instead, which we also auto-populate when an
- * action declares an `id`.
+ * who want explicit producer pinning should reference by action id in a
+ * template (`artifacts.<id>.<name>`), which the engine auto-populates for
+ * every producing action.
  */
 export async function resolveConsumedArtifacts(
   ctx: DispatchContext,

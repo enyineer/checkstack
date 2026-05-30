@@ -53,6 +53,25 @@ function makeDeps() {
   return { triggerRegistry, actionRegistry };
 }
 
+/**
+ * Deps whose action registry includes a producing action (`test.create`,
+ * `produces: "thing"`) so the artifact-id invariants can be exercised.
+ */
+function makeProducerDeps() {
+  const { triggerRegistry, actionRegistry } = makeDeps();
+  actionRegistry.register(
+    {
+      id: "create",
+      displayName: "Create Thing",
+      config: new Versioned({ version: 1, schema: z.object({}) }),
+      produces: "thing",
+      execute: async () => ({ success: true, artifact: { ok: true } }),
+    },
+    meta,
+  );
+  return { triggerRegistry, actionRegistry };
+}
+
 function baseDefinition(
   overrides: Partial<AutomationDefinition> = {},
 ): AutomationDefinition {
@@ -205,5 +224,83 @@ describe("collectDefinitionIssues", () => {
       makeDeps(),
     );
     expect(issues.length).toBeGreaterThan(0);
+  });
+
+  it("rejects a duplicate action id", () => {
+    const def = baseDefinition({
+      actions: [
+        {
+          id: "dup",
+          action: "test.log",
+          config: { message: "a", level: "info" },
+          enabled: true,
+          continue_on_error: false,
+        },
+        {
+          id: "dup",
+          action: "test.log",
+          config: { message: "b", level: "info" },
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+    });
+    const issues = collectDefinitionIssues(def, makeDeps());
+    const dupIssue = issues.find(
+      (i) => i.path.join(".") === "actions.1.id",
+    );
+    expect(dupIssue?.message).toMatch(/must be unique/);
+  });
+
+  it("rejects a producing action that has no id", () => {
+    const deps = makeProducerDeps();
+    const def = baseDefinition({
+      actions: [
+        {
+          action: "test.create",
+          config: {},
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+    });
+    const issues = collectDefinitionIssues(def, deps);
+    const idIssue = issues.find((i) => i.path.join(".") === "actions.0.id");
+    expect(idIssue?.message).toMatch(/must have an id/);
+  });
+
+  it("accepts a producing action that has an id", () => {
+    const deps = makeProducerDeps();
+    const def = baseDefinition({
+      actions: [
+        {
+          id: "make_thing",
+          action: "test.create",
+          config: {},
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+    });
+    const issues = collectDefinitionIssues(def, deps);
+    expect(issues).toEqual([]);
+  });
+
+  it("rejects a hyphenated action id via the structural pass", () => {
+    const def = baseDefinition({
+      actions: [
+        {
+          id: "bad-id",
+          action: "test.log",
+          config: { message: "hi", level: "info" },
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+    });
+    const issues = collectDefinitionIssues(def, makeDeps());
+    expect(
+      issues.some((i) => i.path.includes("id")),
+    ).toBe(true);
   });
 });

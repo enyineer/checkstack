@@ -1,6 +1,7 @@
 import React from "react";
 import {
   ActionCard,
+  Input,
   Select,
   SelectContent,
   SelectItem,
@@ -27,6 +28,9 @@ import {
   ACTION_KINDS,
   actionDisplayName,
   actionKindOf,
+  assignDefaultIds,
+  collectActionIds,
+  defaultActionId,
   makeEmptyAction,
 } from "./action-helpers";
 import { useAutomationRegistry, useVariableScope } from "./registry-context";
@@ -131,9 +135,15 @@ export const ActionEditor: React.FC<ActionEditorProps> = ({
               const fresh = makeEmptyAction(
                 next as (typeof ACTION_KINDS)[number],
               );
+              // Assign default ids to any nested starter actions a composite
+              // kind primes itself with, deduped against the rest of the
+              // automation (excluding this action's own preserved id).
+              const taken = collectActionIds(definition.actions);
+              if (value.id) taken.delete(value.id);
+              const [withIds] = assignDefaultIds([fresh], taken);
               onChange({
-                ...fresh,
-                id: value.id,
+                ...withIds!,
+                id: value.id ?? withIds!.id,
                 description: value.description,
                 enabled: value.enabled ?? true,
                 continue_on_error: value.continue_on_error ?? false,
@@ -170,6 +180,48 @@ export const ActionEditor: React.FC<ActionEditorProps> = ({
               Continue on error
             </label>
           </div>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-muted-foreground">
+              Id
+            </span>
+            <Input
+              value={value.id ?? ""}
+              onChange={(event) =>
+                onChange({ ...value, id: event.target.value || undefined })
+              }
+              onBlur={() => {
+                // Never leave the id blank: re-fill a unique, log-friendly
+                // default so the action stays referenceable
+                // (artifacts.<id>.<name>) and parseable in run logs.
+                if (value.id) return;
+                const taken = collectActionIds(definition.actions);
+                onChange({ ...value, id: defaultActionId(value, taken) });
+              }}
+              placeholder="Generated on blur"
+              disabled={disabled}
+              className="h-8 text-xs"
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-muted-foreground">
+              Description
+            </span>
+            <Input
+              value={value.description ?? ""}
+              onChange={(event) =>
+                onChange({
+                  ...value,
+                  description: event.target.value || undefined,
+                })
+              }
+              placeholder="Optional note"
+              disabled={disabled}
+              className="h-8 text-xs"
+            />
+          </label>
         </div>
 
         <ActionBody

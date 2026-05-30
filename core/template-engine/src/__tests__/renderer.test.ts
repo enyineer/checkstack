@@ -120,6 +120,18 @@ describe("string-literal index access (frontend regression contract)", () => {
     });
     expect(out).toBe("bar");
   });
+
+  it("resolves the artifacts.<id>.<name>.<field> reference form", () => {
+    const out = render(
+      parseTemplate("{{ artifacts.create_issue.issue.issueKey }}"),
+      {
+        artifacts: {
+          create_issue: { issue: { issueKey: "PROJ-7" } },
+        },
+      },
+    );
+    expect(out).toBe("PROJ-7");
+  });
 });
 
 describe("evaluate / evaluateBoolean", () => {

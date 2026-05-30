@@ -197,6 +197,137 @@ export function makeEmptyAction(kind: ActionKind): ActionInput {
 }
 
 /**
+ * Coerce an arbitrary string into an identifier-safe action id matching the
+ * schema rule `/^[a-zA-Z_][a-zA-Z0-9_]*$/`: non-identifier characters
+ * collapse to `_`, surrounding underscores are trimmed, and a leading digit
+ * is prefixed with `_`. Empty input falls back to `action`.
+ */
+function slugifyId(raw: string): string {
+  const cleaned = raw.replaceAll(/[^a-zA-Z0-9_]+/g, "_").replaceAll(/^_+|_+$/g, "");
+  const base = cleaned.length > 0 ? cleaned : "action";
+  return /^[0-9]/.test(base) ? `_${base}` : base;
+}
+
+/**
+ * Base for an action's auto-suggested id. Provider actions use the local
+ * action name (the part after the plugin dot, e.g.
+ * `integration-jira.create_issue` -> `create_issue`); every other kind uses
+ * its kind name. Falls back to the kind when a provider action has not been
+ * picked yet.
+ */
+export function suggestActionIdBase(action: ActionInput): string {
+  if ("action" in action) {
+    const qualified = action.action;
+    const local = qualified.includes(".")
+      ? qualified.slice(qualified.lastIndexOf(".") + 1)
+      : qualified;
+    return slugifyId(local || "action");
+  }
+  return slugifyId(actionKindOf(action));
+}
+
+/** Child action lists a composite action contains (empty for leaf kinds). */
+function childActionLists(action: ActionInput): ActionInput[][] {
+  if ("choose" in action) {
+    const lists = action.choose.map((branch) => branch.sequence);
+    if (action.else) lists.push(action.else);
+    return lists;
+  }
+  if ("parallel" in action) return [action.parallel];
+  if ("repeat" in action) return [action.repeat.sequence];
+  if ("sequence" in action) return [action.sequence];
+  return [];
+}
+
+/**
+ * Recursively collect every assigned action id across a tree of actions.
+ * Used to seed uniqueness when auto-assigning default ids.
+ */
+export function collectActionIds(
+  actions: ActionInput[],
+  into: Set<string> = new Set(),
+): Set<string> {
+  for (const action of actions) {
+    if (typeof action.id === "string" && action.id.length > 0) {
+      into.add(action.id);
+    }
+    for (const list of childActionLists(action)) collectActionIds(list, into);
+  }
+  return into;
+}
+
+/** Make `base` unique against `taken`, appending `_2`, `_3`, ... as needed. */
+function uniqueId(base: string, taken: Set<string>): string {
+  if (!taken.has(base)) return base;
+  let n = 2;
+  while (taken.has(`${base}_${n}`)) n += 1;
+  return `${base}_${n}`;
+}
+
+/**
+ * A single identifier-safe, unique default id for `action`, deduped against
+ * `taken`. Used by the editor to re-fill the Id field when an operator clears
+ * it, so every action always carries a log-friendly, referenceable id.
+ */
+export function defaultActionId(
+  action: ActionInput,
+  taken: Set<string>,
+): string {
+  return uniqueId(suggestActionIdBase(action), taken);
+}
+
+/**
+ * Return a copy of `actions` with a stable, unique, identifier-safe `id`
+ * assigned to every action (and nested action) that does not already have
+ * one. `taken` seeds the uniqueness set with ids used elsewhere in the
+ * automation and is mutated as ids are assigned.
+ *
+ * Called when adding a step so freshly-created actions - including the
+ * children that composite kinds prime themselves with - always carry a
+ * log-friendly id the operator can rename. Operators are not forced to name
+ * every step, but every run-step then has a parseable id in the logs.
+ */
+export function assignDefaultIds(
+  actions: ActionInput[],
+  taken: Set<string>,
+): ActionInput[] {
+  return actions.map((action) => {
+    const id =
+      typeof action.id === "string" && action.id.length > 0
+        ? action.id
+        : uniqueId(suggestActionIdBase(action), taken);
+    taken.add(id);
+    const next = { ...action, id };
+    if ("choose" in next) {
+      return {
+        ...next,
+        choose: next.choose.map((branch) => ({
+          ...branch,
+          sequence: assignDefaultIds(branch.sequence, taken),
+        })),
+        else: next.else ? assignDefaultIds(next.else, taken) : undefined,
+      };
+    }
+    if ("parallel" in next) {
+      return { ...next, parallel: assignDefaultIds(next.parallel, taken) };
+    }
+    if ("repeat" in next) {
+      return {
+        ...next,
+        repeat: {
+          ...next.repeat,
+          sequence: assignDefaultIds(next.repeat.sequence, taken),
+        },
+      };
+    }
+    if ("sequence" in next) {
+      return { ...next, sequence: assignDefaultIds(next.sequence, taken) };
+    }
+    return next;
+  });
+}
+
+/**
  * Display-name for an action card's header. For provider actions we
  * fall back to the namespaced id when the registry doesn't know the
  * action (e.g. while listActions is still loading); for composite

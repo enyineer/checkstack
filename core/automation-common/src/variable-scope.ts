@@ -21,9 +21,11 @@
  *      bubble variables out of a `choose` / `parallel` / `repeat` branch
  *      into the parent sequence, even though the runtime would keep them
  *      live, because the editor can't statically prove which branch ran.
- *   4. `artifact.<plugin>.<type>` — accumulated from provider actions
- *      with a declared `produces` in the same sequence slot, with the same
- *      branch-isolation rule as variables.
+ *   4. `artifact.<actionId>.<localArtifactName>` — accumulated from
+ *      provider actions with a declared `produces` (and an `id`) in the
+ *      same sequence slot, with the same branch-isolation rule as
+ *      variables. The runtime exposes the data at
+ *      `artifacts.<actionId>.<localArtifactName>.<field>`.
  *   5. `repeat.index` and (when the parent is `for_each`) `repeat.item` —
  *      whenever the path descends through a `repeat` container.
  *
@@ -777,28 +779,60 @@ function accumulatePrefix(args: {
     if (isProviderAction(action)) {
       const registered = actions.find((a) => a.qualifiedId === action.action);
       const produces = registered?.produces;
-      if (produces) {
+      // The runtime exposes a produced artifact as
+      // `artifacts.<actionId>.<localName>.<field>`. Only producing actions
+      // that carry an `id` are referenceable, so skip the rest.
+      if (produces && action.id) {
         const artifactInfo = artifactTypes.find(
           (t) => t.qualifiedId === produces,
         );
-        const path = `artifact.${produces}`;
+        // localName = produces with the owning plugin prefix stripped
+        // (e.g. `integration-jira.issue` → `issue`).
+        const prefix = registered?.ownerPluginId
+          ? `${registered.ownerPluginId}.`
+          : "";
+        const localName =
+          prefix && produces.startsWith(prefix)
+            ? produces.slice(prefix.length)
+            : produces;
+
+        // Top-level node: `artifact.<id>` → templateRef `artifacts.<id>`.
+        const path = `artifact.${action.id}`;
+        if (scope.artifacts.some((a) => a.path === path)) continue;
         const templateRef = appendTemplateSegment({
           base: "artifacts",
-          segment: produces,
+          segment: action.id,
         });
-        const entries = entriesFromSchema(
+
+        // Intermediate localName node: `artifact.<id>.<localName>` →
+        // templateRef `artifacts.<id>.<localName>`, whose children are the
+        // artifact schema fields.
+        const localPath = `${path}.${localName}`;
+        const localTemplateRef = appendTemplateSegment({
+          base: templateRef,
+          segment: localName,
+        });
+        const fieldEntries = entriesFromSchema(
           artifactInfo?.schema as JsonSchemaLike | undefined,
-          path,
-          templateRef,
+          localPath,
+          localTemplateRef,
         );
-        if (scope.artifacts.some((a) => a.path === path)) continue;
+        const localNode: VariableEntry = {
+          path: localPath,
+          templateRef: localTemplateRef,
+          type: artifactInfo?.displayName ?? produces,
+          description: artifactInfo?.description,
+          jsonSchema: artifactInfo?.schema,
+          children: fieldEntries.length > 0 ? fieldEntries : undefined,
+        };
+
         scope.artifacts.push({
           path,
           templateRef,
           type: artifactInfo?.displayName ?? produces,
           description: artifactInfo?.description,
           jsonSchema: artifactInfo?.schema,
-          children: entries.length > 0 ? entries : undefined,
+          children: [localNode],
         });
       }
     }

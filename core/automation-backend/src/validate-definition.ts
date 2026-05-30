@@ -58,7 +58,116 @@ export function collectDefinitionIssues(
   const issues: DefinitionIssue[] = [];
   validateTriggers(parsed.data, deps, issues);
   validateActionList(parsed.data.actions, ["actions"], deps, issues);
+  validateActionIds(parsed.data.actions, ["actions"], deps, issues);
   return issues;
+}
+
+// ─── Semantic action-id validation ──────────────────────────────────────
+
+/**
+ * Walk the entire action tree and enforce the two artifact-reference
+ * invariants the structural zod pass can't:
+ *
+ *   1. Every action `id` is unique within the automation (so
+ *      `artifacts.<id>.<name>` is unambiguous).
+ *   2. Any provider action whose registered action declares a truthy
+ *      `produces` MUST carry an `id` (so the produced artifact is
+ *      referenceable).
+ *
+ * Identifier-format is already enforced by the zod schema in the
+ * structural pass, so we don't re-check it here.
+ */
+function validateActionIds(
+  actions: ActionInput[],
+  basePath: Array<string | number>,
+  deps: ValidateDefinitionDeps,
+  issues: DefinitionIssue[],
+): void {
+  const seen = new Set<string>();
+  walkActionIds(actions, basePath, deps, seen, issues);
+}
+
+function walkActionIds(
+  actions: ActionInput[],
+  basePath: Array<string | number>,
+  deps: ValidateDefinitionDeps,
+  seen: Set<string>,
+  issues: DefinitionIssue[],
+): void {
+  for (const [index, action] of actions.entries()) {
+    walkActionId(action, [...basePath, index], deps, seen, issues);
+  }
+}
+
+function walkActionId(
+  action: ActionInput,
+  path: Array<string | number>,
+  deps: ValidateDefinitionDeps,
+  seen: Set<string>,
+  issues: DefinitionIssue[],
+): void {
+  if (typeof action.id === "string") {
+    if (seen.has(action.id)) {
+      issues.push({
+        path: [...path, "id"],
+        message: `Action id "${action.id}" must be unique within the automation`,
+      });
+    } else {
+      seen.add(action.id);
+    }
+  }
+
+  if ("action" in action) {
+    const registered = deps.actionRegistry.getAction(action.action);
+    if (registered?.produces && !action.id) {
+      issues.push({
+        path: [...path, "id"],
+        message:
+          "Actions that produce an artifact must have an id so the artifact can be referenced as artifacts.<id>.<name>",
+      });
+    }
+    return;
+  }
+
+  if ("choose" in action) {
+    for (const [branchIndex, branch] of action.choose.entries()) {
+      walkActionIds(
+        branch.sequence,
+        [...path, "choose", branchIndex, "sequence"],
+        deps,
+        seen,
+        issues,
+      );
+    }
+    if (action.else) {
+      walkActionIds(action.else, [...path, "else"], deps, seen, issues);
+    }
+    return;
+  }
+
+  if ("parallel" in action) {
+    walkActionIds(action.parallel, [...path, "parallel"], deps, seen, issues);
+    return;
+  }
+
+  if ("repeat" in action) {
+    walkActionIds(
+      action.repeat.sequence,
+      [...path, "repeat", "sequence"],
+      deps,
+      seen,
+      issues,
+    );
+    return;
+  }
+
+  if ("sequence" in action) {
+    walkActionIds(action.sequence, [...path, "sequence"], deps, seen, issues);
+    return;
+  }
+
+  // delay / variables / condition / stop / wait_for_trigger have no child
+  // action lists and don't produce artifacts — nothing more to walk.
 }
 
 function validateTriggers(

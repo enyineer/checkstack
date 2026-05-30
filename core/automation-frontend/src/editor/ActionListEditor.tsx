@@ -31,6 +31,8 @@ import {
   ACTION_KIND_META,
   ACTION_KINDS,
   type ActionKind,
+  assignDefaultIds,
+  collectActionIds,
   makeEmptyAction,
 } from "./action-helpers";
 import { ActionEditor } from "./ActionEditor";
@@ -158,7 +160,13 @@ export const ActionListEditor: React.FC<ActionListEditorProps> = ({
       <AddActionPopover
         disabled={disabled}
         onAdd={(kind) => {
-          onChange([...value, makeEmptyAction(kind)]);
+          // Auto-assign log-friendly default ids (deduped against every id
+          // already used anywhere in the automation), covering the new step
+          // and any children composite kinds prime themselves with. The
+          // operator can rename them in the card.
+          const taken = collectActionIds(definition.actions);
+          const [fresh] = assignDefaultIds([makeEmptyAction(kind)], taken);
+          onChange([...value, fresh!]);
           setIds((current) => [...current, nextId()]);
         }}
       />

@@ -14,8 +14,14 @@ import type {
   TriggerInfo,
 } from "./schemas";
 
-function provider(action: string): ActionInput {
-  return { action, config: {}, enabled: true, continue_on_error: false };
+function provider(action: string, id?: string): ActionInput {
+  return {
+    action,
+    config: {},
+    enabled: true,
+    continue_on_error: false,
+    ...(id ? { id } : {}),
+  };
 }
 
 function variables(record: Record<string, unknown>): ActionInput {
@@ -291,7 +297,7 @@ describe("resolveVariableScope", () => {
     const definition = basicDefinition({
       triggers: [{ event: "incident.created" }],
       actions: [
-        provider("integration-jira.create_issue"),
+        provider("integration-jira.create_issue", "make_issue"),
         provider("automation.notify_user"),
       ],
     });
@@ -303,9 +309,10 @@ describe("resolveVariableScope", () => {
       path: [{ slot: "root", index: 1 }],
     });
     const flat = flattenScope(scope).map((e) => e.path);
-    expect(flat).toContain("artifact.jira.issue");
-    expect(flat).toContain("artifact.jira.issue.key");
-    expect(flat).toContain("artifact.jira.issue.url");
+    expect(flat).toContain("artifact.make_issue");
+    expect(flat).toContain("artifact.make_issue.jira.issue");
+    expect(flat).toContain("artifact.make_issue.jira.issue.key");
+    expect(flat).toContain("artifact.make_issue.jira.issue.url");
   });
 
   it("does not expose artifacts from sibling branches inside a choose", () => {
@@ -346,7 +353,7 @@ describe("resolveVariableScope", () => {
     // The Jira issue was produced in the FIRST when-branch — must not leak
     // into the second branch's scope, because at runtime only one branch
     // executes.
-    expect(flat).not.toContain("artifact.jira.issue");
+    expect(flat).not.toContain("artifact.make_issue");
   });
 
   it("exposes repeat.index inside a count-mode repeat", () => {
@@ -752,7 +759,7 @@ describe("resolveVariableScope — templateRef", () => {
     const definition = basicDefinition({
       triggers: [{ event: "incident.created" }],
       actions: [
-        provider("integration-jira.create_issue_dotted"),
+        provider("integration-jira.create_issue_dotted", "make_issue"),
         provider("automation.notify_user"),
       ],
     });
@@ -765,25 +772,25 @@ describe("resolveVariableScope — templateRef", () => {
     });
     const byPath = new Map(flattenScope(scope).map((e) => [e.path, e]));
 
-    // path stays canonical & dotted (other consumers slice it).
-    const child = byPath.get("artifact.integration-jira.issue.issueKey");
+    // path is nested under the action id then the local artifact name.
+    const child = byPath.get("artifact.make_issue.issue.issueKey");
     expect(child).toBeDefined();
-    expect(child?.path).toBe("artifact.integration-jira.issue.issueKey");
-    // templateRef brackets the artifact id, dots the identifier child key.
-    expect(child?.templateRef).toBe(
-      'artifacts["integration-jira.issue"].issueKey',
-    );
+    expect(child?.path).toBe("artifact.make_issue.issue.issueKey");
+    // id + local name + field are all identifiers, so plain dot notation.
+    expect(child?.templateRef).toBe("artifacts.make_issue.issue.issueKey");
 
-    // The artifact node itself.
-    const node = byPath.get("artifact.integration-jira.issue");
-    expect(node?.templateRef).toBe('artifacts["integration-jira.issue"]');
+    // The action-id node and the local-name node.
+    const node = byPath.get("artifact.make_issue");
+    expect(node?.templateRef).toBe("artifacts.make_issue");
+    const localNode = byPath.get("artifact.make_issue.issue");
+    expect(localNode?.templateRef).toBe("artifacts.make_issue.issue");
   });
 
-  it("brackets a dotted artifact id even with no schema children", () => {
+  it("nests under action id + local name even with no schema fields", () => {
     const definition = basicDefinition({
       triggers: [{ event: "incident.created" }],
       actions: [
-        provider("integration-jira.create_issue_dotted"),
+        provider("integration-jira.create_issue_dotted", "make_issue"),
         provider("automation.notify_user"),
       ],
     });
@@ -794,12 +801,14 @@ describe("resolveVariableScope — templateRef", () => {
       artifactTypes: [dottedArtifactNoSchema],
       path: [{ slot: "root", index: 1 }],
     });
-    const node = flattenScope(scope).find(
-      (e) => e.path === "artifact.integration-jira.issue",
-    );
+    const byPath = new Map(flattenScope(scope).map((e) => [e.path, e]));
+    const node = byPath.get("artifact.make_issue");
     expect(node).toBeDefined();
-    expect(node?.templateRef).toBe('artifacts["integration-jira.issue"]');
-    expect(node?.children).toBeUndefined();
+    expect(node?.templateRef).toBe("artifacts.make_issue");
+    // The local-name node exists but has no schema-field children.
+    const localNode = byPath.get("artifact.make_issue.issue");
+    expect(localNode?.templateRef).toBe("artifacts.make_issue.issue");
+    expect(localNode?.children).toBeUndefined();
   });
 
   it("maps the var namespace to plural variables in templateRef", () => {
@@ -848,7 +857,7 @@ describe("resolveVariableScope — templateRef", () => {
     const definition = basicDefinition({
       triggers: [{ event: "incident.created" }],
       actions: [
-        provider("integration-jira.create_issue_dotted"),
+        provider("integration-jira.create_issue_dotted", "make_issue"),
         provider("automation.notify_user"),
       ],
     });
@@ -863,14 +872,14 @@ describe("resolveVariableScope — templateRef", () => {
     const byRef = new Map(flat.map((e) => [e.templateRef, e]));
 
     // The whole-array node is referenceable and keeps the array type label.
-    const commentsNode = byRef.get('artifacts["integration-jira.issue"].comments');
+    const commentsNode = byRef.get("artifacts.make_issue.issue.comments");
     expect(commentsNode).toBeDefined();
     expect(commentsNode?.referenceable).toBe(true);
     expect(commentsNode?.type).toBe("object[]");
 
     // An element-object child descends via the representative index 0.
     const authorNode = byRef.get(
-      'artifacts["integration-jira.issue"].comments[0].author',
+      "artifacts.make_issue.issue.comments[0].author",
     );
     expect(authorNode).toBeDefined();
     expect(authorNode?.type).toBe("string");
@@ -880,7 +889,7 @@ describe("resolveVariableScope — templateRef", () => {
     const definition = basicDefinition({
       triggers: [{ event: "incident.created" }],
       actions: [
-        provider("integration-jira.create_issue_dotted"),
+        provider("integration-jira.create_issue_dotted", "make_issue"),
         provider("automation.notify_user"),
       ],
     });
@@ -895,12 +904,12 @@ describe("resolveVariableScope — templateRef", () => {
       flattenScope(scope).map((e) => [e.templateRef, e]),
     );
 
-    const tagsNode = byRef.get('artifacts["integration-jira.issue"].tags');
+    const tagsNode = byRef.get("artifacts.make_issue.issue.tags");
     expect(tagsNode).toBeDefined();
     expect(tagsNode?.referenceable).toBe(true);
     expect(tagsNode?.type).toBe("string[]");
 
-    const tagsElem = byRef.get('artifacts["integration-jira.issue"].tags[0]');
+    const tagsElem = byRef.get("artifacts.make_issue.issue.tags[0]");
     expect(tagsElem).toBeDefined();
     expect(tagsElem?.type).toBe("string");
     // A scalar element is a leaf — no children.

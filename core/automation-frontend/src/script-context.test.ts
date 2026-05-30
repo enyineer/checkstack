@@ -46,7 +46,8 @@ const incidentResolved: TriggerInfo = {
 };
 
 const jiraIssue: ArtifactTypeInfo = {
-  qualifiedId: "jira.issue",
+  // Qualified id as the registry emits it: `${ownerPluginId}.${localId}`.
+  qualifiedId: "integration-jira.issue",
   displayName: "Jira Issue",
   ownerPluginId: "integration-jira",
   schema: {
@@ -105,10 +106,11 @@ describe("generateAutomationContextTypes", () => {
     expect(typeDefinitions).toContain("resolvedAt");
   });
 
-  it("emits artifacts as a typed lookup map when upstream actions produce them", () => {
+  it("emits artifacts keyed by producing action id, nested by local name", () => {
     const def = baseDef({
       actions: [
         {
+          id: "open_jira",
           action: "integration-jira.create_issue",
           config: {},
           enabled: true,
@@ -127,12 +129,20 @@ describe("generateAutomationContextTypes", () => {
       triggers: [incidentCreated],
       artifactTypes: [jiraIssue],
       actions: [
-        { qualifiedId: "integration-jira.create_issue", produces: "jira.issue" },
+        // `produces` from listActions is the QUALIFIED artifact type id
+        // (the registry qualifies it on registration), matching `jiraIssue`.
+        {
+          qualifiedId: "integration-jira.create_issue",
+          produces: "integration-jira.issue",
+        },
         { qualifiedId: "automation.notify_user" },
       ],
       path: [{ slot: "root", index: 1 }],
     });
-    expect(typeDefinitions).toContain('"jira.issue"');
+    // Keyed by the producing action's id, nested by local artifact name -
+    // mirrors the runtime `artifacts.open_jira.issue.key`.
+    expect(typeDefinitions).toContain('readonly "open_jira"');
+    expect(typeDefinitions).toContain('readonly "issue"');
     expect(typeDefinitions).toContain("key");
     expect(typeDefinitions).toContain("url");
   });

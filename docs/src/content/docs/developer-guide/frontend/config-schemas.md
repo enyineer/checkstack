@@ -350,45 +350,45 @@ hand-write these, but the rules matter when editing existing templates:
   {% raw %}{{ variables["weird-name"] }}{% endraw %}
   ```
 
-- **Artifacts** are keyed by id following the `pluginId.localId`
-  pattern, so ids contain dots and hyphens (for example
-  `integration-jira.issue`). The template engine's `.` member access only
-  accepts plain identifiers, so a dotted or hyphenated artifact id **must**
-  use bracket notation:
+- **Artifacts** are referenced by the producing action's `id`, then by the
+  artifact's local name:
+  {% raw %}`{{ artifacts.<actionId>.<artifactName>.<field> }}`{% endraw %}.
+  For example, an action with `id: open_jira` that produces the
+  `integration-jira.issue` artifact (local name `issue`) is referenced as:
 
   ```text
-  {% raw %}{{ artifacts["integration-jira.issue"].issueKey }}{% endraw %}
+  {% raw %}{{ artifacts.open_jira.issue.issueKey }}{% endraw %}
   ```
 
-  Writing {% raw %}`{{ artifacts.integration-jira.issue.issueKey }}`{% endraw %}
-  is a parse error.
+  Action ids are identifiers (letters, digits, underscore - no dots or
+  hyphens), so the path is plain dot notation; no bracket notation is
+  needed. Referencing by action id - not by artifact type - is what lets
+  two actions of the same type (e.g. two "create Jira issue" steps) be
+  addressed independently.
 
 - **Array values** can be referenced whole or indexed by a numeric
   index. Arrays of arrays work too:
 
   ```text
-  {% raw %}{{ artifacts["integration-jira.issue"].tags }}{% endraw %}
-  {% raw %}{{ artifacts["integration-jira.issue"].tags[0] }}{% endraw %}
-  {% raw %}{{ artifacts["integration-jira.issue"].comments[0].author }}{% endraw %}
-  {% raw %}{{ artifacts["x"].matrix[0][0] }}{% endraw %}
+  {% raw %}{{ artifacts.open_jira.issue.tags }}{% endraw %}
+  {% raw %}{{ artifacts.open_jira.issue.tags[0] }}{% endraw %}
+  {% raw %}{{ artifacts.open_jira.issue.comments[0].author }}{% endraw %}
   ```
 
 > [!IMPORTANT]
 > These {% raw %}`{{ }}`{% endraw %} namespaces apply only to text/markup
-> fields. They are **not** the same as the typed `context` object used by
-> TS/JS script actions (`context.artifacts["integration-jira.issue"]`,
-> `context.var`, ...) or the `$CHECKSTACK_*` env vars used by shell
+> fields. They share the same keying as the typed `context` object used by
+> TS/JS script actions (`context.artifacts.open_jira.issue`,
+> `context.var`, ...) and the `$CHECKSTACK_*` env vars used by shell
 > actions. See the next two sections for those.
 
 **Typed context (TS/JS editors).** Pass `typeDefinitions` (a
 `declare const context: …` string) and the editor types the `context` global.
-Non-identifier object keys in those definitions (e.g. artifact ids like
-`context.artifacts["integration-jira.issue"]`) are offered as `["key"]`
-bracket completions automatically.
 The automation editor builds this per-automation via
 `generateAutomationContextTypes`, so `context.trigger.payload` is the
 discriminated union over the automation's subscribed triggers, with
-`context.artifacts` / `context.var` / `context.repeat` in scope.
+`context.artifacts.<actionId>.<artifactName>` / `context.var` /
+`context.repeat` in scope.
 
 **Env vars (shell editor).** Pass `shellEnvVars` (a `{ name, description }[]`)
 and the shell editor autocompletes them after `$`. The automation editor

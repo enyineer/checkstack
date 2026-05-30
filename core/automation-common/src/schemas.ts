@@ -102,14 +102,21 @@ export type Condition = z.infer<typeof ConditionSchema>;
 
 /**
  * Base fields every action carries. `id` is referenced by downstream
- * artifact lookups (`artifacts.<id>`) and by run-step audit logs.
+ * artifact lookups (`artifacts.<id>.<name>.<field>`) and by run-step audit
+ * logs. Every action that PRODUCES an artifact MUST have an `id` (enforced
+ * semantically in validate-definition, since the schema can't know which
+ * actions produce). `id` must be a valid identifier so it can be used as a
+ * plain template segment.
  */
 const ActionBase = {
   id: z
     .string()
     .min(1)
     .max(64)
-    .regex(/^[a-z][a-z0-9_-]*$/i)
+    .regex(
+      /^[a-zA-Z_][a-zA-Z0-9_]*$/,
+      "Action id must be a valid identifier (letters, digits, underscore; no leading digit)",
+    )
     .optional(),
   description: z.string().optional(),
   enabled: z.boolean().default(true),
