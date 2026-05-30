@@ -68,4 +68,28 @@ export {
   resolveScriptPackagesDir,
   storePaths,
 } from "./data-dir";
+export {
+  buildDependencies,
+  buildStorePackageJson,
+  computeLockfileHash,
+  sortManifest,
+} from "./lockfile";
+export { renderNpmrc, type NpmrcInput } from "./npmrc";
+export { parseBunLock, splitSpec } from "./parse-bun-lock";
+export {
+  createInstallStateStore,
+  type InstallStateStore,
+} from "./install-state-store";
+export {
+  performInstall,
+  type BlobIndex,
+  type BlobPublisher,
+  type InstallResult,
+  type Resolver,
+  type ResolvedPackage,
+} from "./install-service";
+export {
+  evaluateSizeCap,
+  type SizeCapVerdict,
+} from "./size-cap";
 export * as schema from "./schema";
