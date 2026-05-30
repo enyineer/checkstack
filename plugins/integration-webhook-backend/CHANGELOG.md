@@ -1,5 +1,114 @@
 # @checkstack/integration-webhook-backend
 
+## 0.1.0
+
+### Minor Changes
+
+- 41c77f4: feat(automation): one-time migration of webhook subscriptions + remove legacy integration backend
+
+  **BREAKING CHANGES** (platform is in BETA — no major bump):
+
+  - `IntegrationProvider` no longer carries `config` (subscription
+    config) or `deliver`. The interface now models a connection provider
+    only: connection schema + `getConnectionOptions` + `testConnection`.
+  - The legacy subscription / delivery-log / event endpoints
+    (`listSubscriptions`, `createSubscription`, `getDeliveryLogs`,
+    `listEventTypes`, …) are removed from `integrationContract`.
+  - `delivery-coordinator`, `hook-subscriber`, `event-registry`, and the
+    `integrationEventExtensionPoint` are deleted. Plugins that
+    previously called `integrationEvents.registerEvent(...)` now
+    register their hooks as automation triggers via
+    `automationTriggerExtensionPoint.registerTrigger(...)`.
+  - Frontend pages `IntegrationsPage` and `DeliveryLogsPage` are gone;
+    the integration plugin's only remaining UI is connection
+    management. Subscription management lives under `/automation/...`.
+  - `webhook_subscriptions` and `delivery_logs` tables stay in the
+    database for one release as a safety net (no code reads or writes
+    them), and will be dropped in a follow-up migration.
+
+  **New**:
+
+  - `jira.create_issue`, `teams.post_message`, `webex.post_message`,
+    `webhook.send`, `integration-script.run_shell`, and
+    `integration-script.run_script` actions registered against the
+    Automation Platform with matching `*.message`, `*.delivery`,
+    `shell.result`, and `script.result` artifact types. The script
+    plugin exposes **two** actions — `run_shell` runs bash via the
+    shared `ShellScriptRunner` (Monaco `shell` editor), `run_script`
+    runs an ESM module in a Bun subprocess via `EsmScriptRunner`
+    (Monaco `typescript` editor + `defineIntegration` helper) — to
+    preserve the legacy provider split. `jira.create_issue` keeps the
+    dynamic field-mapping dropdown (driven by
+    `JIRA_RESOLVERS.FIELD_OPTIONS`).
+  - One-time data migration runs on boot in
+    `automation-backend.afterPluginsReady`. It reads
+    `webhook_subscriptions` via a new service RPC
+    `IntegrationApi.listLegacySubscriptions`, translates each row into
+    a single-trigger / single-action automation (marked with
+    `managed_by = "migrated-subscription:<id>"`), and is idempotent
+    across restarts.
+  - Failed translations are recorded in a new
+    `automation_migration_failures` table and surfaced via
+    `AutomationApi.listMigrationFailures` /
+    `acknowledgeMigrationFailure` so admins can review and re-create
+    failed entries by hand.
+
+- 41c77f4: fix(automation): qualify action `produces` / `consumes` with the owning plugin id
+
+  `context.artifacts` showed up untyped (no fields) in the script editor
+  because action `produces` / `consumes` were hand-written full strings
+  (`"jira.issue"`) that did not match the artifact-type registry's
+  qualified id. The registry derives `${pluginId}.${id}`, and the plugin's
+  id is the package name `integration-jira`, so the artifact type actually
+  registers as `integration-jira.issue` — the editor's schema lookup
+  (`produces` vs registered `qualifiedId`) missed, leaving the artifact's
+  fields unknown. (Runtime store/consume happened to agree with each other
+  on the short string, so it "worked" but typed nothing.)
+
+  The action registry now qualifies `produces` with the owning plugin id,
+  exactly as it already qualifies the action's own `id` and as the
+  artifact-type registry qualifies the artifact type id — so the three can
+  never drift. Actions declare the **local** artifact id:
+
+  - `produces: "issue"` → registered as `integration-jira.issue`,
+  - `consumes: ["issue"]` → resolved against the owning plugin's namespace
+    at run time; `consumedArtifacts` is keyed by the local id, so an
+    action's `execute` reads `consumedArtifacts["issue"]`.
+
+  All five artifact-producing integration plugins (jira / teams / webex /
+  webhook / script) now declare local ids. With `produces` matching the
+  registered artifact type, the editor types `context.artifacts[...]` with
+  the real schema (e.g. `issueKey`, `projectKey`, `issueUrl`).
+
+  **BREAKING (beta):** the fully-qualified artifact type ids change from
+  the short form to the plugin-prefixed form, e.g. `jira.issue` →
+  `integration-jira.issue`. This affects how artifacts are referenced in
+  templates (`{{ artifact.integration-jira.issue.issueKey }}`), the TS
+  script `context.artifacts["integration-jira.issue"]`, and shell env names
+  (`$CHECKSTACK_ARTIFACT_INTEGRATION_JIRA_ISSUE_ISSUEKEY`). Artifacts are
+  per-run and ephemeral, so no stored-data migration is needed.
+
+  Note: this keeps the same-plugin produce→consume handoff (the current
+  pattern). Cross-plugin artifact consumption would need a follow-up to
+  allow a fully-qualified `consumes` ref.
+
+### Patch Changes
+
+- Updated dependencies [e2d6f25]
+- Updated dependencies [41c77f4]
+- Updated dependencies [e1a2077]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [6d52276]
+- Updated dependencies [6d52276]
+- Updated dependencies [35bc682]
+  - @checkstack/automation-backend@0.2.0
+  - @checkstack/common@0.12.0
+  - @checkstack/backend-api@0.18.0
+
 ## 0.0.35
 
 ### Patch Changes

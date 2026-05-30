@@ -1,5 +1,56 @@
 # @checkstack/satellite-backend
 
+## 0.4.0
+
+### Minor Changes
+
+- 41c77f4: feat(satellite): Phase 9 — connection lifecycle triggers
+
+  - New hooks `satelliteHooks.connected`, `satelliteHooks.disconnected`,
+    and `satelliteHooks.heartbeatLost`. `connected` and `disconnected`
+    fire from the WS handler at auth completion and `onClose`
+    respectively; `heartbeatLost` fires from the heartbeat monitor on
+    the `online → offline` edge only (the opposite edge is observable
+    via `connected`).
+  - Triggers `satellite.connected`, `satellite.disconnected`,
+    `satellite.heartbeat_lost` registered against the Automation
+    Platform. All carry `contextKey: (p) => p.satelliteId` so a
+    long-running automation can resume on the same satellite.
+  - No mutation actions in this chunk — connection lifecycle is
+    observed only, not commanded.
+
+  Plumbing: `SatelliteWsHandler` and `HeartbeatMonitor` both take an
+  optional hook sink in their constructor. The sink is provided from
+  `afterPluginsReady` where `emitHook` is available; until then, the
+  classes behave exactly as before (no hooks fired, no behavioural
+  change).
+
+### Patch Changes
+
+- Updated dependencies [e2d6f25]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [e1a2077]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [6d52276]
+- Updated dependencies [6d52276]
+- Updated dependencies [35bc682]
+  - @checkstack/automation-backend@0.2.0
+  - @checkstack/healthcheck-backend@1.3.0
+  - @checkstack/common@0.12.0
+  - @checkstack/backend-api@0.18.0
+  - @checkstack/healthcheck-common@1.3.0
+  - @checkstack/satellite-common@0.6.0
+  - @checkstack/gitops-backend@0.3.7
+  - @checkstack/gitops-common@0.4.2
+  - @checkstack/signal-common@0.2.5
+  - @checkstack/queue-api@0.3.6
+
 ## 0.3.6
 
 ### Patch Changes

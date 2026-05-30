@@ -1,5 +1,389 @@
 # @checkstack/ui
 
+## 1.11.0
+
+### Minor Changes
+
+- 41c77f4: feat(automation): deep + live definition validation surfaces invalid values, keys and ids — marked inline
+
+  Previously `validateDefinition` only checked the structural shape via
+  `AutomationDefinitionSchema`, where an action's `config` is typed as
+  `z.record(z.unknown())`. So a bad config value (e.g. `level:
+debugthisiswrong` on `automation.log`) passed validation, and switching
+  to the visual editor just showed an empty dropdown with no explanation.
+
+  **Backend — deep validation.** New `collectDefinitionIssues` walker
+  validates the whole definition semantically, not just structurally:
+
+  - unknown trigger `event` / action `action` ids,
+  - each provider action's `config` against the registered action's own
+    schema (wrong enum value, missing required field, wrong type),
+  - each trigger's `config` against the trigger's `configSchema`,
+  - **unknown / typo'd config keys** — object configs are validated in
+    strict mode, so `levle: "info"` is reported rather than silently
+    stripped,
+  - recurses through `choose` / `parallel` / `repeat` / `sequence` so
+    nested action configs are covered too.
+
+  Issues come back with a dot-joinable `path` (e.g.
+  `actions.0.config.level`, `triggers.1.event`). The `validateDefinition`
+  RPC now returns these.
+
+  **Frontend — live + inline.** The automation editor re-validates on
+  every edit (debounced ~400ms) in BOTH tabs, and marks the offending
+  content in place rather than in a separate alert panel:
+
+  - **YAML tab** — issues (and YAML syntax errors) are squiggled at the
+    exact node. `@checkstack/ui`'s `CodeEditor` gained a `markers` prop;
+    the editor maps each issue's `path` onto the YAML document's node
+    range via a new `computeYamlMarkers` helper (walking up to the
+    nearest existing ancestor when a key is absent, e.g. a missing
+    required field).
+  - **Visual tab** — the specific card carrying an issue is marked: a
+    destructive border + warning icon + the field-level messages. A
+    `ValidationProvider` context partitions issues by owner (action card
+    / trigger card / condition / top-level) using the action-node path
+    grammar, so a nested action's config error attaches to the nested
+    card, and a `choose`'s own `when` error attaches to the choose card.
+    `ActionCard` gained an `errors` prop. So importing YAML with a bad
+    value (the empty-dropdown case) now visibly flags the card instead of
+    being silent.
+
+  The big error alert is gone; the only residual panel is a slim fallback
+  for the rare top-level issue that can't attach to any card.
+
+  Note: strict config validation means an action whose config schema
+  intentionally allowed extra keys would now flag them; action configs
+  across the platform declare all their fields, so this only catches
+  genuine typos.
+
+- 41c77f4: fix(automation): editor UI fixes — action-config autocomplete, popup edge clamping + scroll, de-misleading action icon
+
+  Four fixes to the automation editor's visual mode:
+
+  - **Template autocomplete on action config fields.** A provider
+    action's config form (e.g. `automation.log`'s `message`) rendered
+    plain string fields with no `{{ … }}` autocomplete — only the
+    condition/expression fields had it. `DynamicForm` gains a
+    `templateCompletionProvider` prop; when supplied, default single-line
+    string fields render a `TemplateValueInput` wired to it instead of a
+    bare `Input`. The automation editor passes the staged template-mode
+    provider, so config fields now get the same field / comparator / value
+    / filter completion as conditions. Other `DynamicForm` consumers are
+    unaffected (the prop is opt-in; without it string fields stay plain).
+
+  - **Autocomplete popup no longer overflows the window.** The popup is
+    now edge-aware: it flips above the input when there isn't room below,
+    anchors to the input's right edge when a left-anchored popup would
+    spill past the right edge, and caps its height to the available space
+    (the list scrolls within it). The placement decision is extracted into
+    a pure, unit-tested `computePopupPlacement` helper.
+
+  - **Keyboard navigation scrolls the popup.** Arrowing through a list
+    taller than the popup now scrolls the highlighted row into view
+    (`scrollIntoView({ block: "nearest" })`) instead of leaving the
+    selection off-screen.
+
+  - **Action card icon no longer looks like a run button.** The "action"
+    kind used a `Play` triangle, which reads as a test/run control but
+    actually sits inside the card's expand toggle (so clicking it just
+    collapsed the card). Swapped to `Zap`, the conventional
+    automation-action glyph, which carries no "click to run" affordance.
+
+  - **Inline-script actions get their typed runtime context.** The Monaco
+    editor for `Run Script (TypeScript)` was falling back to an untyped
+    default context because the editor never received type definitions.
+    `useVariableScope` now also returns the `declare const context: …`
+    declarations from `generateAutomationContextTypes` (already built, but
+    never wired), and the provider action body forwards them to
+    `DynamicForm` so `context.trigger.payload` is typed as the discriminated
+    union over the automation's subscribed triggers, with
+    `context.artifacts` / `context.var` / `context.repeat` in scope at the
+    action's position. Shell scripts get their context the same way every
+    other config string does: `{{ … }}` templates are expanded by the
+    dispatch engine (`renderValue`) before the script runs, with the same
+    field autocomplete as other template fields.
+
+- 41c77f4: feat(automation): native per-editor context for script actions (typed `context` for TS, `$ENV` for shell)
+
+  Script action editors had a confusing dual system: the TypeScript editor
+  type-checked `{{ }}` template text as code (so `{{ artifact.x }}` errored
+  with "Cannot find name"), and the runtime never actually populated the
+  `context` object. This standardises on a single, native context-access
+  mechanism per editor kind.
+
+  **Run scope reaches actions.** `ActionExecutionContext` gains a `scope`
+  (`{ trigger, artifacts, vars, repeat? }`), populated by the dispatch
+  engine from the same scope it already uses for `{{ }}` rendering. Actions
+  that need broad context (the script actions) read from it instead of
+  having to declare every artifact type in `consumes`. Additive and
+  optional, so existing actions are unaffected.
+
+  **TypeScript / JavaScript → typed `context`.** `run_script` now builds
+  `context` from the run scope, so `context.trigger.payload`,
+  `context.artifacts`, `context.var`, `context.repeat`, and
+  `context.automation` are populated at run time (previously
+  `context.trigger` was always empty). The editor types match via
+  `generateAutomationContextTypes`.
+
+  **Shell → `$CHECKSTACK_*` env vars.** `run_shell` flattens the run scope
+  into environment variables (e.g. `$CHECKSTACK_TRIGGER_PAYLOAD_TITLE`,
+  `$CHECKSTACK_ARTIFACT_INTEGRATION_JIRA_ISSUE_ISSUEKEY`). Arrays become a
+  single newline-separated var (iterate with `while IFS= read -r x; do …;
+done <<< "$VAR"`). Every value is a plain string — no JSON blob, since
+  the container has no `jq` to parse one. A shared `toShellEnvKey`
+  helper (in `@checkstack/automation-common`) derives the names so the
+  shell editor's `$` autocomplete lists exactly what the runtime injects.
+
+  **One syntax per field kind (editor + runtime).** `MultiTypeEditorField`
+  no longer offers `{{ }}` autocomplete in `typescript` / `javascript` /
+  `shell` editors, and the dispatch engine no longer template-renders
+  native-code config fields (those whose `x-editor-types` is a code type) —
+  so `{{ }}` can't be used in a script by accident. Text / markup editors
+  (`raw`, `json`, `yaml`, `xml`, `markdown`, `formdata`) and plain string
+  fields keep `{{ }}` as before. Because both the automation and
+  health-check editors share `MultiTypeEditorField`, they behave
+  identically.
+
+  **Script-editor IntelliSense polish.** The code editors got a few
+  ergonomic fixes so the typed context is actually usable: the suggestion
+  **details panel auto-opens** (so long completion names are legible
+  on-focus, not hidden behind the chevron); word-based keyword noise is
+  disabled in favour of language-service + provider completions; and a
+  TS/JS completion provider makes `context.artifacts.` list the in-scope
+  artifact ids and **auto-convert the dot to bracket notation** —
+  `context.artifacts["integration-jira.issue"]` — since those ids aren't
+  valid identifiers. (Driven by a new opt-in `dottedKeyCompletions` prop on
+  the editor / `DynamicForm`.)
+
+  **BREAKING (beta):** `{{ }}` interpolation inside a script action's
+  `script` field (shell or TypeScript) is no longer expanded at run time —
+  read run data via the typed `context` object (TS) or `$CHECKSTACK_*` env
+  vars (shell) instead. Non-script config fields are unchanged.
+
+  Also fixes: switching a provider action in the visual editor now resets
+  its config, so the validator no longer reports the previous action's keys
+  as unrecognised.
+
+- 41c77f4: feat(automation): Phase 11 — editor primitives + context type generation
+
+  Lays the UI + type-generation groundwork for Phase 12's visual automation
+  editor. Every primitive reuses the existing Monaco wrapper / template
+  engine / `jsonSchemaToTypeScript` helper rather than building parallel
+  infrastructure.
+
+  **`@checkstack/automation-common` — `resolveVariableScope`**
+
+  Pure walker that returns the in-scope `{{ … }}` paths at a given action
+  position. Conservative scoping rules: linear-upstream variables /
+  artifacts only (no leaking across `choose` / `parallel` / `repeat`
+  branches), `repeat.index` / `repeat.item` exposed only inside a `repeat`,
+  and trigger.payload modelled as a **discriminated union over
+  `trigger.event`** — every payload field surfaces; ones that come from a
+  subset of subscribed triggers carry a `conditionalOnTriggers` annotation
+  so the picker can render an "Only when …" hint. Earlier draft used
+  schema-intersection; switched to discriminated unions per review
+  feedback so Monaco can narrow correctly inside event-gated branches.
+
+  **Condition-aware narrowing.** When the path descends through a
+  `choose-when`, the resolver parses the branch's `when:` expression and
+  statically pins `trigger.event` to the set the condition allows —
+  patterns covered are `trigger.event == "X"` (either operand order),
+  `trigger.event != "X"`, `||`/`&&` of those, and `{ and: [...] }` /
+  `{ or: [...] }` combinators. So an action inside
+  `when: 'trigger.event == "incident.created"'` sees only the
+  `incident.created` variant in scope, the `conditionalOnTriggers`
+  annotation disappears, and other-trigger fields drop out entirely.
+  Nested choose branches compound (intersection). Anything outside the
+  covered patterns falls back to the full union — better to show every
+  field than guess wrong.
+
+  **`@checkstack/template-engine`**
+
+  The expression AST (`Expr`, `BinaryExpr`, `MemberExpr`, etc.) is now a
+  public export — the resolver's condition-narrowing walker needs to
+  inspect parsed condition trees. `ParsedCondition.root` is tightened
+  from `unknown` to `Expr` so consumers don't need to cast.
+
+  **`@checkstack/automation-frontend` — `generateAutomationContextTypes`**
+
+  Consumes `resolveVariableScope`'s output + the trigger / artifact
+  registries and emits the `declare const context: { … }` TS declaration
+  that `integration-script.run_script`'s Monaco editor injects via
+  `addExtraLib`. The emitted shape:
+
+  ```ts
+  type AutomationTrigger =
+    | { event: "incident.created"; payload: { … } }
+    | { event: "incident.resolved"; payload: { … } };
+
+  declare const context: {
+    trigger: AutomationTrigger;
+    artifacts: { "jira.issue"?: { key: string; … }; … };
+    var: { foo?: string; … };
+    repeat: { index: number; item: unknown };  // only when inside a repeat
+  };
+  ```
+
+  `jsonSchemaToTypeScript` from `@checkstack/ui` is reused via a deep
+  import (rather than the barrel) so the bun test runner doesn't try to
+  load Monaco's Vite-only `?worker` modules during unit tests.
+
+  **`@checkstack/ui` — new editor primitives**
+
+  - `TemplateValueInput` — single-line `{{ }}` autocomplete input.
+    Extracted from `DynamicForm/KeyValueEditor`'s previously-private
+    `TemplateInput` so other editor surfaces can share it without
+    rebuilding the picker UX. `KeyValueEditor` is now a one-line
+    delegation; `detectTemplateContext` is also exported.
+  - `VariablePicker` — hierarchical popover for the explicit "fx" /
+    "Insert variable" workflow. Renders a filterable tree of
+    `VariableNode`s with type chips and `Only when …` hints sourced from
+    the resolver's `conditionalOnTriggers`. Defaults to a small "fx" pill
+    trigger; callers can pass a custom one.
+  - `TemplateInput` — high-level mode switcher: `text` mode delegates to
+    `TemplateValueInput`, all other modes (`code` / `bash` / `json` /
+    `yaml`) delegate to `CodeEditor` with the matching language so the
+    action editor can swap widgets purely from the action's
+    `x-editor-types` annotation without touching the consuming code.
+  - `TemplateInputToggle` — the small "fx" pill that flips a typed input
+    (number / select / date / …) into template mode and back. Auto-infers
+    template mode when the saved value already starts with `{{`, so
+    round-tripping a previously-templated automation works out of the
+    box. Render-prop API for the typed editor so consumers keep control
+    over their own input shape.
+  - `ActionCard` — collapsible card that hosts a single action in the
+    visual editor. Decoupled from `DynamicForm` so container blocks
+    (`ChooseBlock` / `ParallelBlock` / `RepeatBlock` in Phase 12) can use
+    it as a structural shell over their own children. Toggle / delete /
+    drag handle are conditionally rendered on their callback's presence.
+
+  Storybook stories shipped for each of the new primitives.
+
+  **`@checkstack/integration-script-backend`**
+
+  `ScriptContext` docstring and the `scriptRunConfigSchema.script` field
+  description now point at `generateAutomationContextTypes` so the Phase
+  12 editor wiring is unambiguous — the runtime payload type stays
+  `Record<string, unknown>` (the runner can't know the trigger schema),
+  but the **editor** narrows it per-automation from the subscribed
+  triggers' payload schemas.
+
+- 4832e33: fix(automation): insert runtime-parseable `templateRef` from editor autocomplete + variable picker, with array indexing
+
+  The automation editor's `{{ }}` autocomplete and the `fx` variable picker
+  previously inserted the canonical dotted path (e.g.
+  `artifact.integration-jira.issue.issueKey`), which the template engine
+  cannot parse when an artifact id contains dots or hyphens, and which used
+  the singular `artifact`/`var` namespaces the runtime template context does
+  not expose. They now insert the runtime-parseable `templateRef` form -
+  plural top-level namespace (`artifacts`/`variables`) plus bracket notation
+  for non-identifier segments, e.g. `artifacts["integration-jira.issue"].issueKey`.
+
+  - `@checkstack/automation-common`: `VariableEntry` gains `templateRef`
+    (runtime-parseable insertion form) and `referenceable`, alongside the
+    unchanged canonical `path`. New exported helpers `isTemplateIdentifier`,
+    `appendTemplateSegment`, and `appendArrayIndex` build the form. Scope
+    derivation now descends into `array` schemas, offering both the whole
+    array and a representative element subtree (`tags[0]`, `comments[0].author`,
+    nested `matrix[0][0]`).
+  - `CompletionField` / `TemplateProperty` / `VariableNode` carry a
+    `templateRef` alongside the canonical `path`.
+  - The staged completion provider's field label, filter/match, insert text,
+    and value-stage field lookup all operate in `templateRef` space. The
+    expression tokenizer now emits bracket tokens and reconstructs the full
+    `foo["bar"].baz` / `foo["bar"].list[0]` access chain (normalising single
+    quotes to the stored double-quoted form, and supporting bare numeric array
+    indices) so value-stage enum suggestions resolve for bracket-notation and
+    indexed fields.
+  - `VariablePicker` and the `DynamicForm` template inserters write the
+    `templateRef` (falling back to `path` when absent).
+  - Shell-env (`$CHECKSTACK_*`) name derivation deliberately keeps using the
+    canonical dotted `path`, so the suggested env names stay byte-identical
+    to the backend's path-based injection. Script-context type generation is
+    unchanged.
+  - `@checkstack/integration-script-backend`: shell-script actions now also
+    expose array elements as indexed `$CHECKSTACK_*_<i>` env vars (and
+    `$CHECKSTACK_*_<i>_<field>` for object elements), alongside the existing
+    whole-array newline-joined var, so the runtime injects exactly the
+    array-element names the editor now suggests.
+
+- 35bc682: feat(healthcheck): expose check + system run-context to script collectors
+
+  Script health checks can now read which check and system a run is for.
+  Previously shell scripts got only a curated env whitelist and inline
+  scripts only `context.config`, so a script had no built-in way to know
+  its own check name or the system it was checking.
+
+  - `@checkstack/backend-api`: new `CollectorRunContext` type
+    (`{ check: { id, name, intervalSeconds }, system: { id, name } }`) and
+    an optional `runContext` param on `CollectorStrategy.execute`. Optional,
+    so existing collector implementations are unaffected.
+  - Shell-script collector: injects reserved `CHECKSTACK_CHECK_ID`,
+    `CHECKSTACK_CHECK_NAME`, `CHECKSTACK_CHECK_INTERVAL_SECONDS`,
+    `CHECKSTACK_SYSTEM_ID`, `CHECKSTACK_SYSTEM_NAME` env vars (user-supplied
+    `env` still wins on collision).
+  - Inline-script collector: exposes `context.check` and `context.system`
+    alongside `context.config`; the inline-script editor now types them for
+    autocomplete.
+  - Shell editors (health-check collectors and automation shell actions) now
+    also suggest the user's own `env` (JSON) keys as `$NAME` completions, via
+    the new exported `customShellEnvVars` helper. Keys that aren't valid shell
+    identifiers are omitted.
+  - Fix: the Typefox `CodeEditor` captured a stale `onChange` at editor start,
+    so editing one `DynamicForm` field reverted sibling fields changed since
+    mount (e.g. typing in a shell `script` field wiped an unsaved `env` value,
+    or deleted a sibling automation action added after mount). The change
+    handler now routes through a ref to the current `onChange`.
+  - Fix: focusing a JSON editor threw "LanguageStatusService.addStatus is not
+    supported" because the standalone service set omitted `ILanguageStatusService`.
+    That one service is now registered via `serviceOverrides`.
+  - Fix: the automation trigger card nested a `<Badge>` (a `<div>`) inside a
+    `<p>`, producing a `validateDOMNesting` warning. Switched the wrapper to a
+    `<div>`.
+  - Local runs (`queue-executor`) and satellite runs both populate the
+    context. `SatelliteAssignment` (and the `getAssignmentsForSatellite`
+    RPC output) gained optional `configName` / `systemName` so the metadata
+    reaches satellite-side execution; `HealthCheckService` resolves the
+    system name via the catalog client.
+
+  BREAKING CHANGE: `createHealthCheckRouter` now requires a `catalogClient`
+  option (used to resolve system names for satellite assignments). Update
+  call sites to pass the catalog RPC client.
+
+- c39ee69: Replace the Monaco-based `CodeEditor` with `@typefox/monaco-editor-react`, backed
+  by the standalone VS Code language services (no SharedArrayBuffer / cross-origin
+  isolation required). The `CodeEditor` public API is unchanged except for the
+  breaking note below; existing consumers keep working.
+
+  What this improves:
+
+  - Typed `context` IntelliSense is reliable (no more `addExtraLib` timing race).
+  - JSON / YAML / XML editors gain template-aware structural validation: the
+    content is validated as the JSON/YAML/XML it renders to, so `{{ }}` templates
+    are tolerated in any position (including unquoted, e.g. a numeric value) while
+    genuine structural errors are still flagged.
+  - JSON uses the real VS Code JSON language service (proper highlighting +
+    completion).
+  - Template `{{ }}` completion, shell `$env` completion, and external validation
+    markers are preserved.
+
+  > [!IMPORTANT]
+  > BREAKING (beta): the `dottedKeyCompletions` prop is removed from `CodeEditor`
+  > (and from `DynamicForm` / `FormField`). Bracket-notation completions for
+  > non-identifier object keys (e.g. `context.artifacts["integration-jira.issue"]`)
+  > are now derived automatically from the injected `typeDefinitions`, so the prop
+  > is no longer needed.
+
+  The `monaco-editor` and `@monaco-editor/react` dependencies are removed.
+
+### Patch Changes
+
+- Updated dependencies [e2d6f25]
+- Updated dependencies [6d52276]
+  - @checkstack/frontend-api@0.6.0
+  - @checkstack/common@0.12.0
+
 ## 1.10.0
 
 ### Minor Changes

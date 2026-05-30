@@ -1,5 +1,17 @@
 # @checkstack/maintenance-common
 
+## 1.2.3
+
+### Patch Changes
+
+- Updated dependencies [e2d6f25]
+- Updated dependencies [6d52276]
+  - @checkstack/frontend-api@0.6.0
+  - @checkstack/common@0.12.0
+  - @checkstack/catalog-common@2.2.3
+  - @checkstack/notification-common@1.2.1
+  - @checkstack/signal-common@0.2.5
+
 ## 1.2.2
 
 ### Patch Changes

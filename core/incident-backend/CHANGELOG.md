@@ -1,5 +1,90 @@
 # @checkstack/incident-backend
 
+## 1.3.0
+
+### Minor Changes
+
+- 41c77f4: feat(automation): type enum-able trigger/artifact fields as enums for editor value autocompletion
+
+  The automation editor's staged completion offers concrete values after a
+  comparator (`{{ trigger.payload.severity == "high" }}`) only when the
+  field's JSON Schema carries an `enum`. Several trigger payload + artifact
+  schemas declared closed-set fields as loose `z.string()`, so no values
+  were suggested. Tightened them to the canonical enums that already
+  existed in each plugin's `-common` package (and matched the hook payload
+  types in lockstep so the trigger's `payloadSchema` and `hook` keep the
+  same `TPayload`):
+
+  - **incident** — trigger payloads: `severity` → `IncidentSeverityEnum`,
+    `status` / `statusChange` → `IncidentStatusEnum`.
+  - **healthcheck** — trigger payloads: `previousStatus` / `newStatus` /
+    `status` → `HealthCheckStatusSchema` (across systemDegraded,
+    systemHealthy, systemHealthChanged, checkFailed; plus checkCompleted's
+    hook type).
+  - **dependency** — trigger + artifact: `impactType` → `ImpactTypeSchema`;
+    impactPropagated `previousState` / `newState` → `DerivedStateSchema`.
+    Also deduped the inline `impactTypeSchema` action-config enum to reuse
+    the canonical `ImpactTypeSchema`.
+  - **maintenance** — trigger + artifact: `status` →
+    `MaintenanceStatusEnum`; deduped the inline `maintenanceStatusEnum`
+    (used by `add_update.statusChange`) to the canonical one.
+  - **slo** — `achievement.unlocked` trigger + hook: `achievement` →
+    `AchievementTypeSchema`.
+
+  Runtime behaviour is unchanged — these fields always carried valid enum
+  values (the underlying records are enum-constrained); only the schema
+  types were loose. The hook payload generics are now precise too, which
+  caught one stale test fixture asserting an invalid `impactType: "soft"`.
+
+  Fields that look enum-ish but are genuinely free-form were intentionally
+  left as `z.string()`: satellite `region` (user-entered), Jira issue
+  `status` (per-instance workflow name), notification `strategyQualifiedId`
+  / `errorMessage`, healthcheck collector `result`, and script
+  `stdout` / `stderr`.
+
+- 41c77f4: feat(incident): register incident lifecycle as automation triggers + actions
+
+  Adds three triggers (`incident.created`, `incident.updated`,
+  `incident.resolved`) backed by the existing hooks, each exposing
+  `incidentId` as the context key so `wait_for_trigger` waits match the
+  same incident across the run. Adds four actions (`incident.create`,
+  `incident.resolve`, `incident.add_update`, `incident.update_status`)
+  wrapping the existing `IncidentService` methods so operators can compose
+  incident flows in the Automation editor.
+
+### Patch Changes
+
+- Updated dependencies [e2d6f25]
+- Updated dependencies [41c77f4]
+- Updated dependencies [e1a2077]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [4832e33]
+- Updated dependencies [6d52276]
+- Updated dependencies [6d52276]
+- Updated dependencies [35bc682]
+  - @checkstack/automation-backend@0.2.0
+  - @checkstack/automation-common@0.2.0
+  - @checkstack/integration-backend@0.2.0
+  - @checkstack/integration-common@0.6.0
+  - @checkstack/catalog-backend@1.2.0
+  - @checkstack/common@0.12.0
+  - @checkstack/backend-api@0.18.0
+  - @checkstack/catalog-common@2.2.3
+  - @checkstack/incident-common@1.3.1
+  - @checkstack/auth-common@0.7.2
+  - @checkstack/command-backend@0.1.31
+  - @checkstack/notification-common@1.2.1
+  - @checkstack/signal-common@0.2.5
+  - @checkstack/cache-api@0.3.6
+  - @checkstack/cache-utils@0.2.11
+
 ## 1.2.0
 
 ### Minor Changes

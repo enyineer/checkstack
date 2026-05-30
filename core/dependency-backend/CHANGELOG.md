@@ -1,5 +1,98 @@
 # @checkstack/dependency-backend
 
+## 1.2.0
+
+### Minor Changes
+
+- 41c77f4: feat(automation): type enum-able trigger/artifact fields as enums for editor value autocompletion
+
+  The automation editor's staged completion offers concrete values after a
+  comparator (`{{ trigger.payload.severity == "high" }}`) only when the
+  field's JSON Schema carries an `enum`. Several trigger payload + artifact
+  schemas declared closed-set fields as loose `z.string()`, so no values
+  were suggested. Tightened them to the canonical enums that already
+  existed in each plugin's `-common` package (and matched the hook payload
+  types in lockstep so the trigger's `payloadSchema` and `hook` keep the
+  same `TPayload`):
+
+  - **incident** — trigger payloads: `severity` → `IncidentSeverityEnum`,
+    `status` / `statusChange` → `IncidentStatusEnum`.
+  - **healthcheck** — trigger payloads: `previousStatus` / `newStatus` /
+    `status` → `HealthCheckStatusSchema` (across systemDegraded,
+    systemHealthy, systemHealthChanged, checkFailed; plus checkCompleted's
+    hook type).
+  - **dependency** — trigger + artifact: `impactType` → `ImpactTypeSchema`;
+    impactPropagated `previousState` / `newState` → `DerivedStateSchema`.
+    Also deduped the inline `impactTypeSchema` action-config enum to reuse
+    the canonical `ImpactTypeSchema`.
+  - **maintenance** — trigger + artifact: `status` →
+    `MaintenanceStatusEnum`; deduped the inline `maintenanceStatusEnum`
+    (used by `add_update.statusChange`) to the canonical one.
+  - **slo** — `achievement.unlocked` trigger + hook: `achievement` →
+    `AchievementTypeSchema`.
+
+  Runtime behaviour is unchanged — these fields always carried valid enum
+  values (the underlying records are enum-constrained); only the schema
+  types were loose. The hook payload generics are now precise too, which
+  caught one stale test fixture asserting an invalid `impactType: "soft"`.
+
+  Fields that look enum-ish but are genuinely free-form were intentionally
+  left as `z.string()`: satellite `region` (user-entered), Jira issue
+  `status` (per-instance workflow name), notification `strategyQualifiedId`
+  / `errorMessage`, healthcheck collector `result`, and script
+  `stdout` / `stderr`.
+
+- 41c77f4: feat(dependency): Phase 9 — triggers + create/remove actions for the Automation Platform
+
+  - Triggers `dependency.created`, `dependency.updated`, `dependency.deleted`,
+    each carrying `contextKey: (p) => p.dependencyId` so `wait_for_trigger`
+    resumes on the same edge.
+  - New hook `dependencyHooks.impactPropagated` + matching trigger
+    `dependency.impact_propagated` — fires once per upstream event from
+    `evaluateAndNotifyDownstream` with the list of downstream systems
+    whose derived state actually moved. Carries previous/new state for
+    each affected system so subscribers don't have to re-query the
+    graph. Fires regardless of notification suppression, so an
+    automation can react even when the user-facing notification is
+    skipped. `contextKey: (p) => p.sourceSystemId`.
+  - Actions `dependency.create` (with cycle + duplicate-edge detection
+    surfaced via the action's `error`) and `dependency.remove`. Both emit
+    the matching `dependencyHooks.*` so downstream automations and caches
+    react identically to RPC-driven changes.
+  - Artifact type `dependency.edge` for source/target/impact pass-through
+    between steps.
+
+### Patch Changes
+
+- Updated dependencies [e2d6f25]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [e1a2077]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [6d52276]
+- Updated dependencies [6d52276]
+- Updated dependencies [35bc682]
+  - @checkstack/automation-backend@0.2.0
+  - @checkstack/healthcheck-backend@1.3.0
+  - @checkstack/catalog-backend@1.2.0
+  - @checkstack/common@0.12.0
+  - @checkstack/backend-api@0.18.0
+  - @checkstack/healthcheck-common@1.3.0
+  - @checkstack/catalog-common@2.2.3
+  - @checkstack/dependency-common@1.1.3
+  - @checkstack/incident-common@1.3.1
+  - @checkstack/maintenance-common@1.2.3
+  - @checkstack/gitops-backend@0.3.7
+  - @checkstack/gitops-common@0.4.2
+  - @checkstack/notification-common@1.2.1
+  - @checkstack/signal-common@0.2.5
+
 ## 1.1.6
 
 ### Patch Changes

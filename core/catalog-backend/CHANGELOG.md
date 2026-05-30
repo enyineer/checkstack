@@ -1,5 +1,60 @@
 # @checkstack/catalog-backend
 
+## 1.2.0
+
+### Minor Changes
+
+- 41c77f4: feat(catalog): system triggers + update_metadata action for the Automation Platform
+
+  Ships the catalog chunk of Phase 9:
+
+  - Triggers: `catalog.created`, `catalog.updated`, `catalog.deleted`
+    — named consistently with the other plugin lifecycle triggers
+    (incident.created, dependency.created, maintenance.created, …).
+    Each carries `contextKey: (p) => p.systemId` so `wait_for_trigger`
+    can resume the right run.
+  - Action: `catalog.update_metadata` — sets or merges metadata on a
+    system (`strategy: "merge" | "replace"`). Default is `merge` so
+    untouched keys survive. Returns a `catalog.system_record` artifact
+    (`systemId`, `systemName`, `metadata`).
+
+  New hook: `catalogHooks.systemUpdated` (`{ systemId, systemName,
+changedFields }`). Emitted from both the `updateSystem` RPC handler
+  and the `update_metadata` automation action so downstream automations
+  and caches see both code paths. Emission is skipped when no tracked
+  field changed (no-op saves don't spam subscribers).
+
+  The `system.health_changed`, `system.set_maintenance`, and
+  `system.clear_maintenance` items in the original Phase 9 plan move to
+  the **healthcheck** and **maintenance** chunks respectively, where the
+  underlying data and RPCs live.
+
+### Patch Changes
+
+- Updated dependencies [e2d6f25]
+- Updated dependencies [41c77f4]
+- Updated dependencies [e1a2077]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [41c77f4]
+- Updated dependencies [6d52276]
+- Updated dependencies [6d52276]
+- Updated dependencies [35bc682]
+  - @checkstack/automation-backend@0.2.0
+  - @checkstack/common@0.12.0
+  - @checkstack/backend-api@0.18.0
+  - @checkstack/catalog-common@2.2.3
+  - @checkstack/auth-backend@0.4.31
+  - @checkstack/auth-common@0.7.2
+  - @checkstack/command-backend@0.1.31
+  - @checkstack/gitops-backend@0.3.7
+  - @checkstack/gitops-common@0.4.2
+  - @checkstack/notification-common@1.2.1
+  - @checkstack/cache-api@0.3.6
+  - @checkstack/cache-utils@0.2.11
+
 ## 1.1.6
 
 ### Patch Changes
