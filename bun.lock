@@ -341,6 +341,7 @@
       "version": "0.2.0",
       "dependencies": {
         "@checkstack/automation-common": "workspace:*",
+        "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/gitops-frontend": "workspace:*",
