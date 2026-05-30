@@ -249,40 +249,49 @@ export function createIncidentActions(
     }),
     produces: "incident",
     execute: async ({ config, logger }) => {
-      // Per-system dedup (opt-in): if an open incident already exists on
-      // the first target system, reuse it instead of opening a duplicate.
-      // Reproduces the old auto-incident `findActiveAutoIncident` semantic
-      // and keeps at most one open auto-incident per system across all the
-      // default sustained/flapping automations.
-      if (config.dedupe_open_for_system) {
-        const existing = await service.findActiveIncidentForSystem(
-          config.systemIds[0]!,
-        );
-        if (existing) {
-          logger.info(
-            `Automation reused open incident ${existing.id} for system ${config.systemIds[0]} (dedupe)`,
-          );
-          return {
-            success: true,
-            externalId: existing.id,
-            artifact: {
-              incidentId: existing.id,
-              status: existing.status,
-              severity: existing.severity,
-              systemIds: existing.systemIds,
-            },
-          };
-        }
-      }
-
-      const incident = await service.createIncident({
+      const createInput = {
         title: config.title,
         description: config.description,
         severity: config.severity,
         systemIds: config.systemIds,
         initialMessage: config.initialMessage,
         suppressNotifications: config.suppressNotifications,
-      });
+      };
+
+      // Per-system dedup (opt-in): if an open incident already exists on
+      // the first target system, reuse it instead of opening a duplicate.
+      // Reproduces the old auto-incident `findActiveAutoIncident` semantic
+      // and keeps at most one open auto-incident per system across all the
+      // default sustained/flapping automations. The check + create are
+      // serialized per system inside the service (advisory lock), so two
+      // concurrent triggers (e.g. sustained + flapping) for the same system
+      // can't both find none and both create.
+      if (config.dedupe_open_for_system) {
+        const { incident, reused } =
+          await service.createIncidentDedupedForSystem(
+            createInput,
+            config.systemIds[0]!,
+          );
+        if (reused) {
+          logger.info(
+            `Automation reused open incident ${incident.id} for system ${config.systemIds[0]} (dedupe)`,
+          );
+        } else {
+          logger.info(`Automation created incident ${incident.id}`);
+        }
+        return {
+          success: true,
+          externalId: incident.id,
+          artifact: {
+            incidentId: incident.id,
+            status: incident.status,
+            severity: incident.severity,
+            systemIds: incident.systemIds,
+          },
+        };
+      }
+
+      const incident = await service.createIncident(createInput);
       logger.info(`Automation created incident ${incident.id}`);
       return {
         success: true,

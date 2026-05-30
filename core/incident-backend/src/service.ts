@@ -1,5 +1,5 @@
 import { eq, and, inArray, ne } from "drizzle-orm";
-import type { SafeDatabase } from "@checkstack/backend-api";
+import { withXactLock, type SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import {
   incidents,
@@ -435,5 +435,36 @@ export class IncidentService {
 
     if (!match) return undefined;
     return this.getIncident(match.id);
+  }
+
+  /**
+   * Dedup-aware create for a single system, used by the `incident.create`
+   * automation action when `dedupe_open_for_system` is set. Serializes the
+   * check-then-create per system with a transaction-scoped advisory lock so
+   * two concurrent triggers for the same system (e.g. sustained + flapping)
+   * can't both observe "no open incident" and both create one. The critical
+   * section is short (a find + an insert), so a transaction-scoped lock is
+   * the right primitive (it auto-releases at COMMIT, no leak possible).
+   *
+   * Returns `{ incident, reused }` — `reused` is true when an already-open
+   * incident for the system was found and returned instead of creating.
+   */
+  async createIncidentDedupedForSystem(
+    input: CreateIncidentInput,
+    dedupeSystemId: string,
+    userId?: string,
+  ): Promise<{ incident: IncidentWithSystems; reused: boolean }> {
+    return withXactLock({
+      db: this.db,
+      key: `incident.dedupe-open-for-system:${dedupeSystemId}`,
+      fn: async () => {
+        const existing = await this.findActiveIncidentForSystem(dedupeSystemId);
+        if (existing) {
+          return { incident: existing, reused: true };
+        }
+        const incident = await this.createIncident(input, userId);
+        return { incident, reused: false };
+      },
+    });
   }
 }

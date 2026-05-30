@@ -1,5 +1,11 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { IncidentService } from "./service";
+import {
+  incidents,
+  incidentSystems,
+  incidentUpdates,
+  incidentLinks,
+} from "./schema";
 
 /**
  * Programmable mock DB that records each `select(...).from(...).where(...)`
@@ -122,5 +128,137 @@ describe("IncidentService.hasActiveIncidentWithSuppression", () => {
 
     expect(result).toBe(false);
     expect(dbHelper.getCallCount()).toBe(1);
+  });
+});
+
+/**
+ * Table-backed fake `db` for the dedup-create path. Models just enough of
+ * the Drizzle surface the service touches (select/insert by TABLE IDENTITY,
+ * `.from`/`.where`/`.limit`, and a serializing `transaction`).
+ *
+ * Crucially `transaction(fn)` models `pg_advisory_xact_lock`: it serializes
+ * callers on the lock key seen in the `tx.execute(...)` SQL, so concurrent
+ * dedup-creates run their find-then-create one-at-a-time — exactly the
+ * guarantee M3 needs. Because the test confines data to a single system,
+ * the (ignored) WHERE clauses don't change which rows match.
+ */
+function createDedupFakeDb() {
+  const store = {
+    incidents: [] as Array<Record<string, unknown>>,
+    incidentSystems: [] as Array<Record<string, unknown>>,
+    incidentUpdates: [] as Array<Record<string, unknown>>,
+    incidentLinks: [] as Array<Record<string, unknown>>,
+  };
+
+  const tableKey = (
+    table: unknown,
+  ): keyof typeof store | undefined => {
+    if (table === incidents) return "incidents";
+    if (table === incidentSystems) return "incidentSystems";
+    if (table === incidentUpdates) return "incidentUpdates";
+    if (table === incidentLinks) return "incidentLinks";
+    return undefined;
+  };
+
+  // Per-key serialization (the xact-lock model).
+  const tails = new Map<string, Promise<unknown>>();
+
+  function buildSelect() {
+    return (projection?: Record<string, unknown>) => {
+      const project = (
+        list: Array<Record<string, unknown>>,
+      ): Array<Record<string, unknown>> => {
+        if (!projection) return list;
+        const keys = Object.keys(projection);
+        return list.map((r) => {
+          const out: Record<string, unknown> = {};
+          for (const k of keys) out[k] = r[k];
+          return out;
+        });
+      };
+      const from = (table: unknown) => {
+        const key = tableKey(table);
+        const rows = key ? project([...store[key]]) : [];
+        const limit = (n: number) => Promise.resolve(rows.slice(0, n));
+        const where = () =>
+          Object.assign(Promise.resolve(rows), { limit });
+        return Object.assign(Promise.resolve(rows), { where, limit });
+      };
+      return { from };
+    };
+  }
+
+  function buildInsert() {
+    return (table: unknown) => ({
+      values: (vals: Record<string, unknown>) => {
+        const key = tableKey(table);
+        if (key) store[key].push({ ...vals });
+        return Promise.resolve();
+      },
+    });
+  }
+
+  const db = {
+    select: buildSelect(),
+    insert: buildInsert(),
+    async transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
+      // The lock key is embedded in the SQL the helper runs via tx.execute.
+      let lockKey = "default";
+      const tx = {
+        execute: async (sqlObj: unknown) => {
+          // Drizzle sql`` carries the interpolated key in its params; the
+          // helper interpolates exactly one param (the lock key).
+          const params = (sqlObj as { queryChunks?: unknown[] }).queryChunks;
+          const found = JSON.stringify(params ?? sqlObj).match(
+            /incident\.dedupe-open-for-system:[^"\\]+/,
+          );
+          if (found) lockKey = found[0];
+          return { rows: [] };
+        },
+      };
+      // Serialize on the lock key: chain after the current tail.
+      const prior = tails.get(lockKey) ?? Promise.resolve();
+      let resolveTail!: () => void;
+      const myTail = new Promise<void>((r) => (resolveTail = r));
+      tails.set(
+        lockKey,
+        prior.then(() => myTail),
+      );
+      await prior;
+      try {
+        return await fn(tx);
+      } finally {
+        resolveTail();
+      }
+    },
+  };
+
+  return { db: db as unknown, store };
+}
+
+describe("IncidentService.createIncidentDedupedForSystem (M3)", () => {
+  it("two concurrent dedupe creates for one system open exactly ONE incident", async () => {
+    const { db, store } = createDedupFakeDb();
+    const service = new IncidentService(db as never);
+
+    const input = {
+      title: "Down",
+      severity: "critical" as const,
+      systemIds: ["sys-1"],
+      suppressNotifications: false,
+    };
+
+    // Sustained + flapping fire concurrently for the same system. Without
+    // the per-system lock both would find no open incident and both create.
+    const [a, b] = await Promise.all([
+      service.createIncidentDedupedForSystem(input, "sys-1"),
+      service.createIncidentDedupedForSystem(input, "sys-1"),
+    ]);
+
+    // Exactly one incident row created.
+    expect(store.incidents).toHaveLength(1);
+    // One created, one reused — both return the same incident id.
+    expect(a.incident.id).toBe(b.incident.id);
+    expect([a.reused, b.reused].filter(Boolean)).toHaveLength(1);
   });
 });
