@@ -1530,6 +1530,8 @@
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/script-packages-common": "workspace:*",
+        "@checkstack/secrets-backend": "workspace:*",
+        "@checkstack/secrets-common": "workspace:*",
         "@orpc/server": "^1.13.2",
         "drizzle-orm": "^0.45.0",
         "zod": "^4.0.0",

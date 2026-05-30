@@ -1,9 +1,11 @@
 import path from "node:path";
+import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
+import { internalSecretsRef } from "@checkstack/secrets-backend";
 import {
-  createBackendPlugin,
-  coreServices,
-  decrypt,
-} from "@checkstack/backend-api";
+  createRegistryTokenStore,
+  migrateRegistryTokenToPlatform,
+  type RegistryTokenStore,
+} from "./registry-token";
 import {
   pluginMetadata,
   scriptPackagesAccessRules,
@@ -48,6 +50,8 @@ interface EnvStash {
    * Undefined until `afterPluginsReady` runs.
    */
   emitChanged?: (lockfileHash: string) => Promise<void>;
+  /** Registry token store (internal secrets), set in `init`. */
+  registryToken?: RegistryTokenStore;
 }
 
 export default createBackendPlugin({
@@ -71,14 +75,17 @@ export default createBackendPlugin({
         logger: coreServices.logger,
         rpc: coreServices.rpc,
         advisoryLock: coreServices.advisoryLock,
+        internalSecrets: internalSecretsRef,
       },
-      init: async ({ logger, database, rpc, advisoryLock }) => {
+      init: async ({ logger, database, rpc, advisoryLock, internalSecrets }) => {
         logger.debug("📦 Initializing Script Packages Backend...");
 
         const storeRoot = resolveScriptPackagesDir();
         const packages = createPackageStore(database);
         const registry = createRegistryConfigStore(database);
         const storage = createStorageConfigStore(database);
+        const registryToken = createRegistryTokenStore({ internalSecrets });
+        (env as unknown as EnvStash).registryToken = registryToken;
         const sizeCap = createSizeCapStore(database);
         const blobIndex = createBlobIndexStore(database);
         const installState = createInstallStateStore(database);
@@ -93,10 +100,12 @@ export default createBackendPlugin({
           let authToken: string | undefined;
           if (secretRef) {
             try {
-              authToken = decrypt(secretRef);
+              // Resolves the platform marker (internal secrets) or legacy
+              // inline ciphertext transparently.
+              authToken = await registryToken.resolve(secretRef);
             } catch (error) {
               logger.error(
-                `Failed to decrypt registry auth token: ${extractErrorMessage(error)}`,
+                `Failed to resolve registry auth token: ${extractErrorMessage(error)}`,
               );
             }
           }
@@ -198,6 +207,7 @@ export default createBackendPlugin({
           logger,
           triggerInstall,
           triggerMigration,
+          registryToken,
         });
         rpc.registerRouter(router, scriptPackagesContract);
 
@@ -218,6 +228,41 @@ export default createBackendPlugin({
         const installerLock = createInstallerLock(advisoryLock);
         const storage = createStorageConfigStore(database);
         const blobIndex = createBlobIndexStore(database);
+
+        // One-time, idempotent, parity-verified migration of a legacy
+        // inline-ciphertext registry token onto the secrets platform's
+        // internal secrets. No-op once migrated (column holds the marker)
+        // or when no token is set. Never drops the legacy value until the
+        // platform copy reads back identically.
+        const registryToken = stash.registryToken;
+        if (registryToken) {
+          try {
+            const registry = createRegistryConfigStore(database);
+            const currentRef = await registry.authSecretRef();
+            const reg = await registry.get();
+            const outcome = await migrateRegistryTokenToPlatform({
+              currentRef,
+              tokenStore: registryToken,
+              rewrite: async (marker) => {
+                await registry.set({
+                  registryUrl: reg.registryUrl,
+                  scopedRegistries: reg.scopedRegistries,
+                  ignoreScripts: reg.ignoreScripts,
+                  authSecretRef: marker,
+                });
+              },
+            });
+            if (outcome === "migrated") {
+              logger.debug(
+                "🔐 Migrated script-package registry token onto the secrets platform.",
+              );
+            }
+          } catch (error) {
+            logger.error(
+              `Registry-token migration failed: ${extractErrorMessage(error)}`,
+            );
+          }
+        }
 
         // Startup backstop: resume a storage migration that crashed
         // mid-flight. A migration that died leaves `migrationStatus` stuck

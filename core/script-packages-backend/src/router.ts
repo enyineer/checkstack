@@ -2,12 +2,12 @@ import { implement, ORPCError } from "@orpc/server";
 import {
   autoAuthMiddleware,
   correlationMiddleware,
-  encrypt,
   resolveActor,
   type Logger,
   type RpcContext,
   type SafeDatabase,
 } from "@checkstack/backend-api";
+import type { RegistryTokenStore } from "./registry-token";
 import { extractErrorMessage } from "@checkstack/common";
 import {
   scriptPackagesContract,
@@ -42,6 +42,11 @@ export interface ScriptPackagesRouterDeps {
   triggerMigration(input: {
     target: string;
   }): Promise<{ started: boolean; reason?: string }>;
+  /**
+   * Registry auth-token store, backed by the secrets platform's internal
+   * secrets. Provided by the plugin (which injects `internalSecretsRef`).
+   */
+  registryToken: RegistryTokenStore;
 }
 
 export function createScriptPackagesRouter({
@@ -51,6 +56,7 @@ export function createScriptPackagesRouter({
   logger,
   triggerInstall,
   triggerMigration,
+  registryToken,
 }: ScriptPackagesRouterDeps) {
   const packages = createPackageStore(db);
   const registry = createRegistryConfigStore(db);
@@ -91,12 +97,17 @@ export function createScriptPackagesRouter({
     getRegistryConfig: os.getRegistryConfig.handler(async () => registry.get()),
 
     setRegistryConfig: os.setRegistryConfig.handler(async ({ input }) => {
-      // Encrypt the token (if provided) and store the ciphertext as the
-      // "secret ref". `undefined` leaves the existing token; "" clears it.
+      // Store the token (if provided) in the secrets platform's internal
+      // secrets and persist the stable marker as the "secret ref".
+      // `undefined` leaves the existing token; "" clears it.
       let authSecretRef: string | null | undefined;
       if (input.authToken !== undefined) {
-        authSecretRef =
-          input.authToken.length > 0 ? encrypt(input.authToken) : null;
+        if (input.authToken.length > 0) {
+          authSecretRef = await registryToken.store(input.authToken);
+        } else {
+          await registryToken.clear();
+          authSecretRef = null;
+        }
       }
       await registry.set({
         registryUrl: input.registryUrl,
