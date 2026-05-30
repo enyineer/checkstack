@@ -232,6 +232,9 @@
       "path": "./core/secrets-backend-local"
     },
     {
+      "path": "./core/secrets-backend-vault"
+    },
+    {
       "path": "./core/secrets-common"
     },
     {

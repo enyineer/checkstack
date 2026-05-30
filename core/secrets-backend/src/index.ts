@@ -29,7 +29,7 @@ import {
   createBackendConfigStore,
   type BackendConfigStore,
 } from "./backend-config-store";
-import type { SecretStore } from "./secret-resolver";
+import { createActiveBackendStore } from "./active-backend";
 import { createSecretsRouter } from "./router";
 import { secretsChangedHook } from "./hooks";
 
@@ -113,18 +113,13 @@ export default createBackendPlugin({
       await store.save({ ...current, activeBackend: id });
     };
 
-    // SecretStore backed by the active backend's `get`, throwing on a
-    // missing secret so a required reference fails clearly.
-    const secretStore: SecretStore = {
-      resolve: async (name: string): Promise<string> => {
-        const backend = backends.get(await getActiveBackendId());
-        const value = await backend.get({ name });
-        if (value === undefined) {
-          throw new Error(`Secret not found: ${name}`);
-        }
-        return value;
-      },
-    };
+    // SecretStore backed by whichever backend is active — switching the
+    // active backend (local → vault) re-routes resolution with no other
+    // change. Throws on a missing secret so a required reference fails clearly.
+    const secretStore = createActiveBackendStore({
+      backends,
+      getActiveBackendId,
+    });
 
     const resolver = createSecretResolverService({ secretStore });
     env.registerService(secretResolverRef, resolver);

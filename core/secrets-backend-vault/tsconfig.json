@@ -1,0 +1,32 @@
+{
+  "extends": "@checkstack/tsconfig/backend.json",
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../backend"
+    },
+    {
+      "path": "../backend-api"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../dev-server"
+    },
+    {
+      "path": "../drizzle-helper"
+    },
+    {
+      "path": "../secrets-backend"
+    },
+    {
+      "path": "../secrets-common"
+    },
+    {
+      "path": "../test-utils-backend"
+    }
+  ]
+}
