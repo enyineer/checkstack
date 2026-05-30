@@ -1,0 +1,151 @@
+import {
+  createBackendPlugin,
+  coreServices,
+  createServiceRef,
+} from "@checkstack/backend-api";
+import {
+  pluginMetadata,
+  secretsAccessRules,
+  secretsContract,
+} from "@checkstack/secrets-common";
+import type { PluginMetadata } from "@checkstack/common";
+import {
+  secretBackendExtensionPoint,
+  type SecretBackend,
+} from "./secret-backend";
+import {
+  createSecretBackendRegistry,
+  type SecretBackendRegistry,
+} from "./secret-backend-registry";
+import {
+  createSecretResolverService,
+  type SecretResolverService,
+} from "./resolver-service";
+import type { SecretStore } from "./secret-resolver";
+import { createSecretsRouter } from "./router";
+import { secretsChangedHook } from "./hooks";
+
+/** Built-in default backend id. The local backend plugin registers under this. */
+const DEFAULT_BACKEND_ID = "local";
+
+/**
+ * Cross-plugin secret resolution service. Consumer plugins (gitops,
+ * automation, healthcheck) inject this to resolve `${{ secrets.NAME }}`
+ * templates and a run's least-privilege env allowlist against the active
+ * backend. Service-typed and backend-only — never exposed to a browser.
+ */
+export const secretResolverRef = createServiceRef<SecretResolverService>(
+  "secrets.resolver",
+);
+
+interface EnvStash {
+  backends: SecretBackendRegistry;
+  emitChanged?: (input: {
+    name: string;
+    change: "created" | "rotated" | "deleted";
+  }) => Promise<void>;
+}
+
+export default createBackendPlugin({
+  metadata: pluginMetadata,
+
+  register(env) {
+    const backends = createSecretBackendRegistry();
+    (env as unknown as EnvStash).backends = backends;
+
+    env.registerAccessRules(secretsAccessRules);
+
+    env.registerExtensionPoint(secretBackendExtensionPoint, {
+      registerSecretBackend: (
+        backend: SecretBackend,
+        _metadata: PluginMetadata,
+      ) => {
+        backends.register(backend);
+      },
+    });
+
+    // The active backend id is config-selected; until the Vault backend +
+    // selection UI land (Phase 4) the default is always the local backend.
+    const getActiveBackendId = async (): Promise<string> => {
+      if (backends.has(DEFAULT_BACKEND_ID)) return DEFAULT_BACKEND_ID;
+      const ids = backends.ids();
+      if (ids.length === 0) {
+        throw new Error(
+          "No secret backend is registered. Ensure secrets-backend-local is installed.",
+        );
+      }
+      return ids[0];
+    };
+
+    // SecretStore backed by the active backend's `get`, throwing on a
+    // missing secret so a required reference fails clearly.
+    const secretStore: SecretStore = {
+      resolve: async (name: string): Promise<string> => {
+        const backend = backends.get(await getActiveBackendId());
+        const value = await backend.get({ name });
+        if (value === undefined) {
+          throw new Error(`Secret not found: ${name}`);
+        }
+        return value;
+      },
+    };
+
+    const resolver = createSecretResolverService({ secretStore });
+    env.registerService(secretResolverRef, resolver);
+
+    env.registerInit({
+      deps: {
+        logger: coreServices.logger,
+        rpc: coreServices.rpc,
+      },
+      init: async ({ logger, rpc }) => {
+        logger.debug("🔐 Initializing Secrets Backend...");
+
+        const router = createSecretsRouter({
+          backends,
+          getActiveBackendId,
+          emitChanged: async (input) => {
+            await (env as unknown as EnvStash).emitChanged?.(input);
+          },
+        });
+        rpc.registerRouter(router, secretsContract);
+
+        logger.debug("✅ Secrets Backend initialized.");
+      },
+
+      afterPluginsReady: async ({ logger, emitHook }) => {
+        (env as unknown as EnvStash).emitChanged = async (input) => {
+          await emitHook(secretsChangedHook, input);
+        };
+        logger.debug("✅ Secrets Backend afterPluginsReady complete.");
+      },
+    });
+  },
+});
+
+// ─── Public surface ──────────────────────────────────────────────────────
+
+export {
+  secretBackendExtensionPoint,
+  type SecretBackend,
+  type SecretBackendExtensionPoint,
+} from "./secret-backend";
+export {
+  createSecretBackendRegistry,
+  type SecretBackendRegistry,
+} from "./secret-backend-registry";
+export {
+  resolveSecretsBySchema,
+  type SecretStore,
+  type SecretResolutionResult,
+} from "./secret-resolver";
+export {
+  createSecretResolverService,
+  type SecretResolverService,
+} from "./resolver-service";
+export {
+  createMaskingContext,
+  EMPTY_MASKING_CONTEXT,
+  type SecretMaskingContext,
+} from "./masking-context";
+export { secretsChangedHook } from "./hooks";

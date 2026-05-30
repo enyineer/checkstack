@@ -226,6 +226,12 @@
       "path": "./core/script-packages-store-s3"
     },
     {
+      "path": "./core/secrets-backend"
+    },
+    {
+      "path": "./core/secrets-backend-local"
+    },
+    {
       "path": "./core/secrets-common"
     },
     {
