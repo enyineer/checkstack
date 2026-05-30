@@ -4,6 +4,11 @@ import { pluginMetadata } from "./plugin-metadata";
 import { secretsAccess } from "./access";
 import { secretNameSchema } from "./secret-field";
 import { secretMetadataSchema } from "./metadata";
+import {
+  backendConfigDtoSchema,
+  setBackendConfigInputSchema,
+  testBackendResultSchema,
+} from "./backend-config";
 
 /**
  * Secrets platform RPC contract.
@@ -63,18 +68,38 @@ export const secretsContract = {
 
   /**
    * Active backend configuration (metadata only). Never returns backend
-   * auth credentials. Vault config UI lands in a later phase.
+   * auth credentials or any secret value.
    */
   getBackendConfig: proc({
     operationType: "query",
     userType: "authenticated",
     access: [secretsAccess.secret.read],
-  }).output(
-    z.object({
-      activeBackend: z.string(),
-      availableBackends: z.array(z.string()),
-    }),
-  ),
+  }).output(backendConfigDtoSchema),
+
+  /**
+   * Select the active backend and (for Vault) configure the connection.
+   * The Vault auth credential is write-only — accepted here, stored
+   * encrypted, never returned. `manage`-gated.
+   */
+  setBackendConfig: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [secretsAccess.secret.manage],
+  })
+    .input(setBackendConfigInputSchema)
+    .output(z.object({ success: z.boolean() })),
+
+  /**
+   * Validate connectivity / auth for a backend (the active one, or the id
+   * given). Returns status only — never a secret value.
+   */
+  testBackend: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [secretsAccess.secret.manage],
+  })
+    .input(z.object({ backend: z.string().optional() }))
+    .output(testBackendResultSchema),
 };
 
 export type SecretsContract = typeof secretsContract;

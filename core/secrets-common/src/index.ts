@@ -17,6 +17,18 @@ export {
 } from "./env-mapping";
 export { secretMetadataSchema, type SecretMetadata } from "./metadata";
 export {
+  vaultAuthMethodSchema,
+  vaultConfigMetaSchema,
+  backendConfigDtoSchema,
+  setBackendConfigInputSchema,
+  testBackendResultSchema,
+  type VaultAuthMethod,
+  type VaultConfigMeta,
+  type BackendConfigDto,
+  type SetBackendConfigInput,
+  type TestBackendResult,
+} from "./backend-config";
+export {
   maskSecrets,
   maskSecretsDeep,
   DEFAULT_MASK_TOKEN,

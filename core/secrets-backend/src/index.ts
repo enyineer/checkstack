@@ -25,6 +25,10 @@ import {
   createSecretAdminService,
   type SecretAdminService,
 } from "./admin-service";
+import {
+  createBackendConfigStore,
+  type BackendConfigStore,
+} from "./backend-config-store";
 import type { SecretStore } from "./secret-resolver";
 import { createSecretsRouter } from "./router";
 import { secretsChangedHook } from "./hooks";
@@ -53,6 +57,7 @@ export const secretAdminRef = createServiceRef<SecretAdminService>(
 
 interface EnvStash {
   backends: SecretBackendRegistry;
+  configStore?: BackendConfigStore;
   emitChanged?: (input: {
     name: string;
     change: "created" | "rotated" | "deleted";
@@ -77,9 +82,10 @@ export default createBackendPlugin({
       },
     });
 
-    // The active backend id is config-selected; until the Vault backend +
-    // selection UI land (Phase 4) the default is always the local backend.
-    const getActiveBackendId = async (): Promise<string> => {
+    // The active backend id is config-selected (persisted via the config
+    // store, set in `init`). Falls back to the local backend when no choice
+    // is persisted or the persisted choice is not currently registered.
+    const fallbackBackendId = (): string => {
       if (backends.has(DEFAULT_BACKEND_ID)) return DEFAULT_BACKEND_ID;
       const ids = backends.ids();
       if (ids.length === 0) {
@@ -88,6 +94,23 @@ export default createBackendPlugin({
         );
       }
       return ids[0];
+    };
+
+    const getActiveBackendId = async (): Promise<string> => {
+      const store = (env as unknown as EnvStash).configStore;
+      const redacted = await store?.loadRedacted();
+      const persisted = redacted?.activeBackend;
+      if (persisted && backends.has(persisted)) return persisted;
+      return fallbackBackendId();
+    };
+
+    const setActiveBackendId = async (id: string): Promise<void> => {
+      const store = (env as unknown as EnvStash).configStore;
+      if (!store) {
+        throw new Error("Backend config store is not initialized yet.");
+      }
+      const current = (await store.load()) ?? { activeBackend: id };
+      await store.save({ ...current, activeBackend: id });
     };
 
     // SecretStore backed by the active backend's `get`, throwing on a
@@ -126,13 +149,19 @@ export default createBackendPlugin({
       deps: {
         logger: coreServices.logger,
         rpc: coreServices.rpc,
+        config: coreServices.config,
       },
-      init: async ({ logger, rpc }) => {
+      init: async ({ logger, rpc, config }) => {
         logger.debug("🔐 Initializing Secrets Backend...");
+
+        (env as unknown as EnvStash).configStore = createBackendConfigStore({
+          config,
+        });
 
         const router = createSecretsRouter({
           backends,
           getActiveBackendId,
+          setActiveBackendId,
           emitChanged,
         });
         rpc.registerRouter(router, secretsContract);

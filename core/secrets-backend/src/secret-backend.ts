@@ -1,6 +1,13 @@
 import { createExtensionPoint } from "@checkstack/backend-api";
 import type { PluginMetadata } from "@checkstack/common";
-import type { SecretMetadata } from "@checkstack/secrets-common";
+import type {
+  SecretMetadata,
+  SetBackendConfigInput,
+  BackendConfigDto,
+} from "@checkstack/secrets-common";
+
+/** Public Vault connection metadata (never the credential). */
+type VaultConfigMeta = NonNullable<BackendConfigDto["vault"]>;
 
 /**
  * A pluggable secret store. Built-ins: `secrets-backend-local` (default,
@@ -33,6 +40,28 @@ export interface SecretBackend {
 
   /** Metadata for every secret this backend holds. NEVER returns values. */
   list(): Promise<SecretMetadata[]>;
+
+  /**
+   * Validate connectivity / auth for this backend. Returns status only and
+   * NEVER a secret value. Optional — a backend that needs no external
+   * connectivity (e.g. local) may omit it (treated as always-ok).
+   */
+  test?(): Promise<{ ok: boolean; message: string }>;
+
+  /**
+   * Persist this backend's connection config (e.g. Vault address / auth /
+   * credential). Implemented by externally-configured backends; the backend
+   * owns its own config storage (its plugin-scoped `ConfigService`). The
+   * write-only `credential` is encrypted at rest and never returned.
+   * Local-style backends omit this.
+   */
+  configure?(input: NonNullable<SetBackendConfigInput["vault"]>): Promise<void>;
+
+  /**
+   * Public connection metadata for the admin UI (NEVER the credential).
+   * Omitted by backends with no external connection.
+   */
+  getConfigMeta?(): Promise<VaultConfigMeta | undefined>;
 }
 
 /**
