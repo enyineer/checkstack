@@ -158,11 +158,15 @@ export function createIntegrationRouter(deps: RouterDeps) {
 
       logger.info(`Created connection "${name}" for provider ${providerId}`);
 
+      // Return the REDACTED preview (secret fields stripped) rather than
+      // echoing the raw submitted config back — credentials must never
+      // cross back to the browser, even on create.
+      const redacted = await connectionStore.getConnection(connection.id);
       return {
         id: connection.id,
         providerId: connection.providerId,
         name: connection.name,
-        configPreview: config,
+        configPreview: redacted?.configPreview ?? {},
         createdAt: connection.createdAt,
         updatedAt: connection.updatedAt,
       };
@@ -177,11 +181,14 @@ export function createIntegrationRouter(deps: RouterDeps) {
           updates,
         });
 
+        // Return the REDACTED preview rather than echoing the submitted
+        // config — credentials must never cross back to the browser.
+        const redacted = await connectionStore.getConnection(connection.id);
         return {
           id: connection.id,
           providerId: connection.providerId,
           name: connection.name,
-          configPreview: (updates.config ?? {}) as Record<string, unknown>,
+          configPreview: redacted?.configPreview ?? {},
           createdAt: connection.createdAt,
           updatedAt: connection.updatedAt,
         };
