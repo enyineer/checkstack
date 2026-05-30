@@ -7,10 +7,12 @@ import type {
   TransportClient,
   CollectorRunContext,
 } from "@checkstack/backend-api";
+import { resolveScriptPackagesDir } from "@checkstack/script-packages-backend";
 import { SatelliteClient } from "./satellite-client";
 import { Scheduler } from "./scheduler";
 import { loadStrategies } from "./strategy-loader";
 import { buildRunContext } from "./run-context";
+import { SatelliteScriptPackages } from "./satellite-script-packages";
 
 // =============================================================================
 // Environment validation — fail fast if required vars are missing
@@ -251,9 +253,24 @@ const client = new SatelliteClient({
   onAssignments: (assignments: SatelliteAssignment[]) => {
     scheduler.updateAssignments(assignments);
   },
+  onScriptPackagesLockfileHash: (lockfileHash) => {
+    void scriptPackages.reconcile(lockfileHash);
+  },
   onDisconnect: () => {
     scheduler.stop();
   },
+});
+
+// Script-package reconciler: pulls blobs from CORE over the WS channel
+// (never the registry), materializes node_modules, atomically flips
+// `<store>/current`. Triggered on connect (assignment-carried backstop) and
+// on `refresh_script_packages` pushes.
+const scriptPackages = new SatelliteScriptPackages({
+  storeRoot: resolveScriptPackagesDir(),
+  requestManifest: (hash) => client.requestManifest(hash),
+  requestBlob: (integrity) => client.requestBlob(integrity),
+  reportState: (state) => client.reportScriptPackageSyncState(state),
+  logger,
 });
 
 const scheduler = new Scheduler({

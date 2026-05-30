@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
+    "@checkstack/script-packages-backend": "workspace:*",
     "@checkstack/cache-api": "workspace:*",
     "@checkstack/cache-utils": "workspace:*",
     "@checkstack/catalog-backend": "workspace:*",

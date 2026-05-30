@@ -12,6 +12,9 @@
     },
     {
       "path": "../../core/healthcheck-common"
+    },
+    {
+      "path": "../../core/script-packages-backend"
     }
   ]
 }

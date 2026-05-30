@@ -1,0 +1,28 @@
+{
+  "name": "@checkstack/script-packages-store-s3",
+  "version": "0.1.0",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "checkstack": {
+    "type": "backend"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@checkstack/backend-api": "workspace:*",
+    "@checkstack/common": "workspace:*",
+    "@checkstack/script-packages-backend": "workspace:*",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@checkstack/scripts": "workspace:*",
+    "@checkstack/tsconfig": "workspace:*",
+    "@types/bun": "^1.0.0",
+    "typescript": "^5.7.2"
+  }
+}

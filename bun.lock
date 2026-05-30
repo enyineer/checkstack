@@ -302,6 +302,7 @@
         "@checkstack/integration-common": "workspace:*",
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/queue-api": "workspace:*",
+        "@checkstack/script-packages-backend": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@checkstack/template-engine": "workspace:*",
         "@orpc/server": "^1.13.2",
@@ -344,6 +345,7 @@
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/gitops-frontend": "workspace:*",
         "@checkstack/integration-common": "workspace:*",
+        "@checkstack/script-packages-frontend": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
         "@checkstack/template-engine": "workspace:*",
         "@checkstack/ui": "workspace:*",
@@ -937,6 +939,7 @@
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/queue-api": "workspace:*",
         "@checkstack/satellite-backend": "workspace:*",
+        "@checkstack/script-packages-backend": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@hono/zod-validator": "^0.7.6",
         "@orpc/server": "^1.13.2",
@@ -986,6 +989,7 @@
         "@checkstack/gitops-frontend": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/satellite-common": "workspace:*",
+        "@checkstack/script-packages-frontend": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
         "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
@@ -1432,6 +1436,7 @@
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/satellite-common": "workspace:*",
+        "@checkstack/script-packages-backend": "workspace:*",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
@@ -1453,6 +1458,8 @@
         "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/queue-api": "workspace:*",
         "@checkstack/satellite-common": "workspace:*",
+        "@checkstack/script-packages-backend": "workspace:*",
+        "@checkstack/script-packages-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@orpc/server": "^1.13.2",
         "drizzle-orm": "^0.45.0",
@@ -1505,6 +1512,92 @@
         "@checkstack/tsconfig": "workspace:*",
         "@types/react": "^18.2.0",
         "typescript": "^5.0.0",
+      },
+    },
+    "core/script-packages-backend": {
+      "name": "@checkstack/script-packages-backend",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/backend-api": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/script-packages-common": "workspace:*",
+        "@orpc/server": "^1.13.2",
+        "drizzle-orm": "^0.45.0",
+        "zod": "^4.0.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "drizzle-kit": "^0.31.10",
+        "typescript": "^5.7.2",
+      },
+    },
+    "core/script-packages-common": {
+      "name": "@checkstack/script-packages-common",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/common": "workspace:*",
+        "@checkstack/signal-common": "workspace:*",
+        "@orpc/contract": "^1.13.14",
+        "zod": "^4.0.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
+    "core/script-packages-frontend": {
+      "name": "@checkstack/script-packages-frontend",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/common": "workspace:*",
+        "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/script-packages-common": "workspace:*",
+        "@checkstack/ui": "workspace:*",
+        "lucide-react": "0.562.0",
+        "react": "^18.3.1",
+        "react-router-dom": "^6.20.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/react": "^18.3.18",
+        "typescript": "^5.7.2",
+      },
+    },
+    "core/script-packages-store-postgres": {
+      "name": "@checkstack/script-packages-store-postgres",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/backend-api": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/script-packages-backend": "workspace:*",
+        "@checkstack/script-packages-common": "workspace:*",
+        "drizzle-orm": "^0.45.0",
+        "zod": "^4.0.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "drizzle-kit": "^0.31.10",
+        "typescript": "^5.7.2",
+      },
+    },
+    "core/script-packages-store-s3": {
+      "name": "@checkstack/script-packages-store-s3",
+      "version": "0.1.0",
+      "dependencies": {
+        "@checkstack/backend-api": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/script-packages-backend": "workspace:*",
+        "zod": "^4.0.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/bun": "^1.0.0",
+        "typescript": "^5.7.2",
       },
     },
     "core/scripts": {
@@ -2159,6 +2252,7 @@
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
+        "@checkstack/script-packages-backend": "workspace:*",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
@@ -2271,6 +2365,8 @@
         "@checkstack/automation-common": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
+        "@checkstack/script-packages-backend": "workspace:*",
+        "@checkstack/script-packages-common": "workspace:*",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -2867,6 +2963,16 @@
     "@checkstack/satellite-common": ["@checkstack/satellite-common@workspace:core/satellite-common"],
 
     "@checkstack/satellite-frontend": ["@checkstack/satellite-frontend@workspace:core/satellite-frontend"],
+
+    "@checkstack/script-packages-backend": ["@checkstack/script-packages-backend@workspace:core/script-packages-backend"],
+
+    "@checkstack/script-packages-common": ["@checkstack/script-packages-common@workspace:core/script-packages-common"],
+
+    "@checkstack/script-packages-frontend": ["@checkstack/script-packages-frontend@workspace:core/script-packages-frontend"],
+
+    "@checkstack/script-packages-store-postgres": ["@checkstack/script-packages-store-postgres@workspace:core/script-packages-store-postgres"],
+
+    "@checkstack/script-packages-store-s3": ["@checkstack/script-packages-store-s3@workspace:core/script-packages-store-s3"],
 
     "@checkstack/scripts": ["@checkstack/scripts@workspace:core/scripts"],
 
@@ -5321,6 +5427,8 @@
     "@checkstack/queue-frontend/lucide-react": ["lucide-react@0.468.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0-rc" } }, "sha512-6koYRhnM2N0GGZIdXzSeiNwguv1gt/FAjZOiPl76roBi3xKEXa4WmfpxgQwTTL4KipXjefrnf3oV4IsYhi4JFA=="],
 
     "@checkstack/queue-frontend/react-router-dom": ["react-router-dom@7.14.2", "", { "dependencies": { "react-router": "7.14.2" }, "peerDependencies": { "react": ">=18", "react-dom": ">=18" } }, "sha512-YZcM5ES8jJSM+KrJ9BdvHHqlnGTg5tH3sC5ChFRj4inosKctdyzBDhOyyHdGk597q2OT6NTrCA1OvB/YDwfekQ=="],
+
+    "@checkstack/script-packages-frontend/lucide-react": ["lucide-react@0.562.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-82hOAu7y0dbVuFfmO4bYF1XEwYk/mEbM5E+b1jgci/udUBEE/R7LF5Ip0CCEmXe8AybRM8L+04eP+LGZeDvkiw=="],
 
     "@checkstack/ui/lucide-react": ["lucide-react@0.562.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-82hOAu7y0dbVuFfmO4bYF1XEwYk/mEbM5E+b1jgci/udUBEE/R7LF5Ip0CCEmXe8AybRM8L+04eP+LGZeDvkiw=="],
 

@@ -9,6 +9,8 @@ import {
 } from "@checkstack/satellite-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import { healthCheckHooks } from "@checkstack/healthcheck-backend";
+import { ScriptPackagesApi } from "@checkstack/script-packages-common";
+import { scriptPackagesChangedHook } from "@checkstack/script-packages-backend";
 import { SatelliteService } from "./service";
 import { createSatelliteRouter } from "./router";
 import { HeartbeatMonitor } from "./heartbeat-monitor";
@@ -129,6 +131,35 @@ export default createBackendPlugin({
             connectedHook: satelliteHooks.connected,
             disconnectedHook: satelliteHooks.disconnected,
           },
+          {
+            // Script-package distribution: carry the desired lockfile hash in
+            // assignment payloads + persist per-satellite reconcile state.
+            // Satellites pull blobs from CORE (getManifest/downloadBlob),
+            // never the registry.
+            getDesiredLockfileHash: async () => {
+              const spClient = rpcClient.forPlugin(ScriptPackagesApi);
+              const state = await spClient.getInstallState();
+              return state.lockfileHash;
+            },
+            reportSyncState: async (input) => {
+              const spClient = rpcClient.forPlugin(ScriptPackagesApi);
+              await spClient.reportSatelliteSyncState(input);
+            },
+            getManifest: async ({ lockfileHash }) => {
+              const spClient = rpcClient.forPlugin(ScriptPackagesApi);
+              const res = await spClient.getManifest({ lockfileHash });
+              return res.entries;
+            },
+            getBlobBase64: async ({ integrity }) => {
+              const spClient = rpcClient.forPlugin(ScriptPackagesApi);
+              try {
+                const res = await spClient.downloadBlob({ integrity });
+                return res.data;
+              } catch {
+                return null;
+              }
+            },
+          },
         );
 
         // Register satellite WebSocket endpoint via the scoped WS registry
@@ -182,6 +213,18 @@ export default createBackendPlugin({
           async () => {
             await wsHandler.pushConfigUpdateToAll();
           },
+        );
+
+        // Fan the script-packages.changed broadcast out to THIS instance's
+        // connected satellites. Every core instance subscribes in broadcast
+        // mode, so each pushes to its own satellites; offline satellites
+        // converge via the assignment-carried lockfile hash on reconnect.
+        onHook(
+          scriptPackagesChangedHook,
+          async ({ lockfileHash }) => {
+            wsHandler.pushRefreshScriptPackagesToAll(lockfileHash);
+          },
+          { mode: "broadcast" },
         );
 
         logger.debug("✅ Satellite Backend afterPluginsReady complete.");

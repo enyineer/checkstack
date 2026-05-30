@@ -18,6 +18,7 @@
     "@checkstack/frontend-api": "workspace:*",
     "@checkstack/gitops-frontend": "workspace:*",
     "@checkstack/integration-common": "workspace:*",
+    "@checkstack/script-packages-frontend": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/template-engine": "workspace:*",
     "@checkstack/ui": "workspace:*",

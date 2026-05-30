@@ -38,6 +38,13 @@ export interface ConfigMeta {
    * - "formdata": Key/value pair editor (URL-encoded)
    */
   "x-editor-types"?: EditorType[];
+  /**
+   * Mark this field as an inline script that can be tested in-UI. When the
+   * editor renders the field (via `MultiTypeEditorField`) and the owning
+   * page supplies a `scriptTestRenderer`, a test panel appears beneath the
+   * editor so operators can run the script against a sample context.
+   */
+  "x-script-testable"?: boolean;
 }
 
 /**

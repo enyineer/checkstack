@@ -1,0 +1,205 @@
+import { z } from "zod";
+
+/**
+ * Schemas for the script-packages platform.
+ *
+ * The admin curates a global allowlist of pinned npm packages
+ * (`name@exact-version`). The central backend resolves + bundles the
+ * package tree, publishes per-package content-addressed blobs to a
+ * pluggable blob store, and records a lockfile manifest. Every host that
+ * runs a user script (N core instances + each satellite) reconciles to
+ * the desired `lockfileHash` by delta-syncing only the blobs it lacks.
+ *
+ * See the feature plan for the full distribution model.
+ */
+
+// ─── Package allowlist ───────────────────────────────────────────────────
+
+/** A package name must be a valid (optionally scoped) npm package name. */
+export const PackageNameSchema = z
+  .string()
+  .min(1)
+  .max(214)
+  .regex(
+    /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/,
+    "Invalid npm package name",
+  );
+
+/**
+ * An exact semver version. Pinned (no ranges) so installs are
+ * deterministic and the resulting tree is reproducible across hosts.
+ */
+export const PackageVersionSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(
+    /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z-.]+)?$/,
+    "Version must be exact (e.g. 4.17.21), not a range",
+  );
+
+/** One allowlist entry: a pinned package and whether it's currently enabled. */
+export const PackageSpecSchema = z.object({
+  name: PackageNameSchema,
+  version: PackageVersionSchema,
+  enabled: z.boolean().default(true),
+  addedBy: z.string().nullable().optional(),
+  addedAt: z.coerce.date().optional(),
+  updatedAt: z.coerce.date().optional(),
+});
+export type PackageSpec = z.infer<typeof PackageSpecSchema>;
+
+// ─── Registry config ─────────────────────────────────────────────────────
+
+/** A scoped-registry override: `@scope` → registry URL. */
+export const ScopedRegistrySchema = z.object({
+  scope: z
+    .string()
+    .regex(/^@[a-z0-9-~][a-z0-9-._~]*$/, "Scope must look like @acme"),
+  registryUrl: z.string().url(),
+});
+export type ScopedRegistry = z.infer<typeof ScopedRegistrySchema>;
+
+/**
+ * Registry configuration rendered to `.npmrc` at install time. The auth
+ * token is stored as a connection-store secret and NEVER returned to the
+ * client in plaintext - the DTO carries only a boolean `hasAuthToken`.
+ */
+export const RegistryConfigSchema = z.object({
+  registryUrl: z.string().url().default("https://registry.npmjs.org/"),
+  scopedRegistries: z.array(ScopedRegistrySchema).default([]),
+  /** True when an auth token secret is configured (never the value). */
+  hasAuthToken: z.boolean().default(false),
+  /**
+   * `--ignore-scripts` toggle. Default ON: postinstall is the RCE vector
+   * and the size guardrail (native builds / binary downloads won't run).
+   */
+  ignoreScripts: z.boolean().default(true),
+  updatedAt: z.coerce.date().optional(),
+});
+export type RegistryConfig = z.infer<typeof RegistryConfigSchema>;
+
+/** Input for `setRegistryConfig`. The token is write-only. */
+export const SetRegistryConfigInputSchema = z.object({
+  registryUrl: z.string().url(),
+  scopedRegistries: z.array(ScopedRegistrySchema).default([]),
+  ignoreScripts: z.boolean().default(true),
+  /**
+   * New auth token. Omit to leave the existing secret untouched; pass an
+   * empty string to clear it. Never echoed back.
+   */
+  authToken: z.string().optional(),
+});
+export type SetRegistryConfigInput = z.infer<
+  typeof SetRegistryConfigInputSchema
+>;
+
+// ─── Lockfile manifest ─────────────────────────────────────────────────────
+
+/** One resolved package in the lockfile manifest. */
+export const ManifestEntrySchema = z.object({
+  name: PackageNameSchema,
+  version: PackageVersionSchema,
+  /** Integrity hash (sri, e.g. `sha512-...`) - the content-addressed key. */
+  integrity: z.string().min(1),
+});
+export type ManifestEntry = z.infer<typeof ManifestEntrySchema>;
+
+export const InstallStatusSchema = z.enum([
+  "idle",
+  "installing",
+  "ready",
+  "error",
+]);
+export type InstallStatus = z.infer<typeof InstallStatusSchema>;
+
+/**
+ * Desired install state: the `lockfileHash` every host reconciles to,
+ * its manifest, and resolved total size. Surfaced to editors (for the
+ * "packages ready" gate) and reconcilers (for delta diffing).
+ */
+export const InstallStateSchema = z.object({
+  status: InstallStatusSchema,
+  lockfileHash: z.string().nullable(),
+  manifest: z.array(ManifestEntrySchema),
+  totalSizeBytes: z.number().int().nonnegative(),
+  lastInstalledAt: z.coerce.date().nullable(),
+  errorMessage: z.string().nullable(),
+});
+export type InstallState = z.infer<typeof InstallStateSchema>;
+
+// ─── Storage config / migration ────────────────────────────────────────────
+
+/** Backend identifier for the active blob store. Open-ended (plugins). */
+export const StorageBackendIdSchema = z.string().min(1);
+
+export const MigrationStatusSchema = z.enum([
+  "idle",
+  "migrating",
+  "completed",
+  "error",
+]);
+export type MigrationStatus = z.infer<typeof MigrationStatusSchema>;
+
+export const StorageConfigSchema = z.object({
+  activeBackend: StorageBackendIdSchema,
+  migrationStatus: MigrationStatusSchema,
+  migrationTarget: z.string().nullable(),
+  migratedCount: z.number().int().nonnegative(),
+  migrationError: z.string().nullable(),
+  updatedAt: z.coerce.date().optional(),
+});
+export type StorageConfig = z.infer<typeof StorageConfigSchema>;
+
+// ─── Per-host reconcile state ───────────────────────────────────────────────
+
+export const HostSyncStatusSchema = z.enum([
+  "pending",
+  "syncing",
+  "ready",
+  "error",
+]);
+export type HostSyncStatus = z.infer<typeof HostSyncStatusSchema>;
+
+export const SatelliteSyncStateSchema = z.object({
+  satelliteId: z.string(),
+  lockfileHash: z.string().nullable(),
+  status: HostSyncStatusSchema,
+  errorMessage: z.string().nullable(),
+  syncedAt: z.coerce.date().nullable(),
+});
+export type SatelliteSyncState = z.infer<typeof SatelliteSyncStateSchema>;
+
+// ─── Editor IntelliSense ────────────────────────────────────────────────────
+
+/** Rolled-up `.d.ts` for one installed package, for Monaco. */
+export const PackageTypesSchema = z.object({
+  name: PackageNameSchema,
+  version: PackageVersionSchema,
+  /** `declare module '<name>' { ... }` wrapped types, or empty if none. */
+  dts: z.string(),
+});
+export type PackageTypes = z.infer<typeof PackageTypesSchema>;
+
+// ─── Size guardrail ─────────────────────────────────────────────────────────
+
+/**
+ * Total-size cap. The admin UI warns above `warnBytes` and blocks installs
+ * above `blockBytes`. Defaults: warn 150 MB, block 300 MB (admin-configurable).
+ */
+export const SizeCapConfigSchema = z.object({
+  warnBytes: z
+    .number()
+    .int()
+    .positive()
+    .default(150 * 1024 * 1024),
+  blockBytes: z
+    .number()
+    .int()
+    .positive()
+    .default(300 * 1024 * 1024),
+});
+export type SizeCapConfig = z.infer<typeof SizeCapConfigSchema>;
+
+export const DEFAULT_WARN_BYTES = 150 * 1024 * 1024;
+export const DEFAULT_BLOCK_BYTES = 300 * 1024 * 1024;

@@ -17,7 +17,11 @@ import {
   parseFormData,
   EDITOR_TYPE_LABELS,
 } from "./utils";
-import type { EditorStarterTemplates, ShellEnvVar } from "./types";
+import type {
+  EditorStarterTemplates,
+  ScriptTestRenderer,
+  ShellEnvVar,
+} from "./types";
 import { pickStarterForEmptyField } from "./starterTemplateSelector";
 
 export interface MultiTypeEditorFieldProps {
@@ -54,6 +58,15 @@ export interface MultiTypeEditorFieldProps {
    * working example instead of a blank canvas.
    */
   starterTemplates?: EditorStarterTemplates;
+  /**
+   * Optional renderer for the inline script-test panel. When supplied (the
+   * field is `x-script-testable`), it is rendered beneath the editor for
+   * `typescript` / `shell` modes, with the currently-selected language as
+   * `kind`. The owning page wires it to the `testScript` RPC.
+   */
+  scriptTestRenderer?: ScriptTestRenderer;
+  /** Form key of this field, forwarded to {@link scriptTestRenderer}. */
+  fieldId?: string;
   /** Callback when value changes */
   onChange: (value: string | undefined) => void;
 }
@@ -74,6 +87,8 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
   typeDefinitions,
   shellEnvVars,
   starterTemplates,
+  scriptTestRenderer,
+  fieldId,
   onChange,
 }) => {
   // Detect initial editor type from value
@@ -376,6 +391,19 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
           shellEnvVars={shellEnvVars}
         />
       )}
+
+      {/* Inline script-test panel for testable code fields. Shell maps to
+          the `shell` test kind; both typescript and javascript map to the
+          `typescript` runner kind (the ESM runner handles both). */}
+      {scriptTestRenderer !== undefined &&
+        (selectedType === "typescript" ||
+          selectedType === "javascript" ||
+          selectedType === "shell") &&
+        scriptTestRenderer({
+          fieldId: fieldId ?? id,
+          kind: selectedType === "shell" ? "shell" : "typescript",
+          script: value ?? "",
+        })}
     </div>
   );
 };

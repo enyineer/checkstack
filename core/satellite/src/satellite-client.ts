@@ -8,8 +8,15 @@ import type {
   CoreToSatelliteMessage,
   SatelliteToCoreMessage,
   ResultMessage,
+  ScriptPackageSyncStateMessage,
 } from "@checkstack/satellite-common";
 import { ResultBuffer } from "./result-buffer";
+
+interface ManifestEntryWire {
+  name: string;
+  version: string;
+  integrity: string;
+}
 
 interface SatelliteClientConfig {
   coreUrl: string;
@@ -18,6 +25,12 @@ interface SatelliteClientConfig {
   version: string;
   onAssignments: (assignments: SatelliteAssignment[]) => void;
   onDisconnect?: () => void;
+  /**
+   * Called with the desired script-package lockfile hash whenever the core
+   * signals one - on connect (assignment-carried backstop) and on a
+   * `refresh_script_packages` push. The satellite reconciles to it.
+   */
+  onScriptPackagesLockfileHash?: (lockfileHash: string | null) => void;
   logger?: {
     info: (msg: string) => void;
     warn: (msg: string) => void;
@@ -38,9 +51,65 @@ export class SatelliteClient {
   private connected = false;
   private readonly resultBuffer = new ResultBuffer();
   private readonly config: SatelliteClientConfig;
+  // Pending script-package request promises, resolved when the matching
+  // core reply arrives. Keyed by lockfileHash (manifest) / integrity (blob).
+  private readonly pendingManifest = new Map<
+    string,
+    (entries: ManifestEntryWire[]) => void
+  >();
+  private readonly pendingBlob = new Map<
+    string,
+    (data: string | null) => void
+  >();
 
   constructor(config: SatelliteClientConfig) {
     this.config = config;
+  }
+
+  /**
+   * Request the manifest for a lockfile hash from core (over the WS channel).
+   * Resolves when the core replies, or rejects on timeout.
+   */
+  requestManifest(
+    lockfileHash: string,
+    timeoutMs = 30_000,
+  ): Promise<ManifestEntryWire[]> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingManifest.delete(lockfileHash);
+        reject(new Error(`Manifest request timed out for ${lockfileHash}`));
+      }, timeoutMs);
+      this.pendingManifest.set(lockfileHash, (entries) => {
+        clearTimeout(timer);
+        resolve(entries);
+      });
+      this.sendMessage({
+        type: "request_script_package_manifest",
+        lockfileHash,
+      });
+    });
+  }
+
+  /** Request one blob (base64) from core. Resolves null if core lacks it. */
+  requestBlob(integrity: string, timeoutMs = 60_000): Promise<string | null> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingBlob.delete(integrity);
+        reject(new Error(`Blob request timed out for ${integrity}`));
+      }, timeoutMs);
+      this.pendingBlob.set(integrity, (data) => {
+        clearTimeout(timer);
+        resolve(data);
+      });
+      this.sendMessage({ type: "request_script_package_blob", integrity });
+    });
+  }
+
+  /** Report this satellite's script-package reconcile state to core. */
+  reportScriptPackageSyncState(
+    state: Omit<ScriptPackageSyncStateMessage, "type">,
+  ): void {
+    this.sendMessage({ type: "script_package_sync_state", ...state });
   }
 
   /**
@@ -123,6 +192,13 @@ export class SatelliteClient {
         this.startHeartbeat();
         this.flushBuffer();
         this.config.onAssignments(msg.assignments);
+        // Durable backstop: reconcile to the assignment-carried hash on
+        // every (re)connect, even if a refresh push was missed offline.
+        if (msg.scriptPackagesLockfileHash !== undefined) {
+          this.config.onScriptPackagesLockfileHash?.(
+            msg.scriptPackagesLockfileHash,
+          );
+        }
         break;
       }
 
@@ -138,6 +214,31 @@ export class SatelliteClient {
           `Config updated: ${msg.assignments.length} assignments`,
         );
         this.config.onAssignments(msg.assignments);
+        if (msg.scriptPackagesLockfileHash !== undefined) {
+          this.config.onScriptPackagesLockfileHash?.(
+            msg.scriptPackagesLockfileHash,
+          );
+        }
+        break;
+      }
+
+      case "refresh_script_packages": {
+        this.config.logger?.info(
+          `Script packages refresh requested: ${msg.lockfileHash}`,
+        );
+        this.config.onScriptPackagesLockfileHash?.(msg.lockfileHash);
+        break;
+      }
+
+      case "script_package_manifest": {
+        this.pendingManifest.get(msg.lockfileHash)?.(msg.entries);
+        this.pendingManifest.delete(msg.lockfileHash);
+        break;
+      }
+
+      case "script_package_blob": {
+        this.pendingBlob.get(msg.integrity)?.(msg.data);
+        this.pendingBlob.delete(msg.integrity);
         break;
       }
 

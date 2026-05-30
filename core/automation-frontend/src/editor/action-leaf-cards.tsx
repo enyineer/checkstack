@@ -33,6 +33,8 @@ import { useAutomationRegistry } from "./registry-context";
 import { ItemPicker } from "./ItemPicker";
 import { ConditionEditor } from "./ConditionEditor";
 import { useConnectionOptionResolvers } from "./useConnectionOptionResolvers";
+import { automationScriptTestRenderer } from "./ScriptTestRenderer";
+import { useScriptPackageTypes } from "@checkstack/script-packages-frontend";
 
 /**
  * Provider action body. Picks an action id from `listActions()` then
@@ -73,6 +75,17 @@ export const ProviderActionBody: React.FC<{
   shellEnvVars,
 }) => {
   const { actions, loading } = useAutomationRegistry();
+  // Installed npm-package `.d.ts`, merged into the TS editor's type
+  // definitions so `import { x } from "<pkg>"` autocompletes. Appended to
+  // the scope-derived `context` types already threaded down.
+  const { dts: packageTypes } = useScriptPackageTypes();
+  const mergedTypeDefinitions = React.useMemo(
+    () =>
+      packageTypes.length > 0
+        ? `${typeDefinitions}\n${packageTypes}`
+        : typeDefinitions,
+    [typeDefinitions, packageTypes],
+  );
   // The shell script action exposes a user-editable `env` field; surface
   // its keys as `$`-completions alongside the run-scope `$CHECKSTACK_*`
   // vars (memoised so the editor's completion provider isn't re-registered
@@ -143,8 +156,9 @@ export const ProviderActionBody: React.FC<{
         optionsResolvers={optionsResolvers}
         templateProperties={templateProperties}
         templateCompletionProvider={completionProvider}
-        typeDefinitions={typeDefinitions}
+        typeDefinitions={mergedTypeDefinitions}
         shellEnvVars={mergedShellEnvVars}
+        scriptTestRenderer={automationScriptTestRenderer}
       />
     </div>
   );

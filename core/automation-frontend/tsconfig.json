@@ -20,6 +20,9 @@
       "path": "../integration-common"
     },
     {
+      "path": "../script-packages-frontend"
+    },
+    {
       "path": "../signal-frontend"
     },
     {

@@ -25,6 +25,7 @@ import {
 import { pluginMetadata } from "./plugin-metadata";
 import type { ScriptTransportClient } from "./transport-client";
 import { extractErrorMessage } from "@checkstack/common";
+import type { ResolutionRootStatus } from "@checkstack/script-packages-backend";
 
 // ============================================================================
 // EXECUTOR ADAPTER
@@ -58,6 +59,8 @@ export interface InlineScriptExecutor {
     config: Record<string, unknown>;
     timeoutMs: number;
     runContext?: CollectorRunContext;
+    /** Managed npm-package resolution root for this run, if ready. */
+    resolutionRoot?: string;
   }): Promise<InlineScriptExecutionResult>;
 }
 
@@ -67,8 +70,8 @@ export interface InlineScriptExecutor {
  * health-check runtime surface) and the virtual `@checkstack/healthcheck`
  * module / global `defineHealthCheck` helper.
  */
-const defaultInlineScriptExecutor: InlineScriptExecutor = {
-  async execute({ script, config, timeoutMs, runContext }) {
+export const defaultInlineScriptExecutor: InlineScriptExecutor = {
+  async execute({ script, config, timeoutMs, runContext, resolutionRoot }) {
     const res: EsmScriptRunResult = await defaultEsmScriptRunner.run({
       script,
       context: {
@@ -80,6 +83,7 @@ const defaultInlineScriptExecutor: InlineScriptExecutor = {
       timeoutMs,
       helperModuleName: "@checkstack/healthcheck",
       helperFunctionName: "defineHealthCheck",
+      ...(resolutionRoot ? { resolutionRoot } : {}),
     });
     return res;
   },
@@ -92,6 +96,7 @@ const defaultInlineScriptExecutor: InlineScriptExecutor = {
 const inlineScriptConfigSchema = z.object({
   script: configString({
     "x-editor-types": ["typescript"],
+    "x-script-testable": true,
   }).describe(
     "TypeScript/JavaScript module. Use `import { ... } from \"node:os\"` to pull in Node built-ins. The recommended pattern is `export default defineHealthCheck({ success, message?, value? })` — `defineHealthCheck` is provided by `@checkstack/healthcheck` and asserts the return shape at the type level. Throwing also signals failure.",
   ),
@@ -254,9 +259,14 @@ export class InlineScriptCollector implements CollectorStrategy<
   });
 
   private executor: InlineScriptExecutor;
+  private getResolutionRoot?: () => Promise<ResolutionRootStatus>;
 
-  constructor(executor: InlineScriptExecutor = defaultInlineScriptExecutor) {
+  constructor(
+    executor: InlineScriptExecutor = defaultInlineScriptExecutor,
+    getResolutionRoot?: () => Promise<ResolutionRootStatus>,
+  ) {
     this.executor = executor;
+    this.getResolutionRoot = getResolutionRoot;
   }
 
   async execute({
@@ -270,6 +280,23 @@ export class InlineScriptCollector implements CollectorStrategy<
   }): Promise<CollectorResult<InlineScriptResult>> {
     const startTime = Date.now();
 
+    // Resolve the managed npm-package root. `notReady` -> fail clearly;
+    // `none` -> unset (no packages); `ready` -> point the runner at it.
+    const rootStatus = await this.getResolutionRoot?.();
+    if (rootStatus?.mode === "notReady") {
+      return {
+        result: {
+          success: false,
+          message: rootStatus.reason,
+          executionTimeMs: Date.now() - startTime,
+          timedOut: false,
+        },
+        error: rootStatus.reason,
+      };
+    }
+    const resolutionRoot =
+      rootStatus?.mode === "ready" ? rootStatus.root : undefined;
+
     let exec: InlineScriptExecutionResult;
     try {
       exec = await this.executor.execute({
@@ -277,6 +304,7 @@ export class InlineScriptCollector implements CollectorStrategy<
         config: config as unknown as Record<string, unknown>,
         timeoutMs: config.timeout,
         runContext,
+        ...(resolutionRoot ? { resolutionRoot } : {}),
       });
     } catch (error) {
       const executionTimeMs = Date.now() - startTime;

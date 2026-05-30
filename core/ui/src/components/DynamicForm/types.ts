@@ -1,3 +1,4 @@
+import type React from "react";
 import type { TemplateProperty, ShellEnvVar } from "../CodeEditor";
 import type { TemplateCompletionProvider } from "../TemplateValueInput";
 import type { EditorType } from "@checkstack/common";
@@ -27,7 +28,25 @@ export interface JsonSchemaProperty extends JsonSchemaPropertyCore<JsonSchemaPro
   "x-editor-types"?: EditorType[]; // Available editor types for multi-type input
   "x-hidden-when"?: Record<string, string[]>; // Conditionally hide based on sibling field values
   "x-duration"?: boolean; // Render a DurationInput (single-unit duration object)
+  "x-script-testable"?: boolean; // Field is an inline script that can be tested in-UI
 }
+
+/**
+ * Renders the inline script-test UI beneath a testable script field. The
+ * owning feature page supplies this; it owns the RPC call + sample-context
+ * state and typically renders a `ScriptTestPanel`. The form only decides
+ * *where* it appears (below any `x-script-testable` field whose selected
+ * editor type is a code language). Mirrors the callback-prop pattern used
+ * by `optionsResolvers` / `templateCompletionProvider`.
+ */
+export type ScriptTestRenderer = (args: {
+  /** The field's id (form key). */
+  fieldId: string;
+  /** Editor language currently selected in the field. */
+  kind: "typescript" | "shell";
+  /** Current script source in the field. */
+  script: string;
+}) => React.ReactNode;
 
 /** Option returned by an options resolver */
 export interface ResolverOption {
@@ -99,6 +118,13 @@ export interface DynamicFormProps {
    * fields with a working example. Keyed by `EditorType`.
    */
   starterTemplates?: EditorStarterTemplates;
+  /**
+   * Optional renderer for the inline script-test panel. When supplied,
+   * fields flagged `x-script-testable` (whose selected editor type is a
+   * code language) render this beneath the editor so operators can run
+   * the script against a sample context. Omit it and no test UI appears.
+   */
+  scriptTestRenderer?: ScriptTestRenderer;
 }
 
 /** Props for the FormField component */
@@ -115,6 +141,7 @@ export interface FormFieldProps {
   typeDefinitions?: string;
   shellEnvVars?: ShellEnvVar[];
   starterTemplates?: EditorStarterTemplates;
+  scriptTestRenderer?: ScriptTestRenderer;
   /** Callback when value changes. Omit val to clear the field. */
   onChange: (val?: unknown) => void;
 }

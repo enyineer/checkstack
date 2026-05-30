@@ -16,7 +16,8 @@
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/common": "workspace:*",
-    "@checkstack/healthcheck-common": "workspace:*"
+    "@checkstack/healthcheck-common": "workspace:*",
+    "@checkstack/script-packages-backend": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "^1.0.0",

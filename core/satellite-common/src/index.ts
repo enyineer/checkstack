@@ -29,6 +29,12 @@ export {
   type AuthFailedMessage,
   type ConfigUpdatedMessage,
   type ShutdownMessage,
+  type ScriptPackageSyncStateMessage,
+  type RefreshScriptPackagesMessage,
+  type ScriptPackageManifestMessage,
+  type ScriptPackageBlobMessage,
+  type RequestScriptPackageManifestMessage,
+  type RequestScriptPackageBlobMessage,
 } from "./protocol";
 export {
   SATELLITE_STATUS_CHANGED,

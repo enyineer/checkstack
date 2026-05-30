@@ -82,6 +82,7 @@ function shellQuote(arg: string): string {
 const executeConfigSchemaV2 = z.object({
   script: configString({
     "x-editor-types": ["shell"],
+    "x-script-testable": true,
   }).describe(
     "Shell script source. Executed via `sh -c`, so pipes, redirects, `if`/`for`/`while`, variable expansion, command substitution etc. all work. Exit non-zero to fail the check.",
   ),

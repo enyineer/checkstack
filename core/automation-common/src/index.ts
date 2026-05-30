@@ -6,3 +6,4 @@ export * from "./rpc-contract";
 export * from "./signals";
 export * from "./variable-scope";
 export * from "./shell-env";
+export * from "./script-test-schemas";
