@@ -407,4 +407,33 @@ export class IncidentService {
 
     return !!match;
   }
+
+  /**
+   * Find a single OPEN (not-resolved) incident affecting `systemId`, if
+   * any. Returns the incident with its systems, mirroring the old
+   * auto-incident `findActiveAutoIncident(systemId)` dedup semantic. Used
+   * by `incident.create`'s opt-in `dedupe_open_for_system` flag so a
+   * second trigger for an already-incidented system reuses the open
+   * incident rather than opening a duplicate.
+   */
+  async findActiveIncidentForSystem(
+    systemId: string,
+  ): Promise<IncidentWithSystems | undefined> {
+    const systemIncidents = await this.db
+      .select({ incidentId: incidentSystems.incidentId })
+      .from(incidentSystems)
+      .where(eq(incidentSystems.systemId, systemId));
+
+    const ids = systemIncidents.map((r) => r.incidentId);
+    if (ids.length === 0) return undefined;
+
+    const [match] = await this.db
+      .select({ id: incidents.id })
+      .from(incidents)
+      .where(and(inArray(incidents.id, ids), ne(incidents.status, "resolved")))
+      .limit(1);
+
+    if (!match) return undefined;
+    return this.getIncident(match.id);
+  }
 }

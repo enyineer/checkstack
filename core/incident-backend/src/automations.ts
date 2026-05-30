@@ -143,6 +143,15 @@ const incidentCreateConfigSchema = z.object({
   systemIds: z.array(z.string()).min(1),
   initialMessage: z.string().optional(),
   suppressNotifications: z.boolean().optional().default(false),
+  /**
+   * When true, reuse an existing OPEN incident on the first target
+   * system instead of opening a duplicate (the old auto-incident
+   * `findActiveAutoIncident(systemId)` semantic). The reused incident is
+   * returned as the produced `incident` artifact so downstream
+   * resolve/update actions still work. Default false — existing and
+   * custom automations always create.
+   */
+  dedupe_open_for_system: z.boolean().optional().default(false),
 });
 
 // `incidentId` is optional on the close/update actions: when omitted the
@@ -240,6 +249,32 @@ export function createIncidentActions(
     }),
     produces: "incident",
     execute: async ({ config, logger }) => {
+      // Per-system dedup (opt-in): if an open incident already exists on
+      // the first target system, reuse it instead of opening a duplicate.
+      // Reproduces the old auto-incident `findActiveAutoIncident` semantic
+      // and keeps at most one open auto-incident per system across all the
+      // default sustained/flapping automations.
+      if (config.dedupe_open_for_system) {
+        const existing = await service.findActiveIncidentForSystem(
+          config.systemIds[0]!,
+        );
+        if (existing) {
+          logger.info(
+            `Automation reused open incident ${existing.id} for system ${config.systemIds[0]} (dedupe)`,
+          );
+          return {
+            success: true,
+            externalId: existing.id,
+            artifact: {
+              incidentId: existing.id,
+              status: existing.status,
+              severity: existing.severity,
+              systemIds: existing.systemIds,
+            },
+          };
+        }
+      }
+
       const incident = await service.createIncident({
         title: config.title,
         description: config.description,

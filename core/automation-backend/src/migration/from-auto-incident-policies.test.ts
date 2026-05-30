@@ -55,6 +55,13 @@ describe("buildSustainedAutomation", () => {
     expect(createOff.config.suppressNotifications).toBe(false);
   });
 
+  it("sets dedupe_open_for_system so at most one incident opens per system", () => {
+    const create = buildSustainedAutomation(assignment())!.actions[0] as unknown as {
+      config: { dedupe_open_for_system: boolean };
+    };
+    expect(create.config.dedupe_open_for_system).toBe(true);
+  });
+
   it("maps skipDuringMaintenance → the maintenance pre-run condition", () => {
     const on = buildSustainedAutomation(assignment())!;
     expect(on.conditions).toContain("!health.system.in_maintenance");
@@ -114,14 +121,21 @@ describe("buildFlappingAutomation", () => {
     expect(def.triggers[0]?.filter).toContain('"cfg-1"');
   });
 
-  it("opens an incident referencing the system", () => {
+  it("opens a critical, deduped incident referencing the system", () => {
     const def = buildFlappingAutomation(assignment())!;
     const create = def.actions[0] as unknown as {
       action: string;
-      config: { systemIds: string[] };
+      config: {
+        systemIds: string[];
+        severity: string;
+        dedupe_open_for_system: boolean;
+      };
     };
     expect(create.action).toBe("incident.create");
     expect(create.config.systemIds).toEqual(["{{ trigger.payload.systemId }}"]);
+    // critical for parity with the old path + deduped per system.
+    expect(create.config.severity).toBe("critical");
+    expect(create.config.dedupe_open_for_system).toBe(true);
   });
 
   it("returns undefined when the flapping trigger is disabled", () => {

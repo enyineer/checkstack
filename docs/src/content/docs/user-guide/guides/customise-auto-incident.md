@@ -7,10 +7,12 @@ Checkstack no longer hardcodes auto-incident behaviour. Opening an incident when
 
 ## What changed
 
-Previously a background path opened and closed incidents based on each health-check assignment's notification policy (sustained-unhealthy duration, flapping threshold, auto-close cooldown, maintenance suppression). That path is gone. On upgrade, Checkstack seeds equivalent automations - one per (system, check) assignment - whose thresholds mirror your existing policy exactly, so alerting behaviour is preserved.
+Previously a background path opened and closed incidents based on each health-check assignment's notification policy (sustained-unhealthy duration, flapping threshold, auto-close cooldown, maintenance suppression). That path is gone. On upgrade, Checkstack seeds equivalent automations whose thresholds mirror your existing policy exactly, so alerting behaviour - including how many incidents you get - is preserved.
+
+Auto-incidents remain one open incident per system. A system with several failing checks still gets a single incident: whichever check crosses its threshold first opens it, and the others reuse it. This works via an opt-in `dedupe_open_for_system` flag on the `incident.create` action (set on the seeded automations) - when on, `incident.create` reuses an existing open incident on the system instead of opening a duplicate.
 
 > [!NOTE]
-> The migration is idempotent and threshold-preserving: each seeded automation is tagged so re-runs are no-ops, and every notification-policy value maps 1:1 onto the automation (duration to the trigger dwell, cooldown to the recovery wait, suppression to the incident's notification flag, maintenance to a pre-run condition).
+> The migration is idempotent and threshold-preserving: each seeded automation is tagged so re-runs are no-ops, and every notification-policy value maps 1:1 onto the automation (duration to the trigger dwell, cooldown to the recovery wait, suppression to the incident's notification flag, maintenance to a pre-run condition, and per-system dedup to the `dedupe_open_for_system` flag).
 
 ## The default automations
 
@@ -57,10 +59,13 @@ conditions:
 actions:
   - id: open_incident
     action: incident.create
-    config: { severity: warning, systemIds: ["{{ trigger.payload.systemId }}"] }
+    config:
+      severity: critical
+      systemIds: ["{{ trigger.payload.systemId }}"]
+      dedupe_open_for_system: true   # reuse the system's open incident
 ```
 
-Flapping detection itself still runs in the health-check executor and emits `healthcheck.flapping_detected` whenever a check crosses its `N transitions in M minutes` threshold. The automation just reacts to it.
+Flapping detection itself still runs in the health-check executor and emits `healthcheck.flapping_detected` whenever a check crosses its `N transitions in M minutes` threshold. The automation just reacts to it. With `dedupe_open_for_system`, flapping on any check folds into the same open incident as a co-occurring sustained outage rather than opening a second.
 
 ## Customising
 
@@ -70,6 +75,7 @@ Open **Automations** and edit the seeded automation like any other:
 - Add quiet-hours routing with a `time` condition, or escalate via a `notification.send` action.
 - Disable auto-close by removing the `wait_until` + `resolve` actions (the incident then stays open until resolved manually).
 - Require a different severity, add a Jira ticket, post to Slack - compose any registered actions.
+- Turn `dedupe_open_for_system` off on an `incident.create` if you want a separate incident per occurrence instead of one shared per system.
 
-> [!IMPORTANT]
-> Granularity changed: auto-incidents are now per-(system, check). A system with two independently-failing checks gets one auto-incident per check, each opening and closing on its own thresholds. The previous behaviour deduped per-system across checks. If you prefer one incident per system, edit the seeded automations to trigger on a single representative check, or consolidate them.
+> [!NOTE]
+> One open incident per system is preserved by the `dedupe_open_for_system` flag on the seeded `incident.create` actions. The first check to cross its threshold opens the incident; other sustained or flapping checks on the same system reuse it. Remove the flag (or trigger on a single check) if you prefer one incident per check.

@@ -68,6 +68,106 @@ describe("incident automation actions", () => {
         suppressNotifications: false,
       });
     });
+
+    it("dedupe_open_for_system reuses an existing open incident on the system", async () => {
+      const existing = {
+        id: "INC-OPEN",
+        status: "investigating",
+        severity: "critical",
+        systemIds: ["sys-1"],
+      };
+      const service = makeServiceStub({
+        findActiveIncidentForSystem: mock(
+          async () => existing,
+        ) as unknown as IncidentService["findActiveIncidentForSystem"],
+        createIncident: mock() as unknown as IncidentService["createIncident"],
+      });
+      const [createAction] = createIncidentActions({ service });
+      const result = await createAction.execute({
+        ...actionContext,
+        config: {
+          title: "DB down",
+          severity: "critical",
+          systemIds: ["sys-1"],
+          suppressNotifications: false,
+          dedupe_open_for_system: true,
+        } as never,
+      });
+      expect(result.success).toBe(true);
+      expect((result.artifact as { incidentId: string }).incidentId).toBe(
+        "INC-OPEN",
+      );
+      // Reused — no new incident created.
+      expect(service.createIncident).not.toHaveBeenCalled();
+    });
+
+    it("dedupe_open_for_system creates when no open incident exists", async () => {
+      const created = {
+        id: "INC-NEW",
+        status: "investigating",
+        severity: "critical",
+        systemIds: ["sys-1"],
+      };
+      const service = makeServiceStub({
+        findActiveIncidentForSystem: mock(
+          async () => undefined,
+        ) as unknown as IncidentService["findActiveIncidentForSystem"],
+        createIncident: mock(
+          async () => created,
+        ) as unknown as IncidentService["createIncident"],
+      });
+      const [createAction] = createIncidentActions({ service });
+      const result = await createAction.execute({
+        ...actionContext,
+        config: {
+          title: "DB down",
+          severity: "critical",
+          systemIds: ["sys-1"],
+          suppressNotifications: false,
+          dedupe_open_for_system: true,
+        } as never,
+      });
+      expect((result.artifact as { incidentId: string }).incidentId).toBe(
+        "INC-NEW",
+      );
+      expect(service.createIncident).toHaveBeenCalledTimes(1);
+    });
+
+    it("without the flag always creates (no dedup lookup)", async () => {
+      const service = makeServiceStub({
+        findActiveIncidentForSystem: mock(
+          async () => ({
+            id: "INC-OPEN",
+            status: "investigating",
+            severity: "critical",
+            systemIds: ["sys-1"],
+          }),
+        ) as unknown as IncidentService["findActiveIncidentForSystem"],
+        createIncident: mock(
+          async () => ({
+            id: "INC-NEW",
+            status: "investigating",
+            severity: "critical",
+            systemIds: ["sys-1"],
+          }),
+        ) as unknown as IncidentService["createIncident"],
+      });
+      const [createAction] = createIncidentActions({ service });
+      const result = await createAction.execute({
+        ...actionContext,
+        config: {
+          title: "DB down",
+          severity: "critical",
+          systemIds: ["sys-1"],
+          suppressNotifications: false,
+          // dedupe_open_for_system omitted (defaults false)
+        } as never,
+      });
+      expect((result.artifact as { incidentId: string }).incidentId).toBe(
+        "INC-NEW",
+      );
+      expect(service.findActiveIncidentForSystem).not.toHaveBeenCalled();
+    });
   });
 
   describe("incident.resolve", () => {

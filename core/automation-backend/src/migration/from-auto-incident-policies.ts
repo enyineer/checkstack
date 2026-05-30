@@ -105,6 +105,9 @@ export function buildSustainedAutomation(
     severity: "critical",
     systemIds: ["{{ trigger.payload.systemId }}"],
     suppressNotifications: p.useNotificationSuppression,
+    // At most one open auto-incident per system across all the default
+    // sustained/flapping automations (reuses the old per-system dedup).
+    dedupe_open_for_system: true,
   };
 
   const actions: unknown[] = [
@@ -200,9 +203,13 @@ export function buildFlappingAutomation(
         config: {
           title: `{{ trigger.payload.systemId }} is flapping`,
           description: `Auto-opened: ${a.configurationName} flapped ≥${p.flappingTrigger.transitions} times in ${p.flappingTrigger.windowMinutes} min.`,
-          severity: "warning",
+          // critical for parity with the old path (always critical) — and
+          // so a flapping incident never masks a co-occurring outage when
+          // both dedupe to the same open system incident.
+          severity: "critical",
           systemIds: ["{{ trigger.payload.systemId }}"],
           suppressNotifications: p.useNotificationSuppression,
+          dedupe_open_for_system: true,
         },
       },
     ],

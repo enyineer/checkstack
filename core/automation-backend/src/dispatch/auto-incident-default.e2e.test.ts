@@ -53,9 +53,21 @@ function mutableHealth(initial: string) {
   };
 }
 
-/** Mock incident.create (produces "incident") + incident.resolve (consumes). */
+/**
+ * Mock incident.create (produces "incident") + incident.resolve
+ * (consumes). Faithfully models the real `dedupe_open_for_system` flag
+ * against a shared per-system open-incident map, so the E2E proves the
+ * per-system dedup semantic end to end.
+ */
 function incidentActions(opened: string[], resolved: string[]) {
-  const create: ActionDefinition<{ systemIds: string[] }, { incidentId: string }> = {
+  // systemId -> open incidentId (cleared on resolve).
+  const openBySystem = new Map<string, string>();
+  let counter = 0;
+
+  const create: ActionDefinition<
+    { systemIds: string[]; dedupe_open_for_system?: boolean },
+    { incidentId: string }
+  > = {
     id: "create",
     displayName: "Create Incident",
     config: new Versioned({
@@ -64,13 +76,22 @@ function incidentActions(opened: string[], resolved: string[]) {
     }),
     produces: "incident",
     execute: async ({ config }) => {
-      const incidentId = `INC-${opened.length + 1}`;
-      opened.push(config.systemIds[0] ?? "?");
-      return {
-        success: true,
-        externalId: incidentId,
-        artifact: { incidentId },
-      };
+      const systemId = config.systemIds[0] ?? "?";
+      if (config.dedupe_open_for_system) {
+        const existing = openBySystem.get(systemId);
+        if (existing) {
+          // Reuse the open incident — no new open recorded.
+          return {
+            success: true,
+            externalId: existing,
+            artifact: { incidentId: existing },
+          };
+        }
+      }
+      const incidentId = `INC-${++counter}`;
+      openBySystem.set(systemId, incidentId);
+      opened.push(systemId);
+      return { success: true, externalId: incidentId, artifact: { incidentId } };
     },
   };
   const resolve: ActionDefinition<{ incidentId?: string }, unknown> = {
@@ -88,6 +109,9 @@ function incidentActions(opened: string[], resolved: string[]) {
       const id = config.incidentId ?? incident?.incidentId;
       if (!id) return { success: false, error: "no incident to resolve" };
       resolved.push(id);
+      for (const [sys, inc] of openBySystem) {
+        if (inc === id) openBySystem.delete(sys);
+      }
       return { success: true, externalId: id };
     },
   };
@@ -97,13 +121,13 @@ function incidentActions(opened: string[], resolved: string[]) {
   ];
 }
 
-function buildAuto(): Automation {
+function buildAuto(id = "auto-1", configId = "cfg-1"): Automation {
   // Reuse the real migration builder so the E2E exercises the shipped
   // default automation shape, but point the action ids at the test plugin.
   const def = buildSustainedAutomation({
     systemId: SYS,
-    configurationId: "cfg-1",
-    configurationName: "API",
+    configurationId: configId,
+    configurationName: configId,
     policy: {
       autoOpenIncidentOnUnhealthy: true,
       useNotificationSuppression: true,
@@ -119,7 +143,7 @@ function buildAuto(): Automation {
   );
   const definition = AutomationDefinitionSchema.parse(json);
   return {
-    id: "auto-1",
+    id,
     name: def.name,
     status: "enabled",
     definition,
@@ -128,13 +152,14 @@ function buildAuto(): Automation {
   };
 }
 
-function makeStore(auto: Automation): AutomationStore {
-  const loaded: LoadedAutomation = {
-    id: auto.id,
-    name: auto.name,
-    status: auto.status,
-    definition: auto.definition,
-  };
+function makeStore(autos: Automation[]): AutomationStore {
+  const byId = new Map(autos.map((a) => [a.id, a]));
+  const loaded = (a: Automation): LoadedAutomation => ({
+    id: a.id,
+    name: a.name,
+    status: a.status,
+    definition: a.definition,
+  });
   return {
     create: async () => {
       throw new Error("nope");
@@ -146,13 +171,14 @@ function makeStore(auto: Automation): AutomationStore {
     toggle: async () => {
       throw new Error("nope");
     },
-    getById: async (id) =>
-      id === auto.id
-        ? { ...auto, description: auto.definition.description }
-        : undefined,
-    list: async () => ({ items: [auto], total: 1 }),
-    findEnabledByTriggerEvent: async () => [loaded],
-    listEnabled: async () => [loaded],
+    getById: async (id) => {
+      const a = byId.get(id);
+      return a ? { ...a, description: a.definition.description } : undefined;
+    },
+    list: async () => ({ items: [...byId.values()], total: byId.size }),
+    findEnabledByTriggerEvent: async () =>
+      [...byId.values()].map((a) => loaded(a)),
+    listEnabled: async () => [...byId.values()].map((a) => loaded(a)),
   };
 }
 
@@ -172,7 +198,7 @@ describe("Phase 20 default auto-incident automation (E2E)", () => {
       healthCheckClient: health.client,
     });
     const auto = buildAuto();
-    const store = makeStore(auto);
+    const store = makeStore([auto]);
 
     // 1) system_degraded fires → arms the dwell (no run yet).
     await handleTriggerFiring({
@@ -234,7 +260,7 @@ describe("Phase 20 default auto-incident automation (E2E)", () => {
       healthCheckClient: health.client,
     });
     const auto = buildAuto();
-    const store = makeStore(auto);
+    const store = makeStore([auto]);
 
     await handleTriggerFiring({
       deps,
@@ -300,7 +326,7 @@ describe("Phase 20 default auto-incident automation (E2E)", () => {
       healthCheckClient: client,
     });
     const auto = buildAuto();
-    const store = makeStore(auto);
+    const store = makeStore([auto]);
 
     await handleTriggerFiring({
       deps,
@@ -320,5 +346,144 @@ describe("Phase 20 default auto-incident automation (E2E)", () => {
     // The maintenance pre-run condition (!health.system.in_maintenance)
     // is false → the run never reaches incident.create.
     expect(opened).toHaveLength(0);
+  });
+
+  it("two checks on one system both degrading open EXACTLY ONE incident (per-system dedup)", async () => {
+    const opened: string[] = [];
+    const resolved: string[] = [];
+    const actionsReg = createActionRegistry();
+    for (const a of incidentActions(opened, resolved)) {
+      actionsReg.register(a, testPlugin);
+    }
+    const health = mutableHealth("unhealthy");
+    health.set("unhealthy", 40 * 60_000);
+    const { deps, dwells } = makeDispatchDeps({
+      actions: actionsReg,
+      healthCheckClient: health.client,
+    });
+    // Two sustained automations for the same system, one per check.
+    const autoA = buildAuto("auto-A", "cfg-A");
+    const autoB = buildAuto("auto-B", "cfg-B");
+    const store = makeStore([autoA, autoB]);
+
+    // A single system_degraded event arms BOTH automations' dwells (each
+    // is keyed per automation, so two dwells).
+    await handleTriggerFiring({
+      deps,
+      automationStore: store,
+      qualifiedEventId: "healthcheck.system_degraded",
+      triggerPayload: { systemId: SYS, systemName: "API" },
+      actor: SYSTEM_ACTOR,
+      contextKey: SYS,
+    });
+    expect(dwells.dwells.size).toBe(2);
+
+    // Fire both dwells (both still unhealthy → both run). The first opens
+    // the incident; the second dedupes to it.
+    for (const dwell of [...dwells.dwells.values()]) {
+      await fireDwell({
+        deps,
+        automationStore: store,
+        dwell,
+        startRun: startRunRespectingMode,
+      });
+    }
+
+    // Exactly one incident opened for the system, despite two checks.
+    expect(opened).toEqual([SYS]);
+  });
+
+  it("a flapping check while a sustained incident is open does NOT open a second", async () => {
+    const opened: string[] = [];
+    const resolved: string[] = [];
+    const actionsReg = createActionRegistry();
+    for (const a of incidentActions(opened, resolved)) {
+      actionsReg.register(a, testPlugin);
+    }
+    const health = mutableHealth("unhealthy");
+    health.set("unhealthy", 40 * 60_000);
+    const { deps, dwells } = makeDispatchDeps({
+      actions: actionsReg,
+      healthCheckClient: health.client,
+    });
+
+    // Sustained automation opens the incident first.
+    const sustained = buildAuto("auto-sustained", "cfg-1");
+    // A flapping automation (dedupe on) for the same system.
+    const flapDef = AutomationDefinitionSchema.parse(
+      JSON.parse(
+        JSON.stringify({
+          name: "flap",
+          triggers: [
+            {
+              event: "healthcheck.flapping_detected",
+              filter: `trigger.payload.systemId == "${SYS}"`,
+            },
+          ],
+          conditions: ["!health.system.in_maintenance"],
+          actions: [
+            {
+              id: "open_incident",
+              action: "test.create",
+              config: {
+                title: "flap",
+                severity: "critical",
+                systemIds: ["{{ trigger.payload.systemId }}"],
+                dedupe_open_for_system: true,
+              },
+            },
+          ],
+          mode: "single",
+          concurrency_scope: "context_key",
+          max_runs: 1,
+        }),
+      ),
+    );
+    const flapping: Automation = {
+      id: "auto-flap",
+      name: "flap",
+      status: "enabled",
+      definition: flapDef,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const store = makeStore([sustained, flapping]);
+
+    // Sustained opens (via the dwell).
+    await handleTriggerFiring({
+      deps,
+      automationStore: store,
+      qualifiedEventId: "healthcheck.system_degraded",
+      triggerPayload: { systemId: SYS, systemName: "API" },
+      actor: SYSTEM_ACTOR,
+      contextKey: SYS,
+    });
+    for (const dwell of [...dwells.dwells.values()]) {
+      await fireDwell({
+        deps,
+        automationStore: store,
+        dwell,
+        startRun: startRunRespectingMode,
+      });
+    }
+    expect(opened).toEqual([SYS]);
+
+    // Now a check flaps → flapping automation fires → dedupes to the open.
+    await handleTriggerFiring({
+      deps,
+      automationStore: store,
+      qualifiedEventId: "healthcheck.flapping_detected",
+      triggerPayload: {
+        systemId: SYS,
+        configurationId: "cfg-2",
+        transitionCount: 3,
+        windowMinutes: 60,
+      },
+      actor: SYSTEM_ACTOR,
+      contextKey: SYS,
+    });
+
+    // Still exactly one incident for the system.
+    expect(opened).toEqual([SYS]);
   });
 });
