@@ -33,7 +33,7 @@ import type {
   TriggerInfo,
   VariableScope,
 } from "@checkstack/automation-common";
-import { resolveVariableScope } from "@checkstack/automation-common";
+import { deriveTriggerId, resolveVariableScope } from "@checkstack/automation-common";
 // Deep-import the standalone helper rather than going through the
 // `@checkstack/ui` barrel — the barrel pulls in MonacoEditor which
 // side-effect imports Vite-only `?worker` modules, which break bun's
@@ -103,19 +103,24 @@ export function generateAutomationContextTypes(
   });
 
   // ─── Trigger union ─────────────────────────────────────────────────────
-  const subscribed = definition.triggers
-    .map((t) => triggers.find((r) => r.qualifiedId === t.event))
-    .filter((r): r is TriggerInfo => r !== undefined);
-
+  // Each variant carries the trigger's `id` (explicit or derived) and `event`,
+  // both literal types, so a script can discriminate on either - including two
+  // triggers that share the same event but have distinct ids.
   const triggerUnion =
-    subscribed.length === 0
-      ? "{ readonly event: string; readonly payload: Record<string, unknown> }"
-      : subscribed
-          .map((trig) => {
-            const payloadType = jsonSchemaToTypeScript(
-              trig.payloadSchema as Parameters<typeof jsonSchemaToTypeScript>[0],
-            );
-            return `{ readonly event: ${JSON.stringify(trig.qualifiedId)}; readonly payload: ${payloadType} }`;
+    definition.triggers.length === 0
+      ? "{ readonly id: string; readonly event: string; readonly payload: Record<string, unknown> }"
+      : definition.triggers
+          .map((t) => {
+            const info = triggers.find((r) => r.qualifiedId === t.event);
+            const id = t.id ?? deriveTriggerId(t.event);
+            const payloadType = info
+              ? jsonSchemaToTypeScript(
+                  info.payloadSchema as Parameters<
+                    typeof jsonSchemaToTypeScript
+                  >[0],
+                )
+              : "Record<string, unknown>";
+            return `{ readonly id: ${JSON.stringify(id)}; readonly event: ${JSON.stringify(t.event)}; readonly payload: ${payloadType} }`;
           })
           .join("\n  | ");
 
@@ -184,8 +189,11 @@ export function generateAutomationContextTypes(
     " * scope at the action position being edited.",
     " */",
     "",
+    "/** Who or what caused the event (present on every trigger). */",
+    'type AutomationActor = { readonly type: "system" | "user" | "application" | "service"; readonly id: string; readonly name?: string };',
+    "",
     "/** Trigger that fired this run. */",
-    `type AutomationTrigger =\n  | ${triggerUnion};`,
+    `type AutomationTrigger = (\n  | ${triggerUnion}\n) & { readonly actor: AutomationActor };`,
     "",
     "declare const context: {",
     "  readonly trigger: AutomationTrigger;",

@@ -359,6 +359,60 @@ afterPluginsReady: async ({ emitHook }) => {
 }
 ```
 
+### Event actor metadata
+
+Every emitted hook carries envelope metadata describing the **actor** that
+caused the event - a human `user`, an `application` (API client), a
+`service` (backend-to-backend call), or the `system` (background /
+unauthenticated). You do not set this yourself: the platform captures it
+automatically from the request context when a hook is emitted from an RPC
+handler, and defaults to the system actor for background emits.
+
+Listeners receive it as an optional second argument:
+
+```typescript
+onHook(incidentHooks.incidentCreated, async (payload, meta) => {
+  // meta?.actor -> { type: "user" | "application" | "service" | "system"; id; name? }
+  logger.info(`Incident ${payload.incidentId} created by ${meta?.actor.type}`);
+});
+```
+
+The actor is surfaced to automations as `trigger.actor`, so a trigger filter
+can gate on it - for example, only react to incidents that were
+auto-created by the system:
+
+```text
+{{ trigger.actor.type == "system" }}
+{{ trigger.actor.type == "user" }}
+{{ trigger.actor.id == "app-deploybot" }}
+```
+
+> [!NOTE]
+> `trigger.actor` is available on **every** trigger (it is injected by the
+> platform, not declared per trigger). Purely automatic events - cron,
+> healthcheck, SLO, etc. - report `trigger.actor.type == "system"`.
+
+### Differentiating triggers (`trigger.id`)
+
+When an automation subscribes to several triggers, the run scope exposes the
+**id of the trigger that fired** as `trigger.id` (and `context.trigger.id` in
+scripts). The editor auto-assigns a unique id to every trigger (derived from
+its event, e.g. `incident_created`), so two triggers on the *same* event are
+still distinguishable:
+
+```text
+{{ trigger.id == "majors" }}          # template / filter
+```
+
+```typescript
+// inline-script action — `id` and `event` are both literal-typed, so either
+// can discriminate the union:
+if (context.trigger.id === "majors") { /* … */ }
+```
+
+The full trigger contract available to templates and scripts is
+`trigger.id`, `trigger.event`, `trigger.actor`, and `trigger.payload`.
+
 ### Core Hooks Reference
 
 | Hook | Payload | Description |

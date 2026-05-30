@@ -2,7 +2,12 @@ import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { ServiceRef } from "./service-ref";
 import { ExtensionPoint } from "./extension-point";
 import type { AccessRule, PluginMetadata } from "@checkstack/common";
-import type { Hook, HookSubscribeOptions, HookUnsubscribe } from "./hooks";
+import type {
+  Hook,
+  HookEventMeta,
+  HookSubscribeOptions,
+  HookUnsubscribe,
+} from "./hooks";
 import { Router } from "@orpc/server";
 import { RpcContext } from "./rpc";
 import { AnyContractRouter } from "@orpc/contract";
@@ -48,7 +53,7 @@ export type AfterPluginsReadyContext = {
    */
   onHook: <T>(
     hook: Hook<T>,
-    listener: (payload: T) => Promise<void>,
+    listener: (payload: T, meta?: HookEventMeta) => Promise<void>,
     options?: HookSubscribeOptions,
   ) => HookUnsubscribe;
   /**

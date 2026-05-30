@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useState } from "react";
 
 /**
  * Pure decision function powering {@link useInitOnceForKey}. Extracted so
@@ -52,8 +52,15 @@ export function shouldInitForKey({
  *  - Skips initialisation entirely while either `value` or `key` is
  *    `undefined`/`null`.
  *
- * `onInit` is read from a ref so callers can safely pass a fresh closure
- * each render without re-firing the effect.
+ * Seeding runs **during render** (not in a `useEffect`). This is deliberate:
+ * the app is wrapped in `<StrictMode>`, which double-mounts components and
+ * **discards a `setState` scheduled from an effect** when the source query
+ * resolves synchronously — e.g. a warm react-query cache on reopen. That made
+ * the one-shot init silently no-op, reverting seeded form state (a renamed id
+ * snapping back to its default, etc.) while a cold-cache first open worked.
+ * Seeding during render with a state guard is React's recommended
+ * "adjust state when data changes" pattern and is immune to that race. `onInit`
+ * must therefore be pure aside from calling this component's state setters.
  *
  * @example
  *   useInitOnceForKey(existingConfig, existingConfig?.id, (config) => {
@@ -68,20 +75,16 @@ export function useInitOnceForKey<T>(
   key: string | number | null | undefined,
   onInit: (value: T) => void,
 ): void {
-  const initialisedKeyRef = useRef<string | number | null | undefined>(undefined);
-  const onInitRef = useRef(onInit);
+  const [initialisedKey, setInitialisedKey] =
+    useState<string | number | null | undefined>();
 
-  // Keep the latest callback in a ref so a fresh closure each render doesn't
-  // re-trigger the effect; only `value` and `key` should drive it.
-  useEffect(() => {
-    onInitRef.current = onInit;
-  });
-
-  useEffect(() => {
-    if (!shouldInitForKey({ value, key, initialisedKey: initialisedKeyRef.current })) {
-      return;
-    }
-    initialisedKeyRef.current = key;
-    onInitRef.current(value as T);
-  }, [value, key]);
+  if (shouldInitForKey({ value, key, initialisedKey })) {
+    // Setting state + invoking `onInit` (which sets this component's state)
+    // during render is the supported "store info from previous renders"
+    // pattern: React restarts this component's render with the new state
+    // before committing, and the `initialisedKey` guard makes it idempotent
+    // (no loop; background refetches of the same key are ignored).
+    setInitialisedKey(key);
+    onInit(value as T);
+  }
 }

@@ -3,6 +3,7 @@ import { EventBus } from "./event-bus";
 import type { QueueManager } from "@checkstack/queue-api";
 import type { Logger, Hook } from "@checkstack/backend-api";
 import { createHook } from "@checkstack/backend-api";
+import { SYSTEM_ACTOR } from "@checkstack/common";
 import {
   createMockLogger,
   createMockQueueManager,
@@ -269,6 +270,63 @@ describe("EventBus", () => {
 
       expect(received).toContain(10);
       expect(received).toContain(20);
+    });
+  });
+
+  describe("Actor metadata", () => {
+    it("delivers the system actor by default when no meta is provided", async () => {
+      const testHook = createHook<{ value: number }>("test.actor.hook");
+      let receivedActor: unknown;
+
+      await eventBus.subscribe("plugin-1", testHook, async (_payload, meta) => {
+        receivedActor = meta?.actor;
+      });
+
+      await eventBus.emit(testHook, { value: 1 });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(receivedActor).toEqual(SYSTEM_ACTOR);
+    });
+
+    it("delivers the provided actor alongside the payload", async () => {
+      const testHook = createHook<{ value: number }>("test.actor.hook");
+      let received: { value: number } | undefined;
+      let receivedActor: unknown;
+
+      await eventBus.subscribe("plugin-1", testHook, async (payload, meta) => {
+        received = payload;
+        receivedActor = meta?.actor;
+      });
+
+      const actor = { type: "user", id: "user-1", name: "Nico" } as const;
+      await eventBus.emit(testHook, { value: 7 }, { actor });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(received).toEqual({ value: 7 });
+      expect(receivedActor).toEqual(actor);
+    });
+
+    it("delivers actor meta on instance-local emit", async () => {
+      const testHook = createHook<{ value: number }>("test.actor.local");
+      let receivedActor: unknown;
+
+      await eventBus.subscribe(
+        "plugin-1",
+        testHook,
+        async (_payload, meta) => {
+          receivedActor = meta?.actor;
+        },
+        { mode: "instance-local" },
+      );
+
+      const actor = {
+        type: "application",
+        id: "app-deploybot",
+        name: "Deploy Bot",
+      } as const;
+      await eventBus.emitLocal(testHook, { value: 1 }, { actor });
+
+      expect(receivedActor).toEqual(actor);
     });
   });
 

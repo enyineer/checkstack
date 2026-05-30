@@ -12,6 +12,7 @@ import type { SafeDatabase, Logger } from "@checkstack/backend-api";
 import {
   autoAuthMiddleware,
   correlationMiddleware,
+  resolveActor,
   type RpcContext,
 } from "@checkstack/backend-api";
 import type { SignalService } from "@checkstack/signal-common";
@@ -254,7 +255,7 @@ export function createAutomationRouter(deps: RouterDeps) {
 
     // ─── Manual run ──────────────────────────────────────────────────────
 
-    manualRun: os.manualRun.handler(async ({ input }) => {
+    manualRun: os.manualRun.handler(async ({ input, context }) => {
       const automation = await automationStore.getById(input.automationId);
       if (!automation) {
         throw new ORPCError("NOT_FOUND", {
@@ -288,6 +289,8 @@ export function createAutomationRouter(deps: RouterDeps) {
         triggerId: selectedTrigger.id ?? selectedTrigger.event,
         triggerEventId: selectedTrigger.event,
         payload: input.payload,
+        // Attribute the manual run to whoever invoked it.
+        actor: resolveActor(context.user),
         contextKey,
       });
 

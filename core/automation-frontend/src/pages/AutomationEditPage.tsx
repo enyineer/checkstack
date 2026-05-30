@@ -49,6 +49,7 @@ import { extractErrorMessage, resolveRoute } from "@checkstack/common";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { AutomationDefinitionEditor } from "../editor/AutomationDefinitionEditor";
 import { assignDefaultIds } from "../editor/action-helpers";
+import { assignDefaultTriggerIds } from "../editor/trigger-helpers";
 import { computeYamlMarkers } from "../editor/yaml-markers";
 import {
   ValidationProvider,
@@ -57,7 +58,9 @@ import {
 
 const STARTER_DEFINITION: AutomationDefinition = {
   name: "New Automation",
-  triggers: [{ event: "incident.created" }],
+  // Seed the starter trigger's id the same way actions are seeded, so it is
+  // shown (and referenceable as `trigger.id`) immediately.
+  triggers: assignDefaultTriggerIds([{ event: "incident.created" }]),
   conditions: [],
   // Run the seeded starter action through the same default-id assignment the
   // "Add step" path uses, so its `id` is filled in (and shown) immediately
@@ -137,13 +140,23 @@ const AutomationEditContent: React.FC = () => {
     Array<{ path: Array<string | number>; message: string }>
   >([]);
 
-  useInitOnceForKey(loadQuery.data, loadQuery.data?.id, (a) => {
-    setName(a.name);
-    setDescription(a.description ?? "");
-    setStatusEnabled(a.status === "enabled");
-    setDefinition(a.definition);
-    setYamlText(stringifyYaml(a.definition));
-  });
+  // Seed local form state from the loaded automation, once per record.
+  // `useInitOnceForKey` seeds during render (not in an effect), so it survives
+  // StrictMode's double-mount even when the query resolves from a warm cache on
+  // reopen, and ignores background refetches of the same record so in-progress
+  // edits are not clobbered. `isFetchedAfterMount` keeps it to genuinely fresh
+  // data rather than a stale cache entry served instantly on mount.
+  useInitOnceForKey(
+    loadQuery.isFetchedAfterMount ? loadQuery.data : undefined,
+    loadQuery.data?.id,
+    (a) => {
+      setName(a.name);
+      setDescription(a.description ?? "");
+      setStatusEnabled(a.status === "enabled");
+      setDefinition(a.definition);
+      setYamlText(stringifyYaml(a.definition));
+    },
+  );
 
   // Keep the YAML mirror in sync with definition while the visual editor
   // is active — the YAML tab needs a non-stale starting point when the

@@ -1,13 +1,55 @@
 import type { Queue, QueueManager } from "@checkstack/queue-api";
 import type {
   Hook,
+  HookEventMeta,
   HookSubscribeOptions,
   HookUnsubscribe,
   Logger,
 } from "@checkstack/backend-api";
 import type { EventBus as IEventBus } from "@checkstack/backend-api";
+import { SYSTEM_ACTOR } from "@checkstack/common";
 
-export type HookListener<T> = (payload: T) => Promise<void>;
+export type HookListener<T> = (
+  payload: T,
+  meta?: HookEventMeta,
+) => Promise<void>;
+
+/**
+ * Internal queue envelope. Hooks are enqueued wrapped so event metadata (the
+ * acting `actor`) rides alongside the typed payload through the distributed
+ * queue. `invokeListener` unwraps it before calling listeners, so subscribers
+ * still receive the payload as their first argument (plus optional `meta`).
+ */
+const HOOK_ENVELOPE_MARKER = "__checkstackHookEnvelope" as const;
+
+interface HookEnvelope<T> {
+  [HOOK_ENVELOPE_MARKER]: 1;
+  payload: T;
+  meta: HookEventMeta;
+}
+
+function isHookEnvelope(data: unknown): data is HookEnvelope<unknown> {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as Record<string, unknown>)[HOOK_ENVELOPE_MARKER] === 1
+  );
+}
+
+/**
+ * Unwrap queued hook data into `{ payload, meta }`. Data emitted before the
+ * envelope existed (or enqueued by other producers) is treated as a raw
+ * payload with the system actor, so delivery stays backward compatible.
+ */
+function unwrapHookData(data: unknown): {
+  payload: unknown;
+  meta: HookEventMeta;
+} {
+  if (isHookEnvelope(data)) {
+    return { payload: data.payload, meta: data.meta };
+  }
+  return { payload: data, meta: { actor: SYSTEM_ACTOR } };
+}
 
 interface ListenerRegistration {
   id: string;
@@ -201,7 +243,11 @@ export class EventBus implements IEventBus {
    * need cross-process delivery must therefore ensure at least one
    * listener registers on every replica that should receive the hook.
    */
-  async emit<T>(hook: Hook<T>, payload: T): Promise<void> {
+  async emit<T>(
+    hook: Hook<T>,
+    payload: T,
+    meta?: HookEventMeta,
+  ): Promise<void> {
     const hasDistributedListeners =
       (this.listeners.get(hook.id)?.length ?? 0) > 0;
     const hasLocalListeners =
@@ -218,11 +264,18 @@ export class EventBus implements IEventBus {
 
     // Create channel lazily if not exists
     if (!channel) {
-      channel = this.queueManager.getQueue<T>(hook.id);
+      channel = this.queueManager.getQueue<unknown>(hook.id);
       this.queueChannels.set(hook.id, channel);
     }
 
-    await channel.enqueue(payload);
+    // Enqueue the payload wrapped in an envelope so the acting actor (defaulting
+    // to the system actor for background/unauthenticated emits) travels with it.
+    const envelope: HookEnvelope<T> = {
+      [HOOK_ENVELOPE_MARKER]: 1,
+      payload,
+      meta: meta ?? { actor: SYSTEM_ACTOR },
+    };
+    await channel.enqueue(envelope);
     this.logger.debug(`Emitted hook: ${hook.id}`);
   }
 
@@ -231,7 +284,11 @@ export class EventBus implements IEventBus {
    * Use this for instance-local hooks like pluginDeregistering.
    * Uses Promise.allSettled to ensure one listener error doesn't block others.
    */
-  async emitLocal<T>(hook: Hook<T>, payload: T): Promise<void> {
+  async emitLocal<T>(
+    hook: Hook<T>,
+    payload: T,
+    meta?: HookEventMeta,
+  ): Promise<void> {
     const registrations = this.localListeners.get(hook.id) || [];
 
     if (registrations.length === 0) {
@@ -239,10 +296,13 @@ export class EventBus implements IEventBus {
       return;
     }
 
+    // Local hooks bypass the queue, so deliver `meta` straight to listeners
+    // (defaulting to the system actor when none was provided).
+    const resolvedMeta: HookEventMeta = meta ?? { actor: SYSTEM_ACTOR };
     const results = await Promise.allSettled(
       registrations.map(async (reg) => {
         try {
-          await reg.listener(payload);
+          await reg.listener(payload, resolvedMeta);
           this.logger.debug(
             `Local listener ${reg.id} (${reg.pluginId}) processed successfully`
           );
@@ -315,10 +375,11 @@ export class EventBus implements IEventBus {
    */
   private async invokeListener(
     registration: ListenerRegistration,
-    payload: unknown
+    data: unknown
   ): Promise<void> {
+    const { payload, meta } = unwrapHookData(data);
     try {
-      await registration.listener(payload);
+      await registration.listener(payload, meta);
       this.logger.debug(
         `Listener ${registration.id} (${registration.consumerGroup}) processed successfully`
       );

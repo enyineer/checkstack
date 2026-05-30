@@ -13,7 +13,12 @@ import type {
   AutomationMode,
   Trigger,
 } from "@checkstack/automation-common";
-import type { HookSubscribeOptions, Logger } from "@checkstack/backend-api";
+import type {
+  HookEventMeta,
+  HookSubscribeOptions,
+  Logger,
+} from "@checkstack/backend-api";
+import { SYSTEM_ACTOR, type Actor } from "@checkstack/common";
 
 import type { AutomationStore } from "../automation-store";
 import { dispatchTrigger, resumeRun } from "./engine";
@@ -42,7 +47,7 @@ export interface TriggerSubscriptions {
  */
 export type OnHookFn = <T>(
   hook: { id: string; _type?: T },
-  listener: (payload: T) => Promise<void>,
+  listener: (payload: T, meta?: HookEventMeta) => Promise<void>,
   options?: HookSubscribeOptions,
 ) => () => Promise<void>;
 
@@ -67,12 +72,13 @@ export async function setupTriggerSubscriptions(
     if (trigger.hook) {
       const teardown = args.onHook(
         trigger.hook,
-        async (payload) => {
+        async (payload, meta) => {
           await handleTriggerFiring({
             deps: args.deps,
             automationStore: args.automationStore,
             qualifiedEventId: trigger.qualifiedId,
             triggerPayload: payload as Record<string, unknown>,
+            actor: meta?.actor ?? SYSTEM_ACTOR,
             contextKey:
               (trigger.contextKey?.(payload) ?? null),
           });
@@ -111,6 +117,9 @@ export async function setupTriggerSubscriptions(
                 automationStore: args.automationStore,
                 qualifiedEventId: trigger.qualifiedId,
                 triggerPayload: payload as Record<string, unknown>,
+                // Setup-backed triggers (cron / interval / template) fire on a
+                // schedule with no acting caller — the system is the actor.
+                actor: SYSTEM_ACTOR,
                 contextKey:
                   trigger.contextKey?.(payload) ?? null,
               });
@@ -143,6 +152,7 @@ interface HandleTriggerFiringArgs {
   automationStore: AutomationStore;
   qualifiedEventId: string;
   triggerPayload: Record<string, unknown>;
+  actor: Actor;
   contextKey: string | null;
 }
 
@@ -166,6 +176,7 @@ async function handleTriggerFiring(
         automation,
         trigger,
         triggerPayload: args.triggerPayload,
+        actor: args.actor,
         contextKey: args.contextKey,
         eventId: args.qualifiedEventId,
       });
@@ -188,6 +199,7 @@ async function wakeWaitingRuns(args: HandleTriggerFiringArgs): Promise<void> {
           triggerId: "wait",
           triggerEventId: args.qualifiedEventId,
           payload: args.triggerPayload,
+          actor: args.actor,
           startedAt: new Date(),
         });
         const pass = evaluateCondition(
@@ -230,6 +242,7 @@ interface MaybeStartRunArgs {
   automation: LoadedAutomation;
   trigger: Trigger;
   triggerPayload: Record<string, unknown>;
+  actor: Actor;
   contextKey: string | null;
   eventId: string;
 }
@@ -241,6 +254,7 @@ async function maybeStartRun(args: MaybeStartRunArgs): Promise<void> {
       triggerId: args.trigger.id ?? deriveTriggerId(args.trigger),
       triggerEventId: args.eventId,
       payload: args.triggerPayload,
+      actor: args.actor,
       startedAt: new Date(),
     });
     let pass: boolean;
@@ -265,6 +279,7 @@ async function maybeStartRun(args: MaybeStartRunArgs): Promise<void> {
       triggerId: args.trigger.id ?? deriveTriggerId(args.trigger),
       triggerEventId: args.eventId,
       payload: args.triggerPayload,
+      actor: args.actor,
       startedAt: new Date(),
     });
     for (const condition of args.automation.definition.conditions) {
@@ -289,6 +304,7 @@ async function maybeStartRun(args: MaybeStartRunArgs): Promise<void> {
     triggerId: args.trigger.id ?? deriveTriggerId(args.trigger),
     triggerEventId: args.eventId,
     triggerPayload: args.triggerPayload,
+    actor: args.actor,
     contextKey: args.contextKey,
     automation: args.automation,
   });
@@ -303,6 +319,7 @@ interface RespectConcurrencyArgs {
   triggerId: string;
   triggerEventId: string;
   triggerPayload: Record<string, unknown>;
+  actor: Actor;
   contextKey: string | null;
 }
 
@@ -358,6 +375,7 @@ async function respectConcurrencyMode(
     triggerId: args.triggerId,
     triggerEventId: args.triggerEventId,
     payload: args.triggerPayload,
+    actor: args.actor,
     contextKey: args.contextKey,
   });
 }

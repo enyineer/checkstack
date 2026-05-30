@@ -10,6 +10,7 @@ import {
   Fetch,
   HealthCheckRegistry,
   CollectorRegistry,
+  resolveActor,
   type EmitHookFn,
   type Hook,
 } from "@checkstack/backend-api";
@@ -126,7 +127,12 @@ async function resolveRequestContext({
   const user = await (auth as AuthService).authenticate(c.req.raw);
 
   const emitHook: EmitHookFn = async <T>(hook: Hook<T>, payload: T) => {
-    await (eventBus as EventBus).emit(hook, payload);
+    // Capture the authenticated caller as the event actor so automations can
+    // filter on who/what caused the event (falls back to the system actor for
+    // unauthenticated callers).
+    await (eventBus as EventBus).emit(hook, payload, {
+      actor: resolveActor(user),
+    });
   };
 
   const pluginMetadata: PluginMetadata | undefined =
