@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
 import type { AdvisoryLockHandle } from "@checkstack/backend-api";
 import { extractErrorMessage } from "@checkstack/common";
 import type { BlobStore } from "./blob-store";
+import { blobSha256 } from "./blob-hash";
 
 /**
  * Storage-migration job: copy every blob from the active backend to a
@@ -62,10 +62,6 @@ export interface StorageMigrationResult {
   error?: string;
 }
 
-function sha256(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}
-
 /**
  * Run (or resume) a storage migration. Idempotent + resumable: the work set
  * is derived from the index each run, so blobs already flipped to the target
@@ -104,7 +100,10 @@ export async function runStorageMigration(
         await targetStore.put({ integrity, bytes: source });
         // Read back from the target and verify the copy byte-for-byte.
         const readBack = await targetStore.get({ integrity });
-        if (readBack === undefined || sha256(readBack) !== sha256(source)) {
+        if (
+          readBack === undefined ||
+          blobSha256(readBack) !== blobSha256(source)
+        ) {
           throw new Error(
             `Integrity verification failed for ${integrity}: target copy does not match source.`,
           );

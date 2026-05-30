@@ -370,6 +370,7 @@ export {
 } from "./install-service";
 export { evaluateSizeCap, type SizeCapVerdict } from "./size-cap";
 export { packDir, unpackInto } from "./cache-archive";
+export { blobSha256, verifyBlobSha256 } from "./blob-hash";
 export { computeMissingBlobs } from "./reconcile-diff";
 export { atomicSymlinkSwap, readCurrentTarget } from "./atomic-symlink";
 export {

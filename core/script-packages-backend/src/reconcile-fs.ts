@@ -4,6 +4,7 @@ import path from "node:path";
 import type { ManifestEntry } from "@checkstack/script-packages-common";
 import type { ReconcileDeps } from "./reconciler";
 import { unpackInto } from "./cache-archive";
+import { verifyBlobSha256 } from "./blob-hash";
 import { atomicSymlinkSwap, readCurrentTarget } from "./atomic-symlink";
 import { storePaths } from "./data-dir";
 
@@ -64,6 +65,18 @@ export function createReconcileFsDeps(input: {
     fetchBlob: input.fetchBlob,
 
     async seedBlob({ entry, bytes }) {
+      // Verify the transported bytes against the manifest's recorded blob
+      // hash BEFORE extracting. On a mismatch, discard + error clearly so a
+      // corrupt/tampered blob is never materialized. (Entries published
+      // before `blobSha256` skip verification — backward-safe.)
+      const verdict = verifyBlobSha256({ entry, bytes });
+      if (!verdict.ok) {
+        throw new Error(
+          `Blob integrity check failed for ${entry.name}@${entry.version} ` +
+            `(${entry.integrity}): expected sha256 ${verdict.expected}, got ` +
+            `${verdict.actual}. Refusing to seed.`,
+        );
+      }
       await mkdir(paths.cache, { recursive: true });
       await unpackInto({ targetDir: paths.cache, bytes });
       await mkdir(markerDir, { recursive: true });

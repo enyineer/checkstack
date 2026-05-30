@@ -3,6 +3,7 @@ import type {
   PackageSpec,
 } from "@checkstack/script-packages-common";
 import { computeLockfileHash } from "./lockfile";
+import { blobSha256 } from "./blob-hash";
 
 /**
  * Orchestrates a single install: resolve the pinned allowlist into a
@@ -87,7 +88,10 @@ export async function performInstall({
   let totalSizeBytes = 0;
 
   for (const { entry, blob } of resolved) {
-    manifest.push(entry);
+    // Stamp the distributed-blob hash so every host can verify the
+    // transported bytes before extraction (the SRI `integrity` hashes the
+    // npm tarball, not our archive).
+    manifest.push({ ...entry, blobSha256: blobSha256(blob) });
     totalSizeBytes += blob.byteLength;
 
     if (!(await blobStore.has({ integrity: entry.integrity }))) {
