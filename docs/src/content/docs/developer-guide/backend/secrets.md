@@ -6,7 +6,7 @@ description: "How Checkstack manages secrets centrally with pluggable backends, 
 The Secrets platform is the central, plugin-agnostic home for secrets. Secrets are created and managed in one place, stored by a pluggable backend (a local AES-256-GCM store by default), referenced from descriptors and configs via `${{ secrets.NAME }}`, and resolved on demand by any plugin through a service reference. No endpoint ever returns a secret value to a browser, and a Jenkins-style masking layer redacts known secret values out of any output before it is persisted or returned.
 
 > [!NOTE]
-> This page documents Phases 1 and 2: the core plugin, the local backend, the resolver service, the masking layer, and secret to env-var injection for centrally executed scripts. Satellite just-in-time delivery and the Vault backend land in later phases.
+> This page documents Phases 1 to 3: the core plugin, the local backend, the resolver service, the masking layer, secret to env-var injection for scripts (central and satellite), and just-in-time satellite delivery. The Vault backend lands in a later phase.
 
 ## Packages
 
@@ -77,7 +77,19 @@ const config = z.object({
 
 At execution the action resolves ONLY the declared secrets via `secretResolverRef.resolveForRun({ secretEnv })`, which returns the concrete env map plus a run-scoped `SecretMaskingContext`. The resolved values are injected into the runner env for that run only (the ESM runner gained a per-run `env` option; the shell runner already had one) and are never persisted. The script reads them as `process.env.ENV_NAME` (TypeScript) or `$ENV_NAME` (shell). A referenced secret that cannot resolve fails the run with a clear error rather than running without it. Decision 5: there is no ambient access; only the named secrets are resolved and injected.
 
-The automation `run_script` / `run_shell` actions implement this on the central backend. Healthcheck collectors carry the `secretEnv` field too, but they execute on satellites: injection is delivered just-in-time in a later phase, so the mapping is authored and validated now but not yet injected (the field documents this).
+The automation `run_script` / `run_shell` actions implement this on the central backend. Healthcheck collectors carry the `secretEnv` field too; they are resolved + injected both when a check runs centrally (the queue executor) and when it runs on a satellite (see below).
+
+## Satellite just-in-time delivery
+
+Healthcheck collectors run on satellites, which must NEVER persist a secret to disk, and a secret must NEVER ride the (persisted) assignment payload. So secrets are delivered per-run over the existing authenticated WebSocket channel, request/reply (mirrors the script-package manifest/blob precedent):
+
+1. Just before a satellite runs a collector that declares a `secretEnv`, it sends `request_run_secrets { requestId, configId, collectorId, runId }`.
+2. Core reads the collector's declared `secretEnv` from that satellite's OWN persisted assignment (the satellite does not choose which secrets), resolves ONLY those refs via `resolveForRun`, and replies with `run_secrets { requestId, env }` (or `{ requestId, error }`).
+3. The satellite injects `env` into the run's runner env, holds it in memory keyed to the run, runs, and drops it on completion. It is never written to disk.
+
+If delivery fails or a required secret can't resolve, the collector run errors clearly ("required secret not available on this satellite") rather than running without it.
+
+Source-side masking is applied on the satellite: the collector runs `maskSecrets` over its `stdout` / `stderr` / `result` / `error` using the run's delivered values BEFORE the result leaves the satellite, so a secret is redacted at the source even if the result is logged downstream. (Satellite-direct-Vault for core-unreachable topologies is deferred to the Vault phase.)
 
 ## Test panel: placeholders + overrides
 
