@@ -4,6 +4,7 @@ import { DEFAULT_TREE_GC_GRACE_MS } from "@checkstack/script-packages-common";
 import { extractErrorMessage } from "@checkstack/common";
 import { storePaths } from "./data-dir";
 import { readCurrentTarget } from "./atomic-symlink";
+import { markTreeRetired, readTreeRetiredAt } from "./tree-retirement";
 
 /**
  * Host-local tree garbage collection: prune materialized
@@ -23,10 +24,27 @@ import { readCurrentTarget } from "./atomic-symlink";
  * points at `current` (a symlink), not at a specific tree, and a crashed
  * run leaves no reliable "release" signal. A naive refcount would leak on
  * crash and could under-count, risking deletion of a live tree. So we take
- * the **robust** option: a grace window keyed on the tree dir's mtime that is
- * chosen to comfortably exceed the longest possible script-run timeout. A
- * tree only becomes eligible once it has been non-current for longer than any
- * run could still be using it. When in doubt, we retain.
+ * the **robust** option: a grace window chosen to comfortably exceed the
+ * longest possible script-run timeout. A tree only becomes eligible once it
+ * has been non-current for longer than any run could still be using it. When
+ * in doubt, we retain.
+ *
+ * ## Why grace is keyed on RETIREMENT time, not dir mtime
+ *
+ * A tree's mtime reflects when it was MATERIALIZED, not when it stopped being
+ * current. A tree that served as `current` for days has an ancient mtime, so
+ * keying the grace window on mtime makes it eligible for deletion the instant
+ * it is superseded — and this sweep runs right after a flip. That would
+ * delete a tree an in-flight run (which snapshotted `resolutionRoot` before
+ * the flip) is still pinned to. Instead the flip stamps a `.retired-at`
+ * marker into the superseded tree (see `tree-retirement.ts`), and the grace
+ * window is measured from THAT timestamp.
+ *
+ * A non-current tree with NO marker (e.g. one superseded before this scheme
+ * existed, or where the flip-time marker write failed) is RETAINED and the
+ * marker is lazily back-filled with `now`, so it ages out on subsequent
+ * sweeps instead of leaking forever — but is never deleted on a missing
+ * signal.
  *
  * `current`'s target is NEVER a candidate, regardless of age.
  */
@@ -91,16 +109,32 @@ export async function sweepTreeGc({
     }
     if (!info.isDirectory()) continue;
 
-    // Grace keyed on mtime: the dir's mtime is bumped on materialize, so a
-    // tree that has been non-current for longer than the grace window has
-    // had no fresh runs pinned to it for at least that long.
-    const ageMs = now - info.mtimeMs;
+    // Grace keyed on RETIREMENT time (the flip stamps `.retired-at` into the
+    // superseded tree), NOT the dir mtime. A long-current tree has an ancient
+    // mtime but only just retired, so mtime would make it instantly eligible
+    // and this sweep (run right after a flip) would delete a tree a live run
+    // is still pinned to.
+    const retiredAt = await readTreeRetiredAt({ treeDir });
+    if (retiredAt === undefined) {
+      // No marker yet: never delete on a missing signal. Back-fill `now` so
+      // the tree ages out on later sweeps instead of leaking forever, and
+      // retain it this pass.
+      await markTreeRetired({ treeDir, at: now });
+      keptWithinGrace.push(hash);
+      logger?.debug(
+        `Tree GC: non-current tree ${hash} has no retirement marker; ` +
+          `back-filling now and retaining this pass.`,
+      );
+      continue;
+    }
+
+    const ageMs = now - retiredAt;
     if (ageMs < graceMs) {
       keptWithinGrace.push(hash);
       logger?.debug(
-        `Tree GC: keeping non-current tree ${hash} (age ${Math.round(
+        `Tree GC: keeping non-current tree ${hash} (retired ${Math.round(
           ageMs / 1000,
-        )}s < grace ${Math.round(graceMs / 1000)}s; a run may still be pinned).`,
+        )}s ago < grace ${Math.round(graceMs / 1000)}s; a run may still be pinned).`,
       );
       continue;
     }
