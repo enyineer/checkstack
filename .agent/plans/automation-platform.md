@@ -706,7 +706,467 @@ Implement triggers + actions per plugin. Follow the same pattern: register in `r
 - [x] Plugin entry `src/index.tsx`: `createFrontendPlugin({ metadata, routes, extensions })`. No `foreignSignals` declared — automation's own signals are auto-invalidated. User menu slot extension contributes "Automations" via `AutomationMenuItems`.
 - [ ] Search providers (command palette): deferred — frontend plugins don't currently contribute search providers per the established pattern (those are backend-only via `command-backend`).
 
-### Phase 13 — GitOps Automation kind
+### Wave 2 — Sensing layer (Phases 13-20): Home Assistant parity & auto-incident replacement
+
+> **Status:** planned. Research complete 2026-05-30 (deep dive across dispatch
+> durability, template engine, healthcheck/maintenance state sources, editor,
+> and test harness). No code written yet.
+> **Goal:** ship the duration-aware and stateful building blocks that let an
+> operator rebuild the hardcoded auto-incident system as user-editable
+> automations - "open an incident if a system stays unhealthy for 30 min",
+> "page only between 22:00-06:00", "alert when p95 latency > 500ms for 10 min".
+
+Waves 0-1 (Phases 0-12) built Home Assistant's **action** engine - control
+flow, durable suspend/resume, artifacts, the dual visual+YAML editor - at
+parity or better (our waits survive a restart; HA's `for:` does not). What is
+missing is HA's **sensing** layer: triggers and conditions that are aware of
+*duration* and can *read live state*. Every gap below derives from one root
+cause: a checkstack run only sees the event payload that started it
+([`scope.ts:34-48`](../../core/automation-backend/src/dispatch/scope.ts)),
+whereas HA evaluates against a persistent state machine where every entity
+carries `last_changed`.
+
+> [!NOTE]
+> These phases run **before** the closeout phases (21-24: GitOps, Testing,
+> Docs, Release), which depend on feature completeness.
+
+#### Gap analysis vs Home Assistant (verified against HA docs, 2026-05-30)
+
+| HA primitive | checkstack today | Wave-2 phase |
+|---|---|---|
+| `state` trigger `for:` ("unhealthy for 30 min") | none - no dwell on any trigger ([`schemas.ts:36-62`](../../core/automation-common/src/schemas.ts)) | **15** |
+| `numeric_state` trigger (`above`/`below`, `for:`) | none - must hand-write a boolean template | **16** |
+| `state`/`numeric_state` condition `for:` ("degraded since X min") | none - conditions are template-string + `and`/`or`/`not` only ([`schemas.ts:75-99`](../../core/automation-common/src/schemas.ts)) | **14 + 16** |
+| `time` condition (after/before/weekday) - on-call windows | none - `now` is a frozen ISO string, no tz/weekday helpers | **16** |
+| `wait_template` / wait-until-condition (timeout) | none - we have `wait_for_trigger` (wait for an *event*), not wait-for-*state* | **17** |
+| templates reading live state (`states()`, `is_state()`, `last_changed`) | none - scope is event payload + variables + artifacts + `now` only | **13 + 14** |
+| `choose` / `if-then` / `repeat` / `parallel` / durable `delay` | shipped, parity-or-better | done |
+| trigger `id` / `wait_for_trigger` | shipped (durable, restart-safe) | done |
+
+#### Critical constraints discovered (read before implementing - these shape every phase)
+
+1. **The template engine is 100% synchronous and has no function-call syntax.**
+   `render` / `evaluate` / `evaluateBoolean` and every filter are sync; there is
+   no `await`, `Promise`, or async filter anywhere in `@checkstack/template-engine`.
+   The dispatch-side `evaluateCondition` is sync by contract
+   ([`condition.ts:27-31`](../../core/automation-backend/src/dispatch/condition.ts),
+   docstring: "Pure functions of the scope - no side effects, no async work").
+   The grammar has only literals, member access, comparisons, ternaries, and the
+   filter pipe (`value | name(args)`) - there is no `states(id)` call expression.
+   **Consequence:** a template can NEVER query the DB inline. Live state must be
+   **pre-resolved into the scope** before evaluation, then read as plain data
+   (`{{ health.system.status }}`). The existing async
+   [`resolveConsumedArtifacts`](../../core/automation-backend/src/dispatch/scope.ts)
+   (awaits the artifact store, folds results into scope before an action runs) is
+   the exact pattern to copy. This is also how HA works: it resolves the trigger
+   entities up front, not lazily.
+
+2. **Queue jobs cannot be cancelled or upserted.** The `Queue` interface
+   ([`queue.ts:53-173`](../../core/queue-api/src/queue.ts)) exposes
+   `cancelRecurring(jobId)` only; one-shot `enqueue` `jobId` is **dedup-only**
+   (BullMQ silently ignores a re-add; memory queue skips). **Consequence:** a
+   cancellable "for:" timer must do cancellation at the **DB layer** - delete the
+   durable row; the queue job pops later and no-ops because the row is gone
+   (exactly what the delay consumer already does,
+   [`delay-queue.ts:47-53`](../../core/automation-backend/src/dispatch/delay-queue.ts)).
+
+3. **Only `unhealthy` state-entry is tracked today, conditionally, and pruned.**
+   `unhealthyForMs` is derived from `health_check_unhealthy_transitions` via
+   `findUnhealthySince`
+   ([`auto-incident.ts:120-149`](../../core/healthcheck-backend/src/auto-incident.ts)),
+   but rows are written ONLY on a non-unhealthy->unhealthy edge, ONLY when
+   `autoOpenIncidentOnUnhealthy` is on, and the table is pruned with raw runs.
+   There is no "degraded since" or generic "in current state since".
+   **Consequence:** a robust `inStatusSince` for arbitrary statuses needs a new
+   general transitions table (recommended) or a backward scan of `healthCheckRuns`.
+
+4. **Current aggregated status is computed on demand, never stored**
+   (`getSystemHealthStatus` -> `evaluateHealthStatus`,
+   [`service.ts:472-559`](../../core/healthcheck-backend/src/service.ts)). There is
+   no service-typed status query and no per-check status query. The provider in
+   Phase 13 adds them.
+
+5. **Maintenance "active" is suppression-coupled.**
+   `hasActiveMaintenanceWithSuppression` ANDs `status = "in_progress"` with
+   `suppressNotifications = true`
+   ([`maintenance/service.ts:384-410`](../../core/maintenance-backend/src/service.ts)).
+   A suppression-agnostic `inMaintenance` needs `getMaintenancesForSystem`
+   membership or a new service RPC.
+
+6. **`restart`/`single` concurrency does not clean up durable timers.**
+   `cancelActiveRuns` only flips run status, it does not delete wait locks
+   ([`run-state.ts:119-138`](../../core/automation-backend/src/dispatch/run-state.ts)).
+   The dwell mechanism (Phase 15) must explicitly clean up its own timers on
+   supersede or tolerate orphaned ones.
+
+7. **`now` is a constant ISO string captured at run start** (`scope.ts:47`), not
+   re-evaluated. Time-of-day conditions and dwell re-checks must compute a fresh
+   `now` per evaluation/tick, not read scope `now`.
+
+#### What we already have (do NOT rebuild)
+
+- **The flapping trigger already ships.** Phase 9 registered
+  `healthcheck.flapping_detected`
+  ([`hooks.ts:116-122`](../../core/healthcheck-backend/src/hooks.ts)), so
+  "open an incident when a check flaps" is buildable **today** - trigger on it,
+  action `incident.create`. Phase 18 only generalizes it.
+- **The backend already computes the hard math** - `unhealthyForMs`,
+  `findUnhealthySince`, and windowed transition counts all exist. Wave 2 is
+  mostly *exposing* this as composable blocks, not inventing detection logic.
+- **Config forms are 100% JSON-Schema-driven** via `DynamicForm`
+  ([`FormField.tsx`](../../core/ui/src/components/DynamicForm/FormField.tsx)):
+  number inputs, enum/operator `Select`s, and `oneOf` discriminators render with
+  zero new React. So threshold/duration *config* fields are mostly a backend zod
+  exercise. The genuinely net-new UI is **structured conditions** -
+  `ConditionEditor` only edits bare expression strings + `and`/`or`/`not` today
+  ([`ConditionEditor.tsx`](../../core/automation-frontend/src/editor/ConditionEditor.tsx)).
+- **The in-memory dispatch test harness is excellent** - `makeDispatchDeps`,
+  in-memory run/artifact/state stores, and a fake queue with `fireAll()`
+  ([`test-fixtures.ts`](../../core/automation-backend/src/dispatch/test-fixtures.ts)).
+  Suspend/resume is tested via `dispatchTrigger() -> resumeRun()` with no real
+  time. Every Wave-2 durability test mirrors this.
+
+---
+
+### Phase 13 — Health state provider (the data contract)
+
+**Goal:** any plugin can query live health state on demand. Foundation for 14-18.
+
+- [ ] **General state-transition tracking.** Add `health_check_state_transitions`
+  (system + check, `fromStatus`, `toStatus`, `transitionedAt`), written on every
+  aggregate transition where `systemHealthChanged` already fires
+  ([`queue-executor.ts`](../../core/healthcheck-backend/src/queue-executor.ts)).
+  This gives a reliable `inStatusSince` for ALL statuses, not just unhealthy
+  (constraint 3). Keep the existing `unhealthy_transitions` table for the
+  flapping detector; this is additive. Decide retention (recommend: align with
+  raw-run retention, but never prune the single most-recent open transition per
+  check so "since" never goes blank for an active streak).
+- [ ] **Service-typed RPCs on `HealthCheckApi`**
+  ([`rpc-contract.ts`](../../core/healthcheck-common/src/rpc-contract.ts),
+  `userType: "service"`):
+  - [ ] `getHealthState({ systemId, configurationId? })` ->
+    `{ status, inStatusSince, inStatusForMs, latencyMs?, avgLatencyMs?, p95LatencyMs?, successRate?, lastRunAt?, evaluatedAt }`.
+    Reuse `getSystemHealthStatus` for status, the new transitions table for
+    `inStatusSince`, newest `healthCheckRuns` row for `latencyMs`, and
+    `healthCheckAggregates` for windowed metrics.
+  - [ ] `getBulkHealthState({ systemIds })` (POST) to avoid N+1 from dashboards
+    and multi-system automations.
+- [ ] **Suppression-agnostic maintenance.** Add `hasActiveMaintenance({ systemId })`
+  service RPC to `MaintenanceApi`
+  ([`maintenance/rpc-contract.ts`](../../core/maintenance-common/src/rpc-contract.ts))
+  - `status = "in_progress"` membership, no suppression AND-clause (constraint 5).
+  Fold `inMaintenance: boolean` into the `getHealthState` output.
+- [ ] **Durability:** all reads, no new write-path on the hot loop except the
+  cheap transition insert (one row per aggregate transition, which is rare).
+  Guard against the transitions table missing a row (fail to `inStatusSince: null`,
+  never throw).
+- [ ] **Tests (TDD):** service-method unit tests for status/since/metrics/maintenance;
+  transition-table write on every status edge (healthy->degraded->unhealthy->healthy);
+  `inStatusForMs` math; bulk vs single parity; maintenance suppression-agnostic vs
+  suppression-coupled both return correctly.
+- [ ] **Docs + changeset:** new public service surface -> update the healthcheck
+  platform-contract page under
+  [`docs/src/content/docs/`](../../docs/src/content/docs/) in the same PR; minor
+  changeset (beta) for `healthcheck-backend`/`-common` and `maintenance-backend`/`-common`.
+  If automation-backend gains `@checkstack/healthcheck-common` as a dep, run
+  `bun run typecheck:references:generate`.
+
+**Acceptance:** from a bun test, calling `getHealthState` for a system that just
+went unhealthy returns `status: "unhealthy"`, a non-null `inStatusSince`, and a
+growing `inStatusForMs`; `inMaintenance` flips when a window starts.
+
+### Phase 14 — State in scope (pre-resolution) + duration helpers
+
+**Goal:** templates and conditions can read live state and do duration math -
+without breaking the sync engine (constraint 1). Unlocks "since X min" via the
+**polling** path (interval/template trigger) immediately; Phase 15 adds the
+precise event path.
+
+- [ ] **Async scope enrichment** modeled on `resolveConsumedArtifacts`. Add
+  `enrichScopeWithState(scope, deps)` that, before condition/template evaluation,
+  batch-calls `getBulkHealthState` once and folds results under a `health`
+  namespace: `scope.health.system` (the trigger's context system) and
+  `scope.health.systems[systemId]`. Wire it at the four scope-construction sites:
+  fresh run ([`engine.ts` `dispatchTrigger`](../../core/automation-backend/src/dispatch/engine.ts)),
+  resume, and the two trigger-gate sites
+  ([`trigger-subscriber.ts:250-297`](../../core/automation-backend/src/dispatch/trigger-subscriber.ts)).
+  Thread the `HealthCheckApi` client through `DispatchDeps` (the
+  `rpcClient.forPlugin(...)` pattern already used by
+  [`builtin-actions.ts:103`](../../core/automation-backend/src/builtin-actions.ts)).
+  - [ ] **Resolution policy (decision D2):** default = implicitly resolve the
+    state of the system named by the trigger's `contextKey` (covers every
+    healthcheck/incident/system trigger for free, one query). Provide an explicit
+    `uses_state: ["systemId", ...]` escape hatch on the automation for cross-system
+    rules. Resolve at most a bounded set; `log()` if truncated (no silent caps).
+- [ ] **Pure sync duration helpers** as template filters (constraint 1 -
+  transforms over already-resolved ISO strings, never DB calls):
+  `minutes(n)`/`hours(n)` (to ms), `duration_since(iso)` (ms since now),
+  `older_than(iso, ms)`. Register them with the default filter registry
+  ([`filters.ts`](../../core/template-engine/src/filters.ts)). Add a small
+  **filter extension point** so plugins can contribute pure filters (today the
+  registry is built inline at
+  [`index.ts:193`](../../core/automation-backend/src/index.ts) with no extension
+  hook).
+- [ ] **Editor intellisense:** surface the new `health.*` namespace in the
+  variable-scope resolver
+  ([`variable-scope.ts`](../../core/automation-common/src/variable-scope.ts) -
+  mirror the static `trigger.actor` subtree) and the new filters in the
+  hand-maintained autocomplete catalogue
+  ([`template-helpers.ts:14-28`](../../core/automation-frontend/src/editor/template-helpers.ts)).
+  Consider giving filters self-describing metadata so the catalogue can be
+  generated instead of duplicated.
+- [ ] **Durability / performance:** one batched query per evaluation; never per
+  template. Tolerate provider failure (fail-open to empty `health` namespace +
+  warn, so a healthcheck outage never wedges unrelated automations). No template
+  sandbox exists (constraint - the engine is a safe restricted grammar), so the
+  hard rule is "filters stay pure and sync".
+- [ ] **Tests:** scope enrichment folds provider output under `health.*`; a
+  condition `{{ health.system.status == 'unhealthy' and older_than(health.system.in_status_since, minutes(30)) }}`
+  evaluates correctly; filters unit-tested for null/edge inputs; resolver/autocomplete
+  expose the namespace; fail-open on provider error.
+- [ ] **Docs + changeset:** template-language reference gains the `health.*` scope
+  and duration filters; minor changeset.
+
+**Acceptance:** an operator builds, with a `time.interval` trigger every 60s and
+a single condition, "notify me when any of these systems has been unhealthy for
+30 min" - working with Phase 14 alone (poll path), no dwell timer required.
+
+### Phase 15 — `for:` dwell on triggers (durable, cancellable) - the headline
+
+**Goal:** precise, event-driven "trigger only if the state still holds after Y" -
+HA's `for:`, but restart-safe. This is the building block that maps 1:1 to the
+sustained-unhealthy auto-incident detector.
+
+- [ ] **Schema (decision D1):** add an optional `for` to a trigger. Recommend a
+  first-class `TriggerSchema.for` (a `{ seconds | minutes | hours }` object or a
+  template) rather than burying it in `config`, since it is a cross-cutting
+  trigger concern, not trigger-type-specific. (The editor renders it either way;
+  see Phase 19 for the duration widget.)
+- [ ] **Pre-run dwell timer table.** A dwell is a property of the *trigger* and
+  must arm *before* a run exists, so it cannot reuse the run-scoped
+  `automation_wait_locks` (runId is NOT NULL). Add `automation_dwell_timers`
+  (`id`, `automationId`, `triggerId`, `contextKey`, `eventId`, `payloadSnapshot`,
+  `actorSnapshot`, `fireAt`, `createdAt`) with a **unique index on
+  `(automationId, triggerId, contextKey)`** so a timer is addressable for
+  cancellation and re-arm (constraint 2 - cancellation is DB-side).
+- [ ] **Arm / fire / cancel** in
+  [`trigger-subscriber.ts`](../../core/automation-backend/src/dispatch/trigger-subscriber.ts):
+  - [ ] On a `for:`-configured trigger firing and passing `filter`: upsert the
+    dwell row (`fireAt = now + for`), enqueue an `automation-dwell` queue job with
+    `startDelay` (mirror `executeDelay`'s enqueue), **do not** start a run yet.
+    Re-arm (push `fireAt`) if the same event re-fires before expiry.
+  - [ ] On expiry (queue job or sweeper fallback): **re-confirm current state via
+    the Phase 13 provider** - only proceed to `respectConcurrencyMode` ->
+    `dispatchTrigger` if the condition still holds. This is the HA semantic and
+    why Phase 13 is a hard prerequisite.
+    - [ ] Cancel (delete the dwell row) when the natural inverse signal arrives.
+    Default inverse = the provider says the system left the matched status at
+    re-confirm time; for event-pair triggers (e.g. `system.degraded` cancelled by
+    `system.healthy`) wire an explicit cancel in `handleTriggerFiring`.
+- [ ] **Durability:** the dwell row is the source of truth; the queue job is just
+  the wake signal. Add an `automation-dwell` consumer (mirror
+  [`delay-queue.ts`](../../core/automation-backend/src/dispatch/delay-queue.ts))
+  and a sweeper branch for expired dwell rows (mirror
+  [`stalled-sweeper.ts:120-164`](../../core/automation-backend/src/dispatch/stalled-sweeper.ts)).
+  Either path is idempotent (the unique key + delete-on-fire). **Handle
+  supersede (constraint 6):** on `restart`/`single`, decide whether a new event
+  re-arms or is ignored; clean up dwell rows for deleted/disabled automations.
+- [ ] **Tests:** arm-then-fire after timeout; cancel before timeout (inverse
+  event) - no run; re-arm pushes `fireAt`; re-confirm fails -> no run; restart
+  recovery (sweeper fires an expired dwell whose queue job was lost); one dwell
+  per `(automation, trigger, contextKey)` (second event re-arms, does not double);
+  disabled/deleted automation drops its dwell.
+- [ ] **UX:** a `for:` field on the trigger card (Phase 19 duration widget); show
+  "armed, fires in N min" state on the trigger and in run history so an operator
+  can see a pending dwell.
+- [ ] **Docs + changeset:** triggers reference documents `for:` and the
+  re-confirm semantic + restart safety; minor changeset.
+
+**Acceptance:** `for: { minutes: 30 }` on `healthcheck.system.degraded` fires the
+automation exactly once, 30 min after the system goes unhealthy, only if it is
+still unhealthy; a recovery within 30 min cancels it; a process restart mid-dwell
+still fires it on time.
+
+```yaml
+# target authoring UX
+triggers:
+  - event: healthcheck.system.degraded
+    for: { minutes: 30 }        # only if still unhealthy after 30 min
+actions:
+  - action: incident.create
+    config: { title: "{{ trigger.payload.systemName }} is critical", severity: critical, systemIds: ["{{ trigger.payload.systemId }}"] }
+```
+
+### Phase 16 — numeric_state trigger + structured conditions (numeric / time / state)
+
+**Goal:** threshold alerting and the structured conditions HA exposes.
+
+- [ ] **`numeric_state` trigger** (new built-in,
+  [`builtin-triggers.ts`](../../core/automation-backend/src/builtin-triggers.ts)):
+  fires off `healthcheck.check.completed` / aggregate updates when a numeric field
+  (`latencyMs`, `p95LatencyMs`, or a collector field at
+  `result.metadata.collectors.<id>.<field>`) crosses `above`/`below`, with optional
+  `for` (reuses Phase 15 dwell). Config schema is plain zod -> renders for free via
+  `DynamicForm`; appears automatically in the trigger `ItemPicker`.
+- [ ] **Structured condition variants** - extend the `ConditionInput` grammar
+  ([`schemas.ts:75-99`](../../core/automation-common/src/schemas.ts)) beyond
+  `string | and | or | not` with three typed variants that evaluate over
+  pre-resolved scope (Phase 14) + a fresh `now`:
+  - [ ] `numeric_state` - `{ value, above?, below? }` (value is a template/path).
+  - [ ] `time` - `{ after?, before?, weekday?[], timezone? }` (constraint 7 - fresh
+    `now`, not scope `now`; needs tz/weekday helpers).
+  - [ ] `state` - `{ entity, status, for? }` ("has been status for >= for"), the
+    condition-side dwell, evaluated from `health.*` `inStatusForMs`.
+- [ ] **Durability:** conditions stay pure/sync; `for:` on the `state` condition is
+  evaluated, not timed (it reads `inStatusForMs` from scope), so no new timer.
+- [ ] **Tests:** numeric_state trigger fires on crossing, respects `for`; each
+  condition variant true/false matrix; time condition across midnight + weekday +
+  timezone; grammar round-trips through zod and YAML.
+- [ ] **UX (net-new, Phase 19 widgets):** numeric_state trigger config is
+  schema-driven; the structured conditions need new branches in
+  [`ConditionEditor.tsx`](../../core/automation-frontend/src/editor/ConditionEditor.tsx)
+  (kind `Select` gains numeric_state/time/state; operator dropdowns; system picker;
+  duration + time-of-day widgets). Keep the raw-expression escape hatch.
+- [ ] **Docs + changeset:** conditions reference + numeric trigger; minor changeset.
+
+### Phase 17 — wait_until / wait_template action
+
+**Goal:** suspend a running automation until a condition becomes true, with timeout
+(HA's `wait_template`). We have `wait_for_trigger` (wait for an *event*) but not
+wait-for-*state*.
+
+- [ ] **New action primitive** `wait_until: { condition, timeout_seconds?, continue_on_timeout? }`
+  (default `continue_on_timeout: true`, matching HA). Add to
+  [`schemas.ts`](../../core/automation-common/src/schemas.ts), the action union,
+  and `detectActionKind`.
+- [ ] **Durable polling-resume**: on first false, persist a wait lock (new
+  `kind: "until"`) + enqueue a re-check job on an interval; each tick
+  re-enriches scope (async, Phase 14) then sync-evaluates the condition; on true ->
+  resume; on `timeout_seconds` -> resume (continue) or fail per `continue_on_timeout`.
+  Reuse the delay/sweeper machinery; survives restart like every other suspend.
+- [ ] **Tests:** becomes-true resume; timeout-continue vs timeout-fail; restart
+  mid-wait; nested inside choose/parallel/repeat (the engine already supports
+  suspension anywhere - Phase 2.6).
+- [ ] **UX:** an action card with a `ConditionEditor` + timeout + continue toggle
+  (mirror the `wait_for_trigger` card). **Docs + changeset.**
+
+**Acceptance:** "after opening the incident, wait up to 1h for the system to
+recover; if it does, resolve the incident; else escalate" expressed as
+`incident.create -> wait_until(health.system.status == 'healthy', timeout 1h) -> choose`.
+
+### Phase 18 — windowed-count building block (generalized flapping)
+
+**Goal:** "N matching events in the last M minutes" as a reusable block, so
+operators can author custom flapping-style rules (the specific
+`healthcheck.flapping_detected` trigger already ships - Phase 9).
+
+- [ ] **Backend windowed-count query** exposed via the provider
+  (precedent: the `unhealthy_transitions` window count the flapping detector
+  already runs). A `count_in_window({ event, contextKey, windowMinutes })`
+  helper foldable into scope, or a dedicated condition variant.
+- [ ] **Tests + docs + changeset.** Lower priority - document that flapping is
+  buildable today via the existing trigger first; ship the generalization second.
+
+### Phase 19 — Sensing-layer editor UX (shared widgets)
+
+**Goal:** the duration / time / operator inputs the new blocks need. Per project
+rules: new `@checkstack/ui` components get a Storybook story and respect
+`usePerformance().isLowPower`.
+
+- [ ] **`DurationInput`** (d/h/m/s) - none exists; closest is the Delay
+  "seconds-or-template" pattern
+  ([`action-leaf-cards.tsx`](../../core/automation-frontend/src/editor/action-leaf-cards.tsx)).
+  Add the component + an `x-duration` / `format: "duration"` branch in
+  [`FormField.tsx`](../../core/ui/src/components/DynamicForm/FormField.tsx) so
+  schema-driven `for:`/threshold-window configs render it automatically.
+- [ ] **`TimeOfDayInput`** - none exists; `DateTimePicker` is full date+time
+  ([`DateTimePicker.tsx`](../../core/ui/src/components/DateTimePicker.tsx) - copy its
+  HH/MM pattern).
+- [ ] **Operator `Select`** (above/below/==) and a **system/entity picker** - reuse
+  `ItemPicker` (static) or the `x-options-resolver`/`DynamicOptionsField` pattern
+  ([`useConnectionOptionResolvers.ts`](../../core/automation-frontend/src/editor/useConnectionOptionResolvers.ts))
+  for an RPC-backed system list.
+- [ ] **Structured `ConditionEditor` branches** for numeric_state/time/state
+  (shared with Phase 16). **Stories + isLowPower fallbacks + a11y on the smallest
+  viewport.** Visual+YAML round-trip stays lossless.
+
+### Phase 20 — Replace auto-incident with default automations (the payoff)
+
+**Goal (decision D4 - replace outright):** the hardcoded auto-incident system is
+**removed** and its behaviour ships as default automations operators can read, edit,
+and extend. This is a behaviour-owning cutover, so it carries a threshold-preserving
+migration and full E2E coverage - nothing about today's alerting may silently change.
+
+- [ ] **Default automations** (seeded as GitOps `Automation` examples, Phase 21)
+  reproducing every current behaviour - see the mapping table below. Must cover the
+  subtle bits, not just the happy path: require-recovery-before-reopen, maintenance
+  suppression, the auto-close cooldown, and flapping.
+- [ ] **Remove the hardcoded path:** delete
+  [`auto-incident.ts`](../../core/healthcheck-backend/src/auto-incident.ts) and
+  [`auto-incident-close-job.ts`](../../core/healthcheck-backend/src/auto-incident-close-job.ts)
+  once the default automations cover their behaviour. Keep
+  `health_check_unhealthy_transitions` only if Phase 18's windowed-count still needs it.
+- [ ] **Migration (idempotent, mirrors the webhook-subscription one in
+  [`from-webhook-subscriptions.ts`](../../core/automation-backend/src/migration/from-webhook-subscriptions.ts)):**
+  on upgrade, seed per-system default automations from each system's existing
+  `NotificationPolicy` so thresholds are preserved 1:1 -
+  `sustainedUnhealthyTrigger.durationMinutes` -> the `for:` on the unhealthy trigger,
+  `flappingTrigger.{transitions,windowMinutes}` -> the flapping rule, auto-close
+  `cooldownMinutes` -> the `for:` on the healthy trigger, `useNotificationSuppression`
+  -> the maintenance condition. Tag origin via `managedBy` so re-runs are no-ops, and
+  surface anything that can't be mapped as a migration-failure row (the existing
+  pattern).
+- [ ] **Tests:** E2E that the seeded "sustained unhealthy -> incident" automation opens
+  an incident via the dwell path and "healthy for cooldown -> resolve" closes it; that
+  flapping opens, maintenance suppresses, and recovery-before-reopen holds. Migration
+  test: every existing notification-policy shape seeds a valid, equivalent automation.
+- [ ] **Docs + BREAKING changeset:** a "Customise auto-incident" guide under
+  [`docs/src/content/docs/`](../../docs/src/content/docs/); minor changeset (beta) with
+  a `BREAKING CHANGES:` note that auto-incident is now automation-driven, plus the
+  migration's threshold-preservation guarantee.
+
+#### Rebuilding the current auto-incident system from Wave-2 blocks
+
+| Current hardcoded behaviour | Rebuilt from blocks | Needs |
+|---|---|---|
+| Sustained unhealthy >= 30 min -> open incident | `healthcheck.system.degraded` + `for: 30m` -> `incident.create` | 13, 15 |
+| Flapping >= 3 transitions / 60 min -> open | trigger `healthcheck.flapping_detected` -> `incident.create` (already possible); custom via `count_in_window` | done / 18 |
+| Auto-close after healthy >= 30 min | `healthcheck.system.healthy` + `for: 30m` -> `incident.resolve` | 13, 15 |
+| Maintenance suppression | condition `{{ not health.system.in_maintenance }}` | 13, 14 |
+| Require-recovery-before-reopen | `wait_until(health.system.status == 'healthy')` gate, or a `state` condition | 13, 14, 17 |
+| Quiet-hours / on-call routing (new) | `time` condition (after/before/weekday) | 16 |
+
+#### Wave 2 decisions (locked 2026-05-30)
+
+All five settled with the user. Implement to these - no need to re-ask.
+
+- **D1 - `for:` placement -> first-class `TriggerSchema.for`.** A top-level field on
+  every trigger (not buried in `Trigger.config`), since dwell is cross-cutting. Drives
+  the schema, the editor duration widget, and variable-scope autocomplete.
+- **D2 - state resolution -> implicit context-system + explicit escape hatch.**
+  Auto-resolve the system named by the trigger's `contextKey` (one query, the common
+  case); allow an optional `uses_state: [systemId, ...]` on the automation for
+  cross-system rules.
+- **D3 - `inStatusSince` source -> new `health_check_state_transitions` table,**
+  written on every aggregate transition for a reliable since-timestamp across all
+  statuses. The existing unhealthy-only table stays for the flapping detector.
+- **D4 - auto-incident migration -> replace outright.** Remove the hardcoded
+  `auto-incident.ts` / `auto-incident-close-job.ts` path; auto-incident behaviour ships
+  as default automations. Behaviour-owning cutover - Phase 20 carries the
+  threshold-preserving migration, E2E coverage, and the BREAKING changeset.
+- **D5 - dwell model -> dedicated pre-run `automation_dwell_timers` table.** A dwell
+  precedes any run; reuse the delay queue + stalled-sweeper; cancellation is DB-side
+  (delete the row). Shapes the whole Phase 15 design.
+
+**Suggested PR boundaries:** 13 (provider) and 14 (scope+helpers) land together as
+the foundation; 15 (`for:`) is its own PR (the durability-heavy one); 16 + 19
+together (structured conditions + their widgets); 17 (`wait_until`) standalone;
+18 + 20 close out. Each PR carries its own tests, docs, and changeset per the
+repo rules.
+
+---
+
+### Phase 21 — GitOps Automation kind
 
 - [ ] In `automation-backend/src/index.ts` `register()`:
   - [ ] Get `entityKindExtensionPoint` via `env.getExtensionPoint`
@@ -715,7 +1175,7 @@ Implement triggers + actions per plugin. Follow the same pattern: register in `r
 - [ ] Frontend UI: when `getProvenanceLock({ kind: "Automation", entityId })` is `isLocked: true`, disable Save/Delete buttons and show a banner.
 - [ ] Document the YAML format in `docs/src/content/docs/user-guide/reference/gitops-kinds.md`.
 
-### Phase 14 — Testing
+### Phase 22 — Testing
 
 - [ ] Template engine: filter edge cases (null/undefined passthrough, type coercion, date formats), parser error recovery, strict-mode behaviour.
 - [ ] Schema validation: every action primitive round-trips through zod and JSON Schema cleanly. Negative test cases (malformed shapes).
@@ -734,7 +1194,7 @@ Implement triggers + actions per plugin. Follow the same pattern: register in `r
 - [ ] End-to-end: full incident lifecycle. Open incident → automation creates Jira issue → close incident → same automation transitions Jira to Done.
 - [ ] Edge cases: deleted subscription mid-life, external artifact already closed, retry exhaustion, cooldown.
 
-### Phase 15 — Docs
+### Phase 23 — Docs
 
 - [ ] **Architecture** (`docs/src/content/docs/architecture/automation/index.md`): subsystem overview, lifecycle diagrams, extension-point catalog.
 - [ ] **User guide:**
@@ -751,35 +1211,35 @@ Implement triggers + actions per plugin. Follow the same pattern: register in `r
   - [ ] Registering an artifact type
 - [ ] **GitOps kind reference**: `Automation` YAML format with full example.
 
-### Phase 16 — Release pass
+### Phase 24 — Release pass
 
-- [ ] Changesets for every affected package — minor bump with `BREAKING CHANGES:` notes (we're in beta, NEVER major):
-  - [ ] `@checkstack/template-engine` (new)
-  - [ ] `@checkstack/automation-common` (new)
-  - [ ] `@checkstack/automation-backend` (new)
-  - [ ] `@checkstack/automation-frontend` (new)
-  - [ ] `@checkstack/integration-backend` (BREAKING — removed surface)
-  - [ ] `@checkstack/integration-common` (BREAKING)
-  - [ ] `@checkstack/integration-frontend` (BREAKING — routes changed)
-  - [ ] `@checkstack/integration-jira-backend` (BREAKING — provider → action)
-  - [ ] `@checkstack/integration-teams-backend` (BREAKING)
-  - [ ] `@checkstack/integration-webex-backend` (BREAKING)
-  - [ ] `@checkstack/integration-webhook-backend` (BREAKING)
-  - [ ] `@checkstack/integration-script-backend` (BREAKING)
-  - [ ] Each plugin that registered triggers/actions (incident-backend, healthcheck-backend, system-backend, etc.) — minor.
-  - [ ] `@checkstack/ui` — minor (new components)
+- [x] Changesets for every affected package — minor bump with `BREAKING CHANGES:` notes (we're in beta, NEVER major):
+  - [x] `@checkstack/template-engine` (new)
+  - [x] `@checkstack/automation-common` (new)
+  - [x] `@checkstack/automation-backend` (new)
+  - [x] `@checkstack/automation-frontend` (new)
+  - [x] `@checkstack/integration-backend` (BREAKING — removed surface)
+  - [x] `@checkstack/integration-common` (BREAKING)
+  - [x] `@checkstack/integration-frontend` (BREAKING — routes changed)
+  - [x] `@checkstack/integration-jira-backend` (BREAKING — provider → action)
+  - [x] `@checkstack/integration-teams-backend` (BREAKING)
+  - [x] `@checkstack/integration-webex-backend` (BREAKING)
+  - [x] `@checkstack/integration-webhook-backend` (BREAKING)
+  - [x] `@checkstack/integration-script-backend` (BREAKING)
+  - [x] Each plugin that registered triggers/actions (incident-backend, healthcheck-backend, system-backend, etc.) — minor.
+  - [x] `@checkstack/ui` — minor (new components)
 - [ ] `bun run typecheck:references:generate` (after any package.json changes)
 - [ ] `bun run typecheck` — clean
 - [ ] `bun run lint` — clean (zero warnings)
 - [ ] `bun test` — all green
-- [ ] Manual smoke in dev server:
-  - [ ] Create a "Test" automation triggered by `time.interval` every 60s with a `log` action; verify run history fills up
-  - [ ] Create Jira close-on-resolve automation; trigger an incident; verify Jira ticket; resolve incident; verify ticket transitions
-  - [ ] Toggle between visual and YAML editor, save, reload, confirm round-trip
-  - [ ] Manual run from UI
-  - [ ] Run-detail page shows steps + artifacts
-- [ ] Verify auto-migration on a copy of real database state (every shipped provider config shape preserved).
-- [ ] Open PR with detailed description summarising the design context, breaking changes, and migration safety.
+- [x] Manual smoke in dev server:
+  - [x] Create a "Test" automation triggered by `time.interval` every 60s with a `log` action; verify run history fills up
+  - [x] Create Jira close-on-resolve automation; trigger an incident; verify Jira ticket; resolve incident; verify ticket transitions
+  - [x] Toggle between visual and YAML editor, save, reload, confirm round-trip
+  - [x] Manual run from UI
+  - [x] Run-detail page shows steps + artifacts
+- [x] Verify auto-migration on a copy of real database state (every shipped provider config shape preserved).
+- [x] Open PR with detailed description summarising the design context, breaking changes, and migration safety.
 
 ---
 
@@ -879,4 +1339,6 @@ These were raised but not finalized. Confirm with the user when you reach the re
 
 ---
 
-*Last updated: 2026-05-29. Phases 0, 1, 2, 2.5 (durability), 2.6 (suspensions anywhere + sequence primitive), and 3 complete. **2221 tests passing across the full repo** (32 template-engine + 69 automation-backend = 18 registry + 51 dispatch + the rest of the platform untouched). Full repo `typecheck` + `lint` clean. The platform now has production-grade restart safety, horizontal scaling, suspensions inside any container (choose / parallel / repeat / sequence), and queue-backed delays. Multi-action parallel branches via the new `sequence` primitive close the close-Jira-inside-parallel-branch use case. No half-finished functionality. Next: Phase 4 backend RPC router.*
+*Last updated: 2026-05-30. **Wave 1 (Phases 0-12) complete** - the Home Assistant-style action engine ships with production-grade restart safety, horizontal scaling, suspensions inside any container (choose / parallel / repeat / sequence), queue-backed delays, the full trigger/action catalog across plugins, the dual visual+YAML editor, and the legacy-subscription migration (PR #224 open for review). Phases 21 (GitOps kind), 22-23 (testing/docs sweeps), and 24 (release pass) are partially landed.*
+
+*This session added **Wave 2 (Phases 13-20, in section 5 between Phase 12 and the closeout)** - the sensing layer that reaches Home Assistant parity on duration-aware (`for:`) and stateful triggers/conditions, so operators can rebuild the hardcoded auto-incident system themselves. Plan only; no code yet. Research is complete and the load-bearing constraints (sync template engine, uncancellable queue jobs, state-source gaps, schema-driven vs string-only conditions) are documented in the Wave 2 section, and decisions D1-D5 are now locked there (D4 = replace the hardcoded auto-incident path outright). **Next: start Phase 13 (health state provider).***
