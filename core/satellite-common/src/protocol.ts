@@ -113,6 +113,30 @@ const RequestScriptPackageBlobMessageSchema = z.object({
 });
 
 /**
+ * Satellite -> core just-in-time request for a collector run's resolved
+ * secret env, sent right before the satellite executes a collector that
+ * declares a `secretEnv` mapping. The core resolves ONLY that collector's
+ * declared `secretEnv` (read from the persisted assignment — the satellite
+ * does not get to choose which secrets), and replies with a `run_secrets`
+ * message carrying the env map (or an error).
+ *
+ * Secrets NEVER ride the persisted assignment payload; they are delivered
+ * over this authenticated channel per-run and held in satellite memory only
+ * for the lifetime of the run. `requestId` correlates the reply (a config
+ * can run repeatedly; `runId` is for logging/audit).
+ */
+const RequestRunSecretsMessageSchema = z.object({
+  type: z.literal("request_run_secrets"),
+  /** Correlation id for the reply. */
+  requestId: z.string(),
+  /** The assignment/collector whose declared secretEnv to resolve. */
+  configId: z.string(),
+  collectorId: z.string(),
+  /** Opaque per-run id for audit/logging on the core side. */
+  runId: z.string(),
+});
+
+/**
  * Discriminated union of all messages that a satellite can send to the core.
  */
 export const SatelliteToCoreMessageSchema = z.discriminatedUnion("type", [
@@ -123,6 +147,7 @@ export const SatelliteToCoreMessageSchema = z.discriminatedUnion("type", [
   ScriptPackageSyncStateMessageSchema,
   RequestScriptPackageManifestMessageSchema,
   RequestScriptPackageBlobMessageSchema,
+  RequestRunSecretsMessageSchema,
 ]);
 
 export type SatelliteToCoreMessage = z.infer<
@@ -142,6 +167,9 @@ export type RequestScriptPackageManifestMessage = z.infer<
 >;
 export type RequestScriptPackageBlobMessage = z.infer<
   typeof RequestScriptPackageBlobMessageSchema
+>;
+export type RequestRunSecretsMessage = z.infer<
+  typeof RequestRunSecretsMessageSchema
 >;
 
 // =============================================================================
@@ -213,6 +241,26 @@ const ScriptPackageBlobMessageSchema = z.object({
 });
 
 /**
+ * Core reply to `request_run_secrets`. Carries the resolved env map on
+ * success, or an `error` when a required secret could not be resolved /
+ * the collector was not found. The satellite injects `env` memory-only for
+ * the run and drops it on completion; on `error` it fails the run clearly
+ * rather than running without the secret.
+ *
+ * The env map never persists on the core side and is never written to disk
+ * on the satellite.
+ */
+const RunSecretsMessageSchema = z.object({
+  type: z.literal("run_secrets"),
+  /** Correlates with the originating `request_run_secrets`. */
+  requestId: z.string(),
+  /** Resolved env, present only on success. */
+  env: z.record(z.string(), z.string()).optional(),
+  /** Set when resolution failed; `env` is then absent. */
+  error: z.string().optional(),
+});
+
+/**
  * Discriminated union of all messages that the core can send to a satellite.
  */
 export const CoreToSatelliteMessageSchema = z.discriminatedUnion("type", [
@@ -223,6 +271,7 @@ export const CoreToSatelliteMessageSchema = z.discriminatedUnion("type", [
   RefreshScriptPackagesMessageSchema,
   ScriptPackageManifestMessageSchema,
   ScriptPackageBlobMessageSchema,
+  RunSecretsMessageSchema,
 ]);
 
 export type CoreToSatelliteMessage = z.infer<
@@ -243,3 +292,4 @@ export type ScriptPackageManifestMessage = z.infer<
 export type ScriptPackageBlobMessage = z.infer<
   typeof ScriptPackageBlobMessageSchema
 >;
+export type RunSecretsMessage = z.infer<typeof RunSecretsMessageSchema>;

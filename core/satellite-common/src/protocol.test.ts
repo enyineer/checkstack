@@ -107,3 +107,44 @@ describe("script-packages protocol extensions", () => {
     }
   });
 });
+
+describe("run-secrets request/reply (Phase 3 JIT delivery)", () => {
+  test("parses request_run_secrets", () => {
+    const parsed = SatelliteToCoreMessageSchema.parse({
+      type: "request_run_secrets",
+      requestId: "req-1",
+      configId: "config-1",
+      collectorId: "inline-script",
+      runId: "run-1",
+    });
+    expect(parsed.type).toBe("request_run_secrets");
+    if (parsed.type === "request_run_secrets") {
+      expect(parsed.requestId).toBe("req-1");
+      expect(parsed.collectorId).toBe("inline-script");
+    }
+  });
+
+  test("parses run_secrets reply with env", () => {
+    const parsed = CoreToSatelliteMessageSchema.parse({
+      type: "run_secrets",
+      requestId: "req-1",
+      env: { API_TOKEN: "resolved-value" },
+    });
+    if (parsed.type === "run_secrets") {
+      expect(parsed.env).toEqual({ API_TOKEN: "resolved-value" });
+      expect(parsed.error).toBeUndefined();
+    }
+  });
+
+  test("parses run_secrets reply with error (no env)", () => {
+    const parsed = CoreToSatelliteMessageSchema.parse({
+      type: "run_secrets",
+      requestId: "req-1",
+      error: "required secret not available",
+    });
+    if (parsed.type === "run_secrets") {
+      expect(parsed.error).toBe("required secret not available");
+      expect(parsed.env).toBeUndefined();
+    }
+  });
+});

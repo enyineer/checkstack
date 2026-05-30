@@ -35,6 +35,8 @@ export {
   type ScriptPackageBlobMessage,
   type RequestScriptPackageManifestMessage,
   type RequestScriptPackageBlobMessage,
+  type RequestRunSecretsMessage,
+  type RunSecretsMessage,
 } from "./protocol";
 export {
   SATELLITE_STATUS_CHANGED,
