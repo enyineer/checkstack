@@ -46,6 +46,10 @@ await reconcileToHash({ lockfileHash, manifest, deps });
 
 Reconciliation is triggered on the `script-packages.changed` broadcast hook (every core instance subscribes in `mode: "broadcast"`), and again on startup as a backstop, so a pod that missed the broadcast still converges. The runner's resolution root points at `<store>/current`; new runs follow the new symlink while in-flight runs keep their old tree.
 
+### Blob integrity
+
+The SRI `integrity` key hashes the upstream npm tarball, not the distributed blob (our gzip tar of the Bun cache entry), so it can't verify the transported bytes. Each manifest entry therefore carries a `blobSha256` (sha-256 of the blob, computed at publish time), and every host verifies it before extraction (on both the core shared-store path and the satellite WS path). A mismatch errors clearly and refuses to materialize the blob. The field is optional for backward compatibility: entries published before it skip verification until a re-install regenerates the manifest. Extraction also rejects archive entries with absolute paths or `..` components (zip-slip).
+
 ## Runner resolution root
 
 The shared ESM runner gained an optional `resolutionRoot`:
@@ -112,7 +116,7 @@ await runStorageMigration({ blobIndex, storage, getStore, activeBackend, target 
 Properties:
 
 - **Verified copies.** Each blob is read back from the target and compared byte-for-byte against the source (a SHA-256 of the copy vs the source). A mismatch aborts the migration cleanly - the active backend is left untouched and the status becomes `error`. (The SRI `integrity` key hashes the npm tarball, not our archive bytes, so verification checks the copy is faithful rather than re-deriving the SRI.)
-- **Resumable.** The per-blob `backend` column is flipped only after a verified copy, so a crash leaves a well-defined partial state. A re-run derives its work set from the index (blobs not yet on the target) and skips ones already migrated.
+- **Resumable.** The per-blob `backend` column is flipped only after a verified copy, so a crash leaves a well-defined partial state. A re-run derives its work set from the index (blobs not yet on the target) and skips ones already migrated. A migration that crashed mid-flight (status stuck at `migrating`) is automatically relaunched on startup under the installer advisory lock, so it can't permanently wedge installs.
 - **No downtime.** During migration the active backend is still the source and reads fall back across both backends (the blob-store registry's `readWithFallback`), so script execution never breaks.
 - **Atomic flip.** The active backend changes in a single update at the end, so a reader never sees "completed but old backend".
 - **Mutually exclusive with installs.** Migration and `installNow` share the installer advisory lock; `installNow` is refused while a migration is in flight and vice-versa.
