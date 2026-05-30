@@ -321,6 +321,22 @@ const mutation = client.createItem.useMutation({
 
 > **Note:** Contracts must include `operationType: "query"` or `operationType: "mutation"` in their metadata.
 
+#### Imperative `.call`
+
+Each procedure also exposes a typed `.call(input)` for one-shot
+imperative calls outside React Query, for async callbacks that cannot
+host a hook (for example a `DynamicForm` options resolver). Prefer
+`.useQuery` / `.useMutation` for anything tied to render or UI lifecycle.
+
+```typescript
+const client = usePluginClient(MyPluginApi);
+
+const resolver = async (formValues) => {
+  const items = await client.getItems.call({ parentId: formValues.parentId });
+  return items.map((item) => ({ value: item.id, label: item.name }));
+};
+```
+
 #### Mutation Dependency Hazard
 
 > [!CAUTION]

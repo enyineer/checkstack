@@ -7,10 +7,31 @@ import type {
   TestConnectionResult,
 } from "@checkstack/integration-backend";
 import { extractErrorMessage } from "@checkstack/common";
+import { pluginMetadata } from "./plugin-metadata";
+
+// ─── Provider id ─────────────────────────────────────────────────────────
+
+/** Local provider id (namespaced on registration to `{pluginId}.{id}`). */
+export const TEAMS_PROVIDER_LOCAL_ID = "teams";
+
+/**
+ * Fully-qualified Teams provider id (`integration-teams.teams`). Derived from
+ * the plugin's own `pluginMetadata` so it tracks the plugin id rather than a
+ * hardcoded string. Automation actions set this as `connectionProviderId` so
+ * the editor knows which integration provider backs their dropdowns, and it
+ * matches the `qualifiedId` the integration provider registry assigns.
+ */
+export const TEAMS_PROVIDER_QUALIFIED_ID = `${pluginMetadata.pluginId}.${TEAMS_PROVIDER_LOCAL_ID}`;
 
 // ─── Resolver names ─────────────────────────────────────────────────────
 
 export const TEAMS_RESOLVERS = {
+  /**
+   * Site-wide Teams connections. Drives the connection picker on the Teams
+   * action; the editor bridge resolves it via `listConnections` (no
+   * connection is selected yet), not `getConnectionOptions`.
+   */
+  CONNECTION_OPTIONS: "connectionOptions",
   TEAM_OPTIONS: "teamOptions",
   CHANNEL_OPTIONS: "channelOptions",
 } as const;
@@ -128,7 +149,7 @@ async function fetchChannels(
 // ─── Provider definition (connection-only) ──────────────────────────────
 
 export const teamsProvider: IntegrationProvider<TeamsConnectionConfig> = {
-  id: "teams",
+  id: TEAMS_PROVIDER_LOCAL_ID,
   displayName: "Microsoft Teams",
   description: "Send automation messages to Microsoft Teams channels",
   icon: "MessageSquareMore",

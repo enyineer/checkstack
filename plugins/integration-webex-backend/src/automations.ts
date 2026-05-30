@@ -15,7 +15,11 @@ import type { ActionDefinition } from "@checkstack/automation-backend";
 import { connectionStoreRef } from "@checkstack/integration-backend";
 import { extractErrorMessage } from "@checkstack/common";
 
-import { WEBEX_RESOLVERS, type WebexConnectionConfig } from "./provider";
+import {
+  WEBEX_RESOLVERS,
+  WEBEX_PROVIDER_QUALIFIED_ID,
+  type WebexConnectionConfig,
+} from "./provider";
 
 const WEBEX_API_BASE = "https://webexapis.com/v1";
 
@@ -32,7 +36,9 @@ export const webexMessageArtifactType = {
 } as const;
 
 const webexPostMessageConfigSchema = z.object({
-  connectionId: configString({ "x-hidden": true }).describe("Webex connection"),
+  connectionId: configString({
+    "x-options-resolver": WEBEX_RESOLVERS.CONNECTION_OPTIONS,
+  }).describe("Webex connection"),
   roomId: configString({
     "x-options-resolver": WEBEX_RESOLVERS.ROOM_OPTIONS,
     "x-depends-on": ["connectionId"],
@@ -89,6 +95,7 @@ export function createWebexActions(): ActionDefinition<unknown, unknown>[] {
     description: "Send a markdown message to a Webex space",
     category: "Webex",
     icon: "MessageSquare",
+    connectionProviderId: WEBEX_PROVIDER_QUALIFIED_ID,
     config: new Versioned({
       version: 1,
       schema: webexPostMessageConfigSchema,

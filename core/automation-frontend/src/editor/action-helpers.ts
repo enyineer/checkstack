@@ -139,9 +139,15 @@ export function actionKindOf(action: ActionInput): ActionKind {
 const BASE = { enabled: true, continue_on_error: false } as const;
 
 /**
- * Build a fresh action of the requested kind with sensible empty
- * defaults. Used when the operator picks a kind from the action-add
- * popover or changes the kind on an existing card.
+ * Build a fresh action of the requested kind with sensible empty defaults.
+ * Used when the operator picks a building block from the add-step picker.
+ *
+ * Composite kinds (choose / parallel / repeat / sequence) start with an
+ * empty child list; the operator fills them via the nested add-step picker.
+ * The schema requires at least one nested step, so an empty composite surfaces
+ * an inline "add a step" validation hint until the operator adds one - which
+ * is clearer than seeding an unconfigurable empty provider action now that the
+ * in-card action switcher is gone.
  */
 export function makeEmptyAction(kind: ActionKind): ActionInput {
   switch (kind) {
@@ -151,19 +157,19 @@ export function makeEmptyAction(kind: ActionKind): ActionInput {
     case "choose": {
       return {
         ...BASE,
-        choose: [{ when: "", sequence: [makeEmptyAction("action")] }],
+        choose: [{ when: "", sequence: [] }],
       } satisfies ChooseInput;
     }
     case "parallel": {
       return {
         ...BASE,
-        parallel: [makeEmptyAction("action")],
+        parallel: [],
       } satisfies ParallelInput;
     }
     case "repeat": {
       return {
         ...BASE,
-        repeat: { count: 3, sequence: [makeEmptyAction("action")] },
+        repeat: { count: 3, sequence: [] },
       } satisfies RepeatInput;
     }
     case "variables": {
@@ -187,13 +193,24 @@ export function makeEmptyAction(kind: ActionKind): ActionInput {
     case "sequence": {
       return {
         ...BASE,
-        sequence: [makeEmptyAction("action")],
+        sequence: [],
       } satisfies SequenceInput;
     }
     case "delay": {
       return { ...BASE, delay: { seconds: 30 } } satisfies DelayInput;
     }
   }
+}
+
+/**
+ * Build a fresh provider-action step with its `action` preset to a chosen
+ * registered action's fully-qualified id. Used by the add-step picker so the
+ * operator selects the concrete action up front (the kind is fixed at
+ * creation). The empty `config` is seeded with the action's schema defaults
+ * by `DynamicForm` when the card renders.
+ */
+export function makeProviderAction(qualifiedId: string): ProviderAction {
+  return { ...BASE, action: qualifiedId, config: {} } satisfies ProviderAction;
 }
 
 /**

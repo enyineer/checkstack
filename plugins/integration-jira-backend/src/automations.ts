@@ -25,7 +25,7 @@ import { extractErrorMessage } from "@checkstack/common";
 
 import { createJiraClientFromConfig } from "./jira-client";
 import type { JiraConnectionConfig } from "./provider";
-import { JIRA_RESOLVERS } from "./provider";
+import { JIRA_RESOLVERS, JIRA_PROVIDER_QUALIFIED_ID } from "./provider";
 
 // ─── jira.issue artifact type ──────────────────────────────────────────
 
@@ -62,22 +62,23 @@ export const jiraIssueArtifactType: ArtifactTypeDefinition<
 const jiraFieldMappingSchema = z.object({
   fieldKey: configString({
     "x-options-resolver": JIRA_RESOLVERS.FIELD_OPTIONS,
-    "x-depends-on": ["projectKey", "issueTypeId"],
+    "x-depends-on": ["connectionId", "projectKey", "issueTypeId"],
     "x-searchable": true,
   }).describe("Jira field"),
   value: configString({ "x-editor-types": ["raw"] }).describe("Field value"),
 });
 
 const jiraCreateIssueConfigSchema = z.object({
-  connectionId: configString({ "x-hidden": true }).describe(
-    "Jira connection to use",
-  ),
+  connectionId: configString({
+    "x-options-resolver": JIRA_RESOLVERS.CONNECTION_OPTIONS,
+  }).describe("Jira connection"),
   projectKey: configString({
     "x-options-resolver": JIRA_RESOLVERS.PROJECT_OPTIONS,
+    "x-depends-on": ["connectionId"],
   }).describe("Project key"),
   issueTypeId: configString({
     "x-options-resolver": JIRA_RESOLVERS.ISSUE_TYPE_OPTIONS,
-    "x-depends-on": ["projectKey"],
+    "x-depends-on": ["connectionId", "projectKey"],
   }).describe("Issue type"),
   summary: configString({ "x-editor-types": ["raw"] })
     .min(1)
@@ -87,6 +88,7 @@ const jiraCreateIssueConfigSchema = z.object({
     .describe("Issue description"),
   priorityId: configString({
     "x-options-resolver": JIRA_RESOLVERS.PRIORITY_OPTIONS,
+    "x-depends-on": ["connectionId"],
   })
     .optional()
     .describe("Priority"),
@@ -103,9 +105,9 @@ const jiraCreateIssueConfigSchema = z.object({
 });
 
 const jiraTransitionIssueConfigSchema = z.object({
-  connectionId: configString({ "x-hidden": true }).describe(
-    "Jira connection to use",
-  ),
+  connectionId: configString({
+    "x-options-resolver": JIRA_RESOLVERS.CONNECTION_OPTIONS,
+  }).describe("Jira connection"),
   /**
    * Explicit issue key. When omitted, the dispatch engine resolves it
    * from the upstream `jira.issue` artifact in the current run scope.
@@ -123,9 +125,9 @@ const jiraTransitionIssueConfigSchema = z.object({
 });
 
 const jiraAddCommentConfigSchema = z.object({
-  connectionId: configString({ "x-hidden": true }).describe(
-    "Jira connection to use",
-  ),
+  connectionId: configString({
+    "x-options-resolver": JIRA_RESOLVERS.CONNECTION_OPTIONS,
+  }).describe("Jira connection"),
   issueKey: configString({ "x-editor-types": ["raw"] })
     .optional()
     .describe("Jira issue key (defaults to upstream jira.issue)"),
@@ -191,6 +193,7 @@ export function createJiraActions(): ActionDefinition<unknown, unknown>[] {
     description: "Create a new issue in a Jira project",
     category: "Jira",
     icon: "Ticket",
+    connectionProviderId: JIRA_PROVIDER_QUALIFIED_ID,
     config: new Versioned({
       version: 1,
       schema: jiraCreateIssueConfigSchema,
@@ -264,6 +267,7 @@ export function createJiraActions(): ActionDefinition<unknown, unknown>[] {
     description: "Apply a workflow transition to an existing Jira issue",
     category: "Jira",
     icon: "ArrowRightLeft",
+    connectionProviderId: JIRA_PROVIDER_QUALIFIED_ID,
     config: new Versioned({
       version: 1,
       schema: jiraTransitionIssueConfigSchema,
@@ -332,6 +336,7 @@ export function createJiraActions(): ActionDefinition<unknown, unknown>[] {
     description: "Post a comment on an existing Jira issue",
     category: "Jira",
     icon: "MessageSquare",
+    connectionProviderId: JIRA_PROVIDER_QUALIFIED_ID,
     config: new Versioned({
       version: 1,
       schema: jiraAddCommentConfigSchema,

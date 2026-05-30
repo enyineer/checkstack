@@ -10,6 +10,7 @@ import type {
   ConnectionOption,
   GetConnectionOptionsParams,
 } from "@checkstack/integration-backend";
+import { pluginMetadata } from "@checkstack/integration-jira-common";
 import { createJiraClientFromConfig } from "./jira-client";
 
 /**
@@ -78,11 +79,29 @@ const connectionConfigV1ToV2: Migration<
   }),
 };
 
+/** Local provider id (namespaced on registration to `{pluginId}.{id}`). */
+export const JIRA_PROVIDER_LOCAL_ID = "jira";
+
+/**
+ * Fully-qualified Jira provider id (`integration-jira.jira`). Derived from
+ * the plugin's own `pluginMetadata` so it tracks the plugin id rather than a
+ * hardcoded string. Automation actions set this as `connectionProviderId`
+ * so the editor knows which integration provider backs their dropdowns, and
+ * it matches the `qualifiedId` the integration provider registry assigns.
+ */
+export const JIRA_PROVIDER_QUALIFIED_ID = `${pluginMetadata.pluginId}.${JIRA_PROVIDER_LOCAL_ID}`;
+
 /**
  * Resolver names for dynamic dropdowns.
  * Defined as constants to ensure consistency between schema and handler.
  */
 export const JIRA_RESOLVERS = {
+  /**
+   * Site-wide Jira connections. Drives the connection picker on every Jira
+   * action; the editor bridge resolves it via `listConnections` (no
+   * connection is selected yet), not `getConnectionOptions`.
+   */
+  CONNECTION_OPTIONS: "connectionOptions",
   PROJECT_OPTIONS: "projectOptions",
   ISSUE_TYPE_OPTIONS: "issueTypeOptions",
   PRIORITY_OPTIONS: "priorityOptions",
@@ -104,7 +123,7 @@ export const JIRA_RESOLVERS = {
  */
 export function createJiraProvider(): IntegrationProvider<JiraConnectionConfig> {
   return {
-    id: "jira",
+    id: JIRA_PROVIDER_LOCAL_ID,
     displayName: "Jira",
     description: "Create Jira issues from integration events",
     icon: "Ticket",

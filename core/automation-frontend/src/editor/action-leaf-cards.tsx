@@ -1,4 +1,7 @@
 import React from "react";
+import { Link } from "react-router-dom";
+import { resolveRoute } from "@checkstack/common";
+import { integrationRoutes } from "@checkstack/integration-common";
 import {
   DynamicForm,
   Input,
@@ -28,6 +31,7 @@ import type {
 import { useAutomationRegistry } from "./registry-context";
 import { ItemPicker } from "./ItemPicker";
 import { ConditionEditor } from "./ConditionEditor";
+import { useConnectionOptionResolvers } from "./useConnectionOptionResolvers";
 
 /**
  * Provider action body. Picks an action id from `listActions()` then
@@ -55,6 +59,9 @@ export const ProviderActionBody: React.FC<{
    * autocomplete — the names the backend injects from the run scope.
    */
   shellEnvVars: ShellEnvVar[];
+  // Accepted for a uniform body signature, but unused: the action is fixed
+  // once created (no switcher), and `DynamicForm` has no read-only mode yet,
+  // so there is nothing here to disable.
   disabled?: boolean;
 }> = ({
   value,
@@ -63,9 +70,8 @@ export const ProviderActionBody: React.FC<{
   completionProvider,
   typeDefinitions,
   shellEnvVars,
-  disabled,
 }) => {
-  const { actions } = useAutomationRegistry();
+  const { actions, loading } = useAutomationRegistry();
   // The shell script action exposes a user-editable `env` field; surface
   // its keys as `$`-completions alongside the run-scope `$CHECKSTACK_*`
   // vars (memoised so the editor's completion provider isn't re-registered
@@ -76,60 +82,69 @@ export const ProviderActionBody: React.FC<{
     () => [...customShellEnvVars(value.config.env), ...shellEnvVars],
     [shellEnvVars, value.config.env],
   );
-  const pickerItems = React.useMemo(
-    () =>
-      actions.map((action) => ({
-        id: action.qualifiedId,
-        label: action.displayName,
-        description: action.description,
-        category: action.category,
-      })),
-    [actions],
-  );
+  // The action is chosen up front in the add-step picker and fixed for the
+  // life of the step — to use a different action, add a new step and delete
+  // this one. So the card just resolves the registry entry and renders its
+  // config; there is no in-card action switcher.
   const selected = actions.find((action) => action.qualifiedId === value.action);
+  // Connection-backed actions (Jira / Teams / Webex) declare a
+  // `connectionProviderId`; the bridge turns their `x-options-resolver`
+  // fields into a live connection picker + cascading provider dropdowns.
+  // Non-connection actions get an empty map (no-op) since the id is absent.
+  const optionsResolvers = useConnectionOptionResolvers(
+    selected?.connectionProviderId,
+  );
+
+  if (!selected) {
+    // Registry still loading vs. a genuinely unresolvable action id. The
+    // latter can't be fixed in place (no switcher), so point the operator at
+    // the add-a-new-step path.
+    return loading ? (
+      <p className="text-xs italic text-muted-foreground">Loading action…</p>
+    ) : (
+      <p className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+        Unknown action{" "}
+        <code className="font-mono">{value.action || "(none)"}</code>. Delete
+        this step and add a new one.
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-3">
-      <div className="space-y-1">
-        <Label className="text-xs">Action</Label>
-        <ItemPicker
-          items={pickerItems}
-          value={value.action}
-          onSelect={(id) => {
-            // Switching to a different action means the old config keys
-            // belong to a different schema — carrying them over makes the
-            // (strict) validator flag them as unrecognized. Reset config
-            // so DynamicForm reseeds defaults for the newly selected
-            // action's schema.
-            if (id === value.action) return;
-            onChange({ ...value, action: id, config: {} });
-          }}
-          placeholder="Pick an action"
-          disabled={disabled}
-        />
-      </div>
-      {selected?.consumes && selected.consumes.length > 0 && (
+      {selected.consumes && selected.consumes.length > 0 && (
         <p className="text-[10px] text-muted-foreground">
           Consumes:{" "}
           <code className="font-mono">{selected.consumes.join(", ")}</code>
         </p>
       )}
-      {selected && (
-        <div className="space-y-1">
-          <Label className="text-xs">Configuration</Label>
-          <DynamicForm
-            schema={selected.configSchema}
-            value={value.config}
-            onChange={(next) =>
-              onChange({ ...value, config: next })
-            }
-            templateProperties={templateProperties}
-            templateCompletionProvider={completionProvider}
-            typeDefinitions={typeDefinitions}
-            shellEnvVars={mergedShellEnvVars}
-          />
-        </div>
-      )}
+      <div className="space-y-1">
+        <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Configuration
+        </span>
+        {selected.connectionProviderId && (
+          <p className="text-[10px] text-muted-foreground">
+            Connections are managed under{" "}
+            <Link
+              to={resolveRoute(integrationRoutes.routes.list)}
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              Integrations
+            </Link>
+            . Create one there if the picker is empty.
+          </p>
+        )}
+      </div>
+      <DynamicForm
+        schema={selected.configSchema}
+        value={value.config}
+        onChange={(next) => onChange({ ...value, config: next })}
+        optionsResolvers={optionsResolvers}
+        templateProperties={templateProperties}
+        templateCompletionProvider={completionProvider}
+        typeDefinitions={typeDefinitions}
+        shellEnvVars={mergedShellEnvVars}
+      />
     </div>
   );
 };

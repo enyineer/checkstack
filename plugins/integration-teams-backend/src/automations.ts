@@ -16,7 +16,12 @@ import type { ActionDefinition } from "@checkstack/automation-backend";
 import { connectionStoreRef } from "@checkstack/integration-backend";
 import { extractErrorMessage } from "@checkstack/common";
 
-import { getAppToken, TEAMS_RESOLVERS, type TeamsConnectionConfig } from "./provider";
+import {
+  getAppToken,
+  TEAMS_RESOLVERS,
+  TEAMS_PROVIDER_QUALIFIED_ID,
+  type TeamsConnectionConfig,
+} from "./provider";
 
 const GRAPH_API_BASE = "https://graph.microsoft.com/v1.0";
 
@@ -34,7 +39,9 @@ export const teamsMessageArtifactType = {
 } as const;
 
 const teamsPostMessageConfigSchema = z.object({
-  connectionId: configString({ "x-hidden": true }).describe("Teams connection"),
+  connectionId: configString({
+    "x-options-resolver": TEAMS_RESOLVERS.CONNECTION_OPTIONS,
+  }).describe("Teams connection"),
   teamId: configString({
     "x-options-resolver": TEAMS_RESOLVERS.TEAM_OPTIONS,
     "x-depends-on": ["connectionId"],
@@ -145,6 +152,7 @@ export function createTeamsActions(): ActionDefinition<unknown, unknown>[] {
     description: "Send a message to a Teams channel",
     category: "Microsoft Teams",
     icon: "MessageSquareMore",
+    connectionProviderId: TEAMS_PROVIDER_QUALIFIED_ID,
     config: new Versioned({
       version: 1,
       schema: teamsPostMessageConfigSchema,

@@ -431,16 +431,24 @@ export type MyServiceConnectionConfig = z.infer<typeof MyServiceConnectionConfig
 Use `configString()` with metadata for fields that need to fetch options from the external API:
 
 ```typescript
-// Define resolver names as constants
+// Define resolver names as constants. `CONNECTION_OPTIONS` drives the
+// connection picker itself; the automation editor resolves it via
+// `listConnections` (no connection is selected yet) rather than
+// `getConnectionOptions`.
 export const RESOLVERS = {
+  CONNECTION_OPTIONS: "connectionOptions",
   PROJECT_OPTIONS: "projectOptions",
   ISSUE_TYPE_OPTIONS: "issueTypeOptions",
   FIELD_OPTIONS: "fieldOptions",
 } as const;
 
 export const MyServiceProviderConfigSchema = z.object({
-  // Hidden field for connection reference
-  connectionId: configString({ "x-hidden": true }).describe("Connection ID"),
+  // Connection picker. Use `x-options-resolver: CONNECTION_OPTIONS` so the
+  // automation editor renders a dropdown of the provider's connections.
+  // (Use `x-hidden` only when the connection is auto-populated elsewhere.)
+  connectionId: configString({
+    "x-options-resolver": RESOLVERS.CONNECTION_OPTIONS,
+  }).describe("Connection"),
   
   // Static options from backend
   projectKey: configString({
@@ -571,6 +579,49 @@ export const myServiceProvider: IntegrationProvider<MyServiceConfig> = {
 4. **Backend routes** the call to the provider's `getConnectionOptions` method
 5. **Provider fetches** options from external API using connection credentials
 6. **Options returned** to frontend and rendered in dropdown
+
+### Connection picker in automation actions
+
+Automation actions that act through a connection (Jira, Teams, Webex)
+opt into a connection picker plus cascading dropdowns by setting one
+field on their `ActionDefinition`:
+
+```typescript
+import { pluginMetadata } from "@checkstack/integration-myservice-common";
+
+// Derive the qualified provider id from the plugin's own metadata, never
+// a hardcoded string, so it tracks the plugin id and matches the
+// `qualifiedId` the integration provider registry assigns.
+export const MYSERVICE_PROVIDER_LOCAL_ID = "myservice";
+export const MYSERVICE_PROVIDER_QUALIFIED_ID = `${pluginMetadata.pluginId}.${MYSERVICE_PROVIDER_LOCAL_ID}`;
+
+const postMessage: ActionDefinition<Config, Artifact> = {
+  id: "post_message",
+  displayName: "Post Message",
+  // Tells the automation editor which provider backs this action's
+  // `x-options-resolver` dropdowns.
+  connectionProviderId: MYSERVICE_PROVIDER_QUALIFIED_ID,
+  config: new Versioned({ version: 1, schema: postMessageConfigSchema }),
+  // ...
+};
+```
+
+The action's `connectionId` field uses
+`x-options-resolver: CONNECTION_OPTIONS` (the `"connectionOptions"`
+resolver name), and dependent fields list `connectionId` in their
+`x-depends-on` so they refetch when the chosen connection changes.
+
+The automation editor's bridge
+(`useConnectionOptionResolvers`) then resolves these for the action's
+`connectionProviderId`:
+
+- the `connectionOptions` resolver lists the provider's connections via
+  the `listConnections` RPC (no connection is selected yet);
+- every other resolver name is forwarded to `getConnectionOptions` for
+  the selected `connectionId`, passing the live form values as `context`.
+
+Operators create the connections the picker lists under
+**Integrations** in the user menu.
 
 ### Dependency Tracking
 

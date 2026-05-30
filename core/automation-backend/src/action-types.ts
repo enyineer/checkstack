@@ -288,6 +288,18 @@ export interface ActionDefinition<
   consumes?: ArtifactTypeRef[];
 
   /**
+   * Connection-backed actions (e.g. Jira) set this to the fully-qualified
+   * integration provider id (`{pluginId}.{providerId}`) whose connection
+   * store + `getConnectionOptions` resolvers supply this action's config
+   * dropdowns. When present, the editor renders a connection picker and
+   * bridges the action's `x-options-resolver` config fields to that
+   * provider. Derive it from the provider plugin's own `pluginMetadata`
+   * rather than a hardcoded string so it can't drift if the plugin is
+   * renamed.
+   */
+  connectionProviderId?: string;
+
+  /**
    * Run the action.
    */
   execute: (

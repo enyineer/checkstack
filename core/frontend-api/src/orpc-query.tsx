@@ -89,6 +89,12 @@ interface QueryProcedure<TInput, TOutput> {
     input?: TInput,
     options?: Omit<UseQueryOptions<TOutput, Error>, "queryKey" | "queryFn">,
   ) => UseQueryResult<TOutput, Error>;
+  /**
+   * Imperative one-shot call, outside React Query. Use inside async
+   * callbacks that can't host a hook (e.g. a DynamicForm options
+   * resolver). Prefer `useQuery` for anything rendered.
+   */
+  call: (input: TInput) => Promise<TOutput>;
 }
 
 /**
@@ -107,6 +113,12 @@ interface MutationProcedure<TInput, TOutput> {
       "mutationFn" | "mutationKey"
     >,
   ) => UseMutationResult<TOutput, Error, TInput, TContext>;
+  /**
+   * Imperative one-shot call, outside React Query. Use inside async
+   * callbacks that can't host a hook (e.g. a DynamicForm options
+   * resolver). Prefer `useMutation` for anything tied to UI lifecycle.
+   */
+  call: (input: TInput) => Promise<TOutput>;
 }
 
 /**
@@ -355,6 +367,7 @@ function createProcedureHook<TInput, TOutput>(
         const { onSuccess: _, ...restOptions } = options ?? {};
         return useMutation({ ...mutationOpts, ...restOptions });
       },
+      call: (input) => proc.call(input),
     };
   }
 
@@ -367,5 +380,6 @@ function createProcedureHook<TInput, TOutput>(
       // Spread caller options AFTER to ensure they take precedence (e.g., enabled: false)
       return useQuery({ ...queryOpts, ...options });
     },
+    call: (input) => proc.call(input),
   };
 }

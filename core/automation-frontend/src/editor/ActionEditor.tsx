@@ -1,12 +1,10 @@
 import React from "react";
 import {
   ActionCard,
+  Checkbox,
+  cn,
   Input,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Label,
 } from "@checkstack/ui";
 import type {
   ActionInput,
@@ -25,13 +23,10 @@ import type {
 } from "@checkstack/automation-common";
 import {
   ACTION_KIND_META,
-  ACTION_KINDS,
   actionDisplayName,
   actionKindOf,
-  assignDefaultIds,
   collectActionIds,
   defaultActionId,
-  makeEmptyAction,
 } from "./action-helpers";
 import { useAutomationRegistry, useVariableScope } from "./registry-context";
 import { useActionIssues } from "./editor-validation";
@@ -60,6 +55,28 @@ export interface ActionEditorProps {
   stableId: string;
   disabled?: boolean;
 }
+
+/**
+ * Compact, uppercase "eyebrow" label for the action's secondary metadata
+ * fields (type / id / description / failure behaviour). Deliberately
+ * smaller and quieter than the `DynamicForm` config field labels so the
+ * action's own configuration stays the focal point of the card.
+ */
+const MetaField: React.FC<{
+  label: string;
+  htmlFor?: string;
+  children: React.ReactNode;
+}> = ({ label, htmlFor, children }) => (
+  <div className="space-y-1.5">
+    <label
+      htmlFor={htmlFor}
+      className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+    >
+      {label}
+    </label>
+    {children}
+  </div>
+);
 
 /**
  * Dispatch component — given an `ActionInput`, picks the right card
@@ -122,106 +139,76 @@ export const ActionEditor: React.FC<ActionEditorProps> = ({
       dragHandleProps={disabled ? undefined : dragHandleProps}
       errors={issues}
     >
-      <div className="space-y-3">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <Select
-            value={kind}
-            onValueChange={(next) => {
-              if (next === kind) return;
-              // Swap the action shape entirely — preserve only the
-              // top-level metadata (id, description, enabled,
-              // continue_on_error) so the operator doesn't lose them
-              // when experimenting with kinds.
-              const fresh = makeEmptyAction(
-                next as (typeof ACTION_KINDS)[number],
-              );
-              // Assign default ids to any nested starter actions a composite
-              // kind primes itself with, deduped against the rest of the
-              // automation (excluding this action's own preserved id).
-              const taken = collectActionIds(definition.actions);
-              if (value.id) taken.delete(value.id);
-              const [withIds] = assignDefaultIds([fresh], taken);
-              onChange({
-                ...withIds!,
-                id: value.id ?? withIds!.id,
-                description: value.description,
-                enabled: value.enabled ?? true,
-                continue_on_error: value.continue_on_error ?? false,
-              } as ActionInput);
-            }}
-            disabled={disabled}
-          >
-            <SelectTrigger className="h-8 w-full text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {ACTION_KINDS.map((k) => (
-                <SelectItem key={k} value={k}>
-                  {ACTION_KIND_META[k].label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="flex items-center gap-2">
-            <input
-              id={`${stableId}-continue`}
-              type="checkbox"
-              checked={value.continue_on_error === true}
-              onChange={(event) =>
-                onChange({ ...value, continue_on_error: event.target.checked })
-              }
-              disabled={disabled}
-              className="h-3 w-3"
-            />
-            <label
-              htmlFor={`${stableId}-continue`}
-              className="text-xs text-muted-foreground"
-            >
-              Continue on error
-            </label>
-          </div>
-        </div>
+      <div className="space-y-4">
+        {/* Action settings — identity and failure behaviour. Grouped in a
+            quiet panel and labelled with small uppercase eyebrows so the
+            action's own configuration below reads as the primary content of
+            the card rather than competing with it. The action's kind is
+            fixed at creation; to change it, add a new step and delete this
+            one. */}
+        <div className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-3">
+          <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
+            <MetaField label="Id" htmlFor={`${stableId}-id`}>
+              <Input
+                id={`${stableId}-id`}
+                value={value.id ?? ""}
+                onChange={(event) =>
+                  onChange({ ...value, id: event.target.value || undefined })
+                }
+                onBlur={() => {
+                  // Never leave the id blank: re-fill a unique, log-friendly
+                  // default so the action stays referenceable
+                  // (artifacts.<id>.<name>) and parseable in run logs.
+                  if (value.id) return;
+                  const taken = collectActionIds(definition.actions);
+                  onChange({ ...value, id: defaultActionId(value, taken) });
+                }}
+                placeholder="Generated on blur"
+                disabled={disabled}
+                className="h-8 text-xs"
+              />
+            </MetaField>
 
-        <div className="grid gap-2 sm:grid-cols-2">
-          <label className="block space-y-1">
-            <span className="text-xs font-medium text-muted-foreground">
-              Id
-            </span>
-            <Input
-              value={value.id ?? ""}
-              onChange={(event) =>
-                onChange({ ...value, id: event.target.value || undefined })
-              }
-              onBlur={() => {
-                // Never leave the id blank: re-fill a unique, log-friendly
-                // default so the action stays referenceable
-                // (artifacts.<id>.<name>) and parseable in run logs.
-                if (value.id) return;
-                const taken = collectActionIds(definition.actions);
-                onChange({ ...value, id: defaultActionId(value, taken) });
-              }}
-              placeholder="Generated on blur"
-              disabled={disabled}
-              className="h-8 text-xs"
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-xs font-medium text-muted-foreground">
-              Description
-            </span>
-            <Input
-              value={value.description ?? ""}
-              onChange={(event) =>
+            <MetaField label="Description" htmlFor={`${stableId}-desc`}>
+              <Input
+                id={`${stableId}-desc`}
+                value={value.description ?? ""}
+                onChange={(event) =>
+                  onChange({
+                    ...value,
+                    description: event.target.value || undefined,
+                  })
+                }
+                placeholder="Optional note"
+                disabled={disabled}
+                className="h-8 text-xs"
+              />
+            </MetaField>
+          </div>
+
+          <MetaField label="On failure">
+            <div
+              className={cn(
+                "flex h-8 items-center gap-2 select-none",
+                disabled ? "cursor-not-allowed" : "cursor-pointer",
+              )}
+              onClick={() =>
+                !disabled &&
                 onChange({
                   ...value,
-                  description: event.target.value || undefined,
+                  continue_on_error: value.continue_on_error !== true,
                 })
               }
-              placeholder="Optional note"
-              disabled={disabled}
-              className="h-8 text-xs"
-            />
-          </label>
+            >
+              <Checkbox
+                checked={value.continue_on_error === true}
+                disabled={disabled}
+              />
+              <Label className="text-xs font-normal text-muted-foreground cursor-pointer">
+                Continue on error
+              </Label>
+            </div>
+          </MetaField>
         </div>
 
         <ActionBody

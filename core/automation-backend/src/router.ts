@@ -457,6 +457,7 @@ export function createAutomationRouter(deps: RouterDeps) {
         configSchema: a.configJsonSchema,
         produces: a.produces,
         consumes: a.consumes ?? [],
+        connectionProviderId: a.connectionProviderId,
       }));
       return { items };
     }),

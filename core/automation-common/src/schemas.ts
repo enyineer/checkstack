@@ -661,6 +661,12 @@ export const ActionInfoSchema = z.object({
     .array(z.string())
     .default([])
     .describe("Artifact type ids this action consumes"),
+  connectionProviderId: z
+    .string()
+    .optional()
+    .describe(
+      "Fully-qualified integration provider id whose connection store + option resolvers supply this action's config dropdowns",
+    ),
 });
 
 export type ActionInfo = z.infer<typeof ActionInfoSchema>;

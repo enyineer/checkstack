@@ -7,10 +7,31 @@ import type {
   TestConnectionResult,
 } from "@checkstack/integration-backend";
 import { extractErrorMessage } from "@checkstack/common";
+import { pluginMetadata } from "./plugin-metadata";
+
+// ─── Provider id ─────────────────────────────────────────────────────────
+
+/** Local provider id (namespaced on registration to `{pluginId}.{id}`). */
+export const WEBEX_PROVIDER_LOCAL_ID = "webex";
+
+/**
+ * Fully-qualified Webex provider id (`integration-webex.webex`). Derived from
+ * the plugin's own `pluginMetadata` so it tracks the plugin id rather than a
+ * hardcoded string. Automation actions set this as `connectionProviderId` so
+ * the editor knows which integration provider backs their dropdowns, and it
+ * matches the `qualifiedId` the integration provider registry assigns.
+ */
+export const WEBEX_PROVIDER_QUALIFIED_ID = `${pluginMetadata.pluginId}.${WEBEX_PROVIDER_LOCAL_ID}`;
 
 // ─── Resolver names ─────────────────────────────────────────────────────
 
 export const WEBEX_RESOLVERS = {
+  /**
+   * Site-wide Webex connections. Drives the connection picker on the Webex
+   * action; the editor bridge resolves it via `listConnections` (no
+   * connection is selected yet), not `getConnectionOptions`.
+   */
+  CONNECTION_OPTIONS: "connectionOptions",
   ROOM_OPTIONS: "roomOptions",
 } as const;
 
@@ -77,7 +98,7 @@ async function testWebexConnection(
 // ─── Provider definition (connection-only) ──────────────────────────────
 
 export const webexProvider: IntegrationProvider<WebexConnectionConfig> = {
-  id: "webex",
+  id: WEBEX_PROVIDER_LOCAL_ID,
   displayName: "Webex",
   description: "Send automation messages to Webex team spaces",
   icon: "MessageSquare",

@@ -14,28 +14,19 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Plus } from "lucide-react";
-import {
-  Button,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  DynamicIcon,
-} from "@checkstack/ui";
 import type {
   ActionInput,
   ActionPath,
   ActionPathStep,
 } from "@checkstack/automation-common";
 import {
-  ACTION_KIND_META,
-  ACTION_KINDS,
-  type ActionKind,
   assignDefaultIds,
   collectActionIds,
   makeEmptyAction,
+  makeProviderAction,
 } from "./action-helpers";
 import { ActionEditor } from "./ActionEditor";
+import { AddActionDialog } from "./AddActionDialog";
 import { useAutomationDefinitionContext } from "./AutomationDefinitionContext";
 
 type Slot = ActionPathStep["slot"];
@@ -74,10 +65,11 @@ const nextId = (): string => {
  *      segment's `slot` comes from `slotForChildren`; the `index` is
  *      the child's position in the array.
  *
- *   3. **Add menu** — a small popover lets the operator pick which
- *      action kind to insert. Composite kinds (`choose`, `parallel`,
- *      `repeat`, `sequence`) prime themselves with one nested
- *      `action` so the operator immediately sees something concrete.
+ *   3. **Add menu** — `AddActionDialog` lets the operator decide the
+ *      step's type up front: a concrete provider action (preset via
+ *      `makeProviderAction`) or a structural building block. Composite
+ *      kinds start with an empty child list, which the operator fills via
+ *      the nested add-step picker.
  */
 export const ActionListEditor: React.FC<ActionListEditorProps> = ({
   value,
@@ -125,6 +117,17 @@ export const ActionListEditor: React.FC<ActionListEditorProps> = ({
     },
   ];
 
+  const appendStep = (action: ActionInput): void => {
+    // Auto-assign log-friendly default ids (deduped against every id already
+    // used anywhere in the automation), covering the new step and any
+    // children composite kinds prime themselves with. The operator can
+    // rename them in the card.
+    const taken = collectActionIds(definition.actions);
+    const [fresh] = assignDefaultIds([action], taken);
+    onChange([...value, fresh!]);
+    setIds((current) => [...current, nextId()]);
+  };
+
   return (
     <div className="space-y-2">
       <DndContext
@@ -157,18 +160,10 @@ export const ActionListEditor: React.FC<ActionListEditorProps> = ({
       {value.length === 0 && (
         <p className="text-xs italic text-muted-foreground">No steps yet.</p>
       )}
-      <AddActionPopover
+      <AddActionDialog
         disabled={disabled}
-        onAdd={(kind) => {
-          // Auto-assign log-friendly default ids (deduped against every id
-          // already used anywhere in the automation), covering the new step
-          // and any children composite kinds prime themselves with. The
-          // operator can rename them in the card.
-          const taken = collectActionIds(definition.actions);
-          const [fresh] = assignDefaultIds([makeEmptyAction(kind)], taken);
-          onChange([...value, fresh!]);
-          setIds((current) => [...current, nextId()]);
-        }}
+        onAddKind={(kind) => appendStep(makeEmptyAction(kind))}
+        onAddAction={(qualifiedId) => appendStep(makeProviderAction(qualifiedId))}
       />
     </div>
   );
@@ -204,57 +199,5 @@ const SortableActionItem: React.FC<{
         disabled={disabled}
       />
     </div>
-  );
-};
-
-const AddActionPopover: React.FC<{
-  onAdd: (kind: ActionKind) => void;
-  disabled?: boolean;
-}> = ({ onAdd, disabled }) => {
-  const [open, setOpen] = React.useState(false);
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={disabled}
-          className="h-7 text-xs"
-        >
-          <Plus className="mr-1 h-3 w-3" />
-          Add step
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-72 p-1" align="start">
-        <div className="space-y-0.5">
-          {ACTION_KINDS.map((kind) => {
-            const meta = ACTION_KIND_META[kind];
-            return (
-              <button
-                key={kind}
-                type="button"
-                onClick={() => {
-                  onAdd(kind);
-                  setOpen(false);
-                }}
-                className="flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-              >
-                <DynamicIcon
-                  name={meta.icon}
-                  className="mt-0.5 h-3.5 w-3.5 shrink-0"
-                />
-                <div className="flex-1">
-                  <div className="font-medium">{meta.label}</div>
-                  <div className="text-[10px] text-muted-foreground">
-                    {meta.description}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </PopoverContent>
-    </Popover>
   );
 };
