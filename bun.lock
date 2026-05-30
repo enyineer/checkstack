@@ -313,7 +313,9 @@
       },
       "devDependencies": {
         "@checkstack/drizzle-helper": "workspace:*",
+        "@checkstack/integration-backend": "workspace:*",
         "@checkstack/scripts": "workspace:*",
+        "@checkstack/secrets-backend": "workspace:*",
         "@checkstack/test-utils-backend": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
         "@types/node": "^20.0.0",

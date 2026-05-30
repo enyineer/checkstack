@@ -38,6 +38,8 @@
     "@checkstack/drizzle-helper": "workspace:*",
     "@checkstack/scripts": "workspace:*",
     "@checkstack/test-utils-backend": "workspace:*",
+    "@checkstack/secrets-backend": "workspace:*",
+    "@checkstack/integration-backend": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
     "@types/node": "^20.0.0",
     "drizzle-kit": "^0.31.10",

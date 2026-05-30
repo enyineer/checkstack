@@ -20,6 +20,7 @@ import type { TriggerRegistry } from "../trigger-registry";
 import type { ArtifactStore } from "../artifact-store";
 
 import type { RunStateStore } from "./run-state-store";
+import type { RunSecretRegistry } from "./run-secret-registry";
 
 /**
  * Persistent dependency bundle threaded through the dispatch engine.
@@ -55,6 +56,18 @@ export interface DispatchDeps {
   healthCheckClient?: InferClient<typeof HealthCheckApi>;
   /** Persistence backend for pre-run `for:` dwell timers. */
   dwellStore: DwellStore;
+  /**
+   * Run-scoped secret registry. When set, the engine wraps each run's
+   * `getService` so resolving the secret resolver / connection store
+   * registers the resolved values, and the run store masks step / run
+   * output before persistence. Optional so tests / minimal installs skip
+   * masking. `secretResolverRefId` / `connectionStoreRefId` carry the
+   * service-ref ids to intercept (passed as strings to avoid a dependency
+   * cycle from the dispatch core onto the secrets / integration packages).
+   */
+  secretRegistry?: RunSecretRegistry;
+  secretResolverRefId?: string;
+  connectionStoreRefId?: string;
 }
 
 /**
