@@ -136,6 +136,18 @@ const safe = maskSecrets({
 > [!IMPORTANT]
 > Masking is by literal occurrence only. Encoded or transformed forms of a secret (base64, hashed, split across lines) cannot be detected. Scripts must not transform-then-print a secret they were given.
 
+## Internal (platform-managed) secrets
+
+Some secrets back a specific feature rather than being user-managed named secrets. These use `internalSecretsRef` (get/set/delete) and are:
+
+- stored under the reserved `__internal__:` name prefix, so the user-facing Secrets UI (`listSecrets` / `listSecretNames`) never shows them and they aren't `${{ secrets.NAME }}`-referenceable;
+- ALWAYS kept on the local (always-writable, AES-GCM) backend, never the active external backend — Vault is read-through with no `set`, so routing internal writes through the active backend would break when Vault is selected.
+
+The script-package registry auth token is stored this way. The `script_package_registry_config.authSecretRef` column holds a stable marker (the internal secret name) once the token lives in the platform; a one-time, idempotent, parity-verified migration moves any legacy inline ciphertext into the internal store and only rewrites the column after the platform copy reads back identically (so the legacy value is never dropped prematurely). Resolution falls back to decrypting legacy ciphertext until the migration runs.
+
+> [!NOTE]
+> Integration connection credentials are NOT migrated onto the secrets platform. They are stored per-connection via `ConfigService` using each provider's `connectionSchema` (which marks credential fields `x-secret`), so they already share the local backend's exact AES-GCM crypto, and ConfigService's per-field redaction (`getRedacted`) is what keeps `listConnections` safe. Splitting the co-mingled secret/non-secret config into separate platform secrets would require per-provider schema-walking and a lossy migration across every live connection, with no real gain — so the `ConnectionStore` public API and storage are unchanged. The one hardening applied here: `createConnection` / `updateConnection` now return the redacted preview instead of echoing the submitted credential fields.
+
 ## Migration from GitOps
 
 The legacy GitOps `secrets` table is promoted into the local backend's table without loss: a guarded, idempotent migration copies existing rows (skipping name conflicts) and leaves the gitops table in place. GitOps switches to resolving and managing secrets through the platform's service refs, so there is a single source of truth.
