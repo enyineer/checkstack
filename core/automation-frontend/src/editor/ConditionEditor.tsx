@@ -9,7 +9,10 @@ import {
   Label,
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
   TemplateValueInput,
@@ -32,6 +35,7 @@ import {
   kindOf,
   type ConditionKind,
 } from "./condition-kind";
+import { SystemEntityPicker } from "./SystemEntityPicker";
 
 export interface ConditionEditorProps {
   value: ConditionInput;
@@ -87,13 +91,28 @@ export const ConditionEditor: React.FC<ConditionEditorProps> = ({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="expr">expression</SelectItem>
-            <SelectItem value="numeric_state">numeric state</SelectItem>
-            <SelectItem value="time">time of day</SelectItem>
-            <SelectItem value="state">system state</SelectItem>
-            <SelectItem value="and">and</SelectItem>
-            <SelectItem value="or">or</SelectItem>
-            <SelectItem value="not">not</SelectItem>
+            {/* Structured kinds are the common case and lead the list. */}
+            <SelectGroup>
+              <SelectLabel>Structured</SelectLabel>
+              <SelectItem value="numeric_state">numeric state</SelectItem>
+              <SelectItem value="time">time of day</SelectItem>
+              <SelectItem value="state">system state</SelectItem>
+            </SelectGroup>
+            <SelectSeparator />
+            <SelectGroup>
+              <SelectLabel>Logical</SelectLabel>
+              <SelectItem value="and">and</SelectItem>
+              <SelectItem value="or">or</SelectItem>
+              <SelectItem value="not">not</SelectItem>
+            </SelectGroup>
+            <SelectSeparator />
+            {/* Raw expression stays the escape hatch for anything the
+                structured variants don't cover — de-emphasised at the bottom,
+                but still reachable. */}
+            <SelectGroup>
+              <SelectLabel>Advanced</SelectLabel>
+              <SelectItem value="expr">expression</SelectItem>
+            </SelectGroup>
           </SelectContent>
         </Select>
         {kind === "expr" && (
@@ -375,12 +394,10 @@ const StateBody: React.FC<{
     <div className="space-y-2 border-l border-border pl-3">
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="space-y-1">
-          <Label className="text-xs">System id (entity)</Label>
-          <Input
-            className="font-mono text-xs"
+          <Label className="text-xs">System (entity)</Label>
+          <SystemEntityPicker
             value={s.entity}
-            placeholder="payments-api"
-            onChange={(event) => patch({ entity: event.target.value })}
+            onChange={(next) => patch({ entity: next })}
           />
         </div>
         <div className="space-y-1">

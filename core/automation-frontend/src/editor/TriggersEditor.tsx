@@ -1,6 +1,10 @@
 import React from "react";
 import { Plus, Trash2 } from "lucide-react";
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
   Button,
   Card,
   CardContent,
@@ -153,6 +157,10 @@ const TriggerCard: React.FC<{
   const { triggers } = useAutomationRegistry();
   const selected = triggers.find((t) => t.qualifiedId === value.event);
   const issues = useTriggerIssues(index);
+  // `id` auto-fills on blur, so it isn't a meaningful "advanced was
+  // customised" signal; open the disclosure only when the operator has set a
+  // gating filter or a dwell window.
+  const hasAdvanced = value.filter !== undefined || value.for !== undefined;
 
   // Templates inside the filter / config see only the selected
   // trigger's payload — there are no other triggers, no upstream
@@ -204,45 +212,6 @@ const TriggerCard: React.FC<{
                 </div>
               )}
             </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label className="text-xs" htmlFor={`trigger-id-${index}`}>
-                  ID
-                </Label>
-                <Input
-                  id={`trigger-id-${index}`}
-                  value={value.id ?? ""}
-                  onChange={(event) =>
-                    onChange({
-                      ...value,
-                      id: event.target.value || undefined,
-                    })
-                  }
-                  onBlur={() => {
-                    // Never leave the id blank: re-fill a unique default so the
-                    // trigger stays referenceable as `trigger.id` and is
-                    // distinguishable from sibling triggers.
-                    if (value.id) return;
-                    onChange({ ...value, id: defaultTriggerId(value, siblingIds) });
-                  }}
-                  placeholder="Generated on blur"
-                  disabled={disabled}
-                  className="font-mono text-xs"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Filter template</Label>
-                <TemplateValueInput
-                  value={value.filter ?? ""}
-                  onChange={(next) =>
-                    onChange({ ...value, filter: next || undefined })
-                  }
-                  placeholder="{{ trigger.payload.severity == &quot;high&quot; }}"
-                  completionProvider={templateCompletion}
-                  disabled={disabled}
-                />
-              </div>
-            </div>
             {selected?.configSchema && (
               <div className="space-y-1">
                 <Label className="text-xs">Trigger configuration</Label>
@@ -255,32 +224,101 @@ const TriggerCard: React.FC<{
                 />
               </div>
             )}
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Toggle
-                  checked={value.for !== undefined}
-                  onCheckedChange={(checked) =>
-                    onChange({
-                      ...value,
-                      for: checked ? { minutes: 30 } : undefined,
-                    })
-                  }
-                  disabled={disabled}
-                />
-                <Label className="text-xs">
-                  Dwell: fire only if the matched state still holds after
-                </Label>
-              </div>
-              {value.for !== undefined && (
-                <DurationInput
-                  value={value.for as DurationValue}
-                  onChange={(next) =>
-                    onChange({ ...value, for: (next as Duration) ?? undefined })
-                  }
-                  disabled={disabled}
-                />
-              )}
-            </div>
+            {/* Optional discriminator id, gating filter, and `for:` dwell are
+                tucked behind a collapsed disclosure so a simple trigger reads
+                as one clean row. Auto-opens when any advanced field is set. */}
+            <Accordion
+              type="single"
+              collapsible
+              defaultValue={hasAdvanced ? "advanced" : undefined}
+              className="w-full"
+            >
+              <AccordionItem value="advanced" className="border-b-0">
+                <AccordionTrigger className="py-2 text-xs hover:no-underline">
+                  <span className="flex items-center gap-2">
+                    Advanced
+                    {hasAdvanced && (
+                      <Badge variant="outline" className="text-[10px]">
+                        set
+                      </Badge>
+                    )}
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent className="space-y-3 pb-0">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs" htmlFor={`trigger-id-${index}`}>
+                        ID
+                      </Label>
+                      <Input
+                        id={`trigger-id-${index}`}
+                        value={value.id ?? ""}
+                        onChange={(event) =>
+                          onChange({
+                            ...value,
+                            id: event.target.value || undefined,
+                          })
+                        }
+                        onBlur={() => {
+                          // Never leave the id blank: re-fill a unique default
+                          // so the trigger stays referenceable as `trigger.id`
+                          // and is distinguishable from sibling triggers.
+                          if (value.id) return;
+                          onChange({
+                            ...value,
+                            id: defaultTriggerId(value, siblingIds),
+                          });
+                        }}
+                        placeholder="Generated on blur"
+                        disabled={disabled}
+                        className="font-mono text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Filter template</Label>
+                      <TemplateValueInput
+                        value={value.filter ?? ""}
+                        onChange={(next) =>
+                          onChange({ ...value, filter: next || undefined })
+                        }
+                        placeholder="{{ trigger.payload.severity == &quot;high&quot; }}"
+                        completionProvider={templateCompletion}
+                        disabled={disabled}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Toggle
+                        checked={value.for !== undefined}
+                        onCheckedChange={(checked) =>
+                          onChange({
+                            ...value,
+                            for: checked ? { minutes: 30 } : undefined,
+                          })
+                        }
+                        disabled={disabled}
+                      />
+                      <Label className="text-xs">
+                        Dwell: fire only if the matched state still holds after
+                      </Label>
+                    </div>
+                    {value.for !== undefined && (
+                      <DurationInput
+                        value={value.for as DurationValue}
+                        onChange={(next) =>
+                          onChange({
+                            ...value,
+                            for: (next as Duration) ?? undefined,
+                          })
+                        }
+                        disabled={disabled}
+                      />
+                    )}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </div>
           <Button
             type="button"

@@ -8,6 +8,9 @@
       "path": "../automation-common"
     },
     {
+      "path": "../catalog-common"
+    },
+    {
       "path": "../common"
     },
     {
