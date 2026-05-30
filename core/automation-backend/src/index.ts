@@ -1,6 +1,7 @@
 import {
   createBackendPlugin,
   coreServices,
+  type SafeDatabase,
 } from "@checkstack/backend-api";
 import {
   automationAccess,
@@ -17,6 +18,13 @@ import {
   type FilterRegistry,
 } from "@checkstack/template-engine";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
+import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
+import { CHECKSTACK_API_VERSION } from "@checkstack/gitops-common";
+import {
+  reconcileAutomation,
+  deleteAutomationEntity,
+} from "./gitops-kinds";
+import { AutomationDefinitionSchema } from "@checkstack/automation-common";
 
 import type {
   ActionDefinition,
@@ -99,6 +107,10 @@ export default createBackendPlugin({
   metadata: pluginMetadata,
 
   register(env) {
+    // Mutable DB ref — populated in init(), consumed by the GitOps
+    // reconcile/delete closures (only called during sync, after init).
+    let gitopsDb: SafeDatabase<typeof schema> | undefined;
+
     const triggerRegistry = createTriggerRegistry();
     const actionRegistry = createActionRegistry();
     const artifactTypeRegistry = createArtifactTypeRegistry();
@@ -164,6 +176,31 @@ export default createBackendPlugin({
       },
     });
 
+    // GitOps `Automation` kind. The DB isn't available until init(), so a
+    // mutable ref is populated there and read by the reconcile closures
+    // (only invoked during sync, well after init) — mirrors catalog-backend.
+    const kindRegistry = env.getExtensionPoint(entityKindExtensionPoint);
+    kindRegistry.registerKind({
+      apiVersion: CHECKSTACK_API_VERSION,
+      kind: "Automation",
+      specSchema: AutomationDefinitionSchema,
+      reconcile: async ({ entity, existingEntityId, context }) => {
+        if (!gitopsDb) throw new Error("Automation database not initialized");
+        return reconcileAutomation(gitopsDb, {
+          entity,
+          existingEntityId,
+          logger: context.logger,
+        });
+      },
+      delete: async ({ entityId, context }) => {
+        if (!gitopsDb) throw new Error("Automation database not initialized");
+        await deleteAutomationEntity(gitopsDb, {
+          entityId,
+          logger: context.logger,
+        });
+      },
+    });
+
     env.registerInit({
       schema,
       deps: {
@@ -182,6 +219,9 @@ export default createBackendPlugin({
         signalService,
       }) => {
         logger.debug("⚙️  Initializing Automation Backend...");
+
+        // Populate the mutable DB ref the GitOps reconcile closures read.
+        gitopsDb = database as SafeDatabase<typeof schema>;
 
         const artifactStore = createArtifactStore(database);
         const runStore = createRunStore(database);

@@ -17,15 +17,18 @@ const EVENT = "test.event";
  * An automation whose single action is a wait_for_trigger, so a started
  * run stays in `waiting` (active) - lets us observe concurrency dedup.
  */
-function buildAutomation(scope: ConcurrencyScope): Automation {
+function buildAutomation(
+  scope: ConcurrencyScope,
+  opts: { mode?: string; maxRuns?: number } = {},
+): Automation {
   const definition = AutomationDefinitionSchema.parse({
     name: "Concurrency test",
     triggers: [{ event: EVENT }],
     conditions: [],
     actions: [{ wait_for_trigger: { event: "never.fires" } }],
-    mode: "single",
+    mode: opts.mode ?? "single",
     concurrency_scope: scope,
-    max_runs: 10,
+    max_runs: opts.maxRuns ?? 10,
   });
   return {
     id: "auto-1",
@@ -74,12 +77,15 @@ function makeStore(auto: Automation): AutomationStore {
   };
 }
 
-function setup(scope: ConcurrencyScope) {
+function setup(
+  scope: ConcurrencyScope,
+  opts: { mode?: string; maxRuns?: number } = {},
+) {
   const actionsReg = createActionRegistry();
   const rec = makeRecordingAction();
   actionsReg.register(rec.definition, testPlugin);
   const { deps, runs } = makeDispatchDeps({ actions: actionsReg });
-  const auto = buildAutomation(scope);
+  const auto = buildAutomation(scope, opts);
   const store = makeStore(auto);
   const fire = (systemId: string) =>
     handleTriggerFiring({
@@ -128,5 +134,32 @@ describe("concurrency_scope: context_key", () => {
     }
     expect(byContext.get("sys-a")).toBe(1);
     expect(byContext.get("sys-b")).toBe(1);
+  });
+});
+
+describe("concurrency modes (automation scope)", () => {
+  it("parallel mode allows up to max_runs concurrent runs, then caps", async () => {
+    const { runs, fire } = setup("automation", { mode: "parallel", maxRuns: 2 });
+    await fire("a");
+    await fire("b");
+    await fire("c"); // over the cap → skipped
+    expect(activeCount(runs)).toBe(2);
+  });
+
+  it("queued mode caps at max_runs (v1 behaves like parallel)", async () => {
+    const { runs, fire } = setup("automation", { mode: "queued", maxRuns: 1 });
+    await fire("a");
+    await fire("b"); // over the cap → skipped
+    expect(activeCount(runs)).toBe(1);
+  });
+
+  it("restart mode cancels the prior active run and starts fresh", async () => {
+    const { runs, fire } = setup("automation", { mode: "restart" });
+    await fire("a");
+    const firstId = [...runs.runs.values()][0]!.id;
+    await fire("b"); // cancels the first, starts a new run
+    expect(runs.runs.get(firstId)?.status).toBe("cancelled");
+    // Exactly one active run (the fresh one).
+    expect(activeCount(runs)).toBe(1);
   });
 });
