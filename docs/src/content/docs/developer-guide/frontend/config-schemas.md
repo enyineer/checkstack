@@ -354,6 +354,21 @@ backend with the same subprocess isolation and `SAFE_ENV_VARS` env as the
 real action, so packages cannot read backend secrets. Real satellite runs
 may differ; the panel notes this.
 
+**Health-check collectors** use the same machinery: the inline-script
+(TypeScript) and shell `script` collector fields are `x-script-testable`,
+and the collector editor passes a renderer wired to `testCollectorScript`.
+The collector test context is `{ config, check?, system? }`, auto-seeded
+from the live collector config plus placeholder check / system metadata.
+
+**Load from run (replay).** The `ContextSampleEditor` accepts an optional
+`runPicker` slot. The automation editor fills it with a "Load from run"
+dropdown that calls `getRunScopeForReplay` to seed the sample context from
+a real run (trigger + persisted artifacts, plus variables / loop state
+when the run's durable scope snapshot is still present). Health-check
+executions do **not** persist the script / config / check / system that
+produced a result, so there is no health-check replay - auto-seed is the
+only context source for collector tests.
+
 **Template autocomplete (text/markup fields).** When the parent
 `DynamicForm` receives `templateProperties`, the text/markup editor types
 show suggestions when typing {% raw %}`{{`{% endraw %}:

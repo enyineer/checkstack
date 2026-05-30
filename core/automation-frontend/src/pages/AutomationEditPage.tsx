@@ -540,6 +540,7 @@ const AutomationEditContent: React.FC = () => {
                   value={definition}
                   onChange={setDefinition}
                   disabled={!canManage}
+                  automationId={isNew ? undefined : automationId}
                 />
               </ValidationProvider>
             </TabPanel>

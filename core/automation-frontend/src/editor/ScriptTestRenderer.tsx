@@ -8,6 +8,8 @@ import {
 } from "@checkstack/ui";
 import { AutomationApi } from "@checkstack/automation-common";
 import { extractErrorMessage } from "@checkstack/common";
+import { useAutomationRegistry } from "./registry-context";
+import { RunReplayPicker } from "./RunReplayPicker";
 
 /**
  * Default sample context for a freshly-opened test panel. Auto-seeded so
@@ -45,10 +47,12 @@ const AutomationScriptTestPanel: React.FC<AutomationScriptTestPanelProps> = ({
   script,
 }) => {
   const client = usePluginClient(AutomationApi);
+  const { automationId } = useAutomationRegistry();
   const testMutation = client.testScript.useMutation();
   const [sampleContext, setSampleContext] = React.useState(
     DEFAULT_SAMPLE_CONTEXT,
   );
+  const [snapshotWarning, setSnapshotWarning] = React.useState(false);
 
   const handleRun = React.useCallback(async (): Promise<ScriptTestPanelResult> => {
     let context: Record<string, unknown> | undefined;
@@ -73,14 +77,34 @@ const AutomationScriptTestPanel: React.FC<AutomationScriptTestPanelProps> = ({
     });
   }, [testMutation, kind, script, sampleContext]);
 
+  const note = snapshotWarning
+    ? "Loaded trigger + artifacts from the run. Variables / loop state were not available (the run's durable scope was already cleared). Runs on the central backend; real satellite runs may differ."
+    : undefined;
+
   return (
     <ScriptTestPanel
       onRun={handleRun}
       disabled={script.trim().length === 0}
+      note={note}
       contextEditor={
         <ContextSampleEditor
           value={sampleContext}
-          onChange={setSampleContext}
+          onChange={(next) => {
+            setSampleContext(next);
+            setSnapshotWarning(false);
+          }}
+          runPicker={
+            automationId ? (
+              <RunReplayPicker
+                automationId={automationId}
+                onLoad={(json) => {
+                  setSampleContext(json);
+                  setSnapshotWarning(false);
+                }}
+                onScopeSnapshotMissing={() => setSnapshotWarning(true)}
+              />
+            ) : undefined
+          }
         />
       }
     />

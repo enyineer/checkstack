@@ -46,13 +46,19 @@ interface RegistryContextValue {
   artifactTypes: ArtifactTypeInfo[];
   /** True until all three queries have resolved. */
   loading: boolean;
+  /**
+   * Id of the automation being edited, if saved. Undefined for a new,
+   * unsaved automation. Used by the script-test "Load from run" picker.
+   */
+  automationId?: string;
 }
 
 const RegistryContext = React.createContext<RegistryContextValue | null>(null);
 
 export const AutomationRegistryProvider: React.FC<{
   children: React.ReactNode;
-}> = ({ children }) => {
+  automationId?: string;
+}> = ({ children, automationId }) => {
   const client = usePluginClient(AutomationApi);
   const triggers = client.listTriggers.useQuery();
   const actions = client.listActions.useQuery();
@@ -65,8 +71,9 @@ export const AutomationRegistryProvider: React.FC<{
       artifactTypes: artifactTypes.data?.items ?? [],
       loading:
         triggers.isLoading || actions.isLoading || artifactTypes.isLoading,
+      automationId,
     }),
-    [triggers, actions, artifactTypes],
+    [triggers, actions, artifactTypes, automationId],
   );
 
   return (

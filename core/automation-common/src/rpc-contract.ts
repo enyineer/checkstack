@@ -8,6 +8,8 @@ import {
 import { automationAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
 import {
+  ReplayScopeInputSchema,
+  ReplayScopeResultSchema,
   ScriptTestInputSchema,
   ScriptTestResultSchema,
 } from "./script-test-schemas";
@@ -224,6 +226,20 @@ export const automationContract = {
   })
     .input(ScriptTestInputSchema)
     .output(ScriptTestResultSchema),
+
+  /**
+   * Reconstruct an editable test context from a real automation run, so an
+   * operator can replay a script against the data that run saw. Reads run
+   * data only (trigger + persisted artifacts, plus the durable scope
+   * snapshot when the run is still in-flight), so it's gated by `read`.
+   */
+  getRunScopeForReplay: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [automationAccess.read],
+  })
+    .input(ReplayScopeInputSchema)
+    .output(ReplayScopeResultSchema),
 
   // ─── Template playground ───────────────────────────────────────────────
 

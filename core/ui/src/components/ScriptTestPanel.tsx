@@ -228,6 +228,12 @@ export interface ContextSampleEditorProps {
   /** Label above the editor. Defaults to "Sample context". */
   label?: string;
   disabled?: boolean;
+  /**
+   * Optional control rendered on the label row, e.g. a "Load from run"
+   * dropdown. The owning page supplies it (it owns the replay RPC); the
+   * editor stays plugin-agnostic and just lays it out.
+   */
+  runPicker?: React.ReactNode;
 }
 
 /**
@@ -236,13 +242,15 @@ export interface ContextSampleEditorProps {
  * job - this component just renders + validates the JSON the user edits.
  *
  * Surfaces a parse error inline so an operator can fix malformed JSON
- * before running.
+ * before running. The optional `runPicker` slot lets a page add a "Load
+ * from run" dropdown that overwrites the sample with a real run's scope.
  */
 export const ContextSampleEditor: React.FC<ContextSampleEditorProps> = ({
   value,
   onChange,
   label = "Sample context",
   disabled,
+  runPicker,
 }) => {
   const parseError = React.useMemo(() => {
     if (value.trim().length === 0) return null;
@@ -256,9 +264,12 @@ export const ContextSampleEditor: React.FC<ContextSampleEditorProps> = ({
 
   return (
     <div className="space-y-1.5">
-      <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        {label}
-      </span>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          {label}
+        </span>
+        {runPicker}
+      </div>
       <CodeEditor
         value={value}
         onChange={onChange}

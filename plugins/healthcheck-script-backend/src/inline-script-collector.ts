@@ -92,6 +92,7 @@ const defaultInlineScriptExecutor: InlineScriptExecutor = {
 const inlineScriptConfigSchema = z.object({
   script: configString({
     "x-editor-types": ["typescript"],
+    "x-script-testable": true,
   }).describe(
     "TypeScript/JavaScript module. Use `import { ... } from \"node:os\"` to pull in Node built-ins. The recommended pattern is `export default defineHealthCheck({ success, message?, value? })` — `defineHealthCheck` is provided by `@checkstack/healthcheck` and asserts the return shape at the type level. Throwing also signals failure.",
   ),

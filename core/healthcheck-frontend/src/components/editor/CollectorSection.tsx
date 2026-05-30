@@ -11,6 +11,7 @@ import {
 } from "@checkstack/ui";
 import { Trash2 } from "lucide-react";
 import { AssertionBuilder, type Assertion } from "../AssertionBuilder";
+import { createCollectorScriptTestRenderer } from "./CollectorScriptTestRenderer";
 
 interface CollectorSectionProps {
   entry: CollectorConfigEntry;
@@ -29,6 +30,11 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
   onValidChange,
   onRemove,
 }) => {
+  const scriptTestRenderer = React.useMemo(
+    () => createCollectorScriptTestRenderer(entry.config),
+    [entry.config],
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -73,6 +79,7 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
               // Surface the user's own `env` keys as `$`-completions.
               customEnv: entry.config.env,
             })}
+            scriptTestRenderer={scriptTestRenderer}
           />
         </div>
       )}

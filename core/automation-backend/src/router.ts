@@ -44,6 +44,7 @@ import { dispatchTrigger } from "./dispatch/engine";
 import type { DispatchDeps } from "./dispatch/types";
 import { collectDefinitionIssues } from "./validate-definition";
 import { runScriptTest } from "./script-test";
+import { buildReplayContext } from "./script-test-replay";
 import * as schema from "./schema";
 
 interface RouterDeps {
@@ -519,6 +520,44 @@ export function createAutomationRouter(deps: RouterDeps) {
 
     testScript: os.testScript.handler(async ({ input }) => {
       return runScriptTest({ input });
+    }),
+
+    getRunScopeForReplay: os.getRunScopeForReplay.handler(async ({ input }) => {
+      const runRow = await db
+        .select()
+        .from(schema.automationRuns)
+        .where(eq(schema.automationRuns.id, input.runId))
+        .limit(1);
+      const run = runRow[0];
+      if (!run) {
+        throw new ORPCError("NOT_FOUND", {
+          message: `Run ${input.runId} not found`,
+        });
+      }
+
+      const [artifactRows, runState] = await Promise.all([
+        db
+          .select()
+          .from(schema.automationArtifacts)
+          .where(eq(schema.automationArtifacts.runId, input.runId))
+          .orderBy(asc(schema.automationArtifacts.createdAt)),
+        dispatchDeps.runStateStore.load(input.runId),
+      ]);
+
+      const context = buildReplayContext({
+        run: {
+          triggerEventId: run.triggerEventId,
+          triggerPayload: run.triggerPayload,
+        },
+        artifacts: artifactRows.map((row) => ({
+          artifactType: row.artifactType,
+          actionId: row.actionId,
+          data: row.data,
+        })),
+        scopeSnapshot: runState?.scopeSnapshot,
+      });
+
+      return { context, scopeSnapshotAvailable: runState !== undefined };
     }),
 
     // ─── Template playground ─────────────────────────────────────────────

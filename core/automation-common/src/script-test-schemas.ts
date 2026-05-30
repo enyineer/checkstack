@@ -49,3 +49,27 @@ export const ScriptTestResultSchema = z.object({
   error: z.string().optional(),
 });
 export type ScriptTestResultDto = z.infer<typeof ScriptTestResultSchema>;
+
+/**
+ * Input for `getRunScopeForReplay`: reconstruct a test context from a real
+ * automation run so an operator can debug an action against the data that
+ * run saw. `actionPath` is accepted for forward-compatibility (scoping
+ * artifacts to those available before that action); v1 returns the full
+ * run scope.
+ */
+export const ReplayScopeInputSchema = z.object({
+  runId: z.string(),
+  actionPath: z.string().optional(),
+});
+export type ReplayScopeInputDto = z.infer<typeof ReplayScopeInputSchema>;
+
+export const ReplayScopeResultSchema = z.object({
+  context: ScriptTestContextSchema,
+  /**
+   * False when `var` / `repeat` could not be recovered because the run's
+   * durable scope snapshot was already cleared (terminal status). The
+   * trigger + artifacts are still reconstructed; the UI can note the gap.
+   */
+  scopeSnapshotAvailable: z.boolean(),
+});
+export type ReplayScopeResultDto = z.infer<typeof ReplayScopeResultSchema>;

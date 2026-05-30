@@ -12,6 +12,7 @@ import {
 import { healthCheckContract } from "@checkstack/healthcheck-common";
 import type { StrategyCategory } from "@checkstack/healthcheck-common";
 import { HealthCheckService } from "./service";
+import { runCollectorScriptTest } from "./collector-script-test";
 import { healthCheckHooks } from "./hooks";
 import * as schema from "./schema";
 import { toJsonSchemaWithChartMeta } from "./schema-utils";
@@ -123,6 +124,10 @@ export const createHealthCheckRouter = (opts: {
           : undefined,
         allowMultiple: collector.allowMultiple ?? false,
       }));
+    }),
+
+    testCollectorScript: os.testCollectorScript.handler(async ({ input }) => {
+      return runCollectorScriptTest({ input });
     }),
 
     getConfigurations: os.getConfigurations.handler(async () => {

@@ -239,6 +239,7 @@ interface RouterHarness {
   signalService: MockSignalService;
   automationRows: Map<string, Automation>;
   db: ReturnType<typeof createMockDbForRouter>;
+  dispatchDeps: ReturnType<typeof makeDispatchDeps>["deps"];
 }
 
 function createMockDbForRouter() {
@@ -295,6 +296,7 @@ function makeRouter(): RouterHarness {
     signalService,
     automationRows,
     db,
+    dispatchDeps,
   };
 }
 
@@ -763,6 +765,76 @@ describe("Automation Router", () => {
       );
       expect(res.result).toEqual({ ok: "INC-9" });
       expect(res.error).toBeUndefined();
+    });
+  });
+
+  describe("getRunScopeForReplay", () => {
+    it("reconstructs trigger + artifacts and reports snapshot availability", async () => {
+      // First select() → the run row; second select() → artifact rows.
+      const runRow = {
+        id: "run-1",
+        triggerEventId: "incident.incident.created",
+        triggerPayload: { id: "INC-7" },
+      };
+      const artifactRows = [
+        { artifactType: "jira.issue", actionId: "j", data: { key: "P-1" } },
+      ];
+      h.db.select = mock(() => fluentSelect([runRow]))
+        .mockImplementationOnce(() => fluentSelect([runRow]))
+        .mockImplementationOnce(() => fluentSelect(artifactRows));
+      h.dispatchDeps.runStateStore.load = mock(async () => ({
+        scopeSnapshot: { vars: { count: 2 } },
+        lastActionPath: null,
+        lastHeartbeatAt: new Date(),
+      }));
+
+      const res = await call(
+        h.router.getRunScopeForReplay,
+        { runId: "run-1" },
+        { context: h.context },
+      );
+
+      expect(res.context.trigger).toEqual({
+        event: "incident.incident.created",
+        payload: { id: "INC-7" },
+      });
+      expect(res.context.artifacts).toEqual({
+        "jira.issue": { key: "P-1" },
+        j: { key: "P-1" },
+      });
+      expect(res.context.var).toEqual({ count: 2 });
+      expect(res.scopeSnapshotAvailable).toBe(true);
+    });
+
+    it("reports scopeSnapshotAvailable=false when the run state is cleared", async () => {
+      const runRow = {
+        id: "run-2",
+        triggerEventId: "e",
+        triggerPayload: {},
+      };
+      h.db.select = mock(() => fluentSelect([runRow]))
+        .mockImplementationOnce(() => fluentSelect([runRow]))
+        .mockImplementationOnce(() => fluentSelect([]));
+      h.dispatchDeps.runStateStore.load = mock(async () => undefined);
+
+      const res = await call(
+        h.router.getRunScopeForReplay,
+        { runId: "run-2" },
+        { context: h.context },
+      );
+      expect(res.scopeSnapshotAvailable).toBe(false);
+      expect(res.context.var).toEqual({});
+    });
+
+    it("404s on an unknown run id", async () => {
+      h.db.select = mock(() => fluentSelect([]));
+      await expect(
+        call(
+          h.router.getRunScopeForReplay,
+          { runId: "missing" },
+          { context: h.context },
+        ),
+      ).rejects.toThrow(/not found/i);
     });
   });
 });
