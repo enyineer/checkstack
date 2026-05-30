@@ -6,14 +6,15 @@ description: "How Checkstack manages secrets centrally with pluggable backends, 
 The Secrets platform is the central, plugin-agnostic home for secrets. Secrets are created and managed in one place, stored by a pluggable backend (a local AES-256-GCM store by default), referenced from descriptors and configs via `${{ secrets.NAME }}`, and resolved on demand by any plugin through a service reference. No endpoint ever returns a secret value to a browser, and a Jenkins-style masking layer redacts known secret values out of any output before it is persisted or returned.
 
 > [!NOTE]
-> This page documents Phases 1 to 3: the core plugin, the local backend, the resolver service, the masking layer, secret to env-var injection for scripts (central and satellite), and just-in-time satellite delivery. The Vault backend lands in a later phase.
+> This page documents Phases 1 to 4: the core plugin, the local backend, the resolver service, the masking layer, secret to env-var injection for scripts (central and satellite), just-in-time satellite delivery, and the HashiCorp Vault backend. Satellite-direct-Vault (a satellite reading Vault itself for core-unreachable topologies) is deferred to a follow-up; core-mediated delivery is the default.
 
 ## Packages
 
-- `@checkstack/secrets-common` - schemas (`secretNameSchema`, the `${{ secrets.NAME }}` template, the secret metadata DTO, the secret to env mapping), the oRPC contract, the `secrets.read` / `secrets.manage` access rules, the `secrets.changed` hook id, and the pure masking utilities (`maskSecrets`, `maskSecretsDeep`, `maskScriptRunOutput`).
-- `@checkstack/secrets-backend` - the `SecretBackend` extension point, the backend registry, the promoted schema-driven resolver (`resolveSecretsBySchema`), the cross-plugin `secretResolverRef` / `secretAdminRef` services, the run-scoped `SecretMaskingContext`, the `secrets.changed` hook, and the RPC router.
+- `@checkstack/secrets-common` - schemas (`secretNameSchema`, the `${{ secrets.NAME }}` template, the secret metadata DTO, the secret to env mapping, the backend-config DTOs), the oRPC contract, the `secrets.read` / `secrets.manage` access rules, the `secrets.changed` hook id, and the pure masking utilities (`maskSecrets`, `maskSecretsDeep`, `maskScriptRunOutput`).
+- `@checkstack/secrets-backend` - the `SecretBackend` extension point, the backend registry, the promoted schema-driven resolver (`resolveSecretsBySchema`), the cross-plugin `secretResolverRef` / `secretAdminRef` services, the run-scoped `SecretMaskingContext`, the `secrets.changed` hook, the active-backend selection (persisted via `ConfigService`), and the RPC router.
 - `@checkstack/secrets-backend-local` - the default backend: AES-256-GCM values in the `secrets` table. Owns the table (promoted from gitops).
-- `@checkstack/secrets-frontend` - the admin Settings page (create / rotate / delete, values write-only).
+- `@checkstack/secrets-backend-vault` - the HashiCorp Vault backend (optional / opt-in). Owns a name → KV v2 path index table.
+- `@checkstack/secrets-frontend` - the admin Settings page (create / rotate / delete, backend selection + Vault config, values write-only).
 
 ## Backend extension point
 
@@ -34,7 +35,19 @@ interface SecretBackend {
 }
 ```
 
-The active backend is config-selected; the local backend is the default when no external backend is configured. Read-through backends (e.g. Vault, a later phase) implement only `get` / `list`.
+The active backend is config-selected (persisted via `ConfigService`, set in Settings → Secrets); the local backend is the default when no external backend is configured. Read-through backends (e.g. Vault) implement `get` / `list` plus the optional `test` / `configure` / `getConfigMeta`. Switching the active backend re-routes resolution dynamically (see `createActiveBackendStore`).
+
+## Vault backend
+
+`@checkstack/secrets-backend-vault` is an optional, opt-in `SecretBackend` against HashiCorp Vault. Install the plugin and select `vault` as the active backend.
+
+- **Auth:** token, AppRole (`role_id` + `secret_id`), and OIDC/JWT (`role` + JWT) are all supported. The client logs in once, caches the session until the lease TTL (capped), and re-logs in on expiry.
+- **Reads:** `get(name)` maps the name via the backend's own `secret_index` table (name → KV v2 path + key), reads `<mount>/data/<path>`, and returns the chosen key. `list()` returns the index metadata only — NEVER values. Vault is read-through (no `set` / `delete`); secrets are authored in Vault and indexed here.
+- **Caching:** resolved values are cached in memory with a capped TTL so rotated values are re-read; the cache is cleared on config change. Nothing is persisted to disk.
+- **`testBackend`** validates auth/connectivity and returns status only.
+
+> [!IMPORTANT]
+> **Bootstrapping the Vault auth credential (the chicken/egg).** The Vault auth secret (token / AppRole `secret_id` / OIDC JWT) cannot live in Vault. It is stored as an `x-secret` field in the Vault backend's own `ConfigService` config, so it is encrypted at rest with the platform AES-GCM master key (env-provided, `ENCRYPTION_MASTER_KEY`) and stripped by `getRedacted`. It is write-only over the API (`setBackendConfig`), never returned in any DTO, and never logged.
 
 ## Resolving secrets from another plugin
 
@@ -89,7 +102,7 @@ Healthcheck collectors run on satellites, which must NEVER persist a secret to d
 
 If delivery fails or a required secret can't resolve, the collector run errors clearly ("required secret not available on this satellite") rather than running without it.
 
-Source-side masking is applied on the satellite: the collector runs `maskSecrets` over its `stdout` / `stderr` / `result` / `error` using the run's delivered values BEFORE the result leaves the satellite, so a secret is redacted at the source even if the result is logged downstream. (Satellite-direct-Vault for core-unreachable topologies is deferred to the Vault phase.)
+Source-side masking is applied on the satellite: the collector runs `maskSecrets` over its `stdout` / `stderr` / `result` / `error` using the run's delivered values BEFORE the result leaves the satellite, so a secret is redacted at the source even if the result is logged downstream. (Satellite-direct-Vault — a satellite resolving from Vault itself using its own identity, for core-unreachable topologies — is deferred to a follow-up; core-mediated delivery works for Vault today since the resolver simply reads through the active backend.)
 
 ## Test panel: placeholders + overrides
 
