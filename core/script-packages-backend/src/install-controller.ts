@@ -9,7 +9,7 @@ import {
   type BlobPublisher,
   type Resolver,
 } from "./install-service";
-import type { InstallStateStore } from "./install-state-store";
+import type { InstallStateStore, InstallerLock } from "./install-state-store";
 import { evaluateSizeCap } from "./size-cap";
 
 /**
@@ -24,6 +24,7 @@ import { evaluateSizeCap } from "./size-cap";
 
 export interface InstallControllerDeps {
   installState: InstallStateStore;
+  installerLock: InstallerLock;
   resolver: Resolver;
   blobStore: BlobPublisher;
   blobIndex: BlobIndex;
@@ -61,8 +62,8 @@ export async function runInstallNow(
     };
   }
 
-  const acquired = await deps.installState.tryInstallerLock();
-  if (!acquired) {
+  const lock = await deps.installerLock.tryInstallerLock();
+  if (!lock) {
     return {
       started: false,
       reason: "Another instance is currently installing.",
@@ -108,6 +109,6 @@ export async function runInstallNow(
     deps.logger?.error(`Script package install failed: ${message}`);
     return { started: false, reason: message };
   } finally {
-    await deps.installState.releaseInstallerLock();
+    await lock.release();
   }
 }

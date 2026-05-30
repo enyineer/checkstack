@@ -245,8 +245,8 @@ export async function resumeRun(
   const waitedAt = parseActionPath(args.waitedAtPath);
 
   // Try to acquire the advisory lock so two resumers don't race.
-  const acquired = await deps.runStateStore.tryAdvisoryLock(args.runId);
-  if (!acquired) {
+  const lock = await deps.runStateStore.tryAdvisoryLock(args.runId);
+  if (!lock) {
     deps.logger.debug(
       `resumeRun: another instance already holds the lock for run ${args.runId}; skipping`,
     );
@@ -310,7 +310,7 @@ export async function resumeRun(
 
     return await finaliseRun(ctx, outcome);
   } finally {
-    await deps.runStateStore.releaseAdvisoryLock(args.runId);
+    await lock.release();
   }
 }
 

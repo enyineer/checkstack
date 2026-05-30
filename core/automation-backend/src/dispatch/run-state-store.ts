@@ -11,8 +11,12 @@
  * at a time. The lock auto-releases when the holding connection dies —
  * exactly what we want during crash recovery.
  */
-import { lt, eq, sql } from "drizzle-orm";
-import type { SafeDatabase } from "@checkstack/backend-api";
+import { lt, eq } from "drizzle-orm";
+import type {
+  AdvisoryLockHandle,
+  AdvisoryLockService,
+  SafeDatabase,
+} from "@checkstack/backend-api";
 
 import { automationRunState } from "../schema";
 
@@ -50,21 +54,30 @@ export interface RunStateStore {
   findStalledRunIds(threshold: Date): Promise<string[]>;
 
   /**
-   * Try to acquire a Postgres session-level advisory lock for the run.
-   * Returns true on acquisition. The lock auto-releases when the holding
-   * DB session closes (e.g. on process crash), so dead instances don't
+   * Try to acquire a Postgres session-level advisory lock for the run on a
+   * dedicated pooled client. Returns a handle on acquisition (release it in
+   * a `finally`), or `null` if another instance already holds it.
+   *
+   * A dedicated client is required because the lock is held across the whole
+   * resume (which executes the run's actions — potentially long and
+   * involving external calls), so a transaction-scoped lock would mean a
+   * minutes-long open transaction. The session lock auto-releases when the
+   * holding connection dies (e.g. on process crash), so dead instances don't
    * leak locks.
    */
-  tryAdvisoryLock(runId: string): Promise<boolean>;
-
-  /** Release a previously-acquired advisory lock. */
-  releaseAdvisoryLock(runId: string): Promise<void>;
+  tryAdvisoryLock(runId: string): Promise<AdvisoryLockHandle | null>;
 }
 
 type Schema = { automationRunState: typeof automationRunState };
 
+/** Namespace run locks in the global advisory-lock space. */
+function runLockKey(runId: string): string {
+  return `automation.run:${runId}`;
+}
+
 export function createRunStateStore(
   db: SafeDatabase<Schema>,
+  advisoryLock: AdvisoryLockService,
 ): RunStateStore {
   return {
     async upsert(input) {
@@ -124,20 +137,9 @@ export function createRunStateStore(
     },
 
     async tryAdvisoryLock(runId) {
-      // hashtextextended returns int8 in Postgres, which pg_try_advisory_lock
-      // accepts directly. Using a deterministic hash means the same runId
-      // always maps to the same lock key across processes.
-      const result = await db.execute<{ ok: boolean }>(sql`
-        SELECT pg_try_advisory_lock(hashtextextended(${runId}, 0)) AS ok
-      `);
-      const rows = result as unknown as { rows: Array<{ ok: boolean }> };
-      return Boolean(rows.rows?.[0]?.ok);
-    },
-
-    async releaseAdvisoryLock(runId) {
-      await db.execute(sql`
-        SELECT pg_advisory_unlock(hashtextextended(${runId}, 0))
-      `);
+      // Acquire on a dedicated client (see interface doc) — the lock is held
+      // for the whole resume, so it must not ride a long-open transaction.
+      return advisoryLock.tryAcquire(runLockKey(runId));
     },
   };
 }

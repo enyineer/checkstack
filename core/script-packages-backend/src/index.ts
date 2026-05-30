@@ -24,9 +24,15 @@ import {
   createStorageConfigStore,
   createBlobIndexStore,
 } from "./stores";
-import { createInstallStateStore } from "./install-state-store";
+import {
+  createInstallStateStore,
+  createInstallerLock,
+} from "./install-state-store";
 import { runInstallNow } from "./install-controller";
-import { runStorageMigration } from "./storage-migration";
+import {
+  runStorageMigration,
+  resumeCrashedMigration,
+} from "./storage-migration";
 import { createCentralResolver } from "./resolver";
 import { createReconcileFsDeps } from "./reconcile-fs";
 import { reconcileToHash } from "./reconciler";
@@ -64,8 +70,9 @@ export default createBackendPlugin({
       deps: {
         logger: coreServices.logger,
         rpc: coreServices.rpc,
+        advisoryLock: coreServices.advisoryLock,
       },
-      init: async ({ logger, database, rpc }) => {
+      init: async ({ logger, database, rpc, advisoryLock }) => {
         logger.debug("📦 Initializing Script Packages Backend...");
 
         const storeRoot = resolveScriptPackagesDir();
@@ -75,6 +82,7 @@ export default createBackendPlugin({
         const sizeCap = createSizeCapStore(database);
         const blobIndex = createBlobIndexStore(database);
         const installState = createInstallStateStore(database);
+        const installerLock = createInstallerLock(advisoryLock);
 
         // Build the install orchestration. The resolver + active blob store
         // are resolved lazily at install time so config/registry changes
@@ -113,6 +121,7 @@ export default createBackendPlugin({
           });
           return runInstallNow({
             installState,
+            installerLock,
             resolver,
             blobStore: {
               id: store.id,
@@ -161,8 +170,8 @@ export default createBackendPlugin({
               reason: `Target blob store "${target}" is not registered.`,
             };
           }
-          const acquired = await installState.tryInstallerLock();
-          if (!acquired) {
+          const lock = await installerLock.tryInstallerLock();
+          if (!lock) {
             return {
               started: false,
               reason: "An install is in progress; try again once it completes.",
@@ -177,7 +186,7 @@ export default createBackendPlugin({
             target,
             logger,
           }).finally(() => {
-            void installState.releaseInstallerLock();
+            void lock.release();
           });
           return { started: true };
         };
@@ -195,12 +204,58 @@ export default createBackendPlugin({
         logger.debug("✅ Script Packages Backend initialized.");
       },
 
-      afterPluginsReady: async ({ logger, database, onHook, emitHook }) => {
+      afterPluginsReady: async ({
+        logger,
+        database,
+        onHook,
+        emitHook,
+        advisoryLock,
+      }) => {
         const stash = env as unknown as EnvStash;
         const blobStores = stash.blobStores;
         const storeRoot = resolveScriptPackagesDir();
         const installState = createInstallStateStore(database);
+        const installerLock = createInstallerLock(advisoryLock);
         const storage = createStorageConfigStore(database);
+        const blobIndex = createBlobIndexStore(database);
+
+        // Startup backstop: resume a storage migration that crashed
+        // mid-flight. A migration that died leaves `migrationStatus` stuck
+        // at "migrating" — which blocks `installNow` AND makes
+        // `triggerMigration` refuse to restart it — so nothing would ever
+        // unwedge it without operator intervention. `runStorageMigration`
+        // is idempotent + resumable (it re-derives its work set from the
+        // index, skipping blobs already on the target), so we relaunch it
+        // toward the recorded target under the installer-election lock so
+        // exactly one pod resumes (and an in-flight install on another pod
+        // is mutually excluded). Fire-and-forget; progress is polled.
+        try {
+          await resumeCrashedMigration({
+            loadState: async () => {
+              const cfg = await storage.get();
+              return {
+                migrationStatus: cfg.migrationStatus,
+                migrationTarget: cfg.migrationTarget,
+                activeBackend: cfg.activeBackend,
+              };
+            },
+            tryLock: () => installerLock.tryInstallerLock(),
+            runMigration: ({ target, activeBackend }) =>
+              runStorageMigration({
+                blobIndex,
+                storage,
+                getStore: (id) => blobStores.get(id),
+                activeBackend,
+                target,
+                logger,
+              }),
+            logger,
+          });
+        } catch (error) {
+          logger.error(
+            `Storage-migration resume check failed: ${extractErrorMessage(error)}`,
+          );
+        }
 
         // Let the installer (in init's triggerInstall) emit the hook.
         stash.emitChanged = async (lockfileHash: string) => {
@@ -301,7 +356,9 @@ export { renderNpmrc, type NpmrcInput } from "./npmrc";
 export { parseBunLock, splitSpec } from "./parse-bun-lock";
 export {
   createInstallStateStore,
+  createInstallerLock,
   type InstallStateStore,
+  type InstallerLock,
 } from "./install-state-store";
 export {
   performInstall,
@@ -341,7 +398,11 @@ export {
 } from "./install-controller";
 export {
   runStorageMigration,
+  resumeCrashedMigration,
   type StorageMigrationDeps,
   type StorageMigrationResult,
+  type ResumeCrashedMigrationDeps,
+  type ResumeCrashedMigrationResult,
+  type MigrationStateSnapshot,
 } from "./storage-migration";
 export * as schema from "./schema";

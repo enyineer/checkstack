@@ -16,6 +16,7 @@ import type { PluginArtifactStore } from "./plugin-artifact-store";
 import type { EventBus } from "./event-bus-types";
 import type { WebSocketRouteRegistry } from "./ws-registry";
 import type { ReadinessRegistry } from "./readiness-registry";
+import type { AdvisoryLockService } from "./advisory-lock";
 
 export * from "./types";
 
@@ -66,4 +67,10 @@ export const coreServices = {
   readinessRegistry: createServiceRef<ReadinessRegistry>(
     "core.readinessRegistry",
   ),
+  /**
+   * Postgres advisory-lock service backed by a dedicated pooled client, so
+   * session-level locks keep connection affinity across acquire/release.
+   * See {@link AdvisoryLockService}.
+   */
+  advisoryLock: createServiceRef<AdvisoryLockService>("core.advisoryLock"),
 };

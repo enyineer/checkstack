@@ -310,12 +310,16 @@ export function createInMemoryRunStateStore(): {
       return ids;
     },
     async tryAdvisoryLock(runId) {
-      if (locks.has(runId)) return false;
+      if (locks.has(runId)) return null;
       locks.add(runId);
-      return true;
-    },
-    async releaseAdvisoryLock(runId) {
-      locks.delete(runId);
+      let released = false;
+      return {
+        async release() {
+          if (released) return;
+          released = true;
+          locks.delete(runId);
+        },
+      };
     },
   };
 

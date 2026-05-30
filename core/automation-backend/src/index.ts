@@ -209,6 +209,7 @@ export default createBackendPlugin({
         rpcClient: coreServices.rpcClient,
         queueManager: coreServices.queueManager,
         signalService: coreServices.signalService,
+        advisoryLock: coreServices.advisoryLock,
       },
       init: async ({
         logger,
@@ -217,6 +218,7 @@ export default createBackendPlugin({
         rpcClient,
         queueManager,
         signalService,
+        advisoryLock,
       }) => {
         logger.debug("⚙️  Initializing Automation Backend...");
 
@@ -225,7 +227,7 @@ export default createBackendPlugin({
 
         const artifactStore = createArtifactStore(database);
         const runStore = createRunStore(database);
-        const runStateStore = createRunStateStore(database);
+        const runStateStore = createRunStateStore(database, advisoryLock);
         const dwellStore = createDwellStore(database);
         const automationStore = createAutomationStore(database);
 

@@ -9,6 +9,7 @@ import {
   RpcClient,
   EventBus as IEventBus,
   AuthenticationStrategy,
+  createAdvisoryLockService,
 } from "@checkstack/backend-api";
 import { AuthApi } from "@checkstack/auth-common";
 import type { ServiceRegistry } from "../services/service-registry";
@@ -96,6 +97,16 @@ export function registerCoreServices({
     // Create scoped proxy on shared pool (no new connections)
     return createScopedDb(db, assignedSchema);
   });
+
+  // 1b. Advisory Lock Factory (server-global, backed by the shared admin
+  // pool). Session locks need connection affinity, so the service checks
+  // out a dedicated client per acquired lock and releases on the SAME
+  // client — the scoped per-query DB proxy can't provide that.
+  const advisoryLockService = createAdvisoryLockService(adminPool);
+  registry.registerFactory(
+    coreServices.advisoryLock,
+    () => advisoryLockService,
+  );
 
   // 2. Logger Factory
   registry.registerFactory(coreServices.logger, (metadata) => {

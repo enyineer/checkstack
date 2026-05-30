@@ -1153,7 +1153,8 @@ describe("dispatch engine — advisory lock", () => {
     expect(result.status).toBe("waiting");
 
     // Acquire the advisory lock externally, simulating another instance.
-    await deps.runStateStore.tryAdvisoryLock(result.runId);
+    const heldLock = await deps.runStateStore.tryAdvisoryLock(result.runId);
+    expect(heldLock).not.toBeNull();
 
     const { resumeRun } = await import("./engine");
     const blocked = await resumeRun(deps, {
@@ -1165,7 +1166,7 @@ describe("dispatch engine — advisory lock", () => {
     expect(blocked.status).toBe("waiting");
 
     // Release and retry — now it succeeds.
-    await deps.runStateStore.releaseAdvisoryLock(result.runId);
+    await heldLock!.release();
     const unblocked = await resumeRun(deps, {
       runId: result.runId,
       automation: auto,

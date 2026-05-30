@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { AdvisoryLockHandle } from "@checkstack/backend-api";
 import { extractErrorMessage } from "@checkstack/common";
 import type { BlobStore } from "./blob-store";
 
@@ -135,4 +136,79 @@ export async function runStorageMigration(
     deps.logger?.error(`Storage migration to "${target}" failed: ${message}`);
     return { migrated, completed: false, error: message };
   }
+}
+
+/** Current persisted migration state, as read on boot. */
+export interface MigrationStateSnapshot {
+  migrationStatus: string;
+  migrationTarget: string | null;
+  activeBackend: string;
+}
+
+export interface ResumeCrashedMigrationDeps {
+  /** Read the current migration state (status + target + active backend). */
+  loadState(): Promise<MigrationStateSnapshot>;
+  /** Acquire the installer-election lock (so only one pod resumes). */
+  tryLock(): Promise<AdvisoryLockHandle | null>;
+  /**
+   * Relaunch the migration toward `target`. Resolves when the (idempotent,
+   * resumable) migration finishes. The caller controls whether this runs in
+   * the background.
+   */
+  runMigration(input: {
+    target: string;
+    activeBackend: string;
+  }): Promise<unknown>;
+  logger?: { debug(msg: string): void; error(msg: string): void };
+}
+
+export interface ResumeCrashedMigrationResult {
+  /** True when a resume was launched (status was "migrating", lock won). */
+  resumed: boolean;
+  reason?: string;
+  /**
+   * When `resumed`, a promise that settles once the relaunched migration
+   * finishes and the lock is released. Production code fires-and-forgets;
+   * tests can await it for deterministic assertions.
+   */
+  done?: Promise<void>;
+}
+
+/**
+ * Boot-time backstop: if a prior migration crashed mid-flight it left
+ * `migrationStatus === "migrating"`, which wedges the system (installs are
+ * blocked and `triggerMigration` refuses to restart). Detect that and
+ * relaunch the resumable migration under the installer-election lock, so
+ * exactly one pod resumes. Returns immediately if there is nothing to resume
+ * or another pod holds the lock; the actual migration may run in the
+ * background (controlled by `runMigration`). The lock is released when
+ * `runMigration` settles.
+ */
+export async function resumeCrashedMigration(
+  deps: ResumeCrashedMigrationDeps,
+): Promise<ResumeCrashedMigrationResult> {
+  const state = await deps.loadState();
+  if (state.migrationStatus !== "migrating" || !state.migrationTarget) {
+    return { resumed: false, reason: "no migration in flight" };
+  }
+  const target = state.migrationTarget;
+
+  const lock = await deps.tryLock();
+  if (!lock) {
+    return { resumed: false, reason: "another instance holds the lock" };
+  }
+
+  deps.logger?.debug(`Resuming crashed storage migration toward "${target}".`);
+  const done = (async () => {
+    try {
+      await deps.runMigration({ target, activeBackend: state.activeBackend });
+    } catch (error) {
+      deps.logger?.error(
+        `Storage-migration resume failed: ${extractErrorMessage(error)}`,
+      );
+    } finally {
+      await lock.release();
+    }
+  })();
+  return { resumed: true, done };
 }

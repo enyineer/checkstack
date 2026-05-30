@@ -90,8 +90,8 @@ async function sweepStalledRuns(
   );
 
   for (const runId of stalled) {
-    const acquired = await args.deps.runStateStore.tryAdvisoryLock(runId);
-    if (!acquired) continue; // another instance already on it
+    const lock = await args.deps.runStateStore.tryAdvisoryLock(runId);
+    if (!lock) continue; // another instance already on it
     try {
       const run = await args.deps.runStore.loadRun(runId);
       if (!run) continue;
@@ -120,7 +120,7 @@ async function sweepStalledRuns(
         `automation sweeper failed to recover ${runId}: ${(error as Error).message}`,
       );
     } finally {
-      await args.deps.runStateStore.releaseAdvisoryLock(runId);
+      await lock.release();
     }
   }
 }

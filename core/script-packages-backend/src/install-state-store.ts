@@ -1,5 +1,9 @@
-import { eq, sql } from "drizzle-orm";
-import type { SafeDatabase } from "@checkstack/backend-api";
+import { eq } from "drizzle-orm";
+import type {
+  AdvisoryLockHandle,
+  AdvisoryLockService,
+  SafeDatabase,
+} from "@checkstack/backend-api";
 import type {
   InstallState,
   ManifestEntry,
@@ -7,15 +11,19 @@ import type {
 import { scriptPackageInstallState } from "./schema";
 
 /**
- * Singleton install-state persistence + the installer-election advisory
- * lock.
+ * Singleton install-state persistence (data) and the installer-election
+ * advisory lock (coordination), kept as two separate factories so read-only
+ * call sites (per-run resolution-root, router reads) depend only on the data
+ * store and never need the pool-backed lock service.
  *
  * Exactly one core instance performs the registry-facing `bun install` at a
- * time, guarded by a Postgres advisory lock. The pattern is copied (not
- * imported) from `automation-backend`'s dispatch run-state store:
- * `pg_try_advisory_lock(hashtextextended(key, 0))`. The lock auto-releases
- * when the holding DB session closes, so a crashed installer never wedges
- * the election.
+ * time, guarded by a Postgres advisory lock. The lock is held across a
+ * MINUTES-long `bun install`, so it MUST use a dedicated pooled connection
+ * (not a long-open transaction): {@link createInstallerLock} uses the shared
+ * {@link AdvisoryLockService}, which checks out one client, acquires the
+ * session lock on it, and releases on the SAME client. The lock auto-releases
+ * when that connection dies, so a crashed installer never wedges the
+ * election.
  */
 
 const INSTALLER_LOCK_KEY = "script-packages.installer";
@@ -32,9 +40,30 @@ export interface InstallStateStore {
     totalSizeBytes: number;
   }): Promise<void>;
   setError(message: string): Promise<void>;
-  /** Acquire the installer-election lock. True = this instance installs. */
-  tryInstallerLock(): Promise<boolean>;
-  releaseInstallerLock(): Promise<void>;
+}
+
+export interface InstallerLock {
+  /**
+   * Acquire the installer-election lock on a dedicated client. Returns a
+   * handle (call `release()` in a `finally`) on success, or `null` if
+   * another instance already holds it.
+   */
+  tryInstallerLock(): Promise<AdvisoryLockHandle | null>;
+}
+
+/**
+ * The installer-election lock, backed by the pool-backed advisory-lock
+ * service so the session lock keeps connection affinity across the long
+ * `bun install`.
+ */
+export function createInstallerLock(
+  advisoryLock: AdvisoryLockService,
+): InstallerLock {
+  return {
+    async tryInstallerLock() {
+      return advisoryLock.tryAcquire(INSTALLER_LOCK_KEY);
+    },
+  };
 }
 
 const DEFAULT_STATE: InstallState = {
@@ -97,20 +126,6 @@ export function createInstallStateStore(
 
     async setError(message) {
       await upsert({ status: "error", errorMessage: message });
-    },
-
-    async tryInstallerLock() {
-      const result = await db.execute<{ ok: boolean }>(sql`
-        SELECT pg_try_advisory_lock(hashtextextended(${INSTALLER_LOCK_KEY}, 0)) AS ok
-      `);
-      const rows = result as unknown as { rows: Array<{ ok: boolean }> };
-      return Boolean(rows.rows?.[0]?.ok);
-    },
-
-    async releaseInstallerLock() {
-      await db.execute(sql`
-        SELECT pg_advisory_unlock(hashtextextended(${INSTALLER_LOCK_KEY}, 0))
-      `);
     },
   };
 }

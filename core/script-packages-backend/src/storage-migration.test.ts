@@ -2,9 +2,12 @@ import { describe, expect, test } from "bun:test";
 import type { BlobStore } from "./blob-store";
 import {
   runStorageMigration,
+  resumeCrashedMigration,
+  type MigrationStateSnapshot,
   type StorageMigrationConfig,
   type StorageMigrationStores,
 } from "./storage-migration";
+import type { AdvisoryLockHandle } from "@checkstack/backend-api";
 
 function memStore(id: string, seed: Record<string, string> = {}): BlobStore {
   const map = new Map<string, Uint8Array>(
@@ -210,5 +213,106 @@ describe("runStorageMigration", () => {
     expect(res.completed).toBe(false);
     expect(res.error).toMatch(/missing from its source backend/i);
     expect(config.activeBackend).toBe("postgres");
+  });
+});
+
+describe("resumeCrashedMigration", () => {
+  function fakeLock(): { handle: AdvisoryLockHandle; released: () => boolean } {
+    let released = false;
+    return {
+      handle: {
+        async release() {
+          released = true;
+        },
+      },
+      released: () => released,
+    };
+  }
+
+  test("resumes a store left in 'migrating' on init and completes it", async () => {
+    // H3 regression: a migration that crashed mid-flight leaves status
+    // "migrating", which wedges installs AND blocks triggerMigration. Init
+    // must relaunch the resumable migration toward the recorded target.
+    const pg = memStore("postgres", { "sha-a": "AAA", "sha-b": "BBB" });
+    const s3 = memStore("s3");
+    const { index, config, blobIndex, storage } = harness([
+      { integrity: "sha-a", backend: "postgres" },
+      { integrity: "sha-b", backend: "postgres" },
+    ]);
+    // Simulate the crash: status stuck at "migrating" toward "s3".
+    config.status = "migrating";
+    config.target = "s3";
+
+    const lock = fakeLock();
+    const result = await resumeCrashedMigration({
+      loadState: async (): Promise<MigrationStateSnapshot> => ({
+        migrationStatus: config.status,
+        migrationTarget: config.target,
+        activeBackend: config.activeBackend,
+      }),
+      tryLock: async () => lock.handle,
+      runMigration: ({ target, activeBackend }) =>
+        runStorageMigration({
+          blobIndex,
+          storage,
+          getStore: (id) => (id === "postgres" ? pg : s3),
+          activeBackend,
+          target,
+        }),
+    });
+
+    expect(result.resumed).toBe(true);
+    await result.done; // wait for the relaunched migration to finish
+
+    expect(config.status).toBe("completed");
+    expect(config.activeBackend).toBe("s3");
+    expect(index.get("sha-a")).toBe("s3");
+    expect(index.get("sha-b")).toBe("s3");
+    expect(lock.released()).toBe(true); // lock freed when done
+  });
+
+  test("does nothing when no migration is in flight", async () => {
+    const { blobIndex, storage } = harness([]);
+    let ran = false;
+    const result = await resumeCrashedMigration({
+      loadState: async () => ({
+        migrationStatus: "idle",
+        migrationTarget: null,
+        activeBackend: "postgres",
+      }),
+      tryLock: async () => {
+        throw new Error("should not try to lock when nothing to resume");
+      },
+      runMigration: async () => {
+        ran = true;
+        return runStorageMigration({
+          blobIndex,
+          storage,
+          getStore: () => memStore("x"),
+          activeBackend: "postgres",
+          target: "s3",
+        });
+      },
+    });
+    expect(result.resumed).toBe(false);
+    expect(ran).toBe(false);
+  });
+
+  test("defers to another pod that already holds the lock", async () => {
+    let ran = false;
+    const result = await resumeCrashedMigration({
+      loadState: async () => ({
+        migrationStatus: "migrating",
+        migrationTarget: "s3",
+        activeBackend: "postgres",
+      }),
+      tryLock: async () => null, // held elsewhere
+      runMigration: async () => {
+        ran = true;
+      },
+    });
+    expect(result.resumed).toBe(false);
+    expect(result.reason).toMatch(/another instance/i);
+    expect(ran).toBe(false);
   });
 });

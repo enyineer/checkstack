@@ -33,3 +33,4 @@ export * from "./incremental-aggregation";
 export * from "./aggregated-result";
 export * from "./ws-registry";
 export * from "./readiness-registry";
+export * from "./advisory-lock";

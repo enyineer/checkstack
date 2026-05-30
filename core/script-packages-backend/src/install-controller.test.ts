@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import type { ManifestEntry } from "@checkstack/script-packages-common";
 import { runInstallNow, type InstallControllerDeps } from "./install-controller";
-import type { InstallStateStore } from "./install-state-store";
+import type {
+  InstallStateStore,
+  InstallerLock,
+} from "./install-state-store";
 
 const entry: ManifestEntry = { name: "a", version: "1.0.0", integrity: "sha-a" };
 
-function fakeState(lockAcquired = true): {
+function fakeState(): {
   store: InstallStateStore;
   calls: string[];
 } {
@@ -24,9 +27,24 @@ function fakeState(lockAcquired = true): {
       setInstalling: async () => void calls.push("installing"),
       setReady: async () => void calls.push("ready"),
       setError: async (m) => void calls.push(`error:${m}`),
-      tryInstallerLock: async () => lockAcquired,
-      releaseInstallerLock: async () => void calls.push("released"),
     },
+  };
+}
+
+/**
+ * Installer-election lock fake. When `lockAcquired` it hands back a handle
+ * whose `release()` records "released" into `calls` (so tests can assert the
+ * lock is always freed); otherwise `tryInstallerLock` returns null.
+ */
+function fakeInstallerLock(
+  calls: string[],
+  lockAcquired = true,
+): InstallerLock {
+  return {
+    tryInstallerLock: async () =>
+      lockAcquired
+        ? { release: async () => void calls.push("released") }
+        : null,
   };
 }
 
@@ -37,6 +55,7 @@ function baseDeps(
   const { store, calls } = fakeState();
   const deps: InstallControllerDeps = {
     installState: store,
+    installerLock: fakeInstallerLock(calls),
     resolver: { resolve: async () => [{ entry, blob: new Uint8Array(10) }] },
     blobStore: {
       id: "postgres",
@@ -79,8 +98,9 @@ describe("runInstallNow", () => {
 
   test("refuses when the installer lock is held by another instance", async () => {
     const emitted: string[] = [];
-    const { store } = fakeState(false);
-    const { deps } = baseDeps({ installState: store });
+    const { deps } = baseDeps({
+      installerLock: fakeInstallerLock([], false),
+    });
     deps.emitChanged = async ({ lockfileHash }) =>
       void emitted.push(lockfileHash);
     const out = await runInstallNow(deps);
