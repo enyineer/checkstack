@@ -538,6 +538,8 @@ const HEALTH_STATE_PROPERTIES: Record<string, Record<string, unknown>> = {
   success_rate: { type: "number" },
   last_run_at: { type: "string" },
   in_maintenance: { type: "boolean" },
+  transitions_in_window: { type: "number" },
+  transition_window_minutes: { type: "number" },
   evaluated_at: { type: "string" },
 };
 
@@ -551,6 +553,10 @@ const HEALTH_STATE_DESCRIPTIONS: Record<string, string> = {
   success_rate: "Windowed success rate in [0, 1].",
   last_run_at: "ISO timestamp of the newest run.",
   in_maintenance: "Whether the system is in an active maintenance window.",
+  transitions_in_window:
+    "Status changes in the trailing window (generalized flapping count).",
+  transition_window_minutes:
+    "The window (minutes) transitions_in_window was counted over.",
   evaluated_at: "ISO timestamp this snapshot was computed.",
 };
 

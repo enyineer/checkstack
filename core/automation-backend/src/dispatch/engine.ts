@@ -186,6 +186,7 @@ export async function dispatchTrigger(
     logger: deps.logger,
     contextKey: args.contextKey,
     usesState: args.automation.definition.uses_state,
+    transitionWindowMinutes: args.automation.definition.state_window_minutes,
   });
 
   // Initial scope snapshot — gives the stalled sweeper something to
@@ -275,6 +276,7 @@ export async function resumeRun(
       logger: deps.logger,
       contextKey: run.contextKey,
       usesState: args.automation.definition.uses_state,
+      transitionWindowMinutes: args.automation.definition.state_window_minutes,
     });
 
     await deps.runStore.updateRunStatus(args.runId, "running");
@@ -460,6 +462,7 @@ export async function checkWaitUntil(
     logger: deps.logger,
     contextKey: run.contextKey,
     usesState: args.automation.definition.uses_state,
+    transitionWindowMinutes: args.automation.definition.state_window_minutes,
   });
 
   let satisfied = false;

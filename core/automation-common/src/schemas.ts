@@ -665,6 +665,21 @@ export const AutomationDefinitionSchema = z.object({
     .describe(
       "Extra system ids whose live health state is resolved into scope under health.systems[id].",
     ),
+  /**
+   * Trailing window (minutes) for the `health.*.transitions_in_window`
+   * count folded into scope. Lets an operator author custom flapping
+   * rules ("N status changes in M minutes") via a numeric_state condition
+   * over that field. Defaults to 60 when omitted.
+   */
+  state_window_minutes: z
+    .number()
+    .int()
+    .min(1)
+    .max(60 * 24 * 7) // up to a week
+    .optional()
+    .describe(
+      "Window (minutes) for health.*.transitions_in_window. Default 60.",
+    ),
 });
 
 export type AutomationDefinition = z.infer<typeof AutomationDefinitionSchema>;

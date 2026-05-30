@@ -13,6 +13,8 @@ describe("buildHealthState", () => {
       status: "unhealthy",
       inStatusSince: since,
       inMaintenance: false,
+      transitionsInWindow: 0,
+      transitionWindowMinutes: 60,
       now,
     });
     expect(state.status).toBe("unhealthy");
@@ -26,6 +28,8 @@ describe("buildHealthState", () => {
       status: "healthy",
       inStatusSince: null,
       inMaintenance: false,
+      transitionsInWindow: 0,
+      transitionWindowMinutes: 60,
       now,
     });
     expect(state.inStatusSince).toBeNull();
@@ -38,6 +42,8 @@ describe("buildHealthState", () => {
       status: "degraded",
       inStatusSince: future,
       inMaintenance: false,
+      transitionsInWindow: 0,
+      transitionWindowMinutes: 60,
       now,
     });
     expect(state.inStatusForMs).toBe(0);
@@ -53,6 +59,8 @@ describe("buildHealthState", () => {
       successRate: 0.99,
       lastRunAt: now,
       inMaintenance: true,
+      transitionsInWindow: 3,
+      transitionWindowMinutes: 60,
       now,
     });
     expect(state.latencyMs).toBe(42);
@@ -61,6 +69,8 @@ describe("buildHealthState", () => {
     expect(state.successRate).toBe(0.99);
     expect(state.lastRunAt).toBe(now);
     expect(state.inMaintenance).toBe(true);
+    expect(state.transitionsInWindow).toBe(3);
+    expect(state.transitionWindowMinutes).toBe(60);
   });
 });
 

@@ -1197,9 +1197,19 @@ describe("dispatch engine — run lifecycle", () => {
 // ─── sensing layer — state in scope ──────────────────────────────────────
 
 describe("dispatch engine — health.* scope enrichment", () => {
-  function healthClient(status: string, inStatusSince: Date) {
+  function healthClient(
+    status: string,
+    inStatusSince: Date,
+    transitionsInWindow = 0,
+  ) {
     return {
-      getBulkHealthState: async ({ systemIds }: { systemIds: string[] }) => {
+      getBulkHealthState: async ({
+        systemIds,
+        transitionWindowMinutes,
+      }: {
+        systemIds: string[];
+        transitionWindowMinutes?: number;
+      }) => {
         const states: Record<string, unknown> = {};
         for (const id of systemIds) {
           states[id] = {
@@ -1207,6 +1217,8 @@ describe("dispatch engine — health.* scope enrichment", () => {
             inStatusSince,
             inStatusForMs: Date.now() - inStatusSince.getTime(),
             inMaintenance: false,
+            transitionsInWindow,
+            transitionWindowMinutes: transitionWindowMinutes ?? 60,
             evaluatedAt: new Date(),
           };
         }
@@ -1296,6 +1308,75 @@ describe("dispatch engine — health.* scope enrichment", () => {
 
     expect(result.status).toBe("success");
     expect(rec.calls[0]?.value).toBe("unknown");
+  });
+
+  it("exposes health.system.transitions_in_window for custom flapping rules", async () => {
+    const actionsReg = createActionRegistry();
+    const rec = makeRecordingAction();
+    actionsReg.register(rec.definition, testPlugin);
+    const since = new Date("2026-05-30T11:00:00.000Z");
+    const { deps } = makeDispatchDeps({
+      actions: actionsReg,
+      healthCheckClient: healthClient("unhealthy", since, 4),
+    });
+
+    // Flapping rule: a numeric_state condition over the windowed count.
+    // 4 transitions >= 3 → the guard passes and the action fires.
+    const result = await dispatchTrigger(deps, {
+      automation: automation([
+        {
+          condition: {
+            numeric_state: {
+              value: "health.system.transitions_in_window",
+              above: 2,
+            },
+          },
+        },
+        { action: "test.record", config: { value: "flapping" } },
+      ]),
+      triggerId: "test_event",
+      triggerEventId: "test.event",
+      payload: { id: "sys-9" },
+      contextKey: "sys-9",
+    });
+
+    expect(result.status).toBe("success");
+    expect(rec.calls[0]?.value).toBe("flapping");
+  });
+
+  it("does not fire the flapping rule below the transition threshold", async () => {
+    const actionsReg = createActionRegistry();
+    const rec = makeRecordingAction();
+    actionsReg.register(rec.definition, testPlugin);
+    const since = new Date("2026-05-30T11:00:00.000Z");
+    const { deps } = makeDispatchDeps({
+      actions: actionsReg,
+      healthCheckClient: healthClient("unhealthy", since, 1),
+    });
+
+    // 1 transition is NOT above 2 → the condition guard halts the run.
+    const result = await dispatchTrigger(deps, {
+      automation: automation([
+        {
+          condition: {
+            numeric_state: {
+              value: "health.system.transitions_in_window",
+              above: 2,
+            },
+          },
+        },
+        { action: "test.record", config: { value: "flapping" } },
+      ]),
+      triggerId: "test_event",
+      triggerEventId: "test.event",
+      payload: { id: "sys-9" },
+      contextKey: "sys-9",
+    });
+
+    // A falsy condition guard halts the run cleanly (status "success",
+    // no error) BEFORE the downstream action — so the action never fires.
+    expect(rec.calls).toHaveLength(0);
+    expect(result.status).toBe("success");
   });
 });
 

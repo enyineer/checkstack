@@ -336,6 +336,7 @@ export const createHealthCheckRouter = (opts: {
       return service.getHealthState({
         systemId: input.systemId,
         configurationId: input.configurationId,
+        transitionWindowMinutes: input.transitionWindowMinutes,
         maintenanceClient,
         logger,
       });
@@ -344,6 +345,7 @@ export const createHealthCheckRouter = (opts: {
     getBulkHealthState: os.getBulkHealthState.handler(async ({ input }) => {
       const states = await service.getBulkHealthState({
         systemIds: input.systemIds,
+        transitionWindowMinutes: input.transitionWindowMinutes,
         maintenanceClient,
         logger,
       });

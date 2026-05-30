@@ -40,6 +40,10 @@ export interface ScopeHealthState {
   success_rate?: number;
   last_run_at?: string;
   in_maintenance: boolean;
+  /** Status changes in the trailing window (generalized flapping). */
+  transitions_in_window: number;
+  /** The window (minutes) `transitions_in_window` was counted over. */
+  transition_window_minutes: number;
   evaluated_at: string;
 }
 
@@ -67,6 +71,8 @@ function toScopeState(state: {
   successRate?: number;
   lastRunAt?: Date | string;
   inMaintenance: boolean;
+  transitionsInWindow: number;
+  transitionWindowMinutes: number;
   evaluatedAt: Date | string;
 }): ScopeHealthState {
   const iso = (v: Date | string | null | undefined): string | undefined => {
@@ -83,6 +89,8 @@ function toScopeState(state: {
     success_rate: state.successRate,
     last_run_at: iso(state.lastRunAt),
     in_maintenance: state.inMaintenance,
+    transitions_in_window: state.transitionsInWindow,
+    transition_window_minutes: state.transitionWindowMinutes,
     evaluated_at: iso(state.evaluatedAt) ?? new Date().toISOString(),
   };
 }
@@ -96,6 +104,12 @@ export interface EnrichScopeArgs {
   contextKey: string | null;
   /** Extra system ids from the automation's `uses_state` escape hatch. */
   usesState?: ReadonlyArray<string>;
+  /**
+   * Trailing window (minutes) for the folded `transitions_in_window`
+   * count (the automation's `state_window_minutes`). Provider default
+   * (60) applies when omitted.
+   */
+  transitionWindowMinutes?: number;
 }
 
 /**
@@ -108,7 +122,8 @@ export interface EnrichScopeArgs {
 export async function enrichScopeWithState(
   args: EnrichScopeArgs,
 ): Promise<Record<string, unknown>> {
-  const { scope, client, logger, contextKey, usesState } = args;
+  const { scope, client, logger, contextKey, usesState, transitionWindowMinutes } =
+    args;
 
   // Build the bounded, de-duplicated id set: implicit context system first.
   const ids: string[] = [];
@@ -140,6 +155,7 @@ export async function enrichScopeWithState(
   try {
     const { states } = await client.getBulkHealthState({
       systemIds: resolveIds,
+      transitionWindowMinutes,
     });
     const systems: Record<string, ScopeHealthState> = {};
     for (const [id, state] of Object.entries(states)) {

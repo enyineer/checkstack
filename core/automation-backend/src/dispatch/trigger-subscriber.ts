@@ -353,6 +353,7 @@ async function maybeStartRun(args: MaybeStartRunArgs): Promise<void> {
       logger: args.deps.logger,
       contextKey: args.contextKey,
       usesState: args.automation.definition.uses_state,
+      transitionWindowMinutes: args.automation.definition.state_window_minutes,
     });
     let pass: boolean;
     try {
@@ -420,6 +421,7 @@ export const startRunRespectingMode: StartRunFromDwell = async (args) => {
       logger: args.deps.logger,
       contextKey: args.contextKey,
       usesState: args.automation.definition.uses_state,
+      transitionWindowMinutes: args.automation.definition.state_window_minutes,
     });
     for (const condition of args.automation.definition.conditions) {
       try {

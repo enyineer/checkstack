@@ -1,5 +1,9 @@
 import { describe, it, expect, mock } from "bun:test";
-import { findInStatusSince, recordStateTransition } from "./state-transitions";
+import {
+  countStateTransitionsInWindow,
+  findInStatusSince,
+  recordStateTransition,
+} from "./state-transitions";
 
 /**
  * Minimal fluent mock for `db.select(...).from(...).where(...).orderBy(...).limit(...)`
@@ -87,5 +91,36 @@ describe("recordStateTransition", () => {
 
     const arg = values.mock.calls[0]?.[0] as { fromStatus: unknown };
     expect(arg.fromStatus).toBeNull();
+  });
+});
+
+describe("countStateTransitionsInWindow", () => {
+  /** Mock for `db.select({count}).from(...).where(...)` resolving to [{count}]. */
+  function countMockDb(count: number) {
+    const where = mock(() => Promise.resolve([{ count }]));
+    const from = mock(() => ({ where }));
+    const select = mock(() => ({ from }));
+    return { db: { select }, where };
+  }
+
+  it("returns the windowed count", async () => {
+    const { db } = countMockDb(4);
+    const result = await countStateTransitionsInWindow({
+      db: db as never,
+      systemId: "system-1",
+      windowMinutes: 60,
+    });
+    expect(result).toBe(4);
+  });
+
+  it("returns 0 (fail-safe) when the query yields no rows", async () => {
+    const where = mock(() => Promise.resolve([]));
+    const db = { select: mock(() => ({ from: mock(() => ({ where })) })) };
+    const result = await countStateTransitionsInWindow({
+      db: db as never,
+      systemId: "system-1",
+      windowMinutes: 30,
+    });
+    expect(result).toBe(0);
   });
 });

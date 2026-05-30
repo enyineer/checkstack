@@ -20,6 +20,8 @@ Before a run starts (and again on resume, and at the trigger-gate sites), the en
 | `health.system.p95_latency_ms` | number | Windowed p95 latency |
 | `health.system.success_rate` | number | Windowed success rate in [0, 1] |
 | `health.system.in_maintenance` | boolean | Whether the system is in an active maintenance window |
+| `health.system.transitions_in_window` | number | Status changes in the trailing window (generalized flapping count) |
+| `health.system.transition_window_minutes` | number | The window (minutes) `transitions_in_window` was counted over |
 | `health.systems[<id>]` | object | State of any system listed in `uses_state` |
 
 ### Resolution policy
@@ -91,6 +93,31 @@ actions:
 > v1 is level-triggered: it fires on every completed check whose field is past the threshold. Use `mode: single` and/or a `for:` dwell to avoid alert storms - false-to-true edge de-duplication is a later refinement.
 >
 > With a `for:` dwell, the window is "continuously above the threshold since first arm" only to the resolution of the cancel signals: a brief dip below the threshold *within* the window is not detected, because `numeric_state` only emits above-threshold events and so produces no below-threshold cancel. The dwell still re-confirms current health status at expiry (so a recovered system won't fire), but precise mid-window numeric edge-cancel is a later refinement. For a true "below threshold cancels" window, model recovery as a separate inverse trigger/automation.
+
+## Flapping and the windowed transition count
+
+> [!TIP]
+> Flapping detection is buildable TODAY without this block: trigger on the built-in `healthcheck.flapping_detected` event and run `incident.create`. That trigger fires when the policy's "N unhealthy transitions in M minutes" threshold is crossed.
+
+For custom "N status changes in M minutes" rules, the health provider folds a windowed transition count into scope. `health.system.transitions_in_window` is the number of aggregate status changes for the system over the trailing window; the window defaults to 60 minutes and is set per-automation via the top-level `state_window_minutes`. Counting all aggregate transitions (not just unhealthy) generalizes the flapping detector, which counts only transitions into `unhealthy`.
+
+Author a custom flapping rule as a `numeric_state` condition over that field - no new condition variant, no editor change:
+
+```yaml
+triggers:
+  - event: healthcheck.system.health_changed
+state_window_minutes: 30
+conditions:
+  - numeric_state:
+      value: "health.system.transitions_in_window"
+      above: 4          # 5+ status changes in the last 30 min
+actions:
+  - action: incident.create
+    config: { title: "{{ trigger.payload.systemId }} is flapping", severity: warning }
+```
+
+> [!NOTE]
+> The count comes from the `health_check_state_transitions` table (Phase 13), which records every aggregate transition. It is pre-resolved into scope once per evaluation (the template engine can't query), so the condition reads it as plain data.
 
 ## Duration filters
 

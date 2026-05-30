@@ -579,12 +579,14 @@ export class HealthCheckService {
     configurationId,
     maintenanceClient,
     logger,
+    transitionWindowMinutes,
     now,
   }: {
     systemId: string;
     configurationId?: string;
     maintenanceClient?: MaintenanceClient;
     logger?: Logger;
+    transitionWindowMinutes?: number;
     now?: Date;
   }): Promise<HealthState> {
     return computeHealthState({
@@ -593,6 +595,7 @@ export class HealthCheckService {
       configurationId,
       maintenanceClient,
       logger,
+      transitionWindowMinutes,
       now,
       resolveStatus: async () => {
         const overview = await this.getSystemHealthStatus(systemId);
@@ -617,11 +620,13 @@ export class HealthCheckService {
     systemIds,
     maintenanceClient,
     logger,
+    transitionWindowMinutes,
     now = new Date(),
   }: {
     systemIds: string[];
     maintenanceClient?: MaintenanceClient;
     logger?: Logger;
+    transitionWindowMinutes?: number;
     now?: Date;
   }): Promise<Record<string, HealthState>> {
     const entries = await Promise.all(
@@ -633,6 +638,7 @@ export class HealthCheckService {
               systemId,
               maintenanceClient,
               logger,
+              transitionWindowMinutes,
               now,
             }),
           ] as const,

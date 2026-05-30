@@ -35,6 +35,8 @@ function makeState(over: Record<string, unknown> = {}) {
     successRate: 0.9,
     lastRunAt: new Date("2026-05-30T11:59:00.000Z"),
     inMaintenance: false,
+    transitionsInWindow: 0,
+    transitionWindowMinutes: 60,
     evaluatedAt: new Date("2026-05-30T12:00:00.000Z"),
     ...over,
   };
@@ -46,11 +48,20 @@ function makeClient(
   opts?: { throws?: boolean },
 ) {
   const calls: string[][] = [];
+  const windows: Array<number | undefined> = [];
   return {
     calls,
+    windows,
     client: {
-      getBulkHealthState: async ({ systemIds }: { systemIds: string[] }) => {
+      getBulkHealthState: async ({
+        systemIds,
+        transitionWindowMinutes,
+      }: {
+        systemIds: string[];
+        transitionWindowMinutes?: number;
+      }) => {
         calls.push(systemIds);
+        windows.push(transitionWindowMinutes);
         if (opts?.throws) throw new Error("provider down");
         const out: Record<string, unknown> = {};
         for (const id of systemIds) if (states[id]) out[id] = states[id];
@@ -79,6 +90,25 @@ describe("enrichScopeWithState", () => {
     expect(health.system?.status).toBe("unhealthy");
     expect(health.system?.in_status_for_ms).toBe(3_600_000);
     expect(health.systems["sys-1"]?.status).toBe("unhealthy");
+  });
+
+  it("folds the windowed transition count + window minutes and forwards the window", async () => {
+    const { client, windows } = makeClient({
+      "sys-1": makeState({ transitionsInWindow: 5, transitionWindowMinutes: 90 }),
+    });
+    const scope: Record<string, unknown> = {};
+    await enrichScopeWithState({
+      scope,
+      client,
+      logger: noopLogger,
+      contextKey: "sys-1",
+      transitionWindowMinutes: 90,
+    });
+    const health = getHealth(scope);
+    expect(health.system?.transitions_in_window).toBe(5);
+    expect(health.system?.transition_window_minutes).toBe(90);
+    // the per-automation window is forwarded to the provider
+    expect(windows).toEqual([90]);
   });
 
   it("converts Date fields to ISO strings (for duration filters)", async () => {

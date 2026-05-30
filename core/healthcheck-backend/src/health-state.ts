@@ -5,7 +5,10 @@ import type { InferClient } from "@checkstack/common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { healthCheckAggregates, healthCheckRuns } from "./schema";
 import * as schema from "./schema";
-import { findInStatusSince } from "./state-transitions";
+import {
+  countStateTransitionsInWindow,
+  findInStatusSince,
+} from "./state-transitions";
 
 type Db = SafeDatabase<typeof schema>;
 type MaintenanceClient = InferClient<typeof MaintenanceApi>;
@@ -41,6 +44,14 @@ export interface HealthState {
   lastRunAt?: Date;
   /** Whether the system is currently in a maintenance window. */
   inMaintenance: boolean;
+  /**
+   * Count of aggregate status transitions in the trailing
+   * `transitionWindowMinutes` window. Generalizes flapping detection -
+   * an automation can gate on "N status changes in M minutes".
+   */
+  transitionsInWindow: number;
+  /** The window (minutes) `transitionsInWindow` was counted over. */
+  transitionWindowMinutes: number;
   /** When this snapshot was computed. */
   evaluatedAt: Date;
 }
@@ -55,8 +66,13 @@ export interface HealthStateInputs {
   successRate?: number;
   lastRunAt?: Date;
   inMaintenance: boolean;
+  transitionsInWindow: number;
+  transitionWindowMinutes: number;
   now: Date;
 }
+
+/** Default trailing window (minutes) for the transition count. */
+export const DEFAULT_TRANSITION_WINDOW_MINUTES = 60;
 
 /**
  * Pure assembler for a {@link HealthState}. Computes `inStatusForMs`
@@ -73,6 +89,8 @@ export function buildHealthState(inputs: HealthStateInputs): HealthState {
     successRate,
     lastRunAt,
     inMaintenance,
+    transitionsInWindow,
+    transitionWindowMinutes,
     now,
   } = inputs;
 
@@ -90,6 +108,8 @@ export function buildHealthState(inputs: HealthStateInputs): HealthState {
     successRate,
     lastRunAt,
     inMaintenance,
+    transitionsInWindow,
+    transitionWindowMinutes,
     evaluatedAt: now,
   };
 }
@@ -267,6 +287,7 @@ export async function computeHealthState({
   resolveStatus,
   maintenanceClient,
   logger,
+  transitionWindowMinutes = DEFAULT_TRANSITION_WINDOW_MINUTES,
   now = new Date(),
 }: {
   db: Db;
@@ -276,16 +297,25 @@ export async function computeHealthState({
   resolveStatus: () => Promise<HealthCheckStatus>;
   maintenanceClient?: MaintenanceClient;
   logger?: Logger;
+  /** Trailing window (minutes) for the transition count. */
+  transitionWindowMinutes?: number;
   now?: Date;
 }): Promise<HealthState> {
   const status = await resolveStatus();
 
-  const [inStatusSince, latest, windowed, inMaintenance] = await Promise.all([
-    findInStatusSince({ db, systemId, status }),
-    findLatestRun({ db, systemId, configurationId }),
-    computeWindowedMetrics({ db, systemId, configurationId, now }),
-    resolveInMaintenance({ maintenanceClient, systemId, logger }),
-  ]);
+  const [inStatusSince, latest, windowed, inMaintenance, transitionsInWindow] =
+    await Promise.all([
+      findInStatusSince({ db, systemId, status }),
+      findLatestRun({ db, systemId, configurationId }),
+      computeWindowedMetrics({ db, systemId, configurationId, now }),
+      resolveInMaintenance({ maintenanceClient, systemId, logger }),
+      countStateTransitionsInWindow({
+        db,
+        systemId,
+        windowMinutes: transitionWindowMinutes,
+        now,
+      }),
+    ]);
 
   return buildHealthState({
     status,
@@ -296,6 +326,8 @@ export async function computeHealthState({
     successRate: windowed.successRate,
     lastRunAt: latest.lastRunAt,
     inMaintenance,
+    transitionsInWindow,
+    transitionWindowMinutes,
     now,
   });
 }

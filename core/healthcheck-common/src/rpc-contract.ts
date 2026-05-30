@@ -55,6 +55,10 @@ const HealthStateSchema = z.object({
   successRate: z.number().optional(),
   lastRunAt: z.date().optional(),
   inMaintenance: z.boolean(),
+  /** Count of aggregate status transitions in the trailing window (flapping). */
+  transitionsInWindow: z.number(),
+  /** The window (minutes) `transitionsInWindow` was counted over. */
+  transitionWindowMinutes: z.number(),
   evaluatedAt: z.date(),
 });
 
@@ -516,6 +520,8 @@ export const healthCheckContract = {
       z.object({
         systemId: z.string(),
         configurationId: z.string().optional(),
+        /** Trailing window (minutes) for `transitionsInWindow`. Default 60. */
+        transitionWindowMinutes: z.number().int().min(1).optional(),
       }),
     )
     .output(HealthStateSchema),
@@ -531,7 +537,13 @@ export const healthCheckContract = {
     access: [],
   })
     .route({ method: "POST" })
-    .input(z.object({ systemIds: z.array(z.string()) }))
+    .input(
+      z.object({
+        systemIds: z.array(z.string()),
+        /** Trailing window (minutes) for `transitionsInWindow`. Default 60. */
+        transitionWindowMinutes: z.number().int().min(1).optional(),
+      }),
+    )
     .output(z.object({ states: z.record(z.string(), HealthStateSchema) })),
 
   getRunsForAnalysis: proc({
