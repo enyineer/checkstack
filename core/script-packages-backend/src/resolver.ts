@@ -54,6 +54,10 @@ export function createCentralResolver(
       await mkdir(scratchDir, { recursive: true });
       await mkdir(cacheDir, { recursive: true });
 
+      // From the moment the token-bearing `.npmrc` is written, the scratch
+      // dir MUST be removed on every exit path - success OR throw - so the
+      // plaintext registry token never lingers on disk (a throw between
+      // install and pack would otherwise leak it until the next resolve).
       await writeFile(
         path.join(scratchDir, "package.json"),
         buildStorePackageJson(packages),
@@ -64,52 +68,56 @@ export function createCentralResolver(
         bunfigDisableAutoInstall(),
       );
 
-      // Plain `bun install` (no --no-save) so `bun.lock` is written - it's
-      // the manifest source. The scratch dir is throwaway, so saving is fine.
-      const installArgs = ["install"];
-      if (ignoreScripts) installArgs.push("--ignore-scripts");
+      try {
+        // Plain `bun install` (no --no-save) so `bun.lock` is written - it's
+        // the manifest source. The scratch dir is throwaway, so saving is fine.
+        const installArgs = ["install"];
+        if (ignoreScripts) installArgs.push("--ignore-scripts");
 
-      const proc = spawn({
-        cmd: [process.execPath, ...installArgs],
-        cwd: scratchDir,
-        env: { ...process.env, BUN_INSTALL_CACHE_DIR: cacheDir },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      const [stderr, exitCode] = await Promise.all([
-        new Response(proc.stderr).text(),
-        proc.exited,
-      ]);
-      if (exitCode !== 0) {
-        // Never include the .npmrc / token; only Bun's own stderr.
-        throw new Error(
-          `bun install failed (exit ${exitCode}): ${stderr.slice(0, 800)}`,
-        );
-      }
-
-      const lockText = await Bun.file(
-        path.join(scratchDir, "bun.lock"),
-      ).text();
-      const manifest = parseBunLock(lockText);
-
-      const resolved: ResolvedPackage[] = [];
-      for (const entry of manifest) {
-        const loc = await findCacheEntry({
-          cacheDir,
-          name: entry.name,
-          version: entry.version,
+        const proc = spawn({
+          cmd: [process.execPath, ...installArgs],
+          cwd: scratchDir,
+          env: { ...process.env, BUN_INSTALL_CACHE_DIR: cacheDir },
+          stdout: "pipe",
+          stderr: "pipe",
         });
-        if (!loc) {
+        const [stderr, exitCode] = await Promise.all([
+          new Response(proc.stderr).text(),
+          proc.exited,
+        ]);
+        if (exitCode !== 0) {
+          // Never include the .npmrc / token; only Bun's own stderr.
           throw new Error(
-            `Resolved ${entry.name}@${entry.version} but its cache entry was not found; cannot publish blob.`,
+            `bun install failed (exit ${exitCode}): ${stderr.slice(0, 800)}`,
           );
         }
-        const blob = await packDir(loc);
-        resolved.push({ entry, blob });
-      }
 
-      await rm(scratchDir, { recursive: true, force: true });
-      return resolved;
+        const lockText = await Bun.file(
+          path.join(scratchDir, "bun.lock"),
+        ).text();
+        const manifest = parseBunLock(lockText);
+
+        const resolved: ResolvedPackage[] = [];
+        for (const entry of manifest) {
+          const loc = await findCacheEntry({
+            cacheDir,
+            name: entry.name,
+            version: entry.version,
+          });
+          if (!loc) {
+            throw new Error(
+              `Resolved ${entry.name}@${entry.version} but its cache entry was not found; cannot publish blob.`,
+            );
+          }
+          const blob = await packDir(loc);
+          resolved.push({ entry, blob });
+        }
+
+        return resolved;
+      } finally {
+        // Best-effort: a cleanup failure must not mask the original outcome.
+        await rm(scratchDir, { recursive: true, force: true }).catch(() => {});
+      }
     },
   };
 }

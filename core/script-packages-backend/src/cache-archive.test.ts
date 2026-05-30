@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "bun";
-import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  writeFile,
+  readFile,
+  rm,
+  readdir,
+  symlink,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { packDir, unpackInto } from "./cache-archive";
@@ -86,6 +94,57 @@ describe("cache-archive pack/unpack", () => {
     // Nothing was written outside dest (the sibling "escape" must not appear).
     const siblings = await readdir(work);
     expect(siblings).not.toContain("escape");
+  });
+
+  test("refuses a symlink entry with a safe name but an escaping target", async () => {
+    // A symlink entry whose NAME is harmless (`evil`, no `..`/abs) but whose
+    // TARGET escapes (`-> /etc`). The old name-only listing pass let it
+    // through, then a later regular-file entry could write THROUGH the link
+    // and escape targetDir. unpackInto must reject any symlink entry outright.
+    const src = path.join(work, "linksrc");
+    await mkdir(src, { recursive: true });
+    await symlink("/etc", path.join(src, "evil"));
+    const blob = await packDir({ parentDir: work, entryName: "linksrc" });
+
+    const dest = path.join(work, "dest");
+    await mkdir(dest, { recursive: true });
+    await expect(
+      unpackInto({ targetDir: dest, bytes: blob }),
+    ).rejects.toThrow(/symlink|link/i);
+
+    // Nothing materialized: the link must not exist under dest.
+    expect(
+      await readdir(dest).catch(() => []),
+    ).not.toContain("linksrc");
+  });
+
+  test("refuses a relative symlink target that traverses with ..", async () => {
+    const src = path.join(work, "linksrc2");
+    await mkdir(src, { recursive: true });
+    await symlink("../../../escape", path.join(src, "ln"));
+    const blob = await packDir({ parentDir: work, entryName: "linksrc2" });
+
+    const dest = path.join(work, "dest2");
+    await mkdir(dest, { recursive: true });
+    await expect(
+      unpackInto({ targetDir: dest, bytes: blob }),
+    ).rejects.toThrow(/symlink|link/i);
+  });
+
+  test("still round-trips a plain (link-free) directory after the link guard", async () => {
+    const src = path.join(work, "plainsrc");
+    await mkdir(path.join(src, "pkg@1.0.0"), { recursive: true });
+    await writeFile(
+      path.join(src, "pkg@1.0.0", "index.js"),
+      "module.exports = 2;\n",
+    );
+    const blob = await packDir({ parentDir: src, entryName: "pkg@1.0.0" });
+    const dest = path.join(work, "plaindest");
+    await mkdir(dest, { recursive: true });
+    await unpackInto({ targetDir: dest, bytes: blob });
+    expect(
+      await readFile(path.join(dest, "pkg@1.0.0", "index.js"), "utf8"),
+    ).toBe("module.exports = 2;\n");
   });
 
   test("refuses an archive entry with an absolute path", async () => {

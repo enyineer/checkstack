@@ -70,14 +70,51 @@ function unsafeArchivePath(entryPath: string): string | undefined {
 }
 
 /**
+ * Reject any archive entry that is NOT a plain file or directory.
+ *
+ * Path-only validation ({@link unsafeArchivePath}) is blind to LINK TARGETS:
+ * a symlink with a harmless NAME (e.g. `evil`, no `..`/abs) but an escaping
+ * TARGET (`-> /etc`, `-> ../../..`) passes the name check, then a later
+ * regular-file entry can be written THROUGH the link and escape `targetDir`.
+ * Reconstructed Bun-cache trees are plain files + dirs, so we reject every
+ * symlink/hardlink/device/fifo entry outright (defence in depth, independent
+ * of any tar extraction flag).
+ *
+ * `line` is one row of `tar -tzvf` verbose output; its first character is the
+ * POSIX type flag (`-` file, `d` dir, `l` symlink, `h` hardlink, etc.) on
+ * both GNU and BSD/libarchive tar. Returns the offending reason, or
+ * `undefined` for a safe (file/dir) entry or a blank line.
+ */
+function unsafeArchiveEntryType(line: string): string | undefined {
+  const trimmed = line.trimEnd();
+  if (trimmed.trim() === "") return undefined; // trailing blank line
+  const typeFlag = trimmed[0];
+  if (typeFlag === "-" || typeFlag === "d") return undefined; // file or dir
+  if (typeFlag === "l" || typeFlag === "h") {
+    return `link entry (type "${typeFlag}") in "${trimmed}"`;
+  }
+  // Anything else (block/char device "b"/"c", fifo "p", socket "s", …) is
+  // never part of a package cache tree → reject.
+  return `non-regular entry (type "${typeFlag}") in "${trimmed}"`;
+}
+
+/**
  * Extract a gzip-compressed tar blob into `targetDir`.
  *
- * Hardened against zip-slip: the archive entries are listed first and every
- * path is validated to be relative and free of `..` components before any
- * bytes are written. A traversing / absolute entry aborts the whole extract
- * (nothing is materialized) rather than letting tar write outside
- * `targetDir`. We validate explicitly (rather than relying on a tar flag)
- * so the behaviour is identical across GNU and BSD/libarchive tar.
+ * Hardened against zip-slip on two axes, both checked BEFORE any bytes are
+ * written (a violation aborts the whole extract, materializing nothing):
+ *
+ *   1. Entry PATHS must be relative and free of `..` components — a
+ *      traversing / absolute name would write outside `targetDir`.
+ *   2. Entry TYPES must be plain file or directory — a symlink/hardlink with
+ *      a harmless name but an escaping target would let a later file write
+ *      THROUGH it and escape `targetDir`. Reconstructed Bun-cache trees never
+ *      contain links, so any link/device/fifo entry is rejected.
+ *
+ * We validate explicitly (rather than relying on a tar flag) so the behaviour
+ * is identical across GNU and BSD/libarchive tar. The verbose listing
+ * (`-tzvf`) carries both the type flag (column 0) and the path, so a single
+ * listing pass covers both checks.
  */
 export async function unpackInto({
   targetDir,
@@ -86,17 +123,29 @@ export async function unpackInto({
   targetDir: string;
   bytes: Uint8Array;
 }): Promise<void> {
-  // 1. List entries and validate paths BEFORE extracting anything.
-  const listing = await runTarCapture(["-tzf", "-"], bytes);
-  for (const line of listing.split("\n")) {
+  // 1. List entries (verbose: type flag + path) and validate BEFORE extract.
+  //    `-tzvf` rows look like `lrwxr-xr-x 0 user grp 0 <date> name -> target`;
+  //    the path/name portion is what `-tzf` would print, so we run the plain
+  //    listing for the path check and the verbose listing for the type check.
+  const [pathListing, typeListing] = await Promise.all([
+    runTarCapture(["-tzf", "-"], bytes),
+    runTarCapture(["-tzvf", "-"], bytes),
+  ]);
+  for (const line of pathListing.split("\n")) {
     const reason = unsafeArchivePath(line);
     if (reason) {
       throw new Error(`refusing to extract unsafe archive entry: ${reason}`);
     }
   }
+  for (const line of typeListing.split("\n")) {
+    const reason = unsafeArchiveEntryType(line);
+    if (reason) {
+      throw new Error(`refusing to extract unsafe archive entry: ${reason}`);
+    }
+  }
 
-  // 2. Extract. `--no-same-owner` avoids surprising ownership; paths are
-  // already proven relative + confined above.
+  // 2. Extract. `--no-same-owner` avoids surprising ownership; paths + types
+  // are already proven relative + confined + link-free above.
   const proc = spawn({
     cmd: ["tar", "-xzf", "-", "-C", targetDir],
     stdin: bytes,
