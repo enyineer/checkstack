@@ -1,0 +1,31 @@
+{
+  "name": "@checkstack/script-packages-common",
+  "version": "0.1.0",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@checkstack/common": "workspace:*",
+    "@checkstack/signal-common": "workspace:*",
+    "@orpc/contract": "^1.13.14",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/scripts": "workspace:*"
+  },
+  "checkstack": {
+    "type": "common"
+  }
+}

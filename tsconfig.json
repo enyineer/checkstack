@@ -211,6 +211,9 @@
       "path": "./core/satellite-frontend"
     },
     {
+      "path": "./core/script-packages-common"
+    },
+    {
       "path": "./core/signal-backend"
     },
     {
