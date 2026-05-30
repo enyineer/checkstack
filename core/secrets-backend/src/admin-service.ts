@@ -1,4 +1,7 @@
-import type { SecretMetadata } from "@checkstack/secrets-common";
+import {
+  isInternalSecretName,
+  type SecretMetadata,
+} from "@checkstack/secrets-common";
 import type { SecretBackend } from "./secret-backend";
 
 /**
@@ -35,7 +38,10 @@ export function createSecretAdminService({
   return {
     async list() {
       const backend = await getActiveBackend();
-      return backend.list();
+      const all = await backend.list();
+      // Hide platform-internal secrets (registry token, connection creds)
+      // from the user-facing list — they aren't user-managed named secrets.
+      return all.filter((m) => !isInternalSecretName(m.name));
     },
 
     async setSecret({ name, value, description, createdBy }) {

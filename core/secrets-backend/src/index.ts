@@ -26,6 +26,10 @@ import {
   type SecretAdminService,
 } from "./admin-service";
 import {
+  createInternalSecretsService,
+  type InternalSecretsService,
+} from "./internal-secrets-service";
+import {
   createBackendConfigStore,
   type BackendConfigStore,
 } from "./backend-config-store";
@@ -53,6 +57,17 @@ export const secretResolverRef = createServiceRef<SecretResolverService>(
  */
 export const secretAdminRef = createServiceRef<SecretAdminService>(
   "secrets.admin",
+);
+
+/**
+ * Cross-plugin service for platform-INTERNAL secrets (registry token,
+ * connection credentials, …). Always backed by the local backend (never
+ * Vault, which is read-through), so internal writes never break when an
+ * external backend is active. Hidden from the user-facing Secrets UI.
+ * Backend-only — never exposed to a browser.
+ */
+export const internalSecretsRef = createServiceRef<InternalSecretsService>(
+  "secrets.internal",
 );
 
 interface EnvStash {
@@ -140,6 +155,13 @@ export default createBackendPlugin({
     });
     env.registerService(secretAdminRef, adminService);
 
+    // Internal secrets always use the local backend (always-writable),
+    // never the active external backend.
+    const internalSecrets = createInternalSecretsService({
+      getLocalBackend: () => backends.get(DEFAULT_BACKEND_ID),
+    });
+    env.registerService(internalSecretsRef, internalSecrets);
+
     env.registerInit({
       deps: {
         logger: coreServices.logger,
@@ -198,6 +220,10 @@ export {
   createSecretAdminService,
   type SecretAdminService,
 } from "./admin-service";
+export {
+  createInternalSecretsService,
+  type InternalSecretsService,
+} from "./internal-secrets-service";
 export {
   createMaskingContext,
   EMPTY_MASKING_CONTEXT,

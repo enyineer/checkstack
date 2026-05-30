@@ -43,6 +43,11 @@ export {
   secretTestPlaceholder,
 } from "./test-secret-env";
 export {
+  INTERNAL_SECRET_PREFIX,
+  internalSecretName,
+  isInternalSecretName,
+} from "./internal-secrets";
+export {
   SECRETS_CHANGED_HOOK_ID,
   secretsChangedPayloadSchema,
   type SecretsChangedPayload,
