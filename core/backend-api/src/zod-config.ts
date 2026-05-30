@@ -45,6 +45,15 @@ export interface ConfigMeta {
    * editor so operators can run the script against a sample context.
    */
   "x-script-testable"?: boolean;
+  /**
+   * Mark a record field as a secret -> env mapping
+   * (`{ ENV_NAME: "${{ secrets.NAME }}" }`). The editor renders a
+   * dedicated key (env name) + secret-name picker, with the available
+   * names supplied to `DynamicForm` via `secretNames` (from the secrets
+   * plugin's `listSecretNames`). Without the marker the record falls back
+   * to the plain JSON editor.
+   */
+  "x-secret-env"?: boolean;
 }
 
 /**
@@ -169,5 +178,22 @@ export function configNumber(meta: ConfigMeta) {
 export function configBoolean(meta: ConfigMeta) {
   const schema = z.boolean();
   schema.register(configRegistry, meta);
+  return schema;
+}
+
+/**
+ * Attach config metadata to an existing schema (e.g. a `z.record`) and
+ * return it. Use this when a field's base schema is defined elsewhere
+ * (such as `secretEnvMappingSchema` from `@checkstack/secrets-common`) but
+ * still needs editor metadata like `x-secret-env`.
+ */
+export function withConfigMeta<T extends z.ZodTypeAny>(
+  schema: T,
+  meta: ConfigMeta,
+): T {
+  // The registry is typed `z.registry<ConfigMeta>()`, so registering the
+  // meta is sound; the generic `T` confuses zod's conditional `.register`
+  // overload, so register through the base schema type.
+  (schema as z.ZodTypeAny).register(configRegistry, meta);
   return schema;
 }

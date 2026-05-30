@@ -35,6 +35,7 @@ import { ConditionEditor } from "./ConditionEditor";
 import { useConnectionOptionResolvers } from "./useConnectionOptionResolvers";
 import { automationScriptTestRenderer } from "./ScriptTestRenderer";
 import { useScriptPackageTypes } from "@checkstack/script-packages-frontend";
+import { useSecretNames } from "@checkstack/secrets-frontend";
 
 /**
  * Provider action body. Picks an action id from `listActions()` then
@@ -79,6 +80,9 @@ export const ProviderActionBody: React.FC<{
   // definitions so `import { x } from "<pkg>"` autocompletes. Appended to
   // the scope-derived `context` types already threaded down.
   const { dts: packageTypes } = useScriptPackageTypes();
+  // Secret names (never values) for the secret -> env mapping editor's
+  // ${{ secrets.* }} autocomplete.
+  const { secretNames } = useSecretNames();
   const mergedTypeDefinitions = React.useMemo(
     () =>
       packageTypes.length > 0
@@ -159,6 +163,7 @@ export const ProviderActionBody: React.FC<{
         typeDefinitions={mergedTypeDefinitions}
         shellEnvVars={mergedShellEnvVars}
         scriptTestRenderer={automationScriptTestRenderer}
+        secretNames={secretNames}
       />
     </div>
   );

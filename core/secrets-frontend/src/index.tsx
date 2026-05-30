@@ -39,3 +39,5 @@ export default createFrontendPlugin({
     }),
   ],
 });
+
+export { useSecretNames } from "./useSecretNames";

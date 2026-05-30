@@ -29,6 +29,7 @@ export interface JsonSchemaProperty extends JsonSchemaPropertyCore<JsonSchemaPro
   "x-hidden-when"?: Record<string, string[]>; // Conditionally hide based on sibling field values
   "x-duration"?: boolean; // Render a DurationInput (single-unit duration object)
   "x-script-testable"?: boolean; // Field is an inline script that can be tested in-UI
+  "x-secret-env"?: boolean; // Record field is a secret -> env mapping (SecretEnvEditor)
 }
 
 /**
@@ -125,6 +126,13 @@ export interface DynamicFormProps {
    * the script against a sample context. Omit it and no test UI appears.
    */
   scriptTestRenderer?: ScriptTestRenderer;
+  /**
+   * Optional list of secret NAMES (never values) for `x-secret-env` record
+   * fields. The owning page fetches these from the secrets plugin's
+   * `listSecretNames` and passes them here so the secret-env editor offers
+   * name autocomplete. Omit it and the editor still works as free text.
+   */
+  secretNames?: string[];
 }
 
 /** Props for the FormField component */
@@ -142,6 +150,7 @@ export interface FormFieldProps {
   shellEnvVars?: ShellEnvVar[];
   starterTemplates?: EditorStarterTemplates;
   scriptTestRenderer?: ScriptTestRenderer;
+  secretNames?: string[];
   /** Callback when value changes. Omit val to clear the field. */
   onChange: (val?: unknown) => void;
 }

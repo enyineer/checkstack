@@ -4,6 +4,10 @@ export { DynamicForm } from "./DynamicForm";
 // Sub-components for advanced usage
 export { MultiTypeEditorField } from "./MultiTypeEditorField";
 export { KeyValueEditor, type KeyValuePair } from "./KeyValueEditor";
+export {
+  SecretEnvEditor,
+  type SecretEnvEditorProps,
+} from "./SecretEnvEditor";
 
 // Types for external consumers
 export type {

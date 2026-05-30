@@ -27,6 +27,7 @@ import {
   defaultShellScriptRunner,
   requestTimeoutMs,
   Versioned,
+  withConfigMeta,
   type EsmScriptRunner,
   type ServiceRef,
   type ShellScriptRunner,
@@ -100,7 +101,7 @@ const shellRunConfigSchema = z.object({
     .describe(
       "Extra environment variables — keys must be uppercase shell-safe identifiers.",
     ),
-  secretEnv: secretEnvMappingSchema
+  secretEnv: withConfigMeta(secretEnvMappingSchema, { "x-secret-env": true })
     .optional()
     .describe(
       'Secret → env mapping, e.g. { "API_TOKEN": "${{ secrets.jira_token }}" }. Only the named secrets are resolved and injected for this run (read via $API_TOKEN). Values are masked out of the captured output.',
@@ -272,7 +273,7 @@ const scriptRunConfigSchema = z.object({
   }).describe(
     "TypeScript/JavaScript module to execute. Default-export an async function that receives `context` and returns a JSON-serialisable value (e.g. `{ id }`). The Monaco editor for this field consumes `generateAutomationContextTypes` from `@checkstack/automation-frontend` so `context.trigger.payload` is typed as a discriminated union over the automation's subscribed triggers.",
   ),
-  secretEnv: secretEnvMappingSchema
+  secretEnv: withConfigMeta(secretEnvMappingSchema, { "x-secret-env": true })
     .optional()
     .describe(
       'Secret → env mapping, e.g. { "API_TOKEN": "${{ secrets.jira_token }}" }. Only the named secrets are resolved and injected for this run (read via process.env.API_TOKEN). Values are masked out of the captured output and the return value.',

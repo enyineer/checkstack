@@ -11,6 +11,7 @@ import {
 } from "@checkstack/ui";
 import { Trash2 } from "lucide-react";
 import { useScriptPackageTypes } from "@checkstack/script-packages-frontend";
+import { useSecretNames } from "@checkstack/secrets-frontend";
 import { AssertionBuilder, type Assertion } from "../AssertionBuilder";
 import { createCollectorScriptTestRenderer } from "./CollectorScriptTestRenderer";
 
@@ -36,6 +37,8 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
     [entry.config],
   );
   const { dts: packageTypes } = useScriptPackageTypes();
+  // Secret names (never values) for the secret -> env mapping editor.
+  const { secretNames } = useSecretNames();
 
   return (
     <div className="space-y-6">
@@ -92,6 +95,7 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
                 {...ctx}
                 typeDefinitions={typeDefinitions}
                 scriptTestRenderer={scriptTestRenderer}
+                secretNames={secretNames}
               />
             );
           })()}

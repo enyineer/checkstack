@@ -23,6 +23,7 @@ import { getCleanDescription, NONE_SENTINEL } from "./utils";
 import { DynamicOptionsField } from "./DynamicOptionsField";
 import { JsonField } from "./JsonField";
 import { MultiTypeEditorField } from "./MultiTypeEditorField";
+import { SecretEnvEditor } from "./SecretEnvEditor";
 
 /**
  * Recursive field renderer that handles all supported JSON Schema types.
@@ -41,6 +42,7 @@ export const FormField: React.FC<FormFieldProps> = ({
   shellEnvVars,
   starterTemplates,
   scriptTestRenderer,
+  secretNames,
   onChange,
 }) => {
   const description = propSchema.description || "";
@@ -368,6 +370,34 @@ export const FormField: React.FC<FormFieldProps> = ({
   }
 
   // Dictionary/Record (headers)
+  // Secret -> env mapping: a dedicated editor (env name + secret-name
+  // picker) instead of the raw JSON record fallback.
+  if (
+    propSchema.type === "object" &&
+    propSchema.additionalProperties &&
+    propSchema["x-secret-env"]
+  ) {
+    const cleanDesc = getCleanDescription(description);
+    return (
+      <div className="space-y-2">
+        <div>
+          <Label htmlFor={id}>
+            {label} {isRequired && "*"}
+          </Label>
+          {cleanDesc && (
+            <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
+          )}
+        </div>
+        <SecretEnvEditor
+          id={id}
+          value={(value as Record<string, string> | undefined) ?? {}}
+          secretNames={secretNames}
+          onChange={(next) => onChange(next)}
+        />
+      </div>
+    );
+  }
+
   if (propSchema.type === "object" && propSchema.additionalProperties) {
     const cleanDesc = getCleanDescription(description);
     return (
@@ -411,6 +441,7 @@ export const FormField: React.FC<FormFieldProps> = ({
             shellEnvVars={shellEnvVars}
             starterTemplates={starterTemplates}
             scriptTestRenderer={scriptTestRenderer}
+            secretNames={secretNames}
             onChange={(val) =>
               onChange({ ...(value as Record<string, unknown>), [key]: val })
             }
@@ -524,6 +555,7 @@ export const FormField: React.FC<FormFieldProps> = ({
                   shellEnvVars={shellEnvVars}
                   starterTemplates={starterTemplates}
                   scriptTestRenderer={scriptTestRenderer}
+                  secretNames={secretNames}
                   onChange={(val) => {
                     const next = [...(items as unknown[])];
                     next[index] = val;
@@ -657,6 +689,7 @@ export const FormField: React.FC<FormFieldProps> = ({
                 shellEnvVars={shellEnvVars}
                 starterTemplates={starterTemplates}
                 scriptTestRenderer={scriptTestRenderer}
+                secretNames={secretNames}
                 onChange={(val) => onChange({ ...currentValue, [key]: val })}
               />
             ))}

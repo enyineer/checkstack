@@ -23,6 +23,7 @@
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/satellite-common": "workspace:*",
     "@checkstack/script-packages-frontend": "workspace:*",
+    "@checkstack/secrets-frontend": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/tips-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",

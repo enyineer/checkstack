@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { configString } from "./zod-config";
+import { configString, withConfigMeta } from "./zod-config";
 import { toJsonSchema } from "./schema-utils";
 
 describe("toJsonSchema x-* metadata", () => {
@@ -28,5 +28,17 @@ describe("toJsonSchema x-* metadata", () => {
       properties: Record<string, Record<string, unknown>>;
     };
     expect("x-script-testable" in (json.properties.plain ?? {})).toBe(false);
+  });
+
+  test("propagates x-secret-env onto a record field via withConfigMeta", () => {
+    const schema = z.object({
+      secretEnv: withConfigMeta(z.record(z.string(), z.string()), {
+        "x-secret-env": true,
+      }),
+    });
+    const json = toJsonSchema(schema) as {
+      properties: Record<string, Record<string, unknown>>;
+    };
+    expect(json.properties.secretEnv?.["x-secret-env"]).toBe(true);
   });
 });

@@ -2,6 +2,7 @@ import {
   Versioned,
   z,
   configString,
+  withConfigMeta,
   type HealthCheckRunForAggregation,
   type CollectorResult,
   type CollectorStrategy,
@@ -97,7 +98,7 @@ const executeConfigSchemaV2 = z.object({
     .describe(
       "Extra environment variables to expose to the script. Merged on top of the safe-vars whitelist (PATH, HOME, ...).",
     ),
-  secretEnv: secretEnvMappingSchema
+  secretEnv: withConfigMeta(secretEnvMappingSchema, { "x-secret-env": true })
     .optional()
     .describe(
       'Secret → env mapping, e.g. { "API_TOKEN": "${{ secrets.token }}" }. NOTE: collectors run on satellites; secret injection is delivered just-in-time in Phase 3. This phase only authors + validates the mapping (it is NOT injected yet).',

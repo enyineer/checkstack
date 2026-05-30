@@ -26,6 +26,9 @@
       "path": "../script-packages-frontend"
     },
     {
+      "path": "../secrets-frontend"
+    },
+    {
       "path": "../signal-frontend"
     },
     {

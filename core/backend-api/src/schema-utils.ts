@@ -70,6 +70,9 @@ function addSchemaMetadata(
       if (meta["x-script-testable"]) {
         jsonField["x-script-testable"] = true;
       }
+      if (meta["x-secret-env"]) {
+        jsonField["x-secret-env"] = true;
+      }
       if (meta["x-hidden-when"]) {
         jsonField["x-hidden-when"] = meta["x-hidden-when"];
       }
