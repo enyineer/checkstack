@@ -55,7 +55,7 @@ await defaultEsmScriptRunner.run({
   script,
   context,
   timeoutMs,
-  resolutionRoot, // <store>/current — module resolution walks up to its node_modules
+  resolutionRoot, // <store>/current - module resolution walks up to its node_modules
 });
 ```
 
@@ -70,10 +70,24 @@ Every user-script execution call site resolves the root per run and passes it to
 
 Satellites are not on the backend event bus, so each core instance's `script-packages.changed` broadcast handler pushes a `refresh_script_packages { lockfileHash }` control message to its currently connected satellites over the existing WS channel. The desired hash is also carried in the `authenticated` / `config_updated` assignment payloads as the durable convergence backstop: a satellite that was offline (or missed the push) reconciles on its next connect regardless.
 
-A satellite reconciles with the same Phase 2 reconciler (`reconcileToHash` + `createReconcileFsDeps`), differing only in transport - it pulls the manifest and blobs from core over the WS channel (`request_script_package_manifest` / `request_script_package_blob`), never from the registry. It diffs the desired manifest against its local cache, pulls only the missing blobs (delta), materializes via `bun install --offline`, and atomically flips `current`. After each attempt it reports `script_package_sync_state` back to core, which persists it for the admin UI. Reconciles are serialized, coalesced to the latest desired hash, and idempotent (already-at-hash is a no-op).
+A satellite reconciles with the same reconciler the core instances use (`reconcileToHash` + `createReconcileFsDeps`), differing only in transport - it pulls the manifest and blobs from core over the WS channel, never from the registry. It diffs the desired manifest against its local cache, pulls only the missing blobs (delta), materializes via `bun install --offline`, and atomically flips `current`. After each attempt it reports its sync state back to core, which persists it for the admin UI. Reconciles are serialized, coalesced to the latest desired hash, and idempotent (already-at-hash is a no-op).
+
+### Protocol messages
+
+The contract lives in `@checkstack/satellite-common`'s protocol. Script-package distribution adds these messages over the existing authenticated WS channel:
+
+| Direction | Message | Purpose |
+| --- | --- | --- |
+| core to satellite | `authenticated` / `config_updated` (`scriptPackagesLockfileHash`) | Carry the desired lockfile hash with assignments - the durable convergence backstop. Optional for version-skew safety. |
+| core to satellite | `refresh_script_packages { lockfileHash }` | Best-effort push telling connected satellites to reconcile to a new hash. |
+| satellite to core | `request_script_package_manifest { lockfileHash }` | Ask core for the manifest to diff against the local cache. |
+| core to satellite | `script_package_manifest { lockfileHash, entries }` | Reply with the manifest entries. |
+| satellite to core | `request_script_package_blob { integrity }` | Ask core for one content-addressed blob. |
+| core to satellite | `script_package_blob { integrity, data }` | Reply with the blob bytes (base64), or `null` if core lacks it. |
+| satellite to core | `script_package_sync_state { lockfileHash, status, errorMessage? }` | Report reconcile state; core persists it for the admin UI. |
 
 > [!NOTE]
-> Blobs travel over the authenticated WS channel as base64 rather than a separate satellite HTTP endpoint, so there is no extra satellite auth surface. This is bounded by the same size cap and lightweight-pure-JS regime as core.
+> Blobs travel over the authenticated WS channel as base64 rather than a separate satellite HTTP endpoint, so there is no extra satellite auth surface. (The `getManifest` / `downloadBlob` RPC endpoints still exist for horizontally-scaled core instances, which share the blob store directly.) This is bounded by the same size cap and lightweight-pure-JS regime as core.
 
 Graceful degradation: a satellite that can't reconcile (a blob fetch fails) records an `error` sync state and does not materialize a tree, so any package import fails clearly rather than hitting the registry or resolving a stale tree. Bun auto-install stays disabled (`bunfig.toml [install] auto = "disable"`) on every materialized tree.
 

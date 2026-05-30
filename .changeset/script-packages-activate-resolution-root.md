@@ -31,3 +31,13 @@ can actually be `import`ed.
 An opt-in end-to-end test (`CHECKSTACK_E2E_NETWORK=1`) proves an allowlisted
 package imports successfully through the real `run_script` action execute
 path, with non-network degradation tests running always.
+
+BREAKING CHANGES: `@checkstack/backend-api`'s `defaultEsmScriptRunner` now
+always disables Bun auto-install for the user subprocess. A script that
+previously relied on Bun silently fetching an un-vendored package from the
+registry at import time will now fail to resolve it. This is intentional -
+package availability is governed by the admin allowlist - but any caller
+depending on the old implicit auto-install behavior must add the package to
+the allowlist instead. The new `EsmScriptRunOptions.resolutionRoot` field is
+optional and additive (defaults to today's `os.tmpdir()` behavior when
+unset), so the runner API itself is source-compatible.

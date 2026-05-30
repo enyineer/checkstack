@@ -3,28 +3,25 @@ import { Play, ChevronDown, ChevronRight, CheckCircle2, XCircle } from "lucide-r
 import { Button } from "./Button";
 import { Badge } from "./Badge";
 import { CodeEditor } from "./CodeEditor";
-import { extractErrorMessage } from "@checkstack/common";
 import { cn } from "../utils";
 import { usePerformance } from "./PerformanceProvider";
+import {
+  type ScriptTestPanelResult,
+  formatReturnValue,
+  hasNoOutput,
+  isFailedResult,
+  rejectionResult,
+  validateSampleContextJson,
+} from "./ScriptTestPanel.logic";
 
 /**
  * Result of a single in-UI script test run. Plugin-agnostic shape mirroring
  * the backend `testScript` / `testCollectorScript` output so the panel can
  * be reused by any script field (automation actions, healthcheck collectors,
- * future surfaces).
+ * future surfaces). Re-exported from the pure-logic module so the public
+ * type stays at this path.
  */
-export interface ScriptTestPanelResult {
-  /** Return value of a TypeScript test (undefined for shell). */
-  result?: unknown;
-  stdout: string;
-  stderr: string;
-  /** Exit code of a shell test (undefined for TypeScript). */
-  exitCode?: number;
-  durationMs: number;
-  timedOut: boolean;
-  /** Populated when the script failed (threw / non-zero exit / timeout). */
-  error?: string;
-}
+export type { ScriptTestPanelResult } from "./ScriptTestPanel.logic";
 
 export interface ScriptTestPanelProps {
   /**
@@ -46,15 +43,6 @@ export interface ScriptTestPanelProps {
    */
   note?: React.ReactNode;
   className?: string;
-}
-
-function formatReturnValue(value: unknown): string {
-  if (value === undefined) return "undefined";
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
 }
 
 const DEFAULT_NOTE =
@@ -87,20 +75,14 @@ export const ScriptTestPanel: React.FC<ScriptTestPanelProps> = ({
       setResult(res);
       setExpanded(true);
     } catch (error) {
-      setResult({
-        stdout: "",
-        stderr: "",
-        durationMs: 0,
-        timedOut: false,
-        error: extractErrorMessage(error),
-      });
+      setResult(rejectionResult(error));
       setExpanded(true);
     } finally {
       setRunning(false);
     }
   }, [onRun]);
 
-  const failed = result !== null && (result.error !== undefined || result.timedOut);
+  const failed = result !== null && isFailedResult(result);
 
   return (
     <div
@@ -183,14 +165,11 @@ export const ScriptTestPanel: React.FC<ScriptTestPanelProps> = ({
               {result.stderr.length > 0 && (
                 <ResultBlock label="stderr" tone="error" value={result.stderr} />
               )}
-              {result.error === undefined &&
-                result.result === undefined &&
-                result.stdout.length === 0 &&
-                result.stderr.length === 0 && (
-                  <p className="text-xs italic text-muted-foreground">
-                    No output.
-                  </p>
-                )}
+              {hasNoOutput(result) && (
+                <p className="text-xs italic text-muted-foreground">
+                  No output.
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -252,15 +231,10 @@ export const ContextSampleEditor: React.FC<ContextSampleEditorProps> = ({
   disabled,
   runPicker,
 }) => {
-  const parseError = React.useMemo(() => {
-    if (value.trim().length === 0) return null;
-    try {
-      JSON.parse(value);
-      return null;
-    } catch (error) {
-      return extractErrorMessage(error, "Invalid JSON");
-    }
-  }, [value]);
+  const parseError = React.useMemo(
+    () => validateSampleContextJson(value),
+    [value],
+  );
 
   return (
     <div className="space-y-1.5">
