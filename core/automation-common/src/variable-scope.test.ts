@@ -198,6 +198,83 @@ describe("resolveVariableScope", () => {
     expect(flat).toContain("trigger.payload.severity");
   });
 
+  it("exposes trigger.actor.* on every automation (independent of triggers)", () => {
+    // With a matched trigger.
+    const matched = flattenScope(
+      resolveVariableScope({
+        definition: basicDefinition(),
+        triggers: [triggerInfo],
+        actions: [],
+        artifactTypes: [],
+        path: [{ slot: "root", index: 0 }],
+      }),
+    );
+    const byPath = new Map(matched.map((e) => [e.path, e]));
+    expect(byPath.has("trigger.actor")).toBe(true);
+    expect(byPath.has("trigger.actor.type")).toBe(true);
+    expect(byPath.has("trigger.actor.id")).toBe(true);
+    expect(byPath.has("trigger.actor.name")).toBe(true);
+    // actor is universal — never gated on a subset of triggers.
+    expect(byPath.get("trigger.actor.type")?.conditionalOnTriggers).toBeUndefined();
+    expect(byPath.get("trigger.actor.type")?.type).toBe(
+      '"system" | "user" | "application" | "service"',
+    );
+
+    // Still present when no trigger matches the registry (no payload schema).
+    const unmatched = flattenScope(
+      resolveVariableScope({
+        definition: basicDefinition({
+          triggers: [{ event: "does.not.exist" }],
+          actions: [],
+        }),
+        triggers: [],
+        actions: [],
+        artifactTypes: [],
+        path: [{ slot: "root", index: 0 }],
+      }),
+    ).map((e) => e.path);
+    expect(unmatched).toContain("trigger.actor");
+    expect(unmatched).toContain("trigger.actor.type");
+  });
+
+  it("exposes trigger.id typed as the literal union of the automation's trigger ids", () => {
+    const definition = basicDefinition({
+      // Two triggers on the SAME event, distinguished by explicit ids.
+      triggers: [
+        { event: "incident.created", id: "majors" },
+        { event: "incident.created", id: "minors" },
+      ],
+      actions: [],
+    });
+    const flat = flattenScope(
+      resolveVariableScope({
+        definition,
+        triggers: [triggerInfo],
+        actions: [],
+        artifactTypes: [],
+        path: [{ slot: "root", index: 0 }],
+      }),
+    );
+    const idEntry = flat.find((e) => e.path === "trigger.id");
+    expect(idEntry).toBeDefined();
+    expect(idEntry?.type).toBe('"majors" | "minors"');
+    expect(idEntry?.conditionalOnTriggers).toBeUndefined();
+  });
+
+  it("derives trigger.id from the event when no explicit id is set", () => {
+    const flat = flattenScope(
+      resolveVariableScope({
+        definition: basicDefinition(),
+        triggers: [triggerInfo],
+        actions: [],
+        artifactTypes: [],
+        path: [{ slot: "root", index: 0 }],
+      }),
+    );
+    const idEntry = flat.find((e) => e.path === "trigger.id");
+    expect(idEntry?.type).toBe('"incident_created"');
+  });
+
   it("unions payload fields across multiple subscribed triggers and annotates conditional entries", () => {
     const definition = basicDefinition({
       triggers: [{ event: "incident.created" }, { event: "incident.resolved" }],

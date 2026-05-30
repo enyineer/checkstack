@@ -20,6 +20,7 @@ import type {
   ShellScriptRunResult,
 } from "@checkstack/backend-api";
 import { createMockLogger } from "@checkstack/test-utils-backend";
+import { SYSTEM_ACTOR } from "@checkstack/common";
 
 import {
   createScriptRunAction,
@@ -38,7 +39,12 @@ const ctxBase = {
   contextKey: null,
   logger,
   scope: {
-    trigger: { event: "incident.created", payload: {} },
+    trigger: {
+      id: "incident_created",
+      event: "incident.created",
+      actor: SYSTEM_ACTOR,
+      payload: {},
+    },
     artifacts: {},
     vars: {},
   },
@@ -153,7 +159,12 @@ describe("integration-script.run_shell", () => {
       ...ctxBase,
       consumedArtifacts: {},
       scope: {
-        trigger: { event: "incident.created", payload: { title: "Outage" } },
+        trigger: {
+          id: "incident_created",
+          event: "incident.created",
+          actor: SYSTEM_ACTOR,
+          payload: { title: "Outage" },
+        },
         artifacts: {},
         vars: {},
       },
@@ -377,7 +388,12 @@ describe("integration-script.run_script", () => {
       ...ctxBase,
       consumedArtifacts: {},
       scope: {
-        trigger: { event: "incident.created", payload: { title: "Outage" } },
+        trigger: {
+          id: "incident_created",
+          event: "incident.created",
+          actor: SYSTEM_ACTOR,
+          payload: { title: "Outage" },
+        },
         artifacts: { "jira.issue": { key: "OPS-1" } },
         vars: { region: "eu" },
       },

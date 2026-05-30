@@ -66,7 +66,10 @@ const RunsPageContent: React.FC = () => {
 
   const automationQuery = client.getAutomation.useQuery(
     { id: automationId ?? "" },
-    { enabled: Boolean(automationId) },
+    // Drop the cache entry as soon as this page unmounts: the editor seeds its
+    // form from this same `getAutomation` cache key once, and a lingering entry
+    // here would let it seed pre-edit (stale) data. See AutomationEditPage.
+    { enabled: Boolean(automationId), gcTime: 0 },
   );
 
   const runsQuery = client.listRuns.useQuery(

@@ -124,4 +124,31 @@ describe("shouldInitForKey", () => {
       shouldInitForKey({ value: "any", key: "1", initialisedKey: 1 }),
     ).toBe(true);
   });
+
+  it("does not seed from a stale cache entry served on mount, only from a post-mount fetch", () => {
+    // Regression for the automation editor: another page observes the same
+    // `getAutomation` cache key without `gcTime: 0`, so a stale (pre-edit)
+    // entry can be served instantly on reopen. The call site gates `value` on
+    // `isFetchedAfterMount`, so until a fresh fetch lands it passes `undefined`
+    // and we must NOT seed the stale value (which would revert edits such as a
+    // renamed trigger id back to its auto-generated default).
+    const staleCacheBeforeFreshFetch = undefined; // isFetchedAfterMount === false
+    expect(
+      shouldInitForKey({
+        value: staleCacheBeforeFreshFetch,
+        key: "auto-1",
+        initialisedKey: undefined,
+      }),
+    ).toBe(false);
+
+    // Once the post-mount fetch resolves, the caller passes the fresh value and
+    // the one-shot init fires with server-truth data.
+    expect(
+      shouldInitForKey({
+        value: { name: "A", definition: { triggers: [{ id: "majors" }] } },
+        key: "auto-1",
+        initialisedKey: undefined,
+      }),
+    ).toBe(true);
+  });
 });

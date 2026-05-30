@@ -34,7 +34,7 @@ import type {
   ActionDefinition,
   ActionRunScope,
 } from "@checkstack/automation-backend";
-import { extractErrorMessage } from "@checkstack/common";
+import { extractErrorMessage, SYSTEM_ACTOR } from "@checkstack/common";
 import { flattenScopeToShellEnv } from "./script-env";
 
 /**
@@ -43,7 +43,7 @@ import { flattenScopeToShellEnv } from "./script-env";
  * scope.
  */
 const EMPTY_SCOPE: ActionRunScope = {
-  trigger: { event: "", payload: {} },
+  trigger: { id: "", event: "", actor: SYSTEM_ACTOR, payload: {} },
   artifacts: {},
   vars: {},
 };

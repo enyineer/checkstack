@@ -1,13 +1,25 @@
 import { describe, expect, it } from "bun:test";
 import type { ActionRunScope } from "@checkstack/automation-backend";
+import { SYSTEM_ACTOR } from "@checkstack/common";
 import { flattenScopeToShellEnv } from "./script-env";
 
-function scope(overrides: Partial<ActionRunScope> = {}): ActionRunScope {
+function scope(overrides: {
+  trigger?: Partial<ActionRunScope["trigger"]>;
+  artifacts?: ActionRunScope["artifacts"];
+  vars?: ActionRunScope["vars"];
+  repeat?: ActionRunScope["repeat"];
+} = {}): ActionRunScope {
   return {
-    trigger: { event: "incident.created", payload: {} },
-    artifacts: {},
-    vars: {},
-    ...overrides,
+    trigger: {
+      id: "incident_created",
+      event: "incident.created",
+      actor: SYSTEM_ACTOR,
+      payload: {},
+      ...overrides.trigger,
+    },
+    artifacts: overrides.artifacts ?? {},
+    vars: overrides.vars ?? {},
+    ...(overrides.repeat ? { repeat: overrides.repeat } : {}),
   };
 }
 

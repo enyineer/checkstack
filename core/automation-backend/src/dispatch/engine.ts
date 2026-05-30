@@ -59,6 +59,7 @@ import type {
   VariablesInput,
   WaitForTriggerInput,
 } from "@checkstack/automation-common";
+import { SYSTEM_ACTOR, type Actor } from "@checkstack/common";
 import type {
   TemplateContext,
 } from "@checkstack/template-engine";
@@ -108,6 +109,12 @@ export interface DispatchTriggerArgs {
   triggerId: string;
   triggerEventId: string;
   payload: Record<string, unknown>;
+  /**
+   * Who/what caused the originating event. Persisted as part of the run's
+   * scope snapshot and exposed to the automation as `trigger.actor`. Defaults
+   * to the system actor when the caller has none.
+   */
+  actor?: Actor;
   contextKey: string | null;
 }
 
@@ -149,6 +156,7 @@ export async function dispatchTrigger(
       triggerId: args.triggerId,
       triggerEventId: args.triggerEventId,
       payload: args.payload,
+      actor: args.actor,
       startedAt,
     }),
     resuming: false,
@@ -589,22 +597,39 @@ function templateContext(ctx: DispatchContext): TemplateContext {
 
 /**
  * Project the dispatch scope into the {@link ActionRunScope} handed to an
- * action's `execute`. The internal scope keys (`trigger.eventId`,
- * `variables`) are normalised to the public contract names
- * (`trigger.event`, `vars`).
+ * action's `execute`. The internal `variables` key is normalised to the
+ * public contract name `vars`, and the trigger identity (`id`, `event`,
+ * `actor`) is projected so scripts can branch on which trigger fired and who
+ * caused it.
  */
 function actionRunScope(ctx: DispatchContext): ActionRunScope {
   const scope = ctx.scope as {
-    trigger?: { eventId?: unknown; payload?: unknown };
+    trigger?: {
+      id?: unknown;
+      event?: unknown;
+      eventId?: unknown;
+      actor?: unknown;
+      payload?: unknown;
+    };
     artifacts?: unknown;
     variables?: unknown;
     repeat?: { index?: unknown; item?: unknown };
   };
+  const trigger = scope.trigger;
+  // `event` is canonical; fall back to the legacy `eventId` alias for older
+  // scope snapshots persisted before the rename.
+  const event =
+    typeof trigger?.event === "string"
+      ? trigger.event
+      : typeof trigger?.eventId === "string"
+        ? trigger.eventId
+        : "";
   const result: ActionRunScope = {
     trigger: {
-      event:
-        typeof scope.trigger?.eventId === "string" ? scope.trigger.eventId : "",
-      payload: coerceRecord(scope.trigger?.payload),
+      id: typeof trigger?.id === "string" ? trigger.id : "",
+      event,
+      actor: isActor(trigger?.actor) ? trigger.actor : SYSTEM_ACTOR,
+      payload: coerceRecord(trigger?.payload),
     },
     artifacts: coerceRecord(scope.artifacts),
     vars: coerceRecord(scope.variables),
@@ -620,6 +645,15 @@ function coerceRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+/** Structural check that a scope value is a usable {@link Actor}. */
+function isActor(value: unknown): value is Actor {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.type === "string" && typeof candidate.id === "string"
+  );
 }
 
 async function recordSkipStep(

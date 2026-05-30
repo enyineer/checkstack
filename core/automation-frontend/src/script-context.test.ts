@@ -88,6 +88,37 @@ describe("generateAutomationContextTypes", () => {
     expect(typeDefinitions).not.toContain('readonly event: "incident.resolved"');
   });
 
+  it("carries trigger.id (derived) and a shared actor on the trigger union", () => {
+    const { typeDefinitions } = generateAutomationContextTypes({
+      definition: baseDef(),
+      triggers: [incidentCreated, incidentResolved],
+      artifactTypes: [],
+      path: [{ slot: "root", index: 0 }],
+    });
+    // id is a literal, derived from the event when no explicit id is set.
+    expect(typeDefinitions).toContain('readonly id: "incident_created"');
+    // actor is shared across every variant (intersected onto the union).
+    expect(typeDefinitions).toContain("type AutomationActor =");
+    expect(typeDefinitions).toContain("readonly actor: AutomationActor");
+  });
+
+  it("uses explicit trigger ids to discriminate two triggers on the same event", () => {
+    const def = baseDef({
+      triggers: [
+        { event: "incident.created", id: "majors" },
+        { event: "incident.created", id: "minors" },
+      ],
+    });
+    const { typeDefinitions } = generateAutomationContextTypes({
+      definition: def,
+      triggers: [incidentCreated],
+      artifactTypes: [],
+      path: [{ slot: "root", index: 0 }],
+    });
+    expect(typeDefinitions).toContain('readonly id: "majors"');
+    expect(typeDefinitions).toContain('readonly id: "minors"');
+  });
+
   it("emits a multi-variant discriminated union when multiple triggers are subscribed", () => {
     const def = baseDef({
       triggers: [{ event: "incident.created" }, { event: "incident.resolved" }],

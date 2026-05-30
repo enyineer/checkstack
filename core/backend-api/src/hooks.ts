@@ -1,4 +1,4 @@
-import type { AccessRule } from "@checkstack/common";
+import type { AccessRule, Actor } from "@checkstack/common";
 
 /**
  * Hook definition for type-safe event emission and subscription
@@ -6,6 +6,19 @@ import type { AccessRule } from "@checkstack/common";
 export interface Hook<T = unknown> {
   id: string;
   _type?: T; // Phantom type for TypeScript inference
+}
+
+/**
+ * Envelope metadata that travels alongside every emitted hook payload,
+ * independent of the hook's typed payload. Injected centrally at emit time
+ * (from the request context, defaulting to the system actor) and delivered to
+ * subscribers as the optional second listener argument.
+ *
+ * The automation engine reads `actor` and exposes it to automations as
+ * `trigger.actor`, so a trigger filter can gate on who/what caused the event.
+ */
+export interface HookEventMeta {
+  actor: Actor;
 }
 
 /**

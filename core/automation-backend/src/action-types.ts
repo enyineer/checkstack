@@ -14,7 +14,7 @@ import type {
   ServiceRef,
   Versioned,
 } from "@checkstack/backend-api";
-import type { LucideIconName } from "@checkstack/common";
+import type { Actor, LucideIconName } from "@checkstack/common";
 
 // ─── Artifact types ────────────────────────────────────────────────────────
 
@@ -182,10 +182,18 @@ export interface ActionResult<TArtifact = unknown> {
  * is the narrow, explicitly-declared `consumes` subset.
  */
 export interface ActionRunScope {
-  /** The trigger event that started this run, plus its raw payload. */
+  /** The trigger that started this run, plus its raw payload. */
   trigger: {
+    /**
+     * The id of the specific trigger declaration that fired. Distinguishes
+     * triggers within an automation - including two triggers on the same
+     * `event` - so scripts/templates can branch on which one fired.
+     */
+    id: string;
     /** Fully-qualified trigger event id (e.g. `incident.created`). */
     event: string;
+    /** Who/what caused the event (system, user, application, or service). */
+    actor: Actor;
     /** Trigger payload exactly as emitted. */
     payload: Record<string, unknown>;
   };

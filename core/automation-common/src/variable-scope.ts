@@ -462,6 +462,102 @@ function entryFromSchemaNode(
  * shape so Monaco narrows correctly inside `{{#if trigger.event === "A"}}`
  * branches.
  */
+/**
+ * Static `trigger.actor` subtree. Every trigger carries an actor (who/what
+ * caused the event), injected by the platform as event metadata, so this is
+ * offered unconditionally on every automation - independent of which triggers
+ * are subscribed - to drive filters like
+ * `{{ trigger.actor.type == "system" }}`.
+ */
+function buildActorEntry(): VariableEntry {
+  return {
+    path: "trigger.actor",
+    templateRef: "trigger.actor",
+    type: "object",
+    description:
+      "Who or what caused the event (system, user, application, or service).",
+    jsonSchema: {
+      type: "object",
+      properties: {
+        type: {
+          type: "string",
+          enum: ["system", "user", "application", "service"],
+        },
+        id: { type: "string" },
+        name: { type: "string" },
+      },
+      required: ["type", "id"],
+    },
+    children: [
+      {
+        path: "trigger.actor.type",
+        templateRef: "trigger.actor.type",
+        type: '"system" | "user" | "application" | "service"',
+        description:
+          "Actor kind. Filter e.g. system-created vs user-created events.",
+        jsonSchema: {
+          type: "string",
+          enum: ["system", "user", "application", "service"],
+        },
+      },
+      {
+        path: "trigger.actor.id",
+        templateRef: "trigger.actor.id",
+        type: "string",
+        description:
+          'Stable id: user id, application id, plugin id (service), or "system".',
+        jsonSchema: { type: "string" },
+      },
+      {
+        path: "trigger.actor.name",
+        templateRef: "trigger.actor.name",
+        type: "string",
+        description: "Human-readable actor name when known.",
+        jsonSchema: { type: "string" },
+      },
+    ],
+  };
+}
+
+/**
+ * Derive a stable, identifier-safe id for a trigger from its event id, used
+ * when the operator hasn't assigned an explicit `id`. Mirrors the backend
+ * dispatcher's derivation so editor autocomplete, the generated script types,
+ * and the runtime `trigger.id` all agree.
+ */
+export function deriveTriggerId(event: string): string {
+  return event.replaceAll(/[^a-z0-9]+/gi, "_").toLowerCase();
+}
+
+/**
+ * Build the `trigger.id` entry — the id of the specific trigger declaration
+ * that fired. Typed as the literal union of the automation's trigger ids
+ * (explicit `id` or derived from the event), so it discriminates triggers
+ * even when two subscribe to the same `event`.
+ */
+function buildTriggerIdEntry(triggers: Trigger[]): VariableEntry {
+  const effectiveIds = [
+    ...new Set(triggers.map((t) => t.id ?? deriveTriggerId(t.event))),
+  ];
+  const idType =
+    effectiveIds.length > 0
+      ? effectiveIds.map((id) => JSON.stringify(id)).join(" | ")
+      : "string";
+  return {
+    path: "trigger.id",
+    templateRef: "trigger.id",
+    type: idType,
+    description:
+      effectiveIds.length <= 1
+        ? "Id of the trigger declaration that fired."
+        : "Id of the trigger that fired — distinguishes triggers, including two on the same event.",
+    jsonSchema:
+      effectiveIds.length > 0
+        ? { type: "string", enum: effectiveIds }
+        : { type: "string" },
+  };
+}
+
 function buildTriggerEntries(args: {
   triggers: Trigger[];
   registeredTriggers: TriggerInfo[];
@@ -477,6 +573,7 @@ function buildTriggerEntries(args: {
       ? allEventIds.map((id) => JSON.stringify(id)).join(" | ")
       : "string";
 
+  const idEntry = buildTriggerIdEntry(triggers);
   const eventEntry: VariableEntry = {
     path: "trigger.event",
     templateRef: "trigger.event",
@@ -499,7 +596,9 @@ function buildTriggerEntries(args: {
         type: "object",
         description: "Trigger that fired this run.",
         children: [
+          idEntry,
           eventEntry,
+          buildActorEntry(),
           {
             path: "trigger.payload",
             templateRef: "trigger.payload",
@@ -520,7 +619,7 @@ function buildTriggerEntries(args: {
       templateRef: "trigger",
       type: "object",
       description: "Trigger that fired this run.",
-      children: [eventEntry, payloadEntry],
+      children: [idEntry, eventEntry, buildActorEntry(), payloadEntry],
     },
   ];
 }

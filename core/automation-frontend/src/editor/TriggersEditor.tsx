@@ -19,6 +19,7 @@ import type {
 import { useAutomationRegistry, useVariableScope } from "./registry-context";
 import { ItemPicker } from "./ItemPicker";
 import { useTriggerIssues } from "./editor-validation";
+import { collectTriggerIds, defaultTriggerId } from "./trigger-helpers";
 
 /**
  * Build a minimal `AutomationDefinition` that only subscribes to the
@@ -81,7 +82,12 @@ export const TriggersEditor: React.FC<TriggersEditorProps> = ({
   );
 
   const handleAdd = () => {
-    onChange([...value, { event: triggers[0]?.qualifiedId ?? "" }]);
+    // Assign a unique default id up front (deduped against existing triggers)
+    // so the new trigger is immediately referenceable as `trigger.id` and the
+    // field shows a value rather than appearing blank.
+    const fresh: Trigger = { event: triggers[0]?.qualifiedId ?? "" };
+    const id = defaultTriggerId(fresh, collectTriggerIds(value));
+    onChange([...value, { ...fresh, id }]);
   };
 
   return (
@@ -120,6 +126,9 @@ export const TriggersEditor: React.FC<TriggersEditorProps> = ({
             onRemove={() => onChange(value.filter((_, i) => i !== index))}
             disabled={disabled}
             pickerItems={pickerItems}
+            // Ids of the other triggers — used to keep this trigger's
+            // auto-filled id unique when the operator clears the field.
+            siblingIds={collectTriggerIds(value.filter((_, i) => i !== index))}
           />
         ))}
       </CardContent>
@@ -134,7 +143,8 @@ const TriggerCard: React.FC<{
   onRemove: () => void;
   disabled?: boolean;
   pickerItems: Array<{ id: string; label: string; description?: string; category?: string }>;
-}> = ({ index, value, onChange, onRemove, disabled, pickerItems }) => {
+  siblingIds: Set<string>;
+}> = ({ index, value, onChange, onRemove, disabled, pickerItems, siblingIds }) => {
   const { triggers } = useAutomationRegistry();
   const selected = triggers.find((t) => t.qualifiedId === value.event);
   const issues = useTriggerIssues(index);
@@ -191,11 +201,11 @@ const TriggerCard: React.FC<{
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1">
-                <Label className="text-xs" htmlFor={`trigger-id-${value.event}`}>
-                  ID (optional)
+                <Label className="text-xs" htmlFor={`trigger-id-${index}`}>
+                  ID
                 </Label>
                 <Input
-                  id={`trigger-id-${value.event}`}
+                  id={`trigger-id-${index}`}
                   value={value.id ?? ""}
                   onChange={(event) =>
                     onChange({
@@ -203,7 +213,14 @@ const TriggerCard: React.FC<{
                       id: event.target.value || undefined,
                     })
                   }
-                  placeholder="e.g. major-incident"
+                  onBlur={() => {
+                    // Never leave the id blank: re-fill a unique default so the
+                    // trigger stays referenceable as `trigger.id` and is
+                    // distinguishable from sibling triggers.
+                    if (value.id) return;
+                    onChange({ ...value, id: defaultTriggerId(value, siblingIds) });
+                  }}
+                  placeholder="Generated on blur"
                   disabled={disabled}
                   className="font-mono text-xs"
                 />

@@ -17,6 +17,7 @@ export * from "./rpc";
 export * from "./test-utils";
 export * from "./hooks";
 export * from "./event-bus-types";
+export * from "./actor";
 export * from "./plugin-source";
 export * from "./plugin-artifact-store";
 export * from "./notification-strategy";

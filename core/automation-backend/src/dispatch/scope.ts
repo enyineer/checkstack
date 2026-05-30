@@ -3,7 +3,8 @@
  *
  * The shape exposed to templates is:
  *
- *   trigger.id, trigger.eventId, trigger.payload.*
+ *   trigger.id, trigger.event, trigger.payload.*
+ *   trigger.actor.{type,id,name}                 (who/what caused the event)
  *   variables.*                                  (from `variables` blocks)
  *   artifacts.<actionId>.<localArtifactName>.*  (set when an action produces)
  *   repeat.item, repeat.index                    (only inside a repeat)
@@ -11,23 +12,34 @@
  *
  * Keep this shape stable — the editor's intellisense reads it.
  */
+import { SYSTEM_ACTOR, type Actor } from "@checkstack/common";
 import type { DispatchContext } from "./types";
 
 /**
  * Build the initial scope at run start. Subsequent blocks (variables,
  * repeat) clone-and-extend this scope rather than mutating it, so a
  * variable defined inside a nested block does not leak to siblings.
+ *
+ * `actor` carries who/what caused the originating event (a user, an
+ * application/API client, a service, or the system). It defaults to the
+ * system actor so callers that don't have one still produce a complete scope.
  */
 export function buildInitialScope(args: {
   triggerId: string;
   triggerEventId: string;
   payload: Record<string, unknown>;
+  actor?: Actor;
   startedAt: Date;
 }): Record<string, unknown> {
   return {
     trigger: {
       id: args.triggerId,
+      event: args.triggerEventId,
+      // Back-compat alias for the former internal key. Templates and the
+      // editor use `trigger.event`; `eventId` stays so older saved scope
+      // snapshots / automations referencing it keep resolving.
       eventId: args.triggerEventId,
+      actor: args.actor ?? SYSTEM_ACTOR,
       payload: args.payload,
     },
     variables: {},
