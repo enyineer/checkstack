@@ -11,6 +11,8 @@ import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import { healthCheckHooks } from "@checkstack/healthcheck-backend";
 import { ScriptPackagesApi } from "@checkstack/script-packages-common";
 import { scriptPackagesChangedHook } from "@checkstack/script-packages-backend";
+import { secretResolverRef } from "@checkstack/secrets-backend";
+import { resolveSatelliteRunSecrets } from "./run-secret-resolver";
 import { SatelliteService } from "./service";
 import { createSatelliteRouter } from "./router";
 import { HeartbeatMonitor } from "./heartbeat-monitor";
@@ -60,6 +62,7 @@ export default createBackendPlugin({
         signalService: coreServices.signalService,
         queueManager: coreServices.queueManager,
         wsRegistry: coreServices.wsRegistry,
+        secretResolver: secretResolverRef,
       },
       init: async ({ logger, database, rpc, signalService }) => {
         logger.debug("🛰️ Initializing Satellite Backend...");
@@ -85,6 +88,7 @@ export default createBackendPlugin({
         signalService,
         wsRegistry,
         rpcClient,
+        secretResolver,
         onHook,
         emitHook,
       }) => {
@@ -159,6 +163,21 @@ export default createBackendPlugin({
                 return null;
               }
             },
+          },
+          {
+            // JIT secret delivery: resolve a collector's declared secretEnv
+            // (read from the satellite's own assignment) via the central
+            // resolver. Values are returned over the WS channel per-run and
+            // never persisted.
+            resolveRunSecrets: async ({ satelliteId, configId, collectorId }) =>
+              resolveSatelliteRunSecrets({
+                satelliteId,
+                configId,
+                collectorId,
+                getAssignmentsForSatellite: (id) =>
+                  configRelay.getAssignmentsForSatellite(id),
+                resolver: secretResolver,
+              }),
           },
         );
 

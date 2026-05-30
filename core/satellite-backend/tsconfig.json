@@ -38,6 +38,12 @@
       "path": "../script-packages-common"
     },
     {
+      "path": "../secrets-backend"
+    },
+    {
+      "path": "../secrets-common"
+    },
+    {
       "path": "../signal-common"
     },
     {

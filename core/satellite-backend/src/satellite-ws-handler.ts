@@ -4,6 +4,7 @@ import type {
   WsConnection,
   WsConnectionHandlers,
 } from "@checkstack/backend-api";
+import { extractErrorMessage } from "@checkstack/common";
 import type { SatelliteService } from "./service";
 import type { ConfigRelay } from "./config-relay";
 import {
@@ -70,6 +71,25 @@ export interface SatelliteScriptPackageSink {
 }
 
 /**
+ * Optional plug-point for just-in-time secret delivery to satellites.
+ * Wired from `afterPluginsReady` against `secretResolverRef`. When absent,
+ * a `request_run_secrets` is answered with an error (no secrets available),
+ * so a collector that declares `secretEnv` fails clearly rather than
+ * running without it.
+ *
+ * The resolver reads the declared `secretEnv` from the satellite's persisted
+ * assignment (the satellite does not choose which secrets), resolves ONLY
+ * those refs, and returns the env map. Resolved values are never persisted.
+ */
+export interface SatelliteSecretSink {
+  resolveRunSecrets(input: {
+    satelliteId: string;
+    configId: string;
+    collectorId: string;
+  }): Promise<Record<string, string>>;
+}
+
+/**
  * Active satellite connection tracking.
  */
 interface SatelliteConnection {
@@ -103,6 +123,12 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
      * persist per-satellite sync state.
      */
     private scriptPackageSink?: SatelliteScriptPackageSink,
+    /**
+     * Optional. When set, the handler answers `request_run_secrets` by
+     * resolving the collector's declared secretEnv just-in-time. When
+     * unset, such a request is answered with an error.
+     */
+    private secretSink?: SatelliteSecretSink,
   ) {}
 
   /**
@@ -260,6 +286,39 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
             integrity: parsed.integrity,
             data,
           });
+          break;
+        }
+        case "request_run_secrets": {
+          // JIT secret delivery: resolve ONLY the collector's declared
+          // secretEnv (read from the persisted assignment, not chosen by
+          // the satellite) and reply with the env map. On any failure,
+          // reply with an error so the satellite fails the run clearly.
+          if (!this.secretSink) {
+            this.sendMessage(ws, {
+              type: "run_secrets",
+              requestId: parsed.requestId,
+              error: "Secret delivery is not available on this core instance.",
+            });
+            break;
+          }
+          try {
+            const env = await this.secretSink.resolveRunSecrets({
+              satelliteId: authenticatedSatellite.id,
+              configId: parsed.configId,
+              collectorId: parsed.collectorId,
+            });
+            this.sendMessage(ws, {
+              type: "run_secrets",
+              requestId: parsed.requestId,
+              env,
+            });
+          } catch (error) {
+            this.sendMessage(ws, {
+              type: "run_secrets",
+              requestId: parsed.requestId,
+              error: extractErrorMessage(error),
+            });
+          }
           break;
         }
         case "authenticate": {
