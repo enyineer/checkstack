@@ -68,6 +68,7 @@ import type {
 import type { ActionRunScope } from "../action-types";
 import { detectActionKind, type ActionKind } from "./action-kind";
 import { wrapGetServiceForRun } from "./run-secret-registry";
+import { reseedRunSecretRegistry } from "./reseed-run-secrets";
 import { evaluateCondition } from "./condition";
 import { parseActionPath } from "./path-nav";
 import {
@@ -120,6 +121,43 @@ function withRunSecretCapture(
       connectionStoreRefId: deps.connectionStoreRefId,
     }),
   };
+}
+
+/**
+ * Re-seed a resuming pod's run mask set from the automation's declared
+ * secret refs. The run's masking registry is in-memory and per-process, so
+ * a pod that did NOT originally resolve the run's secrets (the resume /
+ * stalled-recovery case) starts with an EMPTY mask set — letting a carried
+ * scope value / artifact / error persist unmasked. Re-resolving the
+ * declared `secretEnv` mappings + connection refs through the run's wrapped
+ * `getService` (which auto-registers) re-populates the same least-privilege
+ * set before we walk + persist. No-op when masking isn't wired (tests /
+ * minimal installs) or when `ctx.deps.getService` wasn't wrapped.
+ */
+async function reseedRunMaskSet(
+  deps: DispatchDeps,
+  wrappedDeps: DispatchDeps,
+  runId: string,
+  automation: LoadedAutomation,
+): Promise<void> {
+  if (
+    !deps.secretRegistry ||
+    !deps.secretResolverRefId ||
+    !deps.connectionStoreRefId
+  ) {
+    return;
+  }
+  await reseedRunSecretRegistry({
+    // The WRAPPED getService is the registering one — feed it so re-resolved
+    // values land in the run's mask set.
+    getService: wrappedDeps.getService,
+    registry: deps.secretRegistry,
+    runId,
+    definition: automation.definition,
+    resolverRefId: deps.secretResolverRefId,
+    connectionStoreRefId: deps.connectionStoreRefId,
+    logger: deps.logger,
+  });
 }
 
 /** Name of the durable queue we use for crash-safe delays. */
@@ -328,8 +366,15 @@ export async function resumeRun(
     await deps.runStore.updateRunStatus(args.runId, "running");
     await deps.runStateStore.heartbeat(args.runId);
 
+    const wrappedDeps = withRunSecretCapture(deps, args.runId);
+    // Cross-pod mask re-seed: this pod may not be the one that resolved the
+    // run's secrets, so re-populate its (empty) mask set from the declared
+    // refs BEFORE walking / persisting — otherwise carried scope / artifact
+    // values would persist unmasked here. See `reseed-run-secrets.ts`.
+    await reseedRunMaskSet(deps, wrappedDeps, args.runId, args.automation);
+
     const ctx: DispatchContext = {
-      deps: withRunSecretCapture(deps, args.runId),
+      deps: wrappedDeps,
       run: {
         runId: args.runId,
         automation: args.automation,
@@ -408,8 +453,14 @@ export async function recoverStalledRun(
   await deps.runStore.updateRunStatus(args.runId, "running");
   await deps.runStateStore.heartbeat(args.runId);
 
+  const wrappedDeps = withRunSecretCapture(deps, args.runId);
+  // Cross-pod mask re-seed (see `reseedRunMaskSet` in `resumeRun`): the
+  // sweeper pod recovering this stalled run did not resolve its secrets, so
+  // re-populate the mask set from the declared refs before re-walking.
+  await reseedRunMaskSet(deps, wrappedDeps, args.runId, args.automation);
+
   const ctx: DispatchContext = {
-    deps: withRunSecretCapture(deps, args.runId),
+    deps: wrappedDeps,
     run: {
       runId: args.runId,
       automation: args.automation,

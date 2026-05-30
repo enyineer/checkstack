@@ -32,19 +32,38 @@ function fakeState(): {
 }
 
 /**
- * Installer-election lock fake. When `lockAcquired` it hands back a handle
- * whose `release()` records "released" into `calls` (so tests can assert the
- * lock is always freed); otherwise `tryInstallerLock` returns null.
+ * SHARED single-token installer-election lock — a faithful in-memory model
+ * of the Postgres advisory lock guarding installer election across pods.
+ * ONE boolean (`heldBy`) is shared across every caller wired to the same
+ * instance, mirroring `advisory-lock.test.ts`'s `heldBy` model:
+ *
+ *   - `tryInstallerLock` grants ONLY if the token is free; it then binds the
+ *     token to the acquiring handle and returns a `release()` that frees it.
+ *   - A concurrent caller against the SAME instance gets `null` while held.
+ *
+ * `calls?.push("released")` records releases so the always-frees invariant
+ * stays observable for the single-caller suite.
  */
-function fakeInstallerLock(
-  calls: string[],
-  lockAcquired = true,
-): InstallerLock {
+function makeSharedInstallerLock(calls?: string[]): InstallerLock {
+  // `null` = free; otherwise the id of the holding handle.
+  const state: { heldBy: number | null } = { heldBy: null };
+  let nextHandleId = 0;
   return {
-    tryInstallerLock: async () =>
-      lockAcquired
-        ? { release: async () => void calls.push("released") }
-        : null,
+    tryInstallerLock: async () => {
+      if (state.heldBy !== null) return null;
+      const handleId = nextHandleId++;
+      state.heldBy = handleId;
+      let released = false;
+      return {
+        release: async () => {
+          if (released) return;
+          released = true;
+          // Only the holder frees the shared token (no-op otherwise).
+          if (state.heldBy === handleId) state.heldBy = null;
+          calls?.push("released");
+        },
+      };
+    },
   };
 }
 
@@ -55,7 +74,7 @@ function baseDeps(
   const { store, calls } = fakeState();
   const deps: InstallControllerDeps = {
     installState: store,
-    installerLock: fakeInstallerLock(calls),
+    installerLock: makeSharedInstallerLock(calls),
     resolver: { resolve: async () => [{ entry, blob: new Uint8Array(10) }] },
     blobStore: {
       id: "postgres",
@@ -98,15 +117,62 @@ describe("runInstallNow", () => {
 
   test("refuses when the installer lock is held by another instance", async () => {
     const emitted: string[] = [];
-    const { deps } = baseDeps({
-      installerLock: fakeInstallerLock([], false),
-    });
+    // Model "another instance holds it": pre-acquire the shared token so the
+    // controller's own attempt is refused.
+    const sharedLock = makeSharedInstallerLock();
+    const held = await sharedLock.tryInstallerLock();
+    expect(held).not.toBeNull();
+    const { deps } = baseDeps({ installerLock: sharedLock });
     deps.emitChanged = async ({ lockfileHash }) =>
       void emitted.push(lockfileHash);
     const out = await runInstallNow(deps);
     expect(out.started).toBe(false);
     expect(out.reason).toMatch(/another instance/i);
     expect(emitted).toHaveLength(0);
+  });
+
+  test("two concurrent installers against the SAME shared lock: exactly one wins", async () => {
+    // ── Multi-instance election contention ──
+    // One shared single-token lock across BOTH callers (two pods racing
+    // `installNow`). Each pod gets its own deps/state, but they contend on
+    // the SAME advisory lock — exactly one may proceed.
+    const sharedLock = makeSharedInstallerLock();
+
+    // Widen the acquire→install→release window with a real async gap so the
+    // loser genuinely attempts acquire while the winner still holds the
+    // token (the interleaving that would double-install without a shared
+    // lock).
+    const slowResolver = {
+      resolve: async () => {
+        await new Promise((r) => setTimeout(r, 10));
+        return [{ entry, blob: new Uint8Array(10) }];
+      },
+    };
+
+    const a = baseDeps({ installerLock: sharedLock, resolver: slowResolver });
+    const b = baseDeps({ installerLock: sharedLock, resolver: slowResolver });
+
+    const [outA, outB] = await Promise.all([
+      runInstallNow(a.deps),
+      runInstallNow(b.deps),
+    ]);
+
+    const started = [outA, outB].filter((o) => o.started);
+    const refused = [outA, outB].filter((o) => !o.started);
+    expect(started).toHaveLength(1);
+    expect(refused).toHaveLength(1);
+    expect(refused[0]!.reason).toMatch(/another instance/i);
+
+    // The winner recorded installing → ready exactly once; the loser never
+    // touched its install state (no installing/ready) and never emitted.
+    const winner = outA.started ? a : b;
+    const loser = outA.started ? b : a;
+    expect(winner.stateCalls.filter((c) => c === "installing")).toHaveLength(1);
+    expect(winner.stateCalls.filter((c) => c === "ready")).toHaveLength(1);
+    expect(winner.emitted).toHaveLength(1);
+    expect(loser.stateCalls).not.toContain("installing");
+    expect(loser.stateCalls).not.toContain("ready");
+    expect(loser.emitted).toHaveLength(0);
   });
 
   test("blocks + records error when over the size cap", async () => {
