@@ -23,6 +23,9 @@
       "path": "../../core/script-packages-common"
     },
     {
+      "path": "../../core/secrets-backend"
+    },
+    {
       "path": "../../core/secrets-common"
     },
     {

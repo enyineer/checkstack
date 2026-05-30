@@ -23,7 +23,10 @@ import {
   type ShellScriptRunner,
 } from "@checkstack/backend-api";
 import { extractErrorMessage } from "@checkstack/common";
-import { maskScriptRunOutput } from "@checkstack/secrets-common";
+import {
+  maskScriptRunOutput,
+  buildTestSecretEnv,
+} from "@checkstack/secrets-common";
 import { flattenScopeToShellEnv } from "./script-test-shell-env";
 
 // =============================================================================
@@ -55,6 +58,20 @@ export interface ScriptTestInput {
   context?: ScriptTestContext;
   /** Extra env vars for shell tests (merged over the flattened context). */
   env?: Record<string, string>;
+  /**
+   * The script's declared secret -> env mapping
+   * (`{ ENV_NAME: "${{ secrets.NAME }}" }`). The test panel NEVER resolves
+   * real secret values (decision 4): each declared env var is injected with
+   * a named placeholder (`__SECRET_<NAME>__`) by default, or the user's
+   * override (see `secretOverrides`) for a realistic run.
+   */
+  secretEnv?: Record<string, string>;
+  /**
+   * Optional user-supplied per-secret-NAME override values (keyed by the
+   * `${{ secrets.NAME }}` name). Injected instead of the placeholder, and
+   * masked out of the result so an override can't round-trip unmasked.
+   */
+  secretOverrides?: Record<string, string>;
   /** Working directory for shell tests. */
   workingDirectory?: string;
   timeoutMs: number;
@@ -84,14 +101,17 @@ export interface ScriptTestDeps {
    */
   resolutionRoot?: string;
   /**
-   * Run-scoped, least-privilege secret VALUES to redact (Jenkins-style)
-   * from the test result before it is returned to the browser. Empty in
-   * Phase 1 (the test panel resolves no real secrets yet); Phase 2 supplies
-   * the user-override / placeholder values. With no values, masking is a
-   * no-op — the seam just guarantees the boundary exists.
+   * Extra secret VALUES to redact (Jenkins-style) from the test result, on
+   * top of those derived from the input's `secretOverrides`. Normally
+   * unused — the test path masks the user overrides automatically.
    */
   maskValues?: Iterable<string>;
 }
+
+// `buildTestSecretEnv` / `secretTestPlaceholder` are the shared, pure
+// secret-test helpers from `@checkstack/secrets-common` (re-exported so the
+// existing import path keeps working).
+export { buildTestSecretEnv, secretTestPlaceholder } from "@checkstack/secrets-common";
 
 // =============================================================================
 // CONTEXT NORMALISATION
@@ -143,10 +163,17 @@ export async function runScriptTest({
   deps?: ScriptTestDeps;
 }): Promise<ScriptTestResult> {
   const startedAt = Date.now();
-  // Universal leak masking at the output boundary: redact any run-scoped
-  // secret value out of result/stdout/stderr/error before it is returned
-  // to the browser. No-op when `maskValues` is empty (Phase 1 default).
-  const maskValues = deps.maskValues ?? [];
+  // Build the test secret env: placeholders by default, user overrides if
+  // given. NO real secret value is ever resolved in the test path.
+  const secretTest = buildTestSecretEnv({
+    secretEnv: input.secretEnv,
+    secretOverrides: input.secretOverrides,
+  });
+  // Universal leak masking at the output boundary: redact any user-override
+  // secret value (plus any extra `deps.maskValues`) out of
+  // result/stdout/stderr/error before it is returned to the browser, so even
+  // an override can't round-trip to the surface unmasked.
+  const maskValues = [...secretTest.maskValues, ...(deps.maskValues ?? [])];
   const mask = (
     res: ScriptTestResult,
   ): ScriptTestResult => {
@@ -168,7 +195,9 @@ export async function runScriptTest({
       const flattened = flattenScopeToShellEnv(input.context);
       const res = await runner.run({
         script: input.script,
-        env: { ...flattened, ...input.env },
+        // Operator env, then the test secret env (placeholders/overrides)
+        // on top so a declared secret env name wins.
+        env: { ...flattened, ...input.env, ...secretTest.env },
         cwd: input.workingDirectory,
         timeoutMs: input.timeoutMs,
       });
@@ -203,6 +232,9 @@ export async function runScriptTest({
       timeoutMs: input.timeoutMs,
       helperModuleName: "@checkstack/integration",
       helperFunctionName: "defineIntegration",
+      ...(Object.keys(secretTest.env).length > 0
+        ? { env: secretTest.env }
+        : {}),
       ...(deps.resolutionRoot ? { resolutionRoot: deps.resolutionRoot } : {}),
     });
     const durationMs = Date.now() - startedAt;

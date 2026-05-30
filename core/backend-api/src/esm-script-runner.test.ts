@@ -230,3 +230,32 @@ describe("defaultEsmScriptRunner resolutionRoot", () => {
     expect(res.error).toBeDefined();
   });
 });
+
+describe("defaultEsmScriptRunner injected env", () => {
+  it("exposes injected env vars as process.env in the subprocess", async () => {
+    const res = await defaultEsmScriptRunner.run({
+      script: `export default process.env.API_TOKEN ?? null;`,
+      context: {},
+      timeoutMs: 15_000,
+      env: { API_TOKEN: "injected-secret-value" },
+    });
+    expect(res.error).toBeUndefined();
+    expect(res.result).toBe("injected-secret-value");
+  });
+
+  it("does NOT expose backend env that was not injected (isolation intact)", async () => {
+    // A backend secret present in the parent process must NOT leak through
+    // unless it was explicitly injected for this run.
+    process.env.__CS_TEST_BACKEND_SECRET = "must-not-leak";
+    try {
+      const res = await defaultEsmScriptRunner.run({
+        script: `export default process.env.__CS_TEST_BACKEND_SECRET ?? null;`,
+        context: {},
+        timeoutMs: 15_000,
+      });
+      expect(res.result).toBeNull();
+    } finally {
+      delete process.env.__CS_TEST_BACKEND_SECRET;
+    }
+  });
+});

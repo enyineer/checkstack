@@ -23,6 +23,7 @@
     "@checkstack/script-packages-backend": "workspace:*",
     "@checkstack/script-packages-common": "workspace:*",
     "@checkstack/secrets-common": "workspace:*",
+    "@checkstack/secrets-backend": "workspace:*",
     "zod": "^4.2.1"
   },
   "devDependencies": {

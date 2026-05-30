@@ -943,6 +943,7 @@
         "@checkstack/queue-api": "workspace:*",
         "@checkstack/satellite-backend": "workspace:*",
         "@checkstack/script-packages-backend": "workspace:*",
+        "@checkstack/secrets-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@hono/zod-validator": "^0.7.6",
         "@orpc/server": "^1.13.2",
@@ -2339,6 +2340,7 @@
         "@checkstack/common": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/script-packages-backend": "workspace:*",
+        "@checkstack/secrets-common": "workspace:*",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
@@ -2453,6 +2455,7 @@
         "@checkstack/common": "workspace:*",
         "@checkstack/script-packages-backend": "workspace:*",
         "@checkstack/script-packages-common": "workspace:*",
+        "@checkstack/secrets-backend": "workspace:*",
         "@checkstack/secrets-common": "workspace:*",
         "zod": "^4.2.1",
       },

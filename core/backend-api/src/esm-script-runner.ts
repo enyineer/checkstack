@@ -101,6 +101,19 @@ export interface EsmScriptRunOptions {
    * only `SAFE_ENV_VARS`, so packages cannot read backend secrets.
    */
   resolutionRoot?: string;
+  /**
+   * Extra environment variables injected into the subprocess for THIS run
+   * only, merged on top of `SAFE_ENV_VARS`. The Secrets platform uses this
+   * to inject a run's resolved secret -> env allowlist (decision 5,
+   * least-privilege): only the consumer's declared secrets are injected,
+   * memory-only, for the lifetime of this run. It deliberately does NOT
+   * widen the ambient `SAFE_ENV_VARS` whitelist — the values live only in
+   * this options object and the spawned process env.
+   *
+   * The user's script reads these as `process.env.ENV_NAME`. On a key
+   * collision with a safe var, the injected value wins.
+   */
+  env?: Record<string, string>;
 }
 
 /**
@@ -317,6 +330,7 @@ export const defaultEsmScriptRunner: EsmScriptRunner = {
     helperModuleName,
     helperFunctionName,
     resolutionRoot,
+    env: injectedEnv,
   }) {
     const sessionId = randomUUID();
     const markerStart = `##__CS_SCRIPT_RESULT_${sessionId}_START__##`;
@@ -397,7 +411,10 @@ export const defaultEsmScriptRunner: EsmScriptRunner = {
         // (auto-install disabled) and resolves modules from
         // `<resolutionRoot>/node_modules` when set.
         cwd: tmpDir,
-        env: pickSafeEnv(),
+        // Per-run injected env wins over the safe-vars whitelist. The
+        // injected secret values live only here + the child process; they
+        // never widen the ambient SAFE_ENV_VARS.
+        env: { ...pickSafeEnv(), ...injectedEnv },
         stdout: "pipe",
         stderr: "pipe",
       });

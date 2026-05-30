@@ -27,6 +27,10 @@ export {
   type ScriptRunOutput,
 } from "./mask-run-result";
 export {
+  buildTestSecretEnv,
+  secretTestPlaceholder,
+} from "./test-secret-env";
+export {
   SECRETS_CHANGED_HOOK_ID,
   secretsChangedPayloadSchema,
   type SecretsChangedPayload,

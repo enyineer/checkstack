@@ -25,6 +25,7 @@ import {
 import { pluginMetadata } from "./plugin-metadata";
 import type { ScriptTransportClient } from "./transport-client";
 import { extractErrorMessage } from "@checkstack/common";
+import { secretEnvMappingSchema } from "@checkstack/secrets-common";
 import type { ResolutionRootStatus } from "@checkstack/script-packages-backend";
 
 // ============================================================================
@@ -100,6 +101,11 @@ const inlineScriptConfigSchema = z.object({
   }).describe(
     "TypeScript/JavaScript module. Use `import { ... } from \"node:os\"` to pull in Node built-ins. The recommended pattern is `export default defineHealthCheck({ success, message?, value? })` — `defineHealthCheck` is provided by `@checkstack/healthcheck` and asserts the return shape at the type level. Throwing also signals failure.",
   ),
+  secretEnv: secretEnvMappingSchema
+    .optional()
+    .describe(
+      'Secret → env mapping, e.g. { "API_TOKEN": "${{ secrets.token }}" }. NOTE: collectors run on satellites; secret injection is delivered just-in-time in Phase 3. This phase only authors + validates the mapping (it is NOT injected yet).',
+    ),
   timeout: requestTimeoutMs().describe("Maximum execution time in milliseconds"),
 });
 

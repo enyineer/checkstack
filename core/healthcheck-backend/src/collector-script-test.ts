@@ -22,6 +22,10 @@ import {
   type ShellScriptRunner,
 } from "@checkstack/backend-api";
 import { extractErrorMessage } from "@checkstack/common";
+import {
+  buildTestSecretEnv,
+  maskScriptRunOutput,
+} from "@checkstack/secrets-common";
 
 export type CollectorScriptTestKind = "typescript" | "shell";
 
@@ -38,6 +42,14 @@ export interface CollectorScriptTestInput {
   config?: Record<string, unknown>;
   /** Extra env vars for shell collectors (merged over the run-context vars). */
   env?: Record<string, string>;
+  /**
+   * The collector's declared secret -> env mapping. The test panel NEVER
+   * resolves real secret values (decision 4): each declared env var gets a
+   * `__SECRET_<NAME>__` placeholder, or the user override below.
+   */
+  secretEnv?: Record<string, string>;
+  /** User-supplied per-secret-NAME override values, masked out of the result. */
+  secretOverrides?: Record<string, string>;
   /** Working directory for shell collectors. */
   workingDirectory?: string;
   runContext?: CollectorTestRunContext;
@@ -116,27 +128,54 @@ export async function runCollectorScriptTest({
   deps?: CollectorScriptTestDeps;
 }): Promise<CollectorScriptTestResult> {
   const startedAt = Date.now();
+  // Build the test secret env: placeholders by default, user overrides if
+  // given. NO real secret value is resolved in the test path (decision 4).
+  const secretTest = buildTestSecretEnv({
+    secretEnv: input.secretEnv,
+    secretOverrides: input.secretOverrides,
+  });
+  // Mask any user-override value out of the result so it can't round-trip.
+  const mask = (
+    res: CollectorScriptTestResult,
+  ): CollectorScriptTestResult => {
+    const masked = maskScriptRunOutput({
+      output: {
+        result: res.result,
+        stdout: res.stdout,
+        stderr: res.stderr,
+        error: res.error,
+      },
+      values: secretTest.maskValues,
+    });
+    return { ...res, ...masked };
+  };
+
   try {
     if (input.kind === "shell") {
       const runner = deps.shellRunner ?? defaultShellScriptRunner;
       const res = await runner.run({
         script: input.script,
-        env: { ...buildShellRunContextEnv(input.runContext), ...input.env },
+        // Run-context vars, operator env, then the test secret env on top.
+        env: {
+          ...buildShellRunContextEnv(input.runContext),
+          ...input.env,
+          ...secretTest.env,
+        },
         cwd: input.workingDirectory,
         timeoutMs: input.timeoutMs,
       });
       const durationMs = Date.now() - startedAt;
       if (res.timedOut) {
-        return {
+        return mask({
           stdout: res.stdout,
           stderr: res.stderr,
           exitCode: res.exitCode,
           durationMs,
           timedOut: true,
           error: "Script execution timed out",
-        };
+        });
       }
-      return {
+      return mask({
         stdout: res.stdout,
         stderr: res.stderr,
         exitCode: res.exitCode,
@@ -146,7 +185,7 @@ export async function runCollectorScriptTest({
           res.exitCode === 0
             ? undefined
             : `Shell script exited with code ${res.exitCode}`,
-      };
+      });
     }
 
     const runner = deps.esmRunner ?? defaultEsmScriptRunner;
@@ -156,24 +195,27 @@ export async function runCollectorScriptTest({
       timeoutMs: input.timeoutMs,
       helperModuleName: "@checkstack/healthcheck",
       helperFunctionName: "defineHealthCheck",
+      ...(Object.keys(secretTest.env).length > 0
+        ? { env: secretTest.env }
+        : {}),
       ...(deps.resolutionRoot ? { resolutionRoot: deps.resolutionRoot } : {}),
     });
     const durationMs = Date.now() - startedAt;
-    return {
+    return mask({
       result: res.result,
       stdout: res.stdout,
       stderr: res.stderr,
       durationMs,
       timedOut: res.timedOut,
       error: res.timedOut ? "Script execution timed out" : res.error,
-    };
+    });
   } catch (error) {
-    return {
+    return mask({
       stdout: "",
       stderr: "",
       durationMs: Date.now() - startedAt,
       timedOut: false,
       error: extractErrorMessage(error),
-    };
+    });
   }
 }

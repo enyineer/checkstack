@@ -5,6 +5,7 @@ import type {
 } from "@checkstack/backend-api";
 import {
   buildScriptContext,
+  buildTestSecretEnv,
   runScriptTest,
   type ScriptTestContext,
 } from "./script-test";
@@ -279,5 +280,107 @@ describe("runScriptTest secret masking (leak guard)", () => {
       deps: { esmRunner: runner },
     });
     expect(out.stdout).toBe("no secrets here");
+  });
+});
+
+describe("runScriptTest secret placeholders + overrides (decision 4)", () => {
+  test("injects __SECRET_<NAME>__ placeholders by default (no real resolution)", async () => {
+    const { runner, calls } = fakeEsmRunner(async (opts) => ({
+      result: opts.env ?? null,
+      stdout: "",
+      stderr: "",
+      timedOut: false,
+    }));
+    const out = await runScriptTest({
+      input: {
+        kind: "typescript",
+        script: "export default () => {}",
+        timeoutMs: 1000,
+        secretEnv: { API_TOKEN: "${{ secrets.jira_token }}" },
+      },
+      deps: { esmRunner: runner },
+    });
+    // The injected env is the placeholder, never a real value.
+    expect(calls[0].env).toEqual({ API_TOKEN: "__SECRET_jira_token__" });
+    expect(out.result).toEqual({ API_TOKEN: "__SECRET_jira_token__" });
+  });
+
+  test("injects a user override instead of the placeholder", async () => {
+    const { runner, calls } = fakeShellRunner(async () => ({
+      exitCode: 0,
+      stdout: "ran",
+      stderr: "",
+      timedOut: false,
+    }));
+    await runScriptTest({
+      input: {
+        kind: "shell",
+        script: "echo $DB",
+        timeoutMs: 1000,
+        secretEnv: { DB: "${{ secrets.db_pass }}" },
+        secretOverrides: { db_pass: "my-test-override" },
+      },
+      deps: { shellRunner: runner },
+    });
+    expect(calls[0].env?.DB).toBe("my-test-override");
+  });
+
+  test("masks the user-override value out of the result", async () => {
+    const { runner } = fakeEsmRunner(async () => ({
+      result: { leaked: "my-test-override" },
+      stdout: "echo my-test-override",
+      stderr: "",
+      timedOut: false,
+    }));
+    const out = await runScriptTest({
+      input: {
+        kind: "typescript",
+        script: "export default () => {}",
+        timeoutMs: 1000,
+        secretEnv: { TOKEN: "${{ secrets.tok }}" },
+        secretOverrides: { tok: "my-test-override" },
+      },
+      deps: { esmRunner: runner },
+    });
+    expect(out.stdout).toBe("echo ****");
+    expect(out.result).toEqual({ leaked: "****" });
+    expect(JSON.stringify(out)).not.toContain("my-test-override");
+  });
+
+  test("no secretEnv -> no secret env injected (least-privilege)", async () => {
+    const { runner, calls } = fakeShellRunner(async () => ({
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      timedOut: false,
+    }));
+    await runScriptTest({
+      input: { kind: "shell", script: "true", timeoutMs: 1000 },
+      deps: { shellRunner: runner },
+    });
+    // Only the $CHECKSTACK_* context env is present; no secret-derived keys.
+    const envKeys = Object.keys(calls[0].env ?? {});
+    expect(envKeys.some((k) => !k.startsWith("CHECKSTACK_"))).toBe(false);
+  });
+});
+
+describe("buildTestSecretEnv", () => {
+  test("placeholder when no override; override when given; masks overrides", () => {
+    const { env, maskValues } = buildTestSecretEnv({
+      secretEnv: {
+        A: "${{ secrets.alpha }}",
+        B: "${{ secrets.beta }}",
+      },
+      secretOverrides: { beta: "real-override" },
+    });
+    expect(env).toEqual({
+      A: "__SECRET_alpha__",
+      B: "real-override",
+    });
+    expect(maskValues).toEqual(["real-override"]);
+  });
+
+  test("empty when no secretEnv declared", () => {
+    expect(buildTestSecretEnv({})).toEqual({ env: {}, maskValues: [] });
   });
 });

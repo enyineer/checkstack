@@ -173,3 +173,64 @@ describe("runCollectorScriptTest — shell", () => {
     expect(out.error).toContain("exited with code 5");
   });
 });
+
+describe("runCollectorScriptTest secret placeholders + overrides (decision 4)", () => {
+  test("injects __SECRET_<NAME>__ placeholders into the collector env by default", async () => {
+    const { runner, calls } = fakeEsm(async (opts) => ({
+      result: opts.env ?? null,
+      stdout: "",
+      stderr: "",
+      timedOut: false,
+    }));
+    await runCollectorScriptTest({
+      input: {
+        kind: "typescript",
+        script: "export default () => ({ success: true })",
+        timeoutMs: 1000,
+        secretEnv: { TOKEN: "${{ secrets.api }}" },
+      },
+      deps: { esmRunner: runner },
+    });
+    expect(calls[0]?.env).toEqual({ TOKEN: "__SECRET_api__" });
+  });
+
+  test("injects + masks a user override (no real resolution)", async () => {
+    const { runner, calls } = fakeShell(async () => ({
+      exitCode: 0,
+      stdout: "value=override-secret",
+      stderr: "",
+      timedOut: false,
+    }));
+    const out = await runCollectorScriptTest({
+      input: {
+        kind: "shell",
+        script: "echo value=$TOKEN",
+        timeoutMs: 1000,
+        secretEnv: { TOKEN: "${{ secrets.api }}" },
+        secretOverrides: { api: "override-secret" },
+      },
+      deps: { shellRunner: runner },
+    });
+    expect(calls[0]?.env?.TOKEN).toBe("override-secret");
+    expect(out.stdout).toBe("value=****");
+    expect(JSON.stringify(out)).not.toContain("override-secret");
+  });
+
+  test("no secretEnv -> no secret env injected (least-privilege)", async () => {
+    const { runner, calls } = fakeEsm(async (opts) => ({
+      result: opts.env ?? null,
+      stdout: "",
+      stderr: "",
+      timedOut: false,
+    }));
+    await runCollectorScriptTest({
+      input: {
+        kind: "typescript",
+        script: "export default () => ({ success: true })",
+        timeoutMs: 1000,
+      },
+      deps: { esmRunner: runner },
+    });
+    expect(calls[0]?.env).toBeUndefined();
+  });
+});

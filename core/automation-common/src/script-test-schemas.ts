@@ -34,6 +34,22 @@ export const ScriptTestInputSchema = z.object({
   script: z.string(),
   context: ScriptTestContextSchema.optional(),
   env: z.record(z.string(), z.string()).optional(),
+  /**
+   * The script's declared secret -> env mapping
+   * (`{ ENV_NAME: "${{ secrets.NAME }}" }`). The test panel NEVER resolves
+   * real secret values: for each entry it injects a named placeholder
+   * (`__SECRET_<NAME>__`) by default, or the user's override value (see
+   * `secretOverrides`) for a realistic run. Real production values never
+   * reach the test surface (decision 4).
+   */
+  secretEnv: z.record(z.string(), z.string()).optional(),
+  /**
+   * User-supplied per-secret-NAME override values for a realistic test
+   * (keyed by the `${{ secrets.NAME }}` name, not the env var). These stay
+   * client-side until sent here as an explicit test input, and are masked
+   * out of the test result so even an override can't round-trip unmasked.
+   */
+  secretOverrides: z.record(z.string(), z.string()).optional(),
   workingDirectory: z.string().optional(),
   timeoutMs: z.number().int().min(100).max(300_000).default(30_000),
 });

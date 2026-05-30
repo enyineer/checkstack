@@ -21,6 +21,7 @@ import {
 } from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "./plugin-metadata";
 import type { ScriptTransportClient } from "./transport-client";
+import { secretEnvMappingSchema } from "@checkstack/secrets-common";
 
 // ============================================================================
 // RUN-CONTEXT ENV INJECTION
@@ -95,6 +96,11 @@ const executeConfigSchemaV2 = z.object({
     .optional()
     .describe(
       "Extra environment variables to expose to the script. Merged on top of the safe-vars whitelist (PATH, HOME, ...).",
+    ),
+  secretEnv: secretEnvMappingSchema
+    .optional()
+    .describe(
+      'Secret → env mapping, e.g. { "API_TOKEN": "${{ secrets.token }}" }. NOTE: collectors run on satellites; secret injection is delivered just-in-time in Phase 3. This phase only authors + validates the mapping (it is NOT injected yet).',
     ),
   timeout: z
     .number()

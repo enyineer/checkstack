@@ -86,6 +86,15 @@ export const CollectorScriptTestInputSchema = z.object({
   script: z.string(),
   config: z.record(z.string(), z.unknown()).optional(),
   env: z.record(z.string(), z.string()).optional(),
+  /**
+   * The collector's declared secret -> env mapping. The test panel NEVER
+   * resolves real secret values: each declared env var gets a
+   * `__SECRET_<NAME>__` placeholder by default, or the user override below
+   * (decision 4).
+   */
+  secretEnv: z.record(z.string(), z.string()).optional(),
+  /** User-supplied per-secret-NAME override values, masked out of the result. */
+  secretOverrides: z.record(z.string(), z.string()).optional(),
   workingDirectory: z.string().optional(),
   runContext: CollectorTestRunContextSchema.optional(),
   timeoutMs: z.number().int().min(100).max(300_000).default(30_000),
