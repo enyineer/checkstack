@@ -13,11 +13,17 @@
  *     the queue scheduler lost the job).
  *   - `kind: "trigger"` locks past `timeoutAt` fail the run with a
  *     clear "wait timed out" error.
+ *
+ * And expired `for:` dwell timers whose `automation-dwell` queue job was
+ * lost: each is fired via `fireDwell` (which re-confirms state before
+ * starting the run). Idempotent via the dwell row's delete-on-fire.
  */
 import type { Logger } from "@checkstack/backend-api";
 
 import type { AutomationStore } from "../automation-store";
 import { recoverStalledRun, resumeRun } from "./engine";
+import { fireDwell } from "./dwell";
+import { startRunRespectingMode } from "./trigger-subscriber";
 import type { DispatchDeps } from "./types";
 
 export interface StalledSweeperArgs {
@@ -49,6 +55,7 @@ export function startStalledSweeper(
   const sweep = async (): Promise<void> => {
     await sweepStalledRuns(args, staleMs);
     await sweepExpiredWaitLocks(args);
+    await sweepExpiredDwells(args);
   };
 
   let timer: ReturnType<typeof setInterval> | undefined = setInterval(() => {
@@ -160,5 +167,31 @@ async function sweepExpiredWaitLocks(
       `wait_for_trigger timed out waiting for ${lock.eventId}`,
     );
     await args.deps.runStateStore.clear(lock.runId);
+  }
+}
+
+async function sweepExpiredDwells(
+  args: StalledSweeperArgs,
+): Promise<void> {
+  const now = new Date();
+  const expired = await args.deps.dwellStore.sweepExpired(now);
+  if (expired.length === 0) return;
+  args.logger.debug(
+    `automation sweeper: ${expired.length} expired dwell(s) detected`,
+  );
+
+  for (const dwell of expired) {
+    try {
+      await fireDwell({
+        deps: args.deps,
+        automationStore: args.automationStore,
+        dwell,
+        startRun: startRunRespectingMode,
+      });
+    } catch (error) {
+      args.logger.warn(
+        `automation sweeper failed to fire dwell ${dwell.id}: ${(error as Error).message}`,
+      );
+    }
   }
 }

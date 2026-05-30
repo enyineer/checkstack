@@ -37,6 +37,11 @@ import {
   startDelayQueueConsumer,
   type DelayQueueConsumer,
 } from "./dispatch/delay-queue";
+import {
+  startDwellQueueConsumer,
+  type DwellQueueConsumer,
+} from "./dispatch/dwell-queue";
+import { createDwellStore } from "./dispatch/dwell-store";
 import { createRunStore } from "./dispatch/run-state";
 import { createRunStateStore } from "./dispatch/run-state-store";
 import {
@@ -81,6 +86,7 @@ interface EnvStash {
   triggerSubscriptions?: TriggerSubscriptions;
   stalledSweeper?: StalledSweeper;
   delayConsumer?: DelayQueueConsumer;
+  dwellConsumer?: DwellQueueConsumer;
 }
 
 export default createBackendPlugin({
@@ -174,6 +180,7 @@ export default createBackendPlugin({
         const artifactStore = createArtifactStore(database);
         const runStore = createRunStore(database);
         const runStateStore = createRunStateStore(database);
+        const dwellStore = createDwellStore(database);
         const automationStore = createAutomationStore(database);
 
         env.registerService(automationArtifactStoreRef, artifactStore);
@@ -239,6 +246,7 @@ export default createBackendPlugin({
           artifactStore,
           runStore,
           runStateStore,
+          dwellStore,
           queueManager,
           // Sensing-layer scope pre-resolution reads live health state
           // through this client. forPlugin is lazy; the actual RPC only
@@ -306,6 +314,7 @@ export default createBackendPlugin({
           await s.triggerSubscriptions?.dispose();
           s.stalledSweeper?.stop();
           await s.delayConsumer?.stop();
+          await s.dwellConsumer?.stop();
         });
 
         logger.debug("✅ Automation Backend initialized.");
@@ -352,6 +361,14 @@ export default createBackendPlugin({
         // Crash-safe delay: register the consumer that fires when a
         // scheduled queue job pops, resuming the suspended run.
         stash.delayConsumer = await startDelayQueueConsumer({
+          deps: stash.dispatchDeps,
+          automationStore: stash.automationStore,
+          logger,
+        });
+
+        // `for:` dwell: register the consumer that fires when a dwell's
+        // scheduled job pops, re-confirming state before starting the run.
+        stash.dwellConsumer = await startDwellQueueConsumer({
           deps: stash.dispatchDeps,
           automationStore: stash.automationStore,
           logger,

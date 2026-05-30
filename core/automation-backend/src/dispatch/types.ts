@@ -44,11 +44,14 @@ export interface DispatchDeps {
   queueManager: QueueManager;
   /**
    * Health-check client for the sensing layer's scope pre-resolution
-   * (`enrichScopeWithState`). Optional so test harnesses and minimal
-   * installs that don't sense live state can omit it — enrichment then
-   * fails open to an empty `health` namespace.
+   * (`enrichScopeWithState`) and the `for:` dwell re-confirm. Optional so
+   * test harnesses and minimal installs that don't sense live state can
+   * omit it — enrichment then fails open to an empty `health` namespace,
+   * and a dwell with no client re-confirms without a status gate.
    */
   healthCheckClient?: InferClient<typeof HealthCheckApi>;
+  /** Persistence backend for pre-run `for:` dwell timers. */
+  dwellStore: DwellStore;
 }
 
 /**
@@ -265,4 +268,63 @@ export interface LoadedWaitLock {
   filterTemplate: string | null;
   timeoutAt: Date | null;
   createdAt: Date;
+}
+
+// ─── Dwell-timer store interface ─────────────────────────────────────────
+
+export interface UpsertDwellInput {
+  automationId: string;
+  triggerId: string;
+  eventId: string;
+  contextKey: string | null;
+  armedStatus: string | null;
+  payloadSnapshot: Record<string, unknown>;
+  actorSnapshot: Record<string, unknown>;
+  fireAt: Date;
+}
+
+export interface LoadedDwell {
+  id: string;
+  automationId: string;
+  triggerId: string;
+  eventId: string;
+  contextKey: string | null;
+  armedStatus: string | null;
+  payloadSnapshot: Record<string, unknown>;
+  actorSnapshot: Record<string, unknown>;
+  fireAt: Date;
+  createdAt: Date;
+}
+
+/**
+ * Persistence for pre-run `for:` dwell timers. The dwell row is the
+ * source of truth; the `automation-dwell` queue job is just the wake
+ * signal, and cancellation is a row delete (constraint 2).
+ */
+export interface DwellStore {
+  /**
+   * Arm or re-arm a dwell. Upserts on the unique
+   * `(automationId, triggerId, contextKey)` key — a re-fire pushes
+   * `fireAt` and refreshes the snapshot. Returns the row id.
+   */
+  upsert(input: UpsertDwellInput): Promise<string>;
+  load(id: string): Promise<LoadedDwell | undefined>;
+  /** Look up the single dwell for a key, if armed. */
+  findByKey(
+    automationId: string,
+    triggerId: string,
+    contextKey: string | null,
+  ): Promise<LoadedDwell | undefined>;
+  /** Delete one dwell (cancellation / fire). Idempotent. */
+  delete(id: string): Promise<void>;
+  /** Delete by key (early cancel on the inverse signal). Idempotent. */
+  deleteByKey(
+    automationId: string,
+    triggerId: string,
+    contextKey: string | null,
+  ): Promise<void>;
+  /** Drop every dwell for an automation (disabled / deleted). */
+  deleteForAutomation(automationId: string): Promise<void>;
+  /** Dwells whose `fireAt` has passed — the sweeper fallback. */
+  sweepExpired(now: Date): Promise<LoadedDwell[]>;
 }

@@ -19,6 +19,45 @@ import { z } from "zod";
  * `automations.definition` column, also round-tripped from YAML in the UI.
  */
 
+// ─── Duration ──────────────────────────────────────────────────────────────
+
+/**
+ * A duration expressed in a single unit, or a template that renders to a
+ * number of seconds. Used by a trigger's `for:` dwell (decision D1). The
+ * object form is preferred for the editor's duration widget; the template
+ * form is the escape hatch for computed durations.
+ */
+export const DurationSchema = z.union([
+  z.object({ seconds: z.number().int().min(1).max(60 * 60 * 24 * 30) }),
+  z.object({ minutes: z.number().int().min(1).max(60 * 24 * 30) }),
+  z.object({ hours: z.number().int().min(1).max(24 * 30) }),
+  z
+    .object({ template: z.string().min(1) })
+    .describe("Template rendering to a number of seconds."),
+]);
+
+export type Duration = z.infer<typeof DurationSchema>;
+
+/**
+ * Resolve a {@link Duration} to milliseconds. The template branch needs a
+ * render context, so callers that may receive a template pass a
+ * `renderSeconds` resolver. Returns null for an unrenderable / invalid
+ * duration.
+ */
+export function durationToMs(
+  duration: Duration,
+  renderSeconds?: (template: string) => number | undefined,
+): number | null {
+  if ("seconds" in duration) return duration.seconds * 1000;
+  if ("minutes" in duration) return duration.minutes * 60_000;
+  if ("hours" in duration) return duration.hours * 3_600_000;
+  const seconds = renderSeconds?.(duration.template);
+  if (seconds === undefined || !Number.isFinite(seconds) || seconds < 0) {
+    return null;
+  }
+  return Math.floor(seconds) * 1000;
+}
+
 // ─── Trigger ─────────────────────────────────────────────────────────────
 
 /**
@@ -32,6 +71,8 @@ import { z } from "zod";
  *   trigger itself before any action runs.
  * - `config` is the trigger's own configuration — only used by triggers
  *   that need extra setup (cron pattern for `time.cron`, etc.).
+ * - `for` is an optional dwell: fire only if the matched state still holds
+ *   after the duration (re-confirmed at expiry, restart-safe).
  */
 export const TriggerSchema = z.object({
   id: z
@@ -59,6 +100,9 @@ export const TriggerSchema = z.object({
     .describe(
       "Per-trigger configuration (e.g. cron pattern for time.cron, interval seconds for time.interval).",
     ),
+  for: DurationSchema.optional().describe(
+    "Dwell: fire only if the matched state still holds after this duration. Re-confirmed at expiry, restart-safe.",
+  ),
 });
 
 export type Trigger = z.infer<typeof TriggerSchema>;

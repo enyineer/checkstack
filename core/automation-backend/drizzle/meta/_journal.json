@@ -22,6 +22,13 @@
       "when": 1780046001689,
       "tag": "0002_silky_omega_red",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1780147180582,
+      "tag": "0003_sparkling_xorn",
+      "breakpoints": true
     }
   ]
 }

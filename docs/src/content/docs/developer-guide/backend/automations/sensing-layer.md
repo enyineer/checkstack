@@ -40,6 +40,33 @@ conditions:
 > [!NOTE]
 > Resolution is fail-open. A missing health-check client or a provider error yields an empty `health` namespace and a warning, so a healthcheck outage never wedges unrelated automations. The resolved set is bounded; truncation is logged, never silent.
 
+## Trigger `for:` dwell
+
+A trigger can declare a `for:` dwell - "fire only if the matched state still holds after this duration". This is the precise, event-driven counterpart to the poll-path condition above, and it is restart-safe.
+
+```yaml
+triggers:
+  - event: healthcheck.system.degraded
+    for: { minutes: 30 }   # only if still in the same status after 30 min
+actions:
+  - action: incident.create
+    config:
+      title: "{{ trigger.payload.systemName }} is critical"
+      severity: critical
+      systemIds: ["{{ trigger.payload.systemId }}"]
+```
+
+`for:` accepts a single-unit duration (`{ seconds }`, `{ minutes }`, or `{ hours }`) or `{ template }` rendering to a number of seconds.
+
+How it works:
+
+- When the trigger fires and its `filter` passes, the engine arms (or re-arms) a row in `automation_dwell_timers`, snapshotting the system's current status, and enqueues an `automation-dwell` wake job with the matching delay. No run starts yet. A re-fire pushes the deadline rather than stacking timers (unique on `(automationId, triggerId, contextKey)`).
+- At expiry the dwell re-confirms the system is STILL in the status it was in when armed (via the health-state provider). Only then does it evaluate the automation's pre-run conditions and start the run. A recovery within the window therefore cancels the pending fire even without an explicit inverse event.
+- Cancellation is DB-side: deleting the dwell row makes the queue job no-op when it pops (queue jobs are not cancellable). A state-change event that contradicts an armed dwell (e.g. `system.healthy` after a `system.degraded` dwell on the same system) eagerly deletes the row.
+
+> [!IMPORTANT]
+> The dwell row is the source of truth; the queue job is just the wake signal. If the job is lost (process restart, queue backend loss), the stalled sweeper catches the expired row and fires it. Both paths are idempotent via delete-on-fire, so a dwell fires at most once.
+
 ## Duration filters
 
 Duration helpers are pure, synchronous template filters - transforms over already-resolved values, never database calls. They compute against real time at call time, so "now" is fresh per evaluation rather than the frozen run-start timestamp.
