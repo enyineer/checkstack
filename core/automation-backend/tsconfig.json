@@ -29,6 +29,9 @@
       "path": "../queue-api"
     },
     {
+      "path": "../script-packages-backend"
+    },
+    {
       "path": "../signal-common"
     },
     {

@@ -281,6 +281,12 @@ export { createReconcileFsDeps } from "./reconcile-fs";
 export { findCacheEntry, type CacheEntryLocation } from "./cache-layout";
 export { rollupPackageTypes } from "./package-types";
 export {
+  resolveResolutionRoot,
+  resolveResolutionRootForHost,
+  resolveResolutionRootFromStore,
+  type ResolutionRootStatus,
+} from "./resolution-root";
+export {
   runInstallNow,
   type InstallControllerDeps,
   type InstallOutcome,

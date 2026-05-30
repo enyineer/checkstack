@@ -17,6 +17,12 @@
       "path": "../../core/common"
     },
     {
+      "path": "../../core/script-packages-backend"
+    },
+    {
+      "path": "../../core/script-packages-common"
+    },
+    {
       "path": "../../core/test-utils-backend"
     }
   ]

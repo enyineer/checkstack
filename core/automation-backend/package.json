@@ -20,6 +20,7 @@
     "@checkstack/command-backend": "workspace:*",
     "@checkstack/integration-common": "workspace:*",
     "@checkstack/notification-common": "workspace:*",
+    "@checkstack/script-packages-backend": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/signal-common": "workspace:*",

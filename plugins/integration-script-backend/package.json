@@ -20,6 +20,8 @@
     "@checkstack/automation-backend": "workspace:*",
     "@checkstack/automation-common": "workspace:*",
     "@checkstack/common": "workspace:*",
+    "@checkstack/script-packages-backend": "workspace:*",
+    "@checkstack/script-packages-common": "workspace:*",
     "zod": "^4.2.1"
   },
   "devDependencies": {

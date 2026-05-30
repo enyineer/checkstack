@@ -34,6 +34,7 @@ import type {
   ActionDefinition,
   ActionRunScope,
 } from "@checkstack/automation-backend";
+import type { ResolutionRootStatus } from "@checkstack/script-packages-backend";
 import { extractErrorMessage, SYSTEM_ACTOR } from "@checkstack/common";
 import { flattenScopeToShellEnv } from "./script-env";
 
@@ -290,6 +291,13 @@ export interface ScriptActionDeps {
    * real Bun subprocess.
    */
   runner?: EsmScriptRunner;
+  /**
+   * Resolves the managed npm-package resolution root for THIS run. Wired by
+   * the plugin (which has DB access). When omitted, no package resolution
+   * is attempted (today's behavior). `notReady` fails the run with a clear
+   * error instead of running against a stale / empty tree.
+   */
+  getResolutionRoot?: () => Promise<ResolutionRootStatus>;
 }
 
 export function createScriptRunAction(
@@ -324,6 +332,16 @@ export function createScriptRunAction(
         ...(scope.repeat ? { repeat: scope.repeat } : {}),
         automation: { runId, automationId, contextKey },
       };
+      // Resolve the managed npm-package root for this run. `none` -> unset
+      // (no packages configured); `notReady` -> fail clearly (syncing);
+      // `ready` -> point the runner at the materialized tree.
+      const rootStatus = await deps.getResolutionRoot?.();
+      if (rootStatus?.mode === "notReady") {
+        logger.error(rootStatus.reason);
+        return { success: false, error: rootStatus.reason };
+      }
+      const resolutionRoot =
+        rootStatus?.mode === "ready" ? rootStatus.root : undefined;
       try {
         const execResult = await runner.run({
           script: config.script,
@@ -331,6 +349,7 @@ export function createScriptRunAction(
           timeoutMs: config.timeout,
           helperModuleName: "@checkstack/integration",
           helperFunctionName: "defineIntegration",
+          ...(resolutionRoot ? { resolutionRoot } : {}),
         });
         const durationMs = Date.now() - startedAt;
 

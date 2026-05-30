@@ -61,6 +61,11 @@ await defaultEsmScriptRunner.run({
 
 When unset it falls back to `os.tmpdir()` (no `node_modules` visible) - fully backward compatible. Execution isolation is unchanged: the subprocess still only receives `SAFE_ENV_VARS`, so packages cannot read backend secrets. The new risk is purely at install time, mitigated by admin-only + pinned versions + `--ignore-scripts`.
 
+Every user-script execution call site resolves the root per run and passes it to the runner: the `run_script` automation action, the inline-script health-check collector (on core and satellites), and the in-UI `testScript` / `testCollectorScript` endpoints (so testing matches runtime). The root is resolved from the local store - `resolveResolutionRootFromStore(<dataDir>/script-packages)` returns `ready` (points the runner at `current`) when a tree is materialized, else `none` (unset). The `run_script` action additionally surfaces a clear `notReady` error when packages are configured but the desired hash isn't materialized yet. Shell scripts (`run_shell`, the shell collector) run via `sh -c` and don't resolve npm modules, so they get no resolution root.
+
+> [!IMPORTANT]
+> The runner ALWAYS writes a per-run `bunfig.toml` with `[install] auto = "disable"` and runs with that dir as CWD. Without it, Bun silently auto-installs any imported package from the registry (verified), defeating the managed allowlist. With it, an `import` resolves only against the reconciled `current/node_modules` (when set) and otherwise fails fast - the degradation the feature requires, independent of whether a resolution root is set.
+
 ## Satellite distribution
 
 Satellites are not on the backend event bus, so each core instance's `script-packages.changed` broadcast handler pushes a `refresh_script_packages { lockfileHash }` control message to its currently connected satellites over the existing WS channel. The desired hash is also carried in the `authenticated` / `config_updated` assignment payloads as the durable convergence backstop: a satellite that was offline (or missed the push) reconciles on its next connect regardless.

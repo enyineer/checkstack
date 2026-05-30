@@ -330,6 +330,7 @@ export const defaultEsmScriptRunner: EsmScriptRunner = {
     const tmpDir = await mkdtemp(path.join(tmpBase, "checkstack-script-"));
     const userScriptPath = path.join(tmpDir, "user.mjs");
     const runnerPath = path.join(tmpDir, "runner.mjs");
+    const bunfigPath = path.join(tmpDir, "bunfig.toml");
 
     const hasHelper =
       typeof helperModuleName === "string" &&
@@ -369,6 +370,14 @@ export const defaultEsmScriptRunner: EsmScriptRunner = {
             })
           : normalisedSource;
 
+      // Disable Bun auto-install in the per-run dir ALWAYS. Without this,
+      // `import "any-package"` silently fetches from the registry (verified
+      // empirically), defeating the whole managed-allowlist model. With it,
+      // an import resolves ONLY against the reconciled `<resolutionRoot>/
+      // node_modules` (when set) and otherwise fails fast - the clear
+      // degradation the package feature requires.
+      await writeFile(bunfigPath, '[install]\nauto = "disable"\n', "utf8");
+
       await writeFile(userScriptPath, userSource, "utf8");
       await writeFile(
         runnerPath,
@@ -384,6 +393,10 @@ export const defaultEsmScriptRunner: EsmScriptRunner = {
 
       proc = spawn({
         cmd: [process.execPath, runnerPath],
+        // CWD = the per-run dir so Bun reads its `bunfig.toml`
+        // (auto-install disabled) and resolves modules from
+        // `<resolutionRoot>/node_modules` when set.
+        cwd: tmpDir,
         env: pickSafeEnv(),
         stdout: "pipe",
         stderr: "pipe",

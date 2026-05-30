@@ -43,6 +43,10 @@ import type { AutomationStore } from "./automation-store";
 import { dispatchTrigger } from "./dispatch/engine";
 import type { DispatchDeps } from "./dispatch/types";
 import { collectDefinitionIssues } from "./validate-definition";
+import {
+  resolveResolutionRootFromStore,
+  resolveScriptPackagesDir,
+} from "@checkstack/script-packages-backend";
 import { runScriptTest } from "./script-test";
 import { buildReplayContext } from "./script-test-replay";
 import * as schema from "./schema";
@@ -519,7 +523,17 @@ export function createAutomationRouter(deps: RouterDeps) {
     // ─── Inline script testing ───────────────────────────────────────────
 
     testScript: os.testScript.handler(async ({ input }) => {
-      return runScriptTest({ input });
+      // Resolve the managed npm-package root from the local store so a test
+      // resolves the same allowlisted packages the real `run_script` action
+      // would (plan §4.1). Filesystem-only: ready when a tree is
+      // materialized, else unset. Execution safety is the runner's
+      // (auto-install disabled).
+      const status = await resolveResolutionRootFromStore(
+        resolveScriptPackagesDir(),
+      );
+      const resolutionRoot =
+        status.mode === "ready" ? status.root : undefined;
+      return runScriptTest({ input, deps: { resolutionRoot } });
     }),
 
     getRunScopeForReplay: os.getRunScopeForReplay.handler(async ({ input }) => {

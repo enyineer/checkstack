@@ -216,4 +216,17 @@ describe("defaultEsmScriptRunner resolutionRoot", () => {
     expect(res.result).toBeUndefined();
     expect(res.error).toBeDefined();
   });
+
+  it("does NOT auto-install a missing package from the registry (degradation)", async () => {
+    // A real, installable package name that is NOT in any resolutionRoot.
+    // With auto-install disabled in the per-run bunfig, Bun must error
+    // instead of silently fetching it from the registry.
+    const res = await defaultEsmScriptRunner.run({
+      script: `import isodd from "is-odd";\nexport default typeof isodd;`,
+      context: {},
+      timeoutMs: 20_000,
+    });
+    expect(res.result).toBeUndefined();
+    expect(res.error).toBeDefined();
+  });
 });

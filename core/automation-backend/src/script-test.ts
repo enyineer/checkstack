@@ -75,6 +75,13 @@ export interface ScriptTestResult {
 export interface ScriptTestDeps {
   esmRunner?: EsmScriptRunner;
   shellRunner?: ShellScriptRunner;
+  /**
+   * Managed npm-package resolution root, so a TypeScript test resolves the
+   * same allowlisted packages the real `run_script` action would. Omit when
+   * no packages are configured (today's behavior). Plan §4.1: "with the
+   * managed resolutionRoot once Feature 1 lands."
+   */
+  resolutionRoot?: string;
 }
 
 // =============================================================================
@@ -168,6 +175,7 @@ export async function runScriptTest({
       timeoutMs: input.timeoutMs,
       helperModuleName: "@checkstack/integration",
       helperFunctionName: "defineIntegration",
+      ...(deps.resolutionRoot ? { resolutionRoot: deps.resolutionRoot } : {}),
     });
     const durationMs = Date.now() - startedAt;
     return {

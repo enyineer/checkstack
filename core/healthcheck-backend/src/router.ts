@@ -11,6 +11,10 @@ import {
 } from "@checkstack/backend-api";
 import { healthCheckContract } from "@checkstack/healthcheck-common";
 import type { StrategyCategory } from "@checkstack/healthcheck-common";
+import {
+  resolveResolutionRootFromStore,
+  resolveScriptPackagesDir,
+} from "@checkstack/script-packages-backend";
 import { HealthCheckService } from "./service";
 import { runCollectorScriptTest } from "./collector-script-test";
 import { healthCheckHooks } from "./hooks";
@@ -127,7 +131,16 @@ export const createHealthCheckRouter = (opts: {
     }),
 
     testCollectorScript: os.testCollectorScript.handler(async ({ input }) => {
-      return runCollectorScriptTest({ input });
+      // Resolve the managed npm-package root from the local store so a
+      // collector test resolves the same allowlisted packages the real
+      // collector would (plan §4.1). Filesystem-only; safety is the
+      // runner's (auto-install disabled).
+      const status = await resolveResolutionRootFromStore(
+        resolveScriptPackagesDir(),
+      );
+      const resolutionRoot =
+        status.mode === "ready" ? status.root : undefined;
+      return runCollectorScriptTest({ input, deps: { resolutionRoot } });
     }),
 
     getConfigurations: os.getConfigurations.handler(async () => {

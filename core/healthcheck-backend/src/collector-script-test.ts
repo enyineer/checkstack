@@ -57,6 +57,12 @@ export interface CollectorScriptTestResult {
 export interface CollectorScriptTestDeps {
   esmRunner?: EsmScriptRunner;
   shellRunner?: ShellScriptRunner;
+  /**
+   * Managed npm-package resolution root, so a TypeScript collector test
+   * resolves the same allowlisted packages the real collector would. Omit
+   * when no packages are configured. Plan §4.1.
+   */
+  resolutionRoot?: string;
 }
 
 /**
@@ -150,6 +156,7 @@ export async function runCollectorScriptTest({
       timeoutMs: input.timeoutMs,
       helperModuleName: "@checkstack/healthcheck",
       helperFunctionName: "defineHealthCheck",
+      ...(deps.resolutionRoot ? { resolutionRoot: deps.resolutionRoot } : {}),
     });
     const durationMs = Date.now() - startedAt;
     return {

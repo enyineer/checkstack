@@ -1,8 +1,15 @@
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
+import {
+  resolveResolutionRootFromStore,
+  resolveScriptPackagesDir,
+} from "@checkstack/script-packages-backend";
 import { ScriptHealthCheckStrategy } from "./strategy";
 import { pluginMetadata } from "./plugin-metadata";
 import { ExecuteCollector } from "./execute-collector";
-import { InlineScriptCollector } from "./inline-script-collector";
+import {
+  InlineScriptCollector,
+  defaultInlineScriptExecutor,
+} from "./inline-script-collector";
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
@@ -18,7 +25,17 @@ export default createBackendPlugin({
         const strategy = new ScriptHealthCheckStrategy();
         healthCheckRegistry.register(strategy);
         collectorRegistry.register(new ExecuteCollector());
-        collectorRegistry.register(new InlineScriptCollector());
+        // The inline TS collector resolves the managed npm-package tree from
+        // the local store - identical on core and satellites (same
+        // `<dataDir>/script-packages/current` convention). No RPC needed, so
+        // it works in the satellite runtime too. Execution safety is
+        // guaranteed by the runner (auto-install disabled); this just points
+        // it at the synced tree when present.
+        collectorRegistry.register(
+          new InlineScriptCollector(defaultInlineScriptExecutor, () =>
+            resolveResolutionRootFromStore(resolveScriptPackagesDir()),
+          ),
+        );
       },
     });
   },
