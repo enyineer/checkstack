@@ -126,6 +126,10 @@ There is no `getSecret` / `resolveSecret` on the browser-facing contract. Resolu
 
 `maskSecrets({ text, values })` replaces every literal occurrence of each known secret value with `****`, skipping trivially short values (under 4 chars) to avoid over-masking. A run-scoped `SecretMaskingContext` holds only the run's resolved values (least privilege), and `maskScriptRunOutput` applies redaction to a run's `result` / `stdout` / `stderr` / `error` at the output boundary before it is persisted or returned. This is wired into the automation `run_script` / `run_shell` actions and the in-UI test panel, so even a script that echoes a secret it was given is redacted.
 
+### Run-wide masking at the persistence choke point
+
+Source-side masking covers script and collector output, but a run also writes step `result_payload` / `error_message` and a run-level `error_message` for EVERY action (provider calls, `log`, etc.), and a provider HTTP error could embed a resolved connection credential. So the automation dispatch run accumulates every secret value it resolves into a run-scoped registry (`RunSecretRegistry`): the engine wraps each run's `getService` so resolving the secret resolver or the connection store registers the resolved values (least-privilege, in memory only, dropped when the run goes terminal). The run-state store then masks step + run output with these values BEFORE persisting, so every downstream read / DTO / run-detail page is masked by construction. This is the run-wide net; the script / satellite-collector source-side masking stays as defense in depth.
+
 ```ts
 import { maskSecrets } from "@checkstack/secrets-common";
 
