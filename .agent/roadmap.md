@@ -14,6 +14,13 @@ Last updated: 2026-05-31.
 
 ### Tier-2 real-infrastructure test harness (HIGH value, deferred)
 
+> **Update 2026-05-31:** folded into `.agent/plans/reactive-automation-engine.md`
+> as a **surgical** real-services integration lane (real Postgres pool + real
+> Redis/BullMQ, env-gated, ~5 boundary tests only). pg-mem was evaluated and
+> **rejected** (no advisory-lock / multi-connection / MVCC fidelity — it would
+> recreate the false-green). The reactive re-architecture makes this lane a
+> prerequisite, not a deferral. The notes below remain the rationale.
+
 **What:** an integration-test harness that runs the multi-instance correctness
 code against **real Postgres** (and, as a stretch, **real Redis/BullMQ**) instead
 of the in-memory fakes the unit suite uses today.
@@ -83,6 +90,11 @@ adds attack surface + per-satellite identity management. Pick up only if a
 core-unreachable-but-Vault-reachable deployment appears.
 
 ### L5 — `sweepWaitUntilLocks` re-ticks every lock each cycle (perf)
+
+> **Update 2026-05-31:** obviated by the reactive engine
+> (`.agent/plans/reactive-automation-engine.md`) — `wait_until` becomes
+> event-woken with no poll re-check, so the condition-re-tick sweep this describes
+> goes away entirely. Kept here only until that plan lands.
 
 `sweepWaitUntilLocks` (`core/automation-backend/src/dispatch/stalled-sweeper.ts`)
 re-evaluates **every** `until` wait lock on every pod every 30s with no staleness
