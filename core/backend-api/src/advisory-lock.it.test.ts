@@ -27,6 +27,13 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
 
     beforeAll(() => {
       pool = new Pool({ connectionString: PG_URL });
+      // A pooled client can error asynchronously while idle (e.g. its backend
+      // is terminated by the kill test below). pg emits that on the pool; with
+      // no handler it surfaces as an unhandled "Connection terminated
+      // unexpectedly" error that fails the whole test file. Swallowing idle-
+      // client errors is the documented pg pattern - the tests still assert
+      // behaviour through fresh checkouts.
+      pool.on("error", () => {});
     });
 
     afterAll(async () => {
@@ -63,19 +70,20 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
       const blocked = await service.tryAcquire(key);
       expect(blocked).toBeNull();
 
-      // Terminate every OTHER backend in this database from a fresh
-      // connection. The handle owns a separate pooled connection holding the
-      // session lock; terminating it drops the session, so Postgres
-      // auto-releases the advisory lock. `pg_terminate_backend` is run from a
-      // connection that is NOT the holder (we exclude our own pid).
+      // Terminate ONLY the backend holding the advisory lock - found via
+      // `pg_locks` - from a fresh connection. Dropping that session makes
+      // Postgres auto-release the lock. We deliberately do NOT kill every other
+      // backend (the old approach): that also terminated the pool's idle
+      // connections, whose async "connection terminated" errors flaked the test
+      // and left the pool unusable. The handle holds exactly one advisory lock,
+      // so this targets precisely the holder.
       const killer = await pool.connect();
       try {
         await killer.query(
           `SELECT pg_terminate_backend(pid)
-             FROM pg_stat_activity
-            WHERE datname = current_database()
-              AND pid <> pg_backend_pid()
-              AND state IS NOT NULL`,
+             FROM pg_locks
+            WHERE locktype = 'advisory'
+              AND pid <> pg_backend_pid()`,
         );
       } finally {
         killer.release();
@@ -92,6 +100,12 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
       }
       expect(reacquired).not.toBeNull();
       await reacquired?.release();
+
+      // The `held` handle still owns its (now-terminated) client. Release it so
+      // the dead client is returned to the pool - otherwise `pool.end()` in
+      // afterAll blocks waiting for the checked-out client to drain. The unlock
+      // query runs against a dead connection and rejects; that's expected.
+      await held?.release().catch(() => {});
     });
   },
 );

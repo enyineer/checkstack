@@ -65,6 +65,11 @@ function makeFakePool(): FakePool {
         release() {
           counters.released++;
         },
+        on() {
+          // The fake never emits async client errors; the real client's
+          // `on('error')` hardening is exercised by the IT against real
+          // Postgres (killing the holding connection).
+        },
       };
     },
   };
