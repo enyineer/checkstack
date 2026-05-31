@@ -98,6 +98,24 @@ export default tseslint.config(
           allowedTables: [],
         },
       ],
+      // Horizontal-scale safety tripwire (.agent/rules/state-and-scale.md). A
+      // reactive entity's `read` must resolve from shared/durable storage so a
+      // write on pod A is visible on pod B. Severity is intentionally `warn`
+      // and MUST NOT be escalated to `error`: it is a single-file forcing
+      // function at the `defineEntity` boundary, not a sound cross-module
+      // analysis (the deterministic check is the cross-pod IT test). See
+      // .agent/rules/code-style-guide.md ("do NOT escalate warnings to errors").
+      "checkstack/no-pod-local-entity-state": [
+        "warn",
+        {
+          // Entity kinds exempt from the durable-read check (none today).
+          allowedKinds: [],
+          // Durable-accessor function names that resolve to shared storage but
+          // don't match the built-in name shapes (createXEntityRead / getMany*
+          // / *EntityStates). Empty: every real site matches a built-in shape.
+          durableAccessors: [],
+        },
+      ],
     },
   },
   // Frontend packages: ban console.* to enforce proper error handling
