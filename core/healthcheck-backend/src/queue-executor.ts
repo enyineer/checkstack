@@ -53,6 +53,7 @@ import {
 import { recordStateTransition } from "./state-transitions";
 import {
   writeHealthEntity,
+  createHealthEntitySerializer,
   type HealthEntityState,
 } from "./health-entity";
 import type { EntityHandle } from "@checkstack/automation-backend";
@@ -502,6 +503,14 @@ async function executeHealthCheckJob(props: {
   // Create service for aggregated state evaluation
   const service = new HealthCheckService(db, registry, collectorRegistry);
 
+  // Per-system serializer for the reactive health mutate (§10.3): a
+  // transaction-scoped advisory lock keyed `health:<systemId>` wraps the
+  // snapshot-prev + apply + diff + emit so concurrent evaluations of one
+  // system (multiple per-config jobs across pods, or at-least-once
+  // redelivery) can't double-emit a single logical transition. Bound to this
+  // job's systemId below at every `writeHealthEntity` call.
+  const serializeHealthWrite = createHealthEntitySerializer({ db })(systemId);
+
   // Capture aggregated state BEFORE this run for comparison
   const previousState = await service.getSystemHealthStatus(systemId);
   const previousStatus = previousState.status;
@@ -822,6 +831,7 @@ async function executeHealthCheckJob(props: {
           newState = await service.getSystemHealthStatus(systemId);
           return toHealthEntityView(newState);
         },
+        serialize: serializeHealthWrite,
         onError: (error) =>
           logger.warn(`Failed to mirror health entity for ${systemId}`, error),
       });
@@ -950,6 +960,7 @@ async function executeHealthCheckJob(props: {
         newState = await service.getSystemHealthStatus(systemId);
         return toHealthEntityView(newState);
       },
+      serialize: serializeHealthWrite,
       onError: (error) =>
         logger.warn(`Failed to mirror health entity for ${systemId}`, error),
     });
@@ -1075,6 +1086,7 @@ async function executeHealthCheckJob(props: {
         newState = await service.getSystemHealthStatus(systemId);
         return toHealthEntityView(newState);
       },
+      serialize: serializeHealthWrite,
       onError: (mirrorError) =>
         logger.warn(
           `Failed to mirror health entity for ${systemId}`,

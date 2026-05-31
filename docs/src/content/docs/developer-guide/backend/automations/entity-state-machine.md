@@ -144,7 +144,7 @@ await incidentEntity.mutate({
 
 A kind whose reactive subset has no stored row of its own - it is derivable from the plugin's own durable data - computes it on read instead of materializing a copy. The `read` accessor recomputes the view from the same tables the rest of the plugin already reads; `handle.mutate` snapshots `prev` through that same `read` before the write, so a real change still produces exactly one correct `ENTITY_CHANGED`.
 
-The per-system `health` aggregate is the canonical example. It has no domain table and no framework storage; its `read` derives `{ status, healthyChecks, totalChecks }` on demand from `health_check_runs` (via `getSystemHealthStatus`), gated on the system having at least one persisted run:
+The per-system `health` aggregate is the canonical example. It has no domain table and no framework storage; its `read` derives `{ status, healthyChecks, totalChecks }` on demand from `health_check_runs` (via `getSystemHealthStatus`), gated on the system having at least one enabled check association. A system with an enabled check but no runs yet resolves to the same default-`healthy` baseline the executor reads, so a first-ever run that comes up unhealthy is a real `healthy -> degraded` diff (not a suppressed create):
 
 ```ts
 import { z } from "zod";
@@ -157,13 +157,17 @@ const HealthEntityStateSchema = z.object({
 });
 
 // COMPUTE-ON-READ: no stored row. Derive the view from the durable
-// health_check_runs the rest of the plugin reads. A system with no runs yet
-// has no entity (the read omits it), so its first evaluation is a create.
+// health_check_runs the rest of the plugin reads. The entity resolves iff the
+// system has at least one ENABLED check association; a run-less system with an
+// enabled check resolves to the default-`healthy` baseline (the executor's
+// pre-run state), so a first-ever unhealthy run is a real healthy -> degraded
+// diff rather than a suppressed create.
 const read: EntityRead<HealthEntityState> = async (ids) => {
   const out: Record<string, HealthEntityState> = {};
   await Promise.all(ids.map(async (systemId) => {
-    if (!(await systemHasRuns(systemId))) return;
     const overview = await service.getSystemHealthStatus(systemId);
+    // No enabled check associations => no health entity for this system.
+    if (overview.checkStatuses.length === 0) return;
     out[systemId] = {
       status: overview.status,
       healthyChecks: overview.checkStatuses.filter((c) => c.status === "healthy").length,
@@ -191,6 +195,9 @@ await handle.mutate({
   },
 });
 ```
+
+> [!IMPORTANT]
+> A COMPUTE-ON-READ kind whose state can be evaluated by more than one pod at once must serialize the snapshot-`prev` + `apply` + diff + emit per entity id. Without a lock, two concurrent evaluations of one id both snapshot the same `prev`, both write, and both diff the same transition - emitting two `ENTITY_CHANGED` (and two transition rows) for one logical change. The `health` kind wraps each system's `handle.mutate` in a transaction-scoped advisory lock keyed `health:<systemId>` (`withXactLock` from `@checkstack/backend-api`), so concurrent per-config jobs across pods (or at-least-once redelivery) collapse to exactly one emit.
 
 The `slo` entity computes the same way: its `budgetRemainingPercent` is a pure function of the objective's append-only downtime history, so the `read` recomputes it via the SLO engine rather than storing a second copy.
 
