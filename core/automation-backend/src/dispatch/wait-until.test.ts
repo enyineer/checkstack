@@ -4,9 +4,14 @@ import { createActionRegistry } from "../action-registry";
 import {
   checkWaitUntil,
   dispatchTrigger,
-  WAIT_UNTIL_QUEUE_NAME,
+  WAIT_TIMEOUT_QUEUE_NAME,
 } from "./engine";
 import { startStalledSweeper } from "./stalled-sweeper";
+import { createChangeDeriverRegistry } from "../entity/change-derivers";
+import { routeEntityChange } from "./stage1-router";
+import { handleDispatchJob, DISPATCH_QUEUE_NAME } from "./stage2-dispatch";
+import type { EntityChanged } from "@checkstack/automation-common";
+import { SYSTEM_ACTOR } from "@checkstack/common";
 import {
   makeDispatchDeps,
   makeRecordingAction,
@@ -91,11 +96,25 @@ function setup(initialStatus: string) {
   const rec = makeRecordingAction();
   actionsReg.register(rec.definition, testPlugin);
   const health = mutableHealthClient(initialStatus);
-  const { deps, runs, queue } = makeDispatchDeps({
+  const { deps, runs, queue, state } = makeDispatchDeps({
     actions: actionsReg,
     healthCheckClient: health.client,
   });
-  return { deps, runs, queue, rec, health };
+  return { deps, runs, queue, state, rec, health };
+}
+
+/** A `health:<id>` entity change, used to drive Stage-1 wake routing. */
+function healthChange(id: string): EntityChanged {
+  return {
+    kind: "health",
+    id,
+    prev: { status: "unhealthy" },
+    next: { status: "healthy" },
+    delta: { status: "healthy" },
+    changedFields: ["status"],
+    actor: SYSTEM_ACTOR,
+    occurredAt: new Date().toISOString(),
+  };
 }
 
 describe("wait_until — immediate satisfaction", () => {
@@ -118,11 +137,11 @@ describe("wait_until — immediate satisfaction", () => {
   });
 });
 
-describe("wait_until — becomes true", () => {
-  it("suspends, then resumes when the condition turns true", async () => {
+describe("wait_until — reactive suspend + wake-index", () => {
+  it("suspends with a wake-index ref and NO poll job, then a relevant change wakes + resumes", async () => {
     const { deps, runs, queue, rec, health } = setup("unhealthy");
     const auto = automation([
-      { wait_until: { condition: CONDITION, poll_seconds: 10 } },
+      { wait_until: { condition: CONDITION } },
       { action: "test.record", config: { value: "recovered" } },
     ]);
 
@@ -136,35 +155,89 @@ describe("wait_until — becomes true", () => {
     expect(result.status).toBe("waiting");
     expect(runs.waitLocks.size).toBe(1);
     expect(rec.calls).toHaveLength(0);
-    // First re-check job enqueued.
-    expect(queue.jobs.some((j) => j.queue === WAIT_UNTIL_QUEUE_NAME)).toBe(true);
 
+    // Reactive: NO poll re-check job is enqueued (and no timeout was set).
+    expect(queue.jobs).toHaveLength(0);
+
+    // The wake-index recorded the health wildcard (health.system → kind:*).
     const lock = [...runs.waitLocks.values()][0]!;
+    const refs = runs.wakeRefs.get(lock.id);
+    expect(refs && [...refs]).toEqual(["health:*"]);
 
-    // Still false → still-waiting, no resume.
-    const o1 = await checkWaitUntil(deps, {
-      runId: result.runId,
-      waitLockId: lock.id,
-      automation: auto,
-    });
-    expect(o1).toBe("still-waiting");
-    expect(rec.calls).toHaveLength(0);
-
-    // Recover → next check resumes.
+    // Stage-1 routing of a relevant ENTITY_CHANGED enqueues a Stage-2 wake.
     health.set("healthy");
-    const o2 = await checkWaitUntil(deps, {
-      runId: result.runId,
-      waitLockId: lock.id,
-      automation: auto,
+    const changeDerivers = createChangeDeriverRegistry();
+    const jobs = await routeEntityChange({
+      deps,
+      automationStore: storeFor(auto),
+      changeDerivers,
+      changed: healthChange("sys-1"),
     });
-    expect(o2).toBe("resumed");
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.reason).toBe("wake");
+    // The Stage-2 wake job was enqueued onto the dispatch queue.
+    expect(queue.jobs.some((j) => j.queue === DISPATCH_QUEUE_NAME)).toBe(true);
+
+    // Run the Stage-2 wake job → re-eval (now true) → resume.
+    await handleDispatchJob({
+      deps,
+      automationStore: storeFor(auto),
+      job: jobs[0]!,
+    });
     expect(runs.runs.get(result.runId)?.status).toBe("success");
     expect(rec.calls.map((c) => c.value)).toEqual(["recovered"]);
     expect(runs.waitLocks.size).toBe(0);
   });
+
+  it("a wake while the condition is still false does NOT resume (re-eval gate)", async () => {
+    const { deps, runs, rec } = setup("unhealthy");
+    const auto = automation([
+      { wait_until: { condition: CONDITION } },
+      { action: "test.record", config: { value: "recovered" } },
+    ]);
+    const result = await dispatchTrigger(deps, {
+      automation: auto,
+      triggerId: "test_event",
+      triggerEventId: "test.event",
+      payload: { id: "sys-1" },
+      contextKey: "sys-1",
+    });
+    expect(result.status).toBe("waiting");
+
+    const lock = [...runs.waitLocks.values()][0]!;
+    // Still unhealthy → re-eval false → still-waiting.
+    const outcome = await checkWaitUntil(deps, {
+      runId: result.runId,
+      waitLockId: lock.id,
+      automation: auto,
+    });
+    expect(outcome).toBe("still-waiting");
+    expect(rec.calls).toHaveLength(0);
+    expect(runs.waitLocks.size).toBe(1);
+  });
 });
 
 describe("wait_until — timeout", () => {
+  it("arms a single timeout timer job (not a poll loop)", async () => {
+    const { deps, queue } = setup("unhealthy");
+    const auto = automation([
+      { wait_until: { condition: CONDITION, timeout_seconds: 60 } },
+      { action: "test.record", config: { value: "escalate" } },
+    ]);
+    await dispatchTrigger(deps, {
+      automation: auto,
+      triggerId: "test_event",
+      triggerEventId: "test.event",
+      payload: { id: "sys-1" },
+      contextKey: "sys-1",
+    });
+    const timeoutJobs = queue.jobs.filter(
+      (j) => j.queue === WAIT_TIMEOUT_QUEUE_NAME,
+    );
+    expect(timeoutJobs).toHaveLength(1);
+    expect(timeoutJobs[0]?.startDelay).toBeGreaterThan(0);
+  });
+
   it("continues past on timeout when continue_on_timeout is true (default)", async () => {
     const { deps, runs, rec } = setup("unhealthy");
     const auto = automation([
@@ -226,12 +299,12 @@ describe("wait_until — timeout", () => {
   });
 });
 
-describe("wait_until — restart recovery via sweeper", () => {
-  it("the sweeper re-ticks an until lock whose re-check job was lost", async () => {
-    const { deps, runs, rec, health } = setup("unhealthy");
+describe("wait_until — timeout backstop via sweeper", () => {
+  it("the sweeper applies the timeout policy for an expired until lock whose timer was lost", async () => {
+    const { deps, runs, rec } = setup("unhealthy");
     const auto = automation([
-      { wait_until: { condition: CONDITION, poll_seconds: 10 } },
-      { action: "test.record", config: { value: "recovered" } },
+      { wait_until: { condition: CONDITION, timeout_seconds: 60 } },
+      { action: "test.record", config: { value: "escalate" } },
     ]);
     const result = await dispatchTrigger(deps, {
       automation: auto,
@@ -242,8 +315,10 @@ describe("wait_until — restart recovery via sweeper", () => {
     });
     expect(result.status).toBe("waiting");
 
-    // Recover; the queue job is "lost" — only the sweeper runs.
-    health.set("healthy");
+    // The timeout timer job is "lost"; force the deadline into the past and
+    // only the sweeper runs.
+    const lock = [...runs.waitLocks.values()][0]!;
+    lock.timeoutAt = new Date(Date.now() - 1000);
     const sweeper = startStalledSweeper({
       deps,
       automationStore: storeFor(auto),
@@ -252,8 +327,9 @@ describe("wait_until — restart recovery via sweeper", () => {
     await sweeper.sweep();
     sweeper.stop();
 
+    // continue_on_timeout defaults to true → run continues past the wait.
     expect(runs.runs.get(result.runId)?.status).toBe("success");
-    expect(rec.calls.map((c) => c.value)).toEqual(["recovered"]);
+    expect(rec.calls.map((c) => c.value)).toEqual(["escalate"]);
     expect(runs.waitLocks.size).toBe(0);
   });
 });
@@ -268,7 +344,7 @@ describe("wait_until — nested inside containers", () => {
             when: "trigger.payload.sev == 'crit'",
             sequence: [
               { action: "test.record", config: { value: "opened" } },
-              { wait_until: { condition: CONDITION, poll_seconds: 10 } },
+              { wait_until: { condition: CONDITION } },
               { action: "test.record", config: { value: "closed" } },
             ],
           },
@@ -307,7 +383,7 @@ describe("wait_until — nested inside containers", () => {
           count: 1,
           sequence: [
             { action: "test.record", config: { value: "iter" } },
-            { wait_until: { condition: CONDITION, poll_seconds: 10 } },
+            { wait_until: { condition: CONDITION } },
             { action: "test.record", config: { value: "done" } },
           ],
         },
@@ -343,7 +419,7 @@ describe("wait_until — nested inside containers", () => {
           {
             sequence: [
               { action: "test.record", config: { value: "branch-a" } },
-              { wait_until: { condition: CONDITION, poll_seconds: 10 } },
+              { wait_until: { condition: CONDITION } },
               { action: "test.record", config: { value: "a-done" } },
             ],
           },

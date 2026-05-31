@@ -236,11 +236,24 @@ export interface RunStore {
 
   // Wait locks (for wait_for_trigger + delay + wait_until durability)
   createWaitLock(input: CreateWaitLockInput): Promise<string>;
+  /**
+   * Insert a `kind: "until"` wait lock PLUS its wake-index dependency rows
+   * (one per ref) atomically (reactive automation engine §8.2). The
+   * `(waitLockId, ref)` pair is unique, so duplicate refs collapse via
+   * `ON CONFLICT DO NOTHING`. Returns the new wait-lock id.
+   */
+  createWaitLockWithWakeRefs(input: CreateWaitLockWithRefsInput): Promise<string>;
   loadWaitLock(id: string): Promise<LoadedWaitLock | undefined>;
   findWaitLocksFor(
     eventId: string,
     contextKey: string | null,
   ): Promise<LoadedWaitLock[]>;
+  /**
+   * Wake-index intersection lookup (reactive automation engine §8.2): every
+   * `kind: "until"` wait lock that depends on `ref` (exact match) OR on the
+   * kind-level wildcard for `ref`'s kind. Generalizes `findWaitLocksFor`.
+   */
+  findWaitLocksByWakeRef(ref: string): Promise<LoadedWaitLock[]>;
   /** All wait locks of a given kind — powers the sweeper's `until` re-tick. */
   findWaitLocksByKind(kind: WaitLockKind): Promise<LoadedWaitLock[]>;
   /**
@@ -320,6 +333,23 @@ export interface CreateWaitLockInput {
   timeoutAt: Date | null;
   /** Only set for `kind: "until"`. */
   waitConfig?: UntilWaitConfig | null;
+}
+
+/**
+ * A reactive `wait_until` suspend: the wait lock plus the wake-index refs
+ * its condition depends on (reactive automation engine §8.2). `kind` is
+ * always `"until"`; the refs are the `${kind}:${id}` (or `${kind}:*`)
+ * strings the condition reads.
+ */
+export interface CreateWaitLockWithRefsInput {
+  runId: string;
+  actionPath: string;
+  eventId: string;
+  contextKey: string | null;
+  timeoutAt: Date | null;
+  waitConfig: UntilWaitConfig;
+  /** Wake-index dependency refs (`${kind}:${id}` or `${kind}:*`). */
+  wakeRefs: ReadonlyArray<string>;
 }
 
 export interface LoadedWaitLock {

@@ -5,7 +5,28 @@
  * entity-change event (§6.1).
  */
 export { entityExtensionPoint } from "./extension-point";
-export type { EntityExtensionPoint } from "./extension-point";
+export type {
+  EntityExtensionPoint,
+  RegisterChangeDeriver,
+} from "./extension-point";
+export {
+  createChangeDeriverRegistry,
+} from "./change-derivers";
+export type {
+  ChangeDeriverRegistry,
+  EntityChangeDeriver,
+} from "./change-derivers";
+export {
+  createEntityChangedSubscriptions,
+} from "./on-entity-changed";
+export type {
+  EntityChangedSubscriptions,
+  OnEntityChanged,
+  OnEntityChangedInput,
+  EntityChangedHandler,
+  EntityChangedDelivery,
+  EntityChangedUnsubscribe,
+} from "./on-entity-changed";
 export type {
   DefineEntity,
   DefineEntityInput,

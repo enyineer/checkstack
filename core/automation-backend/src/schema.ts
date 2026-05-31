@@ -462,3 +462,45 @@ export const entityTransitions = pgTable(
     ),
   }),
 );
+
+/**
+ * Wake-index — the reactive `wait_until` dependency set (reactive
+ * automation engine §8.1). A suspended `wait_until` extracts the
+ * `state.*` refs its condition reads and inserts one row here per ref,
+ * all pointing at the owning `automation_wait_locks` row (`kind = "until"`).
+ *
+ * Rather than overloading the single `(eventId, contextKey)` columns on
+ * `automation_wait_locks`, this child table lets one wait depend on a SET
+ * of refs across any kinds. Stage-1 routing answers "which waits depend on
+ * this just-changed `kind:id` ref?" with an indexed intersection join (§8.2).
+ *
+ * `ref` is `${kind}:${id}` (e.g. "incident:abc", "health:sys-1"), or the
+ * kind-level wildcard `${kind}:*` when extraction couldn't resolve a
+ * concrete id (§8.3 — the wait then wakes on ANY change of that kind and
+ * re-evaluates). The `(waitLockId, ref)` pair is uniquely indexed so a
+ * concurrent arm race can't double-insert the same dependency (§14.4 #3).
+ */
+export const automationWakeIndex = pgTable(
+  "automation_wake_index",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    waitLockId: text("wait_lock_id")
+      .notNull()
+      .references(() => automationWaitLocks.id, { onDelete: "cascade" }),
+    /** The dependency ref: `${kind}:${id}` or the kind wildcard `${kind}:*`. */
+    ref: text("ref").notNull(),
+  },
+  (t) => ({
+    /** Stage-1 lookup: "which waits depend on this just-changed ref?" */
+    refIdx: index("automation_wake_index_ref_idx").on(t.ref),
+    /** Cascade-friendly per-lock lookups + the arm-race uniqueness guard. */
+    lockIdx: index("automation_wake_index_lock_idx").on(t.waitLockId),
+    /** A wait depends on each distinct ref at most once (ON CONFLICT arm). */
+    lockRefUnique: uniqueIndex("automation_wake_index_lock_ref_unique").on(
+      t.waitLockId,
+      t.ref,
+    ),
+  }),
+);

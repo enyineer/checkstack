@@ -52,9 +52,17 @@ import {
   type DwellQueueConsumer,
 } from "./dispatch/dwell-queue";
 import {
-  startWaitUntilQueueConsumer,
-  type WaitUntilQueueConsumer,
-} from "./dispatch/wait-until-queue";
+  startWaitTimeoutQueueConsumer,
+  type WaitTimeoutQueueConsumer,
+} from "./dispatch/wait-timeout-queue";
+import {
+  startDispatchQueueConsumer,
+  type DispatchQueueConsumer,
+} from "./dispatch/stage2-dispatch";
+import {
+  startStage1Router,
+  type Stage1Router,
+} from "./dispatch/stage1-router";
 import { createDwellStore } from "./dispatch/dwell-store";
 import { createRunStore } from "./dispatch/run-state";
 import { createRunStateStore } from "./dispatch/run-state-store";
@@ -86,11 +94,15 @@ import {
   registerBuiltinTriggers,
 } from "./builtin-triggers";
 import {
+  createChangeDeriverRegistry,
   createChangeEmitter,
+  createEntityChangedSubscriptions,
   createEntityRegistry,
   createEntityStore,
   entityExtensionPoint,
+  type ChangeDeriverRegistry,
   type ChangeEmitter,
+  type EntityChangedSubscriptions,
   type EntityRegistry,
 } from "./entity";
 import { ENTITY_CHANGED_HOOK } from "./entity/hook";
@@ -115,11 +127,15 @@ interface EnvStash {
   automationStore: ReturnType<typeof createAutomationStore>;
   entityRegistry: EntityRegistry;
   entityChangeEmitter: ChangeEmitter;
+  entityChangedSubscriptions: EntityChangedSubscriptions;
+  changeDerivers: ChangeDeriverRegistry;
   triggerSubscriptions?: TriggerSubscriptions;
   stalledSweeper?: StalledSweeper;
   delayConsumer?: DelayQueueConsumer;
   dwellConsumer?: DwellQueueConsumer;
-  waitUntilConsumer?: WaitUntilQueueConsumer;
+  waitTimeoutConsumer?: WaitTimeoutQueueConsumer;
+  dispatchConsumer?: DispatchQueueConsumer;
+  stage1Router?: Stage1Router;
 }
 
 export default createBackendPlugin({
@@ -157,6 +173,16 @@ export default createBackendPlugin({
       emitter: entityChangeEmitter,
     });
 
+    // Reactive dispatch pipeline (reactive automation engine §7). The
+    // change-deriver registry maps a kind's change → trigger event id(s)
+    // for Stage-1 routing; per-domain derivers are registered in Phase 4.
+    // The entity-changed subscription service rides ENTITY_CHANGED (filtered
+    // by kind) so other plugins can react without touching the internal hook
+    // (§6.1). Both buffer registrations made before afterPluginsReady wires
+    // the real `onHook`.
+    const changeDerivers = createChangeDeriverRegistry();
+    const entityChangedSubscriptions = createEntityChangedSubscriptions();
+
     env.registerAccessRules(automationAccessRules);
 
     // Phase 1: register the entity extension point so other plugins can
@@ -164,6 +190,8 @@ export default createBackendPlugin({
     env.registerExtensionPoint(entityExtensionPoint, {
       defineEntity: entityRegistry.defineEntity,
       declareNonReactiveState: entityRegistry.declareNonReactiveState,
+      onEntityChanged: entityChangedSubscriptions.onEntityChanged,
+      registerChangeDeriver: (input) => changeDerivers.register(input),
     });
 
     env.registerExtensionPoint(automationTriggerExtensionPoint, {
@@ -403,6 +431,8 @@ export default createBackendPlugin({
         stash.automationStore = automationStore;
         stash.entityRegistry = entityRegistry;
         stash.entityChangeEmitter = entityChangeEmitter;
+        stash.entityChangedSubscriptions = entityChangedSubscriptions;
+        stash.changeDerivers = changeDerivers;
 
         const router = createAutomationRouter({
           db: database,
@@ -450,10 +480,13 @@ export default createBackendPlugin({
         env.registerCleanup(async () => {
           const s = env as unknown as EnvStash;
           await s.triggerSubscriptions?.dispose();
+          await s.stage1Router?.dispose();
+          await s.entityChangedSubscriptions?.disposeAll();
           s.stalledSweeper?.stop();
           await s.delayConsumer?.stop();
           await s.dwellConsumer?.stop();
-          await s.waitUntilConsumer?.stop();
+          await s.waitTimeoutConsumer?.stop();
+          await s.dispatchConsumer?.stop();
         });
 
         logger.debug("✅ Automation Backend initialized.");
@@ -474,12 +507,15 @@ export default createBackendPlugin({
         // Wire the deferred entity-change emitter to the real `emitHook`
         // (only injectable here — §3.7). Any change events buffered during
         // the init / afterPluginsReady window are flushed in order now, so
-        // there is no silent no-emit gap. Stage-1 routing (a later phase)
-        // subscribes to ENTITY_CHANGED in work-queue mode; for now the
-        // event is simply emitted onto the platform event bus.
+        // there is no silent no-emit gap.
         await stash.entityChangeEmitter.wire((payload) =>
           emitHook(ENTITY_CHANGED_HOOK, payload),
         );
+
+        // Wire the public cross-plugin entity-change subscription service
+        // (§6.1). Subscriptions registered by other plugins during their
+        // register/init are bound to the real `onHook` now.
+        stash.entityChangedSubscriptions.wire({ onHook, logger });
 
         logger.debug(
           `⚙️  Registered ${triggers.length} automation triggers${
@@ -529,11 +565,34 @@ export default createBackendPlugin({
           logger,
         });
 
-        // `wait_until`: register the consumer that re-checks a suspended
-        // run's condition on each poll tick.
-        stash.waitUntilConsumer = await startWaitUntilQueueConsumer({
+        // Reactive `wait_until` timeout timer: the consumer that fires when
+        // a suspended wait's single deadline job pops, applying the
+        // continue/fail-on-timeout policy. Reactive waits are otherwise woken
+        // by Stage-1 routing on a relevant ENTITY_CHANGED (no polling).
+        stash.waitTimeoutConsumer = await startWaitTimeoutQueueConsumer({
           deps: stash.dispatchDeps,
           automationStore: stash.automationStore,
+          logger,
+        });
+
+        // Stage-2 dispatch fan-out: the consumer that runs each per-run
+        // dispatch job enqueued by Stage-1 routing (reason: trigger →
+        // dispatchTrigger; reason: wake → resume the suspended wait_until).
+        stash.dispatchConsumer = await startDispatchQueueConsumer({
+          deps: stash.dispatchDeps,
+          automationStore: stash.automationStore,
+          logger,
+        });
+
+        // Stage-1 routing: claim each ENTITY_CHANGED on the
+        // `automation-entity-route` work-queue (exactly one instance), do
+        // cheap indexed routing (wake-index intersection + trigger-event
+        // derivation), and enqueue Stage-2 jobs.
+        stash.stage1Router = await startStage1Router({
+          deps: stash.dispatchDeps,
+          automationStore: stash.automationStore,
+          changeDerivers: stash.changeDerivers,
+          onHook,
           logger,
         });
 

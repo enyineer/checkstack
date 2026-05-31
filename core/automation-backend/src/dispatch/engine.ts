@@ -84,6 +84,7 @@ import {
   withRepeatContext,
 } from "./scope";
 import { enrichScopeWithState } from "./state-scope";
+import { extractWakeRefs, refToString } from "./wake-refs";
 import {
   formatActionPath,
   type ActionPath,
@@ -172,15 +173,23 @@ export interface DelayResumeJob {
   waitLockId: string;
 }
 
-/** Name of the durable queue we use for `wait_until` condition re-checks. */
-export const WAIT_UNTIL_QUEUE_NAME = "automation-wait-until";
+/**
+ * Name of the durable queue carrying a reactive `wait_until`'s single
+ * timeout timer (reactive automation engine §7, §13.1). A `wait_until` is
+ * now reactive: a relevant `ENTITY_CHANGED` wakes it (Stage 1 →
+ * `checkWaitUntil`). This queue is NOT a re-check loop — it holds at most
+ * one job per suspended wait, scheduled at the deadline, mirroring the
+ * dwell timer pattern. On fire the consumer applies the timeout policy
+ * (continue/fail) via `checkWaitUntil` (which also re-evaluates the
+ * condition one last time).
+ */
+export const WAIT_TIMEOUT_QUEUE_NAME = "automation-wait-timeout";
 
 /**
- * Job payload for a `wait_until` re-check. Each tick re-enriches scope,
- * re-evaluates the condition, and either resumes the run, re-enqueues
- * another tick, or applies the timeout policy.
+ * Job payload for a `wait_until` timeout timer. Carries the run + lock so
+ * the consumer can re-evaluate one final time and apply the timeout policy.
  */
-export interface WaitUntilCheckJob {
+export interface WaitTimeoutJob {
   runId: string;
   waitLockId: string;
 }
@@ -1861,14 +1870,21 @@ async function executeWaitForTrigger(
 
 /**
  * Suspend the run until a condition becomes true, with an optional
- * timeout. Unlike `wait_for_trigger` (wait for an event), this polls the
- * condition on an interval, re-resolving live state each tick.
+ * timeout. Unlike `wait_for_trigger` (wait for a named event), `wait_until`
+ * is REACTIVE (reactive automation engine §7): the engine statically
+ * extracts the `state.*` refs the condition reads (§8.3), persists a
+ * `kind: "until"` wait lock plus one wake-index row per ref (§8.1), and
+ * suspends with NO active job and NO polling. A relevant `ENTITY_CHANGED`
+ * wakes it (Stage 1 → `checkWaitUntil` re-evaluates the full condition and
+ * resumes if it now holds).
  *
  * Fast path: if the condition is ALREADY true against the current
- * (enriched) scope, continue inline without suspending. Otherwise persist
- * a `kind: "until"` wait lock carrying the condition + poll interval +
- * timeout policy, enqueue the first re-check, and suspend. The wait-until
- * queue consumer (and the sweeper, as a backstop) drive the re-checks.
+ * (enriched) scope, continue inline without suspending.
+ *
+ * Timeout: a single durable timer job at `timeoutAt` (NOT a re-check loop)
+ * applies the continue/fail policy. When ref extraction is wholly
+ * indeterminate (no concrete-or-wildcard ref) AND there is no timeout, the
+ * wait could never wake — we log at `warn` so it is never silent (§8.3).
  */
 async function executeWaitUntil(
   action: WaitUntilInput,
@@ -1907,45 +1923,77 @@ async function executeWaitUntil(
     return { kind: "ok" };
   }
 
+  // pollSeconds is retained in the persisted config only for backward
+  // compatibility with already-suspended waits; the reactive engine never
+  // polls. Default kept so older rows parse.
   const pollSeconds = cfg.poll_seconds ?? 30;
   const continueOnTimeout = cfg.continue_on_timeout ?? true;
   const timeoutAt = cfg.timeout_seconds
     ? new Date(Date.now() + cfg.timeout_seconds * 1000)
     : null;
 
-  const waitLockId = await ctx.deps.runStore.createWaitLock({
+  // Static reference extraction → wake-index dependency refs (§8.3).
+  const extracted = extractWakeRefs(cfg.condition);
+  const wakeRefs = extracted.refs.map((ref) => refToString(ref));
+
+  if (extracted.indeterminate && wakeRefs.length === 0) {
+    // The condition reads live state but no concrete-or-wildcard ref could
+    // be derived: the wait can only ever be released by the timeout timer.
+    // Never silent (§8.3, §12).
+    if (timeoutAt) {
+      ctx.deps.logger.warn(
+        `wait_until at ${formatActionPath(path)} (run ${ctx.run.runId}): could not extract any state ref from the condition; relying on the timeout timer only — it will not wake on state changes.`,
+      );
+    } else {
+      ctx.deps.logger.warn(
+        `wait_until at ${formatActionPath(path)} (run ${ctx.run.runId}): could not extract any state ref AND no timeout is set; this wait will never wake. Add a timeout or a concrete state.* reference.`,
+      );
+    }
+  }
+
+  const waitLockId = await ctx.deps.runStore.createWaitLockWithWakeRefs({
     runId: ctx.run.runId,
     actionPath: formatActionPath(path),
-    kind: "until",
-    // Synthetic marker — `until` locks aren't woken by events.
+    // Synthetic marker — reactive `until` locks aren't woken by named events.
     eventId: `@@until:${ctx.run.runId}:${formatActionPath(path)}`,
     contextKey: ctx.run.contextKey,
-    filterTemplate: null,
     timeoutAt,
     waitConfig: {
       condition: cfg.condition,
       pollSeconds,
       continueOnTimeout,
     },
+    wakeRefs,
   });
 
-  // Persist scope before suspending so each re-check rebuilds it.
+  // Persist scope before suspending so the wake re-check rebuilds it.
   await checkpoint(ctx, path);
 
-  const queue = ctx.deps.queueManager.getQueue<WaitUntilCheckJob>(
-    WAIT_UNTIL_QUEUE_NAME,
-  );
-  await queue.enqueue(
-    { runId: ctx.run.runId, waitLockId },
-    {
-      startDelay: pollSeconds,
-      jobId: `${ctx.run.runId}:${waitLockId}`,
-    },
-  );
+  // Single durable timeout timer (NOT a poll loop). Only armed when a
+  // deadline exists; otherwise the wait is purely event-driven.
+  if (timeoutAt) {
+    const queue = ctx.deps.queueManager.getQueue<WaitTimeoutJob>(
+      WAIT_TIMEOUT_QUEUE_NAME,
+    );
+    await queue.enqueue(
+      { runId: ctx.run.runId, waitLockId },
+      {
+        startDelay: Math.max(
+          Math.ceil((timeoutAt.getTime() - Date.now()) / 1000),
+          0,
+        ),
+        jobId: `${ctx.run.runId}:${waitLockId}:timeout`,
+      },
+    );
+  }
 
   await ctx.deps.runStore.updateStep(stepId, {
     status: "waiting",
-    resultPayload: { waitLockId, pollSeconds, timeoutAt: timeoutAt?.toISOString() },
+    resultPayload: {
+      waitLockId,
+      wakeRefs,
+      timeoutAt: timeoutAt?.toISOString(),
+    },
   });
   return { kind: "suspended", stepId };
 }

@@ -23,6 +23,7 @@ import type {
   CreateRunInput,
   CreateStepInput,
   CreateWaitLockInput,
+  CreateWaitLockWithRefsInput,
   DispatchDeps,
   DwellStore,
   LoadedDwell,
@@ -57,6 +58,8 @@ export function createInMemoryRunStore(opts?: {
     resultPayload?: Record<string, unknown>;
   }>;
   waitLocks: Map<string, LoadedWaitLock>;
+  /** Wake-index rows keyed by wait-lock id → set of refs (reactive §8). */
+  wakeRefs: Map<string, Set<string>>;
 } {
   const runs = new Map<string, LoadedRun>();
   const steps: Array<{
@@ -72,6 +75,7 @@ export function createInMemoryRunStore(opts?: {
     resultPayload?: Record<string, unknown>;
   }> = [];
   const waitLocks = new Map<string, LoadedWaitLock>();
+  const wakeRefs = new Map<string, Set<string>>();
   const onCancel = opts?.onCancel;
   let runCounter = 0;
   let stepCounter = 0;
@@ -144,7 +148,10 @@ export function createInMemoryRunStore(opts?: {
       // makeDispatchDeps.)
       if (cancelled.length > 0) {
         for (const [id, lock] of waitLocks) {
-          if (cancelled.includes(lock.runId)) waitLocks.delete(id);
+          if (cancelled.includes(lock.runId)) {
+            waitLocks.delete(id);
+            wakeRefs.delete(id);
+          }
         }
         onCancel?.(cancelled);
       }
@@ -210,6 +217,23 @@ export function createInMemoryRunStore(opts?: {
       });
       return id;
     },
+    async createWaitLockWithWakeRefs(input: CreateWaitLockWithRefsInput) {
+      const id = `lock-${++lockCounter}`;
+      waitLocks.set(id, {
+        id,
+        runId: input.runId,
+        actionPath: input.actionPath,
+        kind: "until",
+        eventId: input.eventId,
+        contextKey: input.contextKey,
+        filterTemplate: null,
+        timeoutAt: input.timeoutAt,
+        waitConfig: input.waitConfig,
+        createdAt: new Date(),
+      });
+      wakeRefs.set(id, new Set(input.wakeRefs));
+      return id;
+    },
     async loadWaitLock(id) {
       return waitLocks.get(id);
     },
@@ -222,6 +246,18 @@ export function createInMemoryRunStore(opts?: {
       }
       return matches;
     },
+    async findWaitLocksByWakeRef(ref) {
+      const colon = ref.indexOf(":");
+      const kind = colon === -1 ? ref : ref.slice(0, colon);
+      const wildcard = `${kind}:*`;
+      const matches: LoadedWaitLock[] = [];
+      for (const [lockId, refs] of wakeRefs) {
+        const lock = waitLocks.get(lockId);
+        if (!lock || lock.kind !== "until") continue;
+        if (refs.has(ref) || refs.has(wildcard)) matches.push(lock);
+      }
+      return matches;
+    },
     async findWaitLocksByKind(kind) {
       return [...waitLocks.values()].filter((lock) => lock.kind === kind);
     },
@@ -230,6 +266,7 @@ export function createInMemoryRunStore(opts?: {
     },
     async deleteWaitLock(id) {
       waitLocks.delete(id);
+      wakeRefs.delete(id);
     },
     async sweepExpiredWaitLocks(now) {
       const expired: LoadedWaitLock[] = [];
@@ -242,7 +279,7 @@ export function createInMemoryRunStore(opts?: {
     },
   };
 
-  return { store, runs, steps, waitLocks };
+  return { store, runs, steps, waitLocks, wakeRefs };
 }
 
 export function createInMemoryArtifactStore(): {

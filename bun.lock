@@ -321,6 +321,7 @@
         "@checkstack/tsconfig": "workspace:*",
         "@types/node": "^20.0.0",
         "@types/pg": "^8.20.0",
+        "bullmq": "^5.66.4",
         "drizzle-kit": "^0.31.10",
         "pg": "^8.21.0",
         "typescript": "^5.0.0",

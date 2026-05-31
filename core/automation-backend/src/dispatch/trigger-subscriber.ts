@@ -304,6 +304,39 @@ async function wakeWaitingRuns(args: HandleTriggerFiringArgs): Promise<void> {
   }
 }
 
+/**
+ * Stage-2 entry (reactive automation engine §13.3): start fresh runs for ONE
+ * already-resolved automation whose trigger references `eventId`, using the
+ * entity-change as the trigger payload. Mirrors the per-automation inner of
+ * `handleTriggerFiring` step 2, but scoped to a single automation so the
+ * Stage-2 fan-out job (one automation + one entity change) runs in isolation.
+ *
+ * Each matching trigger goes through `maybeStartRun` (config gate, filter,
+ * dwell, concurrency mode) exactly as the hook-driven path does.
+ */
+export async function startRunsForAutomationEvent(args: {
+  deps: DispatchDeps;
+  automation: LoadedAutomation;
+  eventId: string;
+  triggerPayload: Record<string, unknown>;
+  actor: Actor;
+  contextKey: string | null;
+}): Promise<void> {
+  for (const trigger of args.automation.definition.triggers.filter(
+    (t) => t.event === args.eventId,
+  )) {
+    await maybeStartRun({
+      deps: args.deps,
+      automation: args.automation,
+      trigger,
+      triggerPayload: args.triggerPayload,
+      actor: args.actor,
+      contextKey: args.contextKey,
+      eventId: args.eventId,
+    });
+  }
+}
+
 interface MaybeStartRunArgs {
   deps: DispatchDeps;
   automation: LoadedAutomation;
