@@ -15,7 +15,8 @@ import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
 import {
   automationActionExtensionPoint,
   automationArtifactTypeExtensionPoint,
-  automationTriggerExtensionPoint,
+  entityExtensionPoint,
+  type EntityHandle,
 } from "@checkstack/automation-backend";
 import {
   NotificationApi,
@@ -31,8 +32,13 @@ import { createMaintenanceCache } from "./cache";
 import {
   createMaintenanceActions,
   maintenanceArtifactType,
-  maintenanceTriggers,
 } from "./automations";
+import {
+  MAINTENANCE_ENTITY_KIND,
+  deriveMaintenanceEvents,
+  maintenanceEntityStateSchema,
+  type MaintenanceEntityState,
+} from "./entity";
 
 // Queue and job constants
 const STATUS_TRANSITION_QUEUE = "maintenance-status-transitions";
@@ -52,22 +58,28 @@ export default createBackendPlugin({
       maintenanceGroupSubscription,
     ]);
 
-    // ─── Automation Platform: triggers + artifact type ─────────────────
+    // ─── Automation Platform: entity + artifact type ───────────────────
     // Buffered behind the extension point until automation-backend's
-    // register() runs. Actions are wired in afterPluginsReady so
-    // `emitHook` is available — see below.
-    const automationTriggers = env.getExtensionPoint(
-      automationTriggerExtensionPoint,
-    );
-    for (const trigger of maintenanceTriggers) {
-      automationTriggers.registerTrigger(trigger, pluginMetadata);
-    }
+    // register() runs. Actions are wired in afterPluginsReady so the entity
+    // handle is available on the service — see below.
+    //
+    // Reactive entity (reactive automation engine §10.2): the
+    // `maintenance.created` / `maintenance.updated` trigger events are now
+    // DERIVED from `maintenance` entity changes (no hook-backed triggers).
+    const entity = env.getExtensionPoint(entityExtensionPoint);
+    entity.registerChangeDeriver({
+      kind: MAINTENANCE_ENTITY_KIND,
+      derive: deriveMaintenanceEvents,
+    });
     env
       .getExtensionPoint(automationArtifactTypeExtensionPoint)
       .registerArtifactType(maintenanceArtifactType, pluginMetadata);
 
     // Store service reference for afterPluginsReady
     let maintenanceService: MaintenanceService;
+    // The `maintenance` entity handle is created once in `init` and reused by
+    // the router (init) and the automation actions (afterPluginsReady).
+    let maintenanceEntityHandle: EntityHandle<MaintenanceEntityState>;
     // Store clients for afterPluginsReady
     let catalogClient: InferClient<typeof CatalogApi>;
     let maintenanceClient: InferClient<typeof MaintenanceApi>;
@@ -101,6 +113,14 @@ export default createBackendPlugin({
         maintenanceService = new MaintenanceService(
           database as SafeDatabase<typeof schema>,
         );
+        // Declare the reactive `maintenance` entity once. The returned handle
+        // is the only typed path that mirrors state into the framework store
+        // (reactive automation engine §4.2). Mutations only persist from
+        // automation-backend's init onward; all real writes happen at runtime.
+        maintenanceEntityHandle = entity.defineEntity({
+          kind: MAINTENANCE_ENTITY_KIND,
+          state: maintenanceEntityStateSchema,
+        });
         const cache = createMaintenanceCache({ cacheManager, logger });
         const router = createRouter(
           maintenanceService,
@@ -110,6 +130,7 @@ export default createBackendPlugin({
           authClient,
           logger,
           cache,
+          maintenanceEntityHandle,
         );
         rpc.registerRouter(router, maintenanceContract);
 
@@ -141,14 +162,16 @@ export default createBackendPlugin({
 
         logger.debug("✅ Maintenance Backend initialized.");
       },
-      afterPluginsReady: async ({ queueManager, logger, emitHook }) => {
-        // Register automation actions now that `emitHook` is available.
+      afterPluginsReady: async ({ queueManager, logger }) => {
+        // Register automation actions. Mutation actions mirror window state
+        // through the `maintenance` entity handle (created in init) rather
+        // than emitting the removed hooks.
         const automationActions = env.getExtensionPoint(
           automationActionExtensionPoint,
         );
         for (const action of createMaintenanceActions({
           service: maintenanceService,
-          emitHook,
+          entityHandle: maintenanceEntityHandle,
         })) {
           automationActions.registerAction(action, pluginMetadata);
         }
@@ -244,6 +267,3 @@ export default createBackendPlugin({
     });
   },
 });
-
-// Re-export hooks for other plugins to use
-export { maintenanceHooks } from "./hooks";

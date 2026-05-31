@@ -1,18 +1,25 @@
 /**
- * Behaviour tests for the maintenance automation triggers + actions.
+ * Behaviour tests for the maintenance automation actions.
+ *
+ * Phase 4 (reactive automation engine §10.2) replaced the hook-backed
+ * `maintenance.created` / `maintenance.updated` triggers with the reactive
+ * `maintenance` entity. Mutation actions now mirror window state through the
+ * entity handle; these tests assert the mirror writes the §10.2 entity shape
+ * keyed by maintenance id.
  */
 import { describe, expect, it, mock } from "bun:test";
 import type { Logger } from "@checkstack/backend-api";
+import type {
+  EntityHandle,
+  EntityMutationOpts,
+} from "@checkstack/automation-backend";
 import { createMockLogger } from "@checkstack/test-utils-backend";
 
 import {
   createMaintenanceActions,
   maintenanceArtifactType,
-  maintenanceCreatedTrigger,
-  maintenanceTriggers,
-  maintenanceUpdatedTrigger,
 } from "./automations";
-import { maintenanceHooks } from "./hooks";
+import type { MaintenanceEntityState } from "./entity";
 import type { MaintenanceService } from "./service";
 
 const logger = createMockLogger() as Logger;
@@ -27,56 +34,47 @@ const ctxBase = {
   },
 };
 
-// ─── Triggers ──────────────────────────────────────────────────────────
+interface RecordedSet {
+  id: string;
+  next: MaintenanceEntityState;
+  opts?: EntityMutationOpts;
+}
 
-describe("maintenance triggers", () => {
-  it("exposes two triggers in a stable order", () => {
-    expect(maintenanceTriggers).toHaveLength(2);
-    expect(maintenanceTriggers[0]).toBe(
-      maintenanceCreatedTrigger as (typeof maintenanceTriggers)[number],
-    );
-    expect(maintenanceTriggers[1]).toBe(
-      maintenanceUpdatedTrigger as (typeof maintenanceTriggers)[number],
-    );
-  });
-
-  it("extracts maintenanceId as the contextKey on both triggers", () => {
-    const payload = {
-      maintenanceId: "m-1",
-      systemIds: ["sys-1"],
-      title: "Deploy",
-      status: "scheduled" as const,
-      startAt: "2026-05-29T11:00:00Z",
-      endAt: "2026-05-29T12:00:00Z",
-    };
-    expect(maintenanceCreatedTrigger.contextKey?.(payload)).toBe("m-1");
-    expect(
-      maintenanceUpdatedTrigger.contextKey?.({ ...payload, action: "updated" }),
-    ).toBe("m-1");
-  });
-
-  it("requires action enum on updated payload", () => {
-    const ok = maintenanceUpdatedTrigger.payloadSchema.safeParse({
-      maintenanceId: "m-1",
-      systemIds: [],
-      title: "Deploy",
-      status: "completed",
-      startAt: "2026-05-29T11:00:00Z",
-      endAt: "2026-05-29T12:00:00Z",
-      action: "closed",
-    });
-    const bad = maintenanceUpdatedTrigger.payloadSchema.safeParse({
-      maintenanceId: "m-1",
-      systemIds: [],
-      title: "Deploy",
-      status: "completed",
-      startAt: "2026-05-29T11:00:00Z",
-      endAt: "2026-05-29T12:00:00Z",
-    });
-    expect(ok.success).toBe(true);
-    expect(bad.success).toBe(false);
-  });
-});
+/** A fake entity handle that records `set` / `remove` calls for assertion. */
+function makeEntityHandle(): EntityHandle<MaintenanceEntityState> & {
+  sets: RecordedSet[];
+  removes: string[];
+} {
+  const sets: RecordedSet[] = [];
+  const removes: string[] = [];
+  return {
+    kind: "maintenance",
+    sets,
+    removes,
+    async set(id, next, opts) {
+      sets.push({ id, next, opts });
+    },
+    async patch() {},
+    async get() {
+      return undefined;
+    },
+    async getMany() {
+      return {};
+    },
+    async remove(id) {
+      removes.push(id);
+    },
+    async inStateSince() {
+      return null;
+    },
+    async inStateForMs() {
+      return 0;
+    },
+    async transitionCount() {
+      return 0;
+    },
+  };
+}
 
 describe("maintenanceArtifactType", () => {
   it("validates the canonical artifact shape", () => {
@@ -163,13 +161,10 @@ const sampleRow: FakeMaintenance = {
 };
 
 describe("maintenance.create", () => {
-  it("creates a maintenance, fires maintenanceCreated, and emits a maintenance.window artifact", async () => {
+  it("creates a maintenance, mirrors the entity state, and emits a maintenance.window artifact", async () => {
     const service = makeService({ rowToReturn: sampleRow });
-    const emitHook = mock(async (_hook: unknown, _payload: unknown) => {});
-    const [create] = createMaintenanceActions({
-      service,
-      emitHook: emitHook as never,
-    });
+    const entityHandle = makeEntityHandle();
+    const [create] = createMaintenanceActions({ service, entityHandle });
 
     const result = await create!.execute({
       ...ctxBase,
@@ -185,19 +180,24 @@ describe("maintenance.create", () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.externalId).toBe("m-1");
-    expect(emitHook).toHaveBeenCalledTimes(1);
-    expect(emitHook.mock.calls[0]![0]).toBe(maintenanceHooks.maintenanceCreated);
+    expect(entityHandle.sets).toHaveLength(1);
+    expect(entityHandle.sets[0]!.id).toBe("m-1");
+    expect(entityHandle.sets[0]!.next).toEqual({
+      status: "scheduled",
+      systemIds: ["sys-1"],
+      startAt: "2026-05-29T11:00:00.000Z",
+      endAt: "2026-05-29T12:00:00.000Z",
+    });
+    // Run-originated writes carry the runId (masking) + the run actor.
+    expect(entityHandle.sets[0]!.opts?.runId).toBe("run-1");
   });
 });
 
 describe("maintenance.update", () => {
-  it("returns failure when the maintenance doesn't exist", async () => {
+  it("returns failure and mirrors nothing when the maintenance doesn't exist", async () => {
     const service = makeService({ updateReturn: undefined });
-    const emitHook = mock(async (_hook: unknown, _payload: unknown) => {});
-    const [, update] = createMaintenanceActions({
-      service,
-      emitHook: emitHook as never,
-    });
+    const entityHandle = makeEntityHandle();
+    const [, update] = createMaintenanceActions({ service, entityHandle });
 
     const result = await update!.execute({
       ...ctxBase,
@@ -208,16 +208,15 @@ describe("maintenance.update", () => {
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error).toMatch(/not found/i);
-    expect(emitHook).not.toHaveBeenCalled();
+    expect(entityHandle.sets).toHaveLength(0);
   });
 
-  it("emits maintenanceUpdated with action='updated' on success", async () => {
-    const service = makeService({ updateReturn: sampleRow });
-    const emitHook = mock(async (_hook: unknown, _payload: unknown) => {});
-    const [, update] = createMaintenanceActions({
-      service,
-      emitHook: emitHook as never,
+  it("mirrors the updated state on success", async () => {
+    const service = makeService({
+      updateReturn: { ...sampleRow, status: "in_progress" },
     });
+    const entityHandle = makeEntityHandle();
+    const [, update] = createMaintenanceActions({ service, entityHandle });
 
     const result = await update!.execute({
       ...ctxBase,
@@ -226,22 +225,18 @@ describe("maintenance.update", () => {
     });
 
     expect(result.success).toBe(true);
-    const emitCall = emitHook.mock.calls[0]!;
-    expect(emitCall[0]).toBe(maintenanceHooks.maintenanceUpdated);
-    expect((emitCall[1] as { action: string }).action).toBe("updated");
+    expect(entityHandle.sets).toHaveLength(1);
+    expect(entityHandle.sets[0]!.next.status).toBe("in_progress");
   });
 });
 
 describe("maintenance.add_update", () => {
-  it("uses action='closed' when statusChange is 'completed'", async () => {
+  it("mirrors the refreshed state when statusChange is 'completed'", async () => {
     const service = makeService({
       getMaintenanceReturn: { ...sampleRow, status: "completed" },
     });
-    const emitHook = mock(async (_hook: unknown, _payload: unknown) => {});
-    const [, , addUpdate] = createMaintenanceActions({
-      service,
-      emitHook: emitHook as never,
-    });
+    const entityHandle = makeEntityHandle();
+    const [, , addUpdate] = createMaintenanceActions({ service, entityHandle });
 
     const result = await addUpdate!.execute({
       ...ctxBase,
@@ -254,18 +249,14 @@ describe("maintenance.add_update", () => {
     });
 
     expect(result.success).toBe(true);
-    expect((emitHook.mock.calls[0]![1] as { action: string }).action).toBe(
-      "closed",
-    );
+    expect(entityHandle.sets).toHaveLength(1);
+    expect(entityHandle.sets[0]!.next.status).toBe("completed");
   });
 
   it("returns failure when the maintenance vanishes between addUpdate and getMaintenance", async () => {
     const service = makeService({ getMaintenanceReturn: undefined });
-    const emitHook = mock(async (_hook: unknown, _payload: unknown) => {});
-    const [, , addUpdate] = createMaintenanceActions({
-      service,
-      emitHook: emitHook as never,
-    });
+    const entityHandle = makeEntityHandle();
+    const [, , addUpdate] = createMaintenanceActions({ service, entityHandle });
 
     const result = await addUpdate!.execute({
       ...ctxBase,
@@ -276,18 +267,18 @@ describe("maintenance.add_update", () => {
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error).toMatch(/not found/i);
-    expect(emitHook).not.toHaveBeenCalled();
+    expect(entityHandle.sets).toHaveLength(0);
   });
 });
 
 describe("maintenance.set_system", () => {
-  it("schedules a now+durationMinutes window covering one system", async () => {
+  it("schedules a now+durationMinutes window and mirrors it covering one system", async () => {
     const service = makeService({ rowToReturn: sampleRow });
-    const emitHook = mock(async (_hook: unknown, _payload: unknown) => {});
+    const entityHandle = makeEntityHandle();
     const fixedNow = new Date("2026-05-29T11:00:00Z");
     const [, , , setSystem] = createMaintenanceActions({
       service,
-      emitHook: emitHook as never,
+      entityHandle,
       now: () => fixedNow,
     });
 
@@ -309,12 +300,14 @@ describe("maintenance.set_system", () => {
     expect(call.systemIds).toEqual(["sys-1"]);
     expect(call.startAt.toISOString()).toBe("2026-05-29T11:00:00.000Z");
     expect(call.endAt.toISOString()).toBe("2026-05-29T12:00:00.000Z");
+    expect(entityHandle.sets).toHaveLength(1);
+    expect(entityHandle.sets[0]!.next.systemIds).toEqual(["sys-1"]);
   });
 });
 
 describe("maintenance.clear_system", () => {
-  it("closes every active window for the system + emits one updated hook per close", async () => {
-    const window1 = { ...sampleRow, id: "m-1" };
+  it("closes every active window for the system + mirrors one state per close", async () => {
+    const window1 = { ...sampleRow, id: "m-1", status: "completed" };
     const window2 = { ...sampleRow, id: "m-2" };
     const service = makeService({
       activeForSystem: [window1, window2],
@@ -322,11 +315,8 @@ describe("maintenance.clear_system", () => {
     });
     // closeMaintenance returns the same row both times in the fixture
     // — that's fine for this test; we only assert the count + ids.
-    const emitHook = mock(async (_hook: unknown, _payload: unknown) => {});
-    const actions = createMaintenanceActions({
-      service,
-      emitHook: emitHook as never,
-    });
+    const entityHandle = makeEntityHandle();
+    const actions = createMaintenanceActions({ service, entityHandle });
     const clearSystem = actions[4]!;
 
     const result = await clearSystem.execute({
@@ -337,20 +327,16 @@ describe("maintenance.clear_system", () => {
 
     expect(result.success).toBe(true);
     expect(service.closeMock).toHaveBeenCalledTimes(2);
-    expect(emitHook).toHaveBeenCalledTimes(2);
-    for (const call of emitHook.mock.calls) {
-      expect(call[0]).toBe(maintenanceHooks.maintenanceUpdated);
-      expect((call[1] as { action: string }).action).toBe("closed");
+    expect(entityHandle.sets).toHaveLength(2);
+    for (const recorded of entityHandle.sets) {
+      expect(recorded.next.status).toBe("completed");
     }
   });
 
-  it("succeeds and emits an empty artifact when no windows are active for the system", async () => {
+  it("succeeds and mirrors nothing when no windows are active for the system", async () => {
     const service = makeService({ activeForSystem: [] });
-    const emitHook = mock(async (_hook: unknown, _payload: unknown) => {});
-    const actions = createMaintenanceActions({
-      service,
-      emitHook: emitHook as never,
-    });
+    const entityHandle = makeEntityHandle();
+    const actions = createMaintenanceActions({ service, entityHandle });
     const clearSystem = actions[4]!;
 
     const result = await clearSystem.execute({
@@ -363,6 +349,6 @@ describe("maintenance.clear_system", () => {
     if (!result.success) return;
     const artifact = result.artifact as { closedMaintenanceIds: string[] };
     expect(artifact.closedMaintenanceIds).toEqual([]);
-    expect(emitHook).not.toHaveBeenCalled();
+    expect(entityHandle.sets).toHaveLength(0);
   });
 });

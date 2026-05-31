@@ -1,25 +1,29 @@
-import type { Hook, Logger } from "@checkstack/backend-api";
+import type { Logger } from "@checkstack/backend-api";
 import type { SignalService } from "@checkstack/signal-common";
 import type { SatelliteService } from "./service";
+import type { SatelliteConnectionState } from "./entity";
 import {
   SATELLITE_STATUS_CHANGED,
   OFFLINE_THRESHOLD_MS,
 } from "@checkstack/satellite-common";
 
 /**
- * Optional plug-point for firing the automation
- * `satellite.heartbeat_lost` trigger when the monitor observes a
- * satellite transitioning `online` → `offline`. Bound from
- * `afterPluginsReady`; when not provided, no hook fires.
+ * Optional plug-point for mirroring the heartbeat-lost (`online` → `offline`)
+ * edge into the reactive `satellite-connection` entity (reactive automation
+ * engine §10.6). Bound from `afterPluginsReady`; when not provided, no entity
+ * state is mirrored.
+ *
+ * The monitor mirrors ONLY the online→offline edge (with `lastEvent:
+ * "heartbeat_lost"`) — exactly the edge that previously emitted the
+ * `satellite.heartbeat_lost` hook. The opposite edge (offline→online) is
+ * already mirrored as `connected` by the WS handler on reconnect, so the
+ * monitor leaves it alone to avoid a duplicate `connected` event.
  */
-export interface SatelliteHeartbeatHookSink {
-  emitHook: <T>(hook: Hook<T>, payload: T) => Promise<void>;
-  heartbeatLostHook: Hook<{
-    satelliteId: string;
-    name: string;
-    region: string;
-    timestamp: string;
-  }>;
+export interface SatelliteHeartbeatEntitySink {
+  mirror: (
+    satelliteId: string,
+    state: SatelliteConnectionState,
+  ) => Promise<void>;
 }
 
 /**
@@ -37,7 +41,7 @@ export class HeartbeatMonitor {
     private service: SatelliteService,
     private signalService: SignalService,
     private logger: Logger,
-    private hookSink?: SatelliteHeartbeatHookSink,
+    private entitySink?: SatelliteHeartbeatEntitySink,
   ) {}
 
   /**
@@ -64,24 +68,27 @@ export class HeartbeatMonitor {
           region: satellite.region,
         });
 
-        // Fire the automation `heartbeat_lost` hook only on the
-        // online → offline edge. The opposite transition is observable
-        // via the `satellite.connected` hook fired by the WS handler.
+        // Mirror the `offline` state into the reactive entity only on the
+        // online → offline edge (`lastEvent: "heartbeat_lost"`). The
+        // change-deriver re-fires `satellite.heartbeat_lost`. The opposite
+        // transition is mirrored as `connected` by the WS handler on
+        // reconnect, so the monitor leaves it alone.
         if (
           previousStatus === "online" &&
           currentStatus === "offline" &&
-          this.hookSink
+          this.entitySink
         ) {
           try {
-            await this.hookSink.emitHook(this.hookSink.heartbeatLostHook, {
-              satelliteId: satellite.id,
+            await this.entitySink.mirror(satellite.id, {
+              status: "offline",
               name: satellite.name,
               region: satellite.region,
-              timestamp: new Date().toISOString(),
+              lastSeenAt: new Date().toISOString(),
+              lastEvent: "heartbeat_lost",
             });
           } catch (error) {
             this.logger.error(
-              `Failed to emit satellite.heartbeat_lost hook for ${satellite.name}:`,
+              `Failed to mirror satellite-connection (heartbeat_lost) for ${satellite.name}:`,
               error,
             );
           }

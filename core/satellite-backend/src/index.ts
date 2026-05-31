@@ -20,9 +20,16 @@ import { SatelliteWsHandler } from "./satellite-ws-handler";
 import { ConfigRelay } from "./config-relay";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
 import { registerSatelliteGitOpsKinds } from "./satellite-gitops-kinds";
-import { automationTriggerExtensionPoint } from "@checkstack/automation-backend";
-import { satelliteTriggers } from "./automations";
-import { satelliteHooks } from "./hooks";
+import {
+  entityExtensionPoint,
+  type EntityHandle,
+} from "@checkstack/automation-backend";
+import {
+  SATELLITE_CONNECTION_ENTITY_KIND,
+  deriveSatelliteConnectionEvents,
+  satelliteConnectionStateSchema,
+  type SatelliteConnectionState,
+} from "./entity";
 
 // Queue and job constants
 const HEARTBEAT_QUEUE = "satellite-heartbeat";
@@ -34,13 +41,25 @@ export default createBackendPlugin({
   register(env) {
     env.registerAccessRules(satelliteAccessRules);
 
-    // ─── Automation Platform: triggers ───────────────────────────────
-    const automationTriggers = env.getExtensionPoint(
-      automationTriggerExtensionPoint,
-    );
-    for (const trigger of satelliteTriggers) {
-      automationTriggers.registerTrigger(trigger, pluginMetadata);
-    }
+    // ─── Automation Platform: reactive connection entity ─────────────
+    // Satellite connection state is the `satellite-connection` entity
+    // (reactive automation engine §10.6, §9.1). The `satellite.connected`
+    // / `.disconnected` / `.heartbeat_lost` trigger events are DERIVED from
+    // its changes (no hook-backed triggers). The persisted
+    // `satellites.lastHeartbeatAt` column stays as escape-hatched
+    // bookkeeping — the entity's `status` is what's reactive.
+    const entity = env.getExtensionPoint(entityExtensionPoint);
+    entity.registerChangeDeriver({
+      kind: SATELLITE_CONNECTION_ENTITY_KIND,
+      derive: deriveSatelliteConnectionEvents,
+    });
+    entity.declareNonReactiveState({
+      table: "satellites",
+      reason: "bookkeeping",
+      note: "lastHeartbeatAt is operational bookkeeping; the reactive connection state is the satellite-connection entity's status field.",
+    });
+    // Created once in init; reused by the WS handler + heartbeat monitor.
+    let satelliteEntityHandle: EntityHandle<SatelliteConnectionState>;
 
     // ─── GitOps Entity Kind Registration ─────────────────────────────
     let gitopsService: SatelliteService | undefined;
@@ -72,6 +91,15 @@ export default createBackendPlugin({
         );
         gitopsService = service;
 
+        // Declare the reactive `satellite-connection` entity once. The handle
+        // is the only typed path that mirrors connection state into the
+        // framework store (reactive automation engine §4.2); it is reused by
+        // the WS handler + heartbeat monitor wired in afterPluginsReady.
+        satelliteEntityHandle = entity.defineEntity({
+          kind: SATELLITE_CONNECTION_ENTITY_KIND,
+          state: satelliteConnectionStateSchema,
+        });
+
         const router = createSatelliteRouter({
           service,
           signalService,
@@ -90,7 +118,6 @@ export default createBackendPlugin({
         rpcClient,
         secretResolver,
         onHook,
-        emitHook,
       }) => {
         const service = new SatelliteService(
           database as SafeDatabase<typeof schema>,
@@ -131,9 +158,11 @@ export default createBackendPlugin({
           },
           logger,
           {
-            emitHook,
-            connectedHook: satelliteHooks.connected,
-            disconnectedHook: satelliteHooks.disconnected,
+            // Mirror connect/disconnect into the `satellite-connection`
+            // entity; the change-deriver re-fires the equivalent triggers.
+            mirror: async (satelliteId, state) => {
+              await satelliteEntityHandle.set(satelliteId, state);
+            },
           },
           {
             // Script-package distribution: carry the desired lockfile hash in
@@ -192,8 +221,11 @@ export default createBackendPlugin({
           signalService,
           logger,
           {
-            emitHook,
-            heartbeatLostHook: satelliteHooks.heartbeatLost,
+            // Mirror the online → offline edge into the connection entity;
+            // the deriver re-fires `satellite.heartbeat_lost`.
+            mirror: async (satelliteId, state) => {
+              await satelliteEntityHandle.set(satelliteId, state);
+            },
           },
         );
 

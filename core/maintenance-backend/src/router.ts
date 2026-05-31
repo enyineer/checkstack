@@ -7,17 +7,22 @@ import {
   autoAuthMiddleware,
   correlationMiddleware,
   Logger,
+  resolveActor,
   type RpcContext,
 } from "@checkstack/backend-api";
+import type { EntityHandle } from "@checkstack/automation-backend";
 import type { SignalService } from "@checkstack/signal-common";
 import type { MaintenanceService } from "./service";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { AuthApi } from "@checkstack/auth-common";
 import type { InferClient } from "@checkstack/common";
-import { maintenanceHooks } from "./hooks";
 import { notifyAffectedSystems } from "./notifications";
 import type { MaintenanceUpdate } from "@checkstack/maintenance-common";
 import type { MaintenanceCache } from "./cache";
+import {
+  type MaintenanceEntityState,
+  toMaintenanceEntityState,
+} from "./entity";
 
 export function createRouter(
   service: MaintenanceService,
@@ -29,6 +34,13 @@ export function createRouter(
   authClient: InferClient<typeof AuthApi>,
   logger: Logger,
   cache: MaintenanceCache,
+  /**
+   * Reactive `maintenance` entity handle (reactive automation engine §10.2).
+   * Mutation sites mirror the window's state into the framework entity store
+   * via `set`/`remove`; the change-deriver re-emits the `maintenance.created`
+   * / `maintenance.updated` trigger events that automations match.
+   */
+  entityHandle: EntityHandle<MaintenanceEntityState>,
 ) {
   /**
    * Resolve user IDs to profile names for a list of updates.
@@ -161,15 +173,11 @@ export function createRouter(
           action: "created",
         });
 
-        // Emit hook for cross-plugin coordination and integrations
-        await context.emitHook(maintenanceHooks.maintenanceCreated, {
-          maintenanceId: result.id,
-          systemIds: result.systemIds,
-          title: result.title,
-          description: result.description,
-          status: result.status,
-          startAt: result.startAt.toISOString(),
-          endAt: result.endAt.toISOString(),
+        // Mirror the window's reactive state into the framework entity store
+        // (reactive automation engine §10.2). A first write (prev === null)
+        // is derived back to the `maintenance.created` trigger event.
+        await entityHandle.set(result.id, toMaintenanceEntityState(result), {
+          actor: resolveActor(context.user),
         });
 
         // Send notifications to system subscribers
@@ -210,16 +218,10 @@ export function createRouter(
           action: "updated",
         });
 
-        // Emit hook for cross-plugin coordination and integrations
-        await context.emitHook(maintenanceHooks.maintenanceUpdated, {
-          maintenanceId: result.id,
-          systemIds: result.systemIds,
-          title: result.title,
-          description: result.description,
-          status: result.status,
-          startAt: result.startAt.toISOString(),
-          endAt: result.endAt.toISOString(),
-          action: "updated",
+        // Mirror the updated reactive state — a diff on an existing entity is
+        // derived back to the `maintenance.updated` trigger event.
+        await entityHandle.set(result.id, toMaintenanceEntityState(result), {
+          actor: resolveActor(context.user),
         });
 
         return result;
@@ -256,17 +258,12 @@ export function createRouter(
           action,
         });
 
-        // Emit hook for cross-plugin coordination and integrations
-        await context.emitHook(maintenanceHooks.maintenanceUpdated, {
-          maintenanceId: input.maintenanceId,
-          systemIds: maintenance.systemIds,
-          title: maintenance.title,
-          description: maintenance.description,
-          status: maintenance.status,
-          startAt: maintenance.startAt.toISOString(),
-          endAt: maintenance.endAt.toISOString(),
-          action,
-        });
+        // Mirror the post-update reactive state (status/window change).
+        await entityHandle.set(
+          input.maintenanceId,
+          toMaintenanceEntityState(maintenance),
+          { actor: resolveActor(context.user) },
+        );
 
         // Send notifications when status actually changes
         if (input.statusChange && previousStatus !== input.statusChange) {
@@ -324,16 +321,9 @@ export function createRouter(
           action: "closed",
         });
 
-        // Emit hook for cross-plugin coordination and integrations
-        await context.emitHook(maintenanceHooks.maintenanceUpdated, {
-          maintenanceId: result.id,
-          systemIds: result.systemIds,
-          title: result.title,
-          description: result.description,
-          status: result.status,
-          startAt: result.startAt.toISOString(),
-          endAt: result.endAt.toISOString(),
-          action: "closed",
+        // Mirror the closed window's reactive state (status → completed).
+        await entityHandle.set(result.id, toMaintenanceEntityState(result), {
+          actor: resolveActor(context.user),
         });
 
         // Send notifications to system subscribers
@@ -353,7 +343,7 @@ export function createRouter(
       },
     ),
 
-    deleteMaintenance: os.deleteMaintenance.handler(async ({ input }) => {
+    deleteMaintenance: os.deleteMaintenance.handler(async ({ input, context }) => {
       // Get maintenance before deleting to get systemIds
       const maintenance = await service.getMaintenance(input.id);
       const success = await service.deleteMaintenance(input.id);
@@ -367,6 +357,13 @@ export function createRouter(
           maintenanceId: input.id,
           systemIds: maintenance.systemIds,
           action: "closed", // Use "closed" for delete as well
+        });
+
+        // Mirror the removal into the entity store (tombstone). The deriver
+        // maps a tombstone to no trigger event, matching the historical
+        // behaviour where delete emitted no maintenance hook.
+        await entityHandle.remove(input.id, {
+          actor: resolveActor(context.user),
         });
       }
       return { success };

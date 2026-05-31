@@ -1,14 +1,16 @@
 /**
- * Maintenance triggers + actions registered with the Automation Platform.
+ * Maintenance actions registered with the Automation Platform.
  *
- * Triggers re-expose `maintenanceHooks` as automation entry points
- * (`maintenance.created`, `maintenance.updated`). The existing index
- * registered these inline; this module owns them now alongside the
- * actions so the plugin's automation surface lives in one place.
+ * The `maintenance.created` / `maintenance.updated` entry points used to be
+ * hook-backed triggers re-exposing `maintenanceHooks`. Phase 4 (reactive
+ * automation engine §10.2) migrates the maintenance domain onto the entity
+ * state machine: the triggers + their hooks are removed, and the same
+ * qualified trigger event ids are now derived from `maintenance` entity
+ * changes (see `./entity.ts`). Mutation actions therefore mirror the
+ * window's reactive state via `entityHandle.set` instead of emitting a hook.
  *
  * Actions wrap `MaintenanceService` for `create`, `update`, and
- * `add_update`. The catalog Phase-9 chunk deferred two additional
- * "system-shaped" actions to this chunk:
+ * `add_update`, plus two "system-shaped" actions:
  *
  *   - `set_system`: schedule a maintenance window that starts now and
  *     covers a single system, for a given duration. The convenient
@@ -16,80 +18,41 @@
  *   - `clear_system`: close every active/scheduled maintenance that
  *     covers a given system. The convenient "let it back into rotation
  *     even if maintenance was over-scheduled" operation.
- *
- * Mutation actions emit the matching hooks themselves (via the
- * `emitHook` factory dep) so downstream automations + caches react
- * the same way they do when the mutation comes in via RPC.
  */
 import { z } from "zod";
-import { Versioned, type Hook } from "@checkstack/backend-api";
-import type {
-  ActionDefinition,
-  TriggerDefinition,
-} from "@checkstack/automation-backend";
+import { Versioned } from "@checkstack/backend-api";
+import type { ActionDefinition, EntityHandle } from "@checkstack/automation-backend";
+import { SYSTEM_ACTOR } from "@checkstack/common";
 import {
   MaintenanceStatusEnum,
   type MaintenanceStatus,
 } from "@checkstack/maintenance-common";
 
-import { maintenanceHooks } from "./hooks";
+import type {
+  ActionRunScope,
+  EntityMutationOpts,
+} from "@checkstack/automation-backend";
 import type { MaintenanceService } from "./service";
+import {
+  type MaintenanceEntityState,
+  toMaintenanceEntityState,
+} from "./entity";
 
-// ─── Payload schemas ───────────────────────────────────────────────────
-
-const maintenanceCreatedPayloadSchema = z.object({
-  maintenanceId: z.string(),
-  systemIds: z.array(z.string()),
-  title: z.string(),
-  description: z.string().optional(),
-  status: MaintenanceStatusEnum,
-  startAt: z.string(),
-  endAt: z.string(),
-});
-
-const maintenanceUpdatedPayloadSchema = z.object({
-  maintenanceId: z.string(),
-  systemIds: z.array(z.string()),
-  title: z.string(),
-  description: z.string().optional(),
-  status: MaintenanceStatusEnum,
-  startAt: z.string(),
-  endAt: z.string(),
-  action: z.enum(["updated", "closed"]),
-});
-
-// ─── Triggers ──────────────────────────────────────────────────────────
-
-export const maintenanceCreatedTrigger: TriggerDefinition<
-  z.infer<typeof maintenanceCreatedPayloadSchema>
-> = {
-  id: "created",
-  displayName: "Maintenance Created",
-  description: "Fired when a new maintenance is scheduled",
-  category: "Maintenance",
-  icon: "Wrench",
-  payloadSchema: maintenanceCreatedPayloadSchema,
-  hook: maintenanceHooks.maintenanceCreated,
-  contextKey: (p) => p.maintenanceId,
-};
-
-export const maintenanceUpdatedTrigger: TriggerDefinition<
-  z.infer<typeof maintenanceUpdatedPayloadSchema>
-> = {
-  id: "updated",
-  displayName: "Maintenance Updated",
-  description: "Fired when a maintenance is updated or closed",
-  category: "Maintenance",
-  icon: "Wrench",
-  payloadSchema: maintenanceUpdatedPayloadSchema,
-  hook: maintenanceHooks.maintenanceUpdated,
-  contextKey: (p) => p.maintenanceId,
-};
-
-export const maintenanceTriggers: TriggerDefinition<unknown>[] = [
-  maintenanceCreatedTrigger as TriggerDefinition<unknown>,
-  maintenanceUpdatedTrigger as TriggerDefinition<unknown>,
-];
+/**
+ * Mutation opts for an action-originated entity write: the run id (so
+ * run-secret masking applies to the persisted state — reactive automation
+ * engine §3.5) + the run's actor (so the derived change event carries the
+ * same actor the firing trigger had).
+ */
+function mutationOpts(args: {
+  runId: string;
+  scope?: ActionRunScope;
+}): EntityMutationOpts {
+  return {
+    runId: args.runId,
+    actor: args.scope?.trigger.actor ?? SYSTEM_ACTOR,
+  };
+}
 
 // ─── Action configs ────────────────────────────────────────────────────
 
@@ -166,7 +129,13 @@ export const maintenanceArtifactType = {
 
 export interface MaintenanceActionDeps {
   service: MaintenanceService;
-  emitHook: <T>(hook: Hook<T>, payload: T) => Promise<void>;
+  /**
+   * Reactive `maintenance` entity handle. Mirroring a window's state here
+   * (instead of emitting the old `maintenance.created`/`.updated` hooks)
+   * is what re-fires the equivalent trigger events for downstream
+   * automations via the change-deriver (reactive automation engine §10.2).
+   */
+  entityHandle: EntityHandle<MaintenanceEntityState>;
   /**
    * Override for `Date.now()`. Only used by `set_system` to compute
    * `endAt = now + durationMinutes`. Tests inject a fixed clock; the
@@ -208,7 +177,7 @@ export function createMaintenanceActions(
     icon: "Wrench",
     config: new Versioned({ version: 1, schema: createConfigSchema }),
     produces: "maintenance.window",
-    execute: async ({ config, logger }) => {
+    execute: async ({ config, logger, runId, scope }) => {
       const created = await deps.service.createMaintenance({
         title: config.title,
         description: config.description,
@@ -218,15 +187,11 @@ export function createMaintenanceActions(
         suppressNotifications: config.suppressNotifications,
       });
       const artifact = toArtifact(created);
-      await deps.emitHook(maintenanceHooks.maintenanceCreated, {
-        maintenanceId: created.id,
-        systemIds: created.systemIds,
-        title: created.title,
-        description: created.description,
-        status: created.status,
-        startAt: artifact.startAt,
-        endAt: artifact.endAt,
-      });
+      await deps.entityHandle.set(
+        created.id,
+        toMaintenanceEntityState(created),
+        mutationOpts({ runId, scope }),
+      );
       logger.info(`Automation scheduled maintenance ${created.id}`);
       return {
         success: true,
@@ -247,7 +212,7 @@ export function createMaintenanceActions(
     icon: "Wrench",
     config: new Versioned({ version: 1, schema: updateConfigSchema }),
     produces: "maintenance.window",
-    execute: async ({ config, logger }) => {
+    execute: async ({ config, logger, runId, scope }) => {
       const updated = await deps.service.updateMaintenance({
         id: config.maintenanceId,
         title: config.title,
@@ -264,16 +229,11 @@ export function createMaintenanceActions(
         };
       }
       const artifact = toArtifact(updated);
-      await deps.emitHook(maintenanceHooks.maintenanceUpdated, {
-        maintenanceId: updated.id,
-        systemIds: updated.systemIds,
-        title: updated.title,
-        description: updated.description,
-        status: updated.status,
-        startAt: artifact.startAt,
-        endAt: artifact.endAt,
-        action: "updated",
-      });
+      await deps.entityHandle.set(
+        updated.id,
+        toMaintenanceEntityState(updated),
+        mutationOpts({ runId, scope }),
+      );
       logger.info(`Automation updated maintenance ${updated.id}`);
       return { success: true, externalId: updated.id, artifact };
     },
@@ -290,15 +250,14 @@ export function createMaintenanceActions(
     icon: "MessageSquarePlus",
     config: new Versioned({ version: 1, schema: addUpdateConfigSchema }),
     produces: "maintenance.window",
-    execute: async ({ config, logger }) => {
+    execute: async ({ config, logger, runId, scope }) => {
       await deps.service.addUpdate({
         maintenanceId: config.maintenanceId,
         message: config.message,
         statusChange: config.statusChange,
       });
-      // Re-fetch so we surface the latest window state to the next
-      // step + so the emitted hook payload matches the (now-updated)
-      // row.
+      // Re-fetch so we surface the latest window state to the next step +
+      // so the mirrored entity state matches the (now-updated) row.
       const refreshed = await deps.service.getMaintenance(config.maintenanceId);
       if (!refreshed) {
         return {
@@ -307,16 +266,11 @@ export function createMaintenanceActions(
         };
       }
       const artifact = toArtifact(refreshed);
-      await deps.emitHook(maintenanceHooks.maintenanceUpdated, {
-        maintenanceId: refreshed.id,
-        systemIds: refreshed.systemIds,
-        title: refreshed.title,
-        description: refreshed.description,
-        status: refreshed.status,
-        startAt: artifact.startAt,
-        endAt: artifact.endAt,
-        action: config.statusChange === "completed" ? "closed" : "updated",
-      });
+      await deps.entityHandle.set(
+        refreshed.id,
+        toMaintenanceEntityState(refreshed),
+        mutationOpts({ runId, scope }),
+      );
       logger.info(`Automation added update to maintenance ${refreshed.id}`);
       return { success: true, externalId: refreshed.id, artifact };
     },
@@ -334,7 +288,7 @@ export function createMaintenanceActions(
     icon: "Wrench",
     config: new Versioned({ version: 1, schema: setSystemConfigSchema }),
     produces: "maintenance.window",
-    execute: async ({ config, logger }) => {
+    execute: async ({ config, logger, runId, scope }) => {
       const startAt = now();
       const endAt = new Date(
         startAt.getTime() + config.durationMinutes * 60_000,
@@ -348,15 +302,11 @@ export function createMaintenanceActions(
         suppressNotifications: config.suppressNotifications,
       });
       const artifact = toArtifact(created);
-      await deps.emitHook(maintenanceHooks.maintenanceCreated, {
-        maintenanceId: created.id,
-        systemIds: created.systemIds,
-        title: created.title,
-        description: created.description,
-        status: created.status,
-        startAt: artifact.startAt,
-        endAt: artifact.endAt,
-      });
+      await deps.entityHandle.set(
+        created.id,
+        toMaintenanceEntityState(created),
+        mutationOpts({ runId, scope }),
+      );
       logger.info(
         `Automation parked system ${config.systemId} via maintenance ${created.id}`,
       );
@@ -381,7 +331,7 @@ export function createMaintenanceActions(
     icon: "Wrench",
     config: new Versioned({ version: 1, schema: clearSystemConfigSchema }),
     produces: "maintenance.window",
-    execute: async ({ config, logger }) => {
+    execute: async ({ config, logger, runId, scope }) => {
       const active = await deps.service.getMaintenancesForSystem(config.systemId);
       const closedIds: string[] = [];
       const message = config.message ?? "Cleared by automation";
@@ -389,17 +339,11 @@ export function createMaintenanceActions(
         const closed = await deps.service.closeMaintenance(window.id, message);
         if (!closed) continue;
         closedIds.push(closed.id);
-        const artifact = toArtifact(closed);
-        await deps.emitHook(maintenanceHooks.maintenanceUpdated, {
-          maintenanceId: closed.id,
-          systemIds: closed.systemIds,
-          title: closed.title,
-          description: closed.description,
-          status: closed.status,
-          startAt: artifact.startAt,
-          endAt: artifact.endAt,
-          action: "closed",
-        });
+        await deps.entityHandle.set(
+          closed.id,
+          toMaintenanceEntityState(closed),
+          mutationOpts({ runId, scope }),
+        );
       }
       logger.info(
         `Automation cleared maintenance for system ${config.systemId} (${closedIds.length} window(s))`,
