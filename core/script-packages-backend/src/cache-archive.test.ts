@@ -153,7 +153,7 @@ describe("cache-archive pack/unpack", () => {
     await writeFile(path.join(payloadDir, "abs.txt"), "x\n");
     // Absolute entry name (e.g. /tmp/.../abs.txt).
     const absName = path.join(payloadDir, "abs.txt");
-    const blob = await makeArchiveWithEntry("/", absName.replace(/^\//, "/"));
+    const blob = await makeArchiveWithEntry("/", absName);
 
     const dest = path.join(work, "dest");
     await mkdir(dest, { recursive: true });

@@ -281,14 +281,19 @@ export class SatelliteClient {
       }
 
       case "script_package_manifest": {
-        this.pendingManifest.get(msg.lockfileHash)?.(msg.entries);
+        // Resolve the typed pending-request callback to a local first, so the
+        // invocation is a plain call of a known function value (not a dynamic
+        // call indexed by the message-supplied key).
+        const resolveManifest = this.pendingManifest.get(msg.lockfileHash);
         this.pendingManifest.delete(msg.lockfileHash);
+        if (resolveManifest) resolveManifest(msg.entries);
         break;
       }
 
       case "script_package_blob": {
-        this.pendingBlob.get(msg.integrity)?.(msg.data);
+        const resolveBlob = this.pendingBlob.get(msg.integrity);
         this.pendingBlob.delete(msg.integrity);
+        if (resolveBlob) resolveBlob(msg.data);
         break;
       }
 

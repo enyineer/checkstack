@@ -112,7 +112,11 @@ export function createVaultClient({
   config: VaultClientConfig;
   fetchImpl: FetchLike;
 }): VaultClient {
-  const base = config.address.replace(/\/+$/, "");
+  // Strip trailing slashes with a linear scan (a `/\/+$/` regex backtracks
+  // polynomially on an address ending in many slashes - ReDoS).
+  let addrEnd = config.address.length;
+  while (addrEnd > 0 && config.address[addrEnd - 1] === "/") addrEnd--;
+  const base = config.address.slice(0, addrEnd);
   const headers = (token?: string): Record<string, string> => {
     const h: Record<string, string> = { "Content-Type": "application/json" };
     if (config.namespace) h["X-Vault-Namespace"] = config.namespace;
