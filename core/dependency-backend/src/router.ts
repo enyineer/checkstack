@@ -16,11 +16,16 @@ import type {
   WarningEvaluationService,
   SystemStatus,
 } from "./services/warning-evaluation-service";
-import { dependencyHooks } from "./hooks";
 import type { InferClient } from "@checkstack/common";
 import { extractErrorMessage } from "@checkstack/common";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
+import type { EntityHandle } from "@checkstack/automation-backend";
+import {
+  mirrorDependencyEdge,
+  removeDependencyEdge,
+  type DependencyEdgeState,
+} from "./dependency-entity";
 
 export function createRouter({
   service,
@@ -29,6 +34,7 @@ export function createRouter({
   catalogClient,
   healthCheckClient,
   logger,
+  getDependencyEntity,
 }: {
   service: DependencyService;
   warningService: WarningEvaluationService;
@@ -36,6 +42,8 @@ export function createRouter({
   catalogClient: InferClient<typeof CatalogApi>;
   healthCheckClient: InferClient<typeof HealthCheckApi>;
   logger: Logger;
+  /** Resolver for the reactive `dependency-edge` entity (§10.5). */
+  getDependencyEntity?: () => EntityHandle<DependencyEdgeState> | undefined;
 }) {
   /**
    * Fetch system statuses for warning evaluation using the bulk health status API.
@@ -181,7 +189,7 @@ export function createRouter({
     ),
 
     createDependency: os.createDependency.handler(
-      async ({ input, context }) => {
+      async ({ input }) => {
         try {
           const result = await service.createDependency(input);
 
@@ -193,12 +201,15 @@ export function createRouter({
             action: "created",
           });
 
-          // Emit hook
-          await context.emitHook(dependencyHooks.dependencyCreated, {
+          // Mirror into the reactive `dependency-edge` entity (§10.5); the
+          // deriver fires `dependency.created` from this change.
+          await mirrorDependencyEdge({
+            handle: getDependencyEntity?.(),
             dependencyId: result.id,
             sourceSystemId: result.sourceSystemId,
             targetSystemId: result.targetSystemId,
             impactType: result.impactType,
+            transitive: result.transitive,
           });
 
           // Notify affected systems about warning changes
@@ -221,7 +232,7 @@ export function createRouter({
     ),
 
     updateDependency: os.updateDependency.handler(
-      async ({ input, context }) => {
+      async ({ input }) => {
         const result = await service.updateDependency(input);
         if (!result) {
           throw new ORPCError("NOT_FOUND", {
@@ -236,11 +247,15 @@ export function createRouter({
           action: "updated",
         });
 
-        await context.emitHook(dependencyHooks.dependencyUpdated, {
+        // Mirror into the reactive `dependency-edge` entity (§10.5); the
+        // deriver fires `dependency.updated` from this change.
+        await mirrorDependencyEdge({
+          handle: getDependencyEntity?.(),
           dependencyId: result.id,
           sourceSystemId: result.sourceSystemId,
           targetSystemId: result.targetSystemId,
           impactType: result.impactType,
+          transitive: result.transitive,
         });
 
         await signalService.broadcast(DEPENDENCY_WARNINGS_CHANGED, {
@@ -252,7 +267,7 @@ export function createRouter({
     ),
 
     deleteDependency: os.deleteDependency.handler(
-      async ({ input, context }) => {
+      async ({ input }) => {
         const existing = await service.getDependencyById(input.id);
         const success = await service.deleteDependency(input.id);
 
@@ -264,10 +279,11 @@ export function createRouter({
             action: "deleted",
           });
 
-          await context.emitHook(dependencyHooks.dependencyDeleted, {
+          // Tombstone the reactive `dependency-edge` entity (§10.5); the
+          // deriver fires `dependency.deleted` from this change.
+          await removeDependencyEdge({
+            handle: getDependencyEntity?.(),
             dependencyId: input.id,
-            sourceSystemId: existing.sourceSystemId,
-            targetSystemId: existing.targetSystemId,
           });
 
           await signalService.broadcast(DEPENDENCY_WARNINGS_CHANGED, {

@@ -24,14 +24,21 @@ import type {
   ActionDefinition,
   TriggerDefinition,
 } from "@checkstack/automation-backend";
+import { makeEntityDrivenTriggerSetup } from "@checkstack/automation-backend";
 import { extractErrorMessage } from "@checkstack/common";
 import {
   DerivedStateSchema,
   ImpactTypeSchema,
 } from "@checkstack/dependency-common";
 
+import type { EntityHandle } from "@checkstack/automation-backend";
 import { dependencyHooks } from "./hooks";
 import type { DependencyService } from "./services/dependency-service";
+import {
+  mirrorDependencyEdge,
+  removeDependencyEdge,
+  type DependencyEdgeState,
+} from "./dependency-entity";
 
 // ─── Payload schemas — match the hook payloads exactly ─────────────────
 
@@ -69,6 +76,10 @@ const dependencyImpactPropagatedPayloadSchema = z.object({
 
 // ─── Triggers ──────────────────────────────────────────────────────────
 
+// These three triggers are ENTITY-DRIVEN (§10.5): the `dependency-edge`
+// entity's change deriver fires `dependency.created/.updated/.deleted` via
+// Stage-1 routing, so they no longer subscribe to a hook. A no-op `setup`
+// keeps them in the editor's trigger catalog without re-introducing a hook.
 export const dependencyCreatedTrigger: TriggerDefinition<
   z.infer<typeof dependencyCreatedPayloadSchema>
 > = {
@@ -78,7 +89,9 @@ export const dependencyCreatedTrigger: TriggerDefinition<
   category: "Dependencies",
   icon: "Network",
   payloadSchema: dependencyCreatedPayloadSchema,
-  hook: dependencyHooks.dependencyCreated,
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof dependencyCreatedPayloadSchema>
+  >(),
   contextKey: (p) => p.dependencyId,
 };
 
@@ -91,7 +104,9 @@ export const dependencyUpdatedTrigger: TriggerDefinition<
   category: "Dependencies",
   icon: "Network",
   payloadSchema: dependencyUpdatedPayloadSchema,
-  hook: dependencyHooks.dependencyUpdated,
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof dependencyUpdatedPayloadSchema>
+  >(),
   contextKey: (p) => p.dependencyId,
 };
 
@@ -104,7 +119,9 @@ export const dependencyDeletedTrigger: TriggerDefinition<
   category: "Dependencies",
   icon: "Network",
   payloadSchema: dependencyDeletedPayloadSchema,
-  hook: dependencyHooks.dependencyDeleted,
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof dependencyDeletedPayloadSchema>
+  >(),
   contextKey: (p) => p.dependencyId,
 };
 
@@ -178,6 +195,8 @@ export const dependencyArtifactType = {
 export interface DependencyActionDeps {
   service: DependencyService;
   emitHook: <T>(hook: Hook<T>, payload: T) => Promise<void>;
+  /** Resolver for the reactive `dependency-edge` entity (§10.5). */
+  getDependencyEntity?: () => EntityHandle<DependencyEdgeState> | undefined;
 }
 
 export function createDependencyActions(
@@ -207,11 +226,15 @@ export function createDependencyActions(
           label: config.label,
           healthCheckRules: [],
         });
-        await deps.emitHook(dependencyHooks.dependencyCreated, {
+        // Mirror into the reactive `dependency-edge` entity (§10.5); the
+        // deriver fires `dependency.created` from this change.
+        await mirrorDependencyEdge({
+          handle: deps.getDependencyEntity?.(),
           dependencyId: created.id,
           sourceSystemId: created.sourceSystemId,
           targetSystemId: created.targetSystemId,
           impactType: created.impactType,
+          transitive: created.transitive,
         });
         logger.info(`Automation created dependency ${created.id}`);
         return {
@@ -261,10 +284,11 @@ export function createDependencyActions(
           error: `Dependency ${config.dependencyId} disappeared mid-delete`,
         };
       }
-      await deps.emitHook(dependencyHooks.dependencyDeleted, {
+      // Tombstone the reactive `dependency-edge` entity (§10.5); the
+      // deriver fires `dependency.deleted` from this change.
+      await removeDependencyEdge({
+        handle: deps.getDependencyEntity?.(),
         dependencyId: existing.id,
-        sourceSystemId: existing.sourceSystemId,
-        targetSystemId: existing.targetSystemId,
       });
       logger.info(`Automation removed dependency ${existing.id}`);
       return {

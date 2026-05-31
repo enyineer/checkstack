@@ -706,6 +706,8 @@ export type {
   TriggerTeardown,
 } from "./action-types";
 
+export { makeEntityDrivenTriggerSetup } from "./entity-driven-trigger";
+
 export type { ArtifactStore, PersistedArtifact } from "./artifact-store";
 export type { TriggerRegistry } from "./trigger-registry";
 export type { ActionRegistry } from "./action-registry";

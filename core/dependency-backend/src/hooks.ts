@@ -1,8 +1,5 @@
 import { createHook } from "@checkstack/backend-api";
-import type {
-  DerivedState,
-  ImpactType,
-} from "@checkstack/dependency-common";
+import type { DerivedState } from "@checkstack/dependency-common";
 
 /**
  * Dependency hooks for cross-plugin communication.
@@ -14,34 +11,12 @@ import type {
  * in the editor.
  */
 export const dependencyHooks = {
-  /**
-   * Emitted when a dependency is created.
-   */
-  dependencyCreated: createHook<{
-    dependencyId: string;
-    sourceSystemId: string;
-    targetSystemId: string;
-    impactType: ImpactType;
-  }>("dependency.created"),
-
-  /**
-   * Emitted when a dependency is updated.
-   */
-  dependencyUpdated: createHook<{
-    dependencyId: string;
-    sourceSystemId: string;
-    targetSystemId: string;
-    impactType: ImpactType;
-  }>("dependency.updated"),
-
-  /**
-   * Emitted when a dependency is deleted.
-   */
-  dependencyDeleted: createHook<{
-    dependencyId: string;
-    sourceSystemId: string;
-    targetSystemId: string;
-  }>("dependency.deleted"),
+  // The `dependency.created` / `.updated` / `.deleted` hooks were removed in
+  // Phase 4 (§10.5): dependency edges are now the reactive `dependency-edge`
+  // entity, whose change deriver fires the matching `dependency.created` /
+  // `.updated` / `.deleted` trigger events through Stage-1 routing. The
+  // `impact_propagated` hook below is KEPT — it is a derived fan-out signal
+  // (per-downstream deltas), not a single mutable entity field.
 
   /**
    * Emitted when an upstream system's state change has propagated
