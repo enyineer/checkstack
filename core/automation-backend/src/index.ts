@@ -86,6 +86,16 @@ import {
   registerBuiltinTriggers,
 } from "./builtin-triggers";
 import {
+  createChangeEmitter,
+  createEntityRegistry,
+  createEntityStore,
+  entityExtensionPoint,
+  type ChangeEmitter,
+  type EntityRegistry,
+} from "./entity";
+import { ENTITY_CHANGED_HOOK } from "./entity/hook";
+import { sql } from "drizzle-orm";
+import {
   createNotifyUserAction,
   logAction,
   notifyUserArtifactType,
@@ -103,6 +113,8 @@ interface EnvStash {
   artifactTypeRegistry: ArtifactTypeRegistry;
   dispatchDeps: DispatchDeps;
   automationStore: ReturnType<typeof createAutomationStore>;
+  entityRegistry: EntityRegistry;
+  entityChangeEmitter: ChangeEmitter;
   triggerSubscriptions?: TriggerSubscriptions;
   stalledSweeper?: StalledSweeper;
   delayConsumer?: DelayQueueConsumer;
@@ -127,7 +139,32 @@ export default createBackendPlugin({
     // this same instance, so plugin filters are live by `init()`.
     const filterRegistry: FilterRegistry = createDefaultFilterRegistry();
 
+    // Run-scoped secret registry — created here in `register()` (it has no
+    // deps) so the SAME instance backs both the dispatch masking choke
+    // points (wired in `init()`) and the entity-store masking choke point
+    // (run-originated entity writes mask through this in the handle).
+    const secretRegistry = createRunSecretRegistry();
+
+    // Entity state machine (reactive automation engine §4). The change
+    // emitter buffers until `emitHook` is wired in `afterPluginsReady`
+    // (§3.7); the registry exposes `defineEntity` / `declareNonReactiveState`
+    // through the extension point below, callable from other plugins'
+    // `register`/`init`. The DB-backed store is bound in `init()` (after
+    // migrations run).
+    const entityChangeEmitter = createChangeEmitter();
+    const entityRegistry = createEntityRegistry({
+      secretRegistry,
+      emitter: entityChangeEmitter,
+    });
+
     env.registerAccessRules(automationAccessRules);
+
+    // Phase 1: register the entity extension point so other plugins can
+    // resolve it and call `defineEntity` during their own register/init.
+    env.registerExtensionPoint(entityExtensionPoint, {
+      defineEntity: entityRegistry.defineEntity,
+      declareNonReactiveState: entityRegistry.declareNonReactiveState,
+    });
 
     env.registerExtensionPoint(automationTriggerExtensionPoint, {
       registerTrigger: <TPayload, TConfig = void>(
@@ -232,12 +269,11 @@ export default createBackendPlugin({
         // Populate the mutable DB ref the GitOps reconcile closures read.
         gitopsDb = database as SafeDatabase<typeof schema>;
 
-        // Run-scoped secret registry: accumulates every secret value
-        // resolved during a run so every persistence choke point (run
-        // store step/run output, run-state scope snapshot, artifact data)
-        // masks before write (run-wide leak guard across ALL actions, and
-        // across replay reads).
-        const secretRegistry = createRunSecretRegistry();
+        // Run-scoped secret registry: created in `register()` (the SAME
+        // instance) so it accumulates every secret value resolved during a
+        // run and every persistence choke point (run store step/run output,
+        // run-state scope snapshot, artifact data, AND run-originated entity
+        // writes) masks before write.
         const artifactStore = createArtifactStore(database, secretRegistry);
         const runStore = createRunStore(database, logger, secretRegistry);
         const runStateStore = createRunStateStore(
@@ -247,6 +283,26 @@ export default createBackendPlugin({
         );
         const dwellStore = createDwellStore(database);
         const automationStore = createAutomationStore(database);
+
+        // Bind the DB-backed entity store to the registry (the extension
+        // point impl registered in `register()` forwards through it). The
+        // store is bound here in `init()` — after migrations have run — so
+        // the `entity_state` / `entity_transitions` tables exist.
+        const entityStore = createEntityStore(database);
+        entityRegistry.setStore(entityStore);
+
+        // Create the declarable expression indexes (§15.1) idempotently,
+        // after migrations. Each spec became a `CREATE INDEX IF NOT EXISTS`
+        // statement at `defineEntity` time; run them once at boot.
+        for (const ddl of entityRegistry.getIndexDdl()) {
+          try {
+            await database.execute(sql.raw(ddl));
+          } catch (error) {
+            logger.error(
+              `Failed to create entity expression index: ${extractErrorMessage(error, "unknown error")} (${ddl})`,
+            );
+          }
+        }
 
         env.registerService(automationArtifactStoreRef, artifactStore);
         env.registerService(automationRegistriesRef, {
@@ -345,6 +401,8 @@ export default createBackendPlugin({
         stash.artifactTypeRegistry = artifactTypeRegistry;
         stash.dispatchDeps = dispatchDeps;
         stash.automationStore = automationStore;
+        stash.entityRegistry = entityRegistry;
+        stash.entityChangeEmitter = entityChangeEmitter;
 
         const router = createAutomationRouter({
           db: database,
@@ -401,11 +459,27 @@ export default createBackendPlugin({
         logger.debug("✅ Automation Backend initialized.");
       },
 
-      afterPluginsReady: async ({ database, logger, onHook, rpcClient }) => {
+      afterPluginsReady: async ({
+        database,
+        logger,
+        onHook,
+        emitHook,
+        rpcClient,
+      }) => {
         const stash = env as unknown as EnvStash;
         const triggers = stash.triggerRegistry.getTriggers();
         const actions = stash.actionRegistry.getActions();
         const artifactTypes = stash.artifactTypeRegistry.getArtifactTypes();
+
+        // Wire the deferred entity-change emitter to the real `emitHook`
+        // (only injectable here — §3.7). Any change events buffered during
+        // the init / afterPluginsReady window are flushed in order now, so
+        // there is no silent no-emit gap. Stage-1 routing (a later phase)
+        // subscribes to ENTITY_CHANGED in work-queue mode; for now the
+        // event is simply emitted onto the platform event bus.
+        await stash.entityChangeEmitter.wire((payload) =>
+          emitHook(ENTITY_CHANGED_HOOK, payload),
+        );
 
         logger.debug(
           `⚙️  Registered ${triggers.length} automation triggers${
@@ -521,6 +595,20 @@ export {
   automationRegistriesRef,
   automationArtifactStoreRef,
 } from "./extension-points";
+
+// Entity state machine — the typed path to reactive state. The internal
+// ENTITY_CHANGED hook is intentionally NOT re-exported (§6.1).
+export { entityExtensionPoint } from "./entity";
+export type {
+  EntityExtensionPoint,
+  DefineEntity,
+  DefineEntityInput,
+  DeclareNonReactiveState,
+  DeclareNonReactiveStateInput,
+  EntityHandle,
+  EntityIndexSpec,
+  EntityMutationOpts,
+} from "./entity";
 
 export type {
   TriggerDefinition,

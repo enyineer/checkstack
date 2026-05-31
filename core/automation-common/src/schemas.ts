@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ActorSchema } from "@checkstack/common";
 
 /**
  * Schemas for the Automation platform.
@@ -928,3 +929,54 @@ export const ArtifactTypeInfoSchema = z.object({
 });
 
 export type ArtifactTypeInfo = z.infer<typeof ArtifactTypeInfoSchema>;
+
+// ─── Reactive entity engine — two-stage queue payloads ─────────────────────
+//
+// The entity state machine (`defineEntity`, automation-backend) emits an
+// internal `ENTITY_CHANGED` hook on every real diff. These schemas are the
+// wire shapes for the two-stage dispatch pipeline (reactive automation
+// engine §13.2). Defined here so later phases (Stage-1 routing, Stage-2
+// dispatch) consume one canonical zod source of truth.
+
+/**
+ * Stage-1 input — the `ENTITY_CHANGED` hook payload. `prev` is null on
+ * create; `next` is null on remove (a tombstone). `delta` carries only the
+ * changed fields; `actor` is the mutating actor (from `HookEventMeta`).
+ */
+export const EntityChangedSchema = z.object({
+  kind: z.string(),
+  id: z.string(),
+  prev: z.record(z.string(), z.unknown()).nullable(), // null on create
+  next: z.record(z.string(), z.unknown()).nullable(), // null on remove (tombstone)
+  delta: z.record(z.string(), z.unknown()), // changed fields only
+  changedFields: z.array(z.string()),
+  actor: ActorSchema, // from HookEventMeta
+  occurredAt: z.string(), // ISO
+});
+
+export type EntityChanged = z.infer<typeof EntityChangedSchema>;
+
+/**
+ * Stage-2 per-run dispatch job. Either a fresh run from a trigger match,
+ * or a resume of a suspended `wait_until`.
+ */
+export const DispatchJobSchema = z.discriminatedUnion("reason", [
+  z.object({
+    // fresh run from a trigger match
+    reason: z.literal("trigger"),
+    automationId: z.string(),
+    triggerId: z.string(),
+    ref: z.string(), // `${kind}:${id}`
+    changed: EntityChangedSchema,
+  }),
+  z.object({
+    // resume a suspended wait_until
+    reason: z.literal("wake"),
+    runId: z.string(),
+    waitLockId: z.string(),
+    ref: z.string(),
+    changed: EntityChangedSchema,
+  }),
+]);
+
+export type DispatchJob = z.infer<typeof DispatchJobSchema>;

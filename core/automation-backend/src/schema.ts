@@ -6,6 +6,7 @@ import {
   integer,
   index,
   uniqueIndex,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -403,4 +404,61 @@ export const automationMigrationFailures = pgTable(
       .$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
+);
+
+/**
+ * Framework-owned entity state — the single generic keyed store backing
+ * every `defineEntity` kind (reactive automation engine §15.1). One row
+ * per `(kind, entityId)`; the full zod-validated state lives in the
+ * `state` jsonb column. A new entity kind needs ZERO migrations: the
+ * platform owns this one table and the wake-index / Stage-1 routing /
+ * scope enrichment are all kind-agnostic.
+ *
+ * Declarable secondary indexes (`EntityIndexSpec`) map onto this store as
+ * Postgres expression indexes on `state->>'field'`, created at plugin
+ * init time (after migrations) by the `defineEntity` impl, named
+ * `entity_state_<kind>_<name>_idx`.
+ */
+export const entityState = pgTable(
+  "entity_state",
+  {
+    kind: text("kind").notNull(),
+    entityId: text("entity_id").notNull(),
+    /** Full validated state (zod-parsed before write). */
+    state: jsonb("state").$type<Record<string, unknown>>().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.kind, t.entityId] }) }),
+);
+
+/**
+ * Generic transition log — generalizes Phase 13's
+ * `health_check_state_transitions` to ANY entity field. One row is
+ * appended per changed tracked field on a real diff; powers
+ * `inStateSince` / `inStateForMs` / `transitionCount` for arbitrary
+ * entities.
+ */
+export const entityTransitions = pgTable(
+  "entity_transitions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    kind: text("kind").notNull(),
+    entityId: text("entity_id").notNull(),
+    field: text("field").notNull(),
+    fromValue: text("from_value"),
+    toValue: text("to_value").notNull(),
+    transitionedAt: timestamp("transitioned_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    // Generalizes health_check_state_transitions lookup idx
+    // (healthcheck schema.ts:176): "most recent transition into status X".
+    lookupIdx: index("entity_transitions_lookup_idx").on(
+      t.kind,
+      t.entityId,
+      t.field,
+      t.transitionedAt,
+    ),
+  }),
 );
