@@ -63,6 +63,15 @@ let groupEntity: EntityHandle<CatalogGroupState> | undefined;
 // Export hooks for other plugins to subscribe to
 export { catalogHooks } from "./hooks";
 
+// Re-export the reactive catalog entity kind ids so cross-plugin consumers
+// (incident, dependency, slo) can subscribe via onEntityChanged (§10.4).
+export {
+  CATALOG_SYSTEM_ENTITY_KIND,
+  CATALOG_GROUP_ENTITY_KIND,
+  type CatalogSystemState,
+  type CatalogGroupState,
+} from "./catalog-entity";
+
 export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {

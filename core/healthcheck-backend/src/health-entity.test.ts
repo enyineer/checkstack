@@ -9,6 +9,7 @@ import {
   HEALTH_ENTITY_KIND,
   HEALTH_TRIGGER_EVENTS,
   HealthEntityStateSchema,
+  classifyHealthChange,
   deriveHealthTriggerEvents,
   mirrorHealthEntity,
   type HealthEntityState,
@@ -78,6 +79,46 @@ describe("deriveHealthTriggerEvents", () => {
         }),
       ),
     ).toEqual([]);
+  });
+});
+
+describe("classifyHealthChange (cross-plugin consumer predicate)", () => {
+  it("flags degraded on healthy → unhealthy (the old systemDegraded condition)", () => {
+    const c = classifyHealthChange(change());
+    expect(c).toEqual({
+      systemId: "sys-1",
+      previousStatus: "healthy",
+      newStatus: "unhealthy",
+      degraded: true,
+      recovered: false,
+    });
+  });
+
+  it("flags recovered on degraded → healthy (the old systemHealthy condition)", () => {
+    const c = classifyHealthChange(
+      change({
+        prev: { status: "degraded", healthyChecks: 1, totalChecks: 2 },
+        next: { status: "healthy", healthyChecks: 2, totalChecks: 2 },
+      }),
+    );
+    expect(c.recovered).toBe(true);
+    expect(c.degraded).toBe(false);
+  });
+
+  it("flags neither on a non-healthy ↔ non-healthy transition", () => {
+    const c = classifyHealthChange(
+      change({
+        prev: { status: "degraded", healthyChecks: 1, totalChecks: 2 },
+        next: { status: "unhealthy", healthyChecks: 0, totalChecks: 2 },
+      }),
+    );
+    expect(c.degraded).toBe(false);
+    expect(c.recovered).toBe(false);
+  });
+
+  it("flags neither on create / tombstone", () => {
+    expect(classifyHealthChange(change({ prev: null })).degraded).toBe(false);
+    expect(classifyHealthChange(change({ next: null })).recovered).toBe(false);
   });
 });
 

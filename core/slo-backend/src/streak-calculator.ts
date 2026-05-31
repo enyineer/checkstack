@@ -2,6 +2,8 @@ import type { SloService } from "./service";
 import type { SloEngine } from "./slo-engine";
 import type { Logger } from "@checkstack/backend-api";
 import type { QueueManager } from "@checkstack/queue-api";
+import type { EntityHandle } from "@checkstack/automation-backend";
+import { mirrorSloEntity, type SloEntityState } from "./slo-entity";
 
 const SNAPSHOT_QUEUE = "slo-daily-snapshots";
 const SNAPSHOT_JOB_ID = "slo-daily-snapshot-run";
@@ -12,6 +14,8 @@ interface StreakCalculatorDeps {
   engine: SloEngine;
   logger: Logger;
   queueManager: QueueManager;
+  /** Resolver for the reactive `slo` entity (§10.7). Undefined in tests. */
+  getSloEntity?: () => EntityHandle<SloEntityState> | undefined;
 }
 
 /**
@@ -20,7 +24,7 @@ interface StreakCalculatorDeps {
  * and updating streak counters for all active objectives.
  */
 export async function setupDailySnapshotJob(deps: StreakCalculatorDeps) {
-  const { queueManager, logger, service, engine } = deps;
+  const { queueManager, logger, service, engine, getSloEntity } = deps;
 
   const queue = queueManager.getQueue<{ trigger: "scheduled" }>(SNAPSHOT_QUEUE);
 
@@ -28,7 +32,7 @@ export async function setupDailySnapshotJob(deps: StreakCalculatorDeps) {
   await queue.consume(
     async () => {
       logger.info("Starting daily SLO snapshot job");
-      await runDailySnapshotJob({ service, engine, logger });
+      await runDailySnapshotJob({ service, engine, logger, getSloEntity });
       logger.info("Completed daily SLO snapshot job");
     },
     { consumerGroup: WORKER_GROUP, maxRetries: 0 },
@@ -57,8 +61,9 @@ export async function runDailySnapshotJob(deps: {
   service: SloService;
   engine: SloEngine;
   logger: Logger;
+  getSloEntity?: () => EntityHandle<SloEntityState> | undefined;
 }) {
-  const { service, engine, logger } = deps;
+  const { service, engine, logger, getSloEntity } = deps;
 
   const objectives = await service.listObjectives();
   const today = new Date();
@@ -79,7 +84,7 @@ export async function runDailySnapshotJob(deps: {
           availabilityPercent: status.currentAvailability ?? 100,
           budgetConsumedMinutes: status.errorBudgetConsumedMinutes,
           budgetRemainingPercent: status.errorBudgetRemainingPercent,
-           
+
           burnRate: status.burnRate ?? null,
           streakDays: streak?.currentStreak ?? 0,
         },
@@ -97,6 +102,26 @@ export async function runDailySnapshotJob(deps: {
           );
         }
       }
+
+      // 3. Mirror the recomputed budget + streak into the reactive `slo`
+      //    entity (§10.7). Operators author budget/streak thresholds as
+      //    `numeric_state` conditions over this state (§9.2). Re-read the
+      //    streak so the mirror reflects the post-update counters.
+      const freshStreak = await service.getStreak({ objectiveId: objective.id });
+      await mirrorSloEntity({
+        handle: getSloEntity?.(),
+        objectiveId: objective.id,
+        systemId: objective.systemId,
+        target: objective.target,
+        budgetRemainingPercent: status.errorBudgetRemainingPercent,
+        currentStreak: freshStreak?.currentStreak ?? 0,
+        bestStreak: freshStreak?.bestStreak ?? 0,
+        onError: (error) =>
+          logger.warn(
+            `Failed to mirror slo entity for objective ${objective.id}`,
+            { error },
+          ),
+      });
     } catch (error) {
       logger.error(
         `Failed to process daily snapshot for objective ${objective.id}`,

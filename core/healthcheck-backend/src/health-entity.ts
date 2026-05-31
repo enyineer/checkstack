@@ -89,6 +89,47 @@ export const deriveHealthTriggerEvents: EntityChangeDeriver = (changed) => {
 };
 
 /**
+ * Classify a `health` entity change for cross-plugin consumers (slo,
+ * dependency) that previously subscribed to the directional
+ * `systemDegraded` / `systemHealthy` hooks. Returns the systemId plus
+ * boolean transition flags, reproducing the exact emit conditions so a
+ * consumer can reproduce its old behavior via `onEntityChanged`.
+ *
+ * - `degraded`: prev === "healthy" && next !== "healthy" (and next exists)
+ * - `recovered`: next === "healthy" && prev !== "healthy" (and prev exists)
+ *
+ * Create / tombstone produce neither (no prior aggregate transition).
+ */
+export interface HealthChangeClassification {
+  systemId: string;
+  previousStatus: string | null;
+  newStatus: string | null;
+  degraded: boolean;
+  recovered: boolean;
+}
+
+export function classifyHealthChange(changed: {
+  id: string;
+  prev: Record<string, unknown> | null;
+  next: Record<string, unknown> | null;
+}): HealthChangeClassification {
+  const previousStatus = readStatus(changed.prev);
+  const newStatus = readStatus(changed.next);
+  const bothPresent = previousStatus !== null && newStatus !== null;
+  const degraded =
+    bothPresent && previousStatus === "healthy" && newStatus !== "healthy";
+  const recovered =
+    bothPresent && newStatus === "healthy" && previousStatus !== "healthy";
+  return {
+    systemId: changed.id,
+    previousStatus,
+    newStatus,
+    degraded,
+    recovered,
+  };
+}
+
+/**
  * Mirror the aggregated health of one system into the `health` entity.
  *
  * Fail-soft: a mirror failure must never break the health-check execution

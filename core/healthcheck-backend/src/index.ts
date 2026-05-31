@@ -385,3 +385,13 @@ export default createBackendPlugin({
 
 // Re-export hooks for other plugins to use
 export { healthCheckHooks } from "./hooks";
+
+// Re-export the reactive `health` entity surface so cross-plugin consumers
+// (slo, dependency) can subscribe via onEntityChanged + classify changes
+// without duplicating the kind id / transition predicate (§10.3).
+export {
+  HEALTH_ENTITY_KIND,
+  classifyHealthChange,
+  type HealthChangeClassification,
+  type HealthEntityState,
+} from "./health-entity";
