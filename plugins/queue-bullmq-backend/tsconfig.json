@@ -1,5 +1,5 @@
 {
-  "extends": "@checkstack/tsconfig/base.json",
+  "extends": "@checkstack/tsconfig/backend.json",
   "references": [
     {
       "path": "../../core/backend-api"
