@@ -7,12 +7,18 @@
  * plugin owns its state and reads it through a `read` accessor; this store
  * owns only two universal concerns:
  *
- *   1. The TRANSACTION the handle drives `apply` inside, so the plugin's
- *      reactive-state write and the framework `entity_transitions` append
- *      commit atomically together (`runInTransaction` + tx-aware
- *      `appendTransitions`). This makes "every change is logged" a structural
- *      guarantee, regardless of where current state lives (even an in-memory
- *      kind gets durable platform history).
+ *   1. The framework TRANSACTION used to append the `entity_transitions`
+ *      rows. This wraps ONLY the post-commit transition append — the plugin's
+ *      `apply` write is NOT driven inside it. The plugin's reactive-state
+ *      write is a different schema behind a different drizzle client, so it
+ *      cannot share this transaction; the handle runs `apply` FIRST (it
+ *      commits in the plugin's own tx), then opens this framework tx solely to
+ *      append the transition rows. The plugin write and the transition append
+ *      therefore do NOT commit atomically together — a deliberate cross-plugin
+ *      non-atomic boundary: the plugin write is authoritative, and a failure
+ *      between the two leaves correct plugin state with at most a missing
+ *      history row (a gap, never a corruption). Full rationale in
+ *      `define-entity.ts` (the "Cross-plugin transaction boundary" note).
  *   2. The transition-LOG read helpers (`inStateSince` / `transitionCount`)
  *      that power `inStateSince` / `inStateForMs` / `transitionCount`.
  *
@@ -29,10 +35,12 @@ type Schema = {
 };
 
 /**
- * The transaction handle the store opens and the handle passes to `apply`.
- * It is the drizzle transaction object for the automation-backend schema —
- * opaque to the handle, used by the plugin's `apply` to write atomically with
- * the transition append.
+ * The transaction handle the store opens for the framework's transition
+ * append. It is the drizzle transaction object for the automation-backend
+ * schema, used ONLY to append `entity_transitions` rows after the plugin's
+ * `apply` has already committed (Model B). It is NOT passed to the plugin's
+ * `apply`; the plugin write runs in its own client/tx and does not share this
+ * one.
  */
 export type EntityTx = Parameters<
   Parameters<SafeDatabase<Schema>["transaction"]>[0]
@@ -51,18 +59,22 @@ export interface TransitionAppend {
  */
 export interface EntityStore {
   /**
-   * Run `fn` inside ONE database transaction, passing it the transaction
-   * handle. The handle uses this to compose the plugin's `apply` write with
-   * the framework transition append: both happen on the same `tx` so they
-   * commit or roll back together. The post-commit change emit is done by the
-   * handle AFTER this resolves.
+   * Run `fn` inside ONE framework database transaction, passing it the
+   * transaction handle. The handle uses this ONLY to append the
+   * `entity_transitions` rows AFTER the plugin's `apply` has already committed
+   * (in the plugin's own tx). The plugin write is NOT driven inside this
+   * transaction — it cannot be, since it lives behind a different client (the
+   * non-atomic cross-plugin boundary; see the file docblock and
+   * `define-entity.ts`). The post-commit change emit is done by the handle
+   * AFTER this resolves.
    */
   runInTransaction<R>(fn: (tx: EntityTx) => Promise<R>): Promise<R>;
 
   /**
-   * Append transition rows on an EXISTING transaction (the one the handle is
-   * driving `apply` inside), so the rows commit atomically with the plugin's
-   * reactive-state write.
+   * Append transition rows on the framework transaction opened by
+   * `runInTransaction`. This is a post-commit framework write: the plugin's
+   * reactive-state write has ALREADY committed separately, so these rows do
+   * NOT commit atomically with it (the deliberate non-atomic boundary above).
    */
   appendTransitions(args: {
     tx: EntityTx;

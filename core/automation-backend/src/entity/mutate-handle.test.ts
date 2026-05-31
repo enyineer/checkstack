@@ -288,6 +288,52 @@ describe("Model B — masking run-originated writes", () => {
     });
     expect(JSON.stringify(events[0]!.next)).toContain("s3cr3t");
   });
+
+  it("mutate RETURNS the unmasked state even though the emitted next is masked", async () => {
+    // Masking is an emission/persistence concern: the EMITTED payload + the
+    // transition rows are masked, but `mutate`'s return is the real resulting
+    // state (the contract is "returns the resulting state"). The calling
+    // plugin must get its actual value back, not a redaction token.
+    const { events, handle, plugin, store } = setup({
+      runId: "run-1",
+      secretValues: ["s3cr3t"],
+    });
+    const returned = await handle.mutate({
+      id: "sat-1",
+      opts: { runId: "run-1" },
+      apply: () =>
+        Promise.resolve(plugin.put("sat-1", { status: "online", region: "s3cr3t" })),
+    });
+    // Return value is UNMASKED.
+    expect(returned).toEqual({ status: "online", region: "s3cr3t" });
+    // ...but the emitted change event masks the secret value.
+    expect(JSON.stringify(events[0]!.next)).not.toContain("s3cr3t");
+    // ...and the durable transition rows also mask it.
+    expect(store.transitions.some((t) => t.toValue.includes("s3cr3t"))).toBe(
+      false,
+    );
+  });
+});
+
+describe("Model B — changeId for dispatch dedup", () => {
+  it("stamps a distinct changeId on each emitted change", async () => {
+    const { events, handle, plugin } = setup();
+    await handle.mutate({
+      id: "sat-1",
+      apply: () => Promise.resolve(plugin.put("sat-1", { status: "online", region: "eu" })),
+    });
+    await handle.mutate({
+      id: "sat-1",
+      apply: () => Promise.resolve(plugin.put("sat-1", { status: "offline", region: "eu" })),
+    });
+    expect(events).toHaveLength(2);
+    // Each distinct change carries a changeId...
+    expect(typeof events[0]!.changeId).toBe("string");
+    expect(events[0]!.changeId).not.toHaveLength(0);
+    // ...and two distinct changes get distinct ids, even back-to-back (where
+    // `occurredAt` can collide at millisecond granularity).
+    expect(events[0]!.changeId).not.toBe(events[1]!.changeId);
+  });
 });
 
 describe("Model B — get / getMany route to plugin read", () => {

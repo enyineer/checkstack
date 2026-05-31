@@ -105,6 +105,119 @@ function incidentChange(id: string, status: string): EntityChanged {
   };
 }
 
+/**
+ * A per-system mutable health client. Tracks which system ids were requested
+ * via `getBulkHealthState` so a test can assert the changed system was fed in.
+ */
+function perSystemHealthClient(initial: Record<string, string>) {
+  const statuses = new Map<string, string>(Object.entries(initial));
+  const requested: string[] = [];
+  const stateObj = (status: string) => ({
+    status,
+    inStatusSince: new Date(),
+    inStatusForMs: 0,
+    inMaintenance: false,
+    evaluatedAt: new Date(),
+  });
+  return {
+    set: (id: string, status: string) => statuses.set(id, status),
+    requestedIds: () => requested,
+    client: {
+      getHealthState: async () => stateObj("healthy"),
+      getBulkHealthState: async ({ systemIds }: { systemIds: string[] }) => {
+        const states: Record<string, unknown> = {};
+        for (const id of systemIds) {
+          requested.push(id);
+          states[id] = stateObj(statuses.get(id) ?? "unknown");
+        }
+        return { states };
+      },
+    } as never,
+  };
+}
+
+function healthChange(id: string, status: string): EntityChanged {
+  return {
+    kind: "health",
+    id,
+    prev: { status: "unhealthy" },
+    next: { status },
+    delta: { status },
+    changedFields: ["status"],
+    actor: SYSTEM_ACTOR,
+    occurredAt: new Date().toISOString(),
+  };
+}
+
+describe("wait_until — wildcard health wake drops nothing (§Fix 2)", () => {
+  it("a health:* wait woken by a non-context system resumes (changed system is resolved)", async () => {
+    // The condition reads a DYNAMIC health system id (from the payload), so
+    // ref extraction yields the health WILDCARD `health:*`. The wait is woken
+    // by `health:sys-other`, which is NEITHER the contextKey NOR listed in
+    // `uses_state`. The fix injects the changed system into the health
+    // resolution so `scope.health.systems[sys-other]` is populated and the
+    // condition can become true.
+    const health = perSystemHealthClient({
+      "sys-ctx": "healthy",
+      "sys-other": "unhealthy",
+    });
+
+    const actions = createActionRegistry();
+    const rec = makeRecordingAction();
+    actions.register(rec.definition, testPlugin);
+    const { deps, runs } = makeDispatchDeps({
+      actions,
+      healthCheckClient: health.client,
+    });
+
+    const auto = automation([
+      {
+        wait_until: {
+          // Dynamic system id → extraction can only record `health:*`.
+          condition:
+            "health.systems[trigger.payload.target].status == 'healthy'",
+        },
+      },
+      { action: "test.record", config: { value: "recovered" } },
+    ]);
+
+    const result = await dispatchTrigger(deps, {
+      automation: auto,
+      triggerId: "test_event",
+      triggerEventId: "test.event",
+      // contextKey is sys-ctx; the watched system is sys-other.
+      payload: { id: "sys-ctx", target: "sys-other" },
+      contextKey: "sys-ctx",
+    });
+    expect(result.status).toBe("waiting");
+
+    const lock = [...runs.waitLocks.values()][0]!;
+    expect([...(runs.wakeRefs.get(lock.id) ?? [])]).toEqual(["health:*"]);
+
+    // sys-other recovers; the wildcard wake matches.
+    health.set("sys-other", "healthy");
+    const jobs = await routeEntityChange({
+      deps,
+      automationStore: storeFor(auto),
+      changeDerivers: createChangeDeriverRegistry(),
+      changed: healthChange("sys-other", "healthy"),
+    });
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.reason).toBe("wake");
+    expect(jobs[0]?.ref).toBe("health:sys-other");
+
+    await handleDispatchJob({ deps, automationStore: storeFor(auto), job: jobs[0]! });
+
+    // Resumed: without the fix, sys-other would never be resolved into
+    // scope.health.systems and the run would stay waiting.
+    expect(runs.runs.get(result.runId)?.status).toBe("success");
+    expect(rec.calls.map((c) => c.value)).toEqual(["recovered"]);
+    expect(runs.waitLocks.size).toBe(0);
+    // The changed (non-context) system was actually fed into health resolution.
+    expect(health.requestedIds()).toContain("sys-other");
+  });
+});
+
 describe("wait_until — non-health entity-kind wake re-eval", () => {
   it("wakes on an incident change, re-enriches state.incident.*, and resumes", async () => {
     const incidents = fakeIncidentEntities("incident");

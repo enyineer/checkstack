@@ -575,13 +575,36 @@ async function reEnrichWaitScope(args: {
 }): Promise<void> {
   const { deps, scope, automation, contextKey, condition, changedRef } = args;
 
+  // Split the changed ref into its `${kind}:${id}` parts once — reused by
+  // both the health-resolution injection below and the entity-ref collection.
+  let changedKind: string | undefined;
+  let changedId: string | undefined;
+  if (changedRef) {
+    const colon = changedRef.indexOf(":");
+    if (colon > 0) {
+      changedKind = changedRef.slice(0, colon);
+      changedId = changedRef.slice(colon + 1);
+    }
+  }
+
   // 1. Health: the rich condition snapshot, RPC-resolved. Sets scope.health.*.
+  //    A WILDCARD health wait (`health:*`) is woken by a concrete `health:sysX`
+  //    whose id may be NEITHER the contextKey NOR in `uses_state`. The health
+  //    aggregate is computed-on-read and is only resolved here for the systems
+  //    we pass in, so without the changed id the wait re-evaluates against an
+  //    empty `scope.health.systems[sysX]` and never resumes. Inject the changed
+  //    system's concrete id so a wildcard wake always resolves the system that
+  //    actually changed (deduped inside `enrichScopeWithState`).
+  const usesState =
+    changedKind === HEALTH_ENTITY_KIND && changedId && changedId !== "*"
+      ? [...(automation.definition.uses_state ?? []), changedId]
+      : automation.definition.uses_state;
   await enrichScopeWithState({
     scope,
     client: deps.healthCheckClient,
     logger: deps.logger,
     contextKey,
-    usesState: automation.definition.uses_state,
+    usesState,
     transitionWindowMinutes: automation.definition.state_window_minutes,
   });
 
@@ -600,12 +623,7 @@ async function reEnrichWaitScope(args: {
     refs.push({ kind, id });
   };
   for (const ref of extractWakeRefs(condition).refs) addRef(ref.kind, ref.id);
-  if (changedRef) {
-    const colon = changedRef.indexOf(":");
-    if (colon > 0) {
-      addRef(changedRef.slice(0, colon), changedRef.slice(colon + 1));
-    }
-  }
+  if (changedKind && changedId) addRef(changedKind, changedId);
   if (refs.length === 0) return;
 
   await enrichScopeWithEntities({
@@ -2051,6 +2069,49 @@ async function executeWaitUntil(
 
   // Persist scope before suspending so the wake re-check rebuilds it.
   await checkpoint(ctx, path);
+
+  // Re-evaluate-on-registration guard (reactive automation engine §17).
+  // The condition was checked above (fast path), THEN the wait lock + its
+  // wake-index rows were committed. A relevant `ENTITY_CHANGED` landing in
+  // that arm window is routed by Stage 1 against the just-now-visible lock,
+  // but if the change committed BEFORE our wake rows were visible, Stage 1
+  // found no lock and enqueued no wake job — a lost wakeup. For a no-timeout
+  // wait nothing would ever re-check it (the sweeper filters `isNotNull
+  // (timeoutAt)`), so the run would stall permanently. Guard against this by
+  // re-evaluating ONCE against freshly re-enriched scope now that the lock is
+  // armed: any change that landed during the window is now observable. If the
+  // condition already holds, drop the lock (its wake-index rows cascade) and
+  // continue the current walk inline. Idempotent: the lock delete + the
+  // per-run advisory lock taken by any concurrent wake/resume path serialise
+  // this with a racing Stage-2 wake (whichever deletes the lock first wins;
+  // the loser sees `gone`).
+  let armedSatisfied = false;
+  try {
+    await reEnrichWaitScope({
+      deps: ctx.deps,
+      scope: ctx.scope,
+      automation: ctx.run.automation,
+      contextKey: ctx.run.contextKey,
+      condition: cfg.condition,
+    });
+    armedSatisfied = evaluateCondition(
+      cfg.condition,
+      templateContext(ctx),
+      ctx.deps.filters,
+    );
+  } catch (error) {
+    ctx.deps.logger.debug(
+      `wait_until arm-window re-eval threw (treating as not-yet): ${(error as Error).message}`,
+    );
+  }
+  if (armedSatisfied) {
+    await ctx.deps.runStore.deleteWaitLock(waitLockId);
+    await ctx.deps.runStore.updateStep(stepId, {
+      status: "success",
+      resultPayload: { satisfied: true, armWindow: true },
+    });
+    return { kind: "ok" };
+  }
 
   // Single durable timeout timer (NOT a poll loop). Only armed when a
   // deadline exists; otherwise the wait is purely event-driven.

@@ -159,6 +159,62 @@ describe("Stage-1 routeEntityChange — fresh triggers via deriver", () => {
   });
 });
 
+describe("Stage-1 trigger jobId — dedup by changeId, not occurredAt", () => {
+  /** Re-route the same logical change and collect the trigger job ids. */
+  async function triggerJobIdsFor(changed: EntityChanged): Promise<string[]> {
+    const actions = createActionRegistry();
+    actions.register(makeRecordingAction().definition, testPlugin);
+    const { deps, queue } = makeDispatchDeps({ actions });
+    const changeDerivers = createChangeDeriverRegistry();
+    changeDerivers.register({
+      kind: "fake",
+      derive: (c) => (c.next?.status === "open" ? ["fake.opened"] : []),
+    });
+    await routeEntityChange({
+      deps,
+      automationStore: storeWith([fakeAutomation()]),
+      changeDerivers,
+      changed,
+    });
+    return queue.jobs
+      .filter((j) => j.queue === DISPATCH_QUEUE_NAME && j.jobId?.startsWith("trigger:"))
+      .map((j) => j.jobId!)
+      .filter((id): id is string => id !== undefined);
+  }
+
+  it("two DISTINCT changes within one ms (distinct changeId) get distinct jobIds", async () => {
+    // Same entity, same occurredAt (ms granularity collides), distinct change.
+    const at = new Date().toISOString();
+    const idsA = await triggerJobIdsFor(
+      change({ occurredAt: at, changeId: "chg-A" }),
+    );
+    const idsB = await triggerJobIdsFor(
+      change({ occurredAt: at, changeId: "chg-B" }),
+    );
+    expect(idsA).toHaveLength(1);
+    expect(idsB).toHaveLength(1);
+    // The wall-clock occurredAt is identical, but the changeId distinguishes
+    // them → distinct jobIds → BullMQ keeps both runs.
+    expect(idsA[0]).not.toBe(idsB[0]);
+    expect(idsA[0]).toContain("chg-A");
+    expect(idsB[0]).toContain("chg-B");
+  });
+
+  it("a REDELIVERY of one change (same changeId) derives the SAME jobId (deduped)", async () => {
+    const changed = change({ changeId: "chg-redelivered" });
+    const first = await triggerJobIdsFor(changed);
+    // A redelivery carries the same payload (changeId travels with it).
+    const second = await triggerJobIdsFor(changed);
+    expect(first[0]).toBe(second[0]);
+  });
+
+  it("falls back to occurredAt for legacy payloads without a changeId", async () => {
+    const at = new Date().toISOString();
+    const ids = await triggerJobIdsFor(change({ occurredAt: at }));
+    expect(ids[0]).toContain(at);
+  });
+});
+
 describe("Stage-1 routeEntityChange — waiting runs via wake-index", () => {
   it("routes a Stage-2 wake job for a wait whose ref matches", async () => {
     const { deps, runs } = makeDispatchDeps();

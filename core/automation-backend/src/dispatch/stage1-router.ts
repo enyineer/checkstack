@@ -103,7 +103,11 @@ export async function routeEntityChange(args: {
         changed,
       };
       await queue.enqueue(job, {
-        jobId: `trigger:${automation.id}:${eventId}:${ref}:${changed.occurredAt}`,
+        // Dedup REDELIVERIES of one change (stable `changeId`) but distinguish
+        // two DISTINCT changes to the same entity — even within one
+        // millisecond, where `occurredAt` collides (§13.2). Fall back to
+        // `occurredAt` only for legacy payloads emitted before `changeId`.
+        jobId: `trigger:${automation.id}:${eventId}:${ref}:${changed.changeId ?? changed.occurredAt}`,
       });
       enqueued.push(job);
     }

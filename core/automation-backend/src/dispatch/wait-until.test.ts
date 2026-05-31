@@ -45,6 +45,39 @@ function mutableHealthClient(initial: string) {
   };
 }
 
+/**
+ * A health client that flips to `flipped` on the Nth `getBulkHealthState`
+ * call (1-based) — used to simulate a change landing in the wait_until ARM
+ * WINDOW (between the lock being committed and the engine's re-evaluation).
+ */
+function flipOnNthBulkCall(args: {
+  initial: string;
+  flipped: string;
+  nthCall: number;
+}) {
+  let calls = 0;
+  const stateObj = (status: string) => ({
+    status,
+    inStatusSince: new Date(),
+    inStatusForMs: 0,
+    inMaintenance: false,
+    evaluatedAt: new Date(),
+  });
+  return {
+    callCount: () => calls,
+    client: {
+      getHealthState: async () => stateObj(args.initial),
+      getBulkHealthState: async ({ systemIds }: { systemIds: string[] }) => {
+        calls += 1;
+        const status = calls >= args.nthCall ? args.flipped : args.initial;
+        const states: Record<string, unknown> = {};
+        for (const id of systemIds) states[id] = stateObj(status);
+        return { states };
+      },
+    } as never,
+  };
+}
+
 function automation(actions: unknown[]): LoadedAutomation {
   const definition = AutomationDefinitionSchema.parse({
     name: "WU",
@@ -214,6 +247,55 @@ describe("wait_until — reactive suspend + wake-index", () => {
     expect(outcome).toBe("still-waiting");
     expect(rec.calls).toHaveLength(0);
     expect(runs.waitLocks.size).toBe(1);
+  });
+});
+
+describe("wait_until — lost-wakeup arm-window guard (§17)", () => {
+  it("resumes inline (no stall) when the condition becomes true between arming the lock and the re-eval", async () => {
+    // The fast path sees `unhealthy` (call 1, at dispatch start), arms the
+    // wait lock + wake-index, THEN the arm-window re-eval (call 2) sees the
+    // system flip to `healthy` — modelling an ENTITY_CHANGED that landed
+    // during the arm window and was NOT routed to a wake job. Without the
+    // re-evaluate-on-registration guard this NO-TIMEOUT wait would stall
+    // forever (the sweeper only re-checks locks with a timeout).
+    const actionsReg = createActionRegistry();
+    const rec = makeRecordingAction();
+    actionsReg.register(rec.definition, testPlugin);
+    const health = flipOnNthBulkCall({
+      initial: "unhealthy",
+      flipped: "healthy",
+      nthCall: 2,
+    });
+    const { deps, runs, queue } = makeDispatchDeps({
+      actions: actionsReg,
+      healthCheckClient: health.client,
+    });
+
+    const auto = automation([
+      { wait_until: { condition: CONDITION } },
+      { action: "test.record", config: { value: "recovered" } },
+    ]);
+
+    const result = await dispatchTrigger(deps, {
+      automation: auto,
+      triggerId: "test_event",
+      triggerEventId: "test.event",
+      payload: { id: "sys-1" },
+      contextKey: "sys-1",
+    });
+
+    // Resumed inline: the run finished rather than stalling as `waiting`.
+    expect(result.status).toBe("success");
+    expect(runs.runs.get(result.runId)?.status).toBe("success");
+    // The post-wait action ran.
+    expect(rec.calls.map((c) => c.value)).toEqual(["recovered"]);
+    // The lock (and its wake-index rows) were cleaned up.
+    expect(runs.waitLocks.size).toBe(0);
+    // No timeout job was armed (no timeout was set), and crucially no poll
+    // loop — the run completed purely via the inline re-eval.
+    expect(queue.jobs).toHaveLength(0);
+    // Sanity: the arm-window re-eval actually re-queried health.
+    expect(health.callCount()).toBeGreaterThanOrEqual(2);
   });
 });
 

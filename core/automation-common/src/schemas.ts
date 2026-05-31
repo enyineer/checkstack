@@ -944,6 +944,16 @@ export const EntityChangedSchema = z.object({
   changedFields: z.array(z.string()),
   actor: ActorSchema, // from HookEventMeta
   occurredAt: z.string(), // ISO
+  /**
+   * Stable, per-change identity generated ONCE at emit time and carried
+   * through every at-least-once redelivery of THIS change. Distinguishes two
+   * DISTINCT changes to the same entity that share an `occurredAt`
+   * (millisecond granularity) so the Stage-2 trigger jobId dedupes
+   * redeliveries of one change without collapsing two real changes (reactive
+   * automation engine §13.2). Optional for back-compat with payloads emitted
+   * before this field existed; the router falls back to `occurredAt`.
+   */
+  changeId: z.string().optional(),
 });
 
 export type EntityChanged = z.infer<typeof EntityChangedSchema>;

@@ -18,13 +18,19 @@
  *      `next` is `null` (tombstone). `apply` takes NO tx: a plugin-backed kind
  *      lives behind a different drizzle client than `entity_transitions`, so
  *      it cannot share the framework transaction.
- *   3. AFTER the plugin write has committed: validate `next` (zod), mask
- *      run-originated writes, diff prev → next. On a real diff, append the
- *      field-level transition rows to `entity_transitions` in the FRAMEWORK's
- *      OWN transaction (a separate db/client from the plugin's write).
+ *   3. AFTER the plugin write has committed: validate `next` (zod) and diff
+ *      prev → next. On a real diff, append the field-level transition rows to
+ *      `entity_transitions` in the FRAMEWORK's OWN transaction (a separate
+ *      db/client from the plugin's write).
  *   4. Emit the internal `ENTITY_CHANGED` event carrying the mutating actor.
  *      A rolled-back / throwing `apply` emits nothing and logs nothing — the
  *      plugin write is the source of truth.
+ *
+ * Masking boundary: run-originated secret masking is confined to the EMITTED
+ * `ENTITY_CHANGED` payload and the `entity_transitions` rows. `mutate` returns
+ * the UNMASKED, zod-validated resulting state — the contract is "returns the
+ * resulting state", and masking is an emission/persistence concern, not part
+ * of the value the calling plugin gets back.
  *
  * Cross-plugin transaction boundary (the deliberate tradeoff): the plugin
  * write (step 2) and the transition append (step 3) are NOT in one shared db
@@ -127,45 +133,74 @@ export function createEntityHandle<TState extends Record<string, unknown>>(
         });
   }
 
-  /** Validate (zod) + mask the post-write state (a tombstone has none). */
-  function normalizeNext(
-    applied: TState | null,
+  /**
+   * Validate (zod) the post-write state WITHOUT masking. This is the state
+   * `mutate` returns to its caller — the contract is "returns the resulting
+   * state", and masking is purely an emission/persistence concern (it must
+   * not leak into the value the calling plugin gets back). A tombstone has no
+   * state.
+   */
+  function validateNext(applied: TState | null): Record<string, unknown> | null {
+    return applied === null
+      ? null
+      : (schema.parse(applied) as Record<string, unknown>);
+  }
+
+  /**
+   * Mask an already-validated state for the run-originated emit/transition
+   * path ONLY (a tombstone has none). Keeps secret VALUES out of the emitted
+   * `ENTITY_CHANGED` payload and the `entity_transitions` rows, while the
+   * unmasked validated state is what `mutate` returns.
+   */
+  function maskNext(
+    validated: Record<string, unknown> | null,
     opts?: EntityMutationOpts,
   ): Record<string, unknown> | null {
-    return applied === null
+    return validated === null
       ? null
       : maskForRun({
           registry: secretRegistry,
           runId: opts?.runId,
-          value: schema.parse(applied) as Record<string, unknown>,
+          value: validated,
         });
   }
 
   /**
-   * Diff prev → next and emit `ENTITY_CHANGED` when there is a real change.
-   * `appendTransitions` performs the durable transition write for a
-   * non-tombstone diff in a fresh framework tx AFTER the plugin write has
-   * committed. Returns the post-write state (echoed for `mutate`).
+   * Diff prev → next, append transitions, and emit `ENTITY_CHANGED` when
+   * there is a real change. `appendTransitions` performs the durable
+   * transition write for a non-tombstone diff in a fresh framework tx AFTER
+   * the plugin write has committed.
+   *
+   * Masking boundary (reactive automation engine §3.5, §12): `prev` and
+   * `maskedNext` are the run-masked views — they feed the diff, the
+   * `entity_transitions` rows, and the emitted payload, so secret VALUES never
+   * leak into history or change events. `returnNext` is the UNMASKED, validated
+   * state echoed back to `mutate` (the caller gets the real resulting state;
+   * masking is purely an emission/persistence concern).
    */
   async function diffAppendEmit(args2: {
     id: string;
     opts?: EntityMutationOpts;
     prev: Record<string, unknown> | null;
-    next: Record<string, unknown> | null;
+    maskedNext: Record<string, unknown> | null;
+    returnNext: Record<string, unknown> | null;
     appendTransitions: (rows: TransitionAppend[]) => Promise<void>;
   }): Promise<Record<string, unknown> | null> {
-    const { id, opts, prev, next, appendTransitions } = args2;
+    const { id, opts, prev, maskedNext, returnNext, appendTransitions } = args2;
 
-    const { changedFields, delta } = diffEntityState({ prev, next });
+    const { changedFields, delta } = diffEntityState({ prev, next: maskedNext });
 
     // Structurally unchanged ⇒ no transition, no emit (the write itself may
     // still have touched non-state columns; that is the plugin's concern).
-    if (changedFields.length === 0) return next;
+    if (changedFields.length === 0) return returnNext;
 
     // Append transitions for a real write (a tombstone records none, like the
-    // old `remove`).
-    if (next !== null) {
-      await appendTransitions(buildTransitions({ prev, next, changedFields }));
+    // old `remove`). Built from the MASKED next so secret values stay out of
+    // the durable history.
+    if (maskedNext !== null) {
+      await appendTransitions(
+        buildTransitions({ prev, next: maskedNext, changedFields }),
+      );
     }
 
     // Tombstone wire shape (§13.2): `delta` is `{}` because the tombstone
@@ -176,14 +211,19 @@ export function createEntityHandle<TState extends Record<string, unknown>>(
       kind,
       id,
       prev,
-      next,
-      delta: next === null ? {} : delta,
+      next: maskedNext,
+      delta: maskedNext === null ? {} : delta,
       changedFields,
       actor: resolveActor(opts),
       occurredAt: new Date().toISOString(),
+      // Per-change identity, generated ONCE here so it travels with every
+      // at-least-once redelivery of THIS change. Two distinct changes within
+      // one millisecond share an `occurredAt`; the changeId keeps them
+      // distinct in the Stage-2 trigger jobId (§13.2).
+      changeId: crypto.randomUUID(),
     });
 
-    return next;
+    return returnNext;
   }
 
   /**
@@ -201,12 +241,16 @@ export function createEntityHandle<TState extends Record<string, unknown>>(
   }): Promise<Record<string, unknown> | null> {
     const { id, opts, apply } = input;
 
-    // 1. Snapshot prev STRICTLY BEFORE the plugin write.
+    // 1. Snapshot prev STRICTLY BEFORE the plugin write (masked view, for the
+    //    diff / transitions / emit).
     const prev = await snapshotPrev(id, opts);
 
     // 2. Run the plugin write, committed in the PLUGIN's own tx. A throw
-    //    propagates here, so nothing below runs (no append, no emit).
-    const next = normalizeNext(await apply(), opts);
+    //    propagates here, so nothing below runs (no append, no emit). Validate
+    //    once; `returnNext` is the UNMASKED state echoed to the caller and
+    //    `maskedNext` is the run-masked view used only for emit/transitions.
+    const returnNext = validateNext(await apply());
+    const maskedNext = maskNext(returnNext, opts);
 
     // 3 + 4. AFTER the plugin commit, append transitions in the FRAMEWORK's
     //    own tx, then emit. Not atomic with the plugin write (documented
@@ -216,7 +260,8 @@ export function createEntityHandle<TState extends Record<string, unknown>>(
       id,
       opts,
       prev,
-      next,
+      maskedNext,
+      returnNext,
       appendTransitions: (rows) =>
         store.runInTransaction((tx) =>
           store.appendTransitions({ tx, kind, entityId: id, transitions: rows }),
