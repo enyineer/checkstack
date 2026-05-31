@@ -4,6 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { X } from "lucide-react";
 import { cn } from "../utils";
 import { usePerformance } from "./PerformanceProvider";
+import { PortalContainerContext } from "./portalContainer";
 
 const Sheet = DialogPrimitive.Root;
 const SheetTrigger = DialogPrimitive.Trigger;
@@ -56,11 +57,23 @@ const SheetContent = React.forwardRef<
   SheetContentProps
 >(({ className, children, size, ...props }, ref) => {
   const { isLowPower } = usePerformance();
+  // Expose the content element so popovers/comboboxes rendered inside the
+  // sheet portal INTO it — otherwise the modal scroll-lock blocks their
+  // internal scrolling (a popover portaled to body is outside the dialog).
+  const [content, setContent] = React.useState<HTMLDivElement | null>(null);
+  const setRefs = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      setContent(node);
+      if (typeof ref === "function") ref(node);
+      else if (ref) ref.current = node;
+    },
+    [ref],
+  );
   return (
     <SheetPortal>
       <SheetOverlay />
       <DialogPrimitive.Content
-        ref={ref}
+        ref={setRefs}
         className={cn(
           sheetContentVariants({ size }),
           "inset-y-0 right-0 h-full",
@@ -70,11 +83,13 @@ const SheetContent = React.forwardRef<
         )}
         {...props}
       >
-        {children}
-        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
-          <X className="h-4 w-4" />
-          <span className="sr-only">Close</span>
-        </DialogPrimitive.Close>
+        <PortalContainerContext.Provider value={content}>
+          {children}
+          <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </DialogPrimitive.Close>
+        </PortalContainerContext.Provider>
       </DialogPrimitive.Content>
     </SheetPortal>
   );

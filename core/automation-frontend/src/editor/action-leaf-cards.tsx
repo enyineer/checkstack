@@ -34,8 +34,9 @@ import { ItemPicker } from "./ItemPicker";
 import { ConditionEditor } from "./ConditionEditor";
 import { useConnectionOptionResolvers } from "./useConnectionOptionResolvers";
 import { automationScriptTestRenderer } from "./ScriptTestRenderer";
-import { useScriptPackageTypes } from "@checkstack/script-packages-frontend";
+import { useScriptPackageTypeAcquisition } from "@checkstack/script-packages-frontend";
 import { useSecretNames } from "@checkstack/secrets-frontend";
+import { generateSecretEnvTypes, secretEnvEnvNames } from "../script-context";
 
 /**
  * Provider action body. Picks an action id from `listActions()` then
@@ -76,20 +77,17 @@ export const ProviderActionBody: React.FC<{
   shellEnvVars,
 }) => {
   const { actions, loading } = useAutomationRegistry();
-  // Installed npm-package `.d.ts`, merged into the TS editor's type
-  // definitions so `import { x } from "<pkg>"` autocompletes. Appended to
-  // the scope-derived `context` types already threaded down.
-  const { dts: packageTypes } = useScriptPackageTypes();
+  // Lazy ATA: the editor fetches + registers the `.d.ts` of any npm package
+  // the script imports (incl. its `@types/*` companion), so
+  // `import { debounce } from "lodash"` autocompletes. Coexists with the
+  // scope-derived `context` ambient types already threaded down.
+  // `importablePackages` drives import-specifier name completion (the package
+  // name itself) before any module is registered.
+  const { acquireTypes, acquireResetKey, importablePackages } =
+    useScriptPackageTypeAcquisition();
   // Secret names (never values) for the secret -> env mapping editor's
   // ${{ secrets.* }} autocomplete.
   const { secretNames } = useSecretNames();
-  const mergedTypeDefinitions = React.useMemo(
-    () =>
-      packageTypes.length > 0
-        ? `${typeDefinitions}\n${packageTypes}`
-        : typeDefinitions,
-    [typeDefinitions, packageTypes],
-  );
   // The shell script action exposes a user-editable `env` field; surface
   // its keys as `$`-completions alongside the run-scope `$CHECKSTACK_*`
   // vars (memoised so the editor's completion provider isn't re-registered
@@ -105,6 +103,21 @@ export const ProviderActionBody: React.FC<{
   // this one. So the card just resolves the registry entry and renders its
   // config; there is no in-card action switcher.
   const selected = actions.find((action) => action.qualifiedId === value.action);
+  // Type the inline TS/JS editor's `process.env.<ENV_NAME>` from the action's
+  // own `secretEnv` mapping: the declared env-var keys (located by the
+  // `x-secret-env` schema annotation, never a hard-coded field name) become
+  // ambient `ProcessEnv` members so they autocomplete and are typed `string`.
+  // Merged onto the scope-derived `context` types; re-derived when the
+  // secretEnv keys change (or the action's schema does). Coexists with
+  // @types/node's existing index signature — this only adds known keys.
+  const mergedTypeDefinitions = React.useMemo(() => {
+    const envNames = secretEnvEnvNames({
+      configSchema: selected?.configSchema,
+      config: value.config,
+    });
+    const secretEnvLib = generateSecretEnvTypes({ envNames });
+    return [typeDefinitions, secretEnvLib].filter(Boolean).join("\n\n");
+  }, [typeDefinitions, selected?.configSchema, value.config]);
   // Connection-backed actions (Jira / Teams / Webex) declare a
   // `connectionProviderId`; the bridge turns their `x-options-resolver`
   // fields into a live connection picker + cascading provider dropdowns.
@@ -164,6 +177,9 @@ export const ProviderActionBody: React.FC<{
         shellEnvVars={mergedShellEnvVars}
         scriptTestRenderer={automationScriptTestRenderer}
         secretNames={secretNames}
+        acquireTypes={acquireTypes}
+        acquireResetKey={acquireResetKey}
+        importablePackages={importablePackages}
       />
     </div>
   );

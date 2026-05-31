@@ -93,6 +93,48 @@ describe("reconcileAutomation", () => {
     expect(db.insert).toHaveBeenCalledTimes(1);
   });
 
+  it("carries the group from metadata.labels.group on insert", async () => {
+    const { db, values } = insertMockDb("auto-1");
+    await reconcileAutomation(db as never, {
+      entity: {
+        metadata: { name: "notify", labels: { group: "Alerting" } },
+        spec: spec as never,
+      },
+      logger,
+    });
+    const inserted = values.mock.calls[0]?.[0] as unknown as { group: string };
+    expect(inserted.group).toBe("Alerting");
+  });
+
+  it("carries the group from metadata.labels.group on update", async () => {
+    const { db, set } = updateMockDb([{ id: "auto-1" }]);
+    await reconcileAutomation(db as never, {
+      entity: {
+        metadata: { name: "notify", labels: { group: "Networking" } },
+        spec: spec as never,
+      },
+      existingEntityId: "auto-1",
+      logger,
+    });
+    const updated = set.mock.calls[0]?.[0] as unknown as { group: string };
+    expect(updated.group).toBe("Networking");
+  });
+
+  it("sets group to null when the label is absent or blank", async () => {
+    const { db, values } = insertMockDb("auto-1");
+    await reconcileAutomation(db as never, {
+      entity: {
+        metadata: { name: "notify", labels: { group: "  " } },
+        spec: spec as never,
+      },
+      logger,
+    });
+    const inserted = values.mock.calls[0]?.[0] as unknown as {
+      group: string | null;
+    };
+    expect(inserted.group).toBeNull();
+  });
+
   it("fills schema defaults (mode / concurrency_scope) from the spec", async () => {
     const { db, values } = insertMockDb("auto-1");
     await reconcileAutomation(db as never, {

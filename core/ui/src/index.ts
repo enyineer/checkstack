@@ -70,6 +70,7 @@ export * from "./components/IDELayout";
 export * from "./components/MetricTile";
 export * from "./components/Sheet";
 export * from "./components/Popover";
+export * from "./components/comboboxInteraction";
 export * from "./hooks/useIsMobile";
 export * from "./hooks/useInitOnceForKey";
 export * from "./components/ListEmptyState";

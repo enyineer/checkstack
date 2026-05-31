@@ -37,6 +37,7 @@ function storeFor(auto: LoadedAutomation): AutomationStore {
     },
     getById: async () => undefined,
     list: async () => ({ items: [], total: 0 }),
+    listGroups: async () => [],
     findEnabledByTriggerEvent: async () => [auto],
     listEnabled: async () => [auto],
   };

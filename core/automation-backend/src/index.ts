@@ -42,7 +42,7 @@ import { createArtifactStore } from "./artifact-store";
 import { createAutomationStore } from "./automation-store";
 import { createAutomationRouter } from "./router";
 import { runWebhookSubscriptionMigration } from "./migration/from-webhook-subscriptions";
-import { runAutoIncidentMigration } from "./migration/from-auto-incident-policies";
+import { runFlappingAutomationMigration } from "./migration/flapping-to-window";
 import {
   startDelayQueueConsumer,
   type DelayQueueConsumer,
@@ -64,6 +64,7 @@ import {
   type Stage1Router,
 } from "./dispatch/stage1-router";
 import { createDwellStore } from "./dispatch/dwell-store";
+import { createWindowStore } from "./dispatch/window-store";
 import { createRunStore } from "./dispatch/run-state";
 import { createRunStateStore } from "./dispatch/run-state-store";
 import { createRunSecretRegistry } from "./dispatch/run-secret-registry";
@@ -309,6 +310,7 @@ export default createBackendPlugin({
           secretRegistry,
         );
         const dwellStore = createDwellStore(database);
+        const windowStore = createWindowStore(database);
         const automationStore = createAutomationStore(database);
 
         // Bind the DB-backed transition store to the registry (the extension
@@ -383,6 +385,7 @@ export default createBackendPlugin({
           runStore,
           runStateStore,
           dwellStore,
+          windowStore,
           queueManager,
           // Sensing-layer scope pre-resolution reads live health state
           // through this client. forPlugin is lazy; the actual RPC only
@@ -618,19 +621,16 @@ export default createBackendPlugin({
           );
         }
 
-        // One-time migration (Phase 20): replace the removed hardcoded
-        // auto-incident path with default automations seeded per
-        // assignment from each system's NotificationPolicy. Idempotent
-        // (managed_by tagged), so safe on every boot.
+        // One-time migration: rewrite legacy `healthcheck.flapping_detected`
+        // triggers onto the generic windowed-count gate over
+        // `healthcheck.system_health_changed` (the flapping trigger + hook
+        // were removed). Idempotent — already-migrated / non-flapping rows are
+        // skipped — so it is safe to run on every boot.
         try {
-          await runAutoIncidentMigration({
-            db: database,
-            rpcClient,
-            logger,
-          });
+          await runFlappingAutomationMigration({ db: database, logger });
         } catch (error) {
           logger.error(
-            `Auto-incident migration failed unexpectedly: ${extractErrorMessage(error, "unknown error")}`,
+            `Flapping automation migration failed unexpectedly: ${extractErrorMessage(error, "unknown error")}`,
           );
         }
 
@@ -704,3 +704,4 @@ export type { ActionRegistry } from "./action-registry";
 export type { ArtifactTypeRegistry } from "./artifact-type-registry";
 export type { AutomationRegistries } from "./extension-points";
 export type { AutomationStore } from "./automation-store";
+export type { LoadedAutomation } from "./dispatch/types";

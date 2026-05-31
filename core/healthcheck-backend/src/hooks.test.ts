@@ -18,15 +18,12 @@ describe("Health Check Hooks", () => {
     expect(healthCheckHooks.checkFailed.id).toBe("healthcheck.check.failed");
   });
 
-  it("keeps the derived flappingDetected signal hook", () => {
-    expect(healthCheckHooks.flappingDetected.id).toBe(
-      "healthcheck.flapping_detected",
-    );
-  });
-
-  it("no longer exposes the removed system-health hooks", () => {
+  it("no longer exposes the removed system-health or flapping hooks", () => {
     expect("systemDegraded" in healthCheckHooks).toBe(false);
     expect("systemHealthy" in healthCheckHooks).toBe(false);
     expect("systemHealthChanged" in healthCheckHooks).toBe(false);
+    // Flapping moved to the automation engine's windowed-count gate; the
+    // pre-derived flapping signal hook was removed.
+    expect("flappingDetected" in healthCheckHooks).toBe(false);
   });
 });

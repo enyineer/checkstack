@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  buildSecretOverrides,
+  distinctSecretNames,
   formatReturnValue,
   hasNoOutput,
   isFailedResult,
@@ -74,5 +76,64 @@ describe("rejectionResult", () => {
     expect(r.error).toBe("network down");
     expect(isFailedResult(r)).toBe(true);
     expect(r.timedOut).toBe(false);
+  });
+});
+
+describe("distinctSecretNames", () => {
+  test("returns [] for an absent or empty mapping", () => {
+    expect(distinctSecretNames(undefined)).toEqual([]);
+    expect(distinctSecretNames({})).toEqual([]);
+  });
+
+  test("extracts distinct secret names from templates, first-seen order", () => {
+    expect(
+      distinctSecretNames({
+        API_TOKEN: "${{ secrets.jira_token }}",
+        DB: "${{ secrets.db_pass }}",
+        ALSO: "${{ secrets.jira_token }}",
+      }),
+    ).toEqual(["jira_token", "db_pass"]);
+  });
+
+  test("tolerates a legacy bare secret name as a value", () => {
+    expect(distinctSecretNames({ secret: "SECRET" })).toEqual(["SECRET"]);
+  });
+
+  test("ignores values that are neither a template nor a bare name", () => {
+    expect(distinctSecretNames({ X: "not a name" })).toEqual([]);
+  });
+});
+
+describe("buildSecretOverrides", () => {
+  const secretEnv = {
+    API_TOKEN: "${{ secrets.jira_token }}",
+    DB: "${{ secrets.db_pass }}",
+  };
+
+  test("returns undefined when no draft is filled", () => {
+    expect(
+      buildSecretOverrides({ secretEnv, drafts: {} }),
+    ).toBeUndefined();
+    expect(
+      buildSecretOverrides({ secretEnv, drafts: { jira_token: "" } }),
+    ).toBeUndefined();
+  });
+
+  test("keeps only filled drafts for referenced names", () => {
+    expect(
+      buildSecretOverrides({
+        secretEnv,
+        drafts: { jira_token: "abc", db_pass: "" },
+      }),
+    ).toEqual({ jira_token: "abc" });
+  });
+
+  test("drops drafts for names not referenced by the mapping", () => {
+    expect(
+      buildSecretOverrides({
+        secretEnv,
+        drafts: { jira_token: "abc", stale: "leak" },
+      }),
+    ).toEqual({ jira_token: "abc" });
   });
 });

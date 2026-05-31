@@ -69,6 +69,8 @@ export interface DispatchDeps {
   entityResolverFor?: (kind: string) => EntityKindResolver | undefined;
   /** Persistence backend for pre-run `for:` dwell timers. */
   dwellStore: DwellStore;
+  /** Persistence backend for windowed-count / rate trigger gates. */
+  windowStore: WindowStore;
   /**
    * Run-scoped secret registry. When set, the engine wraps each run's
    * `getService` so resolving the secret resolver / connection store
@@ -464,4 +466,49 @@ export interface DwellStore {
   deleteForAutomation(automationId: string): Promise<void>;
   /** Dwells whose `fireAt` has passed — the sweeper fallback. */
   sweepExpired(now: Date): Promise<LoadedDwell[]>;
+}
+
+// ─── Windowed-count store interface ──────────────────────────────────────
+
+/** Re-fire policy for a windowed-count gate. */
+export type WindowRefire = "every" | "once";
+
+/** Inputs to {@link WindowStore.recordAndCount}. */
+export interface RecordWindowInput {
+  automationId: string;
+  triggerId: string;
+  eventId: string;
+  contextKey: string | null;
+  /** When the qualifying occurrence happened (the recorded row's timestamp). */
+  occurredAt: Date;
+  /** Trailing sliding window, in minutes. */
+  windowMinutes: number;
+  /** Occurrences within the window that arm the trigger. */
+  threshold: number;
+  /** `every` fires at/over the threshold; `once` fires only on the crossing edge. */
+  refire: WindowRefire;
+}
+
+/**
+ * Persistence for windowed-count / rate trigger gates. The append log is the
+ * source of truth; the in-window COUNT is a pure DB read, so every pod agrees.
+ */
+export interface WindowStore {
+  /**
+   * Append one qualifying occurrence and decide whether the trigger fires:
+   *
+   *  - records the row at `occurredAt`,
+   *  - counts rows for `(automationId, triggerId, contextKey)` whose
+   *    `occurredAt >= occurredAt - windowMinutes` (the new row is included),
+   *  - returns `true` iff the re-fire policy fires for this occurrence:
+   *      `every` → `newCount >= threshold`,
+   *      `once`  → `newCount === threshold` (the crossing edge).
+   *
+   * Single INSERT per claimed emission ⇒ no double-count across pods.
+   */
+  recordAndCount(input: RecordWindowInput): Promise<boolean>;
+  /** Delete occurrences older than `cutoff` — the sweeper's TTL prune. */
+  sweepExpired(cutoff: Date): Promise<void>;
+  /** Drop every occurrence for an automation (disabled / deleted). */
+  deleteForAutomation(automationId: string): Promise<void>;
 }

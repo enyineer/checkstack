@@ -1,5 +1,5 @@
 import type React from "react";
-import type { TemplateProperty, ShellEnvVar } from "../CodeEditor";
+import type { TemplateProperty, ShellEnvVar, AcquireTypes } from "../CodeEditor";
 import type { TemplateCompletionProvider } from "../TemplateValueInput";
 import type { EditorType } from "@checkstack/common";
 
@@ -47,6 +47,15 @@ export type ScriptTestRenderer = (args: {
   kind: "typescript" | "shell";
   /** Current script source in the field. */
   script: string;
+  /**
+   * The current value of the SIBLING secret→env mapping field (the field
+   * annotated `x-secret-env` within the same config object as the script),
+   * if any. DynamicForm locates it by the annotation — not by name — so the
+   * test panel can inject `__SECRET_<NAME>__` placeholders (or the operator's
+   * overrides) for the same secrets the real action declares. `undefined`
+   * when the config has no `x-secret-env` field or it's empty.
+   */
+  secretEnv?: Record<string, string>;
 }) => React.ReactNode;
 
 /** Option returned by an options resolver */
@@ -133,6 +142,22 @@ export interface DynamicFormProps {
    * name autocomplete. Omit it and the editor still works as free text.
    */
   secretNames?: string[];
+  /**
+   * Optional lazy type-acquisition resolver forwarded to TS/JS editor-type
+   * fields. When supplied, the editor fetches + registers the `.d.ts` of any
+   * npm package the script imports, so `import { x } from "pkg"`
+   * autocompletes. Injected by the owning page (see
+   * `@checkstack/script-packages-frontend`).
+   */
+  acquireTypes?: AcquireTypes;
+  /** Install identity (lockfile hash); resets acquired types on a new install. */
+  acquireResetKey?: string;
+  /**
+   * Importable installed package names (already `@types/*`-free), forwarded to
+   * TS/JS editors so the import specifier itself autocompletes
+   * (`import {} from "lod"` -> `lodash`).
+   */
+  importablePackages?: string[];
 }
 
 /** Props for the FormField component */
@@ -151,6 +176,15 @@ export interface FormFieldProps {
   starterTemplates?: EditorStarterTemplates;
   scriptTestRenderer?: ScriptTestRenderer;
   secretNames?: string[];
+  acquireTypes?: AcquireTypes;
+  acquireResetKey?: string;
+  importablePackages?: string[];
+  /**
+   * Current value of the sibling `x-secret-env` mapping field within the
+   * SAME config object as this field, located by annotation. Threaded down
+   * so a testable script field can forward it to {@link ScriptTestRenderer}.
+   */
+  siblingSecretEnv?: Record<string, string>;
   /** Callback when value changes. Omit val to clear the field. */
   onChange: (val?: unknown) => void;
 }

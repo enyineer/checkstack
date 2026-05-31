@@ -80,14 +80,6 @@ const checkFailedPayloadSchema = z.object({
   timestamp: z.string(),
 });
 
-const flappingDetectedPayloadSchema = z.object({
-  systemId: z.string(),
-  configurationId: z.string(),
-  transitionCount: z.number(),
-  windowMinutes: z.number(),
-  timestamp: z.string(),
-});
-
 // ─── Triggers ──────────────────────────────────────────────────────────
 
 export const systemDegradedTrigger: TriggerDefinition<
@@ -106,6 +98,7 @@ export const systemDegradedTrigger: TriggerDefinition<
     z.infer<typeof systemDegradedPayloadSchema>
   >(),
   contextKey: (p) => p.systemId,
+  contextKeyLabel: "system",
 };
 
 export const systemHealthyTrigger: TriggerDefinition<
@@ -122,6 +115,7 @@ export const systemHealthyTrigger: TriggerDefinition<
     z.infer<typeof systemHealthyPayloadSchema>
   >(),
   contextKey: (p) => p.systemId,
+  contextKeyLabel: "system",
 };
 
 export const systemHealthChangedTrigger: TriggerDefinition<
@@ -139,6 +133,7 @@ export const systemHealthChangedTrigger: TriggerDefinition<
     z.infer<typeof systemHealthChangedPayloadSchema>
   >(),
   contextKey: (p) => p.systemId,
+  contextKeyLabel: "system",
 };
 
 export const checkFailedTrigger: TriggerDefinition<
@@ -153,28 +148,24 @@ export const checkFailedTrigger: TriggerDefinition<
   payloadSchema: checkFailedPayloadSchema,
   hook: healthCheckHooks.checkFailed,
   contextKey: (p) => p.systemId,
+  contextKeyLabel: "system",
 };
 
-export const flappingDetectedTrigger: TriggerDefinition<
-  z.infer<typeof flappingDetectedPayloadSchema>
-> = {
-  id: "flapping_detected",
-  displayName: "Health Check Flapping",
-  description:
-    "Fires when N unhealthy transitions are observed within the policy window. Re-fires on every additional transition while flapping; debounce in the automation if needed.",
-  category: "Health",
-  icon: "Repeat",
-  payloadSchema: flappingDetectedPayloadSchema,
-  hook: healthCheckHooks.flappingDetected,
-  contextKey: (p) => p.systemId,
-};
+// The flapping trigger + its `flapping_detected` hook were removed. Flapping
+// is now detected in the automation engine by a windowed-count gate on the
+// `system_health_changed` trigger (raw change event + `filter` +
+// `window: { count, minutes, refire: "once" }`) — no per-derived event.
 
-export const healthCheckTriggers: TriggerDefinition<unknown>[] = [
-  systemDegradedTrigger as TriggerDefinition<unknown>,
-  systemHealthyTrigger as TriggerDefinition<unknown>,
-  systemHealthChangedTrigger as TriggerDefinition<unknown>,
-  checkFailedTrigger as TriggerDefinition<unknown>,
-  flappingDetectedTrigger as TriggerDefinition<unknown>,
+// Triggers carry heterogeneous config types (all healthcheck triggers are
+// currently config-less). The registry accepts the `<unknown, unknown>` shape
+// and re-validates config against each trigger's own `configSchema` at load,
+// so the registration array is widened here — mirroring
+// `registerBuiltinTriggers` in automation-backend.
+export const healthCheckTriggers: TriggerDefinition<unknown, unknown>[] = [
+  systemDegradedTrigger as unknown as TriggerDefinition<unknown, unknown>,
+  systemHealthyTrigger as unknown as TriggerDefinition<unknown, unknown>,
+  systemHealthChangedTrigger as unknown as TriggerDefinition<unknown, unknown>,
+  checkFailedTrigger as unknown as TriggerDefinition<unknown, unknown>,
 ];
 
 // ─── Action configs ────────────────────────────────────────────────────

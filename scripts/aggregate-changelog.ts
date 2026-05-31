@@ -34,6 +34,56 @@ interface PackageChangelog {
   changes: string;
 }
 
+type BumpType = "major" | "minor" | "patch";
+
+/**
+ * A single changelog entry parsed out of a package's version-changelog,
+ * tagged with the bump section it appeared under.
+ */
+interface ChangeEntry {
+  type: BumpType;
+  text: string;
+}
+
+/**
+ * A deduplicated change, grouped across every package the same changeset
+ * touched. `text` is the hash-stripped entry, `packages` is the sorted
+ * unique list of package names, and `type` is the highest bump across them.
+ */
+interface GroupedChange {
+  type: BumpType;
+  text: string;
+  packages: string[];
+}
+
+const BUMP_RANK: Record<BumpType, number> = {
+  patch: 0,
+  minor: 1,
+  major: 2,
+};
+
+/**
+ * Pick the higher-severity bump of two (major > minor > patch).
+ */
+function maxBumpType(a: BumpType, b: BumpType): BumpType {
+  return BUMP_RANK[a] >= BUMP_RANK[b] ? a : b;
+}
+
+/**
+ * Deterministic sort comparator for grouped changes (by their text).
+ */
+function compareChangeText(a: GroupedChange, b: GroupedChange): number {
+  return a.text.localeCompare(b.text);
+}
+
+/**
+ * A safe truncation boundary: the start of a top-level change (`- ` at
+ * column 0) or a `## ` section header.
+ */
+function isTruncationBoundary(line: string): boolean {
+  return line.startsWith("## ") || line.startsWith("- ");
+}
+
 /**
  * Increase all markdown heading levels by a specified amount.
  * This prevents embedded headings from conflicting with our document structure.
@@ -147,6 +197,135 @@ export function isDependencyOnlyChangelog(changes: string): boolean {
 
   // Check if every top-level bullet point is an "Updated dependencies" entry
   return bulletLines.every((line) => line.startsWith("- Updated dependencies"));
+}
+
+/**
+ * Parse a package's version-changelog string into individual change entries.
+ *
+ * Tracks the current bump type from `### Major/Minor/Patch Changes` headers.
+ * An entry starts at a top-level bullet (`- ` with no leading whitespace) and
+ * includes every following line until the next top-level bullet, a `### `
+ * header, a `## ` header, or end of input. Entries whose first line starts
+ * with `- Updated dependencies` are excluded as per-package dependency noise.
+ */
+export function parseChangeEntries({
+  changes,
+}: {
+  changes: string;
+}): ChangeEntry[] {
+  const lines = changes.split("\n");
+  const entries: ChangeEntry[] = [];
+
+  let currentType: BumpType = "patch";
+  let currentLines: string[] | undefined;
+
+  const flush = () => {
+    if (!currentLines) {
+      return;
+    }
+    const text = currentLines.join("\n").replace(/\s+$/, "");
+    if (!text.startsWith("- Updated dependencies")) {
+      entries.push({ type: currentType, text });
+    }
+    currentLines = undefined;
+  };
+
+  for (const line of lines) {
+    if (line.startsWith("### ")) {
+      flush();
+      switch (line.trim()) {
+        case "### Major Changes": {
+          currentType = "major";
+          break;
+        }
+        case "### Minor Changes": {
+          currentType = "minor";
+          break;
+        }
+        case "### Patch Changes": {
+          currentType = "patch";
+          break;
+        }
+      }
+      continue;
+    }
+
+    if (line.startsWith("## ")) {
+      // A version boundary should never appear inside an extracted
+      // version-changelog, but guard against it defensively.
+      flush();
+      continue;
+    }
+
+    // A top-level bullet (no leading whitespace) starts a new entry.
+    if (line.startsWith("- ")) {
+      flush();
+      currentLines = [line];
+      continue;
+    }
+
+    // Continuation lines (indented body, blank lines, fenced code) belong to
+    // the entry currently being accumulated.
+    if (currentLines) {
+      currentLines.push(line);
+    }
+  }
+
+  flush();
+
+  return entries;
+}
+
+/**
+ * Normalize a change entry's first line into a dedup key by stripping the
+ * leading commit-hash prefix (`- <hash>: ` → `- `) and trimming trailing
+ * whitespace. Two entries from the same changeset share this normalized text.
+ */
+function normalizeChangeText(text: string): string {
+  return text.replace(/^- [0-9a-f]{7,40}: /, "- ").replace(/\s+$/, "");
+}
+
+/**
+ * Group change entries across all packages by their normalized (hash-stripped)
+ * text. Each group records the deduplicated change text, the sorted unique
+ * list of package names that contained it, and the highest bump type across
+ * those packages.
+ */
+export function groupChanges({
+  changelogs,
+}: {
+  changelogs: PackageChangelog[];
+}): GroupedChange[] {
+  const groups = new Map<
+    string,
+    { type: BumpType; text: string; packages: Set<string> }
+  >();
+
+  for (const changelog of changelogs) {
+    const entries = parseChangeEntries({ changes: changelog.changes });
+
+    for (const entry of entries) {
+      const key = normalizeChangeText(entry.text);
+      const existing = groups.get(key);
+
+      if (existing) {
+        existing.type = maxBumpType(existing.type, entry.type);
+        existing.packages.add(changelog.packageName);
+      } else {
+        groups.set(key, {
+          type: entry.type,
+          text: key,
+          packages: new Set([changelog.packageName]),
+        });
+      }
+    }
+  }
+
+  return [...groups.values()].map((group) => ({
+    type: group.type,
+    text: group.text,
+    packages: [...group.packages].toSorted((a, b) => a.localeCompare(b)),
+  }));
 }
 
 /**
@@ -318,25 +497,26 @@ async function aggregateChangelogs(): Promise<PackageChangelog[]> {
 }
 
 /**
- * Determine the change type category for a changelog entry
+ * Render a single grouped change as markdown: the (hash-stripped) change text
+ * with any embedded headings normalized, followed by an indented sub-line
+ * listing the affected packages so it stays inside the list item.
  */
-function getChangeType(changes: string): "major" | "minor" | "patch" {
-  if (changes.includes("### Major Changes")) {
-    return "major";
-  }
-  if (changes.includes("### Minor Changes")) {
-    return "minor";
-  }
-  return "patch";
+function renderGroupedChange(change: GroupedChange): string[] {
+  const packagesNote = `  **Packages:** ${change.packages.join(", ")}`;
+  return [normalizeHeadings(change.text), "", packagesNote, ""];
 }
 
 /**
- * Generate markdown output from aggregated changelogs
+ * Generate markdown output from aggregated changelogs, deduplicating each
+ * change so it appears once with the list of packages it touched.
  */
-function generateMarkdown(
-  version: string,
-  changelogs: PackageChangelog[],
-): string {
+export function generateMarkdown({
+  version,
+  changelogs,
+}: {
+  version: string;
+  changelogs: PackageChangelog[];
+}): string {
   const lines: string[] = [`# Checkstack v${version} Changelog`, ""];
 
   if (changelogs.length === 0) {
@@ -344,53 +524,27 @@ function generateMarkdown(
     return lines.join("\n");
   }
 
-  // Group by change type
-  const majorChanges = changelogs.filter(
-    (c) => getChangeType(c.changes) === "major",
-  );
-  const minorChanges = changelogs.filter(
-    (c) => getChangeType(c.changes) === "minor",
-  );
-  const patchChanges = changelogs.filter(
-    (c) => getChangeType(c.changes) === "patch",
-  );
+  const grouped = groupChanges({ changelogs });
 
-  if (majorChanges.length > 0) {
-    lines.push(
-      "## Breaking Changes",
-      "",
-      ...majorChanges.flatMap((changelog) => [
-        `### ${changelog.packageName}@${changelog.version}`,
-        "",
-        normalizeHeadings(changelog.changes),
-        "",
-      ]),
-    );
-  }
+  const sections: Array<{ heading: string; type: BumpType }> = [
+    { heading: "## Breaking Changes", type: "major" },
+    { heading: "## Minor Changes", type: "minor" },
+    { heading: "## Patch Changes", type: "patch" },
+  ];
 
-  if (minorChanges.length > 0) {
-    lines.push(
-      "## Minor Changes",
-      "",
-      ...minorChanges.flatMap((changelog) => [
-        `### ${changelog.packageName}@${changelog.version}`,
-        "",
-        normalizeHeadings(changelog.changes),
-        "",
-      ]),
-    );
-  }
+  for (const section of sections) {
+    const sectionChanges = grouped
+      .filter((change) => change.type === section.type)
+      .toSorted(compareChangeText);
 
-  if (patchChanges.length > 0) {
+    if (sectionChanges.length === 0) {
+      continue;
+    }
+
     lines.push(
-      "## Patch Changes",
+      section.heading,
       "",
-      ...patchChanges.flatMap((changelog) => [
-        `### ${changelog.packageName}@${changelog.version}`,
-        "",
-        normalizeHeadings(changelog.changes),
-        "",
-      ]),
+      ...sectionChanges.flatMap((change) => renderGroupedChange(change)),
     );
   }
 
@@ -399,7 +553,10 @@ function generateMarkdown(
 
 /**
  * Truncate the markdown output to fit within GitHub's character limit.
- * Truncates at package boundaries (### headers) to avoid cutting mid-content.
+ *
+ * Truncates at safe boundaries — the start of a top-level change (`- ` at
+ * column 0) or a `## ` section header — to avoid cutting mid-change or
+ * mid-fenced-code.
  */
 function truncateToLimit(markdown: string): string {
   if (markdown.length <= MAX_BODY_LENGTH) {
@@ -409,40 +566,54 @@ function truncateToLimit(markdown: string): string {
   const reservedLength = TRUNCATION_NOTICE.length;
   const targetLength = MAX_BODY_LENGTH - reservedLength;
 
-  // Find a safe truncation point at a package boundary (### header)
-  // We look backwards from the target length to find the last complete package section
+  // Find a safe truncation point at a change boundary (top-level "- " bullet)
+  // or a "## " section header. We walk forward and remember the last safe
+  // boundary that still fits within the target length.
   const lines = markdown.split("\n");
   let currentLength = 0;
-  let lastPackageBoundaryIndex = 0;
+  let lastBoundaryIndex = 0;
 
   for (const [index, line] of lines.entries()) {
     const lineLength = line.length + 1; // +1 for newline
 
-    // Check if this is a package boundary (### header)
-    if (line.startsWith("### ")) {
+    if (isTruncationBoundary(line)) {
       if (currentLength + lineLength > targetLength) {
-        // This package section would exceed the limit, stop before it
+        // This change/section would exceed the limit, stop before it.
         break;
       }
-      lastPackageBoundaryIndex = index;
+      lastBoundaryIndex = index;
     }
 
     currentLength += lineLength;
 
-    if (currentLength > targetLength && lastPackageBoundaryIndex > 0) {
-      // We've exceeded the limit, truncate at the last safe boundary
+    if (currentLength > targetLength && lastBoundaryIndex > 0) {
+      // We've exceeded the limit, truncate at the last safe boundary.
       break;
     }
   }
 
-  // If we found a safe boundary, truncate there
-  if (lastPackageBoundaryIndex > 0) {
-    const truncatedLines = lines.slice(0, lastPackageBoundaryIndex);
+  // If we found a safe boundary, truncate there.
+  if (lastBoundaryIndex > 0) {
+    const truncatedLines = lines.slice(0, lastBoundaryIndex);
     return truncatedLines.join("\n") + TRUNCATION_NOTICE;
   }
 
-  // Fallback: hard truncate if no safe boundary found
+  // Fallback: hard truncate if no safe boundary found.
   return markdown.slice(0, targetLength) + TRUNCATION_NOTICE;
+}
+
+/**
+ * Build the deduplicated release-notes markdown (untruncated).
+ *
+ * Aggregates every changed package's version-changelog and groups changes so
+ * each one appears once with the packages it touched. Reused by both the
+ * GitHub release body (truncated by `main`) and the Version Packages PR body
+ * (`scripts/pr-release-notes.ts`, full form).
+ */
+export async function buildDeduplicatedReleaseNotes(): Promise<string> {
+  const version = await getReleaseVersion();
+  const changelogs = await aggregateChangelogs();
+  return generateMarkdown({ version, changelogs });
 }
 
 async function main() {
@@ -452,7 +623,7 @@ async function main() {
   const changelogs = await aggregateChangelogs();
   console.error(`Found ${changelogs.length} packages with changes`);
 
-  const markdown = generateMarkdown(version, changelogs);
+  const markdown = generateMarkdown({ version, changelogs });
   const output = truncateToLimit(markdown);
 
   if (output.length < markdown.length) {
@@ -464,4 +635,10 @@ async function main() {
   console.log(output);
 }
 
-await main();
+// Only run when invoked directly (not when imported as a module, e.g. by the
+// test suite or `scripts/pr-release-notes.ts`). The workflow runs this file
+// directly via `bun run scripts/aggregate-changelog.ts`, so the stdout
+// contract is preserved.
+if (import.meta.main) {
+  await main();
+}

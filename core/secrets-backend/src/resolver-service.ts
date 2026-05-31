@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   collectSecretNames,
+  normalizeSecretEnvValue,
   type SecretEnvMapping,
 } from "@checkstack/secrets-common";
 import {
@@ -70,10 +71,18 @@ export function createSecretResolverService({
     },
 
     async resolveForRun({ secretEnv }) {
+      // Normalize tolerated bare secret names to the canonical template
+      // (the value schema no longer transforms — see `secretEnvValueSchema`),
+      // so collection + substitution below see only `${{ secrets.NAME }}`.
+      const normalized: Record<string, string> = {};
+      for (const [envName, value] of Object.entries(secretEnv)) {
+        normalized[envName] = normalizeSecretEnvValue(value);
+      }
+
       // Collect every distinct secret name referenced by the mapping, so
       // we resolve each once even if reused across multiple env vars.
       const names = new Set(
-        collectSecretNames({ value: Object.values(secretEnv) }),
+        collectSecretNames({ value: Object.values(normalized) }),
       );
 
       const resolved = new Map<string, string>();
@@ -83,7 +92,7 @@ export function createSecretResolverService({
 
       // Build the env by substituting templates in each mapping value.
       const env: Record<string, string> = {};
-      for (const [envName, template] of Object.entries(secretEnv)) {
+      for (const [envName, template] of Object.entries(normalized)) {
         env[envName] = substituteTemplate({ template, resolved });
       }
 

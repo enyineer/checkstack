@@ -54,7 +54,7 @@ import editorWorkerUrl from "@codingame/monaco-vscode-editor-api/esm/vs/editor/e
 import tsWorkerUrl from "@codingame/monaco-vscode-standalone-typescript-language-features/worker?worker&url";
 import jsonWorkerUrl from "@codingame/monaco-vscode-standalone-json-language-features/worker?worker&url";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
 import * as monaco from "@codingame/monaco-vscode-editor-api";
 import { MonacoEditorReactComp } from "@typefox/monaco-editor-react";
 import { extractBracketKeyGroups } from "./bracketKeyGroups";
@@ -68,11 +68,26 @@ import {
   matchShellEnvVarTrigger,
 } from "./shellEnvVarMatcher";
 import type {
+  AcquireTypes,
   CodeEditorLanguage,
   EditorMarker,
   ShellEnvVar,
   TemplateProperty,
 } from "./types";
+import {
+  importSpecifierCompletionContext,
+  mergeImportCompletionEntries,
+  parseBareImportSpecifiers,
+  planAcquisitions,
+} from "./importSpecifiers";
+// Authoritative, build-time-derived list of importable runtime built-in
+// specifiers (`node:fs`, bare `fs`, `bun`, `bun:test`, ...). Generated from the
+// SAME bundled `@types/node` + `bun-types` declarations the editor injects (see
+// scripts/generate-stdlib-types.ts -> extractBuiltinModuleSpecifiers), so the
+// import-name completions never drift from the runtime stdlib. Imported as a
+// plain JSON module (tiny: ~115 names); the bulky type bodies stay in the
+// separately code-split stdlib-types.json.
+import builtinModulesJson from "./generated/builtin-modules.json";
 import {
   type EditorAppConfig,
   type TextContents,
@@ -131,6 +146,14 @@ const configureStandaloneWorkerFactory = (
 // bun-types) is added only once the stdlib bundle has loaded (see
 // ensureStandaloneStdlib), so the service doesn't transiently error on a
 // missing `node` type while the ~3 MB bundle is still fetching.
+//
+// `baseUrl: "file:///"` anchors NodeJs bare-import resolution at the virtual
+// root so an `import "lodash"` walks `file:///node_modules/...` — the same
+// virtual layout the stdlib bundle AND the lazy-ATA extra-libs are registered
+// under. `typeRoots` lists BOTH the `@types` root (so a package with no own
+// types, e.g. lodash, falls back to `@types/lodash`) and the bare
+// `node_modules` root (so the bundled `bun-types`, which is NOT under
+// `@types`, still resolves as an ambient `types` entry).
 const BASE_COMPILER_OPTIONS = {
   target: ScriptTarget.ESNext,
   module: ModuleKind.ESNext,
@@ -140,6 +163,8 @@ const BASE_COMPILER_OPTIONS = {
   noEmit: true,
   strict: true,
   esModuleInterop: true,
+  baseUrl: "file:///",
+  typeRoots: ["file:///node_modules/@types", "file:///node_modules"],
 };
 
 /**
@@ -193,6 +218,90 @@ const ensureStandaloneStdlib = async (): Promise<void> => {
 };
 
 void ensureStandaloneStdlib();
+
+// ─── Lazy Automatic Type Acquisition (ATA) registry ─────────────────────────
+//
+// The TS/JS language services are singletons, so acquired package types are
+// registered ONCE and shared across every editor instance (a package imported
+// in one script editor is then typed in all of them — harmless, since the
+// declarations are the same install). State is module-scoped:
+//
+//  - `acquiredFilePaths`: virtual paths already passed to addExtraLib (dedupe
+//    so two editors importing the same package don't double-register a file).
+//  - `acquiredSpecifiers`: package names already acquired (skip the fetch).
+//  - `acquireResetKey`: the install identity (lockfile hash) the current
+//    acquired-set belongs to; when it changes, the set is reset so types
+//    refresh against the new install.
+const acquiredFilePaths = new Set<string>();
+const acquiredSpecifiers = new Set<string>();
+let currentAcquireResetKey: string | undefined;
+
+/**
+ * Reset the acquired-set when the install identity changes. The already-
+ * registered extra-libs are left in place (disposing them is unnecessary —
+ * the new install re-registers the same virtual paths, and addExtraLib
+ * overwrites by path), but the specifier set clears so each package is
+ * re-fetched against the new hash.
+ */
+const syncAcquireResetKey = (resetKey: string | undefined): void => {
+  if (resetKey === currentAcquireResetKey) return;
+  currentAcquireResetKey = resetKey;
+  acquiredSpecifiers.clear();
+  acquiredFilePaths.clear();
+};
+
+/**
+ * Register one acquired package's declaration files with both the TS and JS
+ * services, deduped by virtual path. Paths are `node_modules/...`-relative;
+ * we mount each at `file:///<path>` so NodeJs + `@types` resolution finds it.
+ */
+const registerAcquiredFiles = (
+  files: ReadonlyArray<{ path: string; content: string }>,
+): void => {
+  for (const file of files) {
+    const uri = `file:///${file.path}`;
+    if (acquiredFilePaths.has(uri)) continue;
+    acquiredFilePaths.add(uri);
+    for (const defaults of [typescriptDefaults, javascriptDefaults]) {
+      defaults.addExtraLib(file.content, uri);
+    }
+  }
+};
+
+/**
+ * Acquire types for every NEW bare specifier in `source`, against the given
+ * resolver. Pure planning (`parseBareImportSpecifiers` / `planAcquisitions`)
+ * is unit-tested; this thin async glue is intentionally untested (no DOM /
+ * network in unit tests). A specifier is marked acquired even when it returns
+ * no files, so a typeless package isn't re-fetched on every keystroke.
+ */
+const runTypeAcquisition = async ({
+  source,
+  acquireTypes,
+  resetKey,
+}: {
+  source: string;
+  acquireTypes: AcquireTypes;
+  resetKey: string | undefined;
+}): Promise<void> => {
+  syncAcquireResetKey(resetKey);
+  const specifiers = parseBareImportSpecifiers(source);
+  const toAcquire = planAcquisitions({
+    specifiers,
+    acquired: acquiredSpecifiers,
+  });
+  for (const specifier of toAcquire) {
+    // Mark first so concurrent/keystroke re-runs don't double-fetch.
+    acquiredSpecifiers.add(specifier);
+    try {
+      const files = await acquireTypes(specifier);
+      registerAcquiredFiles(files);
+    } catch {
+      // A failed fetch un-marks so a later edit can retry.
+      acquiredSpecifiers.delete(specifier);
+    }
+  }
+};
 
 // Turn OFF the JSON service's built-in validation. The editor content is a
 // template that renders to JSON, so we validate the template-substituted form
@@ -328,6 +437,13 @@ export type TypefoxEditorProps = {
   /** Minimum editor height in pixels. Defaults to 240. */
   minHeight?: number;
   /**
+   * When true, the editor container fills its flex parent (`height: 100%`)
+   * instead of using a fixed `minHeight` px height, so it grows to fit a tall
+   * flex column (e.g. the popout dialog body). `minHeight` is still applied as
+   * a floor. Defaults to false, preserving the inline fixed-height behaviour.
+   */
+  fillHeight?: boolean;
+  /**
    * Generated ambient type definitions (the `context.d.ts`) injected as a TS
    * extra-lib so `context.*` resolves with real fields. Wired up once per
    * editor at mount, keyed by a unique path - no addExtraLib race.
@@ -356,6 +472,28 @@ export type TypefoxEditorProps = {
   readOnly?: boolean;
   /** Accessible label / hint for the editor (surfaced via aria-label). */
   placeholder?: string;
+  /**
+   * Lazy Automatic Type Acquisition resolver. When provided (TS/JS editors),
+   * bare `import`/`require` specifiers in the buffer are parsed (debounced)
+   * and each NEW package's `.d.ts` closure is fetched + registered so e.g.
+   * `import { debounce } from "lodash"` autocompletes. Injected by the
+   * consumer so this component stays plugin-agnostic.
+   */
+  acquireTypes?: AcquireTypes;
+  /**
+   * Install identity (lockfile hash). When it changes, the shared acquired-set
+   * resets so types refresh against the new install.
+   */
+  acquireResetKey?: string;
+  /**
+   * Importable installed package NAMES (TS/JS editors). When provided, the
+   * editor suggests these as completions while the cursor is inside an import
+   * specifier string (`import {} from "lod"` -> `lodash`) - solving the
+   * lazy-ATA catch-22 where no module is registered yet. Must already exclude
+   * `@types/*` companions (you import `lodash`, never `@types/lodash`).
+   * Injected by the consumer so this component stays plugin-agnostic.
+   */
+  importablePackages?: string[];
 };
 
 /**
@@ -382,18 +520,30 @@ const languageStatusServiceOverride: monaco.editor.IEditorOverrideServices =
       : {};
   })();
 
+// Always-available runtime built-in import specifiers (Node + Bun), derived at
+// build time from the bundled stdlib types. These are importable in the script
+// sandbox regardless of the installed-package allowlist (the sandbox is a Bun
+// subprocess; Bun provides Node's builtins + its own `bun:` modules), and their
+// types are already loaded ambiently via the stdlib bundle - so completing one
+// needs no lazy acquisition. The JSON is a plain `string[]`.
+const BUILTIN_MODULE_SPECIFIERS: readonly string[] = builtinModulesJson;
+
 export const TypefoxEditor = ({
   id,
   value,
   onChange,
   language = "typescript",
   minHeight = 240,
+  fillHeight = false,
   typeDefinitions,
   templateProperties,
   shellEnvVars,
   markers,
   readOnly = false,
   placeholder,
+  acquireTypes,
+  acquireResetKey,
+  importablePackages,
 }: TypefoxEditorProps) => {
   // `MonacoEditorReactComp` captures `onTextChanged` once at editor-start, so
   // the handler it calls would otherwise close over a stale `onChange` (bound
@@ -437,6 +587,138 @@ export const TypefoxEditor = ({
       lib.dispose();
     };
   }, [isTsLike, typeDefinitions, modelId]);
+
+  // Lazy Automatic Type Acquisition (ATA). For TS/JS editors with an injected
+  // `acquireTypes` resolver, parse the buffer's bare import/require specifiers
+  // (debounced) and fetch + register each NEW package's `.d.ts` closure, so
+  // `import { x } from "pkg"` autocompletes. The acquired-set is module-scoped
+  // and shared across editors (the declarations are install-global); the pure
+  // parse/plan steps are unit-tested in importSpecifiers.test.ts. Re-running
+  // on a new `acquireTypes`/`acquireResetKey` identity is cheap and safe — the
+  // module-scoped acquired-set dedupes, so it never double-fetches.
+  useEffect(() => {
+    if (!apiReady || !isTsLike || acquireTypes === undefined) {
+      return;
+    }
+    const model = findModelById(modelId);
+    if (!model) {
+      return;
+    }
+
+    const acquire = (source: string): void => {
+      void runTypeAcquisition({
+        source,
+        acquireTypes,
+        resetKey: acquireResetKey,
+      });
+    };
+
+    // Run once for the initial content so existing imports resolve on open.
+    acquire(model.getValue());
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const subscription = model.onDidChangeContent(() => {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = setTimeout(() => {
+        acquire(model.getValue());
+      }, 400);
+    });
+    return () => {
+      if (timer !== undefined) clearTimeout(timer);
+      subscription.dispose();
+    };
+  }, [apiReady, isTsLike, acquireTypes, acquireResetKey, modelId]);
+
+  // Controlled-value sync. `value` is only seeded into the model at mount
+  // (codeResources), so the editor is otherwise uncontrolled. Apply external
+  // `value` changes — a sibling editor's edits (the inline ↔ popout pair share
+  // one controlled `value`), a YAML→Visual reset, a loaded definition — to this
+  // model. Guarded by an equality check: the user's own edit round-trips
+  // `value === model.getValue()`, so the actively-edited editor is a no-op and
+  // there is no feedback loop; only a background editor whose `value` prop
+  // diverged gets updated.
+  useEffect(() => {
+    if (!apiReady) return;
+    const model = findModelById(modelId);
+    if (!model || model.getValue() === value) return;
+    model.setValue(value);
+  }, [apiReady, modelId, value]);
+
+  // Import-specifier name completions. Lazy ATA only registers a package's
+  // types AFTER its name is in the buffer, so while the user is still TYPING
+  // the specifier (`import {} from "lod"`) no module exists yet and the TS
+  // worker offers nothing. This provider fills that gap: when the cursor is
+  // inside an import/require string (detected by the unit-tested
+  // `importSpecifierCompletionContext`), it suggests:
+  //   - the always-available runtime built-ins (`node:fs`, `bun`, ...), so
+  //     they appear even with an empty allowlist; AND
+  //   - the injected installed-package names (already `@types/*`-free).
+  // Selecting a built-in inserts an already-typed module; selecting an
+  // installed package triggers the ATA loop to load its closure. The list is
+  // merged + deduped + sorted by `mergeImportCompletionEntries` (a unit-tested
+  // pure helper). Built-ins read as "Node.js" / "Bun built-in" via `detail`.
+  // Scoped to THIS model; only the import-string position triggers it, so it
+  // never pollutes normal completions. Always registered (built-ins are
+  // always available), independent of the allowlist.
+  useEffect(() => {
+    if (!apiReady || !isTsLike) {
+      return;
+    }
+    const entries = mergeImportCompletionEntries({
+      builtins: BUILTIN_MODULE_SPECIFIERS,
+      installedPackages: importablePackages ?? [],
+    });
+
+    const provideCompletionItems = (
+      model: monaco.editor.ITextModel,
+      position: monaco.Position,
+    ): monaco.languages.CompletionList => {
+      if (!model.uri.toString().includes(modelId)) {
+        return { suggestions: [] };
+      }
+      const lineUpToCursor = model
+        .getLineContent(position.lineNumber)
+        .slice(0, position.column - 1);
+      const ctx = importSpecifierCompletionContext(lineUpToCursor);
+      if (!ctx) {
+        return { suggestions: [] };
+      }
+      // Replace the whole partial specifier (between the quotes) without
+      // touching the quotes themselves.
+      const range = {
+        startLineNumber: position.lineNumber,
+        startColumn: ctx.replaceFromColumn,
+        endLineNumber: position.lineNumber,
+        endColumn: position.column,
+      };
+      return {
+        suggestions: entries.map((entry) => ({
+          label: entry.name,
+          kind: monaco.languages.CompletionItemKind.Module,
+          detail: entry.detail,
+          insertText: entry.name,
+          filterText: entry.name,
+          range,
+        })),
+        // The list is the full known set; let monaco filter by `partial`.
+        incomplete: false,
+      };
+    };
+
+    const disposables = (["typescript", "javascript"] as const).map((lang) =>
+      monaco.languages.registerCompletionItemProvider(lang, {
+        // Opening quotes start a specifier; `:` advances into a `node:`/`bun:`
+        // builtin; `/` advances into a scoped name or subpath.
+        triggerCharacters: ['"', "'", "/", ":"],
+        provideCompletionItems,
+      }),
+    );
+    return () => {
+      for (const disposable of disposables) {
+        disposable.dispose();
+      }
+    };
+  }, [apiReady, isTsLike, importablePackages, modelId]);
 
   // Type-driven bracket-notation completions. The standalone TS worker omits
   // object members whose keys aren't valid identifiers (artifact ids like
@@ -850,9 +1132,17 @@ export const TypefoxEditor = ({
     onChangeRef.current?.(textChanges.modified ?? "");
   };
 
+  // In `fillHeight` mode the container takes its parent's height so Monaco's
+  // `automaticLayout` resizes to fill a tall flex column (the popout body);
+  // `minHeight` stays as a floor. Otherwise the inline fixed-px behaviour is
+  // preserved exactly.
+  const containerStyle: CSSProperties = fillHeight
+    ? { minHeight: `${minHeight}px`, height: "100%" }
+    : { minHeight: `${minHeight}px`, height: `${minHeight}px` };
+
   return (
     <MonacoEditorReactComp
-      style={{ minHeight: `${minHeight}px`, height: `${minHeight}px` }}
+      style={containerStyle}
       vscodeApiConfig={vscodeApiConfig}
       editorAppConfig={editorAppConfig}
       onTextChanged={handleTextChanged}

@@ -4,6 +4,7 @@ import {
   ChevronRight,
   GripVertical,
   AlertTriangle,
+  MoreVertical,
   Trash2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader } from "./Card";
@@ -11,7 +12,22 @@ import { Button } from "./Button";
 import { Toggle } from "./Toggle";
 import { DynamicIcon, type LucideIconName } from "./DynamicIcon";
 import { Badge, type BadgeProps } from "./Badge";
+import { Popover, PopoverContent, PopoverTrigger } from "./Popover";
+import { DropdownMenuItem, MenuCloseContext } from "./Menu";
 import { cn } from "../utils";
+
+/**
+ * A single entry in an {@link ActionCard}'s three-dot overflow menu. Used to
+ * relocate per-card commands (Duplicate, Disable/Enable, Delete) off the
+ * header row into a compact menu for a Home-Assistant-style collapsed card.
+ */
+export interface ActionCardMenuItem {
+  label: string;
+  icon?: LucideIconName;
+  onClick: () => void;
+  /** `destructive` tints the item red (e.g. Delete). Defaults to neutral. */
+  variant?: "default" | "destructive";
+}
 
 export interface ActionCardProps {
   /** Stable identifier used for drag-reorder + React key. */
@@ -36,6 +52,26 @@ export interface ActionCardProps {
   /** Controlled expanded state. */
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
+  /**
+   * When provided, the card behaves as a Home-Assistant-style collapsed
+   * summary row: clicking the header opens the item's full configuration in
+   * a side sheet (via this callback) instead of expanding inline. The body
+   * `children` are not rendered inline in this mode - the host renders them
+   * inside its own sheet. Omit to keep the legacy inline-expand behaviour.
+   */
+  onOpenSheet?: () => void;
+  /**
+   * Compact, single-line summary shown under the title in the collapsed
+   * summary row (e.g. derived from the item's config). Distinct from
+   * `description`, which is the operator's free-text note; `summary` wins
+   * when both are present.
+   */
+  summary?: string;
+  /**
+   * Overflow-menu commands rendered behind a three-dot button on the header
+   * row (Duplicate / Disable / Delete, etc.). Omit to hide the menu.
+   */
+  actions?: ActionCardMenuItem[];
   /** Extra badges (e.g. produces / consumes hints). */
   badges?: Array<{
     label: string;
@@ -101,6 +137,9 @@ export const ActionCard: React.FC<ActionCardProps> = ({
   defaultExpanded = true,
   expanded,
   onExpandedChange,
+  onOpenSheet,
+  summary,
+  actions,
   badges,
   children,
   className,
@@ -108,8 +147,16 @@ export const ActionCard: React.FC<ActionCardProps> = ({
 }) => {
   const [internalExpanded, setInternalExpanded] =
     React.useState(defaultExpanded);
-  const isExpanded = expanded ?? internalExpanded;
-  const toggleExpanded = () => {
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  // Sheet mode: the header opens a side sheet instead of expanding inline,
+  // so the card stays a compact summary row at all times.
+  const sheetMode = onOpenSheet !== undefined;
+  const isExpanded = sheetMode ? false : (expanded ?? internalExpanded);
+  const handleHeaderClick = () => {
+    if (sheetMode) {
+      onOpenSheet();
+      return;
+    }
     const next = !isExpanded;
     if (expanded === undefined) setInternalExpanded(next);
     onExpandedChange?.(next);
@@ -139,12 +186,14 @@ export const ActionCard: React.FC<ActionCardProps> = ({
         )}
         <button
           type="button"
-          onClick={toggleExpanded}
+          onClick={handleHeaderClick}
           className="flex items-center flex-1 gap-2 text-left"
-          aria-expanded={isExpanded}
-          aria-controls={`${id}-body`}
+          aria-expanded={sheetMode ? undefined : isExpanded}
+          aria-controls={sheetMode ? undefined : `${id}-body`}
         >
-          {isExpanded ? (
+          {sheetMode ? (
+            <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />
+          ) : isExpanded ? (
             <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />
           ) : (
             <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />
@@ -172,9 +221,9 @@ export const ActionCard: React.FC<ActionCardProps> = ({
                 </Badge>
               ))}
             </div>
-            {description && (
+            {(summary ?? description) && (
               <p className="text-xs truncate text-muted-foreground">
-                {description}
+                {summary ?? description}
               </p>
             )}
             {hasErrors && (
@@ -197,6 +246,45 @@ export const ActionCard: React.FC<ActionCardProps> = ({
             onCheckedChange={onEnabledChange}
             aria-label={enabled ? "Disable action" : "Enable action"}
           />
+        )}
+        {actions && actions.length > 0 && (
+          <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="w-8 h-8 text-muted-foreground hover:text-foreground shrink-0"
+                aria-label="More actions"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-48 p-1">
+              <MenuCloseContext.Provider
+                value={{ onClose: () => setMenuOpen(false) }}
+              >
+                {actions.map((item) => (
+                  <DropdownMenuItem
+                    key={item.label}
+                    onClick={item.onClick}
+                    icon={
+                      item.icon ? (
+                        <DynamicIcon name={item.icon} className="w-4 h-4" />
+                      ) : undefined
+                    }
+                    className={
+                      item.variant === "destructive"
+                        ? "text-destructive hover:text-destructive"
+                        : undefined
+                    }
+                  >
+                    {item.label}
+                  </DropdownMenuItem>
+                ))}
+              </MenuCloseContext.Provider>
+            </PopoverContent>
+          </Popover>
         )}
         {onDelete && (
           <Button

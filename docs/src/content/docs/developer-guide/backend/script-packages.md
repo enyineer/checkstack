@@ -11,7 +11,7 @@ Script packages let an admin curate a global, pinned allowlist of npm packages t
 - `@checkstack/script-packages-backend` - data model, install/resolve service, elected installer, blob-store extension point, and the per-host reconciler.
 - `@checkstack/script-packages-store-postgres` - default blob store (zero extra infra).
 - `@checkstack/script-packages-store-s3` - S3-compatible blob store (preferred when configured).
-- `@checkstack/script-packages-frontend` - the admin Settings page and the `useScriptPackageTypes()` editor hook.
+- `@checkstack/script-packages-frontend` - the admin Settings page and the `useScriptPackageTypeAcquisition()` editor hook.
 
 ## Allowlist and resolution
 
@@ -170,3 +170,62 @@ The on-disk package store lives at `<dataDir>/script-packages/`, where `dataDir`
 ## Registry auth
 
 The registry auth token is encrypted at rest (AES-256-GCM via the platform `encrypt`/`decrypt`) and stored as the `auth_secret_ref`. It is decrypted only at install time when rendering `.npmrc`, and is never returned to the client (the DTO carries only `hasAuthToken`) or logged.
+
+The same registry + token resolution is shared by the install path and the live autocomplete RPCs via `resolveRegistryRequestConfig` (registry config → `authSecretRef` → token store), so the two can never drift on how they talk to the registry.
+
+## Live package autocomplete
+
+The `searchPackages` and `getPackageVersions` RPCs (both `manage`-gated) are backend-proxied npm registry lookups powering the "Allowed packages" form's name/version autocomplete. They MUST run server-side: the configured registry can be private with a server-side-only token (the client only ever sees `hasAuthToken`), and browsers can't reach arbitrary registries due to CORS.
+
+`registry-client.ts` is a small `fetch`-based client that:
+
+- Sends `Authorization: Bearer <token>` only when a token is configured, with an AbortController timeout (~5s) and a capped `size`. Results use the registry's own `-/v1/search` relevance ranking; the endpoint's `popularity` / `quality` / `maintenance` scoring-weight params are intentionally not applied (empirically a no-op on the public npm registry).
+- Validates every registry response with zod (`-/v1/search` objects for search; `versions` keys + `dist-tags` for the packument) and maps to the DTO shape. Output `version`/`versions` are relaxed to plain strings so valid-but-unusual versions surface as suggestions; strict `PackageVersionSchema` validation still applies on `addPackage`.
+- Selects the scoped registry for a `@scope/x` name from `scopedRegistries` (else the base registry), mirroring the npmrc renderer's scope keys, and URL-encodes the packument path (`@scope%2Fx`).
+- Sorts versions newest-first with a tolerant semver-descending comparator: an unparseable version sorts last rather than discarding the whole response.
+- Never includes the auth token in any error message; failures throw a typed `RegistryClientError` the router maps to `BAD_GATEWAY`.
+
+A small in-memory TTL cache (~45s, keyed by registry URL + query / name) is a **best-effort, pod-local read cache only** - explicitly not a source of truth (per the state-and-scale rule). Search and version lookups are non-authoritative reads, so a cache miss on another pod simply re-fetches and pod-local divergence is harmless.
+
+## Editor IntelliSense (lazy type acquisition)
+
+Script editors get real autocomplete for installed packages via lazy Automatic Type Acquisition (ATA): the editor fetches a package's declaration files only when an `import`/`require` for it appears in the buffer, and TypeScript's own resolution drives completions. This is why `import { debounce } from "lodash"` autocompletes even though `lodash` ships no own types and the user never imports `@types/lodash`.
+
+### Tree-driven closure extractor
+
+`resolvePackageTypeClosure({ nodeModulesDir, specifier })` resolves the declaration closure for one bare specifier against the materialized tree at `<storeRoot>/trees/<lockfileHash>/node_modules`, mirroring TypeScript's own resolution rather than assuming a `@types` mapping:
+
+- **Own types** - read `package.json` `types`/`typings` and the `exports` map's `types` conditions, falling back to `index.d.ts`. Bundled-types packages (`zod`, `dayjs`) resolve here and have no `@types` companion.
+- **`@types` companion** - the DefinitelyTyped dir is computed by the mangling rule (unscoped `lodash` -> `@types/lodash`; scoped `@scope/name` -> `@types/scope__name`, e.g. `@babel/core` -> `@types/babel__core`) and included **only if it actually exists** in the tree.
+- Either, both, or neither may be present. Neither yields a graceful `notFound` closure, never a throw.
+- Triple-slash `/// <reference path|types>` directives and relative `import`/`require` references are followed (lodash fans out across ~700 files via `/// <reference path>`), as are cross-package `@types` references. Each included package's `package.json` is part of the closure. Files are returned **unwrapped** - no `declare module` envelope - at their real `node_modules/...` paths.
+- The closure is bounded by a total-byte ceiling (well above lodash's ~866 KB). If anything is dropped it sets `truncated: true` (surfaced + logged) rather than silently capping.
+
+### Cacheable HTTP route
+
+The closure is served from a raw, HTTP-cacheable route - **not** an oRPC procedure - because oRPC responses in this backend can't set custom HTTP response headers, and the design wants browser-level caching keyed to the install:
+
+```text
+GET /api/script-packages/types/:lockfileHash/:encodedSpecifier
+Cache-Control: private, max-age=<1y>, immutable
+```
+
+The path carries the current `lockfileHash`, so a `(hash, specifier)` closure is immutable for the life of the install; a new install changes the hash and the editor requests a fresh URL. `private` because the registry (and types) may be private. The handler is auth-gated by `script-packages.read` (it authenticates the request and checks the same global access the oRPC read endpoints use), returns `409` on a stale hash so the client refetches install state, and never caches a miss. Path build/parse is a shared, unit-tested contract (`buildTypeAcquisitionPath` / `parseTypeAcquisitionPath`).
+
+### Frontend wiring
+
+`@checkstack/ui`'s `CodeEditor` is plugin-agnostic: it accepts an injected `acquireTypes(specifier)` resolver plus an `acquireResetKey`. On a debounced buffer change it parses bare specifiers (a pure, unit-tested function that ignores relative paths, `node:`/`bun` built-ins, and the `context` global), then for each NEW package calls `acquireTypes` and registers the returned files via `addExtraLib` at `file:///node_modules/...`. Compiler options (`moduleResolution: NodeJs`, `baseUrl: "file:///"`, `typeRoots`) make a bare import resolve to its `@types` companion when it has no own types. The acquired-set is shared across editors and resets when `acquireResetKey` (the lockfile hash) changes. The generated `context` ambient global coexists unchanged.
+
+`@checkstack/script-packages-frontend`'s `useScriptPackageTypeAcquisition()` provides the concrete resolver (targets the cacheable route, zod-validates the response) and the current `lockfileHash` as the reset key; the automation Run Script editor and healthcheck collector editors pass both into `DynamicForm`.
+
+### Import-specifier name completion
+
+Lazy ATA can only register a package's types AFTER its name is in the buffer, so while the user is still typing the specifier (`import {} from "lod"`) no module exists yet and the TS worker offers nothing. The `CodeEditor` closes that gap with a dedicated Monaco completion provider (registered once per `typescript`/`javascript`, scoped to the model, disposed on unmount) driven by an injected `importablePackages?: string[]`:
+
+- It fires ONLY when the cursor is inside an import/require module-specifier string, detected by the pure, unit-tested `importSpecifierCompletionContext(lineUpToCursor)` (handles `from "…"`, bare `import "…"`, `require("…")`, dynamic `import("…")`; returns the partial specifier + replace range, or null once the string is closed / outside an import). Trigger characters are `"`, `'`, `/`, and `:` (to advance into a `node:`/`bun:` builtin); manual invoke also works.
+- Items are `kind: Module`, insert the bare name into the string range (without touching the quotes), and augment - never replace - the TS worker's own completions. Selecting `lodash` then lets the ATA loop load its `@types/lodash` closure so members complete.
+
+The suggestion list merges two sources (deduped + sorted via the pure `mergeImportCompletionEntries`, each labelled by `detail`):
+
+- **Always-available runtime built-ins** - Node and Bun modules (`node:fs`, bare `fs`, `bun`, `bun:test`, ...), importable in the sandbox regardless of the allowlist. The name list is DERIVED authoritatively at build time from the bundled `@types/node` + `bun-types` declarations: every importable built-in is a top-level `declare module "<spec>"`, so `scripts/generate-stdlib-types.ts` parses those names (pure `extractBuiltinModuleSpecifiers`, dropping wildcard / asset-glob shims) and emits `generated/builtin-modules.json` next to the type bundle. No hand-maintained list - it tracks the bundled types automatically. Their types are already loaded ambiently, so completing one needs no acquisition.
+- **Installed allowlist packages** - supplied by `useScriptPackageTypeAcquisition().importablePackages`, derived from the installed manifest (what is resolvable at runtime) with `@types/*` companions excluded via the pure `importablePackageNames` helper - you import `lodash`, never `@types/lodash`. Selecting one drives the ATA loop above.

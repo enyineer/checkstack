@@ -69,6 +69,38 @@ export function isValueEmpty(
   return false;
 }
 
+/**
+ * Locate the value of the secret→env mapping field within an object's
+ * properties by the `x-secret-env` annotation (NOT by a hard-coded field
+ * name), and return it. Used to feed the inline script-test panel the same
+ * `secretEnv` the sibling action declares, so a test injects placeholders /
+ * overrides for those secrets. Returns `undefined` when no `x-secret-env`
+ * field exists or its value isn't a record.
+ */
+export function findSecretEnvSibling({
+  properties,
+  values,
+}: {
+  properties: Record<string, JsonSchemaProperty> | undefined;
+  values: Record<string, unknown> | undefined;
+}): Record<string, string> | undefined {
+  if (!properties || !values) return undefined;
+  for (const [key, propSchema] of Object.entries(properties)) {
+    if (propSchema["x-secret-env"] === true) {
+      const value = values[key];
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        const record: Record<string, string> = {};
+        for (const [k, v] of Object.entries(value)) {
+          if (typeof v === "string") record[k] = v;
+        }
+        return record;
+      }
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 /** Sentinel value used to represent "None" selection in Select components */
 export const NONE_SENTINEL = "__none__";
 

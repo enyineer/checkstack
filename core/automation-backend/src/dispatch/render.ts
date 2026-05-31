@@ -47,15 +47,33 @@ function hasCodeEditorType(propSchema: unknown): boolean {
 }
 
 /**
- * Render an action's top-level `config`, skipping native-code fields.
+ * True for a secret-bearing field: a single `${{ secrets.NAME }}` reference
+ * (`x-secret`) or a secret→env mapping whose values are such references
+ * (`x-secret-env`). These MUST NOT be template-rendered: the secret syntax
+ * `${{ secrets.NAME }}` embeds `{{ … }}`, so the `{{ secrets.NAME }}` inside
+ * collides with automation interpolation and the engine would evaluate it
+ * (against a scope with no `secrets`), collapsing the value to `$` before the
+ * secret resolver ever runs. Passing these fields through verbatim keeps the
+ * reference intact for resolution at run/test time.
+ */
+function hasSecretType(propSchema: unknown): boolean {
+  const rec = asRecord(propSchema);
+  return rec["x-secret"] === true || rec["x-secret-env"] === true;
+}
+
+/**
+ * Render an action's top-level `config`, skipping native-code and secret
+ * fields.
  *
- * Identical to {@link renderValue} for every field EXCEPT those whose
- * JSON schema declares an `x-editor-types` of `shell` / `typescript` /
- * `javascript`: those are returned verbatim so any `{{ }}` stays literal.
- * This removes the deprecated "templates inside a code field" path so it
- * can't be used by accident — code fields get run data via `context` /
- * env vars instead. Falls back to {@link renderValue} when the config
- * isn't a plain object or no schema is available.
+ * Identical to {@link renderValue} for every field EXCEPT those whose JSON
+ * schema declares an `x-editor-types` of `shell` / `typescript` /
+ * `javascript` (code fields), or `x-secret` / `x-secret-env` (secret fields):
+ * those are returned verbatim. Code fields keep any `{{ }}` literal (they get
+ * run data via `context` / env vars). Secret fields keep their
+ * `${{ secrets.NAME }}` reference intact for the secret resolver — rendering
+ * them would evaluate the embedded `{{ secrets.NAME }}` and destroy the
+ * reference. Falls back to {@link renderValue} when the config isn't a plain
+ * object or no schema is available.
  */
 export function renderConfig(args: {
   config: unknown;
@@ -70,9 +88,11 @@ export function renderConfig(args: {
   const properties = asRecord(jsonSchema?.["properties"]);
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(asRecord(config))) {
-    out[key] = hasCodeEditorType(properties[key])
-      ? value
-      : renderValue(value, context, filters);
+    const propSchema = properties[key];
+    out[key] =
+      hasCodeEditorType(propSchema) || hasSecretType(propSchema)
+        ? value
+        : renderValue(value, context, filters);
   }
   return out;
 }

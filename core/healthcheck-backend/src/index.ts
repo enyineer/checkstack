@@ -279,11 +279,12 @@ export default createBackendPlugin({
           queueManager,
         });
 
-        // The hardcoded auto-incident open/close path was removed in
-        // Phase 20 — auto-incident behaviour now ships as user-editable
-        // default automations (sustained-unhealthy / flapping / cooldown
-        // close). Flapping DETECTION still runs in the queue executor and
-        // emits `healthcheck.flapping_detected` for those automations.
+        // The hardcoded auto-incident open/close path was removed — auto-
+        // incident behaviour is now built entirely by user automations
+        // (e.g. `healthcheck.system_degraded` + `for:` → `incident.create`).
+        // Flapping is detected by the automation engine's windowed-count gate
+        // on the `system_health_changed` trigger — healthcheck emits only the
+        // raw aggregated-health change (via the reactive `health` entity).
 
         const healthCheckRouter = createHealthCheckRouter({
           database: database as SafeDatabase<typeof schema>,
@@ -418,11 +419,6 @@ export default createBackendPlugin({
           },
           { mode: "work-queue", workerGroup: "satellite-cleanup" },
         );
-
-        // (The auto-incident mapping-sync hook was removed in Phase 20
-        // along with the hardcoded open/close path — the legacy
-        // `health_check_auto_incidents` mapping table is no longer
-        // written or read.)
 
         logger.debug("✅ Health Check Backend afterPluginsReady complete.");
       },

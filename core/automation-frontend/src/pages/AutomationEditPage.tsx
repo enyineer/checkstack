@@ -59,30 +59,16 @@ import {
   ValidationProvider,
   partitionIssues,
 } from "../editor/editor-validation";
+import { AutomationGroupCombobox } from "../components/AutomationGroupCombobox";
 
 const STARTER_DEFINITION: AutomationDefinition = {
   name: "New Automation",
-  // Seed the starter trigger's id the same way actions are seeded, so it is
-  // shown (and referenceable as `trigger.id`) immediately.
-  triggers: assignDefaultTriggerIds([{ event: "incident.created" }]),
+  // Start empty: the operator picks a trigger and adds actions via the Add
+  // dialogs (the empty-state hints guide them), rather than starting from a
+  // pre-filled trigger + action they then have to replace.
+  triggers: [],
   conditions: [],
-  // Run the seeded starter action through the same default-id assignment the
-  // "Add step" path uses, so its `id` is filled in (and shown) immediately
-  // rather than appearing blank until the field is focused.
-  actions: assignDefaultIds(
-    [
-      {
-        action: "automation.log",
-        config: {
-          message: "Incident {{ trigger.payload.title }} fired",
-          level: "info",
-        },
-        enabled: true,
-        continue_on_error: false,
-      },
-    ],
-    new Set(),
-  ),
+  actions: [],
   mode: "single",
   concurrency_scope: "automation",
   max_runs: 10,
@@ -148,7 +134,13 @@ const AutomationEditContent: React.FC = () => {
   // Top-level form state.
   const [name, setName] = React.useState("");
   const [description, setDescription] = React.useState("");
+  // Empty string means "Ungrouped" — sent as `null` on save to clear it.
+  const [group, setGroup] = React.useState("");
   const [statusEnabled, setStatusEnabled] = React.useState(true);
+
+  // Existing group values for the picker's "pick existing" suggestions.
+  const groupsQuery = client.listAutomationGroups.useQuery();
+  const groupSuggestions = groupsQuery.data?.groups ?? [];
   const [definition, setDefinition] =
     React.useState<AutomationDefinition>(STARTER_DEFINITION);
   const [yamlText, setYamlText] = React.useState<string>(() =>
@@ -169,11 +161,23 @@ const AutomationEditContent: React.FC = () => {
     loadQuery.isFetchedAfterMount ? loadQuery.data : undefined,
     loadQuery.data?.id,
     (a) => {
+      // Stored definitions (seeded defaults, GitOps, hand-written YAML) may
+      // carry triggers/actions without an `id`. The runtime derives those ids
+      // on the fly, but the editor must materialize them eagerly so they show
+      // immediately rather than appearing blank until the field is focused.
+      // Both helpers preserve existing ids and only fill blanks, so this is
+      // idempotent and matches how STARTER_DEFINITION is seeded.
+      const normalized: AutomationDefinition = {
+        ...a.definition,
+        triggers: assignDefaultTriggerIds(a.definition.triggers),
+        actions: assignDefaultIds(a.definition.actions, new Set()),
+      };
       setName(a.name);
       setDescription(a.description ?? "");
+      setGroup(a.group ?? "");
       setStatusEnabled(a.status === "enabled");
-      setDefinition(a.definition);
-      setYamlText(stringifyYaml(a.definition));
+      setDefinition(normalized);
+      setYamlText(stringifyYaml(normalized));
     },
   );
 
@@ -327,10 +331,15 @@ const AutomationEditContent: React.FC = () => {
     });
     if (!validation.valid) return;
 
+    // Empty input = Ungrouped. On create we omit it; on update we send `null`
+    // so an explicit clear round-trips (undefined would leave it unchanged).
+    const trimmedGroup = group.trim();
+
     if (isNew) {
       createMutation.mutate({
         name,
         description: description || undefined,
+        group: trimmedGroup || undefined,
         status: statusEnabled ? "enabled" : "disabled",
         definition: merged,
       });
@@ -339,6 +348,7 @@ const AutomationEditContent: React.FC = () => {
         id: automationId,
         name,
         description: description || undefined,
+        group: trimmedGroup || null,
         status: statusEnabled ? "enabled" : "disabled",
         definition: merged,
       });
@@ -484,6 +494,19 @@ const AutomationEditContent: React.FC = () => {
                   disabled={!canManage}
                   placeholder="Optional"
                 />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="group">Group</Label>
+                <AutomationGroupCombobox
+                  id="group"
+                  value={group}
+                  onValueChange={setGroup}
+                  suggestions={groupSuggestions}
+                  disabled={!canManage}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Optional. Organises the automations list into sections.
+                </p>
               </div>
               <div className="flex items-center justify-between">
                 <Label htmlFor="enabled">Enabled</Label>

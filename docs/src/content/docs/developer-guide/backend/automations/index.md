@@ -15,6 +15,14 @@ The automation platform lets operators wire triggers to ordered actions with ful
 
 An automation's definition (triggers + conditions + actions + mode) is stored as JSON, validated by `AutomationDefinitionSchema`, and round-trips losslessly to YAML.
 
+## Row fields vs the definition
+
+A handful of operator-facing fields live as their own columns on the `automations` row rather than inside the `definition` JSON: `name`, `description`, `group`, and `status`. They are part of `AutomationSchema` (and the create / update inputs), not `AutomationDefinitionSchema`, so they are NOT round-tripped to YAML.
+
+`group` is a single optional free-text label (HA-style "category") used purely to organise the list view into collapsible sections. An empty / absent `group` means the automation lives in the implicit "Ungrouped" bucket. `listAutomations` accepts an optional `group` filter, and `listAutomationGroups` returns the distinct non-null group values (sorted) that power the editor's group picker. Because `group` is a row column, the list query can group and filter without parsing every definition blob.
+
+For declaratively managed automations, the group is expressed in GitOps metadata - see the [GitOps entity kinds reference](/checkstack/user-guide/reference/gitops-kinds/).
+
 ## Dispatch lifecycle
 
 1. A trigger fires - a setup-backed schedule tick, or a reactive entity change. A change to a domain's [entity state](/checkstack/developer-guide/backend/automations/entity-state-machine/) is routed through the [two-stage dispatch pipeline](/checkstack/developer-guide/backend/automations/reactive-dispatch/): Stage 1 (one instance claims) derives the qualified trigger event id(s) and the waiting runs to wake, and Stage 2 fans a per-run job out across instances.

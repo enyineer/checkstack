@@ -3,7 +3,12 @@ import React from "react";
 import { EmptyState } from "../../index";
 
 import type { DynamicFormProps } from "./types";
-import { extractDefaults, isValueEmpty, isFieldHiddenByCondition } from "./utils";
+import {
+  extractDefaults,
+  isValueEmpty,
+  isFieldHiddenByCondition,
+  findSecretEnvSibling,
+} from "./utils";
 import { FormField } from "./FormField";
 
 /**
@@ -24,6 +29,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   starterTemplates,
   scriptTestRenderer,
   secretNames,
+  acquireTypes,
+  acquireResetKey,
+  importablePackages,
 }) => {
   // Track previous validity to avoid redundant callbacks
   const prevValidRef = React.useRef<boolean | undefined>(undefined);
@@ -90,6 +98,14 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
     );
   }
 
+  // The script field and its `x-secret-env` field are top-level siblings in
+  // an action config, so resolve the mapping once at the root and forward it
+  // to every field; a testable script field passes it to the test panel.
+  const rootSecretEnv = findSecretEnvSibling({
+    properties: schema.properties,
+    values: value,
+  });
+
   return (
     <div className="space-y-6">
       {Object.entries(schema.properties)
@@ -125,6 +141,10 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
               starterTemplates={starterTemplates}
               scriptTestRenderer={scriptTestRenderer}
               secretNames={secretNames}
+              acquireTypes={acquireTypes}
+              acquireResetKey={acquireResetKey}
+              importablePackages={importablePackages}
+              siblingSecretEnv={rootSecretEnv}
               onChange={(val) => onChange({ ...value, [key]: val })}
             />
           );

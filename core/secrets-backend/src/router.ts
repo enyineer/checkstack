@@ -13,6 +13,7 @@ import {
 import { extractErrorMessage } from "@checkstack/common";
 import type { SecretBackendRegistry } from "./secret-backend-registry";
 import { createSecretAdminService } from "./admin-service";
+import { isBackendWritable } from "./secret-backend";
 
 const os = implement(secretsContract)
   .$context<RpcContext>()
@@ -96,14 +97,17 @@ export function createSecretsRouter({
 
   const getBackendConfig = os.getBackendConfig.handler(async () => {
     const activeBackend = await getActiveBackendId();
-    const dto: BackendConfigDto = {
-      activeBackend,
-      availableBackends: backends.ids(),
-    };
     // Surface the active backend's connection metadata (never credentials).
     const active = backends.has(activeBackend)
       ? backends.get(activeBackend)
       : undefined;
+    const dto: BackendConfigDto = {
+      activeBackend,
+      availableBackends: backends.ids(),
+      // Capability flag the UI uses to hide write controls for read-through
+      // backends. False when the active backend is unresolved/read-only.
+      writable: active ? isBackendWritable({ backend: active }) : false,
+    };
     if (active?.getConfigMeta) {
       dto.vault = await active.getConfigMeta();
     }

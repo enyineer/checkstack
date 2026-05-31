@@ -56,7 +56,25 @@ export const WithValues: Story = {
   ),
 };
 
-/** No name suggestions available — the secret field is plain free text. */
+/** No name suggestions available — the secret field is a plain free-text
+ *  combobox and no existence warning is shown (the list is unknown). */
 export const NoSuggestions: Story = {
   render: () => <Demo initial={{ TOKEN: "${{ secrets.some_secret }}" }} />,
+};
+
+/**
+ * A row references a secret that the loaded list doesn't contain — the row
+ * shows a non-blocking warning (red border + message). The secret may have
+ * been deleted/renamed or be created later, so the value still round-trips.
+ */
+export const UnknownSecret: Story = {
+  render: () => (
+    <Demo
+      initial={{
+        API_TOKEN: "${{ secrets.jira_token }}",
+        GHOST: "${{ secrets.deleted_secret }}",
+      }}
+      secretNames={["jira_token", "db_password"]}
+    />
+  ),
 };

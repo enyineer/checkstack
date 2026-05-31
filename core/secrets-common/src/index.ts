@@ -13,6 +13,9 @@ export {
   ENV_NAME_REGEX,
   envNameSchema,
   secretEnvMappingSchema,
+  secretEnvValueSchema,
+  normalizeSecretEnvValue,
+  toSecretTemplate,
   type SecretEnvMapping,
 } from "./env-mapping";
 export { secretMetadataSchema, type SecretMetadata } from "./metadata";

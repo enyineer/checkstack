@@ -51,9 +51,7 @@ describe("HealthCheckService.getAssignmentNotificationPolicy", () => {
 
   it("falls back to platform defaults when association exists but notificationPolicy is null", async () => {
     const customPlatformDefault: NotificationPolicy = {
-      ...DEFAULT_NOTIFICATION_POLICY,
-      autoCloseAfterMinutes: 120,
-      sustainedUnhealthyTrigger: { enabled: true, durationMinutes: 15 },
+      suppressDeEscalations: true,
     };
     const service = buildServiceWithRows(
       [{ notificationPolicy: null }],
@@ -63,40 +61,27 @@ describe("HealthCheckService.getAssignmentNotificationPolicy", () => {
       systemId: "sys-1",
       configurationId: "cfg-1",
     });
-    expect(policy.autoCloseAfterMinutes).toBe(120);
-    expect(policy.sustainedUnhealthyTrigger.durationMinutes).toBe(15);
+    expect(policy.suppressDeEscalations).toBe(true);
   });
 
   it("falls back to platform defaults when no association exists", async () => {
     const customPlatformDefault: NotificationPolicy = {
-      ...DEFAULT_NOTIFICATION_POLICY,
-      flappingTrigger: { enabled: true, transitions: 10, windowMinutes: 30 },
+      suppressDeEscalations: true,
     };
     const service = buildServiceWithRows([], customPlatformDefault);
     const policy = await service.getAssignmentNotificationPolicy({
       systemId: "sys-1",
       configurationId: "cfg-1",
     });
-    expect(policy.flappingTrigger).toEqual({
-      enabled: true,
-      transitions: 10,
-      windowMinutes: 30,
-    });
+    expect(policy).toEqual({ suppressDeEscalations: true });
   });
 
   it("prefers per-assignment override over platform defaults", async () => {
     const platformDefault: NotificationPolicy = {
-      ...DEFAULT_NOTIFICATION_POLICY,
-      autoOpenIncidentOnUnhealthy: false,
+      suppressDeEscalations: false,
     };
     const assignmentOverride = {
-      suppressDeEscalations: true,
-      autoOpenIncidentOnUnhealthy: true, // overrides platform default
-      useNotificationSuppression: true,
-      skipDuringMaintenance: true,
-      sustainedUnhealthyTrigger: { enabled: true, durationMinutes: 30 },
-      flappingTrigger: { enabled: true, transitions: 3, windowMinutes: 60 },
-      autoCloseAfterMinutes: 30,
+      suppressDeEscalations: true, // overrides platform default
     };
     const service = buildServiceWithRows(
       [{ notificationPolicy: assignmentOverride }],
@@ -106,69 +91,41 @@ describe("HealthCheckService.getAssignmentNotificationPolicy", () => {
       systemId: "sys-1",
       configurationId: "cfg-1",
     });
-    expect(policy.autoOpenIncidentOnUnhealthy).toBe(true);
     expect(policy.suppressDeEscalations).toBe(true);
   });
 
-  it("fills in defaults for partial stored policies", async () => {
-    // Older rows may have only `suppressDeEscalations` set from the
-    // first migration. All other fields must default in.
-    const service = buildServiceWithRows([
-      { notificationPolicy: { suppressDeEscalations: true } },
-    ]);
+  it("fills in defaults for an empty stored policy", async () => {
+    const service = buildServiceWithRows([{ notificationPolicy: {} }]);
     const policy = await service.getAssignmentNotificationPolicy({
       systemId: "sys-1",
       configurationId: "cfg-1",
     });
-    expect(policy.suppressDeEscalations).toBe(true);
-    expect(policy.autoOpenIncidentOnUnhealthy).toBe(true);
-    expect(policy.useNotificationSuppression).toBe(true);
-    expect(policy.skipDuringMaintenance).toBe(true);
-    expect(policy.sustainedUnhealthyTrigger).toEqual({
-      enabled: true,
-      durationMinutes: 30,
-    });
-    expect(policy.flappingTrigger).toEqual({
-      enabled: true,
-      transitions: 3,
-      windowMinutes: 60,
-    });
-    expect(policy.autoCloseAfterMinutes).toBe(30);
+    expect(policy).toEqual({ suppressDeEscalations: false });
   });
 
-  it("returns explicit values exactly when fully specified", async () => {
-    const service = buildServiceWithRows([
-      {
-        notificationPolicy: {
-          suppressDeEscalations: false,
-          autoOpenIncidentOnUnhealthy: false,
-          useNotificationSuppression: false,
-          skipDuringMaintenance: false,
-          sustainedUnhealthyTrigger: { enabled: false, durationMinutes: 15 },
-          flappingTrigger: {
-            enabled: true,
-            transitions: 5,
-            windowMinutes: 30,
-          },
-          autoCloseAfterMinutes: null,
-        },
+  it("strips removed legacy keys (auto-incident AND flapping) from stored rows without throwing", async () => {
+    // A row persisted before the legacy auto-incident fields and the flapping
+    // thresholds were removed still carries the larger object. The schema
+    // strips the dead keys and keeps the one surviving field.
+    const legacyOversizedRow = {
+      notificationPolicy: {
+        suppressDeEscalations: true,
+        // Removed flapping thresholds — moved onto the automation trigger.
+        flappingTrigger: { enabled: true, transitions: 7, windowMinutes: 45 },
+        // Removed legacy auto-incident keys — must be dropped, not rejected.
+        autoOpenIncidentOnUnhealthy: true,
+        useNotificationSuppression: true,
+        skipDuringMaintenance: true,
+        sustainedUnhealthyTrigger: { enabled: true, durationMinutes: 15 },
+        autoCloseAfterMinutes: 120,
       },
-    ]);
+    };
+    const service = buildServiceWithRows([legacyOversizedRow]);
     const policy = await service.getAssignmentNotificationPolicy({
       systemId: "sys-1",
       configurationId: "cfg-1",
     });
-    expect(policy.autoOpenIncidentOnUnhealthy).toBe(false);
-    expect(policy.skipDuringMaintenance).toBe(false);
-    expect(policy.sustainedUnhealthyTrigger).toEqual({
-      enabled: false,
-      durationMinutes: 15,
-    });
-    expect(policy.flappingTrigger).toEqual({
-      enabled: true,
-      transitions: 5,
-      windowMinutes: 30,
-    });
-    expect(policy.autoCloseAfterMinutes).toBeNull();
+    expect(policy).toEqual({ suppressDeEscalations: true });
+    expect(Object.keys(policy)).toEqual(["suppressDeEscalations"]);
   });
 });

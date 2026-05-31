@@ -18,4 +18,15 @@ describe("blob codec", () => {
     expect(decoded.length).toBe(bytes.length);
     expect([...decoded]).toEqual([...bytes]);
   });
+
+  // Regression: a store `put` may receive a raw ArrayBuffer from an S3/HTTP
+  // transport. `encodeBlob` must normalize it (not wrap the whole buffer) so
+  // the round-trip is byte-identical to the equivalent Uint8Array.
+  test("encodes a raw ArrayBuffer identically to its Uint8Array view", () => {
+    const u8 = new Uint8Array([0, 1, 2, 250, 255, 128, 64]);
+    const ab = u8.buffer.slice(0);
+    expect(ab).toBeInstanceOf(ArrayBuffer);
+    expect(encodeBlob(ab)).toBe(encodeBlob(u8));
+    expect([...decodeBlob(encodeBlob(ab))]).toEqual([...u8]);
+  });
 });

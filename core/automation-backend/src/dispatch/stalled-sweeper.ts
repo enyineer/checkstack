@@ -51,6 +51,15 @@ export interface StalledSweeper {
 const DEFAULT_STALE_MS = 60_000; // 1 minute
 const DEFAULT_INTERVAL_MS = 30_000; // every 30 seconds
 
+/**
+ * TTL for windowed-count occurrence rows. A row older than the maximum
+ * window any trigger can configure (the 1440-minute / 24h `WindowSchema`
+ * cap) can never contribute to an in-window count, so it is dead and prunable.
+ * Config-independent: pruning at the schema cap is always safe without
+ * reading any automation's actual window.
+ */
+const WINDOW_EVENT_TTL_MS = 24 * 60 * 60_000; // 24 hours (the WindowSchema cap)
+
 export function startStalledSweeper(
   args: StalledSweeperArgs,
 ): StalledSweeper {
@@ -65,6 +74,7 @@ export function startStalledSweeper(
     // but ordering keeps the wait paths authoritative within a cycle.)
     await sweepExpiredWaitLocks(args);
     await sweepExpiredDwells(args);
+    await sweepExpiredWindowEvents(args);
     await sweepStalledRuns(args, staleMs);
   };
 
@@ -237,6 +247,25 @@ async function sweepExpiredDwells(
         `automation sweeper failed to fire dwell ${dwell.id}: ${(error as Error).message}`,
       );
     }
+  }
+}
+
+/**
+ * Prune windowed-count occurrence rows older than the 24h `WindowSchema`
+ * cap. Such rows can never contribute to any in-window count, so the delete
+ * is config-independent and safe. A bulk indexed range delete (`pruneIdx`);
+ * idempotent and cheap when there's nothing to prune.
+ */
+async function sweepExpiredWindowEvents(
+  args: StalledSweeperArgs,
+): Promise<void> {
+  const cutoff = new Date(Date.now() - WINDOW_EVENT_TTL_MS);
+  try {
+    await args.deps.windowStore.sweepExpired(cutoff);
+  } catch (error) {
+    args.logger.warn(
+      `automation sweeper failed to prune window events: ${(error as Error).message}`,
+    );
   }
 }
 

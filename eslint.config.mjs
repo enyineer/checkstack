@@ -11,6 +11,10 @@ export default tseslint.config(
       "**/dist/**",
       "**/storybook-static/**",
       "**/.tsbuild/**",
+      // Runtime data dir (CHECKSTACK_DATA_DIR default): the script-packages
+      // store caches installed npm packages here. Git-ignored runtime output,
+      // not project source - never lint it.
+      "**/.data/**",
       "**/drizzle/**",
       "**/public/vendor/**",
       "**/*.test.ts*",

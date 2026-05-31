@@ -104,7 +104,7 @@ const shellRunConfigSchema = z.object({
   secretEnv: withConfigMeta(secretEnvMappingSchema, { "x-secret-env": true })
     .optional()
     .describe(
-      'Secret → env mapping, e.g. { "API_TOKEN": "${{ secrets.jira_token }}" }. Only the named secrets are resolved and injected for this run (read via $API_TOKEN). Values are masked out of the captured output.',
+      "Map environment variables to secrets. Pick a secret by name; its value is injected as $<ENV_NAME> for this run only. Secret values are masked out of the captured output.",
     ),
   workingDirectory: z
     .string()
@@ -276,7 +276,7 @@ const scriptRunConfigSchema = z.object({
   secretEnv: withConfigMeta(secretEnvMappingSchema, { "x-secret-env": true })
     .optional()
     .describe(
-      'Secret → env mapping, e.g. { "API_TOKEN": "${{ secrets.jira_token }}" }. Only the named secrets are resolved and injected for this run (read via process.env.API_TOKEN). Values are masked out of the captured output and the return value.',
+      "Map environment variables to secrets. Pick a secret by name; its value is injected as `process.env.<ENV_NAME>` for this run only. Secret values are masked out of the captured output and the return value.",
     ),
   timeout: requestTimeoutMs().describe("Maximum execution time in milliseconds"),
 });

@@ -49,6 +49,7 @@ function storeFor(auto: LoadedAutomation): AutomationStore {
           }
         : undefined,
     list: async () => ({ items: [], total: 0 }),
+    listGroups: async () => [],
     findEnabledByTriggerEvent: async () => [auto],
     listEnabled: async () => [auto],
   };
@@ -147,5 +148,50 @@ describe("stalled sweeper — H4 + C1c: recoverStalledRun refuses a run holding 
     expect(recovered.status).toBe("running");
     expect(rec.calls.map((c) => c.value)).toEqual(["before-delay"]);
     expect(runs.waitLocks.size).toBe(1);
+  });
+});
+
+describe("stalled sweeper — windowed-count occurrence prune", () => {
+  it("deletes occurrence rows older than the 24h cap, keeping fresh ones", async () => {
+    const { deps, windows } = makeDispatchDeps({});
+
+    // One stale row (25h ago) + one fresh row (now).
+    await windows.store.recordAndCount({
+      automationId: "auto-1",
+      triggerId: "f",
+      eventId: "e",
+      contextKey: "sys-1",
+      occurredAt: new Date(Date.now() - 25 * 60 * 60_000),
+      windowMinutes: 60,
+      threshold: 1,
+      refire: "every",
+    });
+    await windows.store.recordAndCount({
+      automationId: "auto-1",
+      triggerId: "f",
+      eventId: "e",
+      contextKey: "sys-1",
+      occurredAt: new Date(),
+      windowMinutes: 60,
+      threshold: 1,
+      refire: "every",
+    });
+    expect(windows.events).toHaveLength(2);
+
+    const sweeper = startStalledSweeper({
+      deps,
+      automationStore: storeFor(automation([])),
+      logger: deps.logger,
+      staleAfterMs: 1,
+      intervalMs: 1_000_000,
+    });
+    await sweeper.sweep();
+    sweeper.stop();
+
+    // The stale row is pruned; the fresh one survives.
+    expect(windows.events).toHaveLength(1);
+    expect(windows.events[0]!.occurredAt.getTime()).toBeGreaterThan(
+      Date.now() - 60_000,
+    );
   });
 });

@@ -18,10 +18,10 @@ import { ScriptPackagesMenuItems } from "./components/ScriptPackagesMenuItems";
  * registry/storage summary, install state + size, satellite sync). Gated
  * on `script-packages.manage`.
  *
- * The `useScriptPackageTypes()` hook (exported below) lets editor pages
- * fetch installed-package `.d.ts` and merge it into the `typeDefinitions`
- * that flows through `DynamicForm`, giving package IntelliSense in every
- * script field.
+ * The `useScriptPackageTypeAcquisition()` hook (exported below) gives editor
+ * pages a lazy ATA resolver + install reset-key to pass to `DynamicForm`'s
+ * `acquireTypes` / `acquireResetKey`, so a script editor fetches + registers
+ * the `.d.ts` of any npm package it imports (incl. `@types/*`) on demand.
  */
 export default createFrontendPlugin({
   metadata: pluginMetadata,
@@ -42,4 +42,4 @@ export default createFrontendPlugin({
   ],
 });
 
-export { useScriptPackageTypes } from "./useScriptPackageTypes";
+export { useScriptPackageTypeAcquisition } from "./useScriptPackageTypeAcquisition";

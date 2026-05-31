@@ -7,9 +7,10 @@ import { access } from "@checkstack/common";
  * (postinstall scripts, transitive deps), so management gets its own
  * dedicated, grantable permission (`script-packages.manage`) rather than
  * riding a general role. The read-only editor / runtime endpoints
- * (`getInstallState`, `getManifest`, `downloadBlob`, `listPackageTypes`)
- * are gated by the existing script-authoring access so editors and
- * reconcilers can use them; we model that as `script-packages.read`.
+ * (`getInstallState`, `getManifest`, `downloadBlob`, and the cacheable
+ * package-type-closure HTTP route) are gated by the existing
+ * script-authoring access so editors and reconcilers can use them; we
+ * model that as `script-packages.read`.
  */
 export const scriptPackagesAccess = {
   /**

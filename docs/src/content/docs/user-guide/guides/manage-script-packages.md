@@ -15,9 +15,12 @@ From the user menu, open **Script Packages**. The page has four sections: instal
 
 Packages are pinned to an exact version (no ranges) so every host resolves an identical, reproducible tree.
 
-1. In **Allowed packages**, enter the package name (e.g. `lodash` or `@acme/utils`) and the exact version (e.g. `4.17.21`).
-2. Click **Add**.
-3. Click **Install now** in **Install state** to resolve and distribute the set.
+1. In **Allowed packages**, start typing a package name (e.g. `lodash` or `@acme/utils`). A dropdown shows live matches from your configured registry; pick one to fill the name.
+2. Choose a version. Picking a package auto-fills its latest version; the version field also suggests the package's other published versions, newest-first. You can type an exact version (e.g. `4.17.21`) by hand instead - versions are pinned (no ranges), and an invalid pin is flagged inline before you can add it.
+3. Click **Add**.
+4. Click **Install now** in **Install state** to resolve and distribute the set.
+
+The name search and version lookup are proxied through the central server, so they reuse the same registry and auth token your installs use. A private registry works even though your browser can't reach it directly, and the auth token is never sent to the browser.
 
 A script can then import it:
 
@@ -29,6 +32,8 @@ export default async function (context) {
   return { count: Object.keys(grouped).length };
 }
 ```
+
+The script editor gives you autocomplete for installed packages as you type. As you type the import name itself, it suggests the installed package names - typing `import {} from "lod"` offers `lodash`. It also suggests the runtime built-ins that are always available without installing anything - the Node and Bun modules like `node:fs`, `node:crypto`, `bun`, and `bun:sqlite` - so typing `import {} from "node:"` lists the Node built-ins. Once a package name is in place, the editor fetches its type definitions on demand, so `import { debounce } from "lodash"` then offers `debounce` and the rest of lodash's API - even for packages whose types ship separately (the editor pulls in the matching `@types/...` automatically). Types refresh after the next install.
 
 Toggle a package off to exclude it from the next install without deleting the entry; the trash icon removes it entirely. Re-run **Install now** after any change.
 

@@ -16,9 +16,14 @@ export const healthCheckHooks = {
   // the reactive `health` entity, whose change deriver fires the
   // `healthcheck.system_degraded` / `_healthy` / `_health_changed` trigger
   // events through Stage-1 routing. The remaining hooks below are KEPT:
-  // `assignmentChanged` (config signal), `checkCompleted` / `checkFailed`
-  // (high-frequency raw samples + numeric_state wake source), and
-  // `flappingDetected` (derived signal).
+  // `assignmentChanged` (config signal) and `checkCompleted` / `checkFailed`
+  // (high-frequency raw samples + numeric_state wake source).
+  //
+  // The `flappingDetected` hook was removed: flapping is now detected in the
+  // automation engine by the windowed-count gate on the
+  // `healthcheck.system_health_changed` trigger (base raw change event +
+  // `filter` + `window: { count, minutes, refire: "once" }`), so healthcheck
+  // no longer computes or emits a pre-derived flapping signal.
 
   /**
    * Emitted when a health check ↔ system association changes.
@@ -60,25 +65,4 @@ export const healthCheckHooks = {
     result: Record<string, unknown> | undefined;
     timestamp: string;
   }>("healthcheck.check.failed"),
-
-  /**
-   * Emitted when the flapping-detector observes ≥ N unhealthy
-   * transitions in the policy's configured window. Fires regardless
-   * of whether `autoOpenIncidentOnUnhealthy` is enabled — the hook is
-   * informational; the auto-incident pipeline still gates on the
-   * policy.
-   *
-   * Re-fires on every additional transition past the threshold while
-   * the check stays in a flapping pattern, so automations that want
-   * "page once and only once" should debounce on `(systemId,
-   * configurationId)`. Carrying the observed transition count + the
-   * window length lets subscribers reason about both.
-   */
-  flappingDetected: createHook<{
-    systemId: string;
-    configurationId: string;
-    transitionCount: number;
-    windowMinutes: number;
-    timestamp: string;
-  }>("healthcheck.flapping_detected"),
 } as const;

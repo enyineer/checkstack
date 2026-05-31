@@ -60,3 +60,63 @@ export const MinimalNoToggle: Story = {
     </div>
   ),
 };
+
+/**
+ * Home-Assistant-style collapsed summary row. Passing `onOpenSheet` makes the
+ * card a non-expanding summary: clicking the header opens the item's full
+ * config in a side sheet (wired up by the host) instead of expanding inline.
+ * `summary` renders a compact one-line hint under the title, and `actions`
+ * adds a three-dot overflow menu (Duplicate / Disable / Delete).
+ */
+const CollapsedSummaryDemo = () => {
+  const [enabled, setEnabled] = useState(true);
+  return (
+    <div className="w-[680px] space-y-2 p-4">
+      <ActionCard
+        id="notify-1"
+        title="Notify User"
+        category="Notification"
+        icon="Bell"
+        summary="notify_user → on-call engineer"
+        enabled={enabled}
+        onOpenSheet={() => alert("Open config sheet")}
+        actions={[
+          {
+            label: enabled ? "Disable" : "Enable",
+            icon: enabled ? "PowerOff" : "Power",
+            onClick: () => setEnabled((value) => !value),
+          },
+          { label: "Duplicate", icon: "Copy", onClick: () => alert("Duplicate") },
+          {
+            label: "Delete",
+            icon: "Trash2",
+            onClick: () => alert("Delete"),
+            variant: "destructive",
+          },
+        ]}
+      />
+      <ActionCard
+        id="choose-1"
+        title="Choose (if / else)"
+        category="Choose"
+        icon="GitBranch"
+        summary="2 branches + else"
+        onOpenSheet={() => alert("Open config sheet")}
+        errors={["choose.0.when: condition is required"]}
+        actions={[
+          { label: "Duplicate", icon: "Copy", onClick: () => alert("Duplicate") },
+          {
+            label: "Delete",
+            icon: "Trash2",
+            onClick: () => alert("Delete"),
+            variant: "destructive",
+          },
+        ]}
+      />
+    </div>
+  );
+};
+
+export const CollapsedSummary: Story = {
+  render: () => <CollapsedSummaryDemo />,
+};

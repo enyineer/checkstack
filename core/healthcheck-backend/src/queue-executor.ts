@@ -46,10 +46,6 @@ import {
   classifyTransition,
   shouldNotifyTransition,
 } from "./notification-policy";
-import {
-  detectAndEmitFlapping,
-  isTransitionToUnhealthy,
-} from "./flapping-detector";
 import { recordStateTransition } from "./state-transitions";
 import {
   writeHealthEntity,
@@ -195,89 +191,12 @@ export async function scheduleHealthCheck(props: {
   });
 }
 
-/**
- * After every check run, run flapping DETECTION for the per-check.
- *
- * The hardcoded incident open/close path was removed in Phase 20 - that
- * behaviour now ships as user-editable default automations
- * (`healthcheck.system.degraded` + `for:` -> `incident.create`, the
- * `healthcheck.flapping_detected` trigger, etc.). What remains here is
- * the detection that those automations subscribe to: record each
- * transition-to-unhealthy and emit `healthcheck.flapping_detected` when
- * the policy's flapping threshold is crossed within the window.
- *
- * The flapping emit is now UNCONDITIONAL on a threshold cross (it no
- * longer depends on `autoOpenIncidentOnUnhealthy`); see
- * `flapping-detector.ts`. Maintenance suppression / require-recovery /
- * the sustained-duration decision all move into the automations.
- */
-async function detectFlappingForCheck(props: {
-  db: Db;
-  service: HealthCheckService;
-  logger: Logger;
-  systemId: string;
-  configurationId: string;
-  getEmitHook?: () => EmitHookFn | undefined;
-  previousState: {
-    checkStatuses: Array<{
-      configurationId: string;
-      status: HealthCheckStatus;
-    }>;
-  };
-  newState: {
-    checkStatuses: Array<{
-      configurationId: string;
-      status: HealthCheckStatus;
-    }>;
-  };
-}): Promise<void> {
-  const {
-    db,
-    service,
-    logger,
-    systemId,
-    configurationId,
-    getEmitHook,
-    previousState,
-    newState,
-  } = props;
-
-  const next = newState.checkStatuses.find(
-    (c) => c.configurationId === configurationId,
-  );
-  // Flapping detection only triggers on a fresh transition to unhealthy.
-  if (!next || next.status !== "unhealthy") return;
-
-  const prev = previousState.checkStatuses.find(
-    (c) => c.configurationId === configurationId,
-  );
-  const isTransition = isTransitionToUnhealthy(prev?.status, next.status);
-  if (!isTransition) return;
-
-  let policy;
-  try {
-    policy = await service.getAssignmentNotificationPolicy({
-      systemId,
-      configurationId,
-    });
-  } catch (error) {
-    logger.warn(
-      `Failed to load policy for flapping detection (${systemId}/${configurationId}):`,
-      error,
-    );
-    return;
-  }
-
-  await detectAndEmitFlapping({
-    db,
-    configurationId,
-    systemId,
-    flappingTrigger: policy.flappingTrigger,
-    isTransition,
-    getEmitHook,
-    logger,
-  });
-}
+// Flapping detection no longer lives here. It moved into the automation
+// engine as a windowed-count gate on the `healthcheck.system_health_changed`
+// trigger (raw aggregated-health change + `filter` +
+// `window: { count, minutes, refire: "once" }`). The queue executor emits only
+// the raw per-system health change (via the reactive `health` entity deriver,
+// unchanged); the engine does the counting.
 
 /**
  * Notify system subscribers about a health state change.
@@ -879,20 +798,6 @@ async function executeHealthCheckJob(props: {
         });
       }
 
-      // Per-check auto-incident: runs whether or not the aggregate
-      // changed (a check can transition to unhealthy without flipping
-      // the aggregate if another check is already unhealthy).
-      await detectFlappingForCheck({
-        db,
-        service,
-        logger,
-        systemId,
-        configurationId: configId,
-        getEmitHook,
-        previousState,
-        newState,
-      });
-
       return;
     } finally {
       if (connectedClient) {
@@ -1031,18 +936,6 @@ async function executeHealthCheckJob(props: {
       // trigger events through Stage-1 routing. Nothing to emit here.
     }
 
-    // Per-check flapping detection: see comment on the failed-execution path.
-    await detectFlappingForCheck({
-      db,
-      service,
-      logger,
-      systemId,
-      configurationId: configId,
-      getEmitHook,
-      previousState,
-      newState,
-    });
-
     // Note: No manual rescheduling needed - recurring job handles it automatically
   } catch (error) {
     logger.error(
@@ -1173,18 +1066,6 @@ async function executeHealthCheckJob(props: {
       // `healthcheck.system_degraded` / `_healthy` / `_health_changed`
       // trigger events through Stage-1 routing. Nothing to emit here.
     }
-
-    // Per-check flapping detection: see comment on the failed-execution path.
-    await detectFlappingForCheck({
-      db,
-      service,
-      logger,
-      systemId,
-      configurationId: configId,
-      getEmitHook,
-      previousState,
-      newState,
-    });
 
     // Note: No manual rescheduling needed - recurring job handles it automatically
   }

@@ -9,11 +9,15 @@ import {
 } from "lucide-react";
 import { Button } from "./Button";
 import { Badge } from "./Badge";
+import { Input } from "./Input";
+import { Label } from "./Label";
 import { CodeEditor } from "./CodeEditor";
 import { cn } from "../utils";
 import { usePerformance } from "./PerformanceProvider";
 import {
   type ScriptTestPanelResult,
+  buildSecretOverrides,
+  distinctSecretNames,
   formatReturnValue,
   hasNoOutput,
   isFailedResult,
@@ -30,15 +34,37 @@ import {
  */
 export type { ScriptTestPanelResult } from "./ScriptTestPanel.logic";
 
+/** Arguments handed to {@link ScriptTestPanelProps.onRun} for a single run. */
+export interface ScriptTestRunArgs {
+  /**
+   * User-supplied per-secret-NAME override VALUES for this run (keyed by the
+   * secret name, never the env var), collected from the optional override
+   * inputs. Omitted when nothing was overridden. These are masked out of the
+   * result server-side and are NEVER the user's real secret — only an
+   * explicit test value the operator typed.
+   */
+  secretOverrides?: Record<string, string>;
+}
+
 export interface ScriptTestPanelProps {
   /**
    * Runs the test. The owning feature page supplies this; it typically
    * calls the plugin's `testScript` RPC with the current script + sample
-   * context and resolves with the result. Rejecting surfaces as an error.
+   * context (plus any {@link ScriptTestRunArgs.secretOverrides}) and resolves
+   * with the result. Rejecting surfaces as an error.
    */
-  onRun: () => Promise<ScriptTestPanelResult>;
+  onRun: (args: ScriptTestRunArgs) => Promise<ScriptTestPanelResult>;
   /** Disables the Run button (e.g. while the script field is empty). */
   disabled?: boolean;
+  /**
+   * The script's declared secret → env mapping (`x-secret-env` sibling
+   * field). When non-empty, the panel renders an optional per-secret test
+   * override input so an operator can supply a realistic value for a run.
+   * Real secrets are NEVER resolved in the test path: with no override each
+   * secret is injected as a `__SECRET_<NAME>__` placeholder; an override is
+   * masked out of the captured output. Omit it and no override UI shows.
+   */
+  secretEnv?: Record<string, string>;
   /**
    * Editable sample-context slot. Render a {@link ContextSampleEditor} (or
    * any control) here; the panel just lays it out above the results.
@@ -73,6 +99,7 @@ const DEFAULT_NOTE =
 export const ScriptTestPanel: React.FC<ScriptTestPanelProps> = ({
   onRun,
   disabled,
+  secretEnv,
   contextEditor,
   note = DEFAULT_NOTE,
   defaultOpen = false,
@@ -86,11 +113,26 @@ export const ScriptTestPanel: React.FC<ScriptTestPanelProps> = ({
   const [panelOpen, setPanelOpen] = React.useState(defaultOpen);
   const [resultExpanded, setResultExpanded] = React.useState(true);
   const [result, setResult] = React.useState<ScriptTestPanelResult | null>(null);
+  // Draft override values keyed by secret NAME. Kept client-side until an
+  // explicit run; an empty draft means "use the placeholder".
+  const [overrideDrafts, setOverrideDrafts] = React.useState<
+    Record<string, string>
+  >({});
+
+  const secretNames = React.useMemo(
+    () => distinctSecretNames(secretEnv),
+    [secretEnv],
+  );
 
   const handleRun = React.useCallback(async () => {
     setRunning(true);
     try {
-      const res = await onRun();
+      const res = await onRun({
+        secretOverrides: buildSecretOverrides({
+          secretEnv,
+          drafts: overrideDrafts,
+        }),
+      });
       setResult(res);
       setResultExpanded(true);
     } catch (error) {
@@ -99,7 +141,7 @@ export const ScriptTestPanel: React.FC<ScriptTestPanelProps> = ({
     } finally {
       setRunning(false);
     }
-  }, [onRun]);
+  }, [onRun, secretEnv, overrideDrafts]);
 
   const failed = result !== null && isFailedResult(result);
 
@@ -157,6 +199,45 @@ export const ScriptTestPanel: React.FC<ScriptTestPanelProps> = ({
           </div>
 
           {contextEditor}
+
+          {secretNames.length > 0 && (
+            <div className="space-y-2 rounded-md border border-border/60 bg-card p-3">
+              <div className="space-y-0.5">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Secret test overrides
+                </span>
+                <p className="text-xs text-muted-foreground">
+                  Optional. Left empty, each secret is injected as a{" "}
+                  <code className="font-mono">__SECRET_NAME__</code> placeholder.
+                  Any value you type is a test override only — masked from the
+                  output and never your real secret.
+                </p>
+              </div>
+              {secretNames.map((name) => (
+                <div key={name} className="space-y-1">
+                  <Label
+                    htmlFor={`secret-override-${name}`}
+                    className="font-mono text-xs"
+                  >
+                    {name}
+                  </Label>
+                  <Input
+                    id={`secret-override-${name}`}
+                    type="password"
+                    value={overrideDrafts[name] ?? ""}
+                    onChange={(e) =>
+                      setOverrideDrafts((prev) => ({
+                        ...prev,
+                        [name]: e.target.value,
+                      }))
+                    }
+                    placeholder={`__SECRET_${name}__`}
+                    className="font-mono text-sm"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
 
           {note !== null && (
             <p className="text-xs text-muted-foreground">{note}</p>

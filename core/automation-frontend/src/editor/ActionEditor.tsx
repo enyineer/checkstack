@@ -5,6 +5,7 @@ import {
   AccordionItem,
   AccordionTrigger,
   ActionCard,
+  type ActionCardMenuItem,
   Checkbox,
   cn,
   Input,
@@ -33,6 +34,8 @@ import {
   collectActionIds,
   defaultActionId,
 } from "./action-helpers";
+import { summarizeAction } from "./item-summary";
+import { ItemSheet } from "./ItemSheet";
 import { useAutomationRegistry, useVariableScope } from "./registry-context";
 import { useActionIssues } from "./editor-validation";
 import {
@@ -55,6 +58,8 @@ export interface ActionEditorProps {
   value: ActionInput;
   onChange: (next: ActionInput) => void;
   onDelete: () => void;
+  /** Clone this action (fresh ids) directly after itself. Omit to hide. */
+  onDuplicate?: () => void;
   path: ActionPath;
   definition: AutomationDefinition;
   dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
@@ -97,6 +102,7 @@ export const ActionEditor: React.FC<ActionEditorProps> = ({
   value,
   onChange,
   onDelete,
+  onDuplicate,
   path,
   definition,
   dragHandleProps,
@@ -106,6 +112,7 @@ export const ActionEditor: React.FC<ActionEditorProps> = ({
   const { actions } = useAutomationRegistry();
   const kind = actionKindOf(value);
   const meta = ACTION_KIND_META[kind];
+  const [sheetOpen, setSheetOpen] = React.useState(false);
   const {
     templateProperties,
     variableNodes,
@@ -122,8 +129,12 @@ export const ActionEditor: React.FC<ActionEditorProps> = ({
     actions.find((a) => a.qualifiedId === qualified)?.displayName,
   );
 
-  const description =
-    value.description ?? (value.id ? `id: ${value.id}` : undefined);
+  // Collapsed-row summary derived from the config; falls back to the
+  // operator's description/id note when there's no derivable summary.
+  const summary =
+    summarizeAction(value) ??
+    value.description ??
+    (value.id ? `id: ${value.id}` : undefined);
 
   const enabledValue = value.enabled !== false;
   const issues = useActionIssues(path);
@@ -133,23 +144,57 @@ export const ActionEditor: React.FC<ActionEditorProps> = ({
   const hasAdvancedMeta =
     value.description !== undefined || value.continue_on_error === true;
 
+  // Open the sheet automatically when this card has validation errors, so a
+  // problem is never hidden behind a collapsed row + closed sheet.
+  React.useEffect(() => {
+    if (issues.length > 0) setSheetOpen(true);
+  }, [issues.length]);
+
+  const menuItems: ActionCardMenuItem[] = disabled
+    ? []
+    : [
+        {
+          label: enabledValue ? "Disable" : "Enable",
+          icon: enabledValue ? "PowerOff" : "Power",
+          onClick: () => onChange({ ...value, enabled: !enabledValue }),
+        },
+        ...(onDuplicate
+          ? [
+              {
+                label: "Duplicate",
+                icon: "Copy" as const,
+                onClick: onDuplicate,
+              },
+            ]
+          : []),
+        {
+          label: "Delete",
+          icon: "Trash2",
+          onClick: onDelete,
+          variant: "destructive",
+        },
+      ];
+
   return (
-    <ActionCard
-      id={stableId}
-      title={title}
-      description={description}
-      category={meta.label}
-      icon={meta.icon}
-      enabled={enabledValue}
-      onEnabledChange={
-        disabled
-          ? undefined
-          : (next) => onChange({ ...value, enabled: next })
-      }
-      onDelete={disabled ? undefined : onDelete}
-      dragHandleProps={disabled ? undefined : dragHandleProps}
-      errors={issues}
-    >
+    <>
+      <ActionCard
+        id={stableId}
+        title={title}
+        summary={summary}
+        category={meta.label}
+        icon={meta.icon}
+        enabled={enabledValue}
+        onOpenSheet={() => setSheetOpen(true)}
+        actions={menuItems}
+        dragHandleProps={disabled ? undefined : dragHandleProps}
+        errors={issues}
+      />
+      <ItemSheet
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        title={title}
+        description={meta.label}
+      >
       <div className="space-y-4">
         <ActionBody
           kind={kind}
@@ -258,7 +303,8 @@ export const ActionEditor: React.FC<ActionEditorProps> = ({
           </AccordionItem>
         </Accordion>
       </div>
-    </ActionCard>
+      </ItemSheet>
+    </>
   );
 };
 

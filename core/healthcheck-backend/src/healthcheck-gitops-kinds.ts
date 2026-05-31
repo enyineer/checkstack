@@ -85,26 +85,11 @@ const systemHealthcheckExtensionSchema = z
       /**
        * Per-assignment notification policy. Any field omitted falls
        * back to the platform default (see `DEFAULT_NOTIFICATION_POLICY`).
-       * Inner objects (`sustainedUnhealthyTrigger`, `flappingTrigger`)
-       * are also accepted partially.
+       * Flapping thresholds moved onto the automation engine's windowed-count
+       * gate (the `system_health_changed` trigger's `window` block) and are no
+       * longer accepted here.
        */
-      notificationPolicy: NotificationPolicySchema.partial()
-        .extend({
-          sustainedUnhealthyTrigger: z
-            .object({
-              enabled: z.boolean().optional(),
-              durationMinutes: z.number().int().min(1).optional(),
-            })
-            .optional(),
-          flappingTrigger: z
-            .object({
-              enabled: z.boolean().optional(),
-              transitions: z.number().int().min(1).optional(),
-              windowMinutes: z.number().int().min(1).optional(),
-            })
-            .optional(),
-        })
-        .optional(),
+      notificationPolicy: NotificationPolicySchema.partial().optional(),
     }),
   )
   .optional();

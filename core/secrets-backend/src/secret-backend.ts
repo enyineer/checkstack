@@ -65,6 +65,21 @@ export interface SecretBackend {
 }
 
 /**
+ * Whether a backend accepts secret-value writes (create / rotate / delete)
+ * from the admin UI. True only when it implements BOTH `set` and `delete`;
+ * read-through backends (e.g. Vault) implement neither, so this is `false`
+ * and the UI hides its write controls. Capability boolean only — leaks
+ * nothing sensitive.
+ */
+export function isBackendWritable({
+  backend,
+}: {
+  backend: Pick<SecretBackend, "set" | "delete">;
+}): boolean {
+  return typeof backend.set === "function" && typeof backend.delete === "function";
+}
+
+/**
  * Extension point a secret-backend plugin registers its implementation
  * with. The active backend is selected via config; the resolver resolves
  * the registered backend by id.

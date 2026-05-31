@@ -4,6 +4,7 @@ import {
   assignDefaultTriggerIds,
   collectTriggerIds,
   defaultTriggerId,
+  makeTrigger,
 } from "./trigger-helpers";
 
 describe("trigger-helpers", () => {
@@ -54,5 +55,32 @@ describe("trigger-helpers", () => {
     ]);
     expect(out[0]!.id).toBe("incident_created");
     expect(out[1]!.id).toBe("incident_created_2");
+  });
+
+  // The trigger type picker builds a trigger via `makeTrigger`; it must carry
+  // the picked event and a default id that is unique against existing siblings.
+  it("makeTrigger sets the picked event and a derived default id", () => {
+    expect(makeTrigger({ event: "incident.created", taken: new Set() })).toEqual(
+      { event: "incident.created", id: "incident_created" },
+    );
+  });
+
+  it("makeTrigger dedupes its default id against existing trigger ids", () => {
+    const out = makeTrigger({
+      event: "incident.created",
+      taken: new Set(["incident_created"]),
+    });
+    expect(out.event).toBe("incident.created");
+    expect(out.id).toBe("incident_created_2");
+  });
+
+  // Regression for the editor-load fix: a stored/seeded definition (e.g. the
+  // "Auto-incident: ... flapping" seed) whose trigger carries no `id` must be
+  // materialized to its derived id on load, so the Id field shows it without
+  // the operator focusing + blurring the input first.
+  it("materializes the derived id for an id-less seeded trigger on load", () => {
+    const stored: Trigger[] = [{ event: "healthcheck.flapping_detected" }];
+    const out = assignDefaultTriggerIds(stored);
+    expect(out[0]!.id).toBe("healthcheck_flapping_detected");
   });
 });

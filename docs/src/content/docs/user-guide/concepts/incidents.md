@@ -33,7 +33,7 @@ There are two practical consequences:
 1. When a system goes red, you still need to **open an incident** manually if you want one tracked.
 2. When an incident is created, you choose which systems to attach. Checkstack does not guess.
 
-If you want incidents auto-created in another tool from Checkstack signals, look at [Integrations](/checkstack/user-guide/concepts/integrations/). The "system unhealthy" event can be forwarded to a webhook or a Jira project that you run on the receiving side.
+If you do want incidents opened automatically, that is opt-in: build an automation on the health signals yourself - see [Build auto-incident automations](/checkstack/user-guide/guides/customise-auto-incident/). Nothing is seeded for you. To create incidents in another tool instead, look at [Integrations](/checkstack/user-guide/concepts/integrations/); the "system unhealthy" event can be forwarded to a webhook or a Jira project that you run on the receiving side.
 
 ## The lifecycle
 

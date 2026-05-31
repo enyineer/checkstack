@@ -65,6 +65,7 @@ function storeWith(autos: LoadedAutomation[]): AutomationStore {
         : undefined;
     },
     list: async () => ({ items: [], total: 0 }),
+    listGroups: async () => [],
     findEnabledByTriggerEvent: async (eventId) =>
       autos.filter((a) => a.definition.triggers.some((t) => t.event === eventId)),
     listEnabled: async () => autos,

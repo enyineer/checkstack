@@ -301,6 +301,7 @@ export function createNumericStateTrigger(): TriggerDefinition<
     // decides whether a given completion fires this automation.
     hook: createHook<NumericStatePayload>(HEALTHCHECK_CHECK_COMPLETED),
     contextKey: (payload) => payload.systemId,
+    contextKeyLabel: "system",
     evaluateConfig: (payload, config) => {
       // The hook delivers the raw `healthcheck.check.completed` payload
       // (latencyMs top-level, `result` = collectors map). extractNumericField

@@ -1,4 +1,5 @@
 import { SECRET_TEMPLATE_REGEX } from "./secret-field";
+import { normalizeSecretEnvValue } from "./env-mapping";
 
 /**
  * Placeholder a declared secret is injected as in the test path when the
@@ -29,12 +30,15 @@ export function buildTestSecretEnv({
   const maskValues: string[] = [];
   if (!secretEnv) return { env, maskValues };
 
-  for (const [envName, template] of Object.entries(secretEnv)) {
+  for (const [envName, rawValue] of Object.entries(secretEnv)) {
+    // A tolerated bare secret name is normalized to the canonical template
+    // here (the schema no longer transforms — see `secretEnvValueSchema`).
+    const template = normalizeSecretEnvValue(rawValue);
     SECRET_TEMPLATE_REGEX.lastIndex = 0;
     const match = SECRET_TEMPLATE_REGEX.exec(template);
     const secretName = match?.[1];
     if (!secretName) {
-      // Non-template value (shouldn't happen given schema validation).
+      // Non-template, non-name value (shouldn't happen given schema validation).
       env[envName] = secretTestPlaceholder(envName);
       continue;
     }

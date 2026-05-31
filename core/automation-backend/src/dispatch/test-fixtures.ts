@@ -26,8 +26,10 @@ import type {
   LoadedDwell,
   LoadedRun,
   LoadedWaitLock,
+  RecordWindowInput,
   RunStore,
   UpsertDwellInput,
+  WindowStore,
 } from "./types";
 import type { RunStateSnapshot, RunStateStore } from "./run-state-store";
 
@@ -475,6 +477,71 @@ export function createInMemoryDwellStore(): {
 }
 
 /**
+ * In-memory `WindowStore` mirroring the SQL append-log semantics: each
+ * `recordAndCount` appends an occurrence, counts rows for the key within the
+ * trailing window (inclusive), and applies the re-fire policy. Faithful to
+ * `window-store.ts` so the gate's behaviour is testable without a DB.
+ */
+export function createInMemoryWindowStore(): {
+  store: WindowStore;
+  events: Array<{
+    automationId: string;
+    triggerId: string;
+    eventId: string;
+    contextKey: string | null;
+    occurredAt: Date;
+  }>;
+} {
+  const events: Array<{
+    automationId: string;
+    triggerId: string;
+    eventId: string;
+    contextKey: string | null;
+    occurredAt: Date;
+  }> = [];
+
+  const store: WindowStore = {
+    async recordAndCount(input: RecordWindowInput) {
+      const {
+        automationId,
+        triggerId,
+        eventId,
+        contextKey,
+        occurredAt,
+        windowMinutes,
+        threshold,
+        refire,
+      } = input;
+      events.push({ automationId, triggerId, eventId, contextKey, occurredAt });
+      const windowStart = occurredAt.getTime() - windowMinutes * 60_000;
+      const newCount = events.filter(
+        (e) =>
+          e.automationId === automationId &&
+          e.triggerId === triggerId &&
+          e.contextKey === contextKey &&
+          e.occurredAt.getTime() >= windowStart,
+      ).length;
+      if (refire === "once") return newCount === threshold;
+      return newCount >= threshold;
+    },
+    async sweepExpired(cutoff) {
+      for (let i = events.length - 1; i >= 0; i--) {
+        if (events[i]!.occurredAt.getTime() < cutoff.getTime()) {
+          events.splice(i, 1);
+        }
+      }
+    },
+    async deleteForAutomation(automationId) {
+      for (let i = events.length - 1; i >= 0; i--) {
+        if (events[i]!.automationId === automationId) events.splice(i, 1);
+      }
+    },
+  };
+
+  return { store, events };
+}
+
+/**
  * Minimal in-memory queue manager stub for engine tests. Records enqueued
  * jobs so a test can fire them synchronously to simulate the delay
  * scheduler.
@@ -623,6 +690,7 @@ export function makeDispatchDeps(opts?: {
   artifacts: ReturnType<typeof createInMemoryArtifactStore>;
   state: ReturnType<typeof createInMemoryRunStateStore>;
   dwells: ReturnType<typeof createInMemoryDwellStore>;
+  windows: ReturnType<typeof createInMemoryWindowStore>;
   queue: FakeQueueManager;
 } {
   // `cancelActiveRuns` clears the cancelled runs' run-state rows too (the
@@ -640,6 +708,7 @@ export function makeDispatchDeps(opts?: {
   const state = createInMemoryRunStateStore(runs.runs);
   stateHolder.store = state;
   const dwells = createInMemoryDwellStore();
+  const windows = createInMemoryWindowStore();
   const queue = createFakeQueueManager();
   const noopLogger = {
     debug: () => {},
@@ -659,6 +728,7 @@ export function makeDispatchDeps(opts?: {
     artifactStore: artifacts.store,
     runStateStore: state.store,
     dwellStore: dwells.store,
+    windowStore: windows.store,
     queueManager: queue.manager,
     healthCheckClient: opts?.healthCheckClient,
     entityResolverFor: opts?.entityResolverFor,
@@ -686,7 +756,7 @@ export function makeDispatchDeps(opts?: {
       return next;
     };
   }
-  return { deps, runs, artifacts, state, dwells, queue };
+  return { deps, runs, artifacts, state, dwells, windows, queue };
 }
 
 // ─── Shared fixtures ────────────────────────────────────────────────────

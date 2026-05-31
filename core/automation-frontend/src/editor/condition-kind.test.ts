@@ -3,7 +3,13 @@ import {
   ConditionSchema,
   type ConditionInput,
 } from "@checkstack/automation-common";
-import { defaultForKind, kindOf, type ConditionKind } from "./condition-kind";
+import {
+  CONDITION_KIND_META,
+  defaultForKind,
+  kindOf,
+  type ConditionKind,
+  type ConditionKindGroup,
+} from "./condition-kind";
 
 describe("defaultForKind", () => {
   const structured: ConditionKind[] = ["numeric_state", "time", "state"];
@@ -49,6 +55,53 @@ describe("defaultForKind", () => {
     expect(kindOf(defaultForKind("or"))).toBe("or");
     expect(kindOf(defaultForKind("not"))).toBe("not");
     expect(kindOf(defaultForKind("expr"))).toBe("expr");
+  });
+});
+
+describe("CONDITION_KIND_META", () => {
+  // The full kind union — the picker groups every one of these, so a missing
+  // entry would silently drop a condition type from the type picker.
+  const ALL_KINDS: ConditionKind[] = [
+    "expr",
+    "and",
+    "or",
+    "not",
+    "numeric_state",
+    "time",
+    "state",
+  ];
+  const VALID_GROUPS: ConditionKindGroup[] = [
+    "Structured",
+    "Logical",
+    "Advanced",
+  ];
+
+  it("has exactly one entry per ConditionKind (no missing/extra keys)", () => {
+    expect(Object.keys(CONDITION_KIND_META).toSorted()).toEqual(
+      [...ALL_KINDS].toSorted(),
+    );
+  });
+
+  // Every kind reachable from the editor's seed switch must have meta so the
+  // picker can render a row for it.
+  for (const kind of ALL_KINDS) {
+    it(`describes ${kind} with a non-empty label/description and valid group`, () => {
+      const meta = CONDITION_KIND_META[kind];
+      expect(meta.kind).toBe(kind);
+      expect(meta.label.length).toBeGreaterThan(0);
+      expect(meta.description.length).toBeGreaterThan(0);
+      expect(meta.icon.length).toBeGreaterThan(0);
+      expect(VALID_GROUPS).toContain(meta.group);
+    });
+  }
+
+  // defaultForKind is the editor's source of truth for which kinds exist;
+  // assert the meta map covers exactly the same set so they can never drift.
+  it("covers every kind defaultForKind can seed", () => {
+    for (const kind of ALL_KINDS) {
+      expect(defaultForKind(kind)).toBeDefined();
+      expect(CONDITION_KIND_META[kind]).toBeDefined();
+    }
   });
 });
 

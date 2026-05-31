@@ -1,7 +1,11 @@
 import React from "react";
 import { Label } from "../Label";
 import { Textarea } from "../Textarea";
-import { CodeEditor, type TemplateProperty } from "../CodeEditor";
+import {
+  CodeEditor,
+  type TemplateProperty,
+  type AcquireTypes,
+} from "../CodeEditor";
 import {
   Select,
   SelectContent,
@@ -65,8 +69,27 @@ export interface MultiTypeEditorFieldProps {
    * `kind`. The owning page wires it to the `testScript` RPC.
    */
   scriptTestRenderer?: ScriptTestRenderer;
+  /**
+   * Optional lazy type-acquisition resolver, forwarded to the TS/JS
+   * `CodeEditor` so imported npm packages autocomplete (lazy ATA).
+   */
+  acquireTypes?: AcquireTypes;
+  /** Install identity (lockfile hash); resets acquired types on a new install. */
+  acquireResetKey?: string;
+  /**
+   * Importable installed package names (`@types/*`-free), forwarded to the
+   * TS/JS `CodeEditor` so the import specifier itself autocompletes.
+   */
+  importablePackages?: string[];
   /** Form key of this field, forwarded to {@link scriptTestRenderer}. */
   fieldId?: string;
+  /**
+   * Current value of the sibling `x-secret-env` mapping (located by
+   * annotation in the parent config object), forwarded to
+   * {@link scriptTestRenderer} so the test panel injects placeholders /
+   * overrides for the same secrets the action declares.
+   */
+  siblingSecretEnv?: Record<string, string>;
   /** Callback when value changes */
   onChange: (value: string | undefined) => void;
 }
@@ -88,7 +111,11 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
   shellEnvVars,
   starterTemplates,
   scriptTestRenderer,
+  acquireTypes,
+  acquireResetKey,
+  importablePackages,
   fieldId,
+  siblingSecretEnv,
   onChange,
 }) => {
   // Detect initial editor type from value
@@ -367,6 +394,9 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
           language="javascript"
           minHeight="150px"
           typeDefinitions={typeDefinitions}
+          acquireTypes={acquireTypes}
+          acquireResetKey={acquireResetKey}
+          importablePackages={importablePackages}
         />
       )}
 
@@ -378,6 +408,9 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
           language="typescript"
           minHeight="150px"
           typeDefinitions={typeDefinitions}
+          acquireTypes={acquireTypes}
+          acquireResetKey={acquireResetKey}
+          importablePackages={importablePackages}
         />
       )}
 
@@ -403,6 +436,10 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
           fieldId: fieldId ?? id,
           kind: selectedType === "shell" ? "shell" : "typescript",
           script: value ?? "",
+          secretEnv:
+            siblingSecretEnv && Object.keys(siblingSecretEnv).length > 0
+              ? siblingSecretEnv
+              : undefined,
         })}
     </div>
   );

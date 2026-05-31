@@ -57,6 +57,27 @@
       "when": 1780216684007,
       "tag": "0007_nappy_jackal",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780246726759,
+      "tag": "0008_remove_seeded_auto_incident_automations",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1780248673895,
+      "tag": "0009_steady_liz_osborn",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1780250068979,
+      "tag": "0010_chunky_changeling",
+      "breakpoints": true
     }
   ]
 }

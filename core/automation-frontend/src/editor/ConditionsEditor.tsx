@@ -1,7 +1,7 @@
 import React from "react";
-import { Plus, Trash2 } from "lucide-react";
 import {
-  Button,
+  ActionCard,
+  type ActionCardMenuItem,
   Card,
   CardContent,
   CardHeader,
@@ -10,7 +10,12 @@ import {
   type VariableNode,
 } from "@checkstack/ui";
 import type { ConditionInput } from "@checkstack/automation-common";
+import { AddConditionDialog } from "./AddConditionDialog";
 import { ConditionEditor } from "./ConditionEditor";
+import { defaultForKind } from "./condition-kind";
+import { ItemSheet } from "./ItemSheet";
+import { useConditionIssues } from "./editor-validation";
+import { summarizeCondition } from "./item-summary";
 
 /**
  * Top-level pre-run conditions. Every condition in this list must pass
@@ -35,55 +40,119 @@ export const ConditionsEditor: React.FC<{
 }> = ({ value, onChange, variableNodes, completionProvider, disabled }) => (
   <Card>
     <CardHeader className="border-b">
-      <div className="flex items-center justify-between">
-        <CardTitle className="text-base">Conditions</CardTitle>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => onChange([...value, ""])}
-          disabled={disabled}
-        >
-          <Plus className="mr-1 h-3 w-3" />
-          Add condition
-        </Button>
-      </div>
+      <CardTitle className="text-base">Conditions</CardTitle>
     </CardHeader>
     <CardContent className="space-y-2 p-3">
-      {value.length === 0 ? (
+      {value.length === 0 && (
         <p className="text-xs italic text-muted-foreground">
           No pre-run gating. Add a condition to require it before the
           actions run.
         </p>
-      ) : (
-        value.map((condition, index) => (
-          <div key={index} className="flex items-start gap-2">
-            <div className="flex-1">
-              <ConditionEditor
-                value={condition}
-                onChange={(next) => {
-                  const list = [...value];
-                  list[index] = next;
-                  onChange(list);
-                }}
-                variableNodes={variableNodes}
-                completionProvider={completionProvider}
-              />
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-destructive hover:bg-destructive/10"
-              onClick={() => onChange(value.filter((_, i) => i !== index))}
-              disabled={disabled}
-              aria-label="Remove condition"
-            >
-              <Trash2 className="h-3 w-3" />
-            </Button>
-          </div>
-        ))
       )}
+      {value.map((condition, index) => (
+        <ConditionCard
+          key={index}
+          index={index}
+          value={condition}
+          onChange={(next) => {
+            const list = [...value];
+            list[index] = next;
+            onChange(list);
+          }}
+          onRemove={() => onChange(value.filter((_, i) => i !== index))}
+          onDuplicate={() =>
+            // Conditions carry no id, so a structural clone (inserted
+            // directly after the original) is all that's needed.
+            onChange([
+              ...value.slice(0, index + 1),
+              structuredClone(condition),
+              ...value.slice(index + 1),
+            ])
+          }
+          variableNodes={variableNodes}
+          completionProvider={completionProvider}
+          disabled={disabled}
+        />
+      ))}
+      <AddConditionDialog
+        disabled={disabled}
+        onAdd={(kind) => onChange([...value, defaultForKind(kind)])}
+      />
     </CardContent>
   </Card>
 );
+
+const ConditionCard: React.FC<{
+  index: number;
+  value: ConditionInput;
+  onChange: (next: ConditionInput) => void;
+  onRemove: () => void;
+  onDuplicate: () => void;
+  variableNodes: VariableNode[];
+  completionProvider: TemplateCompletionProvider;
+  disabled?: boolean;
+}> = ({
+  index,
+  value,
+  onChange,
+  onRemove,
+  onDuplicate,
+  variableNodes,
+  completionProvider,
+  disabled,
+}) => {
+  const issues = useConditionIssues(index);
+  const [sheetOpen, setSheetOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    if (issues.length > 0) setSheetOpen(true);
+  }, [issues.length]);
+
+  const summary = summarizeCondition(value);
+  const title = `Condition ${index + 1}`;
+
+  const menuItems: ActionCardMenuItem[] = disabled
+    ? []
+    : [
+        { label: "Duplicate", icon: "Copy", onClick: onDuplicate },
+        {
+          label: "Delete",
+          icon: "Trash2",
+          onClick: onRemove,
+          variant: "destructive",
+        },
+      ];
+
+  return (
+    <>
+      <ActionCard
+        id={`condition-${index}`}
+        title={title}
+        summary={summary}
+        category="Condition"
+        icon="Funnel"
+        onOpenSheet={() => setSheetOpen(true)}
+        actions={menuItems}
+        errors={issues}
+      />
+      <ItemSheet
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        title={title}
+        description="Pre-run condition"
+      >
+        <ConditionEditor
+          value={value}
+          onChange={onChange}
+          variableNodes={variableNodes}
+          completionProvider={completionProvider}
+          bare
+          // Kind is chosen up front via AddConditionDialog; to change it the
+          // operator deletes + re-adds, matching how actions work. Nested
+          // clauses keep their inline selector (this prop isn't threaded down).
+          hideKindSelector
+        />
+      </ItemSheet>
+    </>
+  );
+};

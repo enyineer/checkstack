@@ -21,6 +21,12 @@ export const automations = pgTable(
       .$defaultFn(() => crypto.randomUUID()),
     name: text("name").notNull(),
     description: text("description"),
+    /**
+     * Optional grouping label (HA-style "category"). A row field like
+     * name/description — NOT part of the definition JSON. `group` is a SQL
+     * reserved word; drizzle quotes the column name so it is safe.
+     */
+    group: text("group"),
     /** "enabled" | "disabled" */
     status: text("status").notNull().default("enabled"),
     /** Validated AutomationDefinition (zod-checked on write). */
@@ -39,6 +45,7 @@ export const automations = pgTable(
   (t) => ({
     statusIdx: index("automations_status_idx").on(t.status),
     managedByIdx: index("automations_managed_by_idx").on(t.managedBy),
+    groupIdx: index("automations_group_idx").on(t.group),
   }),
 );
 
@@ -364,6 +371,62 @@ export const automationDwellTimers = pgTable(
     automationIdx: index("automation_dwell_timers_automation_idx").on(
       t.automationId,
     ),
+  }),
+);
+
+/**
+ * Windowed-count / rate trigger occurrence log.
+ *
+ * Backs a trigger's `window: { count, minutes, refire }` gate. One row is
+ * appended per QUALIFYING occurrence (the structured config gate + the
+ * operator's `filter` have already passed) on the single pod that claimed
+ * the emission from the work queue, then the engine counts rows within the
+ * trailing window to decide whether to fire.
+ *
+ * Append-log (not a rolling counter) because a SLIDING window is "count rows
+ * newer than now - M": a counter has no per-occurrence timestamps to age out
+ * and so can only tumble, not slide. This mirrors the former healthcheck
+ * `health_check_unhealthy_transitions` shape, relocated into the engine so
+ * any trigger can use it (generic mechanism).
+ *
+ * State-and-scale: the row is durable Postgres; the COUNT read is pure SQL,
+ * so every pod computes the same answer. The single INSERT happens on the
+ * work-queue-claiming pod, so there is no double-count. Pruned by the
+ * stalled-sweeper (rows older than the 24h schema cap are dead). The FK
+ * cascade is the entire delete-lifecycle (exactly like `automation_dwell_timers`).
+ */
+export const automationWindowEvents = pgTable(
+  "automation_window_events",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    automationId: text("automation_id")
+      .notNull()
+      .references(() => automations.id, { onDelete: "cascade" }),
+    /** Operator-assigned or derived trigger id this window belongs to. */
+    triggerId: text("trigger_id").notNull(),
+    /** Fully qualified base event id whose occurrences are being counted. */
+    eventId: text("event_id").notNull(),
+    /** Durable context key (typically the systemId). Nullable. */
+    contextKey: text("context_key"),
+    /** When the qualifying occurrence happened. */
+    occurredAt: timestamp("occurred_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    /**
+     * Powers the in-window COUNT(*): rows for one
+     * `(automationId, triggerId, contextKey)` whose `occurredAt` is within the
+     * trailing window. `occurredAt` is the trailing-range column.
+     */
+    countIdx: index("automation_window_events_count_idx").on(
+      t.automationId,
+      t.triggerId,
+      t.contextKey,
+      t.occurredAt,
+    ),
+    /** Powers the sweeper's TTL prune scan (delete rows older than the cap). */
+    pruneIdx: index("automation_window_events_prune_idx").on(t.occurredAt),
   }),
 );
 

@@ -67,6 +67,11 @@ const SettingsContent: React.FC = () => {
 
   const secrets = secretsQuery.data ?? [];
   const backend = backendQuery.data;
+  // Read-through backends (e.g. Vault) reject writes — hide the create /
+  // rotate / delete controls so the user isn't invited to fail. Default to
+  // writable while the config loads so the local backend never flickers
+  // read-only.
+  const writable = backend?.writable ?? true;
 
   const handleCreate = async () => {
     setError(null);
@@ -124,55 +129,73 @@ const SettingsContent: React.FC = () => {
         {/* Backend selection + Vault config */}
         <BackendConfigCard config={backend} onError={setError} />
 
+        {/* Read-through backends manage values in the external store; this
+            UI only reflects indexed secret names, so explain why the write
+            controls are gone. */}
+        {!writable && (
+          <Alert>
+            <AlertTitle>This backend is read-through</AlertTitle>
+            <AlertDescription>
+              Manage secret values in the external store (e.g. Vault). This
+              list reflects the indexed secret names only; creating, rotating,
+              and deleting values is disabled here.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Create / rotate */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Add a secret</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="secret-name">Name</Label>
-                <Input
-                  id="secret-name"
-                  placeholder="jira_token"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  autoComplete="off"
-                />
+        {writable && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Add a secret</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="secret-name">Name</Label>
+                  <Input
+                    id="secret-name"
+                    placeholder="jira_token"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="secret-value">Value</Label>
+                  <Input
+                    id="secret-value"
+                    type="password"
+                    placeholder="••••••••"
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
+                    autoComplete="new-password"
+                  />
+                </div>
               </div>
               <div className="space-y-1">
-                <Label htmlFor="secret-value">Value</Label>
+                <Label htmlFor="secret-description">
+                  Description (optional)
+                </Label>
                 <Input
-                  id="secret-value"
-                  type="password"
-                  placeholder="••••••••"
-                  value={value}
-                  onChange={(e) => setValue(e.target.value)}
-                  autoComplete="new-password"
+                  id="secret-description"
+                  placeholder="What this secret is used for"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
                 />
               </div>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="secret-description">Description (optional)</Label>
-              <Input
-                id="secret-description"
-                placeholder="What this secret is used for"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleCreate}
-              disabled={!canSubmitCreate}
-            >
-              <Plus className="h-4 w-4" />
-              {setMutation.isPending ? "Saving…" : "Add secret"}
-            </Button>
-          </CardContent>
-        </Card>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleCreate}
+                disabled={!canSubmitCreate}
+              >
+                <Plus className="h-4 w-4" />
+                {setMutation.isPending ? "Saving…" : "Add secret"}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         {/* List */}
         <Card>
@@ -186,7 +209,9 @@ const SettingsContent: React.FC = () => {
               <LoadingSpinner />
             ) : secrets.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No secrets yet. Add one above.
+                {writable
+                  ? "No secrets yet. Add one above."
+                  : "No indexed secrets yet."}
               </p>
             ) : (
               <ul className="divide-y divide-border">
@@ -210,28 +235,30 @@ const SettingsContent: React.FC = () => {
                         </p>
                       )}
                     </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setRotateName(secret.name);
-                          setRotateValue("");
-                        }}
-                      >
-                        <RefreshCw className="h-4 w-4" />
-                        Rotate
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => setConfirmDelete(secret.name)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    {writable && (
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setRotateName(secret.name);
+                            setRotateValue("");
+                          }}
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                          Rotate
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => setConfirmDelete(secret.name)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>

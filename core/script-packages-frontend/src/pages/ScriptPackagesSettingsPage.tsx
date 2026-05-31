@@ -9,7 +9,14 @@ import {
 import {
   ScriptPackagesApi,
   scriptPackagesAccess,
+  PackageVersionSchema,
 } from "@checkstack/script-packages-common";
+import { PackageNameCombobox } from "../components/PackageNameCombobox";
+import { PackageVersionCombobox } from "../components/PackageVersionCombobox";
+import {
+  applyLatestDistTag,
+  versionFromHit,
+} from "../components/version-autofill";
 import {
   PageLayout,
   Card,
@@ -37,12 +44,18 @@ import {
   AccordionContent,
   ConfirmationModal,
   usePerformance,
+  useInitOnceForKey,
   cn,
 } from "@checkstack/ui";
 import { extractErrorMessage } from "@checkstack/common";
 
 function mb(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** MB (UI unit) → bytes (the size-cap schema unit). */
+function mbToBytes(value: number): number {
+  return Math.round(value * 1024 * 1024);
 }
 
 const SettingsContent: React.FC = () => {
@@ -54,9 +67,17 @@ const SettingsContent: React.FC = () => {
 
   const packagesQuery = client.listPackages.useQuery();
   const installStateQuery = client.getInstallState.useQuery();
-  const registryQuery = client.getRegistryConfig.useQuery();
-  const sizeCapQuery = client.getSizeCapConfig.useQuery();
+  // gcTime: 0 on the loader queries that seed editable form state via
+  // useInitOnceForKey — otherwise stale-while-revalidate can race the
+  // one-shot init and reopened editors would show pre-mutation values.
+  const registryQuery = client.getRegistryConfig.useQuery(undefined, {
+    gcTime: 0,
+  });
+  const sizeCapQuery = client.getSizeCapConfig.useQuery(undefined, {
+    gcTime: 0,
+  });
   const storageQuery = client.getStorageConfig.useQuery(undefined, {
+    gcTime: 0,
     // Poll while a migration is running so progress + completion show live.
     refetchInterval: (query) =>
       query.state.data?.migrationStatus === "migrating" ? 1500 : false,
@@ -71,6 +92,9 @@ const SettingsContent: React.FC = () => {
   const installMutation = client.installNow.useMutation();
   const migrateMutation = client.migrateStorage.useMutation();
   const gcMutation = client.gcBlobs.useMutation();
+  const setRegistryMutation = client.setRegistryConfig.useMutation();
+  const setSizeCapMutation = client.setSizeCapConfig.useMutation();
+  const setStorageBackendMutation = client.setStorageBackend.useMutation();
 
   const { isLowPower } = usePerformance();
   const [name, setName] = React.useState("");
@@ -78,6 +102,41 @@ const SettingsContent: React.FC = () => {
   const [migrateTarget, setMigrateTarget] = React.useState<string>("");
   const [confirmMigrate, setConfirmMigrate] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  // Editable Advanced-config state, seeded once from the loader queries.
+  const [registryUrl, setRegistryUrl] = React.useState("");
+  const [ignoreScripts, setIgnoreScripts] = React.useState(true);
+  // Write-only: blank = leave the stored token untouched. The schema returns
+  // only `hasAuthToken`, never the value, so the input always starts empty.
+  const [authTokenInput, setAuthTokenInput] = React.useState("");
+  const [warnMb, setWarnMb] = React.useState("");
+  const [blockMb, setBlockMb] = React.useState("");
+  const [storageBackend, setStorageBackend] = React.useState("");
+
+  // Seed editable state once per persisted version. Using `updatedAt` as the
+  // key re-seeds the form after a successful save (the mutation invalidates
+  // the query → a fresh `updatedAt`) without clobbering in-progress edits on
+  // unrelated background refetches.
+  useInitOnceForKey(
+    registryQuery.data,
+    registryQuery.data?.updatedAt?.toISOString() ?? "registry",
+    (cfg) => {
+      setRegistryUrl(cfg.registryUrl);
+      setIgnoreScripts(cfg.ignoreScripts);
+      setAuthTokenInput("");
+    },
+  );
+  useInitOnceForKey(sizeCapQuery.data, "size-cap", (cfg) => {
+    setWarnMb(String(cfg.warnBytes / (1024 * 1024)));
+    setBlockMb(String(cfg.blockBytes / (1024 * 1024)));
+  });
+  useInitOnceForKey(
+    storageQuery.data,
+    storageQuery.data?.activeBackend ?? "storage",
+    (cfg) => {
+      setStorageBackend(cfg.activeBackend);
+    },
+  );
 
   if (accessLoading) return <LoadingSpinner />;
   if (!allowed) {
@@ -94,10 +153,24 @@ const SettingsContent: React.FC = () => {
   const storage = storageQuery.data;
   const satellites = satellitesQuery.data?.items ?? [];
 
+  // Inline pinned-version validation: mirror the backend `addPackage`
+  // (PackageVersionSchema) so an invalid free-typed version is surfaced
+  // before submit rather than only as a server error. Empty → no message
+  // (the Add button is already disabled), non-empty-invalid → the rule text.
+  const trimmedVersion = version.trim();
+  const versionParse =
+    trimmedVersion.length > 0
+      ? PackageVersionSchema.safeParse(trimmedVersion)
+      : undefined;
+  const versionError =
+    versionParse && !versionParse.success
+      ? (versionParse.error.issues[0]?.message ?? "Invalid version")
+      : null;
+
   const handleAdd = async () => {
     setError(null);
     try {
-      await addMutation.mutateAsync({ name: name.trim(), version: version.trim() });
+      await addMutation.mutateAsync({ name: name.trim(), version: trimmedVersion });
       setName("");
       setVersion("");
     } catch (error_) {
@@ -120,6 +193,68 @@ const SettingsContent: React.FC = () => {
     try {
       const res = await gcMutation.mutateAsync({});
       if (!res.ran && res.reason) setError(res.reason);
+    } catch (error_) {
+      setError(extractErrorMessage(error_));
+    }
+  };
+
+  const handleSaveRegistry = async () => {
+    setError(null);
+    try {
+      await setRegistryMutation.mutateAsync({
+        registryUrl: registryUrl.trim(),
+        // Scoped registries are not editable in this UI yet; preserve them.
+        scopedRegistries: registryQuery.data?.scopedRegistries ?? [],
+        ignoreScripts,
+        // Write-only: only send when the admin typed something. A blank field
+        // leaves the stored token untouched.
+        ...(authTokenInput.length > 0 ? { authToken: authTokenInput } : {}),
+      });
+      setAuthTokenInput("");
+    } catch (error_) {
+      setError(extractErrorMessage(error_));
+    }
+  };
+
+  const handleClearAuthToken = async () => {
+    setError(null);
+    try {
+      // Empty string clears the stored token (per the backend handler).
+      await setRegistryMutation.mutateAsync({
+        registryUrl: registryUrl.trim(),
+        scopedRegistries: registryQuery.data?.scopedRegistries ?? [],
+        ignoreScripts,
+        authToken: "",
+      });
+      setAuthTokenInput("");
+    } catch (error_) {
+      setError(extractErrorMessage(error_));
+    }
+  };
+
+  const handleSaveSizeCap = async () => {
+    setError(null);
+    const warn = Number(warnMb);
+    const block = Number(blockMb);
+    if (!Number.isFinite(warn) || !Number.isFinite(block) || warn <= 0 || block <= 0) {
+      setError("Size thresholds must be positive numbers (MB).");
+      return;
+    }
+    try {
+      await setSizeCapMutation.mutateAsync({
+        warnBytes: mbToBytes(warn),
+        blockBytes: mbToBytes(block),
+      });
+    } catch (error_) {
+      setError(extractErrorMessage(error_));
+    }
+  };
+
+  const handleSaveStorageBackend = async () => {
+    setError(null);
+    if (!storageBackend) return;
+    try {
+      await setStorageBackendMutation.mutateAsync({ backend: storageBackend });
     } catch (error_) {
       setError(extractErrorMessage(error_));
     }
@@ -205,30 +340,60 @@ const SettingsContent: React.FC = () => {
           <div className="flex items-end gap-2">
             <div className="flex-1">
               <Label htmlFor="pkg-name">Package</Label>
-              <Input
+              <PackageNameCombobox
                 id="pkg-name"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onValueChange={(next) => {
+                  // Manual typing only (selecting a suggestion routes through
+                  // onSelect instead). A manual name edit invalidates the
+                  // previously chosen version - it belonged to the old package.
+                  setName(next);
+                  setVersion("");
+                }}
+                onSelect={(hit) => {
+                  // Picking a suggestion fills the name AND seeds the version
+                  // from the hit (typically the latest published version);
+                  // `onVersionsLoaded` below upgrades it to the `latest`
+                  // dist-tag once the full version list resolves.
+                  setName(hit.name);
+                  setVersion(versionFromHit(hit));
+                }}
                 placeholder="lodash or @scope/name"
               />
             </div>
             <div className="w-40">
               <Label htmlFor="pkg-version">Version</Label>
-              <Input
+              <PackageVersionCombobox
                 id="pkg-version"
+                packageName={name.trim()}
                 value={version}
-                onChange={(e) => setVersion(e.target.value)}
+                onValueChange={setVersion}
+                onVersionsLoaded={({ latest }) => {
+                  // Default-select the registry's `latest` only when the field
+                  // is still empty, so we never clobber a manual pin or a
+                  // version already seeded from the search hit. Functional
+                  // update so we read the freshest value, not a stale closure.
+                  setVersion((cur) => applyLatestDistTag({ current: cur, latest }));
+                }}
                 placeholder="4.17.21"
               />
             </div>
             <Button
               type="button"
               onClick={handleAdd}
-              disabled={!name.trim() || !version.trim() || addMutation.isPending}
+              disabled={
+                !name.trim() ||
+                !trimmedVersion ||
+                versionError !== null ||
+                addMutation.isPending
+              }
             >
               Add
             </Button>
           </div>
+          {versionError && (
+            <p className="text-xs text-destructive">{versionError}</p>
+          )}
 
           {packages.length === 0 ? (
             <p className="text-sm text-muted-foreground italic">
@@ -283,26 +448,63 @@ const SettingsContent: React.FC = () => {
               <AccordionTrigger className="text-sm hover:no-underline">
                 Registry &amp; storage
               </AccordionTrigger>
-              <AccordionContent className="space-y-2 text-sm">
+              <AccordionContent className="space-y-4 text-sm">
                 <div>
-                  <span className="text-muted-foreground">Registry: </span>
-                  <span className="font-mono">
-                    {registryQuery.data?.registryUrl}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">
-                    Ignore install scripts:
-                  </span>
-                  <Toggle
-                    checked={registryQuery.data?.ignoreScripts ?? true}
-                    disabled
-                    onCheckedChange={() => {}}
+                  <Label htmlFor="registry-url">Registry URL</Label>
+                  <Input
+                    id="registry-url"
+                    value={registryUrl}
+                    onChange={(e) => setRegistryUrl(e.target.value)}
+                    placeholder="https://registry.npmjs.org/"
+                    className="font-mono"
                   />
                 </div>
+                <div className="flex items-center gap-2">
+                  <Toggle
+                    checked={ignoreScripts}
+                    onCheckedChange={setIgnoreScripts}
+                    aria-label="Ignore install scripts"
+                  />
+                  <span className="text-muted-foreground">
+                    Ignore install scripts
+                  </span>
+                </div>
                 <div>
-                  <span className="text-muted-foreground">Auth token: </span>
-                  {registryQuery.data?.hasAuthToken ? "configured" : "none"}
+                  <Label htmlFor="registry-token">Auth token</Label>
+                  <Input
+                    id="registry-token"
+                    type="password"
+                    value={authTokenInput}
+                    onChange={(e) => setAuthTokenInput(e.target.value)}
+                    placeholder={
+                      registryQuery.data?.hasAuthToken
+                        ? "Configured. Type to replace, or leave blank to keep."
+                        : "None. Enter a token to configure."
+                    }
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleSaveRegistry}
+                    disabled={
+                      !registryUrl.trim() || setRegistryMutation.isPending
+                    }
+                  >
+                    Save registry
+                  </Button>
+                  {registryQuery.data?.hasAuthToken && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={handleClearAuthToken}
+                      disabled={setRegistryMutation.isPending}
+                    >
+                      Clear token
+                    </Button>
+                  )}
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -325,9 +527,38 @@ const SettingsContent: React.FC = () => {
                 </span>
               </AccordionTrigger>
               <AccordionContent className="space-y-3 text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">Active backend:</span>
-                  <Badge variant="secondary">{storage?.activeBackend}</Badge>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="w-48">
+                    <Label htmlFor="active-backend">Active backend</Label>
+                    <Select
+                      value={storageBackend}
+                      onValueChange={setStorageBackend}
+                      disabled={migrating}
+                    >
+                      <SelectTrigger id="active-backend">
+                        <SelectValue placeholder="Select backend" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableBackends.map((b) => (
+                          <SelectItem key={b} value={b}>
+                            {b}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleSaveStorageBackend}
+                    disabled={
+                      !storageBackend ||
+                      storageBackend === storage?.activeBackend ||
+                      migrating ||
+                      setStorageBackendMutation.isPending
+                    }
+                  >
+                    Set active
+                  </Button>
                   {migrating && (
                     <Badge variant="secondary">
                       <RefreshCw
@@ -341,6 +572,11 @@ const SettingsContent: React.FC = () => {
                     </Badge>
                   )}
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Setting the active backend does not move existing blobs - use
+                  Migrate below to copy them. Use this only for an initial
+                  selection or when both backends already hold every blob.
+                </p>
 
                 {storage?.migrationStatus === "error" &&
                   storage.migrationError && (
@@ -397,6 +633,53 @@ const SettingsContent: React.FC = () => {
                   Reads fall back across both backends while it runs, so
                   scripts keep working. Installs are paused during a migration.
                 </p>
+              </AccordionContent>
+            </AccordionItem>
+
+            <AccordionItem value="size-cap" className="border-b">
+              <AccordionTrigger className="text-sm hover:no-underline">
+                Size guardrail
+              </AccordionTrigger>
+              <AccordionContent className="space-y-3 text-sm">
+                <p className="text-xs text-muted-foreground">
+                  Installs warn above the warning threshold and are blocked
+                  above the block threshold (resolved total size).
+                </p>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="w-40">
+                    <Label htmlFor="warn-mb">Warn at (MB)</Label>
+                    <Input
+                      id="warn-mb"
+                      type="number"
+                      min={1}
+                      value={warnMb}
+                      onChange={(e) => setWarnMb(e.target.value)}
+                      placeholder="150"
+                    />
+                  </div>
+                  <div className="w-40">
+                    <Label htmlFor="block-mb">Block at (MB)</Label>
+                    <Input
+                      id="block-mb"
+                      type="number"
+                      min={1}
+                      value={blockMb}
+                      onChange={(e) => setBlockMb(e.target.value)}
+                      placeholder="300"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleSaveSizeCap}
+                    disabled={
+                      !warnMb.trim() ||
+                      !blockMb.trim() ||
+                      setSizeCapMutation.isPending
+                    }
+                  >
+                    Save thresholds
+                  </Button>
+                </div>
               </AccordionContent>
             </AccordionItem>
 

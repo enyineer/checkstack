@@ -90,6 +90,8 @@ const config = z.object({
 });
 ```
 
+The canonical (stored and serialized) form of each mapping value is the `${{ secrets.NAME }}` template, which the UI picker shows and writes by secret name. As a forgiving input, `secretEnvMappingSchema` also accepts a **bare secret name** as a value (e.g. authored via YAML shorthand `secretEnv: { API_TOKEN: jira_token }`, or legacy data) and normalizes it to the canonical `${{ secrets.NAME }}` template on parse - so downstream resolution, placeholder building, and masking (which parse the template) keep working unchanged. Only a pure secret reference (a whole-value or inline `${{ secrets.NAME }}` template) or a pure bare secret name is accepted; a value that is neither is rejected. The bare-name display tolerance lives in the UI's `parseSecretName` too, so the picker shows the same name for both forms.
+
 At execution the action resolves ONLY the declared secrets via `secretResolverRef.resolveForRun({ secretEnv })`, which returns the concrete env map plus a run-scoped `SecretMaskingContext`. The resolved values are injected into the runner env for that run only (the ESM runner gained a per-run `env` option; the shell runner already had one) and are never persisted. The script reads them as `process.env.ENV_NAME` (TypeScript) or `$ENV_NAME` (shell). A referenced secret that cannot resolve fails the run with a clear error rather than running without it. Decision 5: there is no ambient access; only the named secrets are resolved and injected.
 
 The automation `run_script` / `run_shell` actions implement this on the central backend. Healthcheck collectors carry the `secretEnv` field too; they are resolved + injected both when a check runs centrally (the queue executor) and when it runs on a satellite (see below).
@@ -110,6 +112,8 @@ Source-side masking is applied on the satellite: the collector runs `maskSecrets
 
 The in-UI test panel (`testScript` / `testCollectorScript`) NEVER resolves real secret values (decision 4). For each declared `secretEnv` entry it injects a named placeholder (`__SECRET_<NAME>__`), or a user-supplied per-secret override value when the operator wants a realistic run. Override values are user-supplied (they stay client-side until sent as an explicit test input) and are masked out of the test result, so even an override can't round-trip to the surface unmasked. The shared `buildTestSecretEnv` helper (in `@checkstack/secrets-common`) builds the test env + the override mask set.
 
+The shared `ScriptTestPanel` (in `@checkstack/ui`) wires this end to end. The DynamicForm `ScriptTestRenderer` callback receives the value of the SIBLING `x-secret-env` field - located by the annotation, not by a hard-coded field name - so a testable script field forwards the action's declared mapping to the panel without any feature-specific code. The panel derives the distinct referenced secret names (`distinctSecretNames`), renders one optional override input per name, and builds the `secretOverrides` payload (`buildSecretOverrides`, dropping blank or unreferenced drafts) that the owning page sends to `testScript`. With no override, the script sees `process.env.<ENV_NAME> === "__SECRET_<NAME>__"`; with an override, it sees the typed value, masked from the output. Health-check collectors have no `x-secret-env` field in their config, so their test panel shows no override UI.
+
 ## No value ever crosses to a browser
 
 The RPC contract exposes only metadata:
@@ -117,7 +121,7 @@ The RPC contract exposes only metadata:
 - `listSecrets` returns `SecretMetadata` (`id`, `name`, `description`, `hasValue`, `backend`, timestamps) - never the value. Internal secrets (see below) are excluded.
 - `listSecretNames` returns names only (for editor autocomplete + the env-mapping UI).
 - `setSecret` is write-only (create or rotate); `deleteSecret` removes by name.
-- `getBackendConfig` returns the active backend id, the available ids, and (for Vault) the connection metadata with `hasCredential` - never the credential.
+- `getBackendConfig` returns the active backend id, the available ids, a `writable` capability boolean, and (for Vault) the connection metadata with `hasCredential` - never the credential. `writable` is `true` only when the active backend implements both `set` and `delete` (the local backend); read-through backends (Vault) report `false`, and the admin UI hides its create / rotate / delete controls accordingly instead of inviting writes that always fail.
 - `setBackendConfig` accepts the Vault credential as write-only input (stored encrypted, never returned); `testBackend` returns connectivity/auth status only.
 
 There is no `getSecret` / `resolveSecret` on the browser-facing contract. Resolution to values is the service-only `secretResolverRef` / `internalSecretsRef`.

@@ -97,11 +97,11 @@ actions:
 ## Flapping and the windowed transition count
 
 > [!TIP]
-> Flapping detection is buildable TODAY without this block: trigger on the built-in `healthcheck.flapping_detected` event and run `incident.create`. That trigger fires when the policy's "N unhealthy transitions in M minutes" threshold is crossed.
+> The simplest flapping rule is the trigger `window:` rate gate over the raw `healthcheck.system_health_changed` change event, filtered to unhealthy transitions: `window: { count: 3, minutes: 60, refire: once }`. The engine counts qualifying occurrences in a durable window log - no pre-derived flapping event, no scope field. See [the primitives reference](/checkstack/developer-guide/backend/automations/primitives/#flapping-detection-windowed-transition-count).
 
-For custom "N status changes in M minutes" rules, the health provider folds a windowed transition count into scope. `health.system.transitions_in_window` is the number of aggregate status changes for the system over the trailing window; the window defaults to 60 minutes and is set per-automation via the top-level `state_window_minutes`. Counting all aggregate transitions (not just unhealthy) generalizes the flapping detector, which counts only transitions into `unhealthy`.
+For rules that need the count as a NUMBER in scope (e.g. to branch a `choose` on how badly a system is flapping, or to combine with other conditions), the health provider also folds a windowed transition count into scope. `health.system.transitions_in_window` is the number of aggregate status changes for the system over the trailing window; the window defaults to 60 minutes and is set per-automation via the top-level `state_window_minutes`. Counting all aggregate transitions (not just unhealthy) is a superset of the unhealthy-transition flapping count.
 
-Author a custom flapping rule as a `numeric_state` condition over that field - no new condition variant, no editor change:
+Author such a rule as a `numeric_state` condition over that field - no new condition variant, no editor change:
 
 ```yaml
 triggers:

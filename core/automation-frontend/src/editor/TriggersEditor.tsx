@@ -1,11 +1,7 @@
 import React from "react";
-import { Plus, Trash2 } from "lucide-react";
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-  Button,
+  ActionCard,
+  type ActionCardMenuItem,
   Card,
   CardContent,
   CardHeader,
@@ -17,17 +13,32 @@ import {
   TemplateValueInput,
   Toggle,
   Badge,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  VariablePicker,
   type DurationValue,
+  type TemplateCompletionProvider,
+  type VariableNode,
 } from "@checkstack/ui";
 import type {
   AutomationDefinition,
   Duration,
   Trigger,
+  Window,
 } from "@checkstack/automation-common";
 import { useAutomationRegistry, useVariableScope } from "./registry-context";
-import { ItemPicker } from "./ItemPicker";
+import { AddTriggerDialog } from "./AddTriggerDialog";
+import { ItemSheet } from "./ItemSheet";
 import { useTriggerIssues } from "./editor-validation";
-import { collectTriggerIds, defaultTriggerId } from "./trigger-helpers";
+import {
+  collectTriggerIds,
+  defaultTriggerId,
+  makeTrigger,
+} from "./trigger-helpers";
+import { summarizeTrigger } from "./item-summary";
 
 /**
  * Build a minimal `AutomationDefinition` that only subscribes to the
@@ -78,43 +89,10 @@ export const TriggersEditor: React.FC<TriggersEditorProps> = ({
   onChange,
   disabled,
 }) => {
-  const { triggers } = useAutomationRegistry();
-  const pickerItems = React.useMemo(
-    () =>
-      triggers.map((t) => ({
-        id: t.qualifiedId,
-        label: t.displayName,
-        description: t.description,
-        category: t.category,
-      })),
-    [triggers],
-  );
-
-  const handleAdd = () => {
-    // Assign a unique default id up front (deduped against existing triggers)
-    // so the new trigger is immediately referenceable as `trigger.id` and the
-    // field shows a value rather than appearing blank.
-    const fresh: Trigger = { event: triggers[0]?.qualifiedId ?? "" };
-    const id = defaultTriggerId(fresh, collectTriggerIds(value));
-    onChange([...value, { ...fresh, id }]);
-  };
-
   return (
     <Card>
       <CardHeader className="border-b">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base">Triggers</CardTitle>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleAdd}
-            disabled={disabled}
-          >
-            <Plus className="mr-1 h-3 w-3" />
-            Add trigger
-          </Button>
-        </div>
+        <CardTitle className="text-base">Triggers</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2 p-3">
         {value.length === 0 && (
@@ -133,13 +111,36 @@ export const TriggersEditor: React.FC<TriggersEditorProps> = ({
               onChange(list);
             }}
             onRemove={() => onChange(value.filter((_, i) => i !== index))}
+            onDuplicate={() => {
+              // Clone the trigger with a fresh, unique id (deduped against
+              // every sibling) inserted directly after the original.
+              const taken = collectTriggerIds(value);
+              const { id: _id, ...rest } = trigger;
+              const id = defaultTriggerId(rest, taken);
+              onChange([
+                ...value.slice(0, index + 1),
+                { ...rest, id },
+                ...value.slice(index + 1),
+              ]);
+            }}
             disabled={disabled}
-            pickerItems={pickerItems}
             // Ids of the other triggers — used to keep this trigger's
             // auto-filled id unique when the operator clears the field.
             siblingIds={collectTriggerIds(value.filter((_, i) => i !== index))}
           />
         ))}
+        <AddTriggerDialog
+          disabled={disabled}
+          onAdd={(event) =>
+            // Assign a unique default id up front (deduped against existing
+            // triggers) so the new trigger is immediately referenceable as
+            // `trigger.id` and the field shows a value rather than blank.
+            onChange([
+              ...value,
+              makeTrigger({ event, taken: collectTriggerIds(value) }),
+            ])
+          }
+        />
       </CardContent>
     </Card>
   );
@@ -150,17 +151,22 @@ const TriggerCard: React.FC<{
   value: Trigger;
   onChange: (next: Trigger) => void;
   onRemove: () => void;
+  onDuplicate: () => void;
   disabled?: boolean;
-  pickerItems: Array<{ id: string; label: string; description?: string; category?: string }>;
   siblingIds: Set<string>;
-}> = ({ index, value, onChange, onRemove, disabled, pickerItems, siblingIds }) => {
+}> = ({
+  index,
+  value,
+  onChange,
+  onRemove,
+  onDuplicate,
+  disabled,
+  siblingIds,
+}) => {
   const { triggers } = useAutomationRegistry();
   const selected = triggers.find((t) => t.qualifiedId === value.event);
   const issues = useTriggerIssues(index);
-  // `id` auto-fills on blur, so it isn't a meaningful "advanced was
-  // customised" signal; open the disclosure only when the operator has set a
-  // gating filter or a dwell window.
-  const hasAdvanced = value.filter !== undefined || value.for !== undefined;
+  const [sheetOpen, setSheetOpen] = React.useState(false);
 
   // Templates inside the filter / config see only the selected
   // trigger's payload — there are no other triggers, no upstream
@@ -169,170 +175,303 @@ const TriggerCard: React.FC<{
     () => buildTriggerFilterDefinition(value.event),
     [value.event],
   );
-  const { templateCompletion } = useVariableScope({
-    definition: filterScopeDefinition,
-    path: [{ slot: "root", index: 0 }],
-  });
+  const { templateCompletion, expressionCompletion, variableNodes } =
+    useVariableScope({
+      definition: filterScopeDefinition,
+      path: [{ slot: "root", index: 0 }],
+    });
+
+  // Surface a problem rather than hide it behind a collapsed row + closed
+  // sheet.
+  React.useEffect(() => {
+    if (issues.length > 0) setSheetOpen(true);
+  }, [issues.length]);
+
+  const title = selected?.displayName ?? value.event ?? "Trigger";
+  const summary = summarizeTrigger(value);
+
+  const menuItems: ActionCardMenuItem[] = disabled
+    ? []
+    : [
+        { label: "Duplicate", icon: "Copy", onClick: onDuplicate },
+        {
+          label: "Delete",
+          icon: "Trash2",
+          onClick: onRemove,
+          variant: "destructive",
+        },
+      ];
 
   return (
-    <Card
-      className={
-        issues.length > 0
-          ? "border-destructive/60 bg-muted/30 ring-1 ring-destructive/30"
-          : "border-border/60 bg-muted/30"
-      }
-    >
-      <CardContent className="space-y-3 p-3">
-        {issues.length > 0 && (
-          <ul className="space-y-0.5">
-            {issues.map((issue, i) => (
-              <li key={i} className="text-[11px] font-mono text-destructive">
-                {issue}
-              </li>
-            ))}
-          </ul>
+    <>
+      <ActionCard
+        id={`trigger-${index}`}
+        title={title}
+        summary={summary}
+        category="Trigger"
+        icon="Zap"
+        onOpenSheet={() => setSheetOpen(true)}
+        actions={menuItems}
+        errors={issues}
+      />
+      <ItemSheet
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        title={title}
+        description="Trigger"
+      >
+        {selected && (
+          // Read-only context for the configured trigger — the event/kind is
+          // chosen up front in the Add dialog, so it isn't editable here.
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            <Badge variant="outline" className="text-[10px]">
+              {selected.ownerPluginId}
+            </Badge>
+            {selected.description}
+          </div>
         )}
-        <div className="flex items-start gap-2">
-          <div className="flex-1 space-y-3">
+        {selected?.configSchema && (
+          <div className="space-y-1">
+            <Label className="text-xs">Trigger configuration</Label>
+            <DynamicForm
+              schema={selected.configSchema}
+              value={value.config ?? {}}
+              onChange={(next) => onChange({ ...value, config: next })}
+            />
+          </div>
+        )}
+        <div className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-3">
+          <div className="grid gap-2 sm:grid-cols-2">
             <div className="space-y-1">
-              <Label className="text-xs">Event</Label>
-              <ItemPicker
-                items={pickerItems}
-                value={value.event}
-                onSelect={(id) => onChange({ ...value, event: id })}
-                placeholder="Pick a trigger event"
+              <Label className="text-xs" htmlFor={`trigger-id-${index}`}>
+                ID
+              </Label>
+              <Input
+                id={`trigger-id-${index}`}
+                value={value.id ?? ""}
+                onChange={(event) =>
+                  onChange({
+                    ...value,
+                    id: event.target.value || undefined,
+                  })
+                }
+                onBlur={() => {
+                  // Never leave the id blank: re-fill a unique default
+                  // so the trigger stays referenceable as `trigger.id`
+                  // and is distinguishable from sibling triggers.
+                  if (value.id) return;
+                  onChange({
+                    ...value,
+                    id: defaultTriggerId(value, siblingIds),
+                  });
+                }}
+                placeholder="Generated on blur"
+                disabled={disabled}
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Filter template</Label>
+              <TemplateValueInput
+                value={value.filter ?? ""}
+                onChange={(next) =>
+                  onChange({ ...value, filter: next || undefined })
+                }
+                placeholder="{{ trigger.payload.severity == &quot;high&quot; }}"
+                completionProvider={templateCompletion}
                 disabled={disabled}
               />
-              {selected && (
-                <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                  <Badge variant="outline" className="text-[10px]">
-                    {selected.ownerPluginId}
-                  </Badge>
-                  {selected.description}
-                </div>
-              )}
             </div>
-            {selected?.configSchema && (
-              <div className="space-y-1">
-                <Label className="text-xs">Trigger configuration</Label>
-                <DynamicForm
-                  schema={selected.configSchema}
-                  value={value.config ?? {}}
-                  onChange={(next) =>
-                    onChange({ ...value, config: next })
-                  }
-                />
-              </div>
-            )}
-            {/* Optional discriminator id, gating filter, and `for:` dwell are
-                tucked behind a collapsed disclosure so a simple trigger reads
-                as one clean row. Auto-opens when any advanced field is set. */}
-            <Accordion
-              type="single"
-              collapsible
-              defaultValue={hasAdvanced ? "advanced" : undefined}
-              className="w-full"
-            >
-              <AccordionItem value="advanced" className="border-b-0">
-                <AccordionTrigger className="py-2 text-xs hover:no-underline">
-                  <span className="flex items-center gap-2">
-                    Advanced
-                    {hasAdvanced && (
-                      <Badge variant="outline" className="text-[10px]">
-                        set
-                      </Badge>
-                    )}
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent className="space-y-3 pb-0">
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <Label className="text-xs" htmlFor={`trigger-id-${index}`}>
-                        ID
-                      </Label>
-                      <Input
-                        id={`trigger-id-${index}`}
-                        value={value.id ?? ""}
-                        onChange={(event) =>
-                          onChange({
-                            ...value,
-                            id: event.target.value || undefined,
-                          })
-                        }
-                        onBlur={() => {
-                          // Never leave the id blank: re-fill a unique default
-                          // so the trigger stays referenceable as `trigger.id`
-                          // and is distinguishable from sibling triggers.
-                          if (value.id) return;
-                          onChange({
-                            ...value,
-                            id: defaultTriggerId(value, siblingIds),
-                          });
-                        }}
-                        placeholder="Generated on blur"
-                        disabled={disabled}
-                        className="font-mono text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Filter template</Label>
-                      <TemplateValueInput
-                        value={value.filter ?? ""}
-                        onChange={(next) =>
-                          onChange({ ...value, filter: next || undefined })
-                        }
-                        placeholder="{{ trigger.payload.severity == &quot;high&quot; }}"
-                        completionProvider={templateCompletion}
-                        disabled={disabled}
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Toggle
-                        checked={value.for !== undefined}
-                        onCheckedChange={(checked) =>
-                          onChange({
-                            ...value,
-                            for: checked ? { minutes: 30 } : undefined,
-                          })
-                        }
-                        disabled={disabled}
-                      />
-                      <Label className="text-xs">
-                        Dwell: fire only if the matched state still holds after
-                      </Label>
-                    </div>
-                    {value.for !== undefined && (
-                      <DurationInput
-                        value={value.for as DurationValue}
-                        onChange={(next) =>
-                          onChange({
-                            ...value,
-                            for: (next as Duration) ?? undefined,
-                          })
-                        }
-                        disabled={disabled}
-                      />
-                    )}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-destructive hover:bg-destructive/10"
-            onClick={onRemove}
-            disabled={disabled}
-            aria-label="Remove trigger"
-          >
-            <Trash2 className="h-3 w-3" />
-          </Button>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Toggle
+                checked={value.for !== undefined}
+                onCheckedChange={(checked) =>
+                  onChange({
+                    ...value,
+                    for: checked ? { minutes: 30 } : undefined,
+                  })
+                }
+                disabled={disabled}
+              />
+              <Label className="text-xs">
+                Dwell: fire only if the matched state still holds after
+              </Label>
+            </div>
+            {value.for !== undefined && (
+              <DurationInput
+                value={value.for as DurationValue}
+                onChange={(next) =>
+                  onChange({
+                    ...value,
+                    for: (next as Duration) ?? undefined,
+                  })
+                }
+                disabled={disabled}
+              />
+            )}
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Toggle
+                checked={value.window !== undefined}
+                onCheckedChange={(checked) =>
+                  onChange({
+                    ...value,
+                    window: checked
+                      ? { count: 3, minutes: 60, refire: "every" }
+                      : undefined,
+                  })
+                }
+                disabled={disabled}
+              />
+              <Label className="text-xs">
+                Rate: fire only after N occurrences within a window
+              </Label>
+            </div>
+            {value.window !== undefined && (
+              <WindowInput
+                value={value.window}
+                onChange={(next) => onChange({ ...value, window: next })}
+                completionProvider={expressionCompletion}
+                variableNodes={variableNodes}
+                contextKeyLabel={selected?.contextKeyLabel}
+                disabled={disabled}
+              />
+            )}
+          </div>
         </div>
-      </CardContent>
-    </Card>
+      </ItemSheet>
+    </>
+  );
+};
+
+/**
+ * Editor for a trigger's windowed-count / rate gate. Count + minutes number
+ * inputs, a re-fire mode select, and an optional "Partition by" expression
+ * that overrides the dimension the count is bucketed by. Matches the
+ * surrounding compact editor style.
+ */
+const WindowInput: React.FC<{
+  value: Window;
+  onChange: (next: Window) => void;
+  /**
+   * BARE-expression completion provider (`expressionCompletion` from
+   * `useVariableScope`) — `partitionBy` is evaluated like a condition (no
+   * `{{ }}` wrapper), so it uses the same provider the condition expression
+   * field does, NOT the template provider used for `{{ }}` fields.
+   */
+  completionProvider: TemplateCompletionProvider;
+  /** Hierarchical scope for the "fx" VariablePicker insert affordance. */
+  variableNodes: VariableNode[];
+  /** Built-in partition dimension label (e.g. "system"); undefined ⇒ per automation. */
+  contextKeyLabel?: string;
+  disabled?: boolean;
+}> = ({
+  value,
+  onChange,
+  completionProvider,
+  variableNodes,
+  contextKeyLabel,
+  disabled,
+}) => {
+  const defaultPartition = contextKeyLabel
+    ? `per ${contextKeyLabel}`
+    : "per automation";
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-3 gap-2">
+        <div className="space-y-1">
+          <Label className="text-xs">Count</Label>
+          <Input
+            type="number"
+            min={1}
+            max={1000}
+            value={value.count}
+            onChange={(e) => {
+              const count = Number.parseInt(e.target.value, 10);
+              onChange({ ...value, count: Number.isFinite(count) ? count : 1 });
+            }}
+            disabled={disabled}
+            className="text-xs"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Within (minutes)</Label>
+          <Input
+            type="number"
+            min={1}
+            max={1440}
+            value={value.minutes}
+            onChange={(e) => {
+              const minutes = Number.parseInt(e.target.value, 10);
+              onChange({
+                ...value,
+                minutes: Number.isFinite(minutes) ? minutes : 1,
+              });
+            }}
+            disabled={disabled}
+            className="text-xs"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Re-fire</Label>
+          <Select
+            value={value.refire}
+            onValueChange={(next) =>
+              onChange({ ...value, refire: next === "once" ? "once" : "every" })
+            }
+            disabled={disabled}
+          >
+            <SelectTrigger className="text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="every">every occurrence</SelectItem>
+              <SelectItem value="once">once (crossing edge)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-2">
+          <Label className="text-xs">Partition by</Label>
+          {!disabled && (
+            <VariablePicker
+              scope={variableNodes}
+              onSelect={(path) => {
+                // partitionBy is a bare expression — insert the raw path, not
+                // a `{{ … }}`-wrapped reference (matches the condition editor).
+                const before = value.partitionBy ?? "";
+                const sep =
+                  before.length > 0 && !before.endsWith(" ") ? " " : "";
+                onChange({ ...value, partitionBy: `${before}${sep}${path}` });
+              }}
+            />
+          )}
+        </div>
+        <TemplateValueInput
+          value={value.partitionBy ?? ""}
+          onChange={(next) =>
+            // Store the RAW value (don't `.trim()` on change): trimming strips
+            // the trailing space the user must type to reach the operator
+            // stage, swallowing it mid-type. Only a blank / whitespace-only
+            // value clears the field. The gate trims when it evaluates.
+            onChange({
+              ...value,
+              partitionBy: next.trim() === "" ? undefined : next,
+            })
+          }
+          placeholder={`Leave blank to count ${defaultPartition}`}
+          completionProvider={completionProvider}
+          disabled={disabled}
+        />
+        <p className="text-muted-foreground text-xs">
+          Bare expression (no <code>{"{{ }}"}</code>) for the key the count is
+          bucketed by. Blank counts {defaultPartition}.
+        </p>
+      </div>
+    </div>
   );
 };

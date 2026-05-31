@@ -129,7 +129,14 @@ export async function runInstallNow(
   } catch (error) {
     const message = extractErrorMessage(error);
     await deps.installState.setError(message);
-    deps.logger?.error(`Script package install failed: ${message}`);
+    // The persisted install-state message stays user-facing (just the
+    // message), but log the full stack so a non-reproducible failure can be
+    // pinned to its exact throw site instead of guessed at.
+    const detail =
+      error !== null && typeof error === "object" && "stack" in error
+        ? String((error as { stack: unknown }).stack)
+        : message;
+    deps.logger?.error(`Script package install failed: ${detail}`);
     return { started: false, reason: message };
   } finally {
     await lock.release();

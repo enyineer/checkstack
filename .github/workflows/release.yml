@@ -53,6 +53,40 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      # Best-effort: de-duplicate the Version Packages PR body.
+      #
+      # The changesets action generates that PR body itself, one section per
+      # bumped package, so a single changeset that bumps N packages appears N
+      # times. We can't configure that, so we overwrite the body with a
+      # de-duplicated changelog (each change listed once with the packages it
+      # touched), generated from the PR branch's post-`changeset version`
+      # CHANGELOGs.
+      #
+      # This runs ONLY when a Version Packages PR exists, and with
+      # `continue-on-error: true` so it can NEVER block a release or publish.
+      # We check out the pushed `changeset-release/<baseBranch>` branch so
+      # `core/release/package.json` reflects the new version and the CHANGELOGs
+      # are the updated ones before generating the notes.
+      - name: De-duplicate Version Packages PR body (best-effort)
+        if: steps.changesets.outputs.pullRequestNumber
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_REF: ${{ github.ref_name }}
+          PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
+        run: |
+          set -euo pipefail
+
+          # The changesets action pushed the updated CHANGELOGs to this branch.
+          PR_BRANCH="changeset-release/${BASE_REF}"
+          git fetch origin "${PR_BRANCH}"
+          git checkout "${PR_BRANCH}"
+
+          # Generate the de-duplicated (full, untruncated) PR body.
+          bun run scripts/pr-release-notes.ts > /tmp/pr-body.md
+
+          gh pr edit "${PR_NUMBER}" --body-file /tmp/pr-body.md
+
 
   docker:
     name: Build and Push Docker Image (${{ matrix.image }})

@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { isDependencyOnlyChangelog } from "./aggregate-changelog";
+import {
+  generateMarkdown,
+  groupChanges,
+  isDependencyOnlyChangelog,
+  parseChangeEntries,
+} from "./aggregate-changelog";
 
 describe("isDependencyOnlyChangelog", () => {
   test("returns true for changelog with only Updated dependencies entries", () => {
@@ -72,6 +77,237 @@ describe("isDependencyOnlyChangelog", () => {
 - 8e43507: BREAKING: \`getSystems\` now returns \`{ systems: [...] }\` instead of plain array`;
 
     expect(isDependencyOnlyChangelog(changelog)).toBe(false);
+  });
+});
+
+describe("parseChangeEntries", () => {
+  test("parses a single entry", () => {
+    const changes = `### Minor Changes
+
+- 6d52276: feat(scope): summary first line`;
+
+    const entries = parseChangeEntries({ changes });
+    expect(entries).toEqual([
+      { type: "minor", text: "- 6d52276: feat(scope): summary first line" },
+    ]);
+  });
+
+  test("parses multiple entries across bump sections", () => {
+    const changes = `### Major Changes
+
+- aaaaaaa: BREAKING: removed old api
+
+### Minor Changes
+
+- bbbbbbb: feat: new thing
+
+### Patch Changes
+
+- ccccccc: fix: small fix`;
+
+    const entries = parseChangeEntries({ changes });
+    expect(entries).toEqual([
+      { type: "major", text: "- aaaaaaa: BREAKING: removed old api" },
+      { type: "minor", text: "- bbbbbbb: feat: new thing" },
+      { type: "patch", text: "- ccccccc: fix: small fix" },
+    ]);
+  });
+
+  test("keeps a multi-line indented body intact", () => {
+    const changes = `### Minor Changes
+
+- 6d52276: feat(scope): summary
+
+  first body line
+  second body line`;
+
+    const entries = parseChangeEntries({ changes });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.text).toBe(
+      `- 6d52276: feat(scope): summary
+
+  first body line
+  second body line`,
+    );
+  });
+
+  test("keeps fenced code blocks intact", () => {
+    const changes = `### Minor Changes
+
+- 6d52276: feat(scope): summary
+
+  body line
+
+  \`\`\`ts
+  const x = 1;
+  \`\`\``;
+
+    const entries = parseChangeEntries({ changes });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.text).toContain("```ts");
+    expect(entries[0]?.text).toContain("const x = 1;");
+  });
+
+  test("excludes Updated dependencies entries", () => {
+    const changes = `### Patch Changes
+
+- Updated dependencies [6d52276]
+  - @checkstack/common@0.12.0
+  - @checkstack/catalog-common@2.2.3`;
+
+    expect(parseChangeEntries({ changes })).toEqual([]);
+  });
+
+  test("keeps real entries but drops dependency entries in a mixed section", () => {
+    const changes = `### Minor Changes
+
+- 7a23261: feat: real change
+
+  some body
+
+### Patch Changes
+
+- Updated dependencies [7a23261]
+  - @checkstack/frontend-api@0.2.0`;
+
+    const entries = parseChangeEntries({ changes });
+    expect(entries).toEqual([
+      {
+        type: "minor",
+        text: `- 7a23261: feat: real change
+
+  some body`,
+      },
+    ]);
+  });
+});
+
+describe("groupChanges", () => {
+  test("groups the same change across two packages into one entry", () => {
+    const changelogs = [
+      {
+        packageName: "@checkstack/b",
+        version: "1.0.0",
+        changes: `### Minor Changes
+
+- 6d52276: feat(scope): shared change`,
+      },
+      {
+        packageName: "@checkstack/a",
+        version: "2.0.0",
+        changes: `### Minor Changes
+
+- 6d52276: feat(scope): shared change`,
+      },
+    ];
+
+    const groups = groupChanges({ changelogs });
+    expect(groups).toEqual([
+      {
+        type: "minor",
+        text: "- feat(scope): shared change",
+        packages: ["@checkstack/a", "@checkstack/b"],
+      },
+    ]);
+  });
+
+  test("strips the commit-hash prefix from the dedup key/text", () => {
+    const changelogs = [
+      {
+        packageName: "@checkstack/a",
+        version: "1.0.0",
+        changes: `### Patch Changes
+
+- abcdef0: fix: something`,
+      },
+    ];
+
+    const groups = groupChanges({ changelogs });
+    expect(groups[0]?.text).toBe("- fix: something");
+  });
+
+  test("takes the max bump level when the same change differs per package", () => {
+    const changelogs = [
+      {
+        packageName: "@checkstack/a",
+        version: "1.0.0",
+        changes: `### Patch Changes
+
+- 6d52276: feat: dual change`,
+      },
+      {
+        packageName: "@checkstack/b",
+        version: "2.0.0",
+        changes: `### Major Changes
+
+- 6d52276: feat: dual change`,
+      },
+    ];
+
+    const groups = groupChanges({ changelogs });
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.type).toBe("major");
+    expect(groups[0]?.packages).toEqual(["@checkstack/a", "@checkstack/b"]);
+  });
+
+  test("keeps two different changes separate", () => {
+    const changelogs = [
+      {
+        packageName: "@checkstack/a",
+        version: "1.0.0",
+        changes: `### Minor Changes
+
+- 1111111: feat: alpha
+
+### Patch Changes
+
+- 2222222: fix: beta`,
+      },
+    ];
+
+    const groups = groupChanges({ changelogs });
+    expect(groups).toHaveLength(2);
+    const texts = groups.map((g) => g.text).toSorted();
+    expect(texts).toEqual(["- feat: alpha", "- fix: beta"]);
+  });
+});
+
+describe("generateMarkdown", () => {
+  test("lists a shared change once with a Packages line under the right section", () => {
+    const changelogs = [
+      {
+        packageName: "@checkstack/a",
+        version: "1.0.0",
+        changes: `### Minor Changes
+
+- 6d52276: feat(scope): shared change`,
+      },
+      {
+        packageName: "@checkstack/b",
+        version: "1.0.0",
+        changes: `### Minor Changes
+
+- 6d52276: feat(scope): shared change`,
+      },
+    ];
+
+    const markdown = generateMarkdown({ version: "1.2.3", changelogs });
+
+    expect(markdown).toContain("# Checkstack v1.2.3 Changelog");
+    expect(markdown).toContain("## Minor Changes");
+    // The change text appears exactly once (deduplicated).
+    const occurrences = markdown.split("feat(scope): shared change").length - 1;
+    expect(occurrences).toBe(1);
+    expect(markdown).toContain(
+      "  **Packages:** @checkstack/a, @checkstack/b",
+    );
+    // Hash prefix stripped from the rendered change.
+    expect(markdown).not.toContain("6d52276:");
+  });
+
+  test("renders the empty case", () => {
+    const markdown = generateMarkdown({ version: "1.0.0", changelogs: [] });
+    expect(markdown).toContain("No package changes in this release.");
   });
 });
 

@@ -8,11 +8,9 @@ import {
   type SafeDatabase,
 } from "@checkstack/backend-api";
 import type { RegistryTokenStore } from "./registry-token";
-import { extractErrorMessage } from "@checkstack/common";
 import {
   scriptPackagesContract,
   type BlobGcSummary,
-  type PackageTypes,
 } from "@checkstack/script-packages-common";
 import type { BlobStoreRegistry } from "./blob-store-registry";
 import {
@@ -24,15 +22,17 @@ import {
   createBlobGcStateStore,
 } from "./stores";
 import { createInstallStateStore } from "./install-state-store";
-import { rollupPackageTypes } from "./package-types";
-import { storePaths } from "./data-dir";
-import path from "node:path";
+import { resolveRegistryRequestConfig } from "./registry-request-config";
+import {
+  searchPackages as registrySearchPackages,
+  getPackageVersions as registryGetPackageVersions,
+  RegistryClientError,
+} from "./registry-client";
 import * as schema from "./schema";
 
 export interface ScriptPackagesRouterDeps {
   db: SafeDatabase<typeof schema>;
   blobStores: BlobStoreRegistry;
-  storeRoot: string;
   logger: Logger;
   /** Trigger an install (elected). Provided by the plugin (wires the resolver). */
   triggerInstall(): Promise<{ started: boolean; reason?: string }>;
@@ -60,7 +60,6 @@ export interface ScriptPackagesRouterDeps {
 export function createScriptPackagesRouter({
   db,
   blobStores,
-  storeRoot,
   logger,
   triggerInstall,
   triggerMigration,
@@ -102,6 +101,46 @@ export function createScriptPackagesRouter({
     setPackageEnabled: os.setPackageEnabled.handler(async ({ input }) =>
       packages.setEnabled({ name: input.name, enabled: input.enabled }),
     ),
+
+    // ─── Registry autocomplete ────────────────────────────────────────────
+    searchPackages: os.searchPackages.handler(async ({ input }) => {
+      const reqConfig = await resolveRegistryRequestConfig({
+        registry,
+        registryToken,
+        logger,
+      });
+      try {
+        const items = await registrySearchPackages({
+          registry: reqConfig,
+          text: input.text,
+        });
+        return { items };
+      } catch (error) {
+        if (error instanceof RegistryClientError) {
+          throw new ORPCError("BAD_GATEWAY", { message: error.message });
+        }
+        throw error;
+      }
+    }),
+
+    getPackageVersions: os.getPackageVersions.handler(async ({ input }) => {
+      const reqConfig = await resolveRegistryRequestConfig({
+        registry,
+        registryToken,
+        logger,
+      });
+      try {
+        return await registryGetPackageVersions({
+          registry: reqConfig,
+          name: input.name,
+        });
+      } catch (error) {
+        if (error instanceof RegistryClientError) {
+          throw new ORPCError("BAD_GATEWAY", { message: error.message });
+        }
+        throw error;
+      }
+    }),
 
     // ─── Registry config ──────────────────────────────────────────────────
     getRegistryConfig: os.getRegistryConfig.handler(async () => registry.get()),
@@ -225,28 +264,6 @@ export function createScriptPackagesRouter({
         data: Buffer.from(result.bytes).toString("base64"),
         sizeBytes: result.bytes.byteLength,
       };
-    }),
-
-    listPackageTypes: os.listPackageTypes.handler(async () => {
-      const state = await installState.load();
-      if (!state.lockfileHash) return { items: [] as PackageTypes[] };
-      const nodeModulesDir = path.join(
-        storePaths(storeRoot).trees,
-        state.lockfileHash,
-        "node_modules",
-      );
-      try {
-        const items = await rollupPackageTypes({
-          nodeModulesDir,
-          manifest: state.manifest,
-        });
-        return { items };
-      } catch (error) {
-        logger.error(
-          `Failed to roll up package types: ${extractErrorMessage(error)}`,
-        );
-        return { items: [] as PackageTypes[] };
-      }
     }),
   });
 }
