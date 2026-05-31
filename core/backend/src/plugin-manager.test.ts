@@ -486,5 +486,49 @@ describe("PluginManager", () => {
 
       expect(testBackendInit).toHaveBeenCalled();
     });
+
+    it("initializes every plugin across the two-pass (migrate-all, then init-all) loop", async () => {
+      const mockRouter = {
+        route: mock(),
+        all: mock(),
+        newResponse: mock(),
+      } as never;
+
+      // Boot runs migrations for all plugins in pass 1, then inits in pass 2.
+      // Manual test plugins have no plugin path so pass 1 is a no-op for them;
+      // this guards that pass 2 still initializes EVERY plugin (the split loop
+      // doesn't drop any) and follows topological order.
+      const initOrder: string[] = [];
+      const makePlugin = (pluginId: string) =>
+        createBackendPlugin({
+          metadata: { pluginId },
+          register(env) {
+            env.registerInit({
+              deps: {},
+              init: async () => {
+                initOrder.push(pluginId);
+              },
+            });
+          },
+        });
+
+      pluginManager.registerService(
+        coreServices.queueManager,
+        createMockQueueManager(),
+      );
+      pluginManager.registerService(coreServices.logger, createMockLogger());
+      pluginManager.registerService(
+        coreServices.database,
+        createMockDb() as never,
+      );
+
+      await pluginManager.loadPlugins(
+        mockRouter,
+        [makePlugin("plugin-a"), makePlugin("plugin-b"), makePlugin("plugin-c")],
+        { skipDiscovery: true },
+      );
+
+      expect(initOrder).toEqual(["plugin-a", "plugin-b", "plugin-c"]);
+    });
   });
 });

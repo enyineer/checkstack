@@ -41,6 +41,23 @@ CREATE TABLE "items" (
 
 At runtime, the plugin's `search_path` ensures tables are created in the correct schema (e.g., `plugin_my_feature`).
 
+The loader runs each plugin's migrations on a **single pinned connection**
+checked out from the shared admin pool. It sets `search_path` on that exact
+connection and binds Drizzle's migrator to it, so every migration statement
+resolves unqualified names into the plugin's schema. This is the same
+connection-affinity rule that applies to [session advisory locks](#advisory-locks):
+a session-level `SET search_path` on the shared pool is unreliable because
+`migrate()` runs its statements inside a transaction that the pool may service
+on a different physical connection.
+
+> [!WARNING]
+> Do not set `search_path` at the session level on the shared pool before
+> calling `migrate()`. On a fresh database the bug hides (every object is
+> created in one transaction so unqualified references still resolve), but on
+> an upgrade a new migration that references an enum or table an earlier
+> migration created in the plugin schema fails with
+> `type "..." does not exist`.
+
 ## Migration Tracking
 
 > [!IMPORTANT]

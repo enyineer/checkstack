@@ -1,9 +1,7 @@
-import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import path from "node:path";
 import fs from "node:fs";
 import type { Hono } from "hono";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import {
   coreServices,
@@ -23,6 +21,8 @@ import { rootLogger } from "../logger";
 import type { ServiceRegistry } from "../services/service-registry";
 import { plugins } from "../schema";
 import { stripPublicSchemaFromMigrations } from "../utils/strip-public-schema";
+import { runPluginMigrations } from "../utils/run-plugin-migrations";
+import { adminPool } from "../db";
 import {
   discoverLocalPlugins,
   syncPluginsToDatabase,
@@ -309,6 +309,17 @@ export async function loadPlugins({
   }
 
   // Phase 2: Initialize Plugins (Topological Sort)
+  //
+  // Done in two passes over the topologically-sorted plugins:
+  //   Pass 1 - run EVERY plugin's migrations.
+  //   Pass 2 - resolve deps + run EVERY plugin's init().
+  // Splitting the passes guarantees no plugin's init() (which may start
+  // background DB work - queue consumers, sweepers, reactive-entity/event
+  // wiring) is running while another plugin is still migrating. That
+  // interleaving is what could divert a migration onto a pooled connection
+  // without the plugin's search_path. `runPluginMigrations` pins a connection
+  // too, so each measure is independently sufficient; together they make boot
+  // robust regardless of what touches the pool.
   const logger = await deps.registry.get(coreServices.logger, {
     pluginId: "core",
   });
@@ -347,9 +358,9 @@ export async function loadPlugins({
   // pre-existing behavior and is preferable to a multi-second hang.
   deps.onApiRouteRegistered?.();
 
+  // Phase 2, pass 1: run every plugin's migrations BEFORE any plugin init.
   for (const id of sortedIds) {
     const p = pendingInits.find((x) => x.metadata.pluginId === id)!;
-    rootLogger.info(`🚀 Initializing ${p.metadata.pluginId}...`);
 
     try {
       /**
@@ -372,34 +383,32 @@ export async function loadPlugins({
        * causing "relation does not exist" errors since the tables are actually in
        * the plugin's schema (e.g., `plugin_maintenance.maintenances`).
        *
-       * ## Session-Level vs Transaction-Level search_path
+       * ## Why a pinned connection (not a session-level SET on the pool)
        *
-       * We use **session-level** `SET search_path` (not `SET LOCAL`) here because:
-       * - `migrate()` runs multiple statements and may manage its own transactions
-       * - `SET LOCAL` only persists within a single transaction
-       * - Session-level SET persists until explicitly changed or session ends
+       * The migration `search_path` MUST be set on the exact connection the
+       * migration statements run on. Setting it at the session level on the
+       * shared `adminPool` does not achieve that: `migrate()` runs all pending
+       * migrations inside its own transaction, which a `pg.Pool` may service on
+       * a *different* physical connection than the `SET` ran on. The migration
+       * SQL would then execute against `public`.
+       *
+       * `runPluginMigrations()` therefore checks out ONE dedicated client from
+       * the pool, sets `search_path` on it, and binds the migrator to that same
+       * client - the same connection-affinity pattern the advisory-lock service
+       * uses (see `advisory-lock.ts`). The bug this prevents is invisible on a
+       * fresh database (every object is created in one transaction, so
+       * unqualified references still resolve) but breaks UPGRADES: a new
+       * migration that references an enum an earlier migration created in the
+       * plugin schema fails with `type "..." does not exist`.
        *
        * ## Why This Doesn't Affect Runtime Queries
        *
        * After migrations complete, plugins receive their database via
        * `createScopedDb()` which wraps every query in a transaction with
        * `SET LOCAL search_path`. This ensures runtime queries always use the
-       * correct schema, regardless of the session-level search_path.
+       * correct schema.
        *
-       * ## Potential Hazards
-       *
-       * 1. **Error During Migration**: If a migration fails, the search_path may
-       *    remain set to that plugin's schema. The next plugin's migration would
-       *    fail visibly (wrong schema), which is better than silent data corruption.
-       *
-       * 2. **Parallel Migration Execution**: This code assumes sequential plugin
-       *    initialization (which is enforced by the topologically-sorted loop).
-       *    If migrations ever run in parallel, search_path conflicts would occur.
-       *
-       * 3. **Connection Pool Pollution**: `SET` without `LOCAL` affects the entire
-       *    session. However, we reset to `public` after each plugin's migrations,
-       *    and runtime queries use `SET LOCAL` anyway, so this is safe.
-       *
+       * @see runPluginMigrations in ../utils/run-plugin-migrations.ts
        * @see createScopedDb in ../utils/scoped-db.ts for runtime query isolation
        * @see getPluginSchemaName in @checkstack/drizzle-helper for schema naming
        * =======================================================================
@@ -419,29 +428,13 @@ export async function loadPlugins({
             `   -> Running migrations for ${p.metadata.pluginId} from ${migrationsFolder}`,
           );
 
-          // Create schema if it doesn't exist BEFORE running migrations.
-          // Without this, SET search_path to a non-existent schema causes
-          // PostgreSQL to fall back to 'public', creating tables in the wrong schema.
-          await deps.db.execute(
-            sql.raw(`CREATE SCHEMA IF NOT EXISTS "${migrationsSchema}"`),
-          );
-
-          // Set search_path to plugin schema before running migrations.
-          // Uses session-level SET (not SET LOCAL) because migrate() may run
-          // multiple statements across transaction boundaries.
-          // No 'public' fallback: schema is guaranteed to exist from CREATE above.
-          await deps.db.execute(
-            sql.raw(`SET search_path = "${migrationsSchema}"`),
-          );
-          // Drizzle migrate() requires NodePgDatabase, cast from SafeDatabase
-          await migrate(deps.db as NodePgDatabase<Record<string, unknown>>, {
+          // Run on a single pinned connection so the search_path we set is the
+          // one the migration statements actually execute under.
+          await runPluginMigrations({
+            pool: adminPool,
             migrationsFolder,
             migrationsSchema,
           });
-
-          // Reset search_path to public after migrations complete.
-          // This prevents search_path leaking into subsequent plugin migrations.
-          await deps.db.execute(sql.raw(`SET search_path = public`));
         } catch (error) {
           rootLogger.error(
             `❌ Failed migration of plugin ${p.metadata.pluginId}:`,
@@ -456,7 +449,25 @@ export async function loadPlugins({
           `   -> No migrations found for ${p.metadata.pluginId} (skipping)`,
         );
       }
+    } catch (error) {
+      rootLogger.error(
+        `❌ Critical error loading plugin ${p.metadata.pluginId}:`,
+        error,
+      );
+      throw new Error(`Critical error loading plugin ${p.metadata.pluginId}`, {
+        cause: error,
+      });
+    }
+  }
 
+  // Phase 2, pass 2: initialize plugins in topological order. Every plugin -
+  // and therefore every dependency - is fully migrated by now, so an init()
+  // can assume all plugin schemas exist.
+  for (const id of sortedIds) {
+    const p = pendingInits.find((x) => x.metadata.pluginId === id)!;
+    rootLogger.info(`🚀 Initializing ${p.metadata.pluginId}...`);
+
+    try {
       // Resolve Dependencies
       const resolvedDeps: Record<string, unknown> = {};
       for (const [key, ref] of Object.entries(p.deps)) {
