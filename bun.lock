@@ -1206,6 +1206,7 @@
       "dependencies": {
         "@checkstack/auth-common": "workspace:*",
         "@checkstack/automation-backend": "workspace:*",
+        "@checkstack/automation-common": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/cache-api": "workspace:*",
         "@checkstack/cache-utils": "workspace:*",
@@ -1468,6 +1469,7 @@
       "version": "0.4.0",
       "dependencies": {
         "@checkstack/automation-backend": "workspace:*",
+        "@checkstack/automation-common": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/gitops-backend": "workspace:*",

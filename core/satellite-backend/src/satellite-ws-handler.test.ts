@@ -7,6 +7,7 @@ import {
 import { createMockLogger } from "@checkstack/test-utils-backend";
 import type { SatelliteService } from "./service";
 import type { ConfigRelay } from "./config-relay";
+import type { SatelliteConnectionState } from "./entity";
 import type { SatelliteWithStatus } from "@checkstack/satellite-common";
 
 const MOCK_SATELLITE: SatelliteWithStatus = {
@@ -388,6 +389,99 @@ describe("SatelliteWsHandler", () => {
       const reply = JSON.parse(ws.messages[0]);
       expect(reply.type).toBe("script_package_blob");
       expect(reply.data).toBe("YmxvYg==");
+    });
+  });
+
+  describe("connection-state entity mirror", () => {
+    function makeEntitySink() {
+      const mirrors: Array<{ id: string; state: SatelliteConnectionState }> = [];
+      return {
+        sink: {
+          mirror: mock(async (id: string, state: SatelliteConnectionState) => {
+            mirrors.push({ id, state });
+          }),
+        },
+        mirrors,
+      };
+    }
+
+    it("mirrors online/connected state on successful authentication", async () => {
+      const { sink, mirrors } = makeEntitySink();
+      const h = new SatelliteWsHandler(
+        service,
+        configRelay,
+        resultHandler,
+        logger,
+        sink,
+      );
+      const ws = createMockWs();
+      const { onMessage } = h.onConnection(ws);
+      await onMessage(
+        JSON.stringify({
+          type: "authenticate",
+          clientId: "sat-1",
+          token: "csat_valid-token",
+        }),
+      );
+
+      expect(mirrors).toHaveLength(1);
+      expect(mirrors[0]!.id).toBe("sat-1");
+      expect(mirrors[0]!.state.status).toBe("online");
+      expect(mirrors[0]!.state.lastEvent).toBe("connected");
+      expect(mirrors[0]!.state.name).toBe("EU West");
+      expect(mirrors[0]!.state.region).toBe("eu-west-1");
+    });
+
+    it("mirrors offline/disconnected state when the socket closes", async () => {
+      const { sink, mirrors } = makeEntitySink();
+      const h = new SatelliteWsHandler(
+        service,
+        configRelay,
+        resultHandler,
+        logger,
+        sink,
+      );
+      const ws = createMockWs();
+      const { onMessage, onClose } = h.onConnection(ws);
+      await onMessage(
+        JSON.stringify({
+          type: "authenticate",
+          clientId: "sat-1",
+          token: "csat_valid-token",
+        }),
+      );
+      onClose?.();
+      // onClose fires the mirror fire-and-forget; flush the microtask queue.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const disconnected = mirrors.find(
+        (m) => m.state.lastEvent === "disconnected",
+      );
+      expect(disconnected).toBeDefined();
+      expect(disconnected!.state.status).toBe("offline");
+      expect(disconnected!.id).toBe("sat-1");
+    });
+
+    it("does not mirror on a failed authentication", async () => {
+      const { sink, mirrors } = makeEntitySink();
+      const h = new SatelliteWsHandler(
+        service,
+        configRelay,
+        resultHandler,
+        logger,
+        sink,
+      );
+      const ws = createMockWs();
+      const { onMessage } = h.onConnection(ws);
+      await onMessage(
+        JSON.stringify({
+          type: "authenticate",
+          clientId: "sat-1",
+          token: "csat_invalid-token",
+        }),
+      );
+      expect(mirrors).toHaveLength(0);
     });
   });
 });

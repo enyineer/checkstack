@@ -26,6 +26,7 @@
     "@checkstack/command-backend": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
     "@checkstack/automation-backend": "workspace:*",
+    "@checkstack/automation-common": "workspace:*",
     "drizzle-orm": "^0.45.0",
     "zod": "^4.2.1",
     "@checkstack/common": "workspace:*",

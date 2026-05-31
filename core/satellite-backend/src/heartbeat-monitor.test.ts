@@ -1,5 +1,8 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
-import { HeartbeatMonitor } from "./heartbeat-monitor";
+import {
+  HeartbeatMonitor,
+  type SatelliteHeartbeatEntitySink,
+} from "./heartbeat-monitor";
 import {
   createMockLogger,
   createMockSignalService,
@@ -7,7 +10,23 @@ import {
 } from "@checkstack/test-utils-backend";
 import { SATELLITE_STATUS_CHANGED } from "@checkstack/satellite-common";
 import type { SatelliteService } from "./service";
+import type { SatelliteConnectionState } from "./entity";
 import type { SatelliteWithStatus } from "@checkstack/satellite-common";
+
+function makeEntitySink(): {
+  sink: SatelliteHeartbeatEntitySink;
+  mirrors: Array<{ id: string; state: SatelliteConnectionState }>;
+} {
+  const mirrors: Array<{ id: string; state: SatelliteConnectionState }> = [];
+  return {
+    sink: {
+      mirror: mock(async (id: string, state: SatelliteConnectionState) => {
+        mirrors.push({ id, state });
+      }),
+    },
+    mirrors,
+  };
+}
 
 const createMockSatelliteService = (
   satellites: SatelliteWithStatus[],
@@ -134,6 +153,55 @@ describe("HeartbeatMonitor", () => {
     await monitor.checkHeartbeats();
 
     expect(signalService.getRecordedSignals()).toHaveLength(0);
+  });
+
+  it("mirrors offline/heartbeat_lost on the online → offline edge", async () => {
+    const satellites: SatelliteWithStatus[] = [
+      {
+        id: "sat-1",
+        name: "eu-west",
+        region: "eu-west-1",
+        tags: {},
+        status: "online",
+        createdAt: new Date(),
+      },
+    ];
+    const service = createMockSatelliteService(satellites);
+    const { sink, mirrors } = makeEntitySink();
+    const monitor = new HeartbeatMonitor(service, signalService, logger, sink);
+
+    await monitor.checkHeartbeats(); // initialize
+    satellites[0] = { ...satellites[0], status: "offline" };
+    await monitor.checkHeartbeats();
+
+    expect(mirrors).toHaveLength(1);
+    expect(mirrors[0]!.id).toBe("sat-1");
+    expect(mirrors[0]!.state.status).toBe("offline");
+    expect(mirrors[0]!.state.lastEvent).toBe("heartbeat_lost");
+    expect(mirrors[0]!.state.name).toBe("eu-west");
+    expect(mirrors[0]!.state.region).toBe("eu-west-1");
+  });
+
+  it("does NOT mirror on the offline → online edge (the WS handler owns reconnect)", async () => {
+    const satellites: SatelliteWithStatus[] = [
+      {
+        id: "sat-1",
+        name: "eu-west",
+        region: "eu-west-1",
+        tags: {},
+        status: "offline",
+        createdAt: new Date(),
+      },
+    ];
+    const service = createMockSatelliteService(satellites);
+    const { sink, mirrors } = makeEntitySink();
+    const monitor = new HeartbeatMonitor(service, signalService, logger, sink);
+
+    await monitor.checkHeartbeats(); // initialize
+    satellites[0] = { ...satellites[0], status: "online" };
+    await monitor.checkHeartbeats();
+
+    expect(mirrors).toHaveLength(0);
   });
 
   it("should clean up tracked state for deleted satellites", async () => {
