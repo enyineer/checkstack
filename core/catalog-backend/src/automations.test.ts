@@ -130,7 +130,9 @@ interface FakeSystemRow {
 interface ActionFixture {
   service: EntityService;
   cache: ReturnType<typeof createCatalogCache>;
-  setMock: ReturnType<typeof mock>;
+  mutateMock: ReturnType<typeof mock>;
+  /** Reactive states returned by each `apply()` the action drove. */
+  mutateResults: unknown[];
   getSystemEntity: () => never;
   updateSystemMock: ReturnType<typeof mock>;
   getSystemMock: ReturnType<typeof mock>;
@@ -171,14 +173,25 @@ function makeFixture(args: {
     invalidateContacts: mock(async () => {}),
   } as unknown as ReturnType<typeof createCatalogCache>;
 
-  const setMock = mock(async (_id: string, _next: unknown) => {});
+  // The action now drives its write through `handle.mutate({ id, apply })`:
+  // it runs `apply()` (the real `updateSystem`) once and records the id + the
+  // resulting reactive state, mirroring the framework handle.
+  const mutateResults: unknown[] = [];
+  const mutateMock = mock(
+    async (input: { id: string; apply: () => Promise<unknown> }) => {
+      const next = await input.apply();
+      mutateResults.push(next);
+      return next;
+    },
+  );
   const getSystemEntity = () =>
-    ({ kind: "catalog-system", set: setMock }) as never;
+    ({ kind: "catalog-system", mutate: mutateMock }) as never;
 
   return {
     service,
     cache,
-    setMock,
+    mutateMock,
+    mutateResults,
     getSystemEntity,
     updateSystemMock,
     getSystemMock,
@@ -234,12 +247,14 @@ describe("catalog.system.update_metadata", () => {
       });
 
     expect(fx.invalidateTopologyMock).toHaveBeenCalledTimes(1);
-    // The old `systemUpdated` hook emission was replaced by mirroring the
-    // edit into the reactive `catalog-system` entity (§10.4).
-    expect(fx.setMock).toHaveBeenCalledTimes(1);
-    const setCall = fx.setMock.mock.calls[0]!;
-    expect(setCall[0]).toBe("sys-1");
-    expect(setCall[1]).toEqual({
+    // The old `systemUpdated` hook emission was replaced by driving the edit
+    // through the reactive `catalog-system` entity via `handle.mutate` (§10.4):
+    // the handle is keyed by system id, and `apply` returns the resulting
+    // reactive state.
+    expect(fx.mutateMock).toHaveBeenCalledTimes(1);
+    const mutateCall = fx.mutateMock.mock.calls[0]![0] as { id: string };
+    expect(mutateCall.id).toBe("sys-1");
+    expect(fx.mutateResults[0]).toEqual({
       name: "API",
       description: null,
       metadata: {
@@ -341,7 +356,8 @@ describe("catalog.system.update_metadata", () => {
     expect(result.error).toMatch(/System not found/);
     expect(fx.updateSystemMock).not.toHaveBeenCalled();
     expect(fx.invalidateTopologyMock).not.toHaveBeenCalled();
-    expect(fx.setMock).not.toHaveBeenCalled();
+    // The probe failed, so no entity write was driven.
+    expect(fx.mutateMock).not.toHaveBeenCalled();
   });
 
   it("returns failure if updateSystem returns undefined (race-deleted mid-update)", async () => {
@@ -376,6 +392,14 @@ describe("catalog.system.update_metadata", () => {
     if (result.success) return;
     expect(result.error).toMatch(/disappeared mid-update/);
     expect(fx.invalidateTopologyMock).not.toHaveBeenCalled();
-    expect(fx.setMock).not.toHaveBeenCalled();
+    // The probe found the row, so the write was driven — but `apply` fell
+    // back to the pre-write state, so the framework handle would diff it as a
+    // no-op (no spurious `catalog.updated`). The action still reports failure.
+    expect(fx.mutateMock).toHaveBeenCalledTimes(1);
+    expect(fx.mutateResults[0]).toEqual({
+      name: "API",
+      description: null,
+      metadata: {},
+    });
   });
 });

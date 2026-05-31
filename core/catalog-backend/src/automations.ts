@@ -32,7 +32,8 @@ import {
 import type { EntityService } from "./services/entity-service";
 import type { createCatalogCache } from "./cache";
 import {
-  mirrorCatalogSystem,
+  toCatalogSystemState,
+  writeCatalogSystemEntity,
   type CatalogSystemState,
 } from "./catalog-entity";
 
@@ -192,9 +193,34 @@ export function createCatalogActions(
           ? config.metadata
           : { ...existingMetadata, ...config.metadata };
 
-      const updated = await deps.entityService.updateSystem(config.systemId, {
-        metadata: nextMetadata,
+      // Drive the update through the reactive `catalog-system` entity (§10.4);
+      // the REAL `updateSystem` runs INSIDE `apply`, so `prev` is snapshotted
+      // before the write and the deriver fires `catalog.updated`. If the row
+      // was race-deleted mid-update, `apply` falls back to the pre-write
+      // state so the diff is a no-op (no spurious `catalog.updated`), and the
+      // failure is surfaced from the captured `updated`.
+      // Capture the post-write row in a holder so TS control-flow tracks the
+      // assignment made inside the async `apply` closure (a plain `let`
+      // mutated in a closure is invisible to CFA and would narrow to `never`).
+      const captured: {
+        row: Awaited<ReturnType<typeof deps.entityService.updateSystem>> | null;
+      } = { row: null };
+      await writeCatalogSystemEntity({
+        handle: deps.getSystemEntity?.(),
+        systemId: config.systemId,
+        apply: async () => {
+          const row = await deps.entityService.updateSystem(config.systemId, {
+            metadata: nextMetadata,
+          });
+          captured.row = row ?? null;
+          return toCatalogSystemState({
+            name: row?.name ?? existing.name,
+            description: row?.description ?? existing.description,
+            metadata: row ? nextMetadata : existingMetadata,
+          });
+        },
       });
+      const updated = captured.row;
       if (!updated) {
         return {
           success: false,
@@ -203,17 +229,6 @@ export function createCatalogActions(
       }
 
       await deps.cache.invalidateTopology();
-      // The `catalog.system.updated` hook was removed in Phase 4 (§10.4);
-      // the entity mirror below drives the `catalog.updated` trigger event.
-
-      // Mirror into the reactive `catalog-system` entity (§10.4).
-      await mirrorCatalogSystem({
-        handle: deps.getSystemEntity?.(),
-        systemId: updated.id,
-        name: updated.name,
-        description: updated.description,
-        metadata: nextMetadata,
-      });
 
       logger.info(
         `Automation updated metadata on system ${updated.id} (${config.strategy})`,

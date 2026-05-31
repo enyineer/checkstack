@@ -22,8 +22,9 @@ import { CatalogApi } from "@checkstack/catalog-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import type { EntityHandle } from "@checkstack/automation-backend";
 import {
-  mirrorDependencyEdge,
   removeDependencyEdge,
+  toDependencyEdgeState,
+  writeDependencyEdge,
   type DependencyEdgeState,
 } from "./dependency-entity";
 
@@ -191,7 +192,25 @@ export function createRouter({
     createDependency: os.createDependency.handler(
       async ({ input }) => {
         try {
-          const result = await service.createDependency(input);
+          // Drive the create through the reactive `dependency-edge` entity
+          // (§10.5): `apply` performs the REAL `dependencies` write (the
+          // plugin's own db/tx, including cycle/duplicate validation that may
+          // throw) and returns the new reactive state; the deriver fires
+          // `dependency.created` from the resulting change. The id is
+          // generated up front so the handle is keyed on it and the create's
+          // `prev` snapshot reads the not-yet-existing row as absent. A
+          // throwing `apply` means no transition is appended and nothing is
+          // emitted (the create never happened).
+          const dependencyId = crypto.randomUUID();
+          let result!: Awaited<ReturnType<typeof service.createDependency>>;
+          await writeDependencyEdge({
+            handle: getDependencyEntity?.(),
+            dependencyId,
+            apply: async () => {
+              result = await service.createDependency(input, dependencyId);
+              return toDependencyEdgeState(result);
+            },
+          });
 
           // Broadcast signal
           await signalService.broadcast(DEPENDENCY_CHANGED, {
@@ -199,17 +218,6 @@ export function createRouter({
             sourceSystemId: result.sourceSystemId,
             targetSystemId: result.targetSystemId,
             action: "created",
-          });
-
-          // Mirror into the reactive `dependency-edge` entity (§10.5); the
-          // deriver fires `dependency.created` from this change.
-          await mirrorDependencyEdge({
-            handle: getDependencyEntity?.(),
-            dependencyId: result.id,
-            sourceSystemId: result.sourceSystemId,
-            targetSystemId: result.targetSystemId,
-            impactType: result.impactType,
-            transitive: result.transitive,
           });
 
           // Notify affected systems about warning changes
@@ -233,29 +241,42 @@ export function createRouter({
 
     updateDependency: os.updateDependency.handler(
       async ({ input }) => {
-        const result = await service.updateDependency(input);
-        if (!result) {
+        // Probe existence first so a missing dependency still surfaces as
+        // NOT_FOUND without driving an entity write.
+        const exists = await service.getDependencyById(input.id);
+        if (!exists) {
           throw new ORPCError("NOT_FOUND", {
             message: "Dependency not found",
           });
         }
+
+        // Drive the update through the reactive `dependency-edge` entity
+        // (§10.5); the REAL update runs INSIDE `apply`, so `prev` is
+        // snapshotted before the write and the deriver fires
+        // `dependency.updated` from the resulting change.
+        let result!: NonNullable<
+          Awaited<ReturnType<typeof service.updateDependency>>
+        >;
+        await writeDependencyEdge({
+          handle: getDependencyEntity?.(),
+          dependencyId: input.id,
+          apply: async () => {
+            const updated = await service.updateDependency(input);
+            if (!updated) {
+              throw new ORPCError("NOT_FOUND", {
+                message: "Dependency not found",
+              });
+            }
+            result = updated;
+            return toDependencyEdgeState(result);
+          },
+        });
 
         await signalService.broadcast(DEPENDENCY_CHANGED, {
           dependencyId: result.id,
           sourceSystemId: result.sourceSystemId,
           targetSystemId: result.targetSystemId,
           action: "updated",
-        });
-
-        // Mirror into the reactive `dependency-edge` entity (§10.5); the
-        // deriver fires `dependency.updated` from this change.
-        await mirrorDependencyEdge({
-          handle: getDependencyEntity?.(),
-          dependencyId: result.id,
-          sourceSystemId: result.sourceSystemId,
-          targetSystemId: result.targetSystemId,
-          impactType: result.impactType,
-          transitive: result.transitive,
         });
 
         await signalService.broadcast(DEPENDENCY_WARNINGS_CHANGED, {
@@ -269,7 +290,20 @@ export function createRouter({
     deleteDependency: os.deleteDependency.handler(
       async ({ input }) => {
         const existing = await service.getDependencyById(input.id);
-        const success = await service.deleteDependency(input.id);
+
+        // Drive the delete through the reactive `dependency-edge` entity
+        // tombstone (§10.5). The REAL delete runs INSIDE `apply`, so `prev`
+        // is snapshotted before it and the deriver fires `dependency.deleted`
+        // from the tombstone. `success` tracks whether the row was actually
+        // deleted.
+        let success = false;
+        await removeDependencyEdge({
+          handle: getDependencyEntity?.(),
+          dependencyId: input.id,
+          apply: async () => {
+            success = await service.deleteDependency(input.id);
+          },
+        });
 
         if (success && existing) {
           await signalService.broadcast(DEPENDENCY_CHANGED, {
@@ -277,13 +311,6 @@ export function createRouter({
             sourceSystemId: existing.sourceSystemId,
             targetSystemId: existing.targetSystemId,
             action: "deleted",
-          });
-
-          // Tombstone the reactive `dependency-edge` entity (§10.5); the
-          // deriver fires `dependency.deleted` from this change.
-          await removeDependencyEdge({
-            handle: getDependencyEntity?.(),
-            dependencyId: input.id,
           });
 
           await signalService.broadcast(DEPENDENCY_WARNINGS_CHANGED, {

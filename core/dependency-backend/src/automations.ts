@@ -35,8 +35,9 @@ import type { EntityHandle } from "@checkstack/automation-backend";
 import { dependencyHooks } from "./hooks";
 import type { DependencyService } from "./services/dependency-service";
 import {
-  mirrorDependencyEdge,
   removeDependencyEdge,
+  toDependencyEdgeState,
+  writeDependencyEdge,
   type DependencyEdgeState,
 } from "./dependency-entity";
 
@@ -218,23 +219,33 @@ export function createDependencyActions(
     produces: "dependency.edge",
     execute: async ({ config, logger }) => {
       try {
-        const created = await deps.service.createDependency({
-          sourceSystemId: config.sourceSystemId,
-          targetSystemId: config.targetSystemId,
-          impactType: config.impactType,
-          transitive: config.transitive,
-          label: config.label,
-          healthCheckRules: [],
-        });
-        // Mirror into the reactive `dependency-edge` entity (§10.5); the
-        // deriver fires `dependency.created` from this change.
-        await mirrorDependencyEdge({
+        // Drive the create through the reactive `dependency-edge` entity
+        // (§10.5): the REAL create (with cycle/duplicate validation that may
+        // throw) runs INSIDE `apply`, so `prev` is snapshotted (absent →
+        // null) BEFORE the insert and the deriver fires `dependency.created`.
+        // The id is generated up front so the create's `prev` snapshot reads
+        // the not-yet-existing row as absent.
+        const dependencyId = crypto.randomUUID();
+        let created!: Awaited<
+          ReturnType<typeof deps.service.createDependency>
+        >;
+        await writeDependencyEdge({
           handle: deps.getDependencyEntity?.(),
-          dependencyId: created.id,
-          sourceSystemId: created.sourceSystemId,
-          targetSystemId: created.targetSystemId,
-          impactType: created.impactType,
-          transitive: created.transitive,
+          dependencyId,
+          apply: async () => {
+            created = await deps.service.createDependency(
+              {
+                sourceSystemId: config.sourceSystemId,
+                targetSystemId: config.targetSystemId,
+                impactType: config.impactType,
+                transitive: config.transitive,
+                label: config.label,
+                healthCheckRules: [],
+              },
+              dependencyId,
+            );
+            return toDependencyEdgeState(created);
+          },
         });
         logger.info(`Automation created dependency ${created.id}`);
         return {
@@ -277,19 +288,23 @@ export function createDependencyActions(
           error: `Dependency not found: ${config.dependencyId}`,
         };
       }
-      const removed = await deps.service.deleteDependency(config.dependencyId);
+      // Drive the delete through the reactive `dependency-edge` entity
+      // tombstone (§10.5); the REAL delete runs INSIDE `apply`, so `prev` is
+      // snapshotted before it and the deriver fires `dependency.deleted`.
+      let removed = false;
+      await removeDependencyEdge({
+        handle: deps.getDependencyEntity?.(),
+        dependencyId: existing.id,
+        apply: async () => {
+          removed = await deps.service.deleteDependency(config.dependencyId);
+        },
+      });
       if (!removed) {
         return {
           success: false,
           error: `Dependency ${config.dependencyId} disappeared mid-delete`,
         };
       }
-      // Tombstone the reactive `dependency-edge` entity (§10.5); the
-      // deriver fires `dependency.deleted` from this change.
-      await removeDependencyEdge({
-        handle: deps.getDependencyEntity?.(),
-        dependencyId: existing.id,
-      });
       logger.info(`Automation removed dependency ${existing.id}`);
       return {
         success: true,

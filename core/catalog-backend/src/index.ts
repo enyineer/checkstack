@@ -15,6 +15,8 @@ import {
   CATALOG_SYSTEM_ENTITY_KIND,
   CatalogGroupStateSchema,
   CatalogSystemStateSchema,
+  createCatalogGroupEntityRead,
+  createCatalogSystemEntityRead,
   deriveCatalogGroupTriggerEvents,
   deriveCatalogSystemTriggerEvents,
   type CatalogGroupState,
@@ -60,6 +62,29 @@ export let db: SafeDatabase<typeof schema> | undefined;
 let systemEntity: EntityHandle<CatalogSystemState> | undefined;
 let groupEntity: EntityHandle<CatalogGroupState> | undefined;
 
+// The catalog EntityService is created in init() (it needs the resolved
+// database), but the PLUGIN-BACKED entity `read` accessors must be supplied
+// at `defineEntity` time in register(). This holder bridges the two: the
+// `read` closures resolve the service lazily, and init() sets it before any
+// mutation runs (the registry only mutates from init() onward).
+let catalogEntityServiceRef: EntityService | undefined;
+
+/**
+ * Resolve the catalog EntityService for the PLUGIN-BACKED entity `read`
+ * accessors. Throws if invoked before init() has published the service —
+ * which never happens in practice, since the registry only reads/mutates
+ * from init() onward.
+ */
+function resolveCatalogEntityService(): EntityService {
+  const svc = catalogEntityServiceRef;
+  if (!svc) {
+    throw new Error(
+      "catalog entity read before init: service not yet resolved",
+    );
+  }
+  return svc;
+}
+
 // Export hooks for other plugins to subscribe to
 export { catalogHooks } from "./hooks";
 
@@ -93,16 +118,23 @@ export default createBackendPlugin({
       .registerArtifactType(systemRecordArtifactType, pluginMetadata);
 
     // ─── Reactive catalog entities (§10.4) ─────────────────────────────
+    // PLUGIN-BACKED (Model B): the `systems` / `groups` tables ARE the
+    // current-state storage. `read` routes straight to the EntityService's
+    // batched authoritative read — no framework `entity_state` row, so no
+    // `indexes` (those only apply to store-backed kinds). The `read` closures
+    // resolve the service set by init() (mutations only happen from init on).
     const entityPoint = env.getExtensionPoint(entityExtensionPoint);
     systemEntity = entityPoint.defineEntity<CatalogSystemState>({
       kind: CATALOG_SYSTEM_ENTITY_KIND,
       state: CatalogSystemStateSchema,
-      indexes: [{ name: "name", fields: ["name"] }],
+      read: (ids) =>
+        createCatalogSystemEntityRead(resolveCatalogEntityService())(ids),
     });
     groupEntity = entityPoint.defineEntity<CatalogGroupState>({
       kind: CATALOG_GROUP_ENTITY_KIND,
       state: CatalogGroupStateSchema,
-      indexes: [{ name: "name", fields: ["name"] }],
+      read: (ids) =>
+        createCatalogGroupEntityRead(resolveCatalogEntityService())(ids),
     });
     entityPoint.registerChangeDeriver({
       kind: CATALOG_SYSTEM_ENTITY_KIND,
@@ -269,6 +301,11 @@ export default createBackendPlugin({
         gitopsDb = database as SafeDatabase<typeof schema>;
 
         const typedDb = database as SafeDatabase<typeof schema>;
+
+        // Publish the EntityService for the PLUGIN-BACKED catalog entity
+        // `read` accessors (defined in register()). Mutations only run from
+        // here onward, so the lazy `read` closures always find it resolved.
+        catalogEntityServiceRef = new EntityService(typedDb);
 
         // Get notification client for group management and sending notifications
         const notificationClient = rpcClient.forPlugin(NotificationApi);

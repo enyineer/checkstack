@@ -11,6 +11,7 @@ import type {
   CreateDependencyInput,
   UpdateDependencyInput,
   NodePosition,
+  ImpactType,
 } from "@checkstack/dependency-common";
 
 type Db = SafeDatabase<typeof schema>;
@@ -59,8 +60,17 @@ export class DependencyService {
   /**
    * Create a new dependency with cycle detection.
    * Throws if the dependency would create a circular chain.
+   *
+   * `id` may be supplied by the caller so the reactive `dependency-edge`
+   * entity can be keyed on a known id BEFORE the insert runs (the create's
+   * `prev` snapshot must read the not-yet-existing row as absent — see
+   * §10.5). When omitted, a fresh id is generated. The id is server-owned
+   * either way.
    */
-  async createDependency(input: CreateDependencyInput): Promise<Dependency> {
+  async createDependency(
+    input: CreateDependencyInput,
+    id: string = generateId(),
+  ): Promise<Dependency> {
     // Check for duplicate edge
     const [existing] = await this.db
       .select()
@@ -90,7 +100,6 @@ export class DependencyService {
       );
     }
 
-    const id = generateId();
     await this.db.insert(dependencies).values({
       id,
       sourceSystemId: input.sourceSystemId,
@@ -213,10 +222,65 @@ export class DependencyService {
 
     return {
       ...row,
-       
+
       label: row.label ?? null,
       healthCheckRules: rules.length > 0 ? rules : undefined,
     };
+  }
+
+  /**
+   * Batched reactive-state read for the `dependency-edge` entity (Model B
+   * plugin-backed `read` accessor). Given dependency ids, return the reactive
+   * subset `{ sourceSystemId, targetSystemId, impactType, transitive }` for
+   * each that exists (missing ids omitted). Reads the AUTHORITATIVE
+   * `dependencies` table — no framework `entity_state` storage. This is the
+   * single source of truth `handle.mutate` snapshots `prev` from and
+   * `get`/`getMany`/scope enrichment route through.
+   */
+  async getManyEntityStates(
+    ids: ReadonlyArray<string>,
+  ): Promise<
+    Record<
+      string,
+      {
+        sourceSystemId: string;
+        targetSystemId: string;
+        impactType: ImpactType;
+        transitive: boolean;
+      }
+    >
+  > {
+    if (ids.length === 0) return {};
+
+    const rows = await this.db
+      .select({
+        id: dependencies.id,
+        sourceSystemId: dependencies.sourceSystemId,
+        targetSystemId: dependencies.targetSystemId,
+        impactType: dependencies.impactType,
+        transitive: dependencies.transitive,
+      })
+      .from(dependencies)
+      .where(inArray(dependencies.id, [...ids]));
+
+    const out: Record<
+      string,
+      {
+        sourceSystemId: string;
+        targetSystemId: string;
+        impactType: ImpactType;
+        transitive: boolean;
+      }
+    > = {};
+    for (const row of rows) {
+      out[row.id] = {
+        sourceSystemId: row.sourceSystemId,
+        targetSystemId: row.targetSystemId,
+        impactType: row.impactType,
+        transitive: row.transitive,
+      };
+    }
+    return out;
   }
 
   // ===========================================================================

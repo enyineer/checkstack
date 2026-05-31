@@ -39,6 +39,7 @@ import { evaluateAndNotifyDownstream } from "./notifications";
 import {
   DEPENDENCY_EDGE_ENTITY_KIND,
   DependencyEdgeStateSchema,
+  createDependencyEntityRead,
   deriveDependencyTriggerEvents,
   type DependencyEdgeState,
 } from "./dependency-entity";
@@ -52,6 +53,13 @@ import { registerDependencyGitOpsKinds } from "./dependency-gitops-kinds";
 // Reactive `dependency-edge` entity handle (§10.5). Defined in register();
 // mutated from the router/actions onward.
 let dependencyEntity: EntityHandle<DependencyEdgeState> | undefined;
+
+// The DependencyService is created in init() (it needs the resolved
+// database), but the PLUGIN-BACKED entity `read` accessor must be supplied at
+// `defineEntity` time in register(). This holder bridges the two: the `read`
+// closure resolves the service lazily, and init() sets it before any mutation
+// runs (the registry only mutates from init() onward).
+let dependencyServiceRef: DependencyService | undefined;
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
@@ -74,11 +82,24 @@ export default createBackendPlugin({
       .registerArtifactType(dependencyArtifactType, pluginMetadata);
 
     // ─── Reactive `dependency-edge` entity (§10.5) ─────────────────────
+    // PLUGIN-BACKED (Model B): the `dependencies` table IS the current-state
+    // storage. `read` routes straight to the service's batched authoritative
+    // read — no framework `entity_state` row, so no `indexes` (those only
+    // apply to store-backed kinds). The `read` closure resolves the service
+    // set by init() (mutations only happen from init on).
     const entityPoint = env.getExtensionPoint(entityExtensionPoint);
     dependencyEntity = entityPoint.defineEntity<DependencyEdgeState>({
       kind: DEPENDENCY_EDGE_ENTITY_KIND,
       state: DependencyEdgeStateSchema,
-      indexes: [{ name: "source", fields: ["sourceSystemId"] }],
+      read: (ids) => {
+        const svc = dependencyServiceRef;
+        if (!svc) {
+          throw new Error(
+            "dependency entity read before init: service not yet resolved",
+          );
+        }
+        return createDependencyEntityRead(svc)(ids);
+      },
     });
     entityPoint.registerChangeDeriver({
       kind: DEPENDENCY_EDGE_ENTITY_KIND,
@@ -123,6 +144,9 @@ export default createBackendPlugin({
           database as SafeDatabase<typeof schema>,
         );
         gitopsService = service;
+        // Publish the service for the PLUGIN-BACKED entity `read` accessor
+        // (defined in register()). Mutations only run from here onward.
+        dependencyServiceRef = service;
         const warningService = new WarningEvaluationService();
 
         const router = createRouter({
