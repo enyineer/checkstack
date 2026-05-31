@@ -24,7 +24,7 @@
  *     entity's kind is `health`; `evaluateStateCondition` reads
  *     `health.systems[entity]`).
  *   - Structured `numeric_state` conditions whose `value` is a path/template
- *     into `state.<kind>.<id>.<field>` (or back-compat `health.*`).
+ *     into `state.<kind>.<id>.<field>` (or the rich `health.*` snapshot).
  *   - Template-string conditions: every member-expression rooted at
  *     `state.<kind>.<id>` or `health.systems[<id>]` / `health.system`.
  *   - `and` / `or` / `not` combinators recurse into their operands.
@@ -35,7 +35,7 @@ import {
 } from "@checkstack/template-engine";
 import type { Condition } from "@checkstack/automation-common";
 
-/** The kind the current back-compat `health.*` scope namespace maps to. */
+/** The entity kind the rich `health.*` scope snapshot maps to. */
 export const HEALTH_ENTITY_KIND = "health";
 
 /** A single extracted dependency. `id === "*"` is the kind-level wildcard. */
@@ -167,7 +167,7 @@ class RefCollector {
 
   /**
    * Parse a template/path string and walk its member-expression chains for
-   * `state.<kind>.<id>` and back-compat `health.*` roots.
+   * `state.<kind>.<id>` and rich `health.*` snapshot roots.
    */
   private visitTemplate(source: string): void {
     let root: Expr;

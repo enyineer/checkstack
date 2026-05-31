@@ -554,8 +554,9 @@ export type WaitUntilCheckOutcome =
  * sources, kind-aware:
  *
  *   1. Health — resolved via the RPC `healthCheckClient`
- *      (`enrichScopeWithState`), since the health aggregate is not (yet) in
- *      the framework entity store. Sets `scope.health.*` (back-compat).
+ *      (`enrichScopeWithState`), since the health aggregate is computed on
+ *      read and not stored as a framework entity row. Sets the rich
+ *      `scope.health.*` condition snapshot.
  *   2. Every OTHER `state.<kind>.<id>` ref the wait depends on — resolved
  *      kind-agnostically through the entity store
  *      (`enrichScopeWithEntities` + `deps.entityResolverFor`), folding into
@@ -574,7 +575,7 @@ async function reEnrichWaitScope(args: {
 }): Promise<void> {
   const { deps, scope, automation, contextKey, condition, changedRef } = args;
 
-  // 1. Health back-compat (RPC-resolved). Sets scope.health.*.
+  // 1. Health: the rich condition snapshot, RPC-resolved. Sets scope.health.*.
   await enrichScopeWithState({
     scope,
     client: deps.healthCheckClient,
@@ -586,7 +587,9 @@ async function reEnrichWaitScope(args: {
 
   // 2. Kind-agnostic entity refs (entity-store-resolved). Collect the
   //    concrete refs the condition reads plus the changed ref, drop the
-  //    health kind (handled above) and any wildcard (no concrete id).
+  //    health kind (already resolved above via the rich RPC path — excluding
+  //    it here keeps health resolved exactly once per re-enrichment) and any
+  //    wildcard (no concrete id).
   const refs: EntityRef[] = [];
   const seen = new Set<string>();
   const addRef = (kind: string, id: string) => {

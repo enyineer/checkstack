@@ -330,4 +330,101 @@ describe("wait_until — non-health entity-kind wake re-eval", () => {
     expect(runs.runs.get(result.runId)?.status).toBe("success");
     expect(rec.calls.map((c) => c.value)).toEqual(["done"]);
   });
+
+  it("resolves health once per wake — the rich RPC path, never the entity resolver", async () => {
+    // Health has a registered entity resolver (it is a real `defineEntity`
+    // kind). The wait re-enrichment must STILL resolve health only through
+    // the rich `getBulkHealthState` RPC and EXCLUDE the health kind from the
+    // entity-store pass, so health is never round-tripped twice per wake.
+    const incidents = fakeIncidentEntities("incident");
+    incidents.set("inc-1", { status: "open" });
+
+    const actions = createActionRegistry();
+    const rec = makeRecordingAction();
+    actions.register(rec.definition, testPlugin);
+
+    let bulkHealthCalls = 0;
+    let healthEntityResolverCalls = 0;
+    const healthClient = {
+      getHealthState: async () => ({
+        status: "healthy",
+        inStatusSince: new Date(),
+        inStatusForMs: 0,
+        inMaintenance: false,
+        evaluatedAt: new Date(),
+      }),
+      getBulkHealthState: async ({ systemIds }: { systemIds: string[] }) => {
+        bulkHealthCalls += 1;
+        const states: Record<string, unknown> = {};
+        for (const id of systemIds) {
+          states[id] = {
+            status: "healthy",
+            inStatusSince: new Date(),
+            inStatusForMs: 0,
+            inMaintenance: false,
+            evaluatedAt: new Date(),
+          };
+        }
+        return { states };
+      },
+    } as never;
+
+    // A resolver that ALSO knows the health kind — if the entity pass ever
+    // asked for health, this counter would tick (it must not).
+    const resolverFor: DispatchDeps["entityResolverFor"] = (k) => {
+      if (k === "health") {
+        return async (ids) => {
+          healthEntityResolverCalls += 1;
+          const out: Record<string, Record<string, unknown>> = {};
+          for (const id of ids) {
+            out[id] = { status: "healthy", healthyChecks: 1, totalChecks: 1 };
+          }
+          return out;
+        };
+      }
+      return incidents.resolverFor?.(k);
+    };
+
+    const { deps, runs } = makeDispatchDeps({
+      actions,
+      healthCheckClient: healthClient,
+      entityResolverFor: resolverFor,
+    });
+
+    const auto = automation([
+      {
+        wait_until: {
+          condition:
+            "health.system.status == 'healthy' && state.incident['inc-1'].status == 'resolved'",
+        },
+      },
+      { action: "test.record", config: { value: "ok" } },
+    ]);
+    const result = await dispatchTrigger(deps, {
+      automation: auto,
+      triggerId: "test_event",
+      triggerEventId: "test.event",
+      payload: { id: "sys-1" },
+      contextKey: "sys-1",
+    });
+    expect(result.status).toBe("waiting");
+
+    const bulkAfterDispatch = bulkHealthCalls;
+
+    incidents.set("inc-1", { status: "resolved" });
+    const jobs = await routeEntityChange({
+      deps,
+      automationStore: storeFor(auto),
+      changeDerivers: createChangeDeriverRegistry(),
+      changed: incidentChange("inc-1", "resolved"),
+    });
+    const wake = jobs.find((j) => j.reason === "wake")!;
+    await handleDispatchJob({ deps, automationStore: storeFor(auto), job: wake });
+
+    expect(runs.runs.get(result.runId)?.status).toBe("success");
+    // Health went through the rich RPC path on the wake re-eval...
+    expect(bulkHealthCalls).toBeGreaterThan(bulkAfterDispatch);
+    // ...and NEVER through the entity-store resolver — resolved once per build.
+    expect(healthEntityResolverCalls).toBe(0);
+  });
 });

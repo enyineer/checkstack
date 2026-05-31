@@ -121,6 +121,50 @@ describe("enrichScopeWithEntities", () => {
     });
   });
 
+  it("does not clobber a rich scope.health even when a health kind resolves", async () => {
+    // Regression guard: the rich `scope.health` snapshot from
+    // `enrichScopeWithState` (status + latency + p95 + …) is a superset of
+    // the minimal entity view; resolving a `health` ref here must never
+    // overwrite it with the thinner projection.
+    const { resolverFor } = makeResolvers({
+      health: { "sys-1": { status: "unhealthy", healthyChecks: 0, totalChecks: 3 } },
+    });
+    const rich = {
+      systems: {
+        "sys-1": {
+          status: "healthy",
+          latency_ms: 12,
+          p95_latency_ms: 30,
+          success_rate: 0.99,
+          in_status_for_ms: 5000,
+        },
+      },
+    };
+    const scope: Record<string, unknown> = { health: rich };
+    await enrichScopeWithEntities({
+      scope,
+      logger: noopLogger,
+      refs: [{ kind: "health", id: "sys-1" }],
+      resolverFor,
+    });
+    // The rich snapshot survives untouched — minimal view did not win.
+    expect(scope.health).toBe(rich);
+    expect(
+      (scope.health as { systems: Record<string, Record<string, unknown>> })
+        .systems["sys-1"]!.p95_latency_ms,
+    ).toBe(30);
+    // The minimal entity view is still folded into state.health for triggers.
+    const state = scope.state as Record<
+      string,
+      Record<string, Record<string, unknown>>
+    >;
+    expect(state.health!["sys-1"]).toEqual({
+      status: "unhealthy",
+      healthyChecks: 0,
+      totalChecks: 3,
+    });
+  });
+
   it("fails open and warns when a kind has no resolver", async () => {
     const { resolverFor } = makeResolvers({ incident: {} });
     const { logger, warnings } = collectingLogger();
