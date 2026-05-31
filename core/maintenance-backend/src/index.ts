@@ -35,6 +35,7 @@ import {
 } from "./automations";
 import {
   MAINTENANCE_ENTITY_KIND,
+  createMaintenanceEntityRead,
   deriveMaintenanceEvents,
   maintenanceEntityStateSchema,
   type MaintenanceEntityState,
@@ -66,7 +67,36 @@ export default createBackendPlugin({
     // Reactive entity (reactive automation engine §10.2): the
     // `maintenance.created` / `maintenance.updated` trigger events are now
     // DERIVED from `maintenance` entity changes (no hook-backed triggers).
+    //
+    // PLUGIN-BACKED (Model B): the `maintenances` + `maintenance_systems`
+    // tables ARE the current-state storage. `read` routes straight to the
+    // service's batched authoritative read — no framework `entity_state` row,
+    // so no `indexes` (those only apply to store-backed kinds). The `read`
+    // closure resolves the service set by init() (mutations only happen from
+    // init onward).
     const entity = env.getExtensionPoint(entityExtensionPoint);
+
+    // The maintenance service is created in init() (it needs the resolved
+    // database), but the PLUGIN-BACKED entity `read` accessor must be supplied
+    // at `defineEntity` time in register(). This holder bridges the two: the
+    // `read` closure resolves the service lazily, and init() sets it before
+    // any mutation runs (the registry only mutates from init() onward).
+    let maintenanceServiceRef: MaintenanceService | undefined;
+
+    const maintenanceEntityHandle: EntityHandle<MaintenanceEntityState> =
+      entity.defineEntity<MaintenanceEntityState>({
+        kind: MAINTENANCE_ENTITY_KIND,
+        state: maintenanceEntityStateSchema,
+        read: (ids) => {
+          const svc = maintenanceServiceRef;
+          if (!svc) {
+            throw new Error(
+              "maintenance entity read before init: service not yet resolved",
+            );
+          }
+          return createMaintenanceEntityRead(svc)(ids);
+        },
+      });
     entity.registerChangeDeriver({
       kind: MAINTENANCE_ENTITY_KIND,
       derive: deriveMaintenanceEvents,
@@ -77,9 +107,6 @@ export default createBackendPlugin({
 
     // Store service reference for afterPluginsReady
     let maintenanceService: MaintenanceService;
-    // The `maintenance` entity handle is created once in `init` and reused by
-    // the router (init) and the automation actions (afterPluginsReady).
-    let maintenanceEntityHandle: EntityHandle<MaintenanceEntityState>;
     // Store clients for afterPluginsReady
     let catalogClient: InferClient<typeof CatalogApi>;
     let maintenanceClient: InferClient<typeof MaintenanceApi>;
@@ -113,14 +140,9 @@ export default createBackendPlugin({
         maintenanceService = new MaintenanceService(
           database as SafeDatabase<typeof schema>,
         );
-        // Declare the reactive `maintenance` entity once. The returned handle
-        // is the only typed path that mirrors state into the framework store
-        // (reactive automation engine §4.2). Mutations only persist from
-        // automation-backend's init onward; all real writes happen at runtime.
-        maintenanceEntityHandle = entity.defineEntity({
-          kind: MAINTENANCE_ENTITY_KIND,
-          state: maintenanceEntityStateSchema,
-        });
+        // Publish the service for the PLUGIN-BACKED entity `read` accessor
+        // (defined in register()). Mutations only run from here onward.
+        maintenanceServiceRef = maintenanceService;
         const cache = createMaintenanceCache({ cacheManager, logger });
         const router = createRouter(
           maintenanceService,

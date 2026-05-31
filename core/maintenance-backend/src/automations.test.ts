@@ -1,11 +1,11 @@
 /**
  * Behaviour tests for the maintenance automation actions.
  *
- * Phase 4 (reactive automation engine §10.2) replaced the hook-backed
- * `maintenance.created` / `maintenance.updated` triggers with the reactive
- * `maintenance` entity. Mutation actions now mirror window state through the
- * entity handle; these tests assert the mirror writes the §10.2 entity shape
- * keyed by maintenance id.
+ * The maintenance domain is now a Model-B PLUGIN-BACKED entity (reactive
+ * automation engine §10.2): the `maintenances` table IS the current-state
+ * storage. Mutation actions drive the REAL write through `handle.mutate`
+ * (the write runs inside `apply`); these tests assert the mutate is keyed by
+ * maintenance id and `apply` returns the §10.2 entity shape.
  */
 import { describe, expect, it, mock } from "bun:test";
 import type { Logger } from "@checkstack/backend-api";
@@ -34,29 +34,38 @@ const ctxBase = {
   },
 };
 
-interface RecordedSet {
+interface RecordedMutate {
   id: string;
   next: MaintenanceEntityState;
   opts?: EntityMutationOpts;
 }
 
-/** A fake entity handle that records `set` / `remove` calls for assertion. */
+/**
+ * A fake PLUGIN-BACKED entity handle that records `mutate` / `remove` calls
+ * for assertion. `mutate` runs the driven `apply()` (the action's real write)
+ * and captures the returned next-state, mirroring how the framework drives a
+ * plugin-backed write.
+ */
 function makeEntityHandle(): EntityHandle<MaintenanceEntityState> & {
-  sets: RecordedSet[];
+  mutates: RecordedMutate[];
   removes: string[];
 } {
-  const sets: RecordedSet[] = [];
+  const mutates: RecordedMutate[] = [];
   const removes: string[] = [];
   return {
     kind: "maintenance",
-    sets,
+    mutates,
     removes,
-    async set(id, next, opts) {
-      sets.push({ id, next, opts });
+    async mutate(input) {
+      const next = await input.apply();
+      mutates.push({ id: input.id, next, opts: input.opts });
+      return next;
     },
-    async patch() {},
-    async mutate() {
-      throw new Error("not used in these tests");
+    async set() {
+      throw new Error("set is not used by a plugin-backed kind");
+    },
+    async patch() {
+      throw new Error("patch is not used by a plugin-backed kind");
     },
     async get() {
       return undefined;
@@ -65,8 +74,21 @@ function makeEntityHandle(): EntityHandle<MaintenanceEntityState> & {
       return {};
     },
     async remove(inputOrId: unknown) {
-      // The deprecated store-owned `remove(id)` form is what the maintenance
-      // automations call; record the id.
+      // Plugin-backed remove takes `{ id, apply }`; run apply + record the id.
+      if (
+        inputOrId &&
+        typeof inputOrId === "object" &&
+        "apply" in inputOrId &&
+        "id" in inputOrId
+      ) {
+        const input = inputOrId as {
+          id: string;
+          apply: () => Promise<void>;
+        };
+        await input.apply();
+        removes.push(input.id);
+        return;
+      }
       if (typeof inputOrId === "string") removes.push(inputOrId);
     },
     async inStateSince() {
@@ -120,7 +142,12 @@ function makeService(args: {
   activeMock: ReturnType<typeof mock>;
   closeMock: ReturnType<typeof mock>;
 } {
-  const createMock = mock(async (_input: unknown) => args.rowToReturn);
+  // The real service inserts with the server-generated id passed as the 2nd
+  // arg and returns the row carrying THAT id. Echo it so the entity key (the
+  // generated id) and the returned `externalId` agree, like production.
+  const createMock = mock(async (_input: unknown, id?: string) =>
+    args.rowToReturn ? { ...args.rowToReturn, id: id ?? args.rowToReturn.id } : args.rowToReturn,
+  );
   const updateMock = mock(async (_input: unknown) => args.updateReturn);
   const addUpdateMock = mock(async (_input: unknown) => ({
     id: "upd-1",
@@ -184,17 +211,20 @@ describe("maintenance.create", () => {
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    expect(result.externalId).toBe("m-1");
-    expect(entityHandle.sets).toHaveLength(1);
-    expect(entityHandle.sets[0]!.id).toBe("m-1");
-    expect(entityHandle.sets[0]!.next).toEqual({
+    expect(entityHandle.mutates).toHaveLength(1);
+    // The entity is keyed on the server-generated id (the create's `prev`
+    // snapshot reads it as absent); the action's `externalId` echoes that
+    // same id, so the two MUST agree.
+    expect(typeof result.externalId).toBe("string");
+    expect(entityHandle.mutates[0]!.id).toBe(result.externalId!);
+    expect(entityHandle.mutates[0]!.next).toEqual({
       status: "scheduled",
       systemIds: ["sys-1"],
       startAt: "2026-05-29T11:00:00.000Z",
       endAt: "2026-05-29T12:00:00.000Z",
     });
     // Run-originated writes carry the runId (masking) + the run actor.
-    expect(entityHandle.sets[0]!.opts?.runId).toBe("run-1");
+    expect(entityHandle.mutates[0]!.opts?.runId).toBe("run-1");
   });
 });
 
@@ -213,11 +243,13 @@ describe("maintenance.update", () => {
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error).toMatch(/not found/i);
-    expect(entityHandle.sets).toHaveLength(0);
+    expect(entityHandle.mutates).toHaveLength(0);
   });
 
   it("mirrors the updated state on success", async () => {
     const service = makeService({
+      // The action probes existence first, then updates inside `apply`.
+      getMaintenanceReturn: sampleRow,
       updateReturn: { ...sampleRow, status: "in_progress" },
     });
     const entityHandle = makeEntityHandle();
@@ -230,8 +262,8 @@ describe("maintenance.update", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(entityHandle.sets).toHaveLength(1);
-    expect(entityHandle.sets[0]!.next.status).toBe("in_progress");
+    expect(entityHandle.mutates).toHaveLength(1);
+    expect(entityHandle.mutates[0]!.next.status).toBe("in_progress");
   });
 });
 
@@ -254,8 +286,8 @@ describe("maintenance.add_update", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(entityHandle.sets).toHaveLength(1);
-    expect(entityHandle.sets[0]!.next.status).toBe("completed");
+    expect(entityHandle.mutates).toHaveLength(1);
+    expect(entityHandle.mutates[0]!.next.status).toBe("completed");
   });
 
   it("returns failure when the maintenance vanishes between addUpdate and getMaintenance", async () => {
@@ -272,7 +304,7 @@ describe("maintenance.add_update", () => {
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error).toMatch(/not found/i);
-    expect(entityHandle.sets).toHaveLength(0);
+    expect(entityHandle.mutates).toHaveLength(0);
   });
 });
 
@@ -305,8 +337,8 @@ describe("maintenance.set_system", () => {
     expect(call.systemIds).toEqual(["sys-1"]);
     expect(call.startAt.toISOString()).toBe("2026-05-29T11:00:00.000Z");
     expect(call.endAt.toISOString()).toBe("2026-05-29T12:00:00.000Z");
-    expect(entityHandle.sets).toHaveLength(1);
-    expect(entityHandle.sets[0]!.next.systemIds).toEqual(["sys-1"]);
+    expect(entityHandle.mutates).toHaveLength(1);
+    expect(entityHandle.mutates[0]!.next.systemIds).toEqual(["sys-1"]);
   });
 });
 
@@ -332,8 +364,8 @@ describe("maintenance.clear_system", () => {
 
     expect(result.success).toBe(true);
     expect(service.closeMock).toHaveBeenCalledTimes(2);
-    expect(entityHandle.sets).toHaveLength(2);
-    for (const recorded of entityHandle.sets) {
+    expect(entityHandle.mutates).toHaveLength(2);
+    for (const recorded of entityHandle.mutates) {
       expect(recorded.next.status).toBe("completed");
     }
   });
@@ -354,6 +386,6 @@ describe("maintenance.clear_system", () => {
     if (!result.success) return;
     const artifact = result.artifact as { closedMaintenanceIds: string[] };
     expect(artifact.closedMaintenanceIds).toEqual([]);
-    expect(entityHandle.sets).toHaveLength(0);
+    expect(entityHandle.mutates).toHaveLength(0);
   });
 });

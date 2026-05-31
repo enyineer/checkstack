@@ -1,23 +1,31 @@
 /**
- * Maintenance reactive entity (reactive automation engine §10.2).
+ * The reactive `maintenance` entity (reactive automation engine §10.2).
  *
- * Phase 4 migrates the maintenance domain onto the framework-owned entity
- * state machine. Mutation sites that used to `emitHook(maintenanceCreated /
- * maintenanceUpdated)` now ALSO mirror the maintenance window's reactive
- * state into the `maintenance` entity via `handle.set` (a behaviour-
- * preserving mirror — the `maintenances` table stays the record of truth).
- *
- * The old `maintenance.created` / `maintenance.updated` hooks are removed;
- * the change-deriver below maps an entity change back to the SAME qualified
- * trigger event ids existing automations match (`maintenance.created` /
- * `maintenance.updated`), so Stage-1 routing keeps firing them.
+ * Model B PLUGIN-BACKED entity: the `maintenances` + `maintenance_systems`
+ * tables are authoritative AND ARE the entity's current-state storage — there
+ * is NO framework `entity_state` row for a maintenance window.
+ * `defineEntity({ read })` makes that plugin state reactive: every
+ * reactive-state write goes through `handle.mutate`, whose `apply()` performs
+ * the REAL `maintenances`/junction write via the maintenance service (the
+ * plugin's own db/tx) and returns the resulting `{ status, systemIds, startAt,
+ * endAt }`. The framework snapshots `prev` via `read`, appends the transition
+ * log (its own db), and emits `ENTITY_CHANGED`. The change → trigger-event
+ * deriver reproduces `maintenance.created` / `.updated` so automations keep
+ * firing.
  */
 import { z } from "zod";
 import {
   MaintenanceStatusEnum,
   type MaintenanceStatus,
 } from "@checkstack/maintenance-common";
-import type { EntityChanged } from "@checkstack/automation-common";
+import type {
+  EntityChanged,
+  EntityHandle,
+  EntityMutationOpts,
+  EntityRead,
+} from "@checkstack/automation-backend";
+
+import type { MaintenanceService } from "./service";
 
 /** Globally-unique entity kind for a maintenance window. */
 export const MAINTENANCE_ENTITY_KIND = "maintenance";
@@ -33,8 +41,9 @@ export const MAINTENANCE_UPDATED_EVENT = "maintenance.updated";
 
 /**
  * Reactive state of a maintenance window (reactive automation engine §10.2).
- * `startAt` / `endAt` are ISO strings (the entity store persists JSON, so the
- * service's `Date` columns are serialized at the mirror site).
+ * `startAt` / `endAt` are ISO strings (the `read` accessor serializes the
+ * service's `Date` columns; the `apply()` return uses {@link
+ * toMaintenanceEntityState} to do the same).
  */
 export const maintenanceEntityStateSchema = z.object({
   status: MaintenanceStatusEnum,
@@ -48,8 +57,10 @@ export type MaintenanceEntityState = z.infer<
 >;
 
 /**
- * Build the mirror state from a freshly-written maintenance row. Accepts
- * either `Date` (service return shape) or already-ISO strings.
+ * Project a freshly-written maintenance row onto the reactive `{ status,
+ * systemIds, startAt, endAt }` subset. Accepts either `Date` (service return
+ * shape) or already-ISO strings. This is the `apply()` return for
+ * `handle.mutate`.
  */
 export function toMaintenanceEntityState(row: {
   status: MaintenanceStatus;
@@ -60,7 +71,8 @@ export function toMaintenanceEntityState(row: {
   return {
     status: row.status,
     systemIds: row.systemIds,
-    startAt: row.startAt instanceof Date ? row.startAt.toISOString() : row.startAt,
+    startAt:
+      row.startAt instanceof Date ? row.startAt.toISOString() : row.startAt,
     endAt: row.endAt instanceof Date ? row.endAt.toISOString() : row.endAt,
   };
 }
@@ -89,4 +101,60 @@ export function deriveMaintenanceEvents(
     return [MAINTENANCE_CREATED_EVENT];
   }
   return [MAINTENANCE_UPDATED_EVENT];
+}
+
+/**
+ * Build the PLUGIN-BACKED `read` accessor for the `maintenance` entity. Routes
+ * straight to the service's batched authoritative read — no framework storage.
+ */
+export function createMaintenanceEntityRead(
+  service: MaintenanceService,
+): EntityRead<MaintenanceEntityState> {
+  return (ids) => service.getManyEntityStates(ids);
+}
+
+/**
+ * Drive a reactive-state maintenance write through `handle.mutate` (§10.2).
+ * `apply` performs the REAL `maintenances`/junction write via the service (the
+ * plugin's own db/tx) and returns the new reactive state. The framework
+ * snapshots `prev`, appends the transition log, and emits `ENTITY_CHANGED`
+ * (the deriver turns that into `maintenance.created/.updated`).
+ *
+ * When no handle is available (tests construct the router without one), the
+ * write still runs — the entity reactivity is layered on top, never required
+ * for the underlying write to succeed.
+ */
+export async function writeMaintenanceEntity(args: {
+  handle: EntityHandle<MaintenanceEntityState> | undefined;
+  maintenanceId: string;
+  opts?: EntityMutationOpts;
+  apply: () => Promise<MaintenanceEntityState>;
+}): Promise<void> {
+  const { handle, maintenanceId, opts, apply } = args;
+  if (!handle) {
+    await apply();
+    return;
+  }
+  await handle.mutate({ id: maintenanceId, opts, apply });
+}
+
+/**
+ * Drive a maintenance tombstone through `handle.remove` (§10.2). `apply`
+ * performs the REAL delete via the service; the framework records the
+ * tombstone transition and emits a tombstone change (the deriver fires
+ * nothing — the old domain never emitted a hook on delete). Without a handle,
+ * the delete still runs.
+ */
+export async function removeMaintenanceEntity(args: {
+  handle: EntityHandle<MaintenanceEntityState> | undefined;
+  maintenanceId: string;
+  opts?: EntityMutationOpts;
+  apply: () => Promise<void>;
+}): Promise<void> {
+  const { handle, maintenanceId, opts, apply } = args;
+  if (!handle) {
+    await apply();
+    return;
+  }
+  await handle.remove({ id: maintenanceId, opts, apply });
 }
