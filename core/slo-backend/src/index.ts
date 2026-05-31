@@ -34,6 +34,7 @@ import { sloHooks } from "./hooks";
 import {
   SLO_ENTITY_KIND,
   SloEntityStateSchema,
+  createSloEntityRead,
   deriveSloTriggerEvents,
   type SloEntityState,
 } from "./slo-entity";
@@ -89,6 +90,15 @@ const sloWeeklyDigestPayloadSchema = z.object({
 // entity extension point; mutated from the daily snapshot job onward.
 let sloEntity: EntityHandle<SloEntityState> | undefined;
 
+// The SLO service + engine are created in afterPluginsReady (they need the
+// resolved database + RPC clients), but the PLUGIN-BACKED + COMPUTED entity
+// `read` accessor must be supplied at `defineEntity` time in register(). These
+// holders bridge the two: the `read` closure resolves them lazily, and
+// afterPluginsReady sets them before any mutation runs (the daily job — the
+// only mutation site — runs from afterPluginsReady onward).
+let sloEntityServiceRef: SloService | undefined;
+let sloEntityEngineRef: SloEngine | undefined;
+
 export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
@@ -106,11 +116,28 @@ export default createBackendPlugin({
     // `state.slo.<objectiveId>.budgetRemainingPercent` / `currentStreak`.
     // The deriver fires no legacy events; it exists so `slo` is a known
     // reactive kind (scope + wake resolution).
+    //
+    // PLUGIN-BACKED + COMPUTED (Model B): there is NO framework `entity_state`
+    // row. `read` assembles each objective's view by reading `slo_streaks` +
+    // `slo_objectives` and COMPUTING `budgetRemainingPercent` via the engine
+    // (see `createSloEntityRead`). No `indexes` — those only apply to
+    // store-backed kinds, and a plugin-backed kind keeps its state in its own
+    // tables. The `read` closure resolves the service + engine set by
+    // afterPluginsReady (the daily job is the only mutation site).
     const entityPoint = env.getExtensionPoint(entityExtensionPoint);
     sloEntity = entityPoint.defineEntity<SloEntityState>({
       kind: SLO_ENTITY_KIND,
       state: SloEntityStateSchema,
-      indexes: [{ name: "system", fields: ["systemId"] }],
+      read: (ids) => {
+        const service = sloEntityServiceRef;
+        const engine = sloEntityEngineRef;
+        if (!service || !engine) {
+          throw new Error(
+            "slo entity read before init: service/engine not yet resolved",
+          );
+        }
+        return createSloEntityRead({ service, engine })(ids);
+      },
     });
     entityPoint.registerChangeDeriver({
       kind: SLO_ENTITY_KIND,
@@ -255,6 +282,12 @@ export default createBackendPlugin({
           signalService,
           logger,
         });
+        // Publish the service + engine for the PLUGIN-BACKED + COMPUTED entity
+        // `read` accessor (defined in register()). The daily snapshot job — the
+        // only `slo` mutation site — runs from here onward, so the refs are set
+        // before any `read`/`mutate` can fire.
+        sloEntityServiceRef = service;
+        sloEntityEngineRef = engine;
 
         const dependencyClient = rpcClient.forPlugin(DependencyApi);
         const healthCheckClient = rpcClient.forPlugin(HealthCheckApi);

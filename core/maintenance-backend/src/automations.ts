@@ -3,11 +3,14 @@
  *
  * The `maintenance.created` / `maintenance.updated` entry points used to be
  * hook-backed triggers re-exposing `maintenanceHooks`. Phase 4 (reactive
- * automation engine §10.2) migrates the maintenance domain onto the entity
- * state machine: the triggers + their hooks are removed, and the same
- * qualified trigger event ids are now derived from `maintenance` entity
- * changes (see `./entity.ts`). Mutation actions therefore mirror the
- * window's reactive state via `entityHandle.set` instead of emitting a hook.
+ * automation engine §10.2) migrated the maintenance domain onto the entity
+ * state machine, and the domain is now a Model-B PLUGIN-BACKED entity: the
+ * `maintenances` table IS the current-state storage. The triggers + their
+ * hooks are removed, and the same qualified trigger event ids are derived
+ * from `maintenance` entity changes (see `./entity.ts`). Mutation actions
+ * therefore drive the REAL write through `handle.mutate` (the write runs
+ * inside `apply`) instead of emitting a hook; the deriver re-fires the
+ * equivalent trigger events for downstream automations.
  *
  * Actions wrap `MaintenanceService` for `create`, `update`, and
  * `add_update`, plus two "system-shaped" actions:
@@ -34,8 +37,9 @@ import type {
 } from "@checkstack/automation-backend";
 import type { MaintenanceService } from "./service";
 import {
-  type MaintenanceEntityState,
   toMaintenanceEntityState,
+  writeMaintenanceEntity,
+  type MaintenanceEntityState,
 } from "./entity";
 
 /**
@@ -130,10 +134,11 @@ export const maintenanceArtifactType = {
 export interface MaintenanceActionDeps {
   service: MaintenanceService;
   /**
-   * Reactive `maintenance` entity handle. Mirroring a window's state here
-   * (instead of emitting the old `maintenance.created`/`.updated` hooks)
-   * is what re-fires the equivalent trigger events for downstream
-   * automations via the change-deriver (reactive automation engine §10.2).
+   * Reactive `maintenance` entity handle (PLUGIN-BACKED, §10.2). Driving a
+   * window's write through `handle.mutate` (the REAL write runs inside
+   * `apply`, instead of emitting the old `maintenance.created`/`.updated`
+   * hooks) is what re-fires the equivalent trigger events for downstream
+   * automations via the change-deriver.
    */
   entityHandle: EntityHandle<MaintenanceEntityState>;
   /**
@@ -178,20 +183,32 @@ export function createMaintenanceActions(
     config: new Versioned({ version: 1, schema: createConfigSchema }),
     produces: "maintenance.window",
     execute: async ({ config, logger, runId, scope }) => {
-      const created = await deps.service.createMaintenance({
-        title: config.title,
-        description: config.description,
-        systemIds: config.systemIds,
-        startAt: new Date(config.startAt),
-        endAt: new Date(config.endAt),
-        suppressNotifications: config.suppressNotifications,
+      // Drive the create through the reactive `maintenance` entity (§10.2):
+      // the REAL write runs inside `apply` and the deriver fires
+      // `maintenance.created`. The id is generated up front so the create's
+      // `prev` snapshot reads the not-yet-existing row as absent.
+      const maintenanceId = crypto.randomUUID();
+      let created!: Awaited<ReturnType<typeof deps.service.createMaintenance>>;
+      await writeMaintenanceEntity({
+        handle: deps.entityHandle,
+        maintenanceId,
+        opts: mutationOpts({ runId, scope }),
+        apply: async () => {
+          created = await deps.service.createMaintenance(
+            {
+              title: config.title,
+              description: config.description,
+              systemIds: config.systemIds,
+              startAt: new Date(config.startAt),
+              endAt: new Date(config.endAt),
+              suppressNotifications: config.suppressNotifications,
+            },
+            maintenanceId,
+          );
+          return toMaintenanceEntityState(created);
+        },
       });
       const artifact = toArtifact(created);
-      await deps.entityHandle.set(
-        created.id,
-        toMaintenanceEntityState(created),
-        mutationOpts({ runId, scope }),
-      );
       logger.info(`Automation scheduled maintenance ${created.id}`);
       return {
         success: true,
@@ -213,27 +230,43 @@ export function createMaintenanceActions(
     config: new Versioned({ version: 1, schema: updateConfigSchema }),
     produces: "maintenance.window",
     execute: async ({ config, logger, runId, scope }) => {
-      const updated = await deps.service.updateMaintenance({
-        id: config.maintenanceId,
-        title: config.title,
-        description: config.description,
-        systemIds: config.systemIds,
-        startAt: config.startAt ? new Date(config.startAt) : undefined,
-        endAt: config.endAt ? new Date(config.endAt) : undefined,
-        suppressNotifications: config.suppressNotifications,
-      });
-      if (!updated) {
+      // Probe existence first so a missing window returns a clean failure
+      // without driving an entity write (no `prev` to snapshot).
+      const exists = await deps.service.getMaintenance(config.maintenanceId);
+      if (!exists) {
         return {
           success: false,
           error: `Maintenance not found: ${config.maintenanceId}`,
         };
       }
+      // Drive the update through the reactive `maintenance` entity (§10.2);
+      // the REAL write runs inside `apply` and the deriver fires
+      // `maintenance.updated`.
+      let updated!: NonNullable<
+        Awaited<ReturnType<typeof deps.service.updateMaintenance>>
+      >;
+      await writeMaintenanceEntity({
+        handle: deps.entityHandle,
+        maintenanceId: config.maintenanceId,
+        opts: mutationOpts({ runId, scope }),
+        apply: async () => {
+          const result = await deps.service.updateMaintenance({
+            id: config.maintenanceId,
+            title: config.title,
+            description: config.description,
+            systemIds: config.systemIds,
+            startAt: config.startAt ? new Date(config.startAt) : undefined,
+            endAt: config.endAt ? new Date(config.endAt) : undefined,
+            suppressNotifications: config.suppressNotifications,
+          });
+          if (!result) {
+            throw new Error(`Maintenance not found: ${config.maintenanceId}`);
+          }
+          updated = result;
+          return toMaintenanceEntityState(updated);
+        },
+      });
       const artifact = toArtifact(updated);
-      await deps.entityHandle.set(
-        updated.id,
-        toMaintenanceEntityState(updated),
-        mutationOpts({ runId, scope }),
-      );
       logger.info(`Automation updated maintenance ${updated.id}`);
       return { success: true, externalId: updated.id, artifact };
     },
@@ -251,14 +284,38 @@ export function createMaintenanceActions(
     config: new Versioned({ version: 1, schema: addUpdateConfigSchema }),
     produces: "maintenance.window",
     execute: async ({ config, logger, runId, scope }) => {
-      await deps.service.addUpdate({
+      // Drive the update through the reactive `maintenance` entity (§10.2):
+      // `apply` posts the update row + (optionally) flips status, then
+      // re-reads the post-write state. The deriver fires `maintenance.updated`
+      // purely from the entity diff (no diff → no event).
+      let refreshed: Awaited<ReturnType<typeof deps.service.getMaintenance>>;
+      let missing = false;
+      await writeMaintenanceEntity({
+        handle: deps.entityHandle,
         maintenanceId: config.maintenanceId,
-        message: config.message,
-        statusChange: config.statusChange,
+        opts: mutationOpts({ runId, scope }),
+        apply: async () => {
+          await deps.service.addUpdate({
+            maintenanceId: config.maintenanceId,
+            message: config.message,
+            statusChange: config.statusChange,
+          });
+          // Re-fetch so we surface the latest window state to the next step +
+          // so the entity state matches the (now-updated) row.
+          refreshed = await deps.service.getMaintenance(config.maintenanceId);
+          if (!refreshed) {
+            missing = true;
+            throw new Error(
+              `Maintenance ${config.maintenanceId} not found after update`,
+            );
+          }
+          return toMaintenanceEntityState(refreshed);
+        },
+      }).catch((error) => {
+        // The "vanished mid-write" case is a soft failure for the action, not
+        // a thrown run error; rethrow anything else.
+        if (!missing) throw error;
       });
-      // Re-fetch so we surface the latest window state to the next step +
-      // so the mirrored entity state matches the (now-updated) row.
-      const refreshed = await deps.service.getMaintenance(config.maintenanceId);
       if (!refreshed) {
         return {
           success: false,
@@ -266,11 +323,6 @@ export function createMaintenanceActions(
         };
       }
       const artifact = toArtifact(refreshed);
-      await deps.entityHandle.set(
-        refreshed.id,
-        toMaintenanceEntityState(refreshed),
-        mutationOpts({ runId, scope }),
-      );
       logger.info(`Automation added update to maintenance ${refreshed.id}`);
       return { success: true, externalId: refreshed.id, artifact };
     },
@@ -293,20 +345,33 @@ export function createMaintenanceActions(
       const endAt = new Date(
         startAt.getTime() + config.durationMinutes * 60_000,
       );
-      const created = await deps.service.createMaintenance({
-        title: config.title ?? `Automation maintenance (${config.systemId})`,
-        description: config.description,
-        systemIds: [config.systemId],
-        startAt,
-        endAt,
-        suppressNotifications: config.suppressNotifications,
+      // Drive the create through the reactive `maintenance` entity (§10.2):
+      // the REAL write runs inside `apply` and the deriver fires
+      // `maintenance.created`. The id is generated up front so the create's
+      // `prev` snapshot reads the not-yet-existing row as absent.
+      const maintenanceId = crypto.randomUUID();
+      let created!: Awaited<ReturnType<typeof deps.service.createMaintenance>>;
+      await writeMaintenanceEntity({
+        handle: deps.entityHandle,
+        maintenanceId,
+        opts: mutationOpts({ runId, scope }),
+        apply: async () => {
+          created = await deps.service.createMaintenance(
+            {
+              title:
+                config.title ?? `Automation maintenance (${config.systemId})`,
+              description: config.description,
+              systemIds: [config.systemId],
+              startAt,
+              endAt,
+              suppressNotifications: config.suppressNotifications,
+            },
+            maintenanceId,
+          );
+          return toMaintenanceEntityState(created);
+        },
       });
       const artifact = toArtifact(created);
-      await deps.entityHandle.set(
-        created.id,
-        toMaintenanceEntityState(created),
-        mutationOpts({ runId, scope }),
-      );
       logger.info(
         `Automation parked system ${config.systemId} via maintenance ${created.id}`,
       );
@@ -336,14 +401,23 @@ export function createMaintenanceActions(
       const closedIds: string[] = [];
       const message = config.message ?? "Cleared by automation";
       for (const window of active) {
-        const closed = await deps.service.closeMaintenance(window.id, message);
+        // Drive each close through the reactive `maintenance` entity (§10.2):
+        // the REAL close runs inside `apply` and the deriver fires
+        // `maintenance.updated` from the status → completed transition.
+        let closed: Awaited<ReturnType<typeof deps.service.closeMaintenance>>;
+        await writeMaintenanceEntity({
+          handle: deps.entityHandle,
+          maintenanceId: window.id,
+          opts: mutationOpts({ runId, scope }),
+          apply: async () => {
+            closed = await deps.service.closeMaintenance(window.id, message);
+            // Fall back to the pre-close window so the diff is a no-op when the
+            // row vanished mid-write (the loop just skips it below).
+            return toMaintenanceEntityState(closed ?? window);
+          },
+        });
         if (!closed) continue;
         closedIds.push(closed.id);
-        await deps.entityHandle.set(
-          closed.id,
-          toMaintenanceEntityState(closed),
-          mutationOpts({ runId, scope }),
-        );
       }
       logger.info(
         `Automation cleared maintenance for system ${config.systemId} (${closedIds.length} window(s))`,

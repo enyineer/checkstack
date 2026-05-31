@@ -3,7 +3,11 @@ import type { SloEngine } from "./slo-engine";
 import type { Logger } from "@checkstack/backend-api";
 import type { QueueManager } from "@checkstack/queue-api";
 import type { EntityHandle } from "@checkstack/automation-backend";
-import { mirrorSloEntity, type SloEntityState } from "./slo-entity";
+import {
+  computeSloEntityState,
+  writeSloEntity,
+  type SloEntityState,
+} from "./slo-entity";
 
 const SNAPSHOT_QUEUE = "slo-daily-snapshots";
 const SNAPSHOT_JOB_ID = "slo-daily-snapshot-run";
@@ -90,35 +94,55 @@ export async function runDailySnapshotJob(deps: {
         },
       });
 
-      // 2. Update streak: if currently meeting target, increment; else reset
-      if (!status.isBreaching && !status.hasOpenDowntime) {
-        await service.incrementStreak({ objectiveId: objective.id });
-      } else if (status.isBreaching) {
-        const currentStreak = streak?.currentStreak ?? 0;
-        if (currentStreak > 0) {
-          await service.resetStreak({ objectiveId: objective.id });
-          logger.info(
-            `SLO ${objective.id}: Streak broken at ${currentStreak} days`,
-          );
-        }
-      }
-
-      // 3. Mirror the recomputed budget + streak into the reactive `slo`
-      //    entity (§10.7). Operators author budget/streak thresholds as
-      //    `numeric_state` conditions over this state (§9.2). Re-read the
-      //    streak so the mirror reflects the post-update counters.
-      const freshStreak = await service.getStreak({ objectiveId: objective.id });
-      await mirrorSloEntity({
+      // 2. Update streak (if currently meeting target, increment; else reset)
+      //    AND surface the recomputed `slo` entity, driven through
+      //    `handle.mutate` (§10.7). The REAL `slo_streaks` write runs INSIDE
+      //    `apply` (the plugin's own write) so the framework snapshots `prev`
+      //    via the COMPUTED `read` BEFORE the streak flips, then emits
+      //    `ENTITY_CHANGED`. Operators author budget/streak thresholds as
+      //    `numeric_state` conditions over this state (§9.2). The change is a
+      //    no-op (no emit) when neither budget nor streak moved.
+      await writeSloEntity({
         handle: getSloEntity?.(),
         objectiveId: objective.id,
-        systemId: objective.systemId,
-        target: objective.target,
-        budgetRemainingPercent: status.errorBudgetRemainingPercent,
-        currentStreak: freshStreak?.currentStreak ?? 0,
-        bestStreak: freshStreak?.bestStreak ?? 0,
+        apply: async () => {
+          if (!status.isBreaching && !status.hasOpenDowntime) {
+            await service.incrementStreak({ objectiveId: objective.id });
+          } else if (status.isBreaching) {
+            const currentStreak = streak?.currentStreak ?? 0;
+            if (currentStreak > 0) {
+              await service.resetStreak({ objectiveId: objective.id });
+              logger.info(
+                `SLO ${objective.id}: Streak broken at ${currentStreak} days`,
+              );
+            }
+          }
+          // Re-assemble the computed view from the POST-write tables so the
+          // emitted `next` reflects the updated streak + recomputed budget.
+          const next = await computeSloEntityState({
+            service,
+            engine,
+            objectiveId: objective.id,
+          });
+          if (next) return next;
+          // The objective vanished mid-cycle (raced delete). Fall back to a
+          // view from the in-hand objective + post-write streak so `apply`
+          // still returns a valid state and the mutate is a no-op.
+          const freshStreak = await service.getStreak({
+            objectiveId: objective.id,
+          });
+          return {
+            objectiveId: objective.id,
+            systemId: objective.systemId,
+            target: objective.target,
+            budgetRemainingPercent: status.errorBudgetRemainingPercent,
+            currentStreak: freshStreak?.currentStreak ?? 0,
+            bestStreak: freshStreak?.bestStreak ?? 0,
+          };
+        },
         onError: (error) =>
           logger.warn(
-            `Failed to mirror slo entity for objective ${objective.id}`,
+            `Failed to surface slo entity for objective ${objective.id}`,
             { error },
           ),
       });
