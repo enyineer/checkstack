@@ -42,19 +42,18 @@ export function maskSecrets({
   values: Iterable<string>;
   token?: string;
 }): string {
-  // Dedupe + drop trivially-short values, then mask longest-first so a
-  // value that embeds a shorter value is redacted as a whole.
-  const maskable = [...new Set(values)]
+  return maskString(text, toMaskable(values), token);
+}
+
+/**
+ * Dedupe + drop trivially-short values, then sort longest-first so a value
+ * that embeds a shorter value is redacted as a whole. Shared by both the
+ * text and deep entry points so the maskable-set policy lives in one place.
+ */
+function toMaskable(values: Iterable<string>): string[] {
+  return [...new Set(values)]
     .filter((value) => value.length >= MIN_MASKABLE_LENGTH)
     .toSorted((a, b) => b.length - a.length);
-
-  let result = text;
-  for (const value of maskable) {
-    if (result.includes(value)) {
-      result = result.split(value).join(token);
-    }
-  }
-  return result;
 }
 
 /**
@@ -75,9 +74,7 @@ export function maskSecretsDeep({
   values: Iterable<string>;
   token?: string;
 }): unknown {
-  const maskable = [...new Set(values)]
-    .filter((v) => v.length >= MIN_MASKABLE_LENGTH)
-    .toSorted((a, b) => b.length - a.length);
+  const maskable = toMaskable(values);
 
   if (maskable.length === 0) {
     return value;
