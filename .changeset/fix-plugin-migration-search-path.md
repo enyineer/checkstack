@@ -25,3 +25,13 @@ one dedicated client, sets `search_path` on it, and binds the migrator to that
 same client, mirroring the connection-affinity pattern already used by the
 advisory-lock service. Every migration statement now runs under the intended
 schema.
+
+Boot was also restructured into two passes over the topologically-sorted
+plugins: pass 1 runs every plugin's migrations, pass 2 runs every plugin's
+`init()`. Previously the two were interleaved per plugin, so an
+already-initialized plugin's background work (queue consumers, sweepers,
+reactive-entity/event wiring) could compete for pool connections while a later
+plugin was still migrating. Running all migrations first keeps the pool quiet
+during migrations and removes that race entirely. The pinned connection and the
+two-pass ordering are each independently sufficient for the fix above; together
+they make boot robust regardless of what else touches the pool.

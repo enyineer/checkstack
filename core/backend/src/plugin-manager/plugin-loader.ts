@@ -309,6 +309,17 @@ export async function loadPlugins({
   }
 
   // Phase 2: Initialize Plugins (Topological Sort)
+  //
+  // Done in two passes over the topologically-sorted plugins:
+  //   Pass 1 - run EVERY plugin's migrations.
+  //   Pass 2 - resolve deps + run EVERY plugin's init().
+  // Splitting the passes guarantees no plugin's init() (which may start
+  // background DB work - queue consumers, sweepers, reactive-entity/event
+  // wiring) is running while another plugin is still migrating. That
+  // interleaving is what could divert a migration onto a pooled connection
+  // without the plugin's search_path. `runPluginMigrations` pins a connection
+  // too, so each measure is independently sufficient; together they make boot
+  // robust regardless of what touches the pool.
   const logger = await deps.registry.get(coreServices.logger, {
     pluginId: "core",
   });
@@ -347,9 +358,9 @@ export async function loadPlugins({
   // pre-existing behavior and is preferable to a multi-second hang.
   deps.onApiRouteRegistered?.();
 
+  // Phase 2, pass 1: run every plugin's migrations BEFORE any plugin init.
   for (const id of sortedIds) {
     const p = pendingInits.find((x) => x.metadata.pluginId === id)!;
-    rootLogger.info(`🚀 Initializing ${p.metadata.pluginId}...`);
 
     try {
       /**
@@ -438,7 +449,25 @@ export async function loadPlugins({
           `   -> No migrations found for ${p.metadata.pluginId} (skipping)`,
         );
       }
+    } catch (error) {
+      rootLogger.error(
+        `❌ Critical error loading plugin ${p.metadata.pluginId}:`,
+        error,
+      );
+      throw new Error(`Critical error loading plugin ${p.metadata.pluginId}`, {
+        cause: error,
+      });
+    }
+  }
 
+  // Phase 2, pass 2: initialize plugins in topological order. Every plugin -
+  // and therefore every dependency - is fully migrated by now, so an init()
+  // can assume all plugin schemas exist.
+  for (const id of sortedIds) {
+    const p = pendingInits.find((x) => x.metadata.pluginId === id)!;
+    rootLogger.info(`🚀 Initializing ${p.metadata.pluginId}...`);
+
+    try {
       // Resolve Dependencies
       const resolvedDeps: Record<string, unknown> = {};
       for (const [key, ref] of Object.entries(p.deps)) {
