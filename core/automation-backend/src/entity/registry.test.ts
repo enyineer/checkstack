@@ -13,12 +13,14 @@ function makeRegistry() {
 }
 
 const stateSchema = z.object({ status: z.string(), region: z.string() });
+/** A trivial plugin `read` returning nothing — every kind needs one (Model B). */
+const emptyRead = async () => ({});
 
 describe("entity registry — validation (§6.3)", () => {
   it("rejects a missing/empty kind", () => {
     const reg = makeRegistry();
     expect(() =>
-      reg.defineEntity({ kind: "   ", state: stateSchema }),
+      reg.defineEntity({ kind: "   ", state: stateSchema, read: emptyRead }),
     ).toThrow(/non-empty string/);
   });
 
@@ -29,57 +31,36 @@ describe("entity registry — validation (§6.3)", () => {
         kind: "bad",
         // @ts-expect-error — deliberately not a z.object
         state: z.string(),
+        read: emptyRead,
       }),
     ).toThrow(/must be a z\.object/);
   });
 
   it("rejects a duplicate kind (globally unique)", () => {
     const reg = makeRegistry();
-    reg.defineEntity({ kind: "incident", state: stateSchema });
-    expect(() =>
-      reg.defineEntity({ kind: "incident", state: stateSchema }),
-    ).toThrow(/duplicate kind/);
-  });
-
-  it("rejects an index referencing an unknown state field", () => {
-    const reg = makeRegistry();
-    // `fields` is statically `keyof TState`; this models the runtime guard
-    // against an untyped caller reaching us through the extension point.
-    const unknownField = "nope" as keyof z.infer<typeof stateSchema> & string;
+    reg.defineEntity({ kind: "incident", state: stateSchema, read: emptyRead });
     expect(() =>
       reg.defineEntity({
         kind: "incident",
         state: stateSchema,
-        indexes: [{ name: "by_unknown", fields: [unknownField] }],
+        read: emptyRead,
       }),
-    ).toThrow(/unknown state field/);
+    ).toThrow(/duplicate kind/);
+  });
+
+  it("rejects a missing `read` (Model B requires a plugin read accessor)", () => {
+    const reg = makeRegistry();
+    expect(() =>
+      // @ts-expect-error — `read` is required in Model B
+      reg.defineEntity({ kind: "incident", state: stateSchema }),
+    ).toThrow(/`read` must be a function/);
   });
 
   it("tracks registered kinds in order", () => {
     const reg = makeRegistry();
-    reg.defineEntity({ kind: "a", state: stateSchema });
-    reg.defineEntity({ kind: "b", state: stateSchema });
+    reg.defineEntity({ kind: "a", state: stateSchema, read: emptyRead });
+    reg.defineEntity({ kind: "b", state: stateSchema, read: emptyRead });
     expect(reg.getKinds()).toEqual(["a", "b"]);
-  });
-});
-
-describe("entity registry — index DDL collection", () => {
-  it("collects one CREATE INDEX IF NOT EXISTS per spec", () => {
-    const reg = makeRegistry();
-    reg.defineEntity({
-      kind: "incident",
-      state: stateSchema,
-      indexes: [
-        { name: "by_status", fields: ["status"] },
-        { name: "by_status_region", fields: ["status", "region"] },
-      ],
-    });
-    const ddl = reg.getIndexDdl();
-    expect(ddl).toHaveLength(2);
-    expect(ddl[0]).toContain('CREATE INDEX IF NOT EXISTS "entity_state_incident_by_status_idx"');
-    expect(ddl[0]).toContain("(state->>'status')");
-    expect(ddl[0]).toContain("WHERE \"kind\" = 'incident'");
-    expect(ddl[1]).toContain("(state->>'status'), (state->>'region')");
   });
 });
 
@@ -104,20 +85,41 @@ describe("entity registry — declareNonReactiveState", () => {
 describe("entity registry — store binding", () => {
   it("throws a clear error if a handle mutates before the store is bound", async () => {
     const reg = makeRegistry();
-    const handle = reg.defineEntity({ kind: "incident", state: stateSchema });
+    const store = createFakeEntityStore();
+    const handle = reg.defineEntity({
+      kind: "incident",
+      state: stateSchema,
+      read: store.readFor("incident"),
+    });
     expect(reg.hasStore).toBe(false);
     await expect(
-      handle.set("inc-1", { status: "open", region: "eu" }),
+      handle.mutate({
+        id: "inc-1",
+        apply: async () => {
+          store.rows.set("incident:inc-1", { status: "open", region: "eu" });
+          return { status: "open", region: "eu" };
+        },
+      }),
     ).rejects.toThrow(/store not initialized/);
   });
 
   it("works once the store is bound", async () => {
     const reg = makeRegistry();
-    const handle = reg.defineEntity({ kind: "incident", state: stateSchema });
     const store = createFakeEntityStore();
-    reg.setStore({ store, keyedStoreFactory: (kind) => store.keyedStore(kind) });
+    const handle = reg.defineEntity({
+      kind: "incident",
+      state: stateSchema,
+      read: store.readFor("incident"),
+    });
+    reg.setStore({ store });
     expect(reg.hasStore).toBe(true);
-    await handle.set("inc-1", { status: "open", region: "eu" });
+    await handle.mutate({
+      id: "inc-1",
+      apply: async () => {
+        store.rows.set("incident:inc-1", { status: "open", region: "eu" });
+        return { status: "open", region: "eu" };
+      },
+    });
     expect(store.rows.get("incident:inc-1")).toEqual({
       status: "open",
       region: "eu",
@@ -127,18 +129,6 @@ describe("entity registry — store binding", () => {
 
 describe("entity registry — Model B read + entityResolverFor", () => {
   const incidentSchema = z.object({ status: z.string(), severity: z.string() });
-
-  it("rejects `indexes` declared alongside an explicit plugin `read`", () => {
-    const reg = makeRegistry();
-    expect(() =>
-      reg.defineEntity({
-        kind: "incident",
-        state: incidentSchema,
-        indexes: [{ name: "by_status", fields: ["status"] }],
-        read: async () => ({}),
-      }),
-    ).toThrow(/expression indexes only apply to store-backed/);
-  });
 
   it("rejects a `read` that is not a function", () => {
     const reg = makeRegistry();
@@ -152,17 +142,7 @@ describe("entity registry — Model B read + entityResolverFor", () => {
     ).toThrow(/`read` must be a function/);
   });
 
-  it("does NOT collect index DDL for a plugin-backed kind", () => {
-    const reg = makeRegistry();
-    reg.defineEntity({
-      kind: "incident",
-      state: incidentSchema,
-      read: async () => ({}),
-    });
-    expect(reg.getIndexDdl()).toHaveLength(0);
-  });
-
-  it("entityResolverFor routes a PLUGIN-BACKED kind to its `read`", async () => {
+  it("entityResolverFor routes a kind to its plugin `read`", async () => {
     const reg = makeRegistry();
     const read = async (ids: ReadonlyArray<string>) => {
       const out: Record<string, { status: string; severity: string }> = {};
@@ -177,13 +157,20 @@ describe("entity registry — Model B read + entityResolverFor", () => {
     });
   });
 
-  it("entityResolverFor routes a STORE-BACKED kind through the keyed store", async () => {
+  it("entityResolverFor routes a homeless kind through its keyed-store `read`", async () => {
     const reg = makeRegistry();
-    reg.defineEntity({ kind: "health", state: incidentSchema });
-    // Before the store is bound, a store-backed kind has no resolver.
-    expect(reg.entityResolverFor("health")).toBeUndefined();
     const store = createFakeEntityStore();
-    reg.setStore({ store, keyedStoreFactory: (kind) => store.keyedStore(kind) });
+    // Homeless kind: opt into the framework keyed store and pass its readMany.
+    const keyedStore = store.keyedStore<{
+      status: string;
+      severity: string;
+    }>("health");
+    reg.defineEntity({
+      kind: "health",
+      state: incidentSchema,
+      read: keyedStore.readMany,
+    });
+    reg.setStore({ store });
     store.rows.set("health:sys-1", { status: "open", severity: "low" });
     const resolver = reg.entityResolverFor("health");
     expect(resolver).toBeDefined();

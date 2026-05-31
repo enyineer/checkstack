@@ -1,14 +1,6 @@
 import type { z } from "zod";
 import type { Actor } from "@checkstack/common";
 
-/** A declarable secondary index over fields of the entity state. */
-export interface EntityIndexSpec<TState> {
-  /** Stable id, namespaced under the kind. */
-  name: string;
-  /** State fields the index covers (dot-paths into the zod object). */
-  fields: ReadonlyArray<keyof TState & string>;
-}
-
 /**
  * Plugin-owned read accessor (Model B). A kind declares where its CURRENT
  * state lives by supplying a batched reader: given a set of ids, return the
@@ -34,27 +26,13 @@ export interface DefineEntityInput<TState extends Record<string, unknown>> {
    */
   state: z.ZodObject<z.ZodRawShape> & z.ZodType<TState>;
   /**
-   * Plugin-owned current-state accessor (Model B). When present, the kind is
-   * PLUGIN-BACKED: `defineEntity` owns NO current-state storage; this reader
-   * is the only path to current state and the prev-snapshot for diffs.
-   *
-   * When ABSENT, the kind is STORE-BACKED: `defineEntity` auto-wires a
-   * framework keyed store ({@link createKeyedStore}) over `entity_state`, and
-   * the deprecated `set` / `patch` sugar mutates through it. New code should
-   * supply an explicit `read` (or pass a `createKeyedStore(kind).readMany`).
+   * Plugin-owned current-state accessor (Model B). REQUIRED: `defineEntity`
+   * owns NO current-state storage; this reader is the only path to current
+   * state and the prev-snapshot for diffs. A kind with no natural home for
+   * its state can opt into the framework keyed store
+   * ({@link createKeyedStore}) and pass its `readMany` here.
    */
-  read?: EntityRead<TState>;
-  /**
-   * Declarable secondary indexes over `entity_state` (§15.1). Only meaningful
-   * for STORE-BACKED kinds (their state lives in `entity_state`); declaring
-   * `indexes` alongside an explicit plugin `read` is a hard error (a
-   * plugin-backed kind keeps its state in its own table, so an `entity_state`
-   * expression index would index nothing).
-   *
-   * @deprecated The store-owned `indexes`-only form is back-compat sugar; a
-   * later step removes it. Plugin-backed kinds index their own table.
-   */
-  indexes?: ReadonlyArray<EntityIndexSpec<TState>>;
+  read: EntityRead<TState>;
 }
 
 /** Mutation context so change events carry the causing actor (§3.1). */
@@ -98,10 +76,10 @@ export interface EntityMutationOpts {
  *     from framework-internal tables — a plugin platform must NOT couple a
  *     plugin's storage to a framework table's transaction.
  *
- * The deprecated store-owned `set`/`patch` sugar is the ONE case where the
- * write target IS a framework table (`entity_state`, same client as
- * `entity_transitions`); there the keyed write and the transition append DO
- * share one framework transaction (see `create-handle.ts`).
+ * The framework keyed store ({@link createKeyedStore}) is a homeless kind's
+ * opt-in storage: its `write` / `remove` run on the framework tx INSIDE the
+ * plugin's own `apply`, so a keyed write still rides this same driven
+ * pipeline (the keyed write and the transition append commit together).
  */
 export interface MutateInput<TState extends Record<string, unknown>> {
   id: string;
@@ -148,13 +126,6 @@ export interface EntityHandle<TState extends Record<string, unknown>> {
    * absent.
    */
   remove(input: RemoveInput): Promise<void>;
-  /**
-   * @deprecated Store-owned sugar over the driven `remove`. Tombstones a
-   * STORE-BACKED kind by deleting its `entity_state` row. Only available on a
-   * store-backed kind (no explicit `read`). New code: call the driven
-   * `remove({ id, apply })` with your own delete.
-   */
-  remove(id: string, opts?: EntityMutationOpts): Promise<void>;
   /** Current state by id (routes to `read`). */
   get(id: string): Promise<TState | undefined>;
   /** Batched current-state read (routes to `read`). Missing ids omitted. */
@@ -167,26 +138,6 @@ export interface EntityHandle<TState extends Record<string, unknown>> {
     field: keyof TState & string;
     windowMs: number;
   }): Promise<number>;
-
-  // ─── Deprecated store-owned sugar (back-compat; removed in a later step) ──
-
-  /**
-   * @deprecated Store-owned sugar over `mutate` + the framework keyed store.
-   * Validate + persist `next` into `entity_state` + diff/emit. Only available
-   * on a STORE-BACKED kind (no explicit `read`). New code: declare a `read`
-   * and call `mutate` with your own `apply`.
-   */
-  set(id: string, next: TState, opts?: EntityMutationOpts): Promise<void>;
-  /**
-   * @deprecated Store-owned sugar over `mutate` + the framework keyed store.
-   * Shallow-merge patch into `entity_state`. Only available on a STORE-BACKED
-   * kind. New code: declare a `read` and call `mutate` with your own `apply`.
-   */
-  patch(
-    id: string,
-    partial: Partial<TState>,
-    opts?: EntityMutationOpts,
-  ): Promise<void>;
 }
 
 export type DefineEntity = <TState extends Record<string, unknown>>(

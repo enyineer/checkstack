@@ -206,7 +206,6 @@ export function makeEmptyAction(kind: ActionKind): ActionInput {
         wait_until: {
           condition: "",
           continue_on_timeout: true,
-          poll_seconds: 30,
         },
       } satisfies WaitUntilInput;
     }

@@ -8,15 +8,15 @@
  *     an in-memory transition log + the `inStateSince` / `transitionCount`
  *     reads. The fake `runInTransaction` just runs the callback (no real tx);
  *     `tx` is a sentinel the in-memory keyed store recognizes.
- *   - an in-memory KEYED store (`KeyedStore`) over the same `rows` map, so
- *     the deprecated `set` / `patch` / `remove(id)` back-compat sugar works
- *     and `rows` stays inspectable.
- *   - a plugin `read` accessor over `rows`, so a store-backed handle reads
- *     the same state the keyed store writes.
+ *   - an in-memory KEYED store (`KeyedStore`) over the same `rows` map, so a
+ *     HOMELESS kind (one that opts into `createKeyedStore`) can be exercised
+ *     end-to-end via `handle.mutate` and `rows` stays inspectable.
+ *   - a plugin `read` accessor over `rows`, so a homeless handle reads the
+ *     same state the keyed store writes.
  *
  * For PLUGIN-BACKED kinds a test supplies its OWN `read` + `apply` (e.g. an
  * in-memory domain map) and only uses this fake for the transition store; see
- * `create-handle.test.ts`.
+ * `mutate-handle.test.ts`.
  */
 import type { EntityStore, EntityTx, TransitionAppend } from "./entity-store";
 import { serializeFieldValue } from "./entity-store";

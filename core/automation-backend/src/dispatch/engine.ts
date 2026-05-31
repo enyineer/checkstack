@@ -2008,10 +2008,6 @@ async function executeWaitUntil(
     return { kind: "ok" };
   }
 
-  // pollSeconds is retained in the persisted config only for backward
-  // compatibility with already-suspended waits; the reactive engine never
-  // polls. Default kept so older rows parse.
-  const pollSeconds = cfg.poll_seconds ?? 30;
   const continueOnTimeout = cfg.continue_on_timeout ?? true;
   const timeoutAt = cfg.timeout_seconds
     ? new Date(Date.now() + cfg.timeout_seconds * 1000)
@@ -2045,7 +2041,6 @@ async function executeWaitUntil(
     timeoutAt,
     waitConfig: {
       condition: cfg.condition,
-      pollSeconds,
       continueOnTimeout,
     },
     wakeRefs,

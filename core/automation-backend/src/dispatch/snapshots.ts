@@ -16,10 +16,16 @@ import type { Logger } from "@checkstack/backend-api";
 
 import type { UntilWaitConfig } from "./types";
 
-/** Stored config for a `kind: "until"` wait lock (jsonb). */
+/**
+ * Stored config for a `kind: "until"` wait lock (jsonb).
+ *
+ * NOTE: this is a non-strict `z.object`, so old persisted rows that still
+ * carry a `pollSeconds` key (written before the reactive engine dropped
+ * polling) parse cleanly — zod silently strips the unknown key. Do NOT make
+ * this `.strict()` or resuming an already-suspended wait would fail.
+ */
 export const UntilWaitConfigSchema: z.ZodType<UntilWaitConfig> = z.object({
   condition: ConditionSchema,
-  pollSeconds: z.number(),
   continueOnTimeout: z.boolean(),
 });
 

@@ -61,35 +61,16 @@ function makeEntityHandle(): EntityHandle<MaintenanceEntityState> & {
       mutates.push({ id: input.id, next, opts: input.opts });
       return next;
     },
-    async set() {
-      throw new Error("set is not used by a plugin-backed kind");
-    },
-    async patch() {
-      throw new Error("patch is not used by a plugin-backed kind");
-    },
     async get() {
       return undefined;
     },
     async getMany() {
       return {};
     },
-    async remove(inputOrId: unknown) {
+    async remove(input) {
       // Plugin-backed remove takes `{ id, apply }`; run apply + record the id.
-      if (
-        inputOrId &&
-        typeof inputOrId === "object" &&
-        "apply" in inputOrId &&
-        "id" in inputOrId
-      ) {
-        const input = inputOrId as {
-          id: string;
-          apply: () => Promise<void>;
-        };
-        await input.apply();
-        removes.push(input.id);
-        return;
-      }
-      if (typeof inputOrId === "string") removes.push(inputOrId);
+      await input.apply();
+      removes.push(input.id);
     },
     async inStateSince() {
       return null;

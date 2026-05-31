@@ -33,7 +33,6 @@ export type {
   DeclareNonReactiveState,
   DeclareNonReactiveStateInput,
   EntityHandle,
-  EntityIndexSpec,
   EntityMutationOpts,
   EntityRead,
   MutateInput,

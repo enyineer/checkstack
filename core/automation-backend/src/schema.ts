@@ -407,17 +407,16 @@ export const automationMigrationFailures = pgTable(
 );
 
 /**
- * Framework-owned entity state — the single generic keyed store backing
- * every `defineEntity` kind (reactive automation engine §15.1). One row
- * per `(kind, entityId)`; the full zod-validated state lives in the
- * `state` jsonb column. A new entity kind needs ZERO migrations: the
- * platform owns this one table and the wake-index / Stage-1 routing /
- * scope enrichment are all kind-agnostic.
+ * Framework-owned entity state — the OPT-IN generic keyed store
+ * ({@link createKeyedStore}) for HOMELESS `defineEntity` kinds, i.e. kinds
+ * with no natural home for their current state (e.g. healthcheck's computed
+ * `health` aggregate). One row per `(kind, entityId)`; the full zod-validated
+ * state lives in the `state` jsonb column. A homeless kind needs ZERO
+ * migrations: the platform owns this one table and the wake-index / Stage-1
+ * routing / scope enrichment are all kind-agnostic.
  *
- * Declarable secondary indexes (`EntityIndexSpec`) map onto this store as
- * Postgres expression indexes on `state->>'field'`, created at plugin
- * init time (after migrations) by the `defineEntity` impl, named
- * `entity_state_<kind>_<name>_idx`.
+ * Plugin-backed kinds do NOT use this table — they keep their state in their
+ * own schema and expose it through a `read` accessor.
  */
 export const entityState = pgTable(
   "entity_state",

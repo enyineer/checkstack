@@ -475,41 +475,22 @@ export const WaitUntilActionBody: React.FC<{
           bare
         />
       </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <div className="space-y-1">
-          <Label className="text-xs">Poll interval (seconds)</Label>
-          <Input
-            type="number"
-            min={1}
-            value={wu.poll_seconds ?? ""}
-            onChange={(event) =>
-              patch({
-                poll_seconds: event.target.value
-                  ? Number(event.target.value)
-                  : undefined,
-              })
-            }
-            disabled={disabled}
-            placeholder="30"
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Timeout (seconds)</Label>
-          <Input
-            type="number"
-            min={1}
-            value={wu.timeout_seconds ?? ""}
-            onChange={(event) =>
-              patch({
-                timeout_seconds: event.target.value
-                  ? Number(event.target.value)
-                  : undefined,
-              })
-            }
-            disabled={disabled}
-            placeholder="No timeout"
-          />
-        </div>
+      <div className="space-y-1">
+        <Label className="text-xs">Timeout (seconds)</Label>
+        <Input
+          type="number"
+          min={1}
+          value={wu.timeout_seconds ?? ""}
+          onChange={(event) =>
+            patch({
+              timeout_seconds: event.target.value
+                ? Number(event.target.value)
+                : undefined,
+            })
+          }
+          disabled={disabled}
+          placeholder="No timeout"
+        />
       </div>
       <div className="flex items-center justify-between">
         <Label className="text-xs">

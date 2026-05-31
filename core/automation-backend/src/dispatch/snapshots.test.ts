@@ -44,7 +44,6 @@ describe("parseActorSnapshot", () => {
 describe("parseWaitConfig", () => {
   const valid = {
     condition: "trigger.payload.x == 1",
-    pollSeconds: 30,
     continueOnTimeout: false,
   };
 
@@ -57,6 +56,19 @@ describe("parseWaitConfig", () => {
     expect(parsed).toEqual(valid);
   });
 
+  it("resumes an old suspended wait that still carries pollSeconds", () => {
+    // Back-compat: rows written before the reactive engine dropped polling
+    // still carry a `pollSeconds` key. The schema is a non-strict z.object,
+    // so the extra key is stripped and the wait resumes cleanly.
+    const parsed = parseWaitConfig({
+      value: { ...valid, pollSeconds: 30 },
+      logger: silentLogger,
+      context: "test",
+    });
+    expect(parsed).toEqual(valid);
+    expect(parsed).not.toHaveProperty("pollSeconds");
+  });
+
   it("treats null/undefined as no config", () => {
     expect(parseWaitConfig({ value: null, context: "x" })).toBeNull();
     expect(parseWaitConfig({ value: undefined, context: "x" })).toBeNull();
@@ -65,7 +77,7 @@ describe("parseWaitConfig", () => {
   it("returns null for a malformed/drifted config (engine treats as gone)", () => {
     // Missing required fields — must not be trusted as an UntilWaitConfig.
     const parsed = parseWaitConfig({
-      value: { pollSeconds: "thirty" },
+      value: { continueOnTimeout: "nope" },
       logger: silentLogger,
       context: "Wait lock w-1",
     });

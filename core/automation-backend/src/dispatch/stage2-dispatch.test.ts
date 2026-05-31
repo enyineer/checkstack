@@ -236,7 +236,6 @@ describe("Stage-2 handleDispatchJob — reason: wake", () => {
       timeoutAt: null,
       waitConfig: {
         condition: "health.system.status == 'healthy'",
-        pollSeconds: 30,
         continueOnTimeout: true,
       },
       wakeRefs: ["health:*"],

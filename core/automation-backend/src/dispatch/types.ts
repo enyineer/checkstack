@@ -332,7 +332,6 @@ export type WaitLockKind = "trigger" | "delay" | "until";
  */
 export interface UntilWaitConfig {
   condition: Condition;
-  pollSeconds: number;
   continueOnTimeout: boolean;
 }
 

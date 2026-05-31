@@ -304,16 +304,31 @@ describe("Model B — get / getMany route to plugin read", () => {
   });
 });
 
-describe("Model B — store-owned sugar rejected on a plugin-backed kind", () => {
-  it("rejects `set` / `patch` / `remove(id)` when a `read` is declared", async () => {
-    const { handle } = setup();
+describe("Model B mutate — validation + actor", () => {
+  it("hard-fails an invalid state via zod (apply returns a bad shape)", async () => {
+    const { handle, plugin } = setup();
     await expect(
-      handle.set("sat-1", { status: "online", region: "eu" }),
-    ).rejects.toThrow(/store-owned sugar/);
-    await expect(handle.patch("sat-1", { status: "offline" })).rejects.toThrow(
-      /store-owned sugar/,
-    );
-    await expect(handle.remove("sat-1")).rejects.toThrow(/store-owned sugar/);
+      handle.mutate({
+        id: "sat-1",
+        apply: () =>
+          Promise.resolve(
+            // @ts-expect-error — deliberately invalid status
+            plugin.put("sat-1", { status: "nope", region: "eu" }),
+          ),
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("carries an explicit actor when provided", async () => {
+    const { events, handle, plugin } = setup();
+    const actor = { type: "user" as const, id: "u-1", name: "Alice" };
+    await handle.mutate({
+      id: "sat-1",
+      opts: { actor },
+      apply: () =>
+        Promise.resolve(plugin.put("sat-1", { status: "online", region: "eu" })),
+    });
+    expect(events[0]!.actor).toEqual(actor);
   });
 });
 
@@ -332,5 +347,65 @@ describe("Model B — transition helpers over plugin-backed state", () => {
     });
     const since = await handle.inStateSince("sat-1", "status");
     expect(since?.toISOString()).toBe("2026-01-01T01:00:00.000Z");
+  });
+
+  it("inStateForMs reflects the elapsed time since the latest transition", async () => {
+    const { handle, plugin, store } = setup();
+    const start = new Date(Date.now() - 5_000);
+    store.setClock(() => start);
+    await handle.mutate({
+      id: "sat-1",
+      apply: () => Promise.resolve(plugin.put("sat-1", { status: "online", region: "eu" })),
+    });
+    const ms = await handle.inStateForMs("sat-1", "status");
+    expect(ms).toBeGreaterThanOrEqual(4_000);
+  });
+
+  it("transitionCount counts transitions of a field in the window", async () => {
+    const { handle, plugin, store } = setup();
+    const now = Date.now();
+    let t = now - 3 * 60_000;
+    store.setClock(() => new Date(t));
+    await handle.mutate({
+      id: "sat-1",
+      apply: () => Promise.resolve(plugin.put("sat-1", { status: "online", region: "eu" })),
+    });
+    t += 60_000;
+    await handle.mutate({
+      id: "sat-1",
+      apply: () => Promise.resolve(plugin.put("sat-1", { status: "offline", region: "eu" })),
+    });
+    t += 60_000;
+    await handle.mutate({
+      id: "sat-1",
+      apply: () => Promise.resolve(plugin.put("sat-1", { status: "online", region: "eu" })),
+    });
+    const count = await handle.transitionCount({
+      id: "sat-1",
+      field: "status",
+      windowMs: 10 * 60_000,
+    });
+    expect(count).toBe(3);
+  });
+
+  it("transitionCount excludes transitions outside the window", async () => {
+    const { handle, plugin, store } = setup();
+    const now = Date.now();
+    store.setClock(() => new Date(now - 60 * 60_000)); // 1h ago
+    await handle.mutate({
+      id: "sat-1",
+      apply: () => Promise.resolve(plugin.put("sat-1", { status: "online", region: "eu" })),
+    });
+    store.setClock(() => new Date(now - 30_000)); // 30s ago
+    await handle.mutate({
+      id: "sat-1",
+      apply: () => Promise.resolve(plugin.put("sat-1", { status: "offline", region: "eu" })),
+    });
+    const count = await handle.transitionCount({
+      id: "sat-1",
+      field: "status",
+      windowMs: 5 * 60_000, // only the last 5 min
+    });
+    expect(count).toBe(1);
   });
 });

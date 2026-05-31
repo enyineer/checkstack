@@ -147,7 +147,6 @@ export function buildSustainedAutomation(
           // No timeout: hold until the system actually recovers, exactly
           // like the old close worker (which never gave up).
           continue_on_timeout: true,
-          poll_seconds: 60,
         },
       },
       {

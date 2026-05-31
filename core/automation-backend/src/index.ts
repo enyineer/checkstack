@@ -108,7 +108,6 @@ import {
   type EntityRegistry,
 } from "./entity";
 import { ENTITY_CHANGED_HOOK } from "./entity/hook";
-import { sql } from "drizzle-orm";
 import {
   createNotifyUserAction,
   logAction,
@@ -314,19 +313,13 @@ export default createBackendPlugin({
         const dwellStore = createDwellStore(database);
         const automationStore = createAutomationStore(database);
 
-        // Bind the DB-backed transition store + keyed-store factory to the
-        // registry (the extension point impl registered in `register()`
-        // forwards through it). Model B: the transition store owns the tx +
-        // `entity_transitions` log for EVERY kind; the keyed-store factory
-        // backs auto-wired store-backed kinds (`entity_state`). Bound here in
-        // `init()` — after migrations have run — so both tables exist.
+        // Bind the DB-backed transition store to the registry (the extension
+        // point impl registered in `register()` forwards through it). Model B:
+        // the transition store owns the tx + `entity_transitions` log for
+        // EVERY kind. Bound here in `init()` — after migrations have run — so
+        // the table exists.
         const entityStore = createEntityStore(database);
-        entityRegistry.setStore({
-          store: entityStore,
-          keyedStoreFactory: <TState extends Record<string, unknown>>(
-            kind: string,
-          ) => createKeyedStore<TState>({ kind, db: database }),
-        });
+        entityRegistry.setStore({ store: entityStore });
 
         // Expose the framework keyed store (`entity_state`) cross-plugin for
         // homeless reactive kinds whose current state has no table of their
@@ -341,19 +334,6 @@ export default createBackendPlugin({
           ) => createKeyedStore<TState>({ kind, db: database }),
           runInTransaction: (fn) => entityStore.runInTransaction(fn),
         });
-
-        // Create the declarable expression indexes (§15.1) idempotently,
-        // after migrations. Each spec became a `CREATE INDEX IF NOT EXISTS`
-        // statement at `defineEntity` time; run them once at boot.
-        for (const ddl of entityRegistry.getIndexDdl()) {
-          try {
-            await database.execute(sql.raw(ddl));
-          } catch (error) {
-            logger.error(
-              `Failed to create entity expression index: ${extractErrorMessage(error, "unknown error")} (${ddl})`,
-            );
-          }
-        }
 
         env.registerService(automationArtifactStoreRef, artifactStore);
         env.registerService(automationRegistriesRef, {
@@ -697,7 +677,6 @@ export type {
   DeclareNonReactiveState,
   DeclareNonReactiveStateInput,
   EntityHandle,
-  EntityIndexSpec,
   EntityMutationOpts,
   EntityRead,
   MutateInput,

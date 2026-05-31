@@ -179,7 +179,6 @@ describe("Stage-1 routeEntityChange — waiting runs via wake-index", () => {
       timeoutAt: null,
       waitConfig: {
         condition: "state.fake['ent-1'].status == 'open'",
-        pollSeconds: 30,
         continueOnTimeout: true,
       },
       wakeRefs: ["fake:ent-1"],
@@ -220,7 +219,6 @@ describe("Stage-1 routeEntityChange — waiting runs via wake-index", () => {
       timeoutAt: null,
       waitConfig: {
         condition: "state.fake[trigger.id].status == 'open'",
-        pollSeconds: 30,
         continueOnTimeout: true,
       },
       wakeRefs: ["fake:*"],
@@ -253,7 +251,6 @@ describe("Stage-1 routeEntityChange — waiting runs via wake-index", () => {
       timeoutAt: null,
       waitConfig: {
         condition: "state.fake['other'].status == 'open'",
-        pollSeconds: 30,
         continueOnTimeout: true,
       },
       wakeRefs: ["fake:other"],

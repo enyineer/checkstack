@@ -390,8 +390,6 @@ export interface WaitUntilInput {
     timeout_seconds?: number;
     /** Default true (HA semantics): on timeout, continue rather than fail. */
     continue_on_timeout?: boolean;
-    /** How often to re-check the condition (seconds). Default 30. */
-    poll_seconds?: number;
   };
 }
 
@@ -577,12 +575,6 @@ export const WaitUntilActionSchema: z.ZodType<WaitUntilInput> = z.lazy(() =>
         .max(60 * 60 * 24 * 30) // 30 days
         .optional(),
       continue_on_timeout: z.boolean().default(true),
-      poll_seconds: z
-        .number()
-        .int()
-        .min(1)
-        .max(60 * 60) // 1h max poll interval
-        .default(30),
     }),
   }),
 );

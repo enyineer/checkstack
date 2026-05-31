@@ -35,11 +35,10 @@
  * couple plugin writes to framework-internal tables, so this decoupling is
  * intentional. See `define-entity.ts` for the full rationale.
  *
- * The ONE exception is the deprecated store-owned `set` / `patch` / `remove(id)`
- * sugar: there the write target IS a framework table (`entity_state`, same
- * client as `entity_transitions`), so the keyed write AND the transition
- * append share one framework transaction (`driveStoreBacked`). A later step
- * removes that sugar.
+ * A homeless kind that opts into the framework keyed store
+ * ({@link createKeyedStore}) writes `entity_state` from INSIDE its own
+ * `apply` (it runs the keyed write on the framework tx supplied by the keyed
+ * store's service), so it still rides this same driven pipeline.
  *
  * A structurally-unchanged write (returns an equal state) is a no-op: the
  * plugin write still happened, but no transition is appended and no event is
@@ -55,9 +54,8 @@ import type {
   MutateInput,
   RemoveInput,
 } from "./define-entity";
-import type { EntityStore, EntityTx, TransitionAppend } from "./entity-store";
+import type { EntityStore, TransitionAppend } from "./entity-store";
 import { serializeFieldValue } from "./entity-store";
-import type { KeyedStore } from "./create-keyed-store";
 import { diffEntityState } from "./diff";
 import type { ChangeEmitter } from "./change-emitter";
 import type { RunSecretRegistry } from "../dispatch/run-secret-registry";
@@ -70,12 +68,6 @@ export interface CreateHandleArgs<TState extends Record<string, unknown>> {
   secretRegistry: RunSecretRegistry;
   /** Plugin-owned current-state accessor (the single read path). */
   read: EntityRead<TState>;
-  /**
-   * Present ⇒ STORE-BACKED kind: the framework keyed store the deprecated
-   * `set` / `patch` sugar writes through. Absent ⇒ PLUGIN-BACKED kind, where
-   * `set` / `patch` are rejected (mutate through your own `apply`).
-   */
-  keyedStore?: KeyedStore<TState>;
 }
 
 /** Resolve the effective actor for a mutation (defaults to the system actor). */
@@ -99,8 +91,7 @@ function maskForRun(args: {
 export function createEntityHandle<TState extends Record<string, unknown>>(
   args: CreateHandleArgs<TState>,
 ): EntityHandle<TState> {
-  const { kind, schema, store, emitter, secretRegistry, read, keyedStore } =
-    args;
+  const { kind, schema, store, emitter, secretRegistry, read } = args;
 
   /** Resolve the current state of one id via the plugin read accessor. */
   async function readOne(id: string): Promise<TState | undefined> {
@@ -157,11 +148,9 @@ export function createEntityHandle<TState extends Record<string, unknown>>(
 
   /**
    * Diff prev → next and emit `ENTITY_CHANGED` when there is a real change.
-   * `appendTransitions` performs the (kind-specific) durable transition write
-   * for a non-tombstone diff; it is supplied by the caller so the store-backed
-   * path can ride the framework tx while the plugin-backed path uses a fresh
-   * framework tx AFTER the plugin write has committed. Returns the post-write
-   * state (echoed for `mutate`).
+   * `appendTransitions` performs the durable transition write for a
+   * non-tombstone diff in a fresh framework tx AFTER the plugin write has
+   * committed. Returns the post-write state (echoed for `mutate`).
    */
   async function diffAppendEmit(args2: {
     id: string;
@@ -240,65 +229,6 @@ export function createEntityHandle<TState extends Record<string, unknown>>(
     });
   }
 
-  /**
-   * STORE-BACKED driven pipeline for the deprecated `set` / `patch` /
-   * `remove(id)` sugar. Here the write target IS a framework table
-   * (`entity_state`, same client as `entity_transitions`), so the keyed write
-   * AND the transition append share ONE framework transaction — the change
-   * event is still emitted only AFTER commit. `apply(tx)` receives the
-   * framework tx and writes `entity_state` on it.
-   */
-  async function driveStoreBacked(input: {
-    id: string;
-    opts?: EntityMutationOpts;
-    apply: (tx: EntityTx) => Promise<TState | null>;
-  }): Promise<Record<string, unknown> | null> {
-    const { id, opts, apply } = input;
-
-    // 1. Snapshot prev STRICTLY BEFORE the write.
-    const prev = await snapshotPrev(id, opts);
-
-    // 2 + 3. The keyed write + the transition append ride ONE framework tx, so
-    //    the framework store and its own transition log commit atomically. The
-    //    emit is deferred to after COMMIT.
-    const committed = await store.runInTransaction(async (tx) => {
-      const next = normalizeNext(await apply(tx), opts);
-      const { changedFields, delta } = diffEntityState({ prev, next });
-      if (changedFields.length === 0) {
-        return { emit: false as const, next };
-      }
-      if (next !== null) {
-        await store.appendTransitions({
-          tx,
-          kind,
-          entityId: id,
-          transitions: buildTransitions({ prev, next, changedFields }),
-        });
-      }
-      return {
-        emit: true as const,
-        next,
-        delta: next === null ? {} : delta,
-        changedFields,
-      };
-    });
-
-    // 4. Emit AFTER COMMIT (never on a rolled-back apply).
-    if (committed.emit) {
-      await emitter.emit({
-        kind,
-        id,
-        prev,
-        next: committed.next,
-        delta: committed.delta,
-        changedFields: committed.changedFields,
-        actor: resolveActor(opts),
-        occurredAt: new Date().toISOString(),
-      });
-    }
-    return committed.next ?? null;
-  }
-
   /** Resolve "in this value since" for a field via the transition log. */
   async function inStateSinceFor(
     id: string,
@@ -312,14 +242,6 @@ export function createEntityHandle<TState extends Record<string, unknown>>(
       field,
       currentValue: current[field],
     });
-  }
-
-  /** Reject a deprecated store-owned method on a plugin-backed kind. */
-  function rejectStoreOwned(method: string): never {
-    throw new Error(
-      `EntityHandle.${method} is store-owned sugar; kind "${kind}" declares its own \`read\` ` +
-        `(plugin-backed) — mutate through your own \`apply\` via handle.mutate / handle.remove`,
-    );
   }
 
   return {
@@ -339,28 +261,8 @@ export function createEntityHandle<TState extends Record<string, unknown>>(
       return next as TState;
     },
 
-    async remove(
-      inputOrId: RemoveInput | string,
-      maybeOpts?: EntityMutationOpts,
-    ): Promise<void> {
-      // Back-compat: the old store-owned `remove(id, opts?)` form deletes the
-      // keyed-store row (framework tx); the driven Model B form is
-      // `remove({ id, opts, apply })` (plugin's own tx).
-      if (typeof inputOrId === "string") {
-        if (!keyedStore) rejectStoreOwned("remove");
-        const ks = keyedStore;
-        const id = inputOrId;
-        await driveStoreBacked({
-          id,
-          opts: maybeOpts,
-          apply: async (tx) => {
-            await ks.remove({ tx, id });
-            return null;
-          },
-        });
-        return;
-      }
-      const { id, opts, apply } = inputOrId;
+    async remove(input: RemoveInput): Promise<void> {
+      const { id, opts, apply } = input;
       await drivePluginBacked({
         id,
         opts,
@@ -398,53 +300,5 @@ export function createEntityHandle<TState extends Record<string, unknown>>(
         now: new Date(),
       });
     },
-
-    // ─── Deprecated store-owned sugar (back-compat) ──────────────────────
-
-    async set(id, next, opts) {
-      if (!keyedStore) rejectStoreOwned("set");
-      const ks = keyedStore;
-      // Store-backed: the keyed `entity_state` write + transition append share
-      // ONE framework tx (`driveStoreBacked`), unlike the plugin-backed path.
-      await driveStoreBacked({
-        id,
-        opts,
-        // The framework owns this storage (entity_state), so mask BEFORE the
-        // keyed write — a run-originated `set` must never persist a secret
-        // VALUE into the framework store (the old store-owned semantics).
-        apply: (tx) => ks.write({ tx, id, state: maskState(next, opts) }),
-      });
-    },
-
-    async patch(id, partial, opts) {
-      if (!keyedStore) rejectStoreOwned("patch");
-      const ks = keyedStore;
-      await driveStoreBacked({
-        id,
-        opts,
-        apply: async (tx) => {
-          const prior = await ks.read(id);
-          // Shallow-merge onto the prior state (spreading `undefined` is a
-          // no-op, so a first-write patch merges onto an empty base).
-          const merged = { ...prior, ...partial } as TState;
-          return ks.write({ tx, id, state: maskState(merged, opts) });
-        },
-      });
-    },
   };
-
-  /**
-   * Validate + mask a state value for the store-owned sugar path, so the
-   * framework keyed store persists the masked view (the old store-owned
-   * masking semantics). The driven `drive` re-validates/re-masks the apply
-   * return; masking is idempotent, so the diff and the persisted row agree.
-   */
-  function maskState(value: TState, opts?: EntityMutationOpts): TState {
-    const validated = schema.parse(value) as Record<string, unknown>;
-    return maskForRun({
-      registry: secretRegistry,
-      runId: opts?.runId,
-      value: validated,
-    }) as TState;
-  }
 }

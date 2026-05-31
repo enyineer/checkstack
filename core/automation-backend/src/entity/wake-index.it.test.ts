@@ -164,7 +164,6 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
         timeoutAt: null,
         waitConfig: {
           condition: "state.health['sys-1'].status == 'healthy'",
-          pollSeconds: 30,
           continueOnTimeout: true,
         },
         wakeRefs: ["health:sys-1", "incident:inc-9"],
@@ -192,7 +191,6 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
         timeoutAt: null,
         waitConfig: {
           condition: "state.slo[trigger.id].budget < 10",
-          pollSeconds: 30,
           continueOnTimeout: true,
         },
         wakeRefs: ["slo:*"],
@@ -213,7 +211,6 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
         timeoutAt: null,
         waitConfig: {
           condition: "state.health['sys-1'].status == 'healthy'",
-          pollSeconds: 30,
           continueOnTimeout: true,
         },
         wakeRefs: ["health:sys-1"],
