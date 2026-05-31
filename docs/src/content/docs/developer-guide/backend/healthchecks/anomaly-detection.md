@@ -392,7 +392,7 @@ The system anomaly widget on each system detail page exposes a bell icon on ever
 
 ## 9. Caching Behaviour
 
-The inline detector reads baselines from the `CacheProvider` first; cache misses fall back to the database (and warm the cache). Keys are namespaced under the anomaly plugin id (see [Cache System](/checkstack/developer-guide/backend/healthchecks/cache-system/)) and shaped as:
+The inline detector reads baselines from the `CacheProvider` first; cache misses fall back to the database (and warm the cache). Keys are namespaced under the anomaly plugin id (see [Cache System](/checkstack/developer-guide/backend/cache-system/)) and shaped as:
 
 ```
 baseline:${configurationId}:${systemId}:${fieldPath}
@@ -486,7 +486,7 @@ These are deterministic, side-effect-free functions — ideal for unit tests.
 
 | Phase | Status | Scope |
 |---|---|---|
-| Pre-req | ✅ Shipped | [Cache System](/checkstack/developer-guide/backend/healthchecks/cache-system/) abstraction + Infrastructure Configuration UI. |
+| Pre-req | ✅ Shipped | [Cache System](/checkstack/developer-guide/backend/cache-system/) abstraction + Infrastructure Configuration UI. |
 | Phase 1 | ✅ Shipped | Spike/drop detection with confirmation window, field-level overrides, range bands on charts, system anomaly badge + feed widget, sidecar notifications. |
 | Phase 2 | ✅ Shipped | Trend drift detection in the background analyzer (`kind = 'drift'` rows), drift confirmation across consecutive analyzer runs, trend-line overlay on `AutoChartGrid` charts. |
 | Phase 3 | ❌ Dropped | Cross-metric correlation — investigated 2026-04-29 and dropped (cost/value did not justify the work; schema is forward-compatible if revived). |
@@ -496,8 +496,8 @@ These are deterministic, side-effect-free functions — ideal for unit tests.
 
 ## 13. Related Documentation
 
-- [Cache System](/checkstack/developer-guide/backend/healthchecks/cache-system/) — provider abstraction the anomaly plugin uses for hot baselines.
-- [Health Check Strategies](/checkstack/developer-guide/backend/healthchecks/healthcheck-strategies/) — where you author the result schemas that carry `x-anomaly-*` metadata.
+- [Cache System](/checkstack/developer-guide/backend/cache-system/) — provider abstraction the anomaly plugin uses for hot baselines.
+- [Health Check Strategies](/checkstack/developer-guide/backend/healthchecks/strategies/) — where you author the result schemas that carry `x-anomaly-*` metadata.
 - [Collector Plugin Development](/checkstack/developer-guide/backend/healthchecks/collectors/) — collectors also expose `result.schema` and participate in anomaly detection.
-- [Health Check Custom Charts](/checkstack/developer-guide/backend/frontend/healthcheck-charts/) — `x-chart-type` reference (the prerequisite for anomaly fields).
-- [Signals](/checkstack/developer-guide/backend/healthchecks/signals/) — pattern for subscribing to `ANOMALY_*` events.
+- [Health Check Custom Charts](/checkstack/developer-guide/frontend/healthcheck-charts/) — `x-chart-type` reference (the prerequisite for anomaly fields).
+- [Signals](/checkstack/developer-guide/backend/signals/) — pattern for subscribing to `ANOMALY_*` events.

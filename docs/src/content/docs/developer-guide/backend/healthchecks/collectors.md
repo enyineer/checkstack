@@ -418,6 +418,6 @@ describe("CpuCollector", () => {
 
 ## Next Steps
 
-- [Health Check Strategy Development](/checkstack/developer-guide/backend/healthchecks/healthcheck-strategies/) - Transport strategy implementation
-- [Auto-Generated Charts](/checkstack/developer-guide/backend/healthchecks/healthcheck-strategies/#auto-generated-charts) - Chart metadata reference
-- [Plugin Development Guide](/checkstack/developer-guide/backend/healthchecks/plugins/) - General plugin patterns
+- [Health Check Strategy Development](/checkstack/developer-guide/backend/healthchecks/strategies/) - Transport strategy implementation
+- [Auto-Generated Charts](/checkstack/developer-guide/backend/healthchecks/strategies/#auto-generated-charts) - Chart metadata reference
+- [Plugin Development Guide](/checkstack/developer-guide/backend/plugins/) - General plugin patterns

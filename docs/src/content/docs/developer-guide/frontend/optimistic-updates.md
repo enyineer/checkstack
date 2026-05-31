@@ -6,7 +6,7 @@ description: "When and how to wire `onMutate` / rollback / settle on a TanStack 
 
 By default every oRPC `useMutation()` in this codebase auto-invalidates
 its owning plugin's queries on success (see
-[Query Invalidation](/checkstack/frontend/query-invalidation/) for the
+[Query Invalidation](/checkstack/developer-guide/frontend/query-invalidation/) for the
 full story). That's the right default — a single round-trip, no stale
 data — but on high-frequency cheap toggles it still costs the user a
 visible "click → wait → flip" latency.
@@ -150,7 +150,7 @@ const markAsRead = notificationClient.markAsRead.useMutation({
   the row faded — that's the feedback. A toast on top is noise.
 - **Keep error toasts.** The rollback alone tells the user "the UI
   is back where it was" but not why. `toastError(toast, "...", err)`
-  is the right shape (see [List & Query States](/checkstack/frontend/list-states/)
+  is the right shape (see [List & Query States](/checkstack/developer-guide/frontend/list-states/)
   for the `toastError` helper).
 
 ## The query-key gotcha

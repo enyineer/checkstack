@@ -146,21 +146,21 @@ flag rather than a normal admin toggle).
 
 ---
 
-## Code / docs hygiene follow-ups (cheap, pre-existing)
+## Docs follow-ups
 
-- **Unify `secret-field.ts`** — `gitops-common` and `secrets-common` both define
-  near-identical `SECRET_NAME_REGEX` / `secretNameSchema` / `SECRET_TEMPLATE_REGEX`
-  / `collectSecretNames`. Make `secrets-common` canonical and have `gitops-common`
-  re-export it. Deferred because it adds a `gitops-common → secrets-common`
-  dependency edge (+ references-graph regen) — a small cross-package architectural
-  change, and the gitops copy pre-dates the secrets platform.
-- **Fix pre-existing broken docs cross-links** (present on `main`, not introduced
-  by this work): ~8 stale `/checkstack/...` links in `plugins.md`,
-  `data-management.md`, `config-schemas.md` — e.g.
-  `/checkstack/developer-guide/backend/collectors/` should be
-  `.../healthchecks/collectors/`, and several `backend/frontend/...` links carry a
-  spurious `backend/` segment. Also a few em-dashes on pre-existing doc lines that
-  predate the no-em-dash rule.
+> The `secret-field.ts` unification (secrets-common canonical, gitops-common
+> re-exports) and the broken-link repair (~24 internal `/checkstack/...` links
+> across the site) are **DONE** - landed in this PR.
+
+- **Write the referenced-but-missing pages.** The link repair found three
+  cross-references pointing at pages that were never written (now de-linked, link
+  text kept): a backend **Health & readiness** guide, a **Monorepo tooling / CLI
+  scaffolding** guide (referenced from several plugin docs), and a **UI component
+  library** page (was pointing at the `core/ui` source README). Write these, then
+  restore the references.
+- **Add a CI doc-link checker.** The ~24 broken links were path drift after doc
+  moves with nothing to catch them. A link-integrity check wired into
+  `.github/workflows/pr-checks.yml` would prevent regression.
 
 ## Known minor edges (documented, no action needed unless they recur)
 

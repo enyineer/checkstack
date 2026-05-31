@@ -215,7 +215,7 @@ const schema = z.object({
 - `x-searchable`: When true, renders a searchable dropdown with filter input inside
 
 **Implementation requirements:**
-The provider must implement `getConnectionOptions()` to handle resolver calls. See [Integration Providers](/checkstack/developer-guide/backend/integration-providers/#connection-based-providers-with-dynamic-options) for details.
+The provider must implement `getConnectionOptions()` to handle resolver calls. See [Integration Providers](/checkstack/developer-guide/backend/integrations/providers/#connection-based-providers-with-dynamic-options) for details.
 
 ### `configString({ "x-hidden": true })` - Auto-populated Fields
 

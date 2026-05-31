@@ -209,14 +209,14 @@ spec:
         autoCloseAfterMinutes: 30  # null = never auto-close
 ```
 
-The `notificationPolicy` block is per assignment — different checks on the
+The `notificationPolicy` block is per assignment - different checks on the
 same system are fully independent. Any field omitted falls back to the
 platform default. Inner objects (`sustainedUnhealthyTrigger`,
 `flappingTrigger`) are also accepted partially.
 
 Either trigger can independently open an auto-incident; both can be
 individually disabled by setting their `enabled: false`. The cooldown is
-snapshotted per-incident at open time — a later policy edit doesn't
+snapshotted per-incident at open time - a later policy edit doesn't
 change in-flight incidents.
 
 > [!TIP]
@@ -227,7 +227,7 @@ change in-flight incidents.
 
 > [!NOTE]
 > If both triggers fire on the same run, the flapping reason takes the
-> incident description. The behaviour is identical either way — one
+> incident description. The behaviour is identical either way - one
 > incident per system, attached to via `findActiveAutoIncident`.
 
 ### `System.dependencies` (dependency)

@@ -131,5 +131,5 @@ export default createFrontendPlugin({
 - [Backend Plugin Guide](/checkstack/developer-guide/backend/plugins/)
 - [Frontend Plugin Guide](/checkstack/developer-guide/frontend/plugins/)
 - [Common Plugin Guide](/checkstack/developer-guide/common/plugins/)
-- [CLI Scaffolding](/checkstack/developer-guide/tooling/cli/)
+- CLI Scaffolding
 - [Drizzle Schema Isolation](/checkstack/developer-guide/backend/drizzle-schema/)

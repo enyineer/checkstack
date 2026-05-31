@@ -371,7 +371,7 @@ Common plugins should extend the shared common configuration:
 }
 ```
 
-See [Monorepo Tooling](/checkstack/developer-guide/tooling/cli/) for more information.
+See Monorepo Tooling for more information.
 
 ## Mandatory Project Structure
 

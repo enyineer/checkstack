@@ -190,6 +190,6 @@ docker compose up -d --force-recreate
 
 ## Next Steps
 
-- [Configure authentication strategies](/checkstack/user-guide/security/external-applications/)
-- [Set up notification channels](/checkstack/user-guide/backend/notification-strategies/)
-- [Create your first health check](/checkstack/user-guide/backend/healthcheck-strategies/)
+- [Configure authentication strategies](/checkstack/user-guide/reference/authentication-strategies/)
+- [Set up notification channels](/checkstack/developer-guide/backend/notifications/strategies/)
+- [Create your first health check](/checkstack/developer-guide/backend/healthchecks/strategies/)

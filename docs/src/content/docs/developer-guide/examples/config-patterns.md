@@ -91,4 +91,4 @@ const queue = new InMemoryQueue("test", {
 
 - [Versioned Configs](/checkstack/developer-guide/backend/versioned-configs/)
 - [Config Service](/checkstack/developer-guide/backend/config-service/)
-- [Secrets Encryption](/checkstack/developer-guide/security/secrets/)
+- [Secrets Encryption](/checkstack/developer-guide/backend/secrets/)

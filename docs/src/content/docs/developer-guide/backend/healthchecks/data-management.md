@@ -265,6 +265,6 @@ During daily rollup, `aggregatedResult` is dropped. Strategy diagrams should han
 
 ## Next Steps
 
-- [Custom Chart Components](/checkstack/developer-guide/backend/frontend/healthcheck-charts/) - Build strategy-specific visualizations
-- [Extension Points](/checkstack/developer-guide/backend/frontend/extension-points/) - General extension system
-- [Queue System](/checkstack/developer-guide/backend/healthchecks/queue-system/) - Background job infrastructure
+- [Custom Chart Components](/checkstack/developer-guide/frontend/healthcheck-charts/) - Build strategy-specific visualizations
+- [Extension Points](/checkstack/developer-guide/frontend/extension-points/) - General extension system
+- [Queue System](/checkstack/developer-guide/backend/queue-system/) - Background job infrastructure
