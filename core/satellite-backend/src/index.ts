@@ -30,6 +30,7 @@ import {
   satelliteConnectionStateSchema,
   type SatelliteConnectionState,
 } from "./entity";
+import { createConnectionStateStore } from "./connection-state-store";
 
 // Queue and job constants
 const HEARTBEAT_QUEUE = "satellite-heartbeat";
@@ -43,12 +44,19 @@ export default createBackendPlugin({
 
     // ─── Automation Platform: reactive connection entity ─────────────
     // Satellite connection state is the `satellite-connection` entity
-    // (reactive automation engine §10.6, §9.1). The `satellite.connected`
-    // / `.disconnected` / `.heartbeat_lost` trigger events are DERIVED from
-    // its changes (no hook-backed triggers). The persisted
-    // `satellites.lastHeartbeatAt` column stays as escape-hatched
+    // (reactive automation engine §10.6, §9.1), PLUGIN-BACKED (Model B):
+    // its current state lives ONLY in this process-local connection-state
+    // map — there is NO `entity_state` mirror. `read` reads that map; the
+    // three lifecycle sites (connect / disconnect / heartbeat-lost) write it
+    // through `handle.mutate`, and the framework still records full
+    // transition HISTORY in `entity_transitions` for every change.
+    //
+    // The `satellite.connected` / `.disconnected` / `.heartbeat_lost` trigger
+    // events are DERIVED from its changes (no hook-backed triggers). The
+    // persisted `satellites.lastHeartbeatAt` column stays as escape-hatched
     // bookkeeping — the entity's `status` is what's reactive.
     const entity = env.getExtensionPoint(entityExtensionPoint);
+    const connectionStateStore = createConnectionStateStore();
     entity.registerChangeDeriver({
       kind: SATELLITE_CONNECTION_ENTITY_KIND,
       derive: deriveSatelliteConnectionEvents,
@@ -91,13 +99,16 @@ export default createBackendPlugin({
         );
         gitopsService = service;
 
-        // Declare the reactive `satellite-connection` entity once. The handle
-        // is the only typed path that mirrors connection state into the
-        // framework store (reactive automation engine §4.2); it is reused by
-        // the WS handler + heartbeat monitor wired in afterPluginsReady.
+        // Declare the reactive `satellite-connection` entity once. PLUGIN-
+        // BACKED: `read` reads the in-memory connection-state map (the source
+        // of truth — no `entity_state` mirror). The handle is the only typed
+        // path that drives connection-state changes (reactive automation
+        // engine §4.2); it is reused by the WS handler + heartbeat monitor
+        // wired in afterPluginsReady.
         satelliteEntityHandle = entity.defineEntity({
           kind: SATELLITE_CONNECTION_ENTITY_KIND,
           state: satelliteConnectionStateSchema,
+          read: (ids) => connectionStateStore.readMany(ids),
         });
 
         const router = createSatelliteRouter({
@@ -158,10 +169,19 @@ export default createBackendPlugin({
           },
           logger,
           {
-            // Mirror connect/disconnect into the `satellite-connection`
-            // entity; the change-deriver re-fires the equivalent triggers.
+            // Drive connect/disconnect through `handle.mutate` (Model B):
+            // `apply` updates the in-memory connection-state map (the source
+            // of truth) and returns the view. The framework snapshots `prev`
+            // via `read`, records the transition (durable history), and emits
+            // the change; the deriver re-fires the equivalent trigger events.
             mirror: async (satelliteId, state) => {
-              await satelliteEntityHandle.set(satelliteId, state);
+              await satelliteEntityHandle.mutate({
+                id: satelliteId,
+                apply: () =>
+                  Promise.resolve(
+                    connectionStateStore.write({ satelliteId, state }),
+                  ),
+              });
             },
           },
           {
@@ -221,10 +241,18 @@ export default createBackendPlugin({
           signalService,
           logger,
           {
-            // Mirror the online → offline edge into the connection entity;
-            // the deriver re-fires `satellite.heartbeat_lost`.
+            // Drive the online → offline edge through `handle.mutate`; `apply`
+            // updates the in-memory map and returns the view, the framework
+            // records the transition (durable history), and the deriver
+            // re-fires `satellite.heartbeat_lost`.
             mirror: async (satelliteId, state) => {
-              await satelliteEntityHandle.set(satelliteId, state);
+              await satelliteEntityHandle.mutate({
+                id: satelliteId,
+                apply: () =>
+                  Promise.resolve(
+                    connectionStateStore.write({ satelliteId, state }),
+                  ),
+              });
             },
           },
         );

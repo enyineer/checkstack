@@ -4,10 +4,14 @@
  *
  * Satellite connection state is genuinely an entity: the WS handler's
  * in-memory connection map and the heartbeat monitor's online→offline
- * transition ARE state with diffs. Phase 4 mirrors that state into the
- * framework-owned `satellite-connection` entity at the three lifecycle
- * sites that used to emit the `satellite.connected` / `.disconnected` /
- * `.heartbeat_lost` hooks. The persisted `satellites.lastHeartbeatAt`
+ * transition ARE state with diffs. The `satellite-connection` entity is
+ * PLUGIN-BACKED (Model B): its current state lives ONLY in a process-local
+ * connection-state map (see `connection-state-store.ts`) — there is NO
+ * `entity_state` mirror. The three lifecycle sites that used to emit the
+ * `satellite.connected` / `.disconnected` / `.heartbeat_lost` hooks now drive
+ * `handle.mutate`, whose `apply` updates that map; the framework still records
+ * full transition HISTORY in `entity_transitions` (in-memory current state,
+ * durable platform history). The persisted `satellites.lastHeartbeatAt`
  * column stays as escape-hatched bookkeeping (declared non-reactive).
  *
  * The three hooks are removed; the change-deriver below maps an entity
