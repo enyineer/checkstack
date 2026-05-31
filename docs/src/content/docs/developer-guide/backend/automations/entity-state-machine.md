@@ -15,8 +15,8 @@ The framework NEVER owns a plugin's current state. There is no framework-managed
 
 A kind's `read` resolves one of two ways, both plugin-backed:
 
-- **Plugin-table-backed** - the reactive subset is projected straight off the plugin's own table(s). Incident, maintenance, catalog (system + group), dependency, and satellite-connection all read this way.
-- **Compute-on-read** - the reactive subset has no stored row at all; it is derived on demand from the plugin's own durable data. The per-system `health` aggregate and the `slo` budget/streak view compute this way, so there is no second materialized copy to drift from the source.
+- **Plugin-table-backed** - the reactive subset is projected straight off the plugin's own table(s). Incident, maintenance, catalog (system + group), and dependency all read this way.
+- **Compute-on-read** - the reactive subset has no stored status row at all; it is derived on demand from the plugin's own durable data. The per-system `health` aggregate, the `slo` budget/streak view, and `satellite-connection` (status computed from `last_heartbeat_at`) compute this way, so there is no second materialized copy to drift from the source or get stuck after a pod crash.
 
 ## When to use defineEntity vs the escape hatch
 
@@ -194,13 +194,13 @@ await handle.mutate({
 
 The `slo` entity computes the same way: its `budgetRemainingPercent` is a pure function of the objective's append-only downtime history, so the `read` recomputes it via the SLO engine rather than storing a second copy.
 
-### Durable state with a pod-local live socket
+### Compute-on-read status with a pod-local live socket
 
-A kind can be plugin-table-backed AND still keep some genuinely pod-local infrastructure - as long as that infrastructure is never the queryable source of truth. The `satellite-connection` entity is the canonical example. Its current state lives in DURABLE columns on the shared `satellites` table (`connection_status`, `last_seen_at`, `last_connection_event`), so it is globally readable from any pod:
+A kind can compute its status on read AND still keep some genuinely pod-local infrastructure - as long as that infrastructure is never the queryable source of truth. The `satellite-connection` entity is the canonical example. Its `status` is COMPUTED on read from the single durable liveness column `satellites.last_heartbeat_at` (via the same `computeStatus(lastHeartbeatAt)` the admin list uses), so it is globally consistent from any pod AND self-heals: a row left marked `connected` by a crashed pod reads `offline` once its heartbeat ages past the threshold, with no stored status copy that could get stuck `online`. The only extra durable column is `last_connection_event` (the deriver's `connected` / `disconnected` / `heartbeat_lost` discriminator); `lastSeenAt` is derived from `last_heartbeat_at`:
 
 ```ts
 const read: EntityRead<SatelliteConnectionState> = (ids) =>
-  service.getManyConnectionStates(ids); // reads the durable satellites columns
+  service.getManyConnectionStates(ids); // computes status from last_heartbeat_at
 
 const handle = entity.defineEntity<SatelliteConnectionState>({
   kind: "satellite-connection",
@@ -208,15 +208,18 @@ const handle = entity.defineEntity<SatelliteConnectionState>({
   read,
 });
 
-// The pod that owns the live WebSocket is the writer: on connect / close /
-// heartbeat-lost it UPDATEs the durable connection columns through `apply`.
+// Each lifecycle edge writes the durable liveness inputs through `apply`:
+//  - connect:    last_heartbeat_at = now,  last_connection_event = "connected"
+//  - disconnect: last_heartbeat_at = null, last_connection_event = "disconnected"
+//  - heartbeat-lost (the monitor, from ANY pod): flips ONLY the event to
+//    "heartbeat_lost" - idempotent, since once flipped re-runs are no-ops.
 await handle.mutate({
   id: satelliteId,
-  apply: () => service.updateConnection({ satelliteId, status, event }),
+  apply: () => service.applyConnectionState({ satelliteId, lastEvent, lastHeartbeatAt }),
 });
 ```
 
-The in-process WebSocket registry still exists, but ONLY as the pod-local live-socket map used to route messages to a connection physically held by THIS pod. It is never read as the entity's state. Mark it `declareNonReactiveState({ reason: "bookkeeping" })` (as `satellites.lastHeartbeatAt` is). This is exactly the distinction the [horizontal-scale rule](#horizontal-scale) draws: the durable columns are the entity, the socket map is pod-local bookkeeping.
+The heartbeat monitor detects the online->offline edge from DURABLE state alone - it reads every satellite's `(last_heartbeat_at, last_connection_event)`, computes status, and fires `heartbeat_lost` for any that is `offline` while still marked `connected`. This works on whichever pod claims the check job, with NO pod-local baseline, fixing a defect where a pod with an empty in-memory map never observed the satellite online and so left the status stuck `online` after a crash. The in-process WebSocket registry still exists, but ONLY as the pod-local live-socket map used to route messages to a connection physically held by THIS pod; it is never read as the entity's state. Mark it `declareNonReactiveState({ reason: "bookkeeping" })`. This is exactly the distinction the [horizontal-scale rule](#horizontal-scale) draws: the durable, computed-on-read status is the entity, the socket map is pod-local bookkeeping.
 
 ## Horizontal scale
 

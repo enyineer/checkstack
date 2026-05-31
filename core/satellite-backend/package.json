@@ -40,7 +40,9 @@
     "@checkstack/test-utils-backend": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
     "@types/bun": "^1.0.0",
+    "@types/pg": "^8.20.0",
     "drizzle-kit": "^0.31.10",
+    "pg": "^8.21.0",
     "typescript": "^5.0.0"
   }
 }

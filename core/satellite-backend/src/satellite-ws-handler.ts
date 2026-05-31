@@ -7,7 +7,7 @@ import type {
 import { extractErrorMessage } from "@checkstack/common";
 import type { SatelliteService } from "./service";
 import type { ConfigRelay } from "./config-relay";
-import type { SatelliteConnectionState } from "./entity";
+import type { SatelliteConnectionEvent } from "./entity";
 import {
   SatelliteToCoreMessageSchema,
   type CoreToSatelliteMessage,
@@ -16,20 +16,24 @@ import {
 } from "@checkstack/satellite-common";
 
 /**
- * Optional plug-point for mirroring satellite connection state into the
- * reactive `satellite-connection` entity (reactive automation engine §10.6).
- * Bound from `afterPluginsReady` where the entity handle is available — when
- * not provided, no entity state is mirrored (graceful no-op in unit tests).
+ * Optional plug-point for driving a satellite connection lifecycle edge into
+ * the reactive `satellite-connection` entity (reactive automation engine
+ * §10.6). Bound from `afterPluginsReady` where the entity handle is available —
+ * when not provided, no entity state is mirrored (graceful no-op in unit tests).
  *
  * The WS handler calls `mirror` at the same connect / disconnect lifecycle
  * points it previously emitted the `satellite.connected` / `.disconnected`
- * hooks; the change-deriver re-fires the equivalent trigger events.
+ * hooks; the change-deriver re-fires the equivalent trigger events. The status
+ * is COMPUTED on read from `lastHeartbeatAt`, so the sink carries the new
+ * heartbeat value for the edge rather than a status: `now` on connect (online),
+ * `null` on clean disconnect (offline immediately).
  */
 export interface SatelliteConnectionEntitySink {
-  mirror: (
-    satelliteId: string,
-    state: SatelliteConnectionState,
-  ) => Promise<void>;
+  mirror: (input: {
+    satelliteId: string;
+    lastEvent: SatelliteConnectionEvent;
+    lastHeartbeatAt: Date | null;
+  }) => Promise<void>;
 }
 
 /**
@@ -183,17 +187,19 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
         // Track connection
         this.connections.set(satellite.id, { satellite, ws });
 
-        // Mirror the `online` connection state into the reactive entity
-        // (best-effort — never block the auth handshake on a mirror failure).
-        // The change-deriver re-fires the `satellite.connected` trigger event.
+        // Drive the `connected` edge into the reactive entity (best-effort —
+        // never block the auth handshake on a mirror failure). `apply` sets
+        // `lastHeartbeatAt = now` so the computed status reads `online`, and
+        // `lastConnectionEvent = "connected"`; the change-deriver re-fires the
+        // `satellite.connected` trigger event. This is also the connect-time
+        // heartbeat write (no separate `updateHeartbeat` needed), and it runs
+        // through `handle.mutate` so `prev` is snapshotted BEFORE the write.
         if (this.connectionEntitySink) {
           try {
-            await this.connectionEntitySink.mirror(satellite.id, {
-              status: "online",
-              name: satellite.name,
-              region: satellite.region,
-              lastSeenAt: new Date().toISOString(),
+            await this.connectionEntitySink.mirror({
+              satelliteId: satellite.id,
               lastEvent: "connected",
+              lastHeartbeatAt: new Date(),
             });
           } catch (error) {
             this.logger.error(
@@ -201,10 +207,11 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
               error,
             );
           }
+        } else {
+          // No entity sink wired (e.g. unit tests): still record the
+          // connect-time heartbeat directly so liveness is correct.
+          await this.service.updateHeartbeat(satellite.id, {});
         }
-
-        // Update heartbeat on connect
-        await this.service.updateHeartbeat(satellite.id, {});
 
         // Send authenticated response with full config. Carry the desired
         // script-package lockfile hash as the durable convergence backstop:
@@ -343,16 +350,20 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
           `Satellite disconnected: ${closedSatellite.name} (${closedSatellite.region})`,
         );
         if (this.connectionEntitySink) {
-          // Fire-and-forget — `onClose` is sync, so don't await; we
-          // don't have a place to surface a rejection anyway. Mirror the
-          // `offline` state so the deriver re-fires `satellite.disconnected`.
+          // Fire-and-forget — `onClose` is sync, so don't await; we don't have
+          // a place to surface a rejection anyway. Clear `lastHeartbeatAt`
+          // (`null`) so the computed status flips `offline` IMMEDIATELY on a
+          // clean disconnect (no waiting for the heartbeat to age out), and set
+          // `lastConnectionEvent = "disconnected"` so the deriver re-fires
+          // `satellite.disconnected`. Nulling the heartbeat coincides with the
+          // "never connected" representation, but `lastConnectionEvent` stays
+          // `"disconnected"` (non-null), so the entity still HAS state — the
+          // read only omits a satellite whose `lastConnectionEvent` is null.
           void this.connectionEntitySink
-            .mirror(closedSatellite.id, {
-              status: "offline",
-              name: closedSatellite.name,
-              region: closedSatellite.region,
-              lastSeenAt: new Date().toISOString(),
+            .mirror({
+              satelliteId: closedSatellite.id,
               lastEvent: "disconnected",
+              lastHeartbeatAt: null,
             })
             .catch((error: unknown) => {
               this.logger.error(

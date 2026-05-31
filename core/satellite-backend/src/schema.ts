@@ -19,27 +19,27 @@ export const satellites = pgTable("satellites", {
   tags: jsonb("tags").$type<Record<string, string>>().default({}).notNull(),
   /** Bcrypt hash of the satellite's API token */
   tokenHash: text("token_hash").notNull(),
-  /** Last heartbeat timestamp — null means never connected */
+  /**
+   * Last heartbeat timestamp — null means never connected (or cleanly
+   * disconnected). This is the SINGLE durable liveness source of truth: the
+   * reactive `satellite-connection` entity's `status` and `lastSeenAt` are
+   * COMPUTED on read from it (via `computeStatus` / `OFFLINE_THRESHOLD_MS`), so
+   * the entity is globally consistent from any pod and self-heals — a stale row
+   * reads `offline` once this timestamp ages past the offline threshold, even
+   * if the pod that owned the socket crashed without writing offline.
+   */
   lastHeartbeatAt: timestamp("last_heartbeat_at"),
   /** Satellite version reported on connect/heartbeat */
   version: text("version"),
   /**
-   * Durable, globally-readable current connection status backing the reactive
-   * `satellite-connection` entity (reactive automation engine §10.6, §9.1).
-   * The pod physically holding the satellite's socket writes this; any other
-   * pod reads it for scope enrichment / `wait_until` re-eval. "offline" by
-   * default (a freshly-created satellite has never connected).
-   */
-  connectionStatus: text("connection_status", { enum: ["online", "offline"] })
-    .default("offline")
-    .notNull(),
-  /** ISO instant of the lifecycle edge that last touched the connection (nullable: never connected). */
-  lastSeenAt: timestamp("last_seen_at"),
-  /**
    * Which lifecycle edge produced the latest connection-status change. Preserves
    * the distinction between a socket drop (`disconnected`) and the heartbeat-lost
-   * offline edge (`heartbeat_lost`) that a bare status diff cannot encode.
-   * Nullable: a satellite that never connected has no last event.
+   * offline edge (`heartbeat_lost`) that a bare status diff cannot encode. This
+   * is the ONLY durable connection column the reactive `satellite-connection`
+   * entity needs beyond `lastHeartbeatAt`: the deriver reads it as `lastEvent`,
+   * and the heartbeat monitor uses it to make heartbeat-lost detection
+   * idempotent (once it is `"heartbeat_lost"`, re-runs are no-ops). Nullable: a
+   * satellite that never connected has no last event.
    */
   lastConnectionEvent: text("last_connection_event", {
     enum: ["connected", "disconnected", "heartbeat_lost"],

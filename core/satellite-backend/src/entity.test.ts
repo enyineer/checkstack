@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import { SYSTEM_ACTOR } from "@checkstack/common";
+import { OFFLINE_THRESHOLD_MS } from "@checkstack/satellite-common";
 import type { EntityChanged } from "@checkstack/automation-common";
 
 import {
@@ -151,35 +152,64 @@ describe("satelliteConnectionStateSchema", () => {
 });
 
 describe("toSatelliteConnectionState", () => {
-  it("projects a durable connection row onto the reactive view", () => {
-    const seen = new Date("2026-05-31T00:00:00.000Z");
-    expect(
-      toSatelliteConnectionState({
-        status: "online",
-        name: "edge-eu",
-        region: "eu",
-        lastSeenAt: seen,
-        lastConnectionEvent: "connected",
-      }),
-    ).toEqual({
+  it("computes online status from a recent lastHeartbeatAt", () => {
+    const recent = new Date(Date.now() - 5_000);
+    const state = toSatelliteConnectionState({
+      name: "edge-eu",
+      region: "eu",
+      lastHeartbeatAt: recent,
+      lastConnectionEvent: "connected",
+    });
+    expect(state).toEqual({
       status: "online",
       name: "edge-eu",
       region: "eu",
-      lastSeenAt: "2026-05-31T00:00:00.000Z",
+      lastSeenAt: recent.toISOString(),
       lastEvent: "connected",
     });
   });
 
+  it("computes offline (self-heals) when lastHeartbeatAt has aged past the threshold", () => {
+    // This is the crash-recovery property: a row left marked `connected` by a
+    // crashed pod reads `offline` purely because its heartbeat aged out — the
+    // status is computed, never a stuck stored copy.
+    const aged = new Date(Date.now() - OFFLINE_THRESHOLD_MS - 10_000);
+    const state = toSatelliteConnectionState({
+      name: "edge-eu",
+      region: "eu",
+      lastHeartbeatAt: aged,
+      lastConnectionEvent: "connected",
+    });
+    expect(state!.status).toBe("offline");
+    expect(state!.lastSeenAt).toBe(aged.toISOString());
+    expect(state!.lastEvent).toBe("connected");
+  });
+
+  it("computes offline with null lastSeenAt after a clean disconnect (lastHeartbeatAt cleared)", () => {
+    const state = toSatelliteConnectionState({
+      name: "edge-eu",
+      region: "eu",
+      lastHeartbeatAt: null,
+      lastConnectionEvent: "disconnected",
+    });
+    expect(state).toEqual({
+      status: "offline",
+      name: "edge-eu",
+      region: "eu",
+      lastSeenAt: null,
+      lastEvent: "disconnected",
+    });
+  });
+
   it("returns null for a never-connected satellite (no last edge yet)", () => {
-    // A satellite created but never connected has null lastSeenAt /
-    // lastConnectionEvent — it has no entity state, so the read omits it and
-    // the framework sees the first connect as a create (prev === null).
+    // A satellite created but never connected has null lastConnectionEvent — it
+    // has no entity state, so the read omits it and the framework sees the first
+    // connect as a create (prev === null).
     expect(
       toSatelliteConnectionState({
-        status: "offline",
         name: "edge-eu",
         region: "eu",
-        lastSeenAt: null,
+        lastHeartbeatAt: null,
         lastConnectionEvent: null,
       }),
     ).toBeNull();
