@@ -1,42 +1,51 @@
 /**
  * The reactive `health` entity (reactive automation engine §10.3).
  *
- * The per-system aggregated health is HOMELESS (Model B): it is COMPUTED at
- * check-evaluation time and has no domain table of its own — only the
- * `health_check_*` tables (raw runs + transitions) persist. The reactive
- * subset `{ status, healthyChecks, totalChecks }` therefore lives in the
- * framework keyed store (`entity_state`, keyed by `systemId`), the SANCTIONED
- * home for a homeless kind. `defineEntity({ read: keyedStore.readMany })`
- * makes it reactive: every evaluation-site write goes through
- * `handle.mutate`, whose `apply` writes the keyed store and returns the
- * aggregate view. The framework snapshots `prev` via `read`, appends the
- * transition log, and emits `ENTITY_CHANGED`.
+ * Model B PLUGIN-BACKED + COMPUTED entity. There is NO framework `entity_state`
+ * row for a system's aggregated health and NO domain table of its own — the
+ * reactive subset `{ status, healthyChecks, totalChecks }` is COMPUTED on demand
+ * by the `read` accessor from the SAME durable health data the rest of the
+ * plugin reads (`health_check_runs` via `service.getSystemHealthStatus`). Every
+ * evaluation-site write goes through `handle.mutate`, whose `apply` performs the
+ * REAL durable write (insert run + increment aggregate) and returns the
+ * freshly-computed view. The framework snapshots `prev` via `read` BEFORE
+ * `apply` runs (i.e. before the run is persisted), diffs prev → next, appends
+ * the transition log, and emits `ENTITY_CHANGED`.
  *
  * This module is the single source of truth for:
  *  - the `health` entity zod state schema + kind id,
+ *  - the PLUGIN-BACKED + COMPUTED `read` accessor
+ *    ({@link createHealthEntityRead}),
  *  - the change → trigger-event deriver (so the existing
  *    `healthcheck.system.degraded` / `.healthy` / `.health_changed`
  *    automations keep firing), and
- *  - the `mirrorHealthEntity` helper called at every aggregate-write site.
+ *  - the `writeHealthEntity` helper called at every evaluation-write site.
  */
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import { HealthCheckStatusSchema } from "@checkstack/healthcheck-common";
+import type { SafeDatabase } from "@checkstack/backend-api";
 import type {
   EntityChangeDeriver,
   EntityHandle,
-  EntityKeyedStoreService,
-  KeyedStore,
+  EntityRead,
 } from "@checkstack/automation-backend";
+import type { HealthCheckService } from "./service";
+import { healthCheckRuns } from "./schema";
+import * as schema from "./schema";
 // Re-export the change type through automation-backend's barrel (it
 // re-exports it from automation-common) so this domain needs no extra dep.
+
+type Db = SafeDatabase<typeof schema>;
 
 /** Entity kind id for the per-system aggregated health. */
 export const HEALTH_ENTITY_KIND = "health";
 
 /**
- * Reactive state subset mirrored into the entity store. The full aggregate
+ * Reactive state subset surfaced as the entity view. The full aggregate
  * (per-check breakdown, timestamps, etc.) stays in the domain tables; only
- * the fields automations reason about live here.
+ * the fields automations reason about live here. Computed on read from the
+ * same durable data `getSystemHealthStatus` reads — never materialized.
  */
 export const HealthEntityStateSchema = z.object({
   status: HealthCheckStatusSchema,
@@ -144,58 +153,139 @@ export function classifyHealthChange(changed: {
 }
 
 /**
- * The reactive-write surface for the homeless `health` kind: the entity
- * handle plus the framework keyed store (`entity_state`) the handle's `apply`
- * writes through. Bundled so the queue executor can pass a single value and
- * `mirrorHealthEntity` can drive `handle.mutate` (the keyed store is the
- * SOLE current-state home for this kind — there is no duplicate domain row).
+ * Whether the system has at least one persisted `health_check_runs` row.
+ *
+ * This is the EXISTENCE GATE for the computed entity: a system with no runs
+ * yet has no `health` entity (the `read` omits it). It reproduces the old
+ * keyed-store semantic where the entity row only appeared on the FIRST mirror
+ * (i.e. after the first run was persisted), so a system's very first
+ * evaluation is a create (`prev === null`) and fires no directional/umbrella
+ * event. Once any run exists, the entity is resolvable on every read.
  */
-export interface HealthEntityWriter {
-  handle: EntityHandle<HealthEntityState>;
-  keyedStore: KeyedStore<HealthEntityState>;
-  keyedStoreService: EntityKeyedStoreService;
+async function systemHasRuns(args: {
+  db: Db;
+  systemId: string;
+}): Promise<boolean> {
+  const { db, systemId } = args;
+  const [row] = await db
+    .select({ id: healthCheckRuns.id })
+    .from(healthCheckRuns)
+    .where(eq(healthCheckRuns.systemId, systemId))
+    .limit(1);
+  return row !== undefined;
 }
 
 /**
- * Mirror the aggregated health of one system into the `health` entity.
+ * Compute the reactive `health` view for a single system from durable data.
  *
- * Routes the write through `handle.mutate({ id: systemId, apply })` (Model B):
- * `apply` upserts the aggregate into the framework keyed store (`entity_state`)
- * on its OWN transaction and returns the view; the framework snapshots `prev`
- * via `read`, appends the transition log, and emits `ENTITY_CHANGED` (whose
- * deriver fires `healthcheck.system_degraded` / `_healthy` / `_health_changed`).
- * An unchanged aggregate is a no-op (the handle diffs internally).
+ * Derives `{ status, healthyChecks, totalChecks }` exactly as the old
+ * evaluation-site mirror did:
+ *  - `status`         = `getSystemHealthStatus(systemId).status` (the worst-
+ *    wins aggregate across the system's ENABLED checks, computed from
+ *    `health_check_runs` via `evaluateHealthStatus`),
+ *  - `healthyChecks`  = count of per-check statuses that are `"healthy"`,
+ *  - `totalChecks`    = number of enabled checks (`checkStatuses.length`).
  *
- * Fail-soft: a mirror failure must never break the health-check execution
- * path (the domain tables already captured the authoritative state). The
- * caller passes the resolved writer (or `undefined` during version skew /
- * tests) plus the freshly-computed aggregate.
+ * Returns `undefined` when the system has no persisted runs yet (existence
+ * gate — see {@link systemHasRuns}); missing ids are omitted from the batched
+ * `read`.
  */
-export async function mirrorHealthEntity(args: {
-  writer: HealthEntityWriter | undefined;
+export async function computeHealthEntityState(args: {
+  db: Db;
+  service: HealthCheckService;
   systemId: string;
-  status: HealthEntityState["status"];
-  healthyChecks: number;
-  totalChecks: number;
+}): Promise<HealthEntityState | undefined> {
+  const { db, service, systemId } = args;
+  if (!(await systemHasRuns({ db, systemId }))) return undefined;
+  const overview = await service.getSystemHealthStatus(systemId);
+  return {
+    status: overview.status,
+    healthyChecks: overview.checkStatuses.filter((c) => c.status === "healthy")
+      .length,
+    totalChecks: overview.checkStatuses.length,
+  };
+}
+
+/**
+ * Build the PLUGIN-BACKED + COMPUTED `read` accessor for the `health` entity.
+ * For each systemId, assembles the view via {@link computeHealthEntityState}
+ * (systems with no runs omitted). This is the single source of truth that
+ * `handle.mutate` snapshots `prev` from and `get`/`getMany`/scope enrichment
+ * route through — no framework `entity_state` storage.
+ */
+export function createHealthEntityRead(deps: {
+  db: Db;
+  service: HealthCheckService;
+}): EntityRead<HealthEntityState> {
+  const { db, service } = deps;
+  return async (ids) => {
+    if (ids.length === 0) return {};
+    const out: Record<string, HealthEntityState> = {};
+    await Promise.all(
+      ids.map(async (systemId) => {
+        const state = await computeHealthEntityState({ db, service, systemId });
+        if (state) out[systemId] = state;
+      }),
+    );
+    return out;
+  };
+}
+
+/**
+ * Drive an evaluation-site health write through `handle.mutate` (§10.3).
+ *
+ * `apply` performs the REAL durable write (insert the run + increment the
+ * hourly aggregate) and returns the freshly-computed `health` view. The
+ * framework snapshots `prev` via `read` BEFORE `apply` runs — i.e. BEFORE the
+ * run is persisted — so a real status change yields exactly one correct
+ * `ENTITY_CHANGED` with accurate prev → next, whose deriver fires the
+ * `healthcheck.system_degraded` / `_healthy` / `_health_changed` trigger
+ * events. An unchanged aggregate is a no-op (the handle diffs internally).
+ *
+ * Failure handling:
+ *  - When no `handle` is bound (version skew / tests), `apply` still runs —
+ *    the durable write is never gated on entity reactivity.
+ *  - If `apply` throws BEFORE the durable write commits, the error propagates
+ *    so the executor's own error path (fallback insert) runs. We detect this
+ *    via `durableState`: it is only set once `apply` has produced its view, so
+ *    if it is still unset when `mutate` throws, the durable write did not
+ *    commit.
+ *  - If the FRAMEWORK reactivity throws AFTER the durable write committed
+ *    (transition append / emit — the documented Model B post-commit boundary),
+ *    we route it to `onError` and DO NOT rethrow: a reactivity failure must
+ *    never break health-check execution (the durable tables already hold the
+ *    authoritative state).
+ *
+ * Returns the computed view (or `undefined` if `apply` never produced one,
+ * which only happens when it threw and `handle` was absent — in which case the
+ * throw already propagated).
+ */
+export async function writeHealthEntity(args: {
+  handle: EntityHandle<HealthEntityState> | undefined;
+  systemId: string;
+  apply: () => Promise<HealthEntityState>;
   onError?: (error: unknown) => void;
-}): Promise<void> {
-  const { writer, systemId, status, healthyChecks, totalChecks, onError } =
-    args;
-  if (!writer) return;
-  const { handle, keyedStore, keyedStoreService } = writer;
-  const state: HealthEntityState = { status, healthyChecks, totalChecks };
+}): Promise<HealthEntityState> {
+  const { handle, systemId, apply, onError } = args;
+  if (!handle) {
+    // No reactivity bound — run the durable write directly.
+    return apply();
+  }
+  let durableState: HealthEntityState | undefined;
   try {
-    await handle.mutate({
+    return await handle.mutate({
       id: systemId,
-      // PLUGIN-BACKED apply (no framework tx): the keyed store IS this kind's
-      // current-state home, so open a tx on automation-backend's DB and write
-      // it there, returning the aggregate view as `next`.
-      apply: () =>
-        keyedStoreService.runInTransaction((tx) =>
-          keyedStore.write({ tx, id: systemId, state }),
-        ),
+      apply: async () => {
+        durableState = await apply();
+        return durableState;
+      },
     });
   } catch (error) {
+    // `apply` never committed ⇒ the durable write failed; propagate so the
+    // executor's outer catch can run its fallback path.
+    if (durableState === undefined) throw error;
+    // Durable write committed; only the framework reactivity failed. Fail-soft.
     onError?.(error);
+    return durableState;
   }
 }
