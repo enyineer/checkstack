@@ -1,5 +1,86 @@
 # @checkstack/maintenance-backend
 
+## 1.3.0
+
+### Minor Changes
+
+- 270ef29: Add the health-state provider data contract (automation sensing layer, Wave 2 Phase 13).
+
+  - New `health_check_state_transitions` table records every aggregate health-status transition for a system (all statuses, not just unhealthy), giving a reliable "in current status since" timestamp. Written wherever an aggregate transition is detected. Pruned with raw-run retention, but the single most-recent row per system is always kept so an active streak never blanks.
+  - New service-typed RPCs on `HealthCheckApi`: `getHealthState({ systemId, configurationId? })` returns `{ status, inStatusSince, inStatusForMs, latencyMs?, avgLatencyMs?, p95LatencyMs?, successRate?, lastRunAt?, inMaintenance, evaluatedAt }`, and `getBulkHealthState({ systemIds })` (POST) resolves many systems against one shared timestamp.
+  - New service-typed RPC on `MaintenanceApi`: `hasActiveMaintenance({ systemId })` reports whether a system is in an active maintenance window regardless of notification-suppression (suppression-agnostic), folded into `getHealthState` as `inMaintenance`.
+
+  All reads are fail-safe: a missing transition row yields `inStatusSince: null`, and a maintenance-plugin error fails open to `inMaintenance: false`.
+
+- b995afb: Make `maintenance` a plugin-backed reactive entity via the Model-B entity state machine.
+
+  Maintenance defines a `maintenance` entity `{ status, systemIds, startAt, endAt }`. The `maintenances` + `maintenance_systems` tables are BOTH authoritative AND the entity's current-state storage - there is no framework `entity_state` mirror. `defineEntity` is given a plugin `read` accessor (`MaintenanceService.getManyEntityStates`, projecting the reactive subset with ISO-serialized timestamps straight off those tables), and every create / update / add-update / close / delete site (plus the automation actions) drives the REAL service write through `handle.mutate` / `handle.remove` via the `writeMaintenanceEntity` / `removeMaintenanceEntity` helpers: `apply` runs the write in the plugin's own transaction and returns the new state; the framework snapshots `prev` via `read` BEFORE the write, appends the transition log, and emits `ENTITY_CHANGED` AFTER the write commits. `MaintenanceService.createMaintenance` accepts an optional pre-generated `id` so a create is keyed on a known id and its `prev` snapshot reads the not-yet-existing row as absent.
+
+  A registered change-deriver maps `maintenance` entity changes back to the `maintenance.created` / `maintenance.updated` trigger events, so existing automations keep firing via the reactive Stage-1/Stage-2 dispatch pipeline. The old `maintenance.created` / `maintenance.updated` change hooks and their hook-backed triggers are removed in favor of the reactive entity.
+
+  BREAKING CHANGES:
+
+  - Removed the `maintenance.created` and `maintenance.updated` hooks (`createHook`) and their re-export from the plugin entry point. Use the `maintenance` entity's auto-emitted change events (subscribe via the `automation.entity` extension point's `onEntityChanged`, or author automations against the derived `maintenance.created` / `maintenance.updated` trigger events).
+  - The `created` / `updated` automation triggers are now ENTITY-DRIVEN instead of hook-backed: they are fired by the `maintenance` entity change-deriver (Stage-1 routing) rather than a `createHook`, but stay REGISTERED in the automation editor's trigger catalog (a no-op `setup` via `makeEntityDrivenTriggerSetup`), so they remain offered as picker entries and payload-introspectable. Already-authored automations referencing `maintenance.created` / `maintenance.updated` continue to fire. A registered `toPayload` mapper keeps the runtime `trigger.payload` matching each trigger's declared `payloadSchema` (`maintenanceId`, `status`, `systemIds`, `startAt`, `endAt`). The descriptive fields the old hook carried (`title`, `description`, the `updated`/`closed` `action` discriminator) are NOT part of the reactive entity state, so they are no longer present on the payload.
+  - NARROWING: `maintenance.updated` now fires only on a change to the REACTIVE state (`status`, `startAt` / `endAt` window, or affected `systemIds`). A title / description / message-only edit no longer fires `maintenance.updated` (those fields are not reactive entity state). Re-author any automation that needed to react to a metadata-only maintenance edit against a different signal.
+
+### Patch Changes
+
+- b995afb: Extract a shared `withEntityWrite` / `withEntityRemove` guard for PLUGIN-BACKED (Model B) reactive entities and refactor the per-domain copies onto it.
+
+  Every plugin-backed domain (incident, catalog, dependency, maintenance, slo, satellite) reimplemented the same "no handle wired → run the plugin write directly; handle wired → route through `handle.mutate` / `handle.remove`" guard, varying only in the id-key name. `@checkstack/automation-backend` now exports `withEntityWrite` / `withEntityRemove` (from the entity barrel) and each domain's thin, well-named wrappers (`writeIncidentEntity`, `writeMaintenanceEntity`, satellite's `mirror`, …) delegate to it, so the branch lives in exactly one place. Behavior is unchanged.
+
+  `writeHealthEntity` (healthcheck-backend) is intentionally NOT migrated onto the helper — it is genuinely bespoke (closure-captured durable state, distinct rethrow-vs-fail-soft branches, a per-system serializer, and it returns the computed state). SLO keeps its fail-soft `onError` wrapper around the shared guard.
+
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+  - @checkstack/backend-api@0.19.0
+  - @checkstack/automation-backend@0.3.0
+  - @checkstack/automation-common@0.3.0
+  - @checkstack/maintenance-common@1.3.0
+  - @checkstack/catalog-backend@1.3.0
+  - @checkstack/cache-api@0.3.7
+  - @checkstack/command-backend@0.1.32
+  - @checkstack/cache-utils@0.2.12
+
 ## 1.2.0
 
 ### Minor Changes

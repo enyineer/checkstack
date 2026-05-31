@@ -1,5 +1,334 @@
 # @checkstack/healthcheck-backend
 
+## 1.4.0
+
+### Minor Changes
+
+- 270ef29: Add the health-state provider data contract (automation sensing layer, Wave 2 Phase 13).
+
+  - New `health_check_state_transitions` table records every aggregate health-status transition for a system (all statuses, not just unhealthy), giving a reliable "in current status since" timestamp. Written wherever an aggregate transition is detected. Pruned with raw-run retention, but the single most-recent row per system is always kept so an active streak never blanks.
+  - New service-typed RPCs on `HealthCheckApi`: `getHealthState({ systemId, configurationId? })` returns `{ status, inStatusSince, inStatusForMs, latencyMs?, avgLatencyMs?, p95LatencyMs?, successRate?, lastRunAt?, inMaintenance, evaluatedAt }`, and `getBulkHealthState({ systemIds })` (POST) resolves many systems against one shared timestamp.
+  - New service-typed RPC on `MaintenanceApi`: `hasActiveMaintenance({ systemId })` reports whether a system is in an active maintenance window regardless of notification-suppression (suppression-agnostic), folded into `getHealthState` as `inMaintenance`.
+
+  All reads are fail-safe: a missing transition row yields `inStatusSince: null`, and a maintenance-plugin error fails open to `inMaintenance: false`.
+
+- 270ef29: Add a windowed transition count to the health provider - the building block for custom flapping rules (Wave 2 Phase 18).
+
+  Flapping is already buildable today via the built-in `healthcheck.flapping_detected` trigger; this phase ships the GENERALIZATION for arbitrary "N status changes in M minutes" rules.
+
+  - `countStateTransitionsInWindow` counts aggregate status transitions for a system over a trailing window (from the Phase 13 `health_check_state_transitions` table - all statuses, generalizing the unhealthy-only flapping detector). Fail-safe to 0.
+  - `getHealthState` / `getBulkHealthState` now return `transitionsInWindow` + `transitionWindowMinutes`, and accept an optional `transitionWindowMinutes` input (default 60).
+  - The automation definition gains an optional top-level `state_window_minutes` (default 60), threaded through `enrichScopeWithState` so `health.system.transitions_in_window` / `health.system.transition_window_minutes` are folded into scope per evaluation.
+  - Operators author custom flapping as a `numeric_state` condition over `health.system.transitions_in_window` - no new condition variant, no editor change. The variable-scope resolver surfaces the new fields for autocomplete.
+
+- 270ef29: Replace the hardcoded auto-incident path with default automations (Wave 2 Phase 20).
+
+  BREAKING CHANGES: Auto-incident is now automation-driven. The hardcoded background path that opened incidents on sustained-unhealthy / flapping and closed them after a cooldown (`auto-incident.ts`, `auto-incident-close-job.ts`) is removed. On upgrade, an idempotent, threshold-preserving migration seeds equivalent default automations from each assignment's existing `NotificationPolicy`, so alerting behaviour is preserved 1:1:
+
+  - `sustainedUnhealthyTrigger.durationMinutes` -> the `for:` dwell on a `healthcheck.system_degraded` trigger -> `incident.create`.
+  - auto-close `autoCloseAfterMinutes` -> a `wait_until` (healthy continuously for the cooldown) -> `incident.resolve`.
+  - `useNotificationSuppression` -> the incident's `suppressNotifications`.
+  - `skipDuringMaintenance` -> a `{{ !health.system.in_maintenance }}` pre-run condition.
+  - `flappingTrigger.{transitions,windowMinutes}` -> a second automation on the `healthcheck.flapping_detected` trigger -> `incident.create`.
+
+  Auto-incidents remain ONE OPEN INCIDENT PER SYSTEM, faithful to the old behaviour. `incident.create` gains an opt-in `dedupe_open_for_system` config flag (default false, so existing/custom automations are unaffected): when true, it reuses an existing open incident on the target system instead of opening a duplicate (the old `findActiveAutoIncident(systemId)` semantic), returning the reused incident as the produced `incident` artifact. The seeded default automations set this flag, so a system with several failing checks - sustained and/or flapping - still gets a single open incident; whichever check crosses its threshold first opens it, and the rest dedupe to it. Both sustained and flapping default automations open at `critical` severity (parity with the old path). Per-system run dedup within an automation uses `concurrency_scope: "context_key"` + `mode: "single"`.
+
+  Operators can read, edit, disable, and extend these automations (see the "Customise auto-incident" guide). Seeded automations are tagged via `managedBy` (`auto-incident:<systemId>:<configurationId>:<kind>`) so the migration is a no-op on re-runs; anything unmappable is recorded as a migration-failure row.
+
+  Flapping DETECTION (transition recording + the `healthcheck.flapping_detected` emit) is relocated into `flapping-detector.ts` and survives; the emit now fires unconditionally on a threshold cross (no longer gated on `autoOpenIncidentOnUnhealthy`), matching the hook's documented intent and required for the flapping default automation. The legacy `health_check_auto_incidents` mapping table is no longer written or read (it will be dropped in a follow-up migration); `health_check_unhealthy_transitions` is retained for the flapping detector.
+
+  New service-typed `HealthCheckApi.listAutoIncidentPolicies` RPC exposes each assignment's effective notification policy for the migration. `incident.create` adds the `dedupe_open_for_system` flag (additive, defaults off).
+
+- b995afb: Make the per-system aggregated `health` a PLUGIN-BACKED, COMPUTE-ON-READ reactive entity via the Model-B entity state machine.
+
+  Healthcheck defines a `health` entity `{ status, healthyChecks, totalChecks }` keyed by `systemId`. There is NO framework storage and NO domain table of its own: the `read` accessor DERIVES the view on demand from the same durable health data the rest of the plugin reads (`health_check_runs` via `getSystemHealthStatus`), gated on the system having at least one enabled check association (see the first-run-degradation fix changeset). Storing a second materialized copy would duplicate the engine's source of truth and risk drift, so the aggregate is computed, not mirrored.
+
+  Each evaluation-site write drives `handle.mutate({ id: systemId, apply })`, where `apply` performs the REAL durable write (insert run + increment the hourly aggregate) and returns the freshly-computed view. The framework snapshots `prev` via `read` BEFORE the run is persisted, so a real status change still produces exactly one correct `ENTITY_CHANGED` with accurate prev to next. The write is fail-soft (a framework reactivity error after the durable write commits never breaks check execution) and diff-suppressed (an unchanged aggregate is a no-op). Raw `health_check_runs` stay intentionally non-reactive (`declareNonReactiveState`, raw-sample).
+
+  A behavior-preserving change to trigger-event deriver maps a status transition to the existing qualified TRIGGER events (the underscore trigger ids automations match on, not the dotted hook ids):
+
+  - recovery (`prev !== healthy` to `next === healthy`) to `healthcheck.system_healthy` + `healthcheck.system_health_changed`
+  - degradation (`prev === healthy` to `next !== healthy`) to `healthcheck.system_degraded` + `healthcheck.system_health_changed`
+  - any other transition to `healthcheck.system_health_changed`
+
+  `classifyHealthChange` lets cross-plugin consumers (slo, dependency) reproduce the old directional `systemDegraded` / `systemHealthy` predicates from a `health` change read via `onEntityChanged({ kind: "health" })`. The transition history in `entity_transitions` is recorded for every change.
+
+  BREAKING CHANGES:
+
+  - The `health` entity's current state is computed on read from the durable `health_check_*` tables; there is no stored current-state row (no framework `entity_state`, no domain mirror). Any code reading current aggregated health must read through the entity `read` accessor / `handle.get` / `getMany`, scope enrichment, or `onEntityChanged`. Durable history in `entity_transitions` is unaffected. (The cross-plugin `healthcheck.system.degraded` / `.healthy` / `.health_changed` hooks are removed in the healthcheck/catalog hook-removal changeset; the reactive entity drives the matching trigger events so existing automations keep firing.)
+
+- b995afb: Fix two correctness defects in the reactive `health` entity: suppressed first-run degradation, and duplicate `ENTITY_CHANGED` under concurrent N-pod evaluation.
+
+  **First-run degradation was silently dropped (data-loss).** The compute-on-read `health` entity gated on the system having at least one persisted `health_check_runs` row, so a system's very first evaluation snapshotted `prev = null` (a create). The deriver and `classifyHealthChange` both treat a null side as "no transition", so a first-ever run that came up unhealthy fired NO `system_degraded` / `health_changed` trigger and NO `degraded` `onEntityChanged` - meaning SLO / dependency consumers never opened downtime. If the system stayed unhealthy, `prev === next` forever and the event never fired. The executor's own pre-run baseline (`getSystemHealthStatus`, no run gate) DID see the transition, so the entity and the executor disagreed.
+
+  Fix: the existence gate is now on ENABLED check ASSOCIATIONS, not on persisted runs. A system with at least one enabled check resolves to the SAME default-`healthy` baseline `getSystemHealthStatus` returns for an empty run window (`{ status: "healthy", healthyChecks: N, totalChecks: N }`); a system with no enabled checks still has no entity. So a first-ever unhealthy run is now a real `healthy -> degraded` diff that fires `system_degraded` + `health_changed` and opens SLO / dependency downtime. The entity and the executor now agree on the pre-run baseline.
+
+  **Concurrent evaluations of one system double-emitted (race / data-loss).** `writeHealthEntity -> handle.mutate` snapshotted `prev`, applied, and diffed with NO advisory lock. Two concurrent evaluations of one system (multiple per-config jobs across pods, or at-least-once redelivery) could both snapshot `prev = healthy`, both insert a failing run, both diff `healthy -> degraded`, and both emit - yielding two `ENTITY_CHANGED` + two `entity_transitions` rows for one logical transition (inflating `transitionCount` / flapping and re-running dependency notify).
+
+  Fix: each system's snapshot-`prev` + `apply` + diff + emit is now serialized through a transaction-scoped advisory lock keyed `health:<systemId>` (`withXactLock` from `@checkstack/backend-api`), wired into `writeHealthEntity` via an injected `serialize` and applied at all three evaluation-write sites. Two concurrent evals of one system now collapse to exactly one emit and one transition row. The durable run/aggregate write is unchanged; only the snapshot/diff/emit window is protected.
+
+  BREAKING CHANGES:
+
+  - A system with an enabled health check now has a resolvable `health` entity BEFORE its first run (default-`healthy` baseline), where previously it had none until the first run persisted. Code that relied on the entity being absent for run-less-but-configured systems (e.g. treating a missing entity as "not yet monitored") should instead treat a `healthy` baseline as "configured, no failing signal yet". Systems with no enabled checks still have no entity.
+
+- b995afb: Remove the now-unused healthcheck + catalog entity hooks; rely on the reactive entities + change derivers (reactive automation engine Phase 4, final step of §10.3 / §10.4).
+
+  Now that every cross-plugin consumer (slo, dependency, incident, and healthcheck's own catalog-cleanup) reads these domains via `onEntityChanged`, the producers stop emitting the entity-change hooks and the trigger registrations become entity-driven (fired by the entity change deriver via Stage-1 routing, with a no-op `setup` so they stay in the editor's trigger catalog).
+
+  - **healthcheck**: stops emitting `healthcheck.system.degraded` / `.healthy` / `.health_changed` from the queue executor (the `health` entity mirror is the single source of truth). Its own `catalog.system.deleted` consumer switched to `onEntityChanged({ kind: "catalog-system" })` on tombstones (work-queue delivery preserved). The directional/umbrella triggers are now entity-driven.
+  - **catalog**: stops emitting `catalog.system.created` / `.updated` / `.deleted` and `catalog.group.created` / `.deleted` from the router + the `system.update_metadata` action (the `catalog-system` / `catalog-group` mirrors are authoritative). The system triggers are now entity-driven.
+
+  CORRECTNESS FIX (also affects the earlier healthcheck/catalog Phase-4 steps in this branch): the change derivers now emit the TRIGGER qualifiedIds that automations actually store in `trigger.event` and that Stage-1 routing matches on (`findEnabledByTriggerEvent`), NOT the dotted hook ids. Healthcheck triggers use underscore ids, so the deriver emits `healthcheck.system_degraded` / `system_healthy` / `system_health_changed` (not `healthcheck.system.degraded`). Catalog system triggers use ids `created`/`updated`/`deleted`, so the deriver emits `catalog.created` / `catalog.updated` / `catalog.deleted` (not `catalog.system.created`). Without this fix the migrated automations would never fire.
+
+  BREAKING CHANGES:
+
+  - `healthcheck.system.degraded` / `healthcheck.system.healthy` / `healthcheck.system.health_changed` cross-plugin hooks are removed. The reactive `health` entity drives the matching trigger events (`healthcheck.system_degraded` / `_healthy` / `_health_changed`), so existing automations keep firing. Kept healthcheck hooks: `assignment.changed`, `check.completed`, `check.failed`, `flapping_detected`.
+  - `catalog.system.created` / `.updated` / `.deleted` and `catalog.group.created` / `.deleted` cross-plugin hooks are removed. The reactive `catalog-system` / `catalog-group` entities drive the matching trigger events (`catalog.created` / `.updated` / `.deleted`); cross-plugin cleanup reactors subscribe to the `catalog-system` tombstone via `onEntityChanged`. `catalogHooks` / `healthCheckHooks` remain exported (the removed members are gone) for a stable import surface.
+
+- b995afb: Move health-check flapping configuration from the per-assignment notification policy onto the `healthcheck.flapping_detected` automation trigger.
+
+  Flapping thresholds (`transitions`, `windowMinutes`) are now configured on the trigger itself, next to the automation that reacts to them, instead of on each check assignment. The health-check executor still owns the windowed transition counting (it writes `health_check_unhealthy_transitions` and runs the window query), but it now SOURCES the thresholds from the subscribed automations' trigger config:
+
+  - On a transition-to-unhealthy it records the transition unconditionally (keeping history warm), then looks up the enabled automations subscribed to `healthcheck.flapping_detected`, collects the distinct set of configured windows, counts transitions once per distinct window, and emits one `healthcheck.flapping_detected` per window. The trigger's exact-window `evaluateConfig` gate then fires each automation only for its own window and transition threshold.
+  - A missing or partial flapping trigger config defaults to `{ transitions: 3, windowMinutes: 60 }`, so automations created before the trigger carried config keep working unchanged.
+  - `automation-backend` exposes a new backend-only, read-only `automationSubscriptionsRef` service ref (`findEnabledByTriggerEvent`) so a plugin that owns a trigger's underlying event can discover its subscribers' trigger config. It is never browser-exposed.
+
+  **BREAKING CHANGES**
+
+  - The per-assignment `notificationPolicy.flappingTrigger` field is removed. `NotificationPolicy` is now `{ suppressDeEscalations }` only. Stored rows that still carry a `flappingTrigger` key parse cleanly - the key is stripped on read - so no data migration is required, but the per-check flapping toggle/threshold in the assignment Notifications tab is gone; configure flapping on the trigger instead.
+  - The GitOps `System.healthcheck[].notificationPolicy.flappingTrigger` field is removed. A `flappingTrigger` block in a manifest is ignored. Move the thresholds to the `transitions` / `windowMinutes` config of your `healthcheck.flapping_detected` automation trigger.
+  - The standalone `enabled` flag for flapping is gone: flapping is "enabled" precisely when at least one enabled automation subscribes to `healthcheck.flapping_detected`. With no subscriber, the transition is still recorded but nothing is counted or emitted.
+
+- b995afb: Restore the documented domain payload fields on entity-driven automation triggers.
+
+  Migrated triggers declare domain-named `payloadSchema`s (incident `incidentId`; health `systemId` / `previousStatus`; catalog `systemId` / `changedFields`; dependency `dependencyId`), but Stage-2 dispatch built `trigger.payload` from the generic entity-change shape (`{ kind, id, prev, next, delta, ...next }`). Operator filters and templates reading `trigger.payload.incidentId` / `.systemId` / `.previousStatus` silently resolved to `undefined` — a regression vs the legacy hook payloads.
+
+  Changes:
+
+  - `@checkstack/automation-backend`: `registerChangeDeriver` now accepts an optional per-kind `toPayload(changed) => Record<string, unknown>` mapper (at most one per kind; a second distinct mapper throws). Stage-2's `changedToPayload` uses the registered mapper to build `trigger.payload` so it matches the kind's declared `payloadSchema`, falling back to the generic change shape for kinds without a mapper. New exported type `EntityChangePayloadMapper`.
+  - `@checkstack/incident-backend`, `@checkstack/healthcheck-backend`, `@checkstack/catalog-backend`, `@checkstack/dependency-backend`: implement and register a `toPayload` for each entity-driven kind so `trigger.payload` carries the legacy domain keys again.
+
+  Descriptive incident payload fields not derivable from the reactive entity state (`title`, `description`, `createdAt`, `resolvedAt`) are now OPTIONAL on the incident trigger `payloadSchema`s — they were always absent from an entity-driven payload.
+
+- b995afb: Remove the legacy per-assignment auto-incident system. Auto-incidents are now built entirely by user-authored automations; nothing is seeded or hardcoded.
+
+  What was removed:
+
+  - The one-time migration that auto-seeded "sustained unhealthy" and "flapping" default automations from each assignment's notification policy, plus the `listAutoIncidentPolicies` RPC it consumed.
+  - The seeder-only notification-policy settings and their UI: `autoOpenIncidentOnUnhealthy`, `useNotificationSuppression`, `skipDuringMaintenance`, `sustainedUnhealthyTrigger`, and `autoCloseAfterMinutes`. The assignment **Notifications** tab now exposes only the two live settings: **Suppress de-escalation notifications** and the **flapping-detection** thresholds.
+  - The dead `health_check_auto_incidents` table (no longer written or read; dropped via migration).
+
+  What is preserved: flapping detection (`healthcheck.flapping_detected`) and de-escalation suppression are unchanged. The `flappingTrigger` and `suppressDeEscalations` policy fields stay exactly as before.
+
+  > [!NOTE]
+  > One-time cleanup: an automation-backend migration deletes the historically auto-seeded incident automations (`managed_by LIKE 'auto-incident:%'`) from existing databases. This is intentional and destructive - those automations were no longer managed by anything. If you had edited a seeded automation and want to keep it, re-create it as a normal automation before upgrading. See the "Build auto-incident automations" guide for templates.
+
+  > [!IMPORTANT]
+  > NARROWING: `NotificationPolicySchema` is narrowed to `{ suppressDeEscalations, flappingTrigger }`. Stored rows that still carry the removed legacy keys parse cleanly - zod strips the unknown keys on read - so no data migration is required for the `system_health_checks.notification_policy` column. GitOps `notificationPolicy` specs that set the removed fields are no longer accepted for those keys.
+
+- 270ef29: Extend in-UI script testing to health-check collectors, and add
+  load-from-run replay for automation script tests.
+
+  - Health-check collectors: a new `testCollectorScript` RPC runs the
+    inline-script (TypeScript) collector and the shell `script` collector
+    against an editable, auto-seeded sample context using the same
+    sandboxed runner the real collector uses. Surfaces beneath the
+    collector script fields in the collector editor (both marked
+    `x-script-testable`). Gated by `healthcheck.configuration.manage`.
+  - Automation replay: a new `getRunScopeForReplay` RPC reconstructs an
+    editable test context from a real run (trigger + persisted artifacts,
+    plus the durable scope snapshot when the run is still in-flight), and
+    the script-test panel gains a "Load from run" picker that seeds the
+    sample context from a past run.
+
+  Note: health-check executions do not persist the script / config /
+  check / system that produced a result, so there is no health-check
+  replay - auto-seed is the only context source for collector tests. This
+  is by design; see the feature plan.
+
+- 270ef29: Activate npm packages in script execution: thread the managed
+  `resolutionRoot` into every user-script call site so an allowlisted package
+  can actually be `import`ed.
+
+  - `@checkstack/backend-api`: the ESM runner now always writes a per-run
+    `bunfig.toml` with `[install] auto = "disable"` and runs with that dir as
+    CWD. Without this Bun silently auto-installs any imported package from the
+    registry (verified), defeating the allowlist; with it, imports resolve
+    only against the reconciled `current/node_modules` (when a `resolutionRoot`
+    is set) and otherwise fail fast.
+  - `@checkstack/script-packages-backend`: `resolveResolutionRoot` /
+    `resolveResolutionRootFromStore` / `resolveResolutionRootForHost` decide a
+    host's resolution-root status (`none` / `ready` / `notReady`) from the
+    local `<store>/current`.
+  - `run_script` (integration-script-backend), the inline-script collector
+    (healthcheck-script-backend, core + satellite), and the in-UI `testScript`
+    / `testCollectorScript` endpoints all resolve the root per run and pass it
+    to the runner; `run_script` surfaces a clear "npm packages not ready"
+    error when configured-but-unsynced. Shell paths are unaffected (no module
+    resolution).
+
+  An opt-in end-to-end test (`CHECKSTACK_E2E_NETWORK=1`) proves an allowlisted
+  package imports successfully through the real `run_script` action execute
+  path, with non-network degradation tests running always.
+
+  BREAKING CHANGES: `@checkstack/backend-api`'s `defaultEsmScriptRunner` now
+  always disables Bun auto-install for the user subprocess. A script that
+  previously relied on Bun silently fetching an un-vendored package from the
+  registry at import time will now fail to resolve it. This is intentional -
+  package availability is governed by the admin allowlist - but any caller
+  depending on the old implicit auto-install behavior must add the package to
+  the allowlist instead. The new `EsmScriptRunOptions.resolutionRoot` field is
+  optional and additive (defaults to today's `os.tmpdir()` behavior when
+  unset), so the runner API itself is source-compatible.
+
+- 270ef29: Secrets platform Phase 2: secret -> env-var mapping with central resolve, inject, and mask.
+
+  - Script consumers declare a least-privilege `secretEnv` allowlist
+    (`{ ENV_NAME: "${{ secrets.NAME }}" }`). The automation `run_script` /
+    `run_shell` actions resolve ONLY the declared secrets via
+    `secretResolverRef.resolveForRun`, inject them into the runner env for
+    that run (memory-only; the ESM runner gained a per-run `env` option), and
+    mask their values out of stdout/stderr/result/error via the run-scoped
+    masking context. A missing required secret fails the run clearly. No
+    ambient secret access.
+  - Test panel: `testScript` / `testCollectorScript` inject named
+    `__SECRET_<NAME>__` placeholders by default, or user-supplied per-secret
+    overrides; real production values are never resolved in the test path,
+    and overrides are masked out of the result.
+  - Healthcheck collectors carry the `secretEnv` field for authoring +
+    the test panel; runtime injection on satellites lands in Phase 3.
+  - Editor UX: a new `@checkstack/ui` `SecretEnvEditor` renders `x-secret-env`
+    record fields with `${{ secrets.* }}` name autocomplete (from
+    `listSecretNames`), wired into the automation action editor and the
+    healthcheck collector editor. New `withConfigMeta` helper +
+    `x-secret-env` config-meta key in `@checkstack/backend-api`.
+
+- 270ef29: Secrets platform Phase 3: just-in-time secret delivery to satellites + source-side masking, and central-execution injection for healthcheck collectors.
+
+  - New satellite WS messages `request_run_secrets` / `run_secrets`: just
+    before a satellite runs a collector that declares a `secretEnv`, it asks
+    core for that collector's resolved env; core resolves ONLY the secrets the
+    collector's OWN persisted assignment declares (least-privilege — the
+    satellite cannot choose) and replies with the env map (or a clear error).
+    The satellite injects it memory-only for the run and drops it on
+    completion. Secrets never ride the persisted assignment and never touch
+    disk.
+  - Source-side masking: the satellite runs `maskSecrets` over the collector's
+    stdout/stderr/result/error using the run's delivered values BEFORE the
+    result leaves the satellite (defense in depth).
+  - `CollectorStrategy.execute` gains an optional `secretEnv`. The
+    inline-script and shell collectors inject it into the runner
+    (`process.env` / `$VAR`) and mask the values out of their output.
+  - Healthcheck collectors running centrally (the queue executor) also resolve
+    - inject `secretEnv` via `secretResolverRef`, closing the gap where a
+      centrally-run secretEnv collector got no secrets. A missing required
+      secret fails the run clearly in all paths.
+
+- b995afb: Add an optional `partitionBy` override to the windowed-count trigger gate.
+
+  A trigger's `window` block now accepts `partitionBy`, a bare expression (same flavour as `filter`, no `{{ }}`) that controls the key the occurrence count is bucketed by. When omitted, the gate keys by the trigger's built-in context key exactly as before (per system for health triggers), so existing automations are unchanged. When set, the expression is evaluated against the same trigger scope `filter` uses and coerced to a string - e.g. `trigger.payload.severity` for a per-severity rate, or `trigger.payload.systemId + ":" + trigger.payload.checkId` for a composite key. If the expression evaluates to null/undefined/empty or fails to evaluate, the gate falls back to the built-in context key (never global counting); eval errors are logged, matching the gate's fail-open posture.
+
+  Triggers can now declare `contextKeyLabel` (a UI hint, e.g. `"system"`) describing their built-in context dimension. It is surfaced through `TriggerInfo` so the editor's window "Partition by" field shows the default partition ("Leave blank to count per system" / "per automation" when a trigger has no context key). The healthcheck system triggers (`system_health_changed`, `system_degraded`, `system_healthy`, `check_failed`) and the built-in `numeric_state` trigger set it to `"system"`. This is a pure UI hint with no runtime behaviour.
+
+  The automation editor's window block gains a "Partition by" expression input (reusing the trigger filter's `trigger.payload.*` autocomplete), and the collapsed trigger card summary shows the partition when set.
+
+- b995afb: Add a generic windowed-count / rate trigger gate, and express flapping detection on it.
+
+  Any trigger can now carry a `window: { count, minutes, refire }` block: the automation engine records each qualifying occurrence (after the structured config gate and the operator's `filter`) in a durable append log and counts rows within the trailing sliding window, scoped per context key (e.g. per system). `refire: "every"` (default) fires on every occurrence at/over the threshold; `refire: "once"` fires only on the crossing edge and re-arms as old occurrences age out. The gate runs in `maybeStartRun` after `filter` and before the `for:` dwell, so it composes with both.
+
+  Flapping is now an instance of this mechanism rather than a bespoke detector. The healthcheck `system_health_changed` raw change event plus a `filter` (`trigger.payload.newStatus != "healthy"`) plus `window: { count: 3, minutes: 60, refire: "once" }` reproduces flapping in the engine.
+
+  State-and-scale: window state lives in the new `automation_window_events` Postgres table (FK-cascade on the automation, the same delete-lifecycle as `automation_dwell_timers`). The count is read with pure SQL so every pod computes the same answer; the work-queue claim gives exactly one INSERT per emission, so there is no double-count. Rows older than the 24h schema cap are pruned by the existing stalled-sweeper. The `once` policy is best-effort under at-least-once redelivery (a redelivered emission can skip the exact crossing edge; `every` is redelivery-tolerant).
+
+  **BREAKING CHANGES:**
+
+  - The `healthcheck.flapping_detected` automation trigger and the `healthcheck.flapping_detected` hook are REMOVED. Flapping is now detected by the windowed-count gate on the `healthcheck.system_health_changed` trigger (`window` block, `refire: "once"`).
+  - Flapping is now PER-SYSTEM (the aggregated `health` entity), not per-`(system, configuration)`. Subscribe to `check_failed` with a `window` instead if you need per-check rate detection.
+  - The healthcheck `health_check_unhealthy_transitions` table is DROPPED (the per-check flapping audit log is no longer kept; counting moved into the engine).
+  - The backend-only `automation.subscriptions` service ref (`automationSubscriptionsRef` / `AutomationSubscriptions`) is REMOVED. The engine enumerates subscribers internally and the window gate runs per-automation inside `maybeStartRun`, so the external read-ref is no longer needed.
+  - Existing user-created flapping automations are AUTO-MIGRATED on boot: any trigger on `healthcheck.flapping_detected` is rewritten to `healthcheck.system_health_changed` + the canonical unhealthy-transition filter + `window: { count: transitions ?? 3, minutes: windowMinutes ?? 60, refire: "once" }`, dropping the old `config`. A pre-existing trigger filter is replaced with the canonical one (logged per row). An enabled automation that still references the removed event after migration logs a warning.
+
+### Patch Changes
+
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+  - @checkstack/backend-api@0.19.0
+  - @checkstack/automation-backend@0.3.0
+  - @checkstack/gitops-common@0.5.0
+  - @checkstack/gitops-backend@0.4.0
+  - @checkstack/healthcheck-common@1.4.0
+  - @checkstack/maintenance-common@1.3.0
+  - @checkstack/incident-backend@1.4.0
+  - @checkstack/catalog-backend@1.3.0
+  - @checkstack/secrets-backend@0.1.0
+  - @checkstack/satellite-backend@0.5.0
+  - @checkstack/script-packages-backend@0.2.0
+  - @checkstack/secrets-common@0.1.0
+  - @checkstack/cache-api@0.3.7
+  - @checkstack/command-backend@0.1.32
+  - @checkstack/queue-api@0.3.7
+  - @checkstack/cache-utils@0.2.12
+
 ## 1.3.0
 
 ### Minor Changes

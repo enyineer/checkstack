@@ -1,5 +1,26 @@
 # @checkstack/theme-frontend
 
+## 0.1.45
+
+### Patch Changes
+
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+  - @checkstack/ui@1.12.0
+  - @checkstack/auth-frontend@0.6.7
+
 ## 0.1.44
 
 ### Patch Changes

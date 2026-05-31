@@ -1,5 +1,96 @@
 # @checkstack/slo-backend
 
+## 0.6.0
+
+### Minor Changes
+
+- b995afb: Make `slo` a plugin-backed, COMPUTED reactive entity via the Model-B entity state machine + rewire its cross-plugin consumers.
+
+  SLO defines a `slo` entity `{ objectiveId, systemId, target, budgetRemainingPercent, currentStreak, bestStreak }` keyed by `objectiveId`. There is no framework `entity_state` row: its current state is assembled on demand by a `read` accessor (`createSloEntityRead` / `computeSloEntityState`). `currentStreak` / `bestStreak` / `systemId` / `target` come from the authoritative `slo_streaks` + `slo_objectives` tables, and `budgetRemainingPercent` (plus `target`) is COMPUTED on the fly via the SLO engine's `computeStatus` (downtime aggregation over the objective's rolling window). The daily snapshot job's streak-persist write drives through the fail-soft `writeSloEntity` (`handle.mutate({ id: objectiveId, apply })`): `apply` persists the streak to `slo_streaks` (its own write) and returns the freshly-computed view; the framework snapshots `prev` via the computed `read` BEFORE the write, appends the transition log, and emits `ENTITY_CHANGED`.
+
+  Compute-on-read (not materialize): the budget is a pure function of the objective's append-only downtime history, so storing a second copy would duplicate the engine's source of truth and risk drift. The `read` recomputes from the same tables the SLO API already reads; it is only exercised on the prev-snapshot of the once-daily streak job and on reactive scope/wake resolution, so the recompute cost is negligible. The append-only `slo_downtime_events` + `slo_daily_snapshots` tables are declared non-reactive (bookkeeping); the live budget/streak is the entity. Operators author budget/streak thresholds as reactive `numeric_state` conditions over `state.slo.<objectiveId>.budgetRemainingPercent` / `currentStreak`.
+
+  The healthcheck + catalog consumers switched from `onHook(<hook>)` to `onEntityChanged({ kind })`, all keeping `work-queue` delivery (each handler performs side-effecting writes that must run once per cluster):
+
+  - `slo-system-down` / `slo-upstream-down`: react to `health` changes filtered to a degraded transition (`classifyHealthChange().degraded`).
+  - `slo-system-up`: reacts to `health` changes filtered to a recovered transition (`classifyHealthChange().recovered`).
+  - `slo-system-cleanup`: reacts to `catalog-system` tombstones (`change.next === null`).
+
+  BREAKING CHANGES:
+
+  - The `slo.budget.warning` / `slo.budget.critical` / `slo.budget.exhausted` and `slo.streak.broken` automation triggers are removed. These thresholds were never emitted by the engine (the underlying hooks were inert) and are replaced by reactive `numeric_state` conditions over the `slo` entity (`budgetRemainingPercent < 20`, `currentStreak == 0`, etc.). Re-author any automations that referenced these trigger ids as `numeric_state` / `state` conditions. The `slo.achievement.unlocked` and `slo.weekly.digest` triggers are KEPT.
+
+- b995afb: Remove the dead `slo.budget.warning` / `slo.budget.critical` / `slo.budget.exhausted` / `slo.streak.broken` hook descriptors from `sloHooks`.
+
+  These four `createHook` descriptors had no emitter and no trigger registration left: per the reactive automation engine (§9.2) the SLO budget IS the reactive entity, and the old threshold/streak triggers became `numeric_state` / `state` conditions over `state.slo.<objectiveId>.budgetRemainingPercent` + `currentStreak`. Nothing in the repo emitted or subscribed to the four hooks, so they were unreachable surface. `sloAchievementUnlocked` and `sloWeeklyDigest` are unaffected and stay.
+
+  BREAKING CHANGES:
+
+  - Removed `sloHooks.sloBudgetWarning`, `sloHooks.sloBudgetCritical`, `sloHooks.sloBudgetExhausted`, and `sloHooks.sloStreakBroken`. Author SLO budget / streak threshold automations as reactive `numeric_state` / `state` conditions over the `slo` entity state instead.
+
+### Patch Changes
+
+- b995afb: Extract a shared `withEntityWrite` / `withEntityRemove` guard for PLUGIN-BACKED (Model B) reactive entities and refactor the per-domain copies onto it.
+
+  Every plugin-backed domain (incident, catalog, dependency, maintenance, slo, satellite) reimplemented the same "no handle wired → run the plugin write directly; handle wired → route through `handle.mutate` / `handle.remove`" guard, varying only in the id-key name. `@checkstack/automation-backend` now exports `withEntityWrite` / `withEntityRemove` (from the entity barrel) and each domain's thin, well-named wrappers (`writeIncidentEntity`, `writeMaintenanceEntity`, satellite's `mirror`, …) delegate to it, so the branch lives in exactly one place. Behavior is unchanged.
+
+  `writeHealthEntity` (healthcheck-backend) is intentionally NOT migrated onto the helper — it is genuinely bespoke (closure-captured durable state, distinct rethrow-vs-fail-soft branches, a per-system serializer, and it returns the computed state). SLO keeps its fail-soft `onError` wrapper around the shared guard.
+
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+  - @checkstack/backend-api@0.19.0
+  - @checkstack/automation-backend@0.3.0
+  - @checkstack/gitops-common@0.5.0
+  - @checkstack/gitops-backend@0.4.0
+  - @checkstack/healthcheck-backend@1.4.0
+  - @checkstack/healthcheck-common@1.4.0
+  - @checkstack/catalog-backend@1.3.0
+  - @checkstack/cache-api@0.3.7
+  - @checkstack/command-backend@0.1.32
+  - @checkstack/queue-api@0.3.7
+  - @checkstack/cache-utils@0.2.12
+
 ## 0.5.0
 
 ### Minor Changes

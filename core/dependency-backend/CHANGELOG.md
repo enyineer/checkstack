@@ -1,5 +1,97 @@
 # @checkstack/dependency-backend
 
+## 1.3.0
+
+### Minor Changes
+
+- b995afb: Make `dependency-edge` a plugin-backed reactive entity via the Model-B entity state machine + rewire cross-plugin consumers.
+
+  Dependency defines a `dependency-edge` entity `{ sourceSystemId, targetSystemId, impactType, transitive }` keyed by dependency id. The `dependencies` table is BOTH authoritative AND the entity's current-state storage - there is no framework `entity_state` row for a dependency edge. `defineEntity` is given a plugin `read` accessor (`DependencyService.getManyEntityStates`) that projects the reactive subset straight off that table, and every reactive-state write goes through `handle.mutate` / `handle.remove`: `apply` performs the REAL `dependencies` write (the plugin's own db/tx, including the cycle/duplicate validation that may throw) and returns the new state; the framework snapshots `prev` via `read` BEFORE the write, appends the transition log, and emits `ENTITY_CHANGED` AFTER the write commits. Covered sites: create, update, delete (tombstone), plus the `dependency.create` / `dependency.remove` automation actions. Create sites pre-generate the id so the create's `prev` snapshot reads the not-yet-existing row as absent; `createDependency` accepts an optional pre-generated `id` (server-owned either way). The `dependency_derived_states` propagation cursor is declared non-reactive (bookkeeping).
+
+  A change -> trigger-event deriver reproduces the existing `dependency.created` / `.updated` / `.deleted` qualified events so automations keep firing. The old `dependency.created` / `.updated` / `.deleted` change hooks are removed; the catalog + healthcheck consumers switched from `onHook(<hook>)` to `onEntityChanged({ kind })`, all keeping `work-queue` delivery (cleanup + downstream-propagation are side-effecting writes that must run once per cluster):
+
+  - `dependency-system-cleanup`: reacts to `catalog-system` tombstones (`change.next === null`).
+  - `dependency-notification-evaluator` / `-recovery`: react to `health` changes filtered to a degraded / recovered transition via `classifyHealthChange`, reproducing the old `systemDegraded` / `systemHealthy` predicates.
+
+  `@checkstack/automation-backend` adds `makeEntityDrivenTriggerSetup()` - a no-op `setup` factory so a migrated domain's lifecycle triggers stay in the editor's trigger catalog (and register cleanly) while being fired by the entity change deriver via Stage-1 routing rather than a hook.
+
+  BREAKING CHANGES:
+
+  - The `dependency.created` / `dependency.updated` / `dependency.deleted` cross-plugin hooks (the `createHook` descriptors) are removed. Dependency lifecycle is now the reactive `dependency-edge` entity; the matching trigger events still fire (via the entity change deriver), so existing automations on `dependency.created/.updated/.deleted` keep working. The `dependency.impact_propagated` hook is KEPT (a derived fan-out signal, not a single mutable field). No in-repo plugin subscribed to the removed hooks.
+  - On the RPC create path, the `dependency.created` entity emit (via `mutate`) now precedes the `DEPENDENCY_CHANGED` realtime signal broadcast (previously the signal fired first, then the mirror); both still fire on a successful create.
+  - NARROWING: `dependency.updated` now fires only on a change to the REACTIVE state (`impactType`, `source`, `target`, or `transitive`). A label-only edit no longer fires `dependency.updated` (the label is not reactive entity state). Re-author any automation that needed to react to a label-only dependency edit against a different signal.
+
+- b995afb: Restore the documented domain payload fields on entity-driven automation triggers.
+
+  Migrated triggers declare domain-named `payloadSchema`s (incident `incidentId`; health `systemId` / `previousStatus`; catalog `systemId` / `changedFields`; dependency `dependencyId`), but Stage-2 dispatch built `trigger.payload` from the generic entity-change shape (`{ kind, id, prev, next, delta, ...next }`). Operator filters and templates reading `trigger.payload.incidentId` / `.systemId` / `.previousStatus` silently resolved to `undefined` — a regression vs the legacy hook payloads.
+
+  Changes:
+
+  - `@checkstack/automation-backend`: `registerChangeDeriver` now accepts an optional per-kind `toPayload(changed) => Record<string, unknown>` mapper (at most one per kind; a second distinct mapper throws). Stage-2's `changedToPayload` uses the registered mapper to build `trigger.payload` so it matches the kind's declared `payloadSchema`, falling back to the generic change shape for kinds without a mapper. New exported type `EntityChangePayloadMapper`.
+  - `@checkstack/incident-backend`, `@checkstack/healthcheck-backend`, `@checkstack/catalog-backend`, `@checkstack/dependency-backend`: implement and register a `toPayload` for each entity-driven kind so `trigger.payload` carries the legacy domain keys again.
+
+  Descriptive incident payload fields not derivable from the reactive entity state (`title`, `description`, `createdAt`, `resolvedAt`) are now OPTIONAL on the incident trigger `payloadSchema`s — they were always absent from an entity-driven payload.
+
+### Patch Changes
+
+- b995afb: Extract a shared `withEntityWrite` / `withEntityRemove` guard for PLUGIN-BACKED (Model B) reactive entities and refactor the per-domain copies onto it.
+
+  Every plugin-backed domain (incident, catalog, dependency, maintenance, slo, satellite) reimplemented the same "no handle wired → run the plugin write directly; handle wired → route through `handle.mutate` / `handle.remove`" guard, varying only in the id-key name. `@checkstack/automation-backend` now exports `withEntityWrite` / `withEntityRemove` (from the entity barrel) and each domain's thin, well-named wrappers (`writeIncidentEntity`, `writeMaintenanceEntity`, satellite's `mirror`, …) delegate to it, so the branch lives in exactly one place. Behavior is unchanged.
+
+  `writeHealthEntity` (healthcheck-backend) is intentionally NOT migrated onto the helper — it is genuinely bespoke (closure-captured durable state, distinct rethrow-vs-fail-soft branches, a per-system serializer, and it returns the computed state). SLO keeps its fail-soft `onError` wrapper around the shared guard.
+
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+  - @checkstack/backend-api@0.19.0
+  - @checkstack/automation-backend@0.3.0
+  - @checkstack/gitops-common@0.5.0
+  - @checkstack/gitops-backend@0.4.0
+  - @checkstack/healthcheck-backend@1.4.0
+  - @checkstack/healthcheck-common@1.4.0
+  - @checkstack/maintenance-common@1.3.0
+  - @checkstack/catalog-backend@1.3.0
+
 ## 1.2.0
 
 ### Minor Changes

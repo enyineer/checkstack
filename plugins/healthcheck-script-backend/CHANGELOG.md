@@ -1,5 +1,123 @@
 # @checkstack/healthcheck-script-backend
 
+## 0.6.0
+
+### Minor Changes
+
+- 270ef29: Extend in-UI script testing to health-check collectors, and add
+  load-from-run replay for automation script tests.
+
+  - Health-check collectors: a new `testCollectorScript` RPC runs the
+    inline-script (TypeScript) collector and the shell `script` collector
+    against an editable, auto-seeded sample context using the same
+    sandboxed runner the real collector uses. Surfaces beneath the
+    collector script fields in the collector editor (both marked
+    `x-script-testable`). Gated by `healthcheck.configuration.manage`.
+  - Automation replay: a new `getRunScopeForReplay` RPC reconstructs an
+    editable test context from a real run (trigger + persisted artifacts,
+    plus the durable scope snapshot when the run is still in-flight), and
+    the script-test panel gains a "Load from run" picker that seeds the
+    sample context from a past run.
+
+  Note: health-check executions do not persist the script / config /
+  check / system that produced a result, so there is no health-check
+  replay - auto-seed is the only context source for collector tests. This
+  is by design; see the feature plan.
+
+- 270ef29: Activate npm packages in script execution: thread the managed
+  `resolutionRoot` into every user-script call site so an allowlisted package
+  can actually be `import`ed.
+
+  - `@checkstack/backend-api`: the ESM runner now always writes a per-run
+    `bunfig.toml` with `[install] auto = "disable"` and runs with that dir as
+    CWD. Without this Bun silently auto-installs any imported package from the
+    registry (verified), defeating the allowlist; with it, imports resolve
+    only against the reconciled `current/node_modules` (when a `resolutionRoot`
+    is set) and otherwise fail fast.
+  - `@checkstack/script-packages-backend`: `resolveResolutionRoot` /
+    `resolveResolutionRootFromStore` / `resolveResolutionRootForHost` decide a
+    host's resolution-root status (`none` / `ready` / `notReady`) from the
+    local `<store>/current`.
+  - `run_script` (integration-script-backend), the inline-script collector
+    (healthcheck-script-backend, core + satellite), and the in-UI `testScript`
+    / `testCollectorScript` endpoints all resolve the root per run and pass it
+    to the runner; `run_script` surfaces a clear "npm packages not ready"
+    error when configured-but-unsynced. Shell paths are unaffected (no module
+    resolution).
+
+  An opt-in end-to-end test (`CHECKSTACK_E2E_NETWORK=1`) proves an allowlisted
+  package imports successfully through the real `run_script` action execute
+  path, with non-network degradation tests running always.
+
+  BREAKING CHANGES: `@checkstack/backend-api`'s `defaultEsmScriptRunner` now
+  always disables Bun auto-install for the user subprocess. A script that
+  previously relied on Bun silently fetching an un-vendored package from the
+  registry at import time will now fail to resolve it. This is intentional -
+  package availability is governed by the admin allowlist - but any caller
+  depending on the old implicit auto-install behavior must add the package to
+  the allowlist instead. The new `EsmScriptRunOptions.resolutionRoot` field is
+  optional and additive (defaults to today's `os.tmpdir()` behavior when
+  unset), so the runner API itself is source-compatible.
+
+- 270ef29: Secrets platform Phase 3: just-in-time secret delivery to satellites + source-side masking, and central-execution injection for healthcheck collectors.
+
+  - New satellite WS messages `request_run_secrets` / `run_secrets`: just
+    before a satellite runs a collector that declares a `secretEnv`, it asks
+    core for that collector's resolved env; core resolves ONLY the secrets the
+    collector's OWN persisted assignment declares (least-privilege — the
+    satellite cannot choose) and replies with the env map (or a clear error).
+    The satellite injects it memory-only for the run and drops it on
+    completion. Secrets never ride the persisted assignment and never touch
+    disk.
+  - Source-side masking: the satellite runs `maskSecrets` over the collector's
+    stdout/stderr/result/error using the run's delivered values BEFORE the
+    result leaves the satellite (defense in depth).
+  - `CollectorStrategy.execute` gains an optional `secretEnv`. The
+    inline-script and shell collectors inject it into the runner
+    (`process.env` / `$VAR`) and mask the values out of their output.
+  - Healthcheck collectors running centrally (the queue executor) also resolve
+    - inject `secretEnv` via `secretResolverRef`, closing the gap where a
+      centrally-run secretEnv collector got no secrets. A missing required
+      secret fails the run clearly in all paths.
+
+### Patch Changes
+
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+  - @checkstack/backend-api@0.19.0
+  - @checkstack/healthcheck-common@1.4.0
+  - @checkstack/script-packages-backend@0.2.0
+  - @checkstack/secrets-common@0.1.0
+
 ## 0.5.0
 
 ### Minor Changes

@@ -1,5 +1,29 @@
 # @checkstack/catalog-frontend
 
+## 0.10.7
+
+### Patch Changes
+
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+  - @checkstack/ui@1.12.0
+  - @checkstack/auth-frontend@0.6.7
+  - @checkstack/gitops-frontend@0.4.7
+  - @checkstack/notification-frontend@0.4.7
+  - @checkstack/tips-frontend@0.2.7
+
 ## 0.10.6
 
 ### Patch Changes

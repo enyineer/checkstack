@@ -1,5 +1,29 @@
 # @checkstack/incident-frontend
 
+## 0.8.8
+
+### Patch Changes
+
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+  - @checkstack/ui@1.12.0
+  - @checkstack/auth-frontend@0.6.7
+  - @checkstack/dashboard-frontend@0.7.8
+  - @checkstack/notification-frontend@0.4.7
+  - @checkstack/tips-frontend@0.2.7
+
 ## 0.8.7
 
 ### Patch Changes

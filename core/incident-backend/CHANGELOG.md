@@ -1,5 +1,162 @@
 # @checkstack/incident-backend
 
+## 1.4.0
+
+### Minor Changes
+
+- 270ef29: Replace the hardcoded auto-incident path with default automations (Wave 2 Phase 20).
+
+  BREAKING CHANGES: Auto-incident is now automation-driven. The hardcoded background path that opened incidents on sustained-unhealthy / flapping and closed them after a cooldown (`auto-incident.ts`, `auto-incident-close-job.ts`) is removed. On upgrade, an idempotent, threshold-preserving migration seeds equivalent default automations from each assignment's existing `NotificationPolicy`, so alerting behaviour is preserved 1:1:
+
+  - `sustainedUnhealthyTrigger.durationMinutes` -> the `for:` dwell on a `healthcheck.system_degraded` trigger -> `incident.create`.
+  - auto-close `autoCloseAfterMinutes` -> a `wait_until` (healthy continuously for the cooldown) -> `incident.resolve`.
+  - `useNotificationSuppression` -> the incident's `suppressNotifications`.
+  - `skipDuringMaintenance` -> a `{{ !health.system.in_maintenance }}` pre-run condition.
+  - `flappingTrigger.{transitions,windowMinutes}` -> a second automation on the `healthcheck.flapping_detected` trigger -> `incident.create`.
+
+  Auto-incidents remain ONE OPEN INCIDENT PER SYSTEM, faithful to the old behaviour. `incident.create` gains an opt-in `dedupe_open_for_system` config flag (default false, so existing/custom automations are unaffected): when true, it reuses an existing open incident on the target system instead of opening a duplicate (the old `findActiveAutoIncident(systemId)` semantic), returning the reused incident as the produced `incident` artifact. The seeded default automations set this flag, so a system with several failing checks - sustained and/or flapping - still gets a single open incident; whichever check crosses its threshold first opens it, and the rest dedupe to it. Both sustained and flapping default automations open at `critical` severity (parity with the old path). Per-system run dedup within an automation uses `concurrency_scope: "context_key"` + `mode: "single"`.
+
+  Operators can read, edit, disable, and extend these automations (see the "Customise auto-incident" guide). Seeded automations are tagged via `managedBy` (`auto-incident:<systemId>:<configurationId>:<kind>`) so the migration is a no-op on re-runs; anything unmappable is recorded as a migration-failure row.
+
+  Flapping DETECTION (transition recording + the `healthcheck.flapping_detected` emit) is relocated into `flapping-detector.ts` and survives; the emit now fires unconditionally on a threshold cross (no longer gated on `autoOpenIncidentOnUnhealthy`), matching the hook's documented intent and required for the flapping default automation. The legacy `health_check_auto_incidents` mapping table is no longer written or read (it will be dropped in a follow-up migration); `health_check_unhealthy_transitions` is retained for the flapping detector.
+
+  New service-typed `HealthCheckApi.listAutoIncidentPolicies` RPC exposes each assignment's effective notification policy for the migration. `incident.create` adds the `dedupe_open_for_system` flag (additive, defaults off).
+
+- 270ef29: Add an `incident` artifact type to the incident automation actions (Phase 20 prerequisite).
+
+  Closes GAP 2 from the Phase 20 analysis - a single automation can now open an incident and reference it downstream (open then wait then resolve) without the operator repeating the id.
+
+  - New `incident` artifact type registered in incident-backend (`{ incidentId, status, severity, systemIds }`).
+  - `incident.create` now declares `produces: "incident"`, so the created incident is queryable in run scope (mirrors the Jira `produces: "jira.issue"` pattern).
+  - `incident.resolve` / `incident.add_update` / `incident.update_status` now declare `consumes: ["incident"]` and make their `incidentId` config optional, falling back to the upstream `incident` artifact (config takes priority, else artifact - the `resolveIssueKey` pattern). They fail with a clear error when neither is present.
+
+- 270ef29: Fix several correctness defects around distributed coordination and stored-data handling.
+
+  - Dwell `for:` timers now fire via an atomic `DELETE ... RETURNING` claim, so two pods (or the stalled sweeper vs the queue consumer) can no longer both fire the same dwell.
+  - Postgres session-level advisory locks now keep connection affinity. A shared `AdvisoryLockService` (backed by a dedicated pooled client) replaces the previous acquire/release-on-different-connection pattern that leaked locks. Used by the script-packages installer election, the automation run resume + stalled sweeper, and (via a new transaction-scoped `withXactLock`) incident dedup.
+  - A storage migration that crashed mid-flight is now resumed on startup under the installer-election lock, instead of permanently wedging installs.
+  - Distributed script-package blobs carry a `blobSha256` and are verified before extraction (the SRI `integrity` hashes the npm tarball, not the transported archive). Backward-safe: entries without the field skip verification until a re-install regenerates the manifest.
+  - Archive extraction rejects zip-slip paths (absolute or `..` entries) before writing anything.
+  - `incident.create` with `dedupe_open_for_system` serializes its check-then-create per system, so concurrent triggers for the same system can't both open a duplicate incident.
+  - Seeded auto-incident filter expressions JSON-encode interpolated ids so a quote/backslash can't corrupt the expression.
+  - Stored jsonb snapshots (dwell `actorSnapshot`, wait-lock `waitConfig`) are validated with zod on load and degrade safely instead of flowing through as the wrong type.
+
+- b995afb: Make incident automation actions fully reactive.
+
+  Only the `incident.create` action routed through the reactive `incident` entity; the `resolve`, `add_update`, and `update_status` actions called the incident service directly. Action-driven status flips therefore appended NO `entity_transitions` row, emitted NO `ENTITY_CHANGED` (so no `wait_until` woke), and fired NO `incident.resolved` / `.updated` derived trigger events — unlike the RPC router, which routes the same mutations through the entity handle.
+
+  The three actions now drive their writes through `writeIncidentEntity({ handle, incidentId, opts: { runId }, apply })` (re-reading the post-write state inside `apply` for the status-flipping actions), matching the router. As a result an action-driven resolve/status change now appends a transition, wakes suspended `wait_until` runs, and fires `incident.resolved` / `incident.updated`. The dispatch `runId` is passed so run-resolved secrets in the reactive state are masked.
+
+- b995afb: Make `incident` a plugin-backed reactive entity via the Model-B entity state machine.
+
+  The `incidents` + `incident_systems` tables are BOTH authoritative AND the `incident` entity's current-state storage - there is no framework `entity_state` row for an incident. `defineEntity` is given a plugin `read` accessor (`IncidentService.getManyEntityStates`) that projects the reactive subset `{ status, severity, systemIds }` straight off those tables, and every reactive-state write goes through `handle.mutate` / `handle.remove`: `apply` performs the REAL `incidents` / junction write (the plugin's own db/tx) and returns the new state; the framework snapshots `prev` via `read` BEFORE the write, appends the transition log (its own db), and emits `ENTITY_CHANGED` AFTER the write commits. Covered sites: create, update, add-update, resolve, auto-create, auto-resolve, and delete (tombstone), plus the `incident.create` / `incident.resolve` automation actions.
+
+  A change -> trigger-event deriver reproduces the existing qualified events so automations keep firing:
+
+  - create (`prev === null`) -> `incident.created`
+  - transition to `resolved` -> `incident.resolved`
+  - any other field change -> `incident.updated`
+  - delete (tombstone) -> no event (there is no `incident.deleted` trigger)
+
+  The old `incident.created` / `incident.updated` / `incident.resolved` change hooks are removed in favor of these reactive change events; the catalog `system.deleted` consumer switched from `onHook(catalogHooks.systemDeleted)` to `onEntityChanged({ kind: "catalog-system" })` filtered to tombstones, keeping `work-queue` delivery (association cleanup must run once per cluster).
+
+  BREAKING CHANGES:
+
+  - The `incident.created` / `incident.updated` / `incident.resolved` cross-plugin hooks (the `createHook` descriptors) are removed. Incident lifecycle is now the reactive `incident` entity; the matching trigger events still fire (via the entity change deriver), so existing automations on `incident.created/.updated/.resolved` and external event-routing (e.g. the Jira integration's `incident.created` event type) keep working. No in-repo plugin subscribed to the removed hooks via `onHook`.
+  - The `addUpdate`-with-status=resolved path previously emitted BOTH `incident.updated` and `incident.resolved`; it now fires only `incident.resolved` (the deriver classifies a transition-to-resolved as a resolution). Automations meant to react to a resolution should use the `incident.resolved` trigger, not `incident.updated`.
+  - NARROWING: `incident.updated` now fires only on a change to the REACTIVE state (`status`, `severity`, or affected `systemIds`). A comment-only `addUpdate` (no status change) no longer fires `incident.updated` (the posted message is not reactive entity state). Re-author any automation that needed to react to a comment-only update against a different signal.
+  - The `incident.create` automation ACTION path now drives its write through `handle.mutate`, so an action-created incident is now reactive - it emits `incident.created` and other automations can trigger on it. Previously the action path created incidents silently (no lifecycle event). A dedupe REUSE still emits nothing (the open incident is unchanged).
+
+- b995afb: Restore the documented domain payload fields on entity-driven automation triggers.
+
+  Migrated triggers declare domain-named `payloadSchema`s (incident `incidentId`; health `systemId` / `previousStatus`; catalog `systemId` / `changedFields`; dependency `dependencyId`), but Stage-2 dispatch built `trigger.payload` from the generic entity-change shape (`{ kind, id, prev, next, delta, ...next }`). Operator filters and templates reading `trigger.payload.incidentId` / `.systemId` / `.previousStatus` silently resolved to `undefined` — a regression vs the legacy hook payloads.
+
+  Changes:
+
+  - `@checkstack/automation-backend`: `registerChangeDeriver` now accepts an optional per-kind `toPayload(changed) => Record<string, unknown>` mapper (at most one per kind; a second distinct mapper throws). Stage-2's `changedToPayload` uses the registered mapper to build `trigger.payload` so it matches the kind's declared `payloadSchema`, falling back to the generic change shape for kinds without a mapper. New exported type `EntityChangePayloadMapper`.
+  - `@checkstack/incident-backend`, `@checkstack/healthcheck-backend`, `@checkstack/catalog-backend`, `@checkstack/dependency-backend`: implement and register a `toPayload` for each entity-driven kind so `trigger.payload` carries the legacy domain keys again.
+
+  Descriptive incident payload fields not derivable from the reactive entity state (`title`, `description`, `createdAt`, `resolvedAt`) are now OPTIONAL on the incident trigger `payloadSchema`s — they were always absent from an entity-driven payload.
+
+### Patch Changes
+
+- 270ef29: Fix suspend/resume durability + complete the run-wide secret-masking guarantee.
+
+  A panel review confirmed several defects in the automation dispatch engine's suspend/resume durability and in the run-wide masking choke point. These survived because the unit suite stubbed the seam under test; the fixes ship with tests that exercise the real suspend / sweep / resume paths.
+
+  Suspend/resume durability:
+
+  - **Stalled sweeper no longer re-runs intentional waits.** `findStalledRunIds` now joins `automation_runs` and returns only `status = 'running'` runs, and suspend-finalisation no longer clobbers the run's `lastActionPath` checkpoint to `null`. Previously any wait longer than the stale window (>60s) was re-walked from the top every sweep cycle, re-firing pre-wait side effects and leaking wait locks. The wait-aware sweeps now also run before the stalled-run sweep.
+  - **Stalled recovery refuses a run holding a live wait lock.** `recoverStalledRun` now only recovers a genuinely-`running` run with no wait lock; a crash-mid-wait recovery is left to the wait/resume paths instead of re-walking from the top and creating a duplicate lock + duplicate delay job.
+  - **Cancelled runs can no longer resurrect.** `resumeRun` guards on `status === 'waiting'` (mirroring `checkWaitUntil`) and drops any stale lock for a non-waiting run, so `wakeWaitingRuns` / delay-expiry / a racing queue job can't wake a cancelled or terminal run. `cancelActiveRuns` (restart mode) now deletes the cancelled runs' wait locks + run-state in the same operation.
+  - **Concurrency check-then-create is serialized.** The `mode` check + `createRun` now run under a transaction-scoped advisory lock keyed on `(automationId, scope)`, so two concurrent fires can't both pass a `single`-mode "no active run" check and double-run.
+
+  Masking guarantee (now genuinely covers scope + artifacts):
+
+  - **The run-wide masking choke point now also masks the durable scope snapshot and produced artifacts.** The `RunSecretRegistry` is threaded into `RunStateStore.upsert` (masks `scopeSnapshot`) and `ArtifactStore.record` (masks `data`) so a resolved connection credential threaded into `scope.variables` or surfaced into an artifact is redacted before persist - and therefore cannot reach a read-only user via `getRunScopeForReplay`. **GUARANTEE CHANGE**: run-wide masking now covers step output, run error, scope snapshot, and artifact data for every action.
+  - **`testConnection` / `testProviderConnection` mask provider errors.** These RPCs run outside a dispatch run, so they build a per-call mask set from the resolved/submitted connection config and run any provider error through it before returning, so a provider error echoing a token can't cross back to the browser.
+  - **Short secrets surface a warning.** `setSecret` now warns when a value is shorter than `MIN_MASKABLE_LENGTH` (4) that it cannot be auto-redacted (the threshold is intentionally not lowered).
+
+  Internal:
+
+  - `@checkstack/backend-api`: `withXactLock`'s `fn` now receives the transaction handle `tx` so a critical section can run on the locked connection; the doc clarifies why running on the pool inside the lock window is still safe. The incident dedup caller's comment is corrected accordingly. `RunStore` gains `findWaitLocksByRun`.
+
+- b995afb: Extract a shared `withEntityWrite` / `withEntityRemove` guard for PLUGIN-BACKED (Model B) reactive entities and refactor the per-domain copies onto it.
+
+  Every plugin-backed domain (incident, catalog, dependency, maintenance, slo, satellite) reimplemented the same "no handle wired → run the plugin write directly; handle wired → route through `handle.mutate` / `handle.remove`" guard, varying only in the id-key name. `@checkstack/automation-backend` now exports `withEntityWrite` / `withEntityRemove` (from the entity barrel) and each domain's thin, well-named wrappers (`writeIncidentEntity`, `writeMaintenanceEntity`, satellite's `mirror`, …) delegate to it, so the branch lives in exactly one place. Behavior is unchanged.
+
+  `writeHealthEntity` (healthcheck-backend) is intentionally NOT migrated onto the helper — it is genuinely bespoke (closure-captured durable state, distinct rethrow-vs-fail-soft branches, a per-system serializer, and it returns the computed state). SLO keeps its fail-soft `onError` wrapper around the shared guard.
+
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+  - @checkstack/backend-api@0.19.0
+  - @checkstack/automation-backend@0.3.0
+  - @checkstack/automation-common@0.3.0
+  - @checkstack/catalog-backend@1.3.0
+  - @checkstack/integration-backend@0.3.0
+  - @checkstack/cache-api@0.3.7
+  - @checkstack/command-backend@0.1.32
+  - @checkstack/cache-utils@0.2.12
+
 ## 1.3.0
 
 ### Minor Changes

@@ -1,5 +1,549 @@
 # @checkstack/automation-backend
 
+## 0.3.0
+
+### Minor Changes
+
+- 270ef29: Fix automation provider actions and `secretEnv` script actions throwing in production.
+
+  The automation dispatch engine resolved provider-action dependencies (the integration connection store, the secret resolver) through a `getService` that was a throwing stub, so Jira / Teams / Webex actions and `secretEnv` script actions threw at execute time in production. The whole dispatch test suite stubbed `getService`, so the break was invisible.
+
+  Root cause: the plugin `env` exposed `registerService` but no resolver, so the dispatch path (the only context that resolves arbitrary cross-plugin refs outside an RPC handler) had nothing real to call.
+
+  Changes:
+
+  - `@checkstack/backend-api`: add `getService<S>(ref: ServiceRef<S>): Promise<S>` to the plugin `env` (`BackendPluginRegistry`). It resolves a service registered by any plugin through the real `ServiceRegistry` using the calling plugin's identity, and throws a clear error if the ref is not registered (never silently `undefined`). **NEW PLUGIN-AUTHOR CONTRACT**: `env.getService` is now available to resolve arbitrary cross-plugin service refs at init / afterPluginsReady time.
+  - `@checkstack/backend`: implement `env.getService` in both the plugin loader and the runtime single-plugin registration path, backed by `ServiceRegistry.get(ref, { pluginId })`.
+  - `@checkstack/automation-backend`: wire the dispatch `getService` to `env.getService` (was a throwing stub). This also activates run-wide provider-credential masking, because resolving the connection store / secret resolver now flows through the run's masking interceptor.
+
+  Also fixes a test-only seam where the `core/backend` test preload registered a no-op `registerRouter`, silently disabling oRPC router registration across the suite.
+
+- b995afb: Show auto-generated trigger ids in the automation editor without clicking the field.
+
+  Previously, loading a stored definition (a seeded default, a GitOps-managed automation, or hand-written YAML) whose triggers carried no `id` left the Id field blank until the operator focused and blurred it. The editor now materializes the derived id eagerly on load - the same way the starter automation and "Add step" path already do - so the id is shown (and referenceable as `trigger.id`) immediately. The runtime already derived these ids, so saved definitions are unchanged.
+
+  The auto-incident migration also now writes explicit trigger ids (matching `deriveTriggerId(event)`) into the seeded sustained and flapping automations, so newly seeded defaults carry the same id the editor shows.
+
+- b995afb: Surface per-variant config documentation for the `Automation` GitOps kind.
+
+  The GitOps editor and Kind Registry Browser now show the right config schema
+  for each automation trigger and provider action when authoring an
+  `Automation` YAML, mirroring how the `Healthcheck` kind documents its
+  strategy/collector configs:
+
+  - `triggers[].config` — one entry per registered trigger that declares a
+    `configSchema`, conditioned on the chosen `triggers[].event`.
+  - `actions[].config` — one entry per registered provider action,
+    conditioned on the chosen `actions[].action`.
+
+  New plugin-author contract on the entity kind registry:
+
+  - `@checkstack/gitops-common` / `@checkstack/gitops-backend`: add
+    `EntityKindRegistry.registerSpecSchemaDocumentationProvider(provider)`. The
+    provider is a thunk invoked on every `describeKinds()` (i.e. each time the
+    kind-browser RPC is queried), so the docs it returns reflect the current
+    state of whatever it reads — order-independent.
+
+  Why a lazy provider (and not the existing eager
+  `registerSpecSchemaDocumentation`): unlike Healthcheck, whose
+  strategy/collector registries are core services fully populated before any
+  plugin's `afterPluginsReady`, the automation trigger/action registries are
+  filled by other plugins across their `init` / `afterPluginsReady` phases with
+  no guaranteed ordering. Several plugins (catalog/maintenance/notification)
+  register their provider actions in their own `afterPluginsReady`, so the
+  previous one-shot eager registration snapshotted a half-populated (often
+  empty) registry and the Automation kind's "Additional Schemas" came up empty.
+  automation-backend now registers a provider instead, so trigger/action config
+  docs always reflect the fully-populated registries.
+
+  Documentation-only surface; no runtime reconcile behaviour changes.
+
+- b995afb: Add grouping to automations so they are easier to find.
+
+  Each automation now carries an optional single free-text `group` label (HA-style "category"), stored as its own column on the `automations` row alongside `name` / `description` / `status` - it is NOT part of the definition / YAML. The automations list renders one collapsible section per group (sorted alphabetically, with an implicit "Ungrouped" bucket last), and the edit page gains a type-new-or-pick-existing group picker fed by the new `listAutomationGroups` query. `listAutomations` accepts an optional `group` filter.
+
+  Declaratively managed automations express their group via GitOps `metadata.labels.group`; the reconciler threads it onto the row (blank clears it).
+
+  A Drizzle migration adds the nullable `"group"` column and an index. Existing automations default to no group (Ungrouped) and behave exactly as before.
+
+- 270ef29: Add live state in scope plus duration helpers to the automation sensing layer (Wave 2 Phase 14).
+
+  - `@checkstack/template-engine` ships four pure, synchronous duration filters: `minutes` and `hours` (number to milliseconds), `duration_since` (ms elapsed since an ISO timestamp), and `older_than(thresholdMs)` (boolean dwell check). They compute against real time at call time, so "now" is fresh per evaluation. Fail-safe on null/unparseable input.
+  - The dispatch engine pre-resolves live health state into scope before any condition or template evaluation (the engine is synchronous, so inline state queries are impossible). State is folded under a `health` namespace - `health.system.*` for the trigger's context system and `health.systems[<id>]` for ids listed in the automation's new `uses_state` field. One batched `getBulkHealthState` query per evaluation, wired at the fresh-run, resume, and trigger-gate sites. Fail-open: a missing client or provider error yields an empty namespace and a warning, never wedging unrelated automations.
+  - New `automationFilterExtensionPoint` lets plugins contribute pure template filters without forking the engine's default registry. Name collisions with built-ins are skipped with a warning.
+  - The editor variable-scope resolver and autocomplete catalogue now surface the `health.*` namespace and the new duration filters.
+
+  With this phase alone, an operator can build "notify me when a system has been unhealthy for 30 minutes" using an interval trigger plus a single `health.*` condition - no dwell timer required (the precise event-driven path lands in Phase 15).
+
+- 270ef29: Add the `for:` dwell on triggers (Wave 2 Phase 15) - precise, event-driven, restart-safe "fire only if the matched state still holds after Y".
+
+  - New first-class `TriggerSchema.for` (decision D1): a single-unit duration (`{ seconds | minutes | hours }`) or `{ template }` rendering to seconds. A `durationToMs` helper resolves it. Not buried in `config`.
+  - New pre-run `automation_dwell_timers` table (decision D5): a dwell arms before any run exists, so it cannot reuse the run-scoped wait locks. Unique on `(automationId, triggerId, contextKey)` so a re-fire re-arms (pushes `fireAt`) rather than stacking timers.
+  - Arm / re-arm / fire / cancel wired into the trigger fan-in. When a `for:` trigger fires and its filter passes, the engine snapshots the current status, upserts the dwell row, and enqueues an `automation-dwell` wake job with the matching `startDelay` - no run starts yet.
+  - At expiry the dwell re-confirms (via the Phase 13 health-state provider) that the system is still in the armed status, then re-checks the automation's pre-run conditions, then starts the run honouring the concurrency mode. A recovery within the window cancels the pending fire even without an explicit inverse event.
+  - Cancellation is DB-side (delete the row; the queue job no-ops when it pops, since queue jobs are not cancellable). A contradicting state-change event eagerly deletes a stale dwell. Deleted automations drop their dwells via FK cascade; disabled automations drop them at fire time.
+  - Durability: the dwell row is the source of truth. A new `automation-dwell` queue consumer fires dwells, and the stalled sweeper catches expired rows whose job was lost. Both paths are idempotent via delete-on-fire, so a dwell fires at most once and survives restart.
+
+  Example:
+
+  ```yaml
+  triggers:
+    - event: healthcheck.system.degraded
+      for: { minutes: 30 }
+  actions:
+    - action: incident.create
+      config:
+        title: "{{ trigger.payload.systemName }} is critical"
+        severity: critical
+        systemIds: ["{{ trigger.payload.systemId }}"]
+  ```
+
+- 270ef29: Add the `numeric_state` trigger and three structured condition variants (Wave 2 Phase 16, backend-only).
+
+  - New built-in `numeric_state` trigger: hook-backed on `healthcheck.check.completed`, fires when a numeric field (`latencyMs` top-level, or a `collectors.<id>.<field>` path) crosses an `above` / `below` threshold. The per-automation threshold is enforced by a new structured config gate (`TriggerDefinition.evaluateConfig`) that runs before the operator's template filter. Pairs with a trigger-level `for:` (Phase 15) for sustained thresholds. v1 is level-triggered; edge de-duplication is deferred. (Per-check `p95LatencyMs` is not in the hook payload; read windowed p95 via a `numeric_state` _condition_ against `health.system.p95_latency_ms` instead.)
+  - Corrected the Phase 15 dwell `arm` semantics to be insert-if-absent: a re-fire while a dwell is still armed PRESERVES the original `fireAt` instead of pushing it. Required for the level-triggered `numeric_state` trigger above - otherwise a trigger firing on every check completion (e.g. every 60s) with `for: 10m` would re-arm and push the deadline forward indefinitely, never elapsing. A genuine recover-then-recur still deletes the row (re-confirm / inverse-cancel) so a fresh window starts.
+  - Extended the condition grammar (`ConditionInput`) beyond `string | and | or | not` with three typed variants evaluated over the pre-resolved `health.*` scope plus a FRESH `now` per evaluation:
+    - `numeric_state`: `{ value, above?, below? }` (value is a literal number or a template/path string).
+    - `time`: `{ after?, before?, weekday?[], timezone? }` for on-call / quiet-hours gating, including overnight windows wrapping midnight, weekday filtering, and IANA timezone resolution via `Intl`.
+    - `state`: `{ entity, status, for? }` - a condition-side dwell read from `health.systems[entity].in_status_for_ms` (no new timer; it reads, it doesn't time).
+  - The raw template string stays the escape hatch. Everything round-trips through zod and YAML.
+
+  Editor widgets (ConditionEditor branches, duration/time-of-day inputs, operator selects) are intentionally deferred to Phase 19; the YAML editor already round-trips the new schema, so the feature is fully usable and testable via YAML today.
+
+- 270ef29: Add the `wait_until` action primitive (Wave 2 Phase 17) - suspend a running automation until a condition becomes true, with an optional timeout (HA's `wait_template`).
+
+  - New `wait_until: { condition, timeout_seconds?, continue_on_timeout? }` primitive. `continue_on_timeout` defaults to true (HA semantics). Added to the schema, the action union, and `detectActionKind`. (The wait is fully reactive - see the reactive-dispatch-pipeline changeset; there is no `poll_seconds`.)
+  - `condition` accepts any condition shape - a template string or the Phase 16 structured `numeric_state` / `time` / `state` variants.
+  - Reactive resume: if the condition is already true it continues inline; otherwise it persists a `kind: "until"` wait lock (carrying the condition + timeout policy in a new `wait_config` jsonb column). The reactive-dispatch-pipeline changeset replaces the original poll-based re-check with a wake-index + a single timeout timer, so the wait is woken by a relevant entity change rather than ticked on an interval. Resumes take the per-run advisory lock so a wake and a sweep can't double-resume.
+  - Survives restart: the wait lock is the source of truth, and the stalled sweeper applies the timeout policy as a backstop if the wake/timer signal is lost.
+  - Works nested inside `choose` / `parallel` / `repeat` via the existing resume-remainder mechanism.
+  - Editor: a `wait_until` action card (frontend) mirroring `wait_for_trigger` - a `ConditionEditor` plus timeout and continue-on-timeout inputs. The structured numeric/time/state ConditionEditor branches land with the rest of the sensing-layer editor work; the card uses the expression-based editor for now.
+
+- 270ef29: Add a windowed transition count to the health provider - the building block for custom flapping rules (Wave 2 Phase 18).
+
+  Flapping is already buildable today via the built-in `healthcheck.flapping_detected` trigger; this phase ships the GENERALIZATION for arbitrary "N status changes in M minutes" rules.
+
+  - `countStateTransitionsInWindow` counts aggregate status transitions for a system over a trailing window (from the Phase 13 `health_check_state_transitions` table - all statuses, generalizing the unhealthy-only flapping detector). Fail-safe to 0.
+  - `getHealthState` / `getBulkHealthState` now return `transitionsInWindow` + `transitionWindowMinutes`, and accept an optional `transitionWindowMinutes` input (default 60).
+  - The automation definition gains an optional top-level `state_window_minutes` (default 60), threaded through `enrichScopeWithState` so `health.system.transitions_in_window` / `health.system.transition_window_minutes` are folded into scope per evaluation.
+  - Operators author custom flapping as a `numeric_state` condition over `health.system.transitions_in_window` - no new condition variant, no editor change. The variable-scope resolver surfaces the new fields for autocomplete.
+
+- 270ef29: Replace the hardcoded auto-incident path with default automations (Wave 2 Phase 20).
+
+  BREAKING CHANGES: Auto-incident is now automation-driven. The hardcoded background path that opened incidents on sustained-unhealthy / flapping and closed them after a cooldown (`auto-incident.ts`, `auto-incident-close-job.ts`) is removed. On upgrade, an idempotent, threshold-preserving migration seeds equivalent default automations from each assignment's existing `NotificationPolicy`, so alerting behaviour is preserved 1:1:
+
+  - `sustainedUnhealthyTrigger.durationMinutes` -> the `for:` dwell on a `healthcheck.system_degraded` trigger -> `incident.create`.
+  - auto-close `autoCloseAfterMinutes` -> a `wait_until` (healthy continuously for the cooldown) -> `incident.resolve`.
+  - `useNotificationSuppression` -> the incident's `suppressNotifications`.
+  - `skipDuringMaintenance` -> a `{{ !health.system.in_maintenance }}` pre-run condition.
+  - `flappingTrigger.{transitions,windowMinutes}` -> a second automation on the `healthcheck.flapping_detected` trigger -> `incident.create`.
+
+  Auto-incidents remain ONE OPEN INCIDENT PER SYSTEM, faithful to the old behaviour. `incident.create` gains an opt-in `dedupe_open_for_system` config flag (default false, so existing/custom automations are unaffected): when true, it reuses an existing open incident on the target system instead of opening a duplicate (the old `findActiveAutoIncident(systemId)` semantic), returning the reused incident as the produced `incident` artifact. The seeded default automations set this flag, so a system with several failing checks - sustained and/or flapping - still gets a single open incident; whichever check crosses its threshold first opens it, and the rest dedupe to it. Both sustained and flapping default automations open at `critical` severity (parity with the old path). Per-system run dedup within an automation uses `concurrency_scope: "context_key"` + `mode: "single"`.
+
+  Operators can read, edit, disable, and extend these automations (see the "Customise auto-incident" guide). Seeded automations are tagged via `managedBy` (`auto-incident:<systemId>:<configurationId>:<kind>`) so the migration is a no-op on re-runs; anything unmappable is recorded as a migration-failure row.
+
+  Flapping DETECTION (transition recording + the `healthcheck.flapping_detected` emit) is relocated into `flapping-detector.ts` and survives; the emit now fires unconditionally on a threshold cross (no longer gated on `autoOpenIncidentOnUnhealthy`), matching the hook's documented intent and required for the flapping default automation. The legacy `health_check_auto_incidents` mapping table is no longer written or read (it will be dropped in a follow-up migration); `health_check_unhealthy_transitions` is retained for the flapping detector.
+
+  New service-typed `HealthCheckApi.listAutoIncidentPolicies` RPC exposes each assignment's effective notification policy for the migration. `incident.create` adds the `dedupe_open_for_system` flag (additive, defaults off).
+
+- 270ef29: Add the GitOps `Automation` entity kind (Wave 2 Phase 21).
+
+  - `automation-backend` registers an `Automation` kind with the GitOps entity-kind registry (`specSchema: AutomationDefinitionSchema`). Reconcile upserts by name (identity tracked via the returned entity id + provenance); reconciled rows are tagged `managed_by = "gitops"`. Delete is guarded to GitOps-managed rows. An automation's full definition - triggers (with `for:` dwells), structured conditions, the action catalog, mode, `concurrency_scope`, `uses_state`, `state_window_minutes` - can now be declared in Git.
+  - `automation-frontend`: the editor reads the GitOps provenance lock (`useProvenanceLock({ kind: "Automation", entityId })`) and, when locked, disables Save / Run-now / Delete and the form fields and shows a `GitOpsLockBanner`.
+  - Documented the `Automation` YAML format under the GitOps kinds reference, plus new automation platform overview + plugin-author ("extending") developer-guide pages.
+
+- 270ef29: Add per-context-key concurrency scope to automations (Phase 20 prerequisite).
+
+  A new optional `concurrency_scope: "automation" | "context_key"` field on the automation definition controls the bucket the concurrency `mode` is evaluated over:
+
+  - `automation` (default, backward-compatible): one bucket for the whole automation - `single` allows one in-flight run total, `restart` cancels every active run. Existing automations are unchanged.
+  - `context_key`: an independent bucket per `contextKey` (typically per system / incident) - `single` allows one in-flight run _per context key_ (system A and system B run concurrently, but a second run for system A is deduped), and `restart` cancels only the active runs sharing the incoming context key.
+
+  `RunStore.hasActiveRun` / `countActiveRuns` / `cancelActiveRuns` gain an optional `contextKey` filter (the `automation_runs.context_key` column already exists, so no migration). `respectConcurrencyMode` threads the scope through. This is the primitive the default auto-incident automations need for faithful per-system deduplication.
+
+- b995afb: Reactive two-stage dispatch pipeline + wake-index (reactive automation engine Phase 5).
+
+  The automation engine now reacts to entity-state changes through a two-stage work-queue pipeline instead of polling. State changes flow `ENTITY_CHANGED` → Stage-1 route (one instance claims) → Stage-2 dispatch fan-out (any instance runs one run).
+
+  - **Wake-index** (`automation_wake_index` child table of `automation_wait_locks`): a suspended `wait_until` records the `state.*` refs its condition reads (`${kind}:${id}`, or the kind-level wildcard `${kind}:*` when an id is dynamic), and a relevant change wakes it via an indexed intersection lookup. Reference extraction (`wake-refs.ts`) covers structured `state` / `numeric_state` conditions and template member-expressions rooted at `state.<kind>.<id>` or back-compat `health.*`; an indeterminate extraction logs at `warn` and falls back to the timeout timer only (never silent).
+  - **Reactive `wait_until`**: on suspend the engine inserts the wait lock + wake-index rows in a transaction and arms a single durable timeout timer at the deadline (queue `automation-wait-timeout`). A wake re-enriches scope **kind-agnostically** — health via the RPC client (`scope.health.*`, back-compat) AND every other `state.<kind>.<id>` ref the wait depends on (plus the changed ref) resolved through each kind's `read` accessor into `scope.state.<kind>.<id>.<field>` — then synchronously re-evaluates the full condition and resumes only if it now holds. This makes waits on non-health entities (incident, slo, …) resolve correctly when that kind changes, not just health. The stalled sweeper applies the timeout policy as a backstop if the timer job is lost.
+  - **Two-stage queues**: Stage 1 subscribes to `ENTITY_CHANGED` in work-queue mode (`workerGroup: "automation-entity-route"`) and does only indexed routing (wake-index intersection + trigger-event derivation), enqueuing per-run Stage-2 jobs onto `automation-dispatch` (`consumerGroup: "automation-dispatch-run"`, `maxRetries: 3`), which routes on `reason` to `dispatchTrigger` (trigger) or `resumeRun` (wake).
+  - **Entity-change → trigger-event derivation registry** (`registerChangeDeriver` on the `automation.entity` extension point): domains register a per-kind deriver mapping a change to the qualified trigger event id(s) Stage-1 routing fans out. No real domains are migrated in this phase, so production routing is a no-op until Phase 4 supplies the derivers.
+  - **Public `onEntityChanged({ kind, handler, delivery? })`** on the entity extension point: other plugins react to another domain's entity changes without touching the internal (unexported) `ENTITY_CHANGED` hook. Default delivery is `broadcast` (every instance); opt into `work-queue` (with a `workerGroup`) for exactly-once-per-cluster work.
+
+  BREAKING CHANGES:
+
+  - The polling `template` built-in trigger is removed. Its real cases are covered reactively by the `numeric_state` / `state` triggers + conditions. Re-author any `template` triggers as `numeric_state` / `state`.
+  - `wait_until` changed from interval polling to reactive wake-on-change. Semantics are preserved (wakes when the condition becomes true; times out at the deadline) but the `poll_seconds` field is now inert — a wait no longer re-checks on a timer, it is woken by a relevant `ENTITY_CHANGED` (with the durable timeout timer + sweeper as the deadline backstop).
+  - The `automation-wait-until` re-check queue and its consumer are removed (`wait-until-queue.ts`), along with the stalled sweeper's periodic `until`-lock re-tick. Reactive `wait_until` uses the wake-index + a single `automation-wait-timeout` timer instead.
+
+- b995afb: fix(automation): preserve `${{ secrets.NAME }}` references in secret config fields during dispatch
+
+  The dispatch engine renders an action's `config` through the `{{ }}` template
+  engine before validating it. The secret-reference syntax `${{ secrets.NAME }}`
+  embeds `{{ secrets.NAME }}`, so the engine evaluated that inner expression
+  against a scope with no `secrets`, collapsing the value to `$` and failing
+  config validation (`invalid_union` on the secret field) for any real run that
+  used a `secretEnv` mapping or an `x-secret` field. The in-UI "Test Script"
+  path was unaffected because it never renders config.
+
+  `renderConfig` now passes fields annotated `x-secret` or `x-secret-env` through
+  verbatim (the same treatment as native-code `x-editor-types` fields), so the
+  secret reference reaches the secret resolver intact. Resolution and output
+  masking are unchanged.
+
+- 270ef29: Fix cross-pod secret leak when a suspended automation run resumes on a different instance (security).
+
+  The run-wide output-masking registry is in-memory and per-process: it only holds the secret values a run resolved on the pod that originally ran it. When a run suspended (`wait_for_trigger` / `delay` / `wait_until`) on pod A and later resumed — via the wake path (`resumeRun`) or the stalled-run sweeper (`recoverStalledRun`) — on pod B with a fresh, empty registry, every masking choke point on pod B (step output, run error, scope snapshot, artifact data) ran against an EMPTY mask set. Any value still carrying pod A's resolved credential (a carried-over scope variable, an artifact echoing it, a provider error string) was therefore persisted UNMASKED, where `getRunScopeForReplay` and the run-detail UI could read it. This was the deferred "L2 cross-pod masking" gap.
+
+  Fix: on `resumeRun` / `recoverStalledRun`, RE-SEED the resuming pod's mask registry BEFORE walking or persisting. The engine re-resolves the automation's declared secret refs — the `secretEnv` mappings and `connectionId` references its action configs use, collected by walking the full nested action tree — through the run's already-wrapped `getService`, which auto-registers each resolved value. This re-populates exactly the least-privilege, by-value mask set the run is allowed to see (re-resolving is the same set the run resolves during normal execution, so it grants no extra access). Re-seeding is best-effort: a rotated/deleted secret simply isn't added to the mask set (the action's own re-run would surface a genuinely-missing secret), and a resolution failure never aborts the resume. No-op when masking isn't wired (tests / minimal installs).
+
+- b995afb: Make `dependency-edge` a plugin-backed reactive entity via the Model-B entity state machine + rewire cross-plugin consumers.
+
+  Dependency defines a `dependency-edge` entity `{ sourceSystemId, targetSystemId, impactType, transitive }` keyed by dependency id. The `dependencies` table is BOTH authoritative AND the entity's current-state storage - there is no framework `entity_state` row for a dependency edge. `defineEntity` is given a plugin `read` accessor (`DependencyService.getManyEntityStates`) that projects the reactive subset straight off that table, and every reactive-state write goes through `handle.mutate` / `handle.remove`: `apply` performs the REAL `dependencies` write (the plugin's own db/tx, including the cycle/duplicate validation that may throw) and returns the new state; the framework snapshots `prev` via `read` BEFORE the write, appends the transition log, and emits `ENTITY_CHANGED` AFTER the write commits. Covered sites: create, update, delete (tombstone), plus the `dependency.create` / `dependency.remove` automation actions. Create sites pre-generate the id so the create's `prev` snapshot reads the not-yet-existing row as absent; `createDependency` accepts an optional pre-generated `id` (server-owned either way). The `dependency_derived_states` propagation cursor is declared non-reactive (bookkeeping).
+
+  A change -> trigger-event deriver reproduces the existing `dependency.created` / `.updated` / `.deleted` qualified events so automations keep firing. The old `dependency.created` / `.updated` / `.deleted` change hooks are removed; the catalog + healthcheck consumers switched from `onHook(<hook>)` to `onEntityChanged({ kind })`, all keeping `work-queue` delivery (cleanup + downstream-propagation are side-effecting writes that must run once per cluster):
+
+  - `dependency-system-cleanup`: reacts to `catalog-system` tombstones (`change.next === null`).
+  - `dependency-notification-evaluator` / `-recovery`: react to `health` changes filtered to a degraded / recovered transition via `classifyHealthChange`, reproducing the old `systemDegraded` / `systemHealthy` predicates.
+
+  `@checkstack/automation-backend` adds `makeEntityDrivenTriggerSetup()` - a no-op `setup` factory so a migrated domain's lifecycle triggers stay in the editor's trigger catalog (and register cleanly) while being fired by the entity change deriver via Stage-1 routing rather than a hook.
+
+  BREAKING CHANGES:
+
+  - The `dependency.created` / `dependency.updated` / `dependency.deleted` cross-plugin hooks (the `createHook` descriptors) are removed. Dependency lifecycle is now the reactive `dependency-edge` entity; the matching trigger events still fire (via the entity change deriver), so existing automations on `dependency.created/.updated/.deleted` keep working. The `dependency.impact_propagated` hook is KEPT (a derived fan-out signal, not a single mutable field). No in-repo plugin subscribed to the removed hooks.
+  - On the RPC create path, the `dependency.created` entity emit (via `mutate`) now precedes the `DEPENDENCY_CHANGED` realtime signal broadcast (previously the signal fired first, then the mirror); both still fire on a successful create.
+  - NARROWING: `dependency.updated` now fires only on a change to the REACTIVE state (`impactType`, `source`, `target`, or `transitive`). A label-only edit no longer fires `dependency.updated` (the label is not reactive entity state). Re-author any automation that needed to react to a label-only dependency edit against a different signal.
+
+- 270ef29: Fix suspend/resume durability + complete the run-wide secret-masking guarantee.
+
+  A panel review confirmed several defects in the automation dispatch engine's suspend/resume durability and in the run-wide masking choke point. These survived because the unit suite stubbed the seam under test; the fixes ship with tests that exercise the real suspend / sweep / resume paths.
+
+  Suspend/resume durability:
+
+  - **Stalled sweeper no longer re-runs intentional waits.** `findStalledRunIds` now joins `automation_runs` and returns only `status = 'running'` runs, and suspend-finalisation no longer clobbers the run's `lastActionPath` checkpoint to `null`. Previously any wait longer than the stale window (>60s) was re-walked from the top every sweep cycle, re-firing pre-wait side effects and leaking wait locks. The wait-aware sweeps now also run before the stalled-run sweep.
+  - **Stalled recovery refuses a run holding a live wait lock.** `recoverStalledRun` now only recovers a genuinely-`running` run with no wait lock; a crash-mid-wait recovery is left to the wait/resume paths instead of re-walking from the top and creating a duplicate lock + duplicate delay job.
+  - **Cancelled runs can no longer resurrect.** `resumeRun` guards on `status === 'waiting'` (mirroring `checkWaitUntil`) and drops any stale lock for a non-waiting run, so `wakeWaitingRuns` / delay-expiry / a racing queue job can't wake a cancelled or terminal run. `cancelActiveRuns` (restart mode) now deletes the cancelled runs' wait locks + run-state in the same operation.
+  - **Concurrency check-then-create is serialized.** The `mode` check + `createRun` now run under a transaction-scoped advisory lock keyed on `(automationId, scope)`, so two concurrent fires can't both pass a `single`-mode "no active run" check and double-run.
+
+  Masking guarantee (now genuinely covers scope + artifacts):
+
+  - **The run-wide masking choke point now also masks the durable scope snapshot and produced artifacts.** The `RunSecretRegistry` is threaded into `RunStateStore.upsert` (masks `scopeSnapshot`) and `ArtifactStore.record` (masks `data`) so a resolved connection credential threaded into `scope.variables` or surfaced into an artifact is redacted before persist - and therefore cannot reach a read-only user via `getRunScopeForReplay`. **GUARANTEE CHANGE**: run-wide masking now covers step output, run error, scope snapshot, and artifact data for every action.
+  - **`testConnection` / `testProviderConnection` mask provider errors.** These RPCs run outside a dispatch run, so they build a per-call mask set from the resolved/submitted connection config and run any provider error through it before returning, so a provider error echoing a token can't cross back to the browser.
+  - **Short secrets surface a warning.** `setSecret` now warns when a value is shorter than `MIN_MASKABLE_LENGTH` (4) that it cannot be auto-redacted (the threshold is intentionally not lowered).
+
+  Internal:
+
+  - `@checkstack/backend-api`: `withXactLock`'s `fn` now receives the transaction handle `tx` so a critical section can run on the locked connection; the doc clarifies why running on the pool inside the lock window is still safe. The incident dedup caller's comment is corrected accordingly. `RunStore` gains `findWaitLocksByRun`.
+
+- b995afb: Add the entity state machine core (`defineEntity`) - the foundational primitive of the reactive automation engine - as a Model-B plugin-backed reactive WRAPPER with NO framework-owned current-state storage.
+
+  `defineEntity` owns NO current-state storage of its own. Each kind declares a required plugin `read` accessor pointing at wherever its state lives (its own durable table, or a value computed on read from its own durable tables), and `defineEntity` makes that state reactive. There is no framework current-state store and no "homeless" fallback: every kind is plugin-backed. This makes a non-reactive write structurally impossible and guarantees every transition is durably logged without duplicating the plugin's state.
+
+  - `@checkstack/automation-backend`:
+
+    - New `automation.entity` extension point exposing `defineEntity(input)`, `declareNonReactiveState(input)`, `onEntityChanged(...)`, and `registerChangeDeriver(...)`. automation-backend registers the impl in `register`, so other plugins can resolve it and declare entities during their own `register`/`init` (Proxy-buffered until the impl registers).
+    - **Driven single mutation entry point.** All reactive-state writes go through `handle.mutate({ id, opts?, apply: () => Promise<TState> })`. The handle snapshots `prev` via `read` BEFORE the write, runs the plugin's `apply` (the actual write, committed in the PLUGIN's own transaction, returning the resulting state), validates `next` (zod), masks run-originated writes through the run-secret registry, diffs prev to next, and on a real diff appends the field-level transition rows to `entity_transitions` and emits `ENTITY_CHANGED` - both AFTER the plugin write commits (never on a rolled-back / throwing write). A structurally-unchanged write is a no-op. `handle.remove({ id, opts?, apply: () => Promise<void> })` is the tombstone counterpart (records the tombstone transition, emits next = null).
+    - **Cross-plugin transaction boundary.** `apply` takes NO framework tx: a plugin-backed kind lives behind a DIFFERENT drizzle client than `entity_transitions`, and two clients cannot share one transaction. The plugin write is authoritative; the transition-log append runs in the framework's own transaction AFTER the plugin write commits. A failure between them leaves correct plugin state with a missing history row (a gap, never a corruption).
+    - **`get` / `getMany`** route to the kind's `read`; **`inStateSince` / `inStateForMs` / `transitionCount`** read the per-field `entity_transitions` log (generalizing Phase-13 health transitions to any entity).
+    - **No framework keyed store.** There is no generic `entity_state` table, no `createKeyedStore`, and no `entityKeyedStoreServiceRef`: kinds whose state has no domain table of their own (the `health` aggregate, the `slo` budget/streak view) compute their `read` on demand from their own durable data instead of materializing a framework copy. `entity_transitions` (the change-history log) is the framework's ONLY persistent table and is written for EVERY kind regardless of where current state lives.
+    - **`entityResolverFor(kind)`** routes scope enrichment + the reactive `wait_until` wake re-eval to each kind's `read` accessor. Generalized scope enrichment (`enrichScopeWithEntities`) folds any `state.<kind>.<id>` ref into `scope.state.<kind>.<id>.<field>`. The rich `scope.health.*` condition snapshot (status, latency, success rate, in-maintenance, transitions-in-window, ...) is resolved EXCLUSIVELY through the healthcheck RPC path (the health aggregate is computed on read, not stored as a framework row) and the generic entity pass never writes `scope.health`; `state.health.*` remains the minimal reactive entity view. These are two complementary projections by design, not a migration shim.
+    - **Horizontal-scale read-consistency guard.** A reactive entity's current state MUST be globally readable from shared/durable storage, never process-local memory (`.agent/rules/state-and-scale.md`). Enforced by the `checkstack/no-pod-local-entity-state` ESLint tripwire at the `defineEntity({ read })` boundary (wired at `warn`) and the deterministic `cross-pod-read-consistency.it.test.ts` integration test.
+    - Load-time validation hard-fails a malformed registration (non-`z.object` state, missing/duplicate `kind`, or a missing / non-function `read`).
+    - The `ENTITY_CHANGED` hook is internal (not exported); the change emitter buffers events produced during the init window and flushes them in order once the hook wiring is available in `afterPluginsReady`.
+
+  - `@checkstack/automation-common`:
+
+    - New `EntityChangedSchema` (the `ENTITY_CHANGED` payload - `kind`, `id`, `prev`, `next`, `delta`, `changedFields`, `actor`, `occurredAt`) and `DispatchJobSchema` (the Stage-2 `trigger` / `wake` dispatch job).
+
+  - `@checkstack/automation-frontend`: the `wait_until` editor no longer offers the inert `poll_seconds` field (reactive waits don't poll).
+
+  This phase adds the primitive only: domains are migrated in their own changesets. No external behavior changes for existing automations.
+
+  BREAKING CHANGES: There is no framework current-state store. Any out-of-tree plugin must own its entity state in its own durable storage (its own table, or a compute-on-read over it) and pass a `read` accessor to `defineEntity`. `createKeyedStore` / `KeyedStore` / `entityKeyedStoreServiceRef` / `EntityKeyedStoreService` do not exist, and there is no `entity_state` table. `handle.set` / `handle.patch` and the `indexes` option do not exist; all writes go through `handle.mutate` / `handle.remove`.
+
+- b995afb: Extract a shared `withEntityWrite` / `withEntityRemove` guard for PLUGIN-BACKED (Model B) reactive entities and refactor the per-domain copies onto it.
+
+  Every plugin-backed domain (incident, catalog, dependency, maintenance, slo, satellite) reimplemented the same "no handle wired → run the plugin write directly; handle wired → route through `handle.mutate` / `handle.remove`" guard, varying only in the id-key name. `@checkstack/automation-backend` now exports `withEntityWrite` / `withEntityRemove` (from the entity barrel) and each domain's thin, well-named wrappers (`writeIncidentEntity`, `writeMaintenanceEntity`, satellite's `mirror`, …) delegate to it, so the branch lives in exactly one place. Behavior is unchanged.
+
+  `writeHealthEntity` (healthcheck-backend) is intentionally NOT migrated onto the helper — it is genuinely bespoke (closure-captured durable state, distinct rethrow-vs-fail-soft branches, a per-system serializer, and it returns the computed state). SLO keeps its fail-soft `onError` wrapper around the shared guard.
+
+- 270ef29: Fix several correctness defects around distributed coordination and stored-data handling.
+
+  - Dwell `for:` timers now fire via an atomic `DELETE ... RETURNING` claim, so two pods (or the stalled sweeper vs the queue consumer) can no longer both fire the same dwell.
+  - Postgres session-level advisory locks now keep connection affinity. A shared `AdvisoryLockService` (backed by a dedicated pooled client) replaces the previous acquire/release-on-different-connection pattern that leaked locks. Used by the script-packages installer election, the automation run resume + stalled sweeper, and (via a new transaction-scoped `withXactLock`) incident dedup.
+  - A storage migration that crashed mid-flight is now resumed on startup under the installer-election lock, instead of permanently wedging installs.
+  - Distributed script-package blobs carry a `blobSha256` and are verified before extraction (the SRI `integrity` hashes the npm tarball, not the transported archive). Backward-safe: entries without the field skip verification until a re-install regenerates the manifest.
+  - Archive extraction rejects zip-slip paths (absolute or `..` entries) before writing anything.
+  - `incident.create` with `dedupe_open_for_system` serializes its check-then-create per system, so concurrent triggers for the same system can't both open a duplicate incident.
+  - Seeded auto-incident filter expressions JSON-encode interpolated ids so a quote/backslash can't corrupt the expression.
+  - Stored jsonb snapshots (dwell `actorSnapshot`, wait-lock `waitConfig`) are validated with zod on load and degrade safely instead of flowing through as the wrong type.
+
+- b995afb: Fix the `Automation` kind showing an empty "Additional Schemas" section in the GitOps Entity Kind Registry. The spec-schema documentation for `triggers[].config` and `actions[].config` was registered with `conditions` pointing at the `triggers[].event` / `actions[].action` discriminators. Those discriminators have no variant-selector group of their own in the kind browser, so the conditions could never be satisfied and every entry was filtered out (the section rendered empty even though the docs were registered).
+
+  The trigger/action config docs are now emitted as standalone variants (no `conditions`), mirroring how Healthcheck surfaces its primary `config` (strategy) field. Each field now renders its own variant dropdown so operators can browse every trigger and provider-action config schema directly.
+
+- b995afb: Move health-check flapping configuration from the per-assignment notification policy onto the `healthcheck.flapping_detected` automation trigger.
+
+  Flapping thresholds (`transitions`, `windowMinutes`) are now configured on the trigger itself, next to the automation that reacts to them, instead of on each check assignment. The health-check executor still owns the windowed transition counting (it writes `health_check_unhealthy_transitions` and runs the window query), but it now SOURCES the thresholds from the subscribed automations' trigger config:
+
+  - On a transition-to-unhealthy it records the transition unconditionally (keeping history warm), then looks up the enabled automations subscribed to `healthcheck.flapping_detected`, collects the distinct set of configured windows, counts transitions once per distinct window, and emits one `healthcheck.flapping_detected` per window. The trigger's exact-window `evaluateConfig` gate then fires each automation only for its own window and transition threshold.
+  - A missing or partial flapping trigger config defaults to `{ transitions: 3, windowMinutes: 60 }`, so automations created before the trigger carried config keep working unchanged.
+  - `automation-backend` exposes a new backend-only, read-only `automationSubscriptionsRef` service ref (`findEnabledByTriggerEvent`) so a plugin that owns a trigger's underlying event can discover its subscribers' trigger config. It is never browser-exposed.
+
+  **BREAKING CHANGES**
+
+  - The per-assignment `notificationPolicy.flappingTrigger` field is removed. `NotificationPolicy` is now `{ suppressDeEscalations }` only. Stored rows that still carry a `flappingTrigger` key parse cleanly - the key is stripped on read - so no data migration is required, but the per-check flapping toggle/threshold in the assignment Notifications tab is gone; configure flapping on the trigger instead.
+  - The GitOps `System.healthcheck[].notificationPolicy.flappingTrigger` field is removed. A `flappingTrigger` block in a manifest is ignored. Move the thresholds to the `transitions` / `windowMinutes` config of your `healthcheck.flapping_detected` automation trigger.
+  - The standalone `enabled` flag for flapping is gone: flapping is "enabled" precisely when at least one enabled automation subscribes to `healthcheck.flapping_detected`. With no subscriber, the transition is still recorded but nothing is counted or emitted.
+
+- b995afb: Fix four reactive-automation-engine defects in the `wait_until` / entity-change dispatch path.
+
+  - **Lost-wakeup re-evaluate-on-registration guard (HIGH, data-loss race).** `executeWaitUntil` evaluated its condition, then committed the wait lock + wake-index rows with NO re-evaluation after arming. An `ENTITY_CHANGED` for a relevant ref landing in that arm window was routed by Stage-1 against a not-yet-visible lock, enqueued no wake job, and — for a no-timeout wait (`timeoutAt` null, skipped by the sweeper) — the run stalled permanently (silent run leak). After arming the lock the engine now re-evaluates ONCE against freshly re-enriched scope; if the condition already holds it deletes the lock (its wake-index rows cascade) and continues the run inline. Idempotent via the lock delete + the per-run advisory lock.
+
+  - **Wildcard health wake drops the changed system (MEDIUM, correctness).** `reEnrichWaitScope` resolved health only for the trigger `contextKey` + `uses_state` ids and excluded the changed ref from health resolution. A wildcard health wait (`health:*`) woken by `health:sysX` — where `sysX` was neither the contextKey nor in `uses_state` — never had `scope.health.systems[sysX]` populated, so the condition read stale/empty state and failed to resume. The changed system's concrete id is now injected into health resolution during a wildcard wake.
+
+  - **`changeId` for dispatch dedup (LOW, correctness).** The Stage-2 trigger `jobId` embedded `changed.occurredAt` (millisecond granularity), so two DISTINCT changes to the same entity within one millisecond collapsed onto one job (the second run silently dropped). `EntityChangedSchema` gains an additive, back-compatible `changeId` (generated ONCE at emit time so it travels with redeliveries of the same change); the Stage-2 jobId now uses `changed.changeId` (falling back to `occurredAt` for legacy payloads). Redeliveries of one change still dedup; two real changes stay distinct.
+
+  - **Run-originated `mutate` returns the unmasked next state (LOW, correctness).** `handle.mutate` returned the `maskForRun`-masked next state, contradicting its "returns the resulting state" contract. Masking is now confined to the emitted `ENTITY_CHANGED` payload and the `entity_transitions` rows only; `mutate` returns the unmasked, zod-validated resulting state.
+
+  BREAKING CHANGES: none. The `changeId` field is additive and optional; all changes are behavior-preserving except where they fix the defects above.
+
+- b995afb: Restore the documented domain payload fields on entity-driven automation triggers.
+
+  Migrated triggers declare domain-named `payloadSchema`s (incident `incidentId`; health `systemId` / `previousStatus`; catalog `systemId` / `changedFields`; dependency `dependencyId`), but Stage-2 dispatch built `trigger.payload` from the generic entity-change shape (`{ kind, id, prev, next, delta, ...next }`). Operator filters and templates reading `trigger.payload.incidentId` / `.systemId` / `.previousStatus` silently resolved to `undefined` — a regression vs the legacy hook payloads.
+
+  Changes:
+
+  - `@checkstack/automation-backend`: `registerChangeDeriver` now accepts an optional per-kind `toPayload(changed) => Record<string, unknown>` mapper (at most one per kind; a second distinct mapper throws). Stage-2's `changedToPayload` uses the registered mapper to build `trigger.payload` so it matches the kind's declared `payloadSchema`, falling back to the generic change shape for kinds without a mapper. New exported type `EntityChangePayloadMapper`.
+  - `@checkstack/incident-backend`, `@checkstack/healthcheck-backend`, `@checkstack/catalog-backend`, `@checkstack/dependency-backend`: implement and register a `toPayload` for each entity-driven kind so `trigger.payload` carries the legacy domain keys again.
+
+  Descriptive incident payload fields not derivable from the reactive entity state (`title`, `description`, `createdAt`, `resolvedAt`) are now OPTIONAL on the incident trigger `payloadSchema`s — they were always absent from an entity-driven payload.
+
+- b995afb: Remove the legacy per-assignment auto-incident system. Auto-incidents are now built entirely by user-authored automations; nothing is seeded or hardcoded.
+
+  What was removed:
+
+  - The one-time migration that auto-seeded "sustained unhealthy" and "flapping" default automations from each assignment's notification policy, plus the `listAutoIncidentPolicies` RPC it consumed.
+  - The seeder-only notification-policy settings and their UI: `autoOpenIncidentOnUnhealthy`, `useNotificationSuppression`, `skipDuringMaintenance`, `sustainedUnhealthyTrigger`, and `autoCloseAfterMinutes`. The assignment **Notifications** tab now exposes only the two live settings: **Suppress de-escalation notifications** and the **flapping-detection** thresholds.
+  - The dead `health_check_auto_incidents` table (no longer written or read; dropped via migration).
+
+  What is preserved: flapping detection (`healthcheck.flapping_detected`) and de-escalation suppression are unchanged. The `flappingTrigger` and `suppressDeEscalations` policy fields stay exactly as before.
+
+  > [!NOTE]
+  > One-time cleanup: an automation-backend migration deletes the historically auto-seeded incident automations (`managed_by LIKE 'auto-incident:%'`) from existing databases. This is intentional and destructive - those automations were no longer managed by anything. If you had edited a seeded automation and want to keep it, re-create it as a normal automation before upgrading. See the "Build auto-incident automations" guide for templates.
+
+  > [!IMPORTANT]
+  > NARROWING: `NotificationPolicySchema` is narrowed to `{ suppressDeEscalations, flappingTrigger }`. Stored rows that still carry the removed legacy keys parse cleanly - zod strips the unknown keys on read - so no data migration is required for the `system_health_checks.notification_policy` column. GitOps `notificationPolicy` specs that set the removed fields are no longer accepted for those keys.
+
+- 270ef29: Add in-UI script testing for automation `run_script` / `run_shell` actions.
+
+  A new `testScript` RPC runs a TypeScript or shell script against an
+  editable, auto-seeded sample context using the same sandboxed runner the
+  real action uses, so operators can test scripts directly in the editor
+  without dispatching a whole automation. Surfaces beneath any script field
+  flagged `x-script-testable` via the new `ScriptTestPanel` /
+  `ContextSampleEditor` components in `@checkstack/ui` and the
+  `scriptTestRenderer` prop threaded through `DynamicForm`.
+
+  - `@checkstack/automation-common`: adds the `testScript` contract +
+    `ScriptTest*` schemas (gated by `automation.manage`).
+  - `@checkstack/automation-backend`: implements `testScript` reusing the
+    shared ESM / shell runners; central-only, time-bounded.
+  - `@checkstack/backend-api`: new `x-script-testable` config-schema
+    metadata propagated to the frontend JSON Schema.
+  - `@checkstack/ui`: new `ScriptTestPanel` + `ContextSampleEditor`
+    components and a `scriptTestRenderer` prop on `DynamicForm`.
+  - `@checkstack/automation-frontend`: wires the test panel into the action
+    editor.
+  - `@checkstack/integration-script-backend`: marks the `run_script` /
+    `run_shell` script fields as testable.
+
+- 270ef29: Extend in-UI script testing to health-check collectors, and add
+  load-from-run replay for automation script tests.
+
+  - Health-check collectors: a new `testCollectorScript` RPC runs the
+    inline-script (TypeScript) collector and the shell `script` collector
+    against an editable, auto-seeded sample context using the same
+    sandboxed runner the real collector uses. Surfaces beneath the
+    collector script fields in the collector editor (both marked
+    `x-script-testable`). Gated by `healthcheck.configuration.manage`.
+  - Automation replay: a new `getRunScopeForReplay` RPC reconstructs an
+    editable test context from a real run (trigger + persisted artifacts,
+    plus the durable scope snapshot when the run is still in-flight), and
+    the script-test panel gains a "Load from run" picker that seeds the
+    sample context from a past run.
+
+  Note: health-check executions do not persist the script / config /
+  check / system that produced a result, so there is no health-check
+  replay - auto-seed is the only context source for collector tests. This
+  is by design; see the feature plan.
+
+- 270ef29: Activate npm packages in script execution: thread the managed
+  `resolutionRoot` into every user-script call site so an allowlisted package
+  can actually be `import`ed.
+
+  - `@checkstack/backend-api`: the ESM runner now always writes a per-run
+    `bunfig.toml` with `[install] auto = "disable"` and runs with that dir as
+    CWD. Without this Bun silently auto-installs any imported package from the
+    registry (verified), defeating the allowlist; with it, imports resolve
+    only against the reconciled `current/node_modules` (when a `resolutionRoot`
+    is set) and otherwise fail fast.
+  - `@checkstack/script-packages-backend`: `resolveResolutionRoot` /
+    `resolveResolutionRootFromStore` / `resolveResolutionRootForHost` decide a
+    host's resolution-root status (`none` / `ready` / `notReady`) from the
+    local `<store>/current`.
+  - `run_script` (integration-script-backend), the inline-script collector
+    (healthcheck-script-backend, core + satellite), and the in-UI `testScript`
+    / `testCollectorScript` endpoints all resolve the root per run and pass it
+    to the runner; `run_script` surfaces a clear "npm packages not ready"
+    error when configured-but-unsynced. Shell paths are unaffected (no module
+    resolution).
+
+  An opt-in end-to-end test (`CHECKSTACK_E2E_NETWORK=1`) proves an allowlisted
+  package imports successfully through the real `run_script` action execute
+  path, with non-network degradation tests running always.
+
+  BREAKING CHANGES: `@checkstack/backend-api`'s `defaultEsmScriptRunner` now
+  always disables Bun auto-install for the user subprocess. A script that
+  previously relied on Bun silently fetching an un-vendored package from the
+  registry at import time will now fail to resolve it. This is intentional -
+  package availability is governed by the admin allowlist - but any caller
+  depending on the old implicit auto-install behavior must add the package to
+  the allowlist instead. The new `EsmScriptRunOptions.resolutionRoot` field is
+  optional and additive (defaults to today's `os.tmpdir()` behavior when
+  unset), so the runner API itself is source-compatible.
+
+- 270ef29: Add the Secrets platform (Phase 1): a central, plugin-agnostic secret manager with a pluggable backend extension point, a cross-plugin resolver service, and a universal Jenkins-style masking layer.
+
+  - New packages: `secrets-common` (schemas, contract, `secrets.read`/`secrets.manage`, masking utils), `secrets-backend` (`SecretBackend` extension point, `secretResolverRef`/`secretAdminRef` services, run-scoped masking context, RPC router), `secrets-backend-local` (default AES-256-GCM backend, owns the `secrets` table promoted from gitops), `secrets-frontend` (admin Settings page).
+  - Resolution machinery (`resolveSecretsBySchema`, `SecretStore`, `${{ secrets.NAME }}` / `x-secret`) is promoted out of `gitops-backend` into `secrets-backend`. GitOps now resolves and manages secrets through the platform's service refs (single source of truth); its secret table is migrated without loss.
+  - Universal masking seam wired at the central script-output boundaries: automation `run_script` / `run_shell` artifacts and the in-UI test panel redact run-scoped secret values from `result`/`stdout`/`stderr`/`error` before persist/return. Phase 1 resolves no run-scoped secrets yet, so masking is a no-op until Phase 2; the seam guarantees the boundary exists.
+  - No endpoint returns a secret value to a browser: DTOs expose only name/metadata/`hasValue`.
+
+  BREAKING CHANGES: `gitops-backend` now depends on `secrets-backend` and resolves/manages secrets through it. The `secrets` table is owned by `secrets-backend-local`; the gitops `secrets` table is retained as a migration source but is no longer the source of truth.
+
+- 270ef29: Secrets platform Phase 2: secret -> env-var mapping with central resolve, inject, and mask.
+
+  - Script consumers declare a least-privilege `secretEnv` allowlist
+    (`{ ENV_NAME: "${{ secrets.NAME }}" }`). The automation `run_script` /
+    `run_shell` actions resolve ONLY the declared secrets via
+    `secretResolverRef.resolveForRun`, inject them into the runner env for
+    that run (memory-only; the ESM runner gained a per-run `env` option), and
+    mask their values out of stdout/stderr/result/error via the run-scoped
+    masking context. A missing required secret fails the run clearly. No
+    ambient secret access.
+  - Test panel: `testScript` / `testCollectorScript` inject named
+    `__SECRET_<NAME>__` placeholders by default, or user-supplied per-secret
+    overrides; real production values are never resolved in the test path,
+    and overrides are masked out of the result.
+  - Healthcheck collectors carry the `secretEnv` field for authoring +
+    the test panel; runtime injection on satellites lands in Phase 3.
+  - Editor UX: a new `@checkstack/ui` `SecretEnvEditor` renders `x-secret-env`
+    record fields with `${{ secrets.* }}` name autocomplete (from
+    `listSecretNames`), wired into the automation action editor and the
+    healthcheck collector editor. New `withConfigMeta` helper +
+    `x-secret-env` config-meta key in `@checkstack/backend-api`.
+
+- 270ef29: Secrets platform Phase 5c: run-wide secret masking at the automation persistence choke point.
+
+  Every step writes `result_payload` / `error_message` (and the run writes a
+  run-level `error_message`) to `automation_run_steps` / `automation_runs`.
+  Previously only the script-action and satellite-collector output paths were
+  masked, so a provider HTTP error that embedded a resolved connection
+  credential could reach the run-detail UI unmasked.
+
+  Now the dispatch run accumulates every secret value it resolves
+  (`RunSecretRegistry`) by wrapping each run's `getService` so the secret
+  resolver (`resolveSecret` / `resolveForRun` / `resolveBySchema`) and the
+  connection store (`getConnectionWithCredentials`) register their resolved
+  values — least-privilege (only what this run resolved), in memory only,
+  dropped when the run goes terminal. The run-state store masks step + run
+  output with these values BEFORE persistence, so every downstream read / DTO
+  / run-detail page is masked by construction across ALL actions. The
+  existing script / satellite-collector source-side masking is kept as
+  defense in depth.
+
+- b995afb: Add an optional `partitionBy` override to the windowed-count trigger gate.
+
+  A trigger's `window` block now accepts `partitionBy`, a bare expression (same flavour as `filter`, no `{{ }}`) that controls the key the occurrence count is bucketed by. When omitted, the gate keys by the trigger's built-in context key exactly as before (per system for health triggers), so existing automations are unchanged. When set, the expression is evaluated against the same trigger scope `filter` uses and coerced to a string - e.g. `trigger.payload.severity` for a per-severity rate, or `trigger.payload.systemId + ":" + trigger.payload.checkId` for a composite key. If the expression evaluates to null/undefined/empty or fails to evaluate, the gate falls back to the built-in context key (never global counting); eval errors are logged, matching the gate's fail-open posture.
+
+  Triggers can now declare `contextKeyLabel` (a UI hint, e.g. `"system"`) describing their built-in context dimension. It is surfaced through `TriggerInfo` so the editor's window "Partition by" field shows the default partition ("Leave blank to count per system" / "per automation" when a trigger has no context key). The healthcheck system triggers (`system_health_changed`, `system_degraded`, `system_healthy`, `check_failed`) and the built-in `numeric_state` trigger set it to `"system"`. This is a pure UI hint with no runtime behaviour.
+
+  The automation editor's window block gains a "Partition by" expression input (reusing the trigger filter's `trigger.payload.*` autocomplete), and the collapsed trigger card summary shows the partition when set.
+
+- b995afb: Add a generic windowed-count / rate trigger gate, and express flapping detection on it.
+
+  Any trigger can now carry a `window: { count, minutes, refire }` block: the automation engine records each qualifying occurrence (after the structured config gate and the operator's `filter`) in a durable append log and counts rows within the trailing sliding window, scoped per context key (e.g. per system). `refire: "every"` (default) fires on every occurrence at/over the threshold; `refire: "once"` fires only on the crossing edge and re-arms as old occurrences age out. The gate runs in `maybeStartRun` after `filter` and before the `for:` dwell, so it composes with both.
+
+  Flapping is now an instance of this mechanism rather than a bespoke detector. The healthcheck `system_health_changed` raw change event plus a `filter` (`trigger.payload.newStatus != "healthy"`) plus `window: { count: 3, minutes: 60, refire: "once" }` reproduces flapping in the engine.
+
+  State-and-scale: window state lives in the new `automation_window_events` Postgres table (FK-cascade on the automation, the same delete-lifecycle as `automation_dwell_timers`). The count is read with pure SQL so every pod computes the same answer; the work-queue claim gives exactly one INSERT per emission, so there is no double-count. Rows older than the 24h schema cap are pruned by the existing stalled-sweeper. The `once` policy is best-effort under at-least-once redelivery (a redelivered emission can skip the exact crossing edge; `every` is redelivery-tolerant).
+
+  **BREAKING CHANGES:**
+
+  - The `healthcheck.flapping_detected` automation trigger and the `healthcheck.flapping_detected` hook are REMOVED. Flapping is now detected by the windowed-count gate on the `healthcheck.system_health_changed` trigger (`window` block, `refire: "once"`).
+  - Flapping is now PER-SYSTEM (the aggregated `health` entity), not per-`(system, configuration)`. Subscribe to `check_failed` with a `window` instead if you need per-check rate detection.
+  - The healthcheck `health_check_unhealthy_transitions` table is DROPPED (the per-check flapping audit log is no longer kept; counting moved into the engine).
+  - The backend-only `automation.subscriptions` service ref (`automationSubscriptionsRef` / `AutomationSubscriptions`) is REMOVED. The engine enumerates subscribers internally and the window gate runs per-automation inside `maybeStartRun`, so the external read-ref is no longer needed.
+  - Existing user-created flapping automations are AUTO-MIGRATED on boot: any trigger on `healthcheck.flapping_detected` is rewritten to `healthcheck.system_health_changed` + the canonical unhealthy-transition filter + `window: { count: transitions ?? 3, minutes: windowMinutes ?? 60, refire: "once" }`, dropping the old `config`. A pre-existing trigger filter is replaced with the canonical one (logged per row). An enabled automation that still references the removed event after migration logs a warning.
+
+### Patch Changes
+
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+  - @checkstack/backend-api@0.19.0
+  - @checkstack/gitops-common@0.5.0
+  - @checkstack/gitops-backend@0.4.0
+  - @checkstack/automation-common@0.3.0
+  - @checkstack/healthcheck-common@1.4.0
+  - @checkstack/template-engine@0.3.0
+  - @checkstack/script-packages-backend@0.2.0
+  - @checkstack/secrets-common@0.1.0
+  - @checkstack/command-backend@0.1.32
+  - @checkstack/queue-api@0.3.7
+
 ## 0.2.0
 
 ### Minor Changes

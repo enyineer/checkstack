@@ -1,5 +1,186 @@
 # @checkstack/ui
 
+## 1.12.0
+
+### Minor Changes
+
+- b995afb: Redesign the automation visual editor to a Home-Assistant-style collapsed-card UX.
+
+  Every item in all three sections (actions, triggers, conditions) now renders as a compact summary row by default - icon, title, and a one-line summary derived from its config. Clicking the row opens the item's full configuration in a right-side sheet that edits the same live definition (no draft/commit step), so closing the sheet keeps the changes. The saved `definition` is unchanged - only the editor presentation - so the visual and YAML views still round-trip losslessly.
+
+  - `@checkstack/ui` `ActionCard` gains three optional, backward-compatible props: `onOpenSheet` (turns the card into a non-expanding summary row that opens a host-supplied sheet on header click), `summary` (the compact one-line hint shown under the title), and `actions` (a typed `ActionCardMenuItem[]` rendered as a three-dot overflow menu). The new `ActionCardMenuItem` type is exported. Existing inline-expand usages are unaffected when the new props are omitted.
+  - Per-card commands move into the overflow menu: Disable/Enable, a new Duplicate, and Delete. The drag grip stays on the action card header; actions keep dnd-kit reordering and the parallel id array. Triggers and conditions remain non-reorderable.
+  - Duplicate clones an item with fresh, unique ids (via the existing id helpers) and inserts it directly after the original, keeping the editor's parallel id array in sync.
+  - Composite actions (choose / parallel / repeat / sequence) keep nesting: a child card inside a parent's sheet opens its OWN sheet, stacking via Radix Dialog's portal + overlay.
+  - Cards with validation errors auto-open their sheet and show an error badge on the collapsed row, so problems are never hidden behind a collapsed row plus a closed sheet.
+
+- 270ef29: Add the sensing-layer editor UX (Wave 2 Phase 19) - the visual widgets for the duration-aware and structured-condition building blocks from Phases 15-18.
+
+  - New `@checkstack/ui` components (each with a Storybook story):
+    - `DurationInput` - number + unit (`seconds` / `minutes` / `hours`) picker emitting the single-unit `Duration` object the backend accepts, so it round-trips losslessly through YAML.
+    - `TimeOfDayInput` - HH:MM (24h) input emitting the `"HH:mm"` string the `time` condition's `after` / `before` accept. Both are plain inputs (no animations), so no `usePerformance` gating is needed.
+  - `DynamicForm`'s `FormField` gains an additive `x-duration` / `format: "duration"` branch that renders `DurationInput` for schema-driven duration configs. (Additive alongside the existing dispatch; reconciles cleanly with the parallel branch's `FormField` edits.)
+  - The `ConditionEditor` kind selector gains `numeric_state` / `time` / `state` structured branches: an operator dropdown (above / below / between) + threshold for numeric, `TimeOfDayInput` + weekday toggles + timezone for time, and a status dropdown + optional `DurationInput` dwell for state. The raw-expression escape hatch is kept. Pure `kindOf` / `defaultForKind` helpers are split into a UI-free `condition-kind` module so they unit-test under bun (the UI barrel drags Monaco).
+  - The trigger card gains a `for:` dwell toggle + `DurationInput` (Phase 15's schema was already round-tripping in YAML).
+
+  Visual and YAML views stay lossless; structured conditions authored in either are editable in the other.
+
+- b995afb: Surface inline-script type errors as automation action badges.
+
+  Every inline `run_script` action in the automation editor is now type-checked
+  against its generated `context` types continuously - including actions whose
+  cards are collapsed - and any errors show up as the action card's error badge
+  (and in the definition issue list), the same surface structural validation
+  uses. Previously a type error was only visible as a red squiggle inside the
+  open Monaco editor, so a broken script behind a collapsed card (or one
+  invalidated by adding a new trigger) went unnoticed until runtime, where the
+  bad property access silently read `undefined`.
+
+  Validation runs entirely in the browser via the same standalone TypeScript
+  worker the editor uses (new `validateTypeScriptSources` export on
+  `@checkstack/ui`), so there is no backend round-trip. Each script is checked by
+  prepending its generated `context.d.ts` to the source, which keeps the
+  `context` global scoped to that one off-screen file and avoids colliding with
+  any open editor. When an automation already contains scripts, a hidden editor
+  boots the shared editor services on open so validation runs immediately rather
+  than only after the first script card is expanded.
+
+  This covers the automation currently open in the editor. Scripts in other
+  automations, or definitions authored via YAML/API, are not type-checked here -
+  that platform-wide coverage remains future work for a backend typecheck.
+
+  Also: action cards no longer auto-open their detail sheet when they have
+  validation issues; issues now surface only as the card badge, so multiple
+  flagged actions no longer pop several sheets open at once.
+
+- b995afb: Improve the automation Run Script secret → env mapping editor and script IntelliSense.
+
+  - **Searchable secret picker with existence validation.** The secret → env mapping editor (`SecretEnvEditor`) now uses a searchable, keyboard-navigable combobox (modeled on `VariablePicker` / `PackageNameCombobox`, `isLowPower`-aware) populated from the secrets plugin's `listSecretNames`, replacing the plain `<input>` + `<datalist>`. A free-typed name still round-trips (a secret may be created later). When a row references a name that the loaded list does not contain, the row shows a non-blocking warning (red border + message); save is not prevented. The existence check lives in a pure, unit-tested `unknownSecretNames` helper.
+  - **Clearer field description.** The `secretEnv` field descriptions on the `run_script` / `run_shell` actions no longer show the stored `${{ secrets.NAME }}` template (which is confusing in a UI that takes a bare name); they now describe the actual UI behavior and how the value is injected (`process.env.<ENV_NAME>` / `$<ENV_NAME>`) and masked.
+  - **`process.env.<ENV_NAME>` autocomplete.** Declared `secretEnv` env-var names now autocomplete under `process.env.` in the Run Script (TypeScript) Monaco editor and are typed `string`, via an ambient `NodeJS.ProcessEnv` augmentation merged into the editor type definitions. New pure, unit-tested generators `generateSecretEnvTypes` and `secretEnvEnvNames` (exported from `@checkstack/automation-frontend`) drive this; the augmentation coexists with `@types/node`'s existing index signature.
+  - **Shared combobox-interaction helper.** The "opens-then-immediately-closes" popover guard (`comboboxAnchorProps` / `isAnchorInteraction`) is promoted from `@checkstack/script-packages-frontend` into `@checkstack/ui` so the new secret picker and the existing package/version comboboxes share one implementation; the package comboboxes now import it from `@checkstack/ui` and the local copy is removed.
+
+- b995afb: Add an "expand to overlay" popout to the shared `CodeEditor` so big scripts (shell / TypeScript / JavaScript) can be edited comfortably in a large full-screen overlay.
+
+  Every consumer of `CodeEditor` (automation Run Script, healthcheck collectors, etc.) now gets a subtle "Expand editor" affordance (a `Maximize2` icon button) in the editor's top-right corner. Clicking it opens the shared `Dialog` at `size="full"` containing a large editor that fills the dialog.
+
+  - The overlay editor is a second `TypefoxEditor` instance bound to the SAME `value` / `onChange` and all the same completion props (`typeDefinitions`, `templateProperties`, `shellEnvVars`, `markers`, `acquireTypes`, `acquireResetKey`, `importablePackages`, `language`, `readOnly`, `placeholder`), so IntelliSense / ATA / import-name / shell-var completion all work in the overlay exactly as inline. Both editors are controlled on the same value, so edits stay in sync and closing the dialog keeps them.
+  - The overlay editor only MOUNTS while the dialog is open (lazy), so there is no second Monaco instance cost when closed. It uses a distinct `${id}-popout` model id so the two Monaco models don't fight over the same URI.
+  - New opt-in `TypefoxEditor` prop `fillHeight`: when true the editor container uses `height: 100%` (with `minHeight` as a floor) instead of a fixed px height, so it fills the tall flex dialog body and Monaco's `automaticLayout` resizes to fit. Inline behaviour is unchanged when `fillHeight` is absent/false.
+  - `CodeEditorProps` gains two additive optional props: `allowPopout` (default `true`; set `false` to hide the affordance) and `title` (override the overlay dialog title, which otherwise derives from `language`, e.g. "Edit script - TypeScript").
+  - `TypefoxEditor` is now properly controlled: external `value` changes are applied to the live model (guarded by an equality check so a user's own edit is a no-op and there's no loop). This is what keeps the inline and popout editors in sync — editing one updates the other — and also fixes external resets (YAML→Visual, loaded definitions) reflecting in the editor.
+  - `DialogContent`'s inner content wrapper gains `min-h-0 flex-1` so it fills the height when a consumer makes `DialogContent` a tall flex column (e.g. the popout body). Inert for the default non-flex dialog, so existing dialogs are unaffected.
+
+  The `Dialog` already degrades its own animations under `usePerformance` / `isLowPower`; the popout button adds no heavy effects.
+
+- b995afb: Suggest Node and Bun built-in modules in script-editor import-name completion.
+
+  The import-specifier completion now also offers the always-available runtime built-ins (`node:fs`, bare `fs`, `bun`, `bun:test`, `node:crypto`, ...) alongside the installed allowlist packages. These are importable in the script sandbox regardless of the allowlist (the sandbox is a Bun subprocess, which provides Node's builtins plus its own `bun:` modules), and their types are already loaded ambiently, so completing one needs no lazy acquisition.
+
+  - The built-in name list is DERIVED authoritatively at build time from the same bundled `@types/node` + `bun-types` declarations the editor injects: every importable built-in is a top-level `declare module "<spec>"`, so the generator (`scripts/generate-stdlib-types.ts`) now also parses those names (via the new pure `extractBuiltinModuleSpecifiers`) and emits `generated/builtin-modules.json`. No hand-maintained list - it auto-updates whenever the bundled types are regenerated. Wildcard / asset-glob ambient shims (names containing a star, e.g. asset globs or a `bun.lock` path glob) are filtered out.
+  - The completion provider merges built-ins with the injected installed packages (deduped + sorted via the pure `mergeImportCompletionEntries`), labelling each via `detail` ("Node.js" / "Bun built-in" / "installed package"). Built-ins appear even when the allowlist is empty; the provider still only fires inside an import-string position and coexists with the TS worker's own completions.
+
+  The existing node/bun stdlib TYPE hosting is unchanged (still injected from the separately code-split `stdlib-types.json` asset), so global completions (`process.*`, `Buffer`, ...) and member completions (`import * as fs from "node:fs"`) are unaffected. New pure helpers are fully unit-tested; the Monaco glue is untested per the no-DOM rule.
+
+- 270ef29: Add in-UI script testing for automation `run_script` / `run_shell` actions.
+
+  A new `testScript` RPC runs a TypeScript or shell script against an
+  editable, auto-seeded sample context using the same sandboxed runner the
+  real action uses, so operators can test scripts directly in the editor
+  without dispatching a whole automation. Surfaces beneath any script field
+  flagged `x-script-testable` via the new `ScriptTestPanel` /
+  `ContextSampleEditor` components in `@checkstack/ui` and the
+  `scriptTestRenderer` prop threaded through `DynamicForm`.
+
+  - `@checkstack/automation-common`: adds the `testScript` contract +
+    `ScriptTest*` schemas (gated by `automation.manage`).
+  - `@checkstack/automation-backend`: implements `testScript` reusing the
+    shared ESM / shell runners; central-only, time-bounded.
+  - `@checkstack/backend-api`: new `x-script-testable` config-schema
+    metadata propagated to the frontend JSON Schema.
+  - `@checkstack/ui`: new `ScriptTestPanel` + `ContextSampleEditor`
+    components and a `scriptTestRenderer` prop on `DynamicForm`.
+  - `@checkstack/automation-frontend`: wires the test panel into the action
+    editor.
+  - `@checkstack/integration-script-backend`: marks the `run_script` /
+    `run_shell` script fields as testable.
+
+- b995afb: Autocomplete the import specifier itself in script editors.
+
+  Lazy type acquisition only loads a package's types once its name is already in the buffer, so while you were still typing the import specifier (`import {} from "lod"`) there were no suggestions - the lazy-ATA catch-22. Script editors now suggest installed package names directly in import-specifier position; selecting one (e.g. `lodash`) inserts the name, and the existing ATA loop then loads its `@types/lodash` closure so members complete.
+
+  - `@checkstack/ui`: `CodeEditor`/`TypefoxEditor` gained an injected `importablePackages?: string[]` prop and a dedicated Monaco completion provider (registered once per `typescript`/`javascript` language, scoped to the editor's model, disposed on unmount). It fires ONLY when the cursor is inside an import/require module-specifier string - detected by a new pure, unit-tested helper `importSpecifierCompletionContext(lineUpToCursor)` that handles `from "…"`, bare `import "…"`, `require("…")`, and dynamic `import("…")`, returns the partial specifier + the replace range, and returns null once the string is closed or outside an import. Items are `kind: Module`, insert the bare name without touching the quotes, and coexist with (do not replace) the TS worker's own completions. Trigger characters: `"`, `'`, and `/` (for scoped subpaths); manual invoke (Ctrl+Space) also works. A new pure helper `importablePackageNames` filters a raw manifest name list (excludes `@types/*`, dedupes, sorts).
+  - `@checkstack/script-packages-frontend`: `useScriptPackageTypeAcquisition()` now also returns `importablePackages`, derived from the installed manifest (what is actually resolvable at runtime) with `@types/*` companions excluded - you import `lodash`, never `@types/lodash` (the `@types` package still backs the closure types).
+  - `@checkstack/automation-frontend` / `@checkstack/healthcheck-frontend`: pass `importablePackages` into `DynamicForm` alongside the existing `acquireTypes` wiring, so both the Run Script action editor and healthcheck collector editors get import-name completion.
+
+  The completion list is plugin-agnostic in `@checkstack/ui` (the names are injected); it never fires outside import-string positions, so normal completions are unaffected.
+
+- b995afb: Fix package IntelliSense in script editors: lazy Automatic Type Acquisition (ATA) with proper `@types/*` resolution.
+
+  Script editors (automation "Run Script (TypeScript)" and healthcheck collectors) now provide real autocomplete for installed npm packages. Importing a package whose types live in DefinitelyTyped - e.g. `import { debounce } from "lodash"` (lodash ships no own types; `@types/lodash` does) - now yields member completions. Previously no package completions appeared at all.
+
+  Root cause: the old rollup wrapped each package's raw, multi-file `.d.ts` (with `export =`, `export as namespace`, and triple-slash `/// <reference path>` chains) inside a single `declare module "<name>" { ... }`, which the TypeScript worker silently rejected, and it truncated large type sets (lodash is ~866 KB across ~700 files) at a 256 KB cap.
+
+  The fix registers the REAL declaration files at their `node_modules/...` virtual paths and lets TypeScript's own NodeJs + `@types` resolution do the work:
+
+  - `@checkstack/script-packages-backend`: replaced `rollupPackageTypes` with a tree-driven closure extractor (`resolvePackageTypeClosure`). Given a bare specifier, it resolves against the materialized tree - own types via `package.json` `types`/`typings`/`exports` (bundled-types packages like `zod`/`dayjs`), the `@types/<mangled>` companion when it exists (`lodash` -> `@types/lodash`, scoped `@babel/core` -> `@types/babel__core`), or both, or neither (graceful empty, never a throw). It follows `/// <reference path|types>` and relative imports, includes each package's `package.json`, leaves every file UNWRAPPED, and surfaces a `truncated` flag instead of silently capping. Served from a new raw, HTTP-cacheable route `GET /api/script-packages/types/:lockfileHash/:specifier` (`Cache-Control: private, max-age=1y, immutable`), auth-gated by `script-packages.read`.
+  - `@checkstack/script-packages-common`: **BREAKING** - replaced the `listPackageTypes` RPC procedure and `PackageTypesSchema { name, version, dts }` with `PackageTypeClosureSchema` (a `{ path, content }` file-map plus `hasOwnTypes`/`hasAtTypes`/`notFound`/`truncated`) served over the cacheable HTTP route. Added a shared `buildTypeAcquisitionPath`/`parseTypeAcquisitionPath` path contract.
+  - `@checkstack/ui`: `CodeEditor`/`TypefoxEditor` gained an injected `acquireTypes` resolver + `acquireResetKey`. On debounced buffer change it parses bare `import`/`require` specifiers (pure, unit-tested) and lazily fetches + registers each NEW package's closure via `addExtraLib` at `file:///node_modules/...`, deduped by a shared acquired-set that resets when the install hash changes. Compiler options set `moduleResolution: NodeJs`, `baseUrl: "file:///"`, and `typeRoots` so a bare import resolves to its `@types` companion. The `context` ambient global keeps working unchanged.
+  - `@checkstack/script-packages-frontend`: replaced the old `useScriptPackageTypes` (which concatenated the broken `dts`) with `useScriptPackageTypeAcquisition()`, returning the `acquireTypes` resolver (targets the cacheable route, zod-validates the response) and the current `lockfileHash` as `acquireResetKey`.
+  - `@checkstack/automation-frontend` / `@checkstack/healthcheck-frontend`: wired the resolver into the Run Script and collector editors.
+
+  State & scale: the type closure is derived on read from the materialized package tree (no new durable state). The editor's acquired-set is pod-local UI bookkeeping; the route is keyed by the cluster-wide `lockfileHash`, so the browser HTTP cache is correct across pods and only refetches after a new install changes the hash.
+
+- b995afb: Fix the automation Run Script action's `secretEnv` (secret → env mapping) test wiring and tolerate bare secret names.
+
+  - `@checkstack/ui` `ScriptTestPanel` now accepts the script field's declared `secretEnv` and renders an optional per-secret test-override input. The `ScriptTestRenderer` callback (DynamicForm) receives the SIBLING `x-secret-env` mapping value, located by annotation (not by field name), so a testable script field forwards it to the panel. Previously the test path never sent `secretEnv`, so `buildTestSecretEnv` got `undefined` and `process.env.<env>` was undefined in an in-UI test. Now an override-less test injects `__SECRET_<NAME>__` placeholders, and any operator override is masked from the output. Real secret values are still NEVER resolved in the test path.
+  - `@checkstack/automation-frontend` forwards the action's `secretEnv` and the collected overrides to `testScript`.
+  - `@checkstack/secrets-common`: the `secretEnv` mapping VALUE now accepts EITHER a `${{ secrets.NAME }}` template OR a bare secret name, normalizing a bare name to the canonical `${{ secrets.NAME }}` template on parse. This is a forgiving / NARROWING input change (more inputs accepted; stored/output form is unchanged and still the template), not a breaking change. Existing data and YAML shorthand like `secretEnv: { secret: SECRET }` now pass config validation instead of failing with "Must contain a ${{ secrets.NAME }} reference". Partial inline interpolation (e.g. `u:${{ secrets.pw }}@host`) keeps working unchanged; values that are neither a secret reference nor a valid secret name are still rejected.
+  - `@checkstack/ui` `parseSecretName` tolerates a legacy bare secret name for display so the picker shows the same name for both the template and the bare form.
+
+  The healthcheck collector test panel was checked: its config has no `x-secret-env` field, so it needed no secret wiring (only the `onRun` signature change, which is backward compatible).
+
+- 270ef29: Secrets platform Phase 2: secret -> env-var mapping with central resolve, inject, and mask.
+
+  - Script consumers declare a least-privilege `secretEnv` allowlist
+    (`{ ENV_NAME: "${{ secrets.NAME }}" }`). The automation `run_script` /
+    `run_shell` actions resolve ONLY the declared secrets via
+    `secretResolverRef.resolveForRun`, inject them into the runner env for
+    that run (memory-only; the ESM runner gained a per-run `env` option), and
+    mask their values out of stdout/stderr/result/error via the run-scoped
+    masking context. A missing required secret fails the run clearly. No
+    ambient secret access.
+  - Test panel: `testScript` / `testCollectorScript` inject named
+    `__SECRET_<NAME>__` placeholders by default, or user-supplied per-secret
+    overrides; real production values are never resolved in the test path,
+    and overrides are masked out of the result.
+  - Healthcheck collectors carry the `secretEnv` field for authoring +
+    the test panel; runtime injection on satellites lands in Phase 3.
+  - Editor UX: a new `@checkstack/ui` `SecretEnvEditor` renders `x-secret-env`
+    record fields with `${{ secrets.* }}` name autocomplete (from
+    `listSecretNames`), wired into the automation action editor and the
+    healthcheck collector editor. New `withConfigMeta` helper +
+    `x-secret-env` config-meta key in `@checkstack/backend-api`.
+
+- b995afb: fix(ui): make Popover/combobox lists scrollable inside a Sheet or Dialog
+
+  A `Popover` (and the comboboxes built on it, e.g. the automation trigger Event
+  picker, the secret-name picker, the package picker) portals its content to
+  `document.body`. When opened inside a modal `Sheet`/`Dialog`, the dialog's
+  `react-remove-scroll` scroll-lock blocked wheel/touch scrolling on that
+  body-portaled content, so a long list's `overflow-y-auto` could not scroll.
+
+  `SheetContent` and `DialogContent` now publish their content element through a
+  `PortalContainerContext`, and `PopoverContent` portals INTO it when present.
+  That keeps the popover inside the dialog's allowed-scroll subtree, so its lists
+  scroll again. Radix positions popovers with `position: fixed`, so placement and
+  clipping are unaffected; outside a Sheet/Dialog the popover still portals to
+  `body` as before.
+
+- 270ef29: Collapse `ScriptTestPanel` behind a compact disclosure by default.
+
+  The inline script-test panel previously expanded its sample-context editor and results under every testable script field. It now defaults to collapsed: a compact "Test script" affordance shows, and the panel expands on demand. Running a test still auto-expands the results, and the last run's outcome surfaces as a badge while collapsed. A new `defaultOpen` prop opts back into the always-expanded behaviour.
+
 ## 1.11.0
 
 ### Minor Changes
