@@ -1,6 +1,10 @@
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate as defaultMigrate } from "drizzle-orm/node-postgres/migrator";
 import type { Pool, PoolClient } from "pg";
+import {
+  readPluginOwnedObjects,
+  relocateLegacyPublicObjects,
+} from "./relocate-legacy-public-objects";
 
 type MigrationDb = NodePgDatabase<Record<string, unknown>>;
 
@@ -25,34 +29,68 @@ export interface RunPluginMigrationsArgs {
     db: MigrationDb,
     config: { migrationsFolder: string; migrationsSchema: string },
   ) => Promise<void>;
+  /**
+   * Moves the plugin's objects that earlier deploys left in `public` into the
+   * plugin schema, before migrations run. Injectable for tests.
+   */
+  relocateLegacyObjects?: (args: {
+    client: PoolClient;
+    schema: string;
+    migrationsFolder: string;
+  }) => Promise<void>;
 }
+
+const defaultRelocateLegacyObjects = async ({
+  client,
+  schema,
+  migrationsFolder,
+}: {
+  client: PoolClient;
+  schema: string;
+  migrationsFolder: string;
+}): Promise<void> => {
+  const owned = readPluginOwnedObjects(migrationsFolder);
+  await relocateLegacyPublicObjects({ client, schema, owned });
+};
 
 /**
  * Run a plugin's Drizzle migrations on a SINGLE pinned pool connection.
  *
- * ## Why a pinned connection is required
+ * ## Strict, isolated search_path
  *
  * Plugin migrations are schema-agnostic: they reference the plugin's tables,
- * types, and enums *unqualified* and rely on `search_path` to resolve them
- * into the plugin's schema (e.g. `plugin_healthcheck`). So `search_path` must
- * be set before the migration SQL runs.
+ * types, and enums *unqualified* and rely on `search_path` to resolve them. We
+ * run them with a STRICT `search_path = "<plugin_schema>"` (no `public`
+ * fallback) so new objects can only ever land in the plugin schema, and a
+ * migration that references something not in that schema fails loudly instead
+ * of silently reading or writing `public`.
  *
- * Setting it at the *session* level on the shared pool does NOT work, for the
- * same reason session-level advisory locks don't (see `advisory-lock.ts`):
- * Drizzle's `migrate()` wraps all pending migrations in one transaction, and
- * with a `pg.Pool` that transaction checks out a *different* physical
- * connection than the one the `SET` ran on. The migration statements then
- * execute with the default `public` search_path.
+ * The schema is created BEFORE the `SET`. That ordering matters: if the schema
+ * did not exist, an unqualified `CREATE TABLE` would have nowhere to go and
+ * Postgres would error - which is the safe outcome we want, not a silent
+ * fallthrough.
  *
- * This stays invisible on a fresh database - every object (including each
- * enum) is created within that one transaction, so unqualified references
- * still resolve against whatever schema that connection happens to use. But on
- * an UPGRADE, where earlier migrations already created an enum in the plugin
- * schema and only newer migrations run, a new migration that references the
- * pre-existing enum fails with `type "..." does not exist`.
+ * ## Relocating legacy `public` objects first
  *
- * Binding the migrator to ONE pinned client, on which we set `search_path`
- * first, guarantees every migration statement runs under the intended schema.
+ * Some installs created the plugin's objects in `public` (pre-isolation
+ * deploys), which is exactly what a strict search_path would choke on. Before
+ * migrating, {@link relocateLegacyPublicObjects} moves any of the plugin's
+ * objects that are still in `public` into the plugin schema using
+ * fully-qualified `ALTER ... SET SCHEMA` (so it needs no search_path of its
+ * own). After it runs, everything the plugin owns lives in the plugin schema
+ * and the strict search_path resolves cleanly. It is idempotent, so fresh and
+ * already-migrated installs are no-ops.
+ *
+ * ## Why a pinned connection
+ *
+ * The `search_path` must be set on the exact connection the migration
+ * statements run on. Setting it at the *session* level on the shared pool does
+ * NOT guarantee that, for the same reason session-level advisory locks don't
+ * (see `advisory-lock.ts`): Drizzle's `migrate()` wraps all pending migrations
+ * in one transaction, and with a `pg.Pool` that transaction can check out a
+ * *different* physical connection than the one the `SET` ran on. Binding the
+ * migrator (and the relocation) to ONE pinned client guarantees every statement
+ * runs on the connection we prepared.
  */
 export async function runPluginMigrations({
   pool,
@@ -60,13 +98,23 @@ export async function runPluginMigrations({
   migrationsSchema,
   createMigrationDb = (client) => drizzle(client),
   migrate = defaultMigrate,
+  relocateLegacyObjects = defaultRelocateLegacyObjects,
 }: RunPluginMigrationsArgs): Promise<void> {
   const client = await pool.connect();
   try {
-    // Ensure the schema exists before pointing search_path at it. SET to a
-    // missing schema silently falls back to `public` at resolution time, which
-    // would recreate the very bug this helper exists to prevent.
+    // Create the schema BEFORE anything points at it, so relocated and newly
+    // created objects have a home and never fall through to `public`.
     await client.query(`CREATE SCHEMA IF NOT EXISTS "${migrationsSchema}"`);
+
+    // Move any of this plugin's objects that earlier deploys left in `public`
+    // into the plugin schema, so the strict search_path below resolves them.
+    await relocateLegacyObjects({
+      client,
+      schema: migrationsSchema,
+      migrationsFolder,
+    });
+
+    // Strict search_path: plugin schema only, no `public` fallback.
     await client.query(`SET search_path = "${migrationsSchema}"`);
 
     await migrate(createMigrationDb(client), {

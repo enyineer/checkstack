@@ -42,21 +42,39 @@ CREATE TABLE "items" (
 At runtime, the plugin's `search_path` ensures tables are created in the correct schema (e.g., `plugin_my_feature`).
 
 The loader runs each plugin's migrations on a **single pinned connection**
-checked out from the shared admin pool. It sets `search_path` on that exact
-connection and binds Drizzle's migrator to it, so every migration statement
-resolves unqualified names into the plugin's schema. This is the same
-connection-affinity rule that applies to [session advisory locks](#advisory-locks):
-a session-level `SET search_path` on the shared pool is unreliable because
-`migrate()` runs its statements inside a transaction that the pool may service
-on a different physical connection.
+checked out from the shared admin pool, with a **strict** `search_path =
+"plugin_{id}"` (no `public` fallback). The plugin schema is created first, so
+unqualified `CREATE TABLE` / `CREATE TYPE` statements can only ever land in the
+plugin schema - never `public`.
+
+It sets `search_path` on the pinned connection (rather than at the session level
+on the shared pool) for the same connection-affinity reason that applies to
+[session advisory locks](#advisory-locks): `migrate()` runs its statements
+inside a transaction that the pool may service on a different physical
+connection than a session-level `SET` ran on.
+
+### Relocating legacy `public` objects
+
+Some databases predate per-plugin schema isolation and have a plugin's tables
+and enums sitting in `public` (runtime kept working because the scoped-db
+search_path falls back to `public`). A strict migration search_path would not
+find them, so before migrating, the loader **moves** any of the plugin's
+objects still in `public` into `plugin_{id}` with fully-qualified
+`ALTER ... SET SCHEMA` statements. The move is by-OID (columns, foreign keys,
+enum references, and owned sequences keep working) and idempotent (an object is
+moved only if it is in `public` and not already in the plugin schema), so fresh
+and already-migrated installs are no-ops.
+
+The set of objects to relocate is the **union of every Drizzle snapshot** under
+the plugin's `drizzle/meta/`, not just the latest - so a table an early
+migration created and a later one drops is moved into the plugin schema first,
+letting its unqualified `DROP TABLE` resolve under the strict search_path.
 
 > [!WARNING]
-> Do not set `search_path` at the session level on the shared pool before
-> calling `migrate()`. On a fresh database the bug hides (every object is
-> created in one transaction so unqualified references still resolve), but on
-> an upgrade a new migration that references an enum or table an earlier
-> migration created in the plugin schema fails with
-> `type "..." does not exist`.
+> Do not reintroduce a `public` fallback in the migration `search_path` to
+> "fix" an object that lives in `public`. That lets a future `CREATE TABLE`
+> silently land in `public` whenever the plugin schema is missing or empty.
+> Relocate the stray object into the plugin schema instead.
 
 ## Migration Tracking
 
