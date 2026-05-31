@@ -22,8 +22,8 @@ export interface ScriptRunOutput {
  *
  * `result` (an arbitrary JSON value) is masked deeply (keys + string
  * leaves); `stdout`/`stderr`/`error` are masked as text. With an empty
- * `values` set the output is returned unchanged (the Phase 1 default until
- * env injection lands in Phase 2).
+ * `values` set the output is returned unchanged (no resolved secrets to
+ * redact).
  */
 export function maskScriptRunOutput<T extends ScriptRunOutput>({
   output,

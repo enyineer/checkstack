@@ -18,7 +18,7 @@ describe("maskScriptRunOutput", () => {
     expect(masked.result).toEqual({ token: "****", nested: ["****"] });
   });
 
-  it("is a no-op with an empty value set (Phase 1 default)", () => {
+  it("is a no-op with an empty value set", () => {
     const output = {
       result: { token: "gh_secretToken123" },
       stdout: "gh_secretToken123",
