@@ -1,5 +1,158 @@
 # @checkstack/satellite-backend
 
+## 0.5.0
+
+### Minor Changes
+
+- b995afb: Make `satellite-connection` a plugin-backed, COMPUTE-ON-READ reactive entity over the DURABLE, globally-readable `satellites` table via the Model-B entity state machine.
+
+  Satellite defines a `satellite-connection` entity `{ status: "online" | "offline", name, region, lastSeenAt, lastEvent }` keyed by satellite id. Its `status` is COMPUTED on read from the durable `last_heartbeat_at` column (via `computeStatus` / `OFFLINE_THRESHOLD_MS` - the SAME single liveness source of truth the admin satellite list uses), not stored. The only extra durable connection column is `last_connection_event` (`connected` / `disconnected` / `heartbeat_lost`), which the change-deriver reads as `lastEvent`. `lastSeenAt` is derived from `last_heartbeat_at` (null after a clean disconnect). There is no `entity_state` mirror and no stored status copy. `defineEntity({ kind: "satellite-connection", read })` resolves via `SatelliteService.getManyConnectionStates`. The three lifecycle sites - WS authentication (sets `last_heartbeat_at = now`, event `connected`), WS socket close (clears `last_heartbeat_at = null` so status flips offline immediately, event `disconnected`), and the heartbeat monitor's online->offline edge (flips only the event to `heartbeat_lost`) - drive `handle.mutate({ id: satelliteId, apply })`, where `apply` UPDATEs the satellite row's liveness columns and returns the computed view. The platform still records full transition HISTORY in `entity_transitions` for every change. `last_heartbeat_at` is the reactive liveness input now, so the `declareNonReactiveState` escape-hatch is retained for raw bookkeeping but the status it drives is the entity's.
+
+  This fixes a horizontal-scaling defect twice over. (a) Connection state originally lived in a process-local in-memory map, so a satellite connected to pod A was invisible to pod B's reads. (b) A prior fix made the STATUS durable but left the online->offline (`heartbeat_lost`) transition DETECTION pod-local: the heartbeat-check job runs under one consumer group claimed by a VARYING pod, and a pod with an empty in-memory `previousStatuses` map never observed the satellite online, so it never fired `heartbeat_lost` - leaving the stored `connection_status` stuck `online` forever after a pod crash. Computing status on read removes the stored copy that could get stuck (a stale row self-heals to `offline` once `last_heartbeat_at` ages past the threshold, from any pod), and the heartbeat monitor now detects the lost edge from DURABLE state alone - any pod, idempotent across pods + redelivery: it reads every satellite's `(last_heartbeat_at, last_connection_event)`, computes status, and for any that is `offline` while still marked `connected` drives the `heartbeat_lost` mutate; once `last_connection_event = "heartbeat_lost"`, re-runs are no-ops (a small in-memory set is kept ONLY as a per-pod broadcast-dedup optimisation, never as the source of truth). A new env-gated cross-pod IT (`heartbeat-monitor.it.test.ts`) proves a `heartbeat_lost` detected by a fresh "pod" that never saw the satellite online, so the pod-local-baseline bug cannot recur. `toSatelliteWithStatus` / `getOnlineSatelliteIds` and the entity now derive from the same `last_heartbeat_at` - one source of truth, no disagreement.
+
+  A registered change-deriver maps these entity changes back to the `satellite.connected` / `satellite.disconnected` / `satellite.heartbeat_lost` trigger events, so existing automations keep firing. The three-way distinction is preserved by an explicit `lastEvent` discriminator on the entity state: a bare `status` diff cannot tell a socket drop (`disconnected`) apart from the heartbeat-lost offline edge (`heartbeat_lost`), so the deriver reads `lastEvent` to fire the exact original event. The old connection hooks are removed in favor of the reactive entity.
+
+  BREAKING CHANGES:
+
+  - DROPPED the `satellites.connection_status` and `satellites.last_seen_at` columns added by the prior fix (migration `0002_graceful_mac_gargan.sql`, forward-only). Status is now computed on read from `last_heartbeat_at` (no stored copy to drift or get stuck), and `lastSeenAt` is derived from `last_heartbeat_at`. The `last_connection_event` column is KEPT (the deriver's event discriminator + the monitor's idempotency key). Existing rows with a non-null `last_connection_event` keep reading their derived status; rows that never connected (null `last_connection_event`) report no current state until their next lifecycle edge.
+  - Removed the `satellite.connected`, `satellite.disconnected`, and `satellite.heartbeat_lost` hooks (`createHook`). Use the `satellite-connection` entity's auto-emitted change events (subscribe via the `automation.entity` extension point's `onEntityChanged`, or author automations against the derived trigger events). The `satellite.removed` deletion/cleanup hook is unaffected and stays.
+  - The `connected` / `disconnected` / `heartbeat_lost` automation triggers are now ENTITY-DRIVEN instead of hook-backed: they are fired by the `satellite-connection` entity change-deriver (Stage-1 routing) rather than a `createHook`, but stay REGISTERED in the automation editor's trigger catalog (a no-op `setup` via `makeEntityDrivenTriggerSetup`), so they remain offered as picker entries and payload-introspectable. Already-authored automations referencing them continue to fire. A registered `toPayload` mapper keeps the runtime `trigger.payload` matching each trigger's declared `payloadSchema` (`satelliteId`, `name`, `region`, `status`, `lastSeenAt` (nullable - `null` after a clean disconnect)), rather than degrading to the generic entity-change shape.
+  - The `satellite-connection` entity's current state is COMPUTED on read from the durable `satellites.last_heartbeat_at` (+ `last_connection_event`), NOT a framework `entity_state` row and NOT a stored status column. Any code reading current connection state must read through the entity `read` accessor / `handle.get` / `getMany`. Durable history in `entity_transitions` is unaffected.
+
+- 270ef29: Core-side satellite script-package distribution.
+
+  - `satellite-backend`: the WS handler now carries the desired script-package
+    lockfile hash in `authenticated` / `config_updated` payloads (the durable
+    backstop), exposes `pushRefreshScriptPackagesToAll` (wired to the
+    `script-packages.changed` broadcast hook in `mode: "broadcast"`, so each
+    core instance fans the refresh out to its own connected satellites), and
+    persists `script_package_sync_state` reports from satellites.
+  - `script-packages-*`: new `reportSatelliteSyncState` RPC + store method so
+    satellite-backend can record per-satellite reconcile state for the admin
+    UI. Satellites pull blobs from core via the existing `getManifest` /
+    `downloadBlob` endpoints, never the registry.
+
+- 270ef29: Satellite-side script-package reconciliation over the WS channel.
+
+  - `satellite-common`: WS request/reply messages for pulling the manifest +
+    blobs from core (`request_script_package_manifest` /
+    `request_script_package_blob` -> `script_package_manifest` /
+    `script_package_blob`).
+  - `satellite-backend`: the WS handler answers those requests from the
+    script-packages store (satellites pull from core, never the registry).
+  - `@checkstack/satellite`: the client gains request/reply plumbing + a
+    `SatelliteScriptPackages` manager that reuses the Phase 2 reconciler
+    (`reconcileToHash` + `createReconcileFsDeps`) over the WS transport. It
+    reconciles on a `refresh_script_packages` push and on the
+    assignment-carried hash (startup / reconnect backstop), pulls only missing
+    blobs (delta), materializes via `bun install --offline`, atomically flips
+    `current`, reports sync state back, and degrades cleanly (error state, no
+    stale tree, no registry access) when a blob can't be fetched. Reconciles
+    are serialized + coalesced + idempotent.
+
+- 270ef29: Secrets platform Phase 3: just-in-time secret delivery to satellites + source-side masking, and central-execution injection for healthcheck collectors.
+
+  - New satellite WS messages `request_run_secrets` / `run_secrets`: just
+    before a satellite runs a collector that declares a `secretEnv`, it asks
+    core for that collector's resolved env; core resolves ONLY the secrets the
+    collector's OWN persisted assignment declares (least-privilege — the
+    satellite cannot choose) and replies with the env map (or a clear error).
+    The satellite injects it memory-only for the run and drops it on
+    completion. Secrets never ride the persisted assignment and never touch
+    disk.
+  - Source-side masking: the satellite runs `maskSecrets` over the collector's
+    stdout/stderr/result/error using the run's delivered values BEFORE the
+    result leaves the satellite (defense in depth).
+  - `CollectorStrategy.execute` gains an optional `secretEnv`. The
+    inline-script and shell collectors inject it into the runner
+    (`process.env` / `$VAR`) and mask the values out of their output.
+  - Healthcheck collectors running centrally (the queue executor) also resolve
+    - inject `secretEnv` via `secretResolverRef`, closing the gap where a
+      centrally-run secretEnv collector got no secrets. A missing required
+      secret fails the run clearly in all paths.
+
+### Patch Changes
+
+- b995afb: Extract a shared `withEntityWrite` / `withEntityRemove` guard for PLUGIN-BACKED (Model B) reactive entities and refactor the per-domain copies onto it.
+
+  Every plugin-backed domain (incident, catalog, dependency, maintenance, slo, satellite) reimplemented the same "no handle wired → run the plugin write directly; handle wired → route through `handle.mutate` / `handle.remove`" guard, varying only in the id-key name. `@checkstack/automation-backend` now exports `withEntityWrite` / `withEntityRemove` (from the entity barrel) and each domain's thin, well-named wrappers (`writeIncidentEntity`, `writeMaintenanceEntity`, satellite's `mirror`, …) delegate to it, so the branch lives in exactly one place. Behavior is unchanged.
+
+  `writeHealthEntity` (healthcheck-backend) is intentionally NOT migrated onto the helper — it is genuinely bespoke (closure-captured durable state, distinct rethrow-vs-fail-soft branches, a per-system serializer, and it returns the computed state). SLO keeps its fail-soft `onError` wrapper around the shared guard.
+
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+  - @checkstack/backend-api@0.19.0
+  - @checkstack/automation-backend@0.3.0
+  - @checkstack/gitops-common@0.5.0
+  - @checkstack/gitops-backend@0.4.0
+  - @checkstack/automation-common@0.3.0
+  - @checkstack/healthcheck-backend@1.4.0
+  - @checkstack/healthcheck-common@1.4.0
+  - @checkstack/secrets-backend@0.1.0
+  - @checkstack/script-packages-backend@0.2.0
+  - @checkstack/script-packages-common@0.2.0
+  - @checkstack/satellite-common@0.7.0
+  - @checkstack/secrets-common@0.1.0
+  - @checkstack/queue-api@0.3.7
+
 ## 0.4.0
 
 ### Minor Changes

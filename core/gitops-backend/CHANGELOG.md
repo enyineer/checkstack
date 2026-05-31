@@ -1,5 +1,76 @@
 # @checkstack/gitops-backend
 
+## 0.4.0
+
+### Minor Changes
+
+- b995afb: Surface per-variant config documentation for the `Automation` GitOps kind.
+
+  The GitOps editor and Kind Registry Browser now show the right config schema
+  for each automation trigger and provider action when authoring an
+  `Automation` YAML, mirroring how the `Healthcheck` kind documents its
+  strategy/collector configs:
+
+  - `triggers[].config` — one entry per registered trigger that declares a
+    `configSchema`, conditioned on the chosen `triggers[].event`.
+  - `actions[].config` — one entry per registered provider action,
+    conditioned on the chosen `actions[].action`.
+
+  New plugin-author contract on the entity kind registry:
+
+  - `@checkstack/gitops-common` / `@checkstack/gitops-backend`: add
+    `EntityKindRegistry.registerSpecSchemaDocumentationProvider(provider)`. The
+    provider is a thunk invoked on every `describeKinds()` (i.e. each time the
+    kind-browser RPC is queried), so the docs it returns reflect the current
+    state of whatever it reads — order-independent.
+
+  Why a lazy provider (and not the existing eager
+  `registerSpecSchemaDocumentation`): unlike Healthcheck, whose
+  strategy/collector registries are core services fully populated before any
+  plugin's `afterPluginsReady`, the automation trigger/action registries are
+  filled by other plugins across their `init` / `afterPluginsReady` phases with
+  no guaranteed ordering. Several plugins (catalog/maintenance/notification)
+  register their provider actions in their own `afterPluginsReady`, so the
+  previous one-shot eager registration snapshotted a half-populated (often
+  empty) registry and the Automation kind's "Additional Schemas" came up empty.
+  automation-backend now registers a provider instead, so trigger/action config
+  docs always reflect the fully-populated registries.
+
+  Documentation-only surface; no runtime reconcile behaviour changes.
+
+- 270ef29: Add the Secrets platform (Phase 1): a central, plugin-agnostic secret manager with a pluggable backend extension point, a cross-plugin resolver service, and a universal Jenkins-style masking layer.
+
+  - New packages: `secrets-common` (schemas, contract, `secrets.read`/`secrets.manage`, masking utils), `secrets-backend` (`SecretBackend` extension point, `secretResolverRef`/`secretAdminRef` services, run-scoped masking context, RPC router), `secrets-backend-local` (default AES-256-GCM backend, owns the `secrets` table promoted from gitops), `secrets-frontend` (admin Settings page).
+  - Resolution machinery (`resolveSecretsBySchema`, `SecretStore`, `${{ secrets.NAME }}` / `x-secret`) is promoted out of `gitops-backend` into `secrets-backend`. GitOps now resolves and manages secrets through the platform's service refs (single source of truth); its secret table is migrated without loss.
+  - Universal masking seam wired at the central script-output boundaries: automation `run_script` / `run_shell` artifacts and the in-UI test panel redact run-scoped secret values from `result`/`stdout`/`stderr`/`error` before persist/return. Phase 1 resolves no run-scoped secrets yet, so masking is a no-op until Phase 2; the seam guarantees the boundary exists.
+  - No endpoint returns a secret value to a browser: DTOs expose only name/metadata/`hasValue`.
+
+  BREAKING CHANGES: `gitops-backend` now depends on `secrets-backend` and resolves/manages secrets through it. The `secrets` table is owned by `secrets-backend-local`; the gitops `secrets` table is retained as a migration source but is no longer the source of truth.
+
+### Patch Changes
+
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+  - @checkstack/backend-api@0.19.0
+  - @checkstack/gitops-common@0.5.0
+  - @checkstack/secrets-backend@0.1.0
+  - @checkstack/command-backend@0.1.32
+  - @checkstack/queue-api@0.3.7
+
 ## 0.3.7
 
 ### Patch Changes

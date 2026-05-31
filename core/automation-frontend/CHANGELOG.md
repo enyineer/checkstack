@@ -1,5 +1,357 @@
 # @checkstack/automation-frontend
 
+## 0.3.0
+
+### Minor Changes
+
+- b995afb: Redesign the automation visual editor to a Home-Assistant-style collapsed-card UX.
+
+  Every item in all three sections (actions, triggers, conditions) now renders as a compact summary row by default - icon, title, and a one-line summary derived from its config. Clicking the row opens the item's full configuration in a right-side sheet that edits the same live definition (no draft/commit step), so closing the sheet keeps the changes. The saved `definition` is unchanged - only the editor presentation - so the visual and YAML views still round-trip losslessly.
+
+  - `@checkstack/ui` `ActionCard` gains three optional, backward-compatible props: `onOpenSheet` (turns the card into a non-expanding summary row that opens a host-supplied sheet on header click), `summary` (the compact one-line hint shown under the title), and `actions` (a typed `ActionCardMenuItem[]` rendered as a three-dot overflow menu). The new `ActionCardMenuItem` type is exported. Existing inline-expand usages are unaffected when the new props are omitted.
+  - Per-card commands move into the overflow menu: Disable/Enable, a new Duplicate, and Delete. The drag grip stays on the action card header; actions keep dnd-kit reordering and the parallel id array. Triggers and conditions remain non-reorderable.
+  - Duplicate clones an item with fresh, unique ids (via the existing id helpers) and inserts it directly after the original, keeping the editor's parallel id array in sync.
+  - Composite actions (choose / parallel / repeat / sequence) keep nesting: a child card inside a parent's sheet opens its OWN sheet, stacking via Radix Dialog's portal + overlay.
+  - Cards with validation errors auto-open their sheet and show an error badge on the collapsed row, so problems are never hidden behind a collapsed row plus a closed sheet.
+
+- b995afb: Show auto-generated trigger ids in the automation editor without clicking the field.
+
+  Previously, loading a stored definition (a seeded default, a GitOps-managed automation, or hand-written YAML) whose triggers carried no `id` left the Id field blank until the operator focused and blurred it. The editor now materializes the derived id eagerly on load - the same way the starter automation and "Add step" path already do - so the id is shown (and referenceable as `trigger.id`) immediately. The runtime already derived these ids, so saved definitions are unchanged.
+
+  The auto-incident migration also now writes explicit trigger ids (matching `deriveTriggerId(event)`) into the seeded sustained and flapping automations, so newly seeded defaults carry the same id the editor shows.
+
+- 270ef29: Add progressive disclosure and a live system picker to the automation visual editor.
+
+  The saved `definition` is unchanged - only the editor layout - so the visual and YAML views still round-trip losslessly.
+
+  - Triggers: the event picker and trigger config stay prominent; the optional `id`, gating `filter`, and `for:` dwell move into a per-trigger "Advanced" disclosure that auto-opens when a filter or dwell is set.
+  - Actions: per-action metadata (`id`, `description`, `continue_on_error`) moves into an "Advanced" disclosure inside the action card so the action's own configuration leads. Enable/disable stays on the card header.
+  - Conditions: the kind selector is grouped so the structured kinds (`numeric_state` / `time` / `state`) lead, the logical combinators follow, and the raw-expression escape hatch is de-emphasised under "Advanced" - all kinds stay reachable.
+  - The `state` condition's `entity` is now a live system picker backed by the catalog `getSystems` RPC, with a manual-entry fallback so an id not in the catalog (or a `{{ template }}`) still round-trips losslessly.
+
+- b995afb: Add grouping to automations so they are easier to find.
+
+  Each automation now carries an optional single free-text `group` label (HA-style "category"), stored as its own column on the `automations` row alongside `name` / `description` / `status` - it is NOT part of the definition / YAML. The automations list renders one collapsible section per group (sorted alphabetically, with an implicit "Ungrouped" bucket last), and the edit page gains a type-new-or-pick-existing group picker fed by the new `listAutomationGroups` query. `listAutomations` accepts an optional `group` filter.
+
+  Declaratively managed automations express their group via GitOps `metadata.labels.group`; the reconciler threads it onto the row (blank clears it).
+
+  A Drizzle migration adds the nullable `"group"` column and an index. Existing automations default to no group (Ungrouped) and behave exactly as before.
+
+- 270ef29: Add live state in scope plus duration helpers to the automation sensing layer (Wave 2 Phase 14).
+
+  - `@checkstack/template-engine` ships four pure, synchronous duration filters: `minutes` and `hours` (number to milliseconds), `duration_since` (ms elapsed since an ISO timestamp), and `older_than(thresholdMs)` (boolean dwell check). They compute against real time at call time, so "now" is fresh per evaluation. Fail-safe on null/unparseable input.
+  - The dispatch engine pre-resolves live health state into scope before any condition or template evaluation (the engine is synchronous, so inline state queries are impossible). State is folded under a `health` namespace - `health.system.*` for the trigger's context system and `health.systems[<id>]` for ids listed in the automation's new `uses_state` field. One batched `getBulkHealthState` query per evaluation, wired at the fresh-run, resume, and trigger-gate sites. Fail-open: a missing client or provider error yields an empty namespace and a warning, never wedging unrelated automations.
+  - New `automationFilterExtensionPoint` lets plugins contribute pure template filters without forking the engine's default registry. Name collisions with built-ins are skipped with a warning.
+  - The editor variable-scope resolver and autocomplete catalogue now surface the `health.*` namespace and the new duration filters.
+
+  With this phase alone, an operator can build "notify me when a system has been unhealthy for 30 minutes" using an interval trigger plus a single `health.*` condition - no dwell timer required (the precise event-driven path lands in Phase 15).
+
+- 270ef29: Add the `wait_until` action primitive (Wave 2 Phase 17) - suspend a running automation until a condition becomes true, with an optional timeout (HA's `wait_template`).
+
+  - New `wait_until: { condition, timeout_seconds?, continue_on_timeout? }` primitive. `continue_on_timeout` defaults to true (HA semantics). Added to the schema, the action union, and `detectActionKind`. (The wait is fully reactive - see the reactive-dispatch-pipeline changeset; there is no `poll_seconds`.)
+  - `condition` accepts any condition shape - a template string or the Phase 16 structured `numeric_state` / `time` / `state` variants.
+  - Reactive resume: if the condition is already true it continues inline; otherwise it persists a `kind: "until"` wait lock (carrying the condition + timeout policy in a new `wait_config` jsonb column). The reactive-dispatch-pipeline changeset replaces the original poll-based re-check with a wake-index + a single timeout timer, so the wait is woken by a relevant entity change rather than ticked on an interval. Resumes take the per-run advisory lock so a wake and a sweep can't double-resume.
+  - Survives restart: the wait lock is the source of truth, and the stalled sweeper applies the timeout policy as a backstop if the wake/timer signal is lost.
+  - Works nested inside `choose` / `parallel` / `repeat` via the existing resume-remainder mechanism.
+  - Editor: a `wait_until` action card (frontend) mirroring `wait_for_trigger` - a `ConditionEditor` plus timeout and continue-on-timeout inputs. The structured numeric/time/state ConditionEditor branches land with the rest of the sensing-layer editor work; the card uses the expression-based editor for now.
+
+- 270ef29: Add the sensing-layer editor UX (Wave 2 Phase 19) - the visual widgets for the duration-aware and structured-condition building blocks from Phases 15-18.
+
+  - New `@checkstack/ui` components (each with a Storybook story):
+    - `DurationInput` - number + unit (`seconds` / `minutes` / `hours`) picker emitting the single-unit `Duration` object the backend accepts, so it round-trips losslessly through YAML.
+    - `TimeOfDayInput` - HH:MM (24h) input emitting the `"HH:mm"` string the `time` condition's `after` / `before` accept. Both are plain inputs (no animations), so no `usePerformance` gating is needed.
+  - `DynamicForm`'s `FormField` gains an additive `x-duration` / `format: "duration"` branch that renders `DurationInput` for schema-driven duration configs. (Additive alongside the existing dispatch; reconciles cleanly with the parallel branch's `FormField` edits.)
+  - The `ConditionEditor` kind selector gains `numeric_state` / `time` / `state` structured branches: an operator dropdown (above / below / between) + threshold for numeric, `TimeOfDayInput` + weekday toggles + timezone for time, and a status dropdown + optional `DurationInput` dwell for state. The raw-expression escape hatch is kept. Pure `kindOf` / `defaultForKind` helpers are split into a UI-free `condition-kind` module so they unit-test under bun (the UI barrel drags Monaco).
+  - The trigger card gains a `for:` dwell toggle + `DurationInput` (Phase 15's schema was already round-tripping in YAML).
+
+  Visual and YAML views stay lossless; structured conditions authored in either are editable in the other.
+
+- 270ef29: Add the GitOps `Automation` entity kind (Wave 2 Phase 21).
+
+  - `automation-backend` registers an `Automation` kind with the GitOps entity-kind registry (`specSchema: AutomationDefinitionSchema`). Reconcile upserts by name (identity tracked via the returned entity id + provenance); reconciled rows are tagged `managed_by = "gitops"`. Delete is guarded to GitOps-managed rows. An automation's full definition - triggers (with `for:` dwells), structured conditions, the action catalog, mode, `concurrency_scope`, `uses_state`, `state_window_minutes` - can now be declared in Git.
+  - `automation-frontend`: the editor reads the GitOps provenance lock (`useProvenanceLock({ kind: "Automation", entityId })`) and, when locked, disables Save / Run-now / Delete and the form fields and shows a `GitOpsLockBanner`.
+  - Documented the `Automation` YAML format under the GitOps kinds reference, plus new automation platform overview + plugin-author ("extending") developer-guide pages.
+
+- b995afb: Surface inline-script type errors as automation action badges.
+
+  Every inline `run_script` action in the automation editor is now type-checked
+  against its generated `context` types continuously - including actions whose
+  cards are collapsed - and any errors show up as the action card's error badge
+  (and in the definition issue list), the same surface structural validation
+  uses. Previously a type error was only visible as a red squiggle inside the
+  open Monaco editor, so a broken script behind a collapsed card (or one
+  invalidated by adding a new trigger) went unnoticed until runtime, where the
+  bad property access silently read `undefined`.
+
+  Validation runs entirely in the browser via the same standalone TypeScript
+  worker the editor uses (new `validateTypeScriptSources` export on
+  `@checkstack/ui`), so there is no backend round-trip. Each script is checked by
+  prepending its generated `context.d.ts` to the source, which keeps the
+  `context` global scoped to that one off-screen file and avoids colliding with
+  any open editor. When an automation already contains scripts, a hidden editor
+  boots the shared editor services on open so validation runs immediately rather
+  than only after the first script card is expanded.
+
+  This covers the automation currently open in the editor. Scripts in other
+  automations, or definitions authored via YAML/API, are not type-checked here -
+  that platform-wide coverage remains future work for a backend typecheck.
+
+  Also: action cards no longer auto-open their detail sheet when they have
+  validation issues; issues now surface only as the card badge, so multiple
+  flagged actions no longer pop several sheets open at once.
+
+- b995afb: Improve the automation Run Script secret → env mapping editor and script IntelliSense.
+
+  - **Searchable secret picker with existence validation.** The secret → env mapping editor (`SecretEnvEditor`) now uses a searchable, keyboard-navigable combobox (modeled on `VariablePicker` / `PackageNameCombobox`, `isLowPower`-aware) populated from the secrets plugin's `listSecretNames`, replacing the plain `<input>` + `<datalist>`. A free-typed name still round-trips (a secret may be created later). When a row references a name that the loaded list does not contain, the row shows a non-blocking warning (red border + message); save is not prevented. The existence check lives in a pure, unit-tested `unknownSecretNames` helper.
+  - **Clearer field description.** The `secretEnv` field descriptions on the `run_script` / `run_shell` actions no longer show the stored `${{ secrets.NAME }}` template (which is confusing in a UI that takes a bare name); they now describe the actual UI behavior and how the value is injected (`process.env.<ENV_NAME>` / `$<ENV_NAME>`) and masked.
+  - **`process.env.<ENV_NAME>` autocomplete.** Declared `secretEnv` env-var names now autocomplete under `process.env.` in the Run Script (TypeScript) Monaco editor and are typed `string`, via an ambient `NodeJS.ProcessEnv` augmentation merged into the editor type definitions. New pure, unit-tested generators `generateSecretEnvTypes` and `secretEnvEnvNames` (exported from `@checkstack/automation-frontend`) drive this; the augmentation coexists with `@types/node`'s existing index signature.
+  - **Shared combobox-interaction helper.** The "opens-then-immediately-closes" popover guard (`comboboxAnchorProps` / `isAnchorInteraction`) is promoted from `@checkstack/script-packages-frontend` into `@checkstack/ui` so the new secret picker and the existing package/version comboboxes share one implementation; the package comboboxes now import it from `@checkstack/ui` and the local copy is removed.
+
+- b995afb: Add type-picker modals for the automation editor's Triggers and Conditions sections, matching the Actions "Add step" picker.
+
+  Instead of immediately creating a default element, both sections now open a searchable, grouped picker dialog so the operator chooses the type up front. The "Add" button moves out of each card's header to a bottom button styled exactly like the Actions "+ Add step" button.
+
+  - Triggers: a new "Add trigger" picker over the registry's trigger events (grouped by category, searchable). On pick the trigger is created with a unique default id (deduped against siblings) and appended.
+  - Conditions: a new "Add condition" picker over the condition kinds (grouped Structured / Logical / Advanced, searchable). On pick a schema-seeded default for that kind is appended.
+  - The shared `PickerRow`, add button and search input are extracted into a reusable `picker-dialog` module; `AddActionDialog` now consumes them.
+  - Condition kinds gain a `CONDITION_KIND_META` registry (label, description, icon, group) as the single source of metadata for the picker.
+  - Since the type is now chosen up front, the redundant in-sheet selectors are removed: the trigger config sheet drops its editable "Event" dropdown (keeping a read-only owner/description context line), and the top-level condition sheet drops its kind selector (swap kind = delete + re-add). Nested combinator clauses and the action `condition`-guard body keep their inline kind selector.
+  - New automations now start empty (no pre-filled trigger or action); the empty-state hints guide the operator to add a trigger and steps via the pickers.
+
+  The saved `definition` is unchanged - only how items are added - so the visual and YAML views still round-trip losslessly. Triggers and conditions remain non-reorderable.
+
+- b995afb: Add the entity state machine core (`defineEntity`) - the foundational primitive of the reactive automation engine - as a Model-B plugin-backed reactive WRAPPER with NO framework-owned current-state storage.
+
+  `defineEntity` owns NO current-state storage of its own. Each kind declares a required plugin `read` accessor pointing at wherever its state lives (its own durable table, or a value computed on read from its own durable tables), and `defineEntity` makes that state reactive. There is no framework current-state store and no "homeless" fallback: every kind is plugin-backed. This makes a non-reactive write structurally impossible and guarantees every transition is durably logged without duplicating the plugin's state.
+
+  - `@checkstack/automation-backend`:
+
+    - New `automation.entity` extension point exposing `defineEntity(input)`, `declareNonReactiveState(input)`, `onEntityChanged(...)`, and `registerChangeDeriver(...)`. automation-backend registers the impl in `register`, so other plugins can resolve it and declare entities during their own `register`/`init` (Proxy-buffered until the impl registers).
+    - **Driven single mutation entry point.** All reactive-state writes go through `handle.mutate({ id, opts?, apply: () => Promise<TState> })`. The handle snapshots `prev` via `read` BEFORE the write, runs the plugin's `apply` (the actual write, committed in the PLUGIN's own transaction, returning the resulting state), validates `next` (zod), masks run-originated writes through the run-secret registry, diffs prev to next, and on a real diff appends the field-level transition rows to `entity_transitions` and emits `ENTITY_CHANGED` - both AFTER the plugin write commits (never on a rolled-back / throwing write). A structurally-unchanged write is a no-op. `handle.remove({ id, opts?, apply: () => Promise<void> })` is the tombstone counterpart (records the tombstone transition, emits next = null).
+    - **Cross-plugin transaction boundary.** `apply` takes NO framework tx: a plugin-backed kind lives behind a DIFFERENT drizzle client than `entity_transitions`, and two clients cannot share one transaction. The plugin write is authoritative; the transition-log append runs in the framework's own transaction AFTER the plugin write commits. A failure between them leaves correct plugin state with a missing history row (a gap, never a corruption).
+    - **`get` / `getMany`** route to the kind's `read`; **`inStateSince` / `inStateForMs` / `transitionCount`** read the per-field `entity_transitions` log (generalizing Phase-13 health transitions to any entity).
+    - **No framework keyed store.** There is no generic `entity_state` table, no `createKeyedStore`, and no `entityKeyedStoreServiceRef`: kinds whose state has no domain table of their own (the `health` aggregate, the `slo` budget/streak view) compute their `read` on demand from their own durable data instead of materializing a framework copy. `entity_transitions` (the change-history log) is the framework's ONLY persistent table and is written for EVERY kind regardless of where current state lives.
+    - **`entityResolverFor(kind)`** routes scope enrichment + the reactive `wait_until` wake re-eval to each kind's `read` accessor. Generalized scope enrichment (`enrichScopeWithEntities`) folds any `state.<kind>.<id>` ref into `scope.state.<kind>.<id>.<field>`. The rich `scope.health.*` condition snapshot (status, latency, success rate, in-maintenance, transitions-in-window, ...) is resolved EXCLUSIVELY through the healthcheck RPC path (the health aggregate is computed on read, not stored as a framework row) and the generic entity pass never writes `scope.health`; `state.health.*` remains the minimal reactive entity view. These are two complementary projections by design, not a migration shim.
+    - **Horizontal-scale read-consistency guard.** A reactive entity's current state MUST be globally readable from shared/durable storage, never process-local memory (`.agent/rules/state-and-scale.md`). Enforced by the `checkstack/no-pod-local-entity-state` ESLint tripwire at the `defineEntity({ read })` boundary (wired at `warn`) and the deterministic `cross-pod-read-consistency.it.test.ts` integration test.
+    - Load-time validation hard-fails a malformed registration (non-`z.object` state, missing/duplicate `kind`, or a missing / non-function `read`).
+    - The `ENTITY_CHANGED` hook is internal (not exported); the change emitter buffers events produced during the init window and flushes them in order once the hook wiring is available in `afterPluginsReady`.
+
+  - `@checkstack/automation-common`:
+
+    - New `EntityChangedSchema` (the `ENTITY_CHANGED` payload - `kind`, `id`, `prev`, `next`, `delta`, `changedFields`, `actor`, `occurredAt`) and `DispatchJobSchema` (the Stage-2 `trigger` / `wake` dispatch job).
+
+  - `@checkstack/automation-frontend`: the `wait_until` editor no longer offers the inert `poll_seconds` field (reactive waits don't poll).
+
+  This phase adds the primitive only: domains are migrated in their own changesets. No external behavior changes for existing automations.
+
+  BREAKING CHANGES: There is no framework current-state store. Any out-of-tree plugin must own its entity state in its own durable storage (its own table, or a compute-on-read over it) and pass a `read` accessor to `defineEntity`. `createKeyedStore` / `KeyedStore` / `entityKeyedStoreServiceRef` / `EntityKeyedStoreService` do not exist, and there is no `entity_state` table. `handle.set` / `handle.patch` and the `indexes` option do not exist; all writes go through `handle.mutate` / `handle.remove`.
+
+- b995afb: Fix `context.*` IntelliSense disappearing in the automation inline-script editor.
+
+  The action editor concatenates the scope-derived `declare const context`
+  global with the `secretEnv` `process.env` augmentation into a single Monaco
+  extra-lib. `generateSecretEnvTypes` emitted module-form output
+  (`declare global { … } export {};`), and the top-level `export {};` turned the
+  whole concatenated `.d.ts` into a module - which silently demoted
+  `declare const context` from a global ambient to a module-local binding, so
+  `context.trigger.payload` (and everything under `context`) stopped
+  autocompleting. Because the empty case also emitted `export {};`, every
+  automation script action was affected regardless of declared secrets. Health
+  check script editors were unaffected (they never merge the secretEnv lib).
+
+  `generateSecretEnvTypes` now emits a global-script-compatible ambient
+  augmentation (`declare namespace NodeJS { interface ProcessEnv { … } }`) and an
+  empty string when there is nothing to declare, so the merged extra-lib stays a
+  global script and `context` remains globally visible. A regression test guards
+  that the merged `context + secretEnv` output contains no top-level
+  `export`/`import`.
+
+- 270ef29: Add in-UI script testing for automation `run_script` / `run_shell` actions.
+
+  A new `testScript` RPC runs a TypeScript or shell script against an
+  editable, auto-seeded sample context using the same sandboxed runner the
+  real action uses, so operators can test scripts directly in the editor
+  without dispatching a whole automation. Surfaces beneath any script field
+  flagged `x-script-testable` via the new `ScriptTestPanel` /
+  `ContextSampleEditor` components in `@checkstack/ui` and the
+  `scriptTestRenderer` prop threaded through `DynamicForm`.
+
+  - `@checkstack/automation-common`: adds the `testScript` contract +
+    `ScriptTest*` schemas (gated by `automation.manage`).
+  - `@checkstack/automation-backend`: implements `testScript` reusing the
+    shared ESM / shell runners; central-only, time-bounded.
+  - `@checkstack/backend-api`: new `x-script-testable` config-schema
+    metadata propagated to the frontend JSON Schema.
+  - `@checkstack/ui`: new `ScriptTestPanel` + `ContextSampleEditor`
+    components and a `scriptTestRenderer` prop on `DynamicForm`.
+  - `@checkstack/automation-frontend`: wires the test panel into the action
+    editor.
+  - `@checkstack/integration-script-backend`: marks the `run_script` /
+    `run_shell` script fields as testable.
+
+- 270ef29: Extend in-UI script testing to health-check collectors, and add
+  load-from-run replay for automation script tests.
+
+  - Health-check collectors: a new `testCollectorScript` RPC runs the
+    inline-script (TypeScript) collector and the shell `script` collector
+    against an editable, auto-seeded sample context using the same
+    sandboxed runner the real collector uses. Surfaces beneath the
+    collector script fields in the collector editor (both marked
+    `x-script-testable`). Gated by `healthcheck.configuration.manage`.
+  - Automation replay: a new `getRunScopeForReplay` RPC reconstructs an
+    editable test context from a real run (trigger + persisted artifacts,
+    plus the durable scope snapshot when the run is still in-flight), and
+    the script-test panel gains a "Load from run" picker that seeds the
+    sample context from a past run.
+
+  Note: health-check executions do not persist the script / config /
+  check / system that produced a result, so there is no health-check
+  replay - auto-seed is the only context source for collector tests. This
+  is by design; see the feature plan.
+
+- b995afb: Autocomplete the import specifier itself in script editors.
+
+  Lazy type acquisition only loads a package's types once its name is already in the buffer, so while you were still typing the import specifier (`import {} from "lod"`) there were no suggestions - the lazy-ATA catch-22. Script editors now suggest installed package names directly in import-specifier position; selecting one (e.g. `lodash`) inserts the name, and the existing ATA loop then loads its `@types/lodash` closure so members complete.
+
+  - `@checkstack/ui`: `CodeEditor`/`TypefoxEditor` gained an injected `importablePackages?: string[]` prop and a dedicated Monaco completion provider (registered once per `typescript`/`javascript` language, scoped to the editor's model, disposed on unmount). It fires ONLY when the cursor is inside an import/require module-specifier string - detected by a new pure, unit-tested helper `importSpecifierCompletionContext(lineUpToCursor)` that handles `from "…"`, bare `import "…"`, `require("…")`, and dynamic `import("…")`, returns the partial specifier + the replace range, and returns null once the string is closed or outside an import. Items are `kind: Module`, insert the bare name without touching the quotes, and coexist with (do not replace) the TS worker's own completions. Trigger characters: `"`, `'`, and `/` (for scoped subpaths); manual invoke (Ctrl+Space) also works. A new pure helper `importablePackageNames` filters a raw manifest name list (excludes `@types/*`, dedupes, sorts).
+  - `@checkstack/script-packages-frontend`: `useScriptPackageTypeAcquisition()` now also returns `importablePackages`, derived from the installed manifest (what is actually resolvable at runtime) with `@types/*` companions excluded - you import `lodash`, never `@types/lodash` (the `@types` package still backs the closure types).
+  - `@checkstack/automation-frontend` / `@checkstack/healthcheck-frontend`: pass `importablePackages` into `DynamicForm` alongside the existing `acquireTypes` wiring, so both the Run Script action editor and healthcheck collector editors get import-name completion.
+
+  The completion list is plugin-agnostic in `@checkstack/ui` (the names are injected); it never fires outside import-string positions, so normal completions are unaffected.
+
+- b995afb: Fix package IntelliSense in script editors: lazy Automatic Type Acquisition (ATA) with proper `@types/*` resolution.
+
+  Script editors (automation "Run Script (TypeScript)" and healthcheck collectors) now provide real autocomplete for installed npm packages. Importing a package whose types live in DefinitelyTyped - e.g. `import { debounce } from "lodash"` (lodash ships no own types; `@types/lodash` does) - now yields member completions. Previously no package completions appeared at all.
+
+  Root cause: the old rollup wrapped each package's raw, multi-file `.d.ts` (with `export =`, `export as namespace`, and triple-slash `/// <reference path>` chains) inside a single `declare module "<name>" { ... }`, which the TypeScript worker silently rejected, and it truncated large type sets (lodash is ~866 KB across ~700 files) at a 256 KB cap.
+
+  The fix registers the REAL declaration files at their `node_modules/...` virtual paths and lets TypeScript's own NodeJs + `@types` resolution do the work:
+
+  - `@checkstack/script-packages-backend`: replaced `rollupPackageTypes` with a tree-driven closure extractor (`resolvePackageTypeClosure`). Given a bare specifier, it resolves against the materialized tree - own types via `package.json` `types`/`typings`/`exports` (bundled-types packages like `zod`/`dayjs`), the `@types/<mangled>` companion when it exists (`lodash` -> `@types/lodash`, scoped `@babel/core` -> `@types/babel__core`), or both, or neither (graceful empty, never a throw). It follows `/// <reference path|types>` and relative imports, includes each package's `package.json`, leaves every file UNWRAPPED, and surfaces a `truncated` flag instead of silently capping. Served from a new raw, HTTP-cacheable route `GET /api/script-packages/types/:lockfileHash/:specifier` (`Cache-Control: private, max-age=1y, immutable`), auth-gated by `script-packages.read`.
+  - `@checkstack/script-packages-common`: **BREAKING** - replaced the `listPackageTypes` RPC procedure and `PackageTypesSchema { name, version, dts }` with `PackageTypeClosureSchema` (a `{ path, content }` file-map plus `hasOwnTypes`/`hasAtTypes`/`notFound`/`truncated`) served over the cacheable HTTP route. Added a shared `buildTypeAcquisitionPath`/`parseTypeAcquisitionPath` path contract.
+  - `@checkstack/ui`: `CodeEditor`/`TypefoxEditor` gained an injected `acquireTypes` resolver + `acquireResetKey`. On debounced buffer change it parses bare `import`/`require` specifiers (pure, unit-tested) and lazily fetches + registers each NEW package's closure via `addExtraLib` at `file:///node_modules/...`, deduped by a shared acquired-set that resets when the install hash changes. Compiler options set `moduleResolution: NodeJs`, `baseUrl: "file:///"`, and `typeRoots` so a bare import resolves to its `@types` companion. The `context` ambient global keeps working unchanged.
+  - `@checkstack/script-packages-frontend`: replaced the old `useScriptPackageTypes` (which concatenated the broken `dts`) with `useScriptPackageTypeAcquisition()`, returning the `acquireTypes` resolver (targets the cacheable route, zod-validates the response) and the current `lockfileHash` as `acquireResetKey`.
+  - `@checkstack/automation-frontend` / `@checkstack/healthcheck-frontend`: wired the resolver into the Run Script and collector editors.
+
+  State & scale: the type closure is derived on read from the materialized package tree (no new durable state). The editor's acquired-set is pod-local UI bookkeeping; the route is keyed by the cluster-wide `lockfileHash`, so the browser HTTP cache is correct across pods and only refetches after a new install changes the hash.
+
+- 270ef29: Wire up the script-packages RPC router, admin UI, and editor IntelliSense.
+
+  - `script-packages-backend`: the oRPC router implementing the full
+    contract (allowlist CRUD, registry config with encrypted write-only auth
+    token, `installNow` via the elected installer, size cap, storage backend
+    selection, install state, `getManifest` / `downloadBlob` for reconcilers,
+    and `listPackageTypes`), the `installNow` controller (election, size-cap
+    enforcement, `script-packages.changed` emit, blocked during migration),
+    the `.d.ts` rollup, the singleton config stores, and the full plugin
+    wiring (broadcast-hook reconcile + startup backstop).
+  - `script-packages-common`: admin route for the settings page.
+  - `script-packages-frontend`: the Settings -> Script Packages admin page
+    (allowlist, install state + size, registry/storage summary, satellite
+    sync) and the `useScriptPackageTypes()` hook.
+  - `automation-frontend` / `healthcheck-frontend`: merge installed-package
+    `.d.ts` into the script-editor `typeDefinitions` so `import` from an
+    allowlisted package autocompletes in every script field.
+
+- b995afb: Fix the automation Run Script action's `secretEnv` (secret → env mapping) test wiring and tolerate bare secret names.
+
+  - `@checkstack/ui` `ScriptTestPanel` now accepts the script field's declared `secretEnv` and renders an optional per-secret test-override input. The `ScriptTestRenderer` callback (DynamicForm) receives the SIBLING `x-secret-env` mapping value, located by annotation (not by field name), so a testable script field forwards it to the panel. Previously the test path never sent `secretEnv`, so `buildTestSecretEnv` got `undefined` and `process.env.<env>` was undefined in an in-UI test. Now an override-less test injects `__SECRET_<NAME>__` placeholders, and any operator override is masked from the output. Real secret values are still NEVER resolved in the test path.
+  - `@checkstack/automation-frontend` forwards the action's `secretEnv` and the collected overrides to `testScript`.
+  - `@checkstack/secrets-common`: the `secretEnv` mapping VALUE now accepts EITHER a `${{ secrets.NAME }}` template OR a bare secret name, normalizing a bare name to the canonical `${{ secrets.NAME }}` template on parse. This is a forgiving / NARROWING input change (more inputs accepted; stored/output form is unchanged and still the template), not a breaking change. Existing data and YAML shorthand like `secretEnv: { secret: SECRET }` now pass config validation instead of failing with "Must contain a ${{ secrets.NAME }} reference". Partial inline interpolation (e.g. `u:${{ secrets.pw }}@host`) keeps working unchanged; values that are neither a secret reference nor a valid secret name are still rejected.
+  - `@checkstack/ui` `parseSecretName` tolerates a legacy bare secret name for display so the picker shows the same name for both the template and the bare form.
+
+  The healthcheck collector test panel was checked: its config has no `x-secret-env` field, so it needed no secret wiring (only the `onRun` signature change, which is backward compatible).
+
+- 270ef29: Secrets platform Phase 2: secret -> env-var mapping with central resolve, inject, and mask.
+
+  - Script consumers declare a least-privilege `secretEnv` allowlist
+    (`{ ENV_NAME: "${{ secrets.NAME }}" }`). The automation `run_script` /
+    `run_shell` actions resolve ONLY the declared secrets via
+    `secretResolverRef.resolveForRun`, inject them into the runner env for
+    that run (memory-only; the ESM runner gained a per-run `env` option), and
+    mask their values out of stdout/stderr/result/error via the run-scoped
+    masking context. A missing required secret fails the run clearly. No
+    ambient secret access.
+  - Test panel: `testScript` / `testCollectorScript` inject named
+    `__SECRET_<NAME>__` placeholders by default, or user-supplied per-secret
+    overrides; real production values are never resolved in the test path,
+    and overrides are masked out of the result.
+  - Healthcheck collectors carry the `secretEnv` field for authoring +
+    the test panel; runtime injection on satellites lands in Phase 3.
+  - Editor UX: a new `@checkstack/ui` `SecretEnvEditor` renders `x-secret-env`
+    record fields with `${{ secrets.* }}` name autocomplete (from
+    `listSecretNames`), wired into the automation action editor and the
+    healthcheck collector editor. New `withConfigMeta` helper +
+    `x-secret-env` config-meta key in `@checkstack/backend-api`.
+
+- b995afb: Add an optional `partitionBy` override to the windowed-count trigger gate.
+
+  A trigger's `window` block now accepts `partitionBy`, a bare expression (same flavour as `filter`, no `{{ }}`) that controls the key the occurrence count is bucketed by. When omitted, the gate keys by the trigger's built-in context key exactly as before (per system for health triggers), so existing automations are unchanged. When set, the expression is evaluated against the same trigger scope `filter` uses and coerced to a string - e.g. `trigger.payload.severity` for a per-severity rate, or `trigger.payload.systemId + ":" + trigger.payload.checkId` for a composite key. If the expression evaluates to null/undefined/empty or fails to evaluate, the gate falls back to the built-in context key (never global counting); eval errors are logged, matching the gate's fail-open posture.
+
+  Triggers can now declare `contextKeyLabel` (a UI hint, e.g. `"system"`) describing their built-in context dimension. It is surfaced through `TriggerInfo` so the editor's window "Partition by" field shows the default partition ("Leave blank to count per system" / "per automation" when a trigger has no context key). The healthcheck system triggers (`system_health_changed`, `system_degraded`, `system_healthy`, `check_failed`) and the built-in `numeric_state` trigger set it to `"system"`. This is a pure UI hint with no runtime behaviour.
+
+  The automation editor's window block gains a "Partition by" expression input (reusing the trigger filter's `trigger.payload.*` autocomplete), and the collapsed trigger card summary shows the partition when set.
+
+- b995afb: Add a generic windowed-count / rate trigger gate, and express flapping detection on it.
+
+  Any trigger can now carry a `window: { count, minutes, refire }` block: the automation engine records each qualifying occurrence (after the structured config gate and the operator's `filter`) in a durable append log and counts rows within the trailing sliding window, scoped per context key (e.g. per system). `refire: "every"` (default) fires on every occurrence at/over the threshold; `refire: "once"` fires only on the crossing edge and re-arms as old occurrences age out. The gate runs in `maybeStartRun` after `filter` and before the `for:` dwell, so it composes with both.
+
+  Flapping is now an instance of this mechanism rather than a bespoke detector. The healthcheck `system_health_changed` raw change event plus a `filter` (`trigger.payload.newStatus != "healthy"`) plus `window: { count: 3, minutes: 60, refire: "once" }` reproduces flapping in the engine.
+
+  State-and-scale: window state lives in the new `automation_window_events` Postgres table (FK-cascade on the automation, the same delete-lifecycle as `automation_dwell_timers`). The count is read with pure SQL so every pod computes the same answer; the work-queue claim gives exactly one INSERT per emission, so there is no double-count. Rows older than the 24h schema cap are pruned by the existing stalled-sweeper. The `once` policy is best-effort under at-least-once redelivery (a redelivered emission can skip the exact crossing edge; `every` is redelivery-tolerant).
+
+  **BREAKING CHANGES:**
+
+  - The `healthcheck.flapping_detected` automation trigger and the `healthcheck.flapping_detected` hook are REMOVED. Flapping is now detected by the windowed-count gate on the `healthcheck.system_health_changed` trigger (`window` block, `refire: "once"`).
+  - Flapping is now PER-SYSTEM (the aggregated `health` entity), not per-`(system, configuration)`. Subscribe to `check_failed` with a `window` instead if you need per-check rate detection.
+  - The healthcheck `health_check_unhealthy_transitions` table is DROPPED (the per-check flapping audit log is no longer kept; counting moved into the engine).
+  - The backend-only `automation.subscriptions` service ref (`automationSubscriptionsRef` / `AutomationSubscriptions`) is REMOVED. The engine enumerates subscribers internally and the window gate runs per-automation inside `maybeStartRun`, so the external read-ref is no longer needed.
+  - Existing user-created flapping automations are AUTO-MIGRATED on boot: any trigger on `healthcheck.flapping_detected` is rewritten to `healthcheck.system_health_changed` + the canonical unhealthy-transition filter + `window: { count: transitions ?? 3, minutes: windowMinutes ?? 60, refire: "once" }`, dropping the old `config`. A pre-existing trigger filter is replaced with the canonical one (logged per row). An enabled automation that still references the removed event after migration logs a warning.
+
+### Patch Changes
+
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+  - @checkstack/ui@1.12.0
+  - @checkstack/automation-common@0.3.0
+  - @checkstack/template-engine@0.3.0
+  - @checkstack/script-packages-frontend@0.2.0
+  - @checkstack/secrets-frontend@0.1.0
+  - @checkstack/gitops-frontend@0.4.7
+
 ## 0.2.0
 
 ### Minor Changes

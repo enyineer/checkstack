@@ -1,5 +1,107 @@
 # @checkstack/catalog-backend
 
+## 1.3.0
+
+### Minor Changes
+
+- b995afb: Make `catalog-system` and `catalog-group` plugin-backed reactive entities via the Model-B entity state machine.
+
+  Catalog defines a `catalog-system` entity `{ name, description, metadata }` and a `catalog-group` entity `{ name, metadata }`. The `systems` / `groups` tables are BOTH authoritative AND the entities' current-state storage - there is no framework `entity_state` row for a catalog system/group. `defineEntity` is given plugin `read` accessors (`EntityService.getManySystemEntityStates` / `getManyGroupEntityStates`) that project the reactive subsets straight off those tables, and every reactive-state write goes through `handle.mutate` / `handle.remove`: `apply` performs the REAL `systems` / `groups` write (the plugin's own db/tx) and returns the new state; the framework snapshots `prev` via `read` BEFORE the write, appends the transition log, and emits `ENTITY_CHANGED` AFTER the write commits. Covered sites: create-system, update-system, delete-system (tombstone), create-group, update-group, delete-group (tombstone), and the `system.update_metadata` automation action. Create sites pre-generate the id so the handle is keyed on it and the create's `prev` snapshot reads the not-yet-existing row as absent; `EntityService.createSystem` / `createGroup` accept an optional pre-generated `id` (server-owned either way).
+
+  Change -> trigger-event derivers reproduce the existing qualified events (emitting the TRIGGER event ids automations match on, not the dotted hook ids):
+
+  - `catalog-system`: create -> `catalog.created`; tombstone -> `catalog.deleted`; field update -> `catalog.updated`.
+  - `catalog-group`: create -> `catalog.group.created`; tombstone -> `catalog.group.deleted` (a pure group update fires nothing).
+
+  Mirrors are diff-suppressed (a save-with-no-diff stays a no-op). The `catalog.system.*` / `catalog.group.*` cross-plugin hooks are removed in the same effort (see the healthcheck/catalog hook-removal changeset); cross-plugin consumers (incident, dependency, slo, healthcheck) read via `onEntityChanged`.
+
+  BREAKING CHANGES (behavior): none for trigger-event consumers - the same qualified trigger events still fire via the change derivers, and `onEntityChanged` consumers see the same change event. The only observable change is internal: catalog current state is read from the `systems` / `groups` tables instead of `entity_state`, and writes route through the entity handle. The `system.update_metadata` action's race-deleted ("disappeared mid-update") path now drives a no-op entity write (the framework diffs it as no change) before returning failure, instead of skipping the write entirely; no event fires either way.
+
+- b995afb: Close a run-secret masking gap on run-originated catalog entity writes (security).
+
+  `writeCatalogSystemEntity` / `writeCatalogGroupEntity` had no `opts` parameter, so the `system.update_metadata` automation action (which has the dispatch `runId` in scope) could not forward it. Catalog `metadata` is `z.record(z.string(), z.unknown())` — the only reactive catalog field that can carry an arbitrary secret string — so a run-resolved secret merged into metadata would land UNMASKED in both the `entity_transitions` rows and the cluster-wide `ENTITY_CHANGED` event.
+
+  The catalog entity writers now accept `opts?: EntityMutationOpts` and forward it into `handle.mutate` / `handle.remove` (mirroring maintenance/slo), and `system.update_metadata` passes `opts: { runId }`. Run-resolved secrets in metadata are now masked in both the emit and the transition rows.
+
+- b995afb: Remove the now-unused healthcheck + catalog entity hooks; rely on the reactive entities + change derivers (reactive automation engine Phase 4, final step of §10.3 / §10.4).
+
+  Now that every cross-plugin consumer (slo, dependency, incident, and healthcheck's own catalog-cleanup) reads these domains via `onEntityChanged`, the producers stop emitting the entity-change hooks and the trigger registrations become entity-driven (fired by the entity change deriver via Stage-1 routing, with a no-op `setup` so they stay in the editor's trigger catalog).
+
+  - **healthcheck**: stops emitting `healthcheck.system.degraded` / `.healthy` / `.health_changed` from the queue executor (the `health` entity mirror is the single source of truth). Its own `catalog.system.deleted` consumer switched to `onEntityChanged({ kind: "catalog-system" })` on tombstones (work-queue delivery preserved). The directional/umbrella triggers are now entity-driven.
+  - **catalog**: stops emitting `catalog.system.created` / `.updated` / `.deleted` and `catalog.group.created` / `.deleted` from the router + the `system.update_metadata` action (the `catalog-system` / `catalog-group` mirrors are authoritative). The system triggers are now entity-driven.
+
+  CORRECTNESS FIX (also affects the earlier healthcheck/catalog Phase-4 steps in this branch): the change derivers now emit the TRIGGER qualifiedIds that automations actually store in `trigger.event` and that Stage-1 routing matches on (`findEnabledByTriggerEvent`), NOT the dotted hook ids. Healthcheck triggers use underscore ids, so the deriver emits `healthcheck.system_degraded` / `system_healthy` / `system_health_changed` (not `healthcheck.system.degraded`). Catalog system triggers use ids `created`/`updated`/`deleted`, so the deriver emits `catalog.created` / `catalog.updated` / `catalog.deleted` (not `catalog.system.created`). Without this fix the migrated automations would never fire.
+
+  BREAKING CHANGES:
+
+  - `healthcheck.system.degraded` / `healthcheck.system.healthy` / `healthcheck.system.health_changed` cross-plugin hooks are removed. The reactive `health` entity drives the matching trigger events (`healthcheck.system_degraded` / `_healthy` / `_health_changed`), so existing automations keep firing. Kept healthcheck hooks: `assignment.changed`, `check.completed`, `check.failed`, `flapping_detected`.
+  - `catalog.system.created` / `.updated` / `.deleted` and `catalog.group.created` / `.deleted` cross-plugin hooks are removed. The reactive `catalog-system` / `catalog-group` entities drive the matching trigger events (`catalog.created` / `.updated` / `.deleted`); cross-plugin cleanup reactors subscribe to the `catalog-system` tombstone via `onEntityChanged`. `catalogHooks` / `healthCheckHooks` remain exported (the removed members are gone) for a stable import surface.
+
+- b995afb: Restore the documented domain payload fields on entity-driven automation triggers.
+
+  Migrated triggers declare domain-named `payloadSchema`s (incident `incidentId`; health `systemId` / `previousStatus`; catalog `systemId` / `changedFields`; dependency `dependencyId`), but Stage-2 dispatch built `trigger.payload` from the generic entity-change shape (`{ kind, id, prev, next, delta, ...next }`). Operator filters and templates reading `trigger.payload.incidentId` / `.systemId` / `.previousStatus` silently resolved to `undefined` — a regression vs the legacy hook payloads.
+
+  Changes:
+
+  - `@checkstack/automation-backend`: `registerChangeDeriver` now accepts an optional per-kind `toPayload(changed) => Record<string, unknown>` mapper (at most one per kind; a second distinct mapper throws). Stage-2's `changedToPayload` uses the registered mapper to build `trigger.payload` so it matches the kind's declared `payloadSchema`, falling back to the generic change shape for kinds without a mapper. New exported type `EntityChangePayloadMapper`.
+  - `@checkstack/incident-backend`, `@checkstack/healthcheck-backend`, `@checkstack/catalog-backend`, `@checkstack/dependency-backend`: implement and register a `toPayload` for each entity-driven kind so `trigger.payload` carries the legacy domain keys again.
+
+  Descriptive incident payload fields not derivable from the reactive entity state (`title`, `description`, `createdAt`, `resolvedAt`) are now OPTIONAL on the incident trigger `payloadSchema`s — they were always absent from an entity-driven payload.
+
+### Patch Changes
+
+- b995afb: Extract a shared `withEntityWrite` / `withEntityRemove` guard for PLUGIN-BACKED (Model B) reactive entities and refactor the per-domain copies onto it.
+
+  Every plugin-backed domain (incident, catalog, dependency, maintenance, slo, satellite) reimplemented the same "no handle wired → run the plugin write directly; handle wired → route through `handle.mutate` / `handle.remove`" guard, varying only in the id-key name. `@checkstack/automation-backend` now exports `withEntityWrite` / `withEntityRemove` (from the entity barrel) and each domain's thin, well-named wrappers (`writeIncidentEntity`, `writeMaintenanceEntity`, satellite's `mirror`, …) delegate to it, so the branch lives in exactly one place. Behavior is unchanged.
+
+  `writeHealthEntity` (healthcheck-backend) is intentionally NOT migrated onto the helper — it is genuinely bespoke (closure-captured durable state, distinct rethrow-vs-fail-soft branches, a per-system serializer, and it returns the computed state). SLO keeps its fail-soft `onError` wrapper around the shared guard.
+
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+  - @checkstack/backend-api@0.19.0
+  - @checkstack/automation-backend@0.3.0
+  - @checkstack/gitops-common@0.5.0
+  - @checkstack/gitops-backend@0.4.0
+  - @checkstack/auth-backend@0.4.32
+  - @checkstack/cache-api@0.3.7
+  - @checkstack/command-backend@0.1.32
+  - @checkstack/cache-utils@0.2.12
+
 ## 1.2.0
 
 ### Minor Changes

@@ -1,5 +1,24 @@
 # @checkstack/queue-frontend
 
+## 0.4.7
+
+### Patch Changes
+
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+  - @checkstack/ui@1.12.0
+
 ## 0.4.6
 
 ### Patch Changes

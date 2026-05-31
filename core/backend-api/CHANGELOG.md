@@ -1,5 +1,202 @@
 # @checkstack/backend-api
 
+## 0.19.0
+
+### Minor Changes
+
+- 270ef29: Fix automation provider actions and `secretEnv` script actions throwing in production.
+
+  The automation dispatch engine resolved provider-action dependencies (the integration connection store, the secret resolver) through a `getService` that was a throwing stub, so Jira / Teams / Webex actions and `secretEnv` script actions threw at execute time in production. The whole dispatch test suite stubbed `getService`, so the break was invisible.
+
+  Root cause: the plugin `env` exposed `registerService` but no resolver, so the dispatch path (the only context that resolves arbitrary cross-plugin refs outside an RPC handler) had nothing real to call.
+
+  Changes:
+
+  - `@checkstack/backend-api`: add `getService<S>(ref: ServiceRef<S>): Promise<S>` to the plugin `env` (`BackendPluginRegistry`). It resolves a service registered by any plugin through the real `ServiceRegistry` using the calling plugin's identity, and throws a clear error if the ref is not registered (never silently `undefined`). **NEW PLUGIN-AUTHOR CONTRACT**: `env.getService` is now available to resolve arbitrary cross-plugin service refs at init / afterPluginsReady time.
+  - `@checkstack/backend`: implement `env.getService` in both the plugin loader and the runtime single-plugin registration path, backed by `ServiceRegistry.get(ref, { pluginId })`.
+  - `@checkstack/automation-backend`: wire the dispatch `getService` to `env.getService` (was a throwing stub). This also activates run-wide provider-credential masking, because resolving the connection store / secret resolver now flows through the run's masking interceptor.
+
+  Also fixes a test-only seam where the `core/backend` test preload registered a no-op `registerRouter`, silently disabling oRPC router registration across the suite.
+
+- 270ef29: Fix suspend/resume durability + complete the run-wide secret-masking guarantee.
+
+  A panel review confirmed several defects in the automation dispatch engine's suspend/resume durability and in the run-wide masking choke point. These survived because the unit suite stubbed the seam under test; the fixes ship with tests that exercise the real suspend / sweep / resume paths.
+
+  Suspend/resume durability:
+
+  - **Stalled sweeper no longer re-runs intentional waits.** `findStalledRunIds` now joins `automation_runs` and returns only `status = 'running'` runs, and suspend-finalisation no longer clobbers the run's `lastActionPath` checkpoint to `null`. Previously any wait longer than the stale window (>60s) was re-walked from the top every sweep cycle, re-firing pre-wait side effects and leaking wait locks. The wait-aware sweeps now also run before the stalled-run sweep.
+  - **Stalled recovery refuses a run holding a live wait lock.** `recoverStalledRun` now only recovers a genuinely-`running` run with no wait lock; a crash-mid-wait recovery is left to the wait/resume paths instead of re-walking from the top and creating a duplicate lock + duplicate delay job.
+  - **Cancelled runs can no longer resurrect.** `resumeRun` guards on `status === 'waiting'` (mirroring `checkWaitUntil`) and drops any stale lock for a non-waiting run, so `wakeWaitingRuns` / delay-expiry / a racing queue job can't wake a cancelled or terminal run. `cancelActiveRuns` (restart mode) now deletes the cancelled runs' wait locks + run-state in the same operation.
+  - **Concurrency check-then-create is serialized.** The `mode` check + `createRun` now run under a transaction-scoped advisory lock keyed on `(automationId, scope)`, so two concurrent fires can't both pass a `single`-mode "no active run" check and double-run.
+
+  Masking guarantee (now genuinely covers scope + artifacts):
+
+  - **The run-wide masking choke point now also masks the durable scope snapshot and produced artifacts.** The `RunSecretRegistry` is threaded into `RunStateStore.upsert` (masks `scopeSnapshot`) and `ArtifactStore.record` (masks `data`) so a resolved connection credential threaded into `scope.variables` or surfaced into an artifact is redacted before persist - and therefore cannot reach a read-only user via `getRunScopeForReplay`. **GUARANTEE CHANGE**: run-wide masking now covers step output, run error, scope snapshot, and artifact data for every action.
+  - **`testConnection` / `testProviderConnection` mask provider errors.** These RPCs run outside a dispatch run, so they build a per-call mask set from the resolved/submitted connection config and run any provider error through it before returning, so a provider error echoing a token can't cross back to the browser.
+  - **Short secrets surface a warning.** `setSecret` now warns when a value is shorter than `MIN_MASKABLE_LENGTH` (4) that it cannot be auto-redacted (the threshold is intentionally not lowered).
+
+  Internal:
+
+  - `@checkstack/backend-api`: `withXactLock`'s `fn` now receives the transaction handle `tx` so a critical section can run on the locked connection; the doc clarifies why running on the pool inside the lock window is still safe. The incident dedup caller's comment is corrected accordingly. `RunStore` gains `findWaitLocksByRun`.
+
+- 270ef29: Fix several correctness defects around distributed coordination and stored-data handling.
+
+  - Dwell `for:` timers now fire via an atomic `DELETE ... RETURNING` claim, so two pods (or the stalled sweeper vs the queue consumer) can no longer both fire the same dwell.
+  - Postgres session-level advisory locks now keep connection affinity. A shared `AdvisoryLockService` (backed by a dedicated pooled client) replaces the previous acquire/release-on-different-connection pattern that leaked locks. Used by the script-packages installer election, the automation run resume + stalled sweeper, and (via a new transaction-scoped `withXactLock`) incident dedup.
+  - A storage migration that crashed mid-flight is now resumed on startup under the installer-election lock, instead of permanently wedging installs.
+  - Distributed script-package blobs carry a `blobSha256` and are verified before extraction (the SRI `integrity` hashes the npm tarball, not the transported archive). Backward-safe: entries without the field skip verification until a re-install regenerates the manifest.
+  - Archive extraction rejects zip-slip paths (absolute or `..` entries) before writing anything.
+  - `incident.create` with `dedupe_open_for_system` serializes its check-then-create per system, so concurrent triggers for the same system can't both open a duplicate incident.
+  - Seeded auto-incident filter expressions JSON-encode interpolated ids so a quote/backslash can't corrupt the expression.
+  - Stored jsonb snapshots (dwell `actorSnapshot`, wait-lock `waitConfig`) are validated with zod on load and degrade safely instead of flowing through as the wrong type.
+
+- b995afb: Harden the advisory-lock service against holder-connection termination.
+
+  A session-level advisory lock is held on a dedicated checked-out pool client.
+  If that backend is terminated (admin kill, failover, network drop) while the
+  lock is held, `pg` emits an `'error'` on the client; with no listener attached
+  that error is re-thrown by the EventEmitter and crashes the pod. The service
+  now attaches an error listener to the held client so the loss degrades
+  gracefully - the session lock is auto-released server-side when the backend
+  dies, and the key simply becomes acquirable again.
+
+  Also de-flaked the advisory-lock integration test: it now terminates only the
+  lock-holding backend (found via `pg_locks`) instead of every backend in the
+  database - the old blanket kill also tore down the pool's idle connections,
+  whose async errors flaked the run and left the pool unusable.
+
+- 270ef29: Add in-UI script testing for automation `run_script` / `run_shell` actions.
+
+  A new `testScript` RPC runs a TypeScript or shell script against an
+  editable, auto-seeded sample context using the same sandboxed runner the
+  real action uses, so operators can test scripts directly in the editor
+  without dispatching a whole automation. Surfaces beneath any script field
+  flagged `x-script-testable` via the new `ScriptTestPanel` /
+  `ContextSampleEditor` components in `@checkstack/ui` and the
+  `scriptTestRenderer` prop threaded through `DynamicForm`.
+
+  - `@checkstack/automation-common`: adds the `testScript` contract +
+    `ScriptTest*` schemas (gated by `automation.manage`).
+  - `@checkstack/automation-backend`: implements `testScript` reusing the
+    shared ESM / shell runners; central-only, time-bounded.
+  - `@checkstack/backend-api`: new `x-script-testable` config-schema
+    metadata propagated to the frontend JSON Schema.
+  - `@checkstack/ui`: new `ScriptTestPanel` + `ContextSampleEditor`
+    components and a `scriptTestRenderer` prop on `DynamicForm`.
+  - `@checkstack/automation-frontend`: wires the test panel into the action
+    editor.
+  - `@checkstack/integration-script-backend`: marks the `run_script` /
+    `run_shell` script fields as testable.
+
+- 270ef29: Activate npm packages in script execution: thread the managed
+  `resolutionRoot` into every user-script call site so an allowlisted package
+  can actually be `import`ed.
+
+  - `@checkstack/backend-api`: the ESM runner now always writes a per-run
+    `bunfig.toml` with `[install] auto = "disable"` and runs with that dir as
+    CWD. Without this Bun silently auto-installs any imported package from the
+    registry (verified), defeating the allowlist; with it, imports resolve
+    only against the reconciled `current/node_modules` (when a `resolutionRoot`
+    is set) and otherwise fail fast.
+  - `@checkstack/script-packages-backend`: `resolveResolutionRoot` /
+    `resolveResolutionRootFromStore` / `resolveResolutionRootForHost` decide a
+    host's resolution-root status (`none` / `ready` / `notReady`) from the
+    local `<store>/current`.
+  - `run_script` (integration-script-backend), the inline-script collector
+    (healthcheck-script-backend, core + satellite), and the in-UI `testScript`
+    / `testCollectorScript` endpoints all resolve the root per run and pass it
+    to the runner; `run_script` surfaces a clear "npm packages not ready"
+    error when configured-but-unsynced. Shell paths are unaffected (no module
+    resolution).
+
+  An opt-in end-to-end test (`CHECKSTACK_E2E_NETWORK=1`) proves an allowlisted
+  package imports successfully through the real `run_script` action execute
+  path, with non-network degradation tests running always.
+
+  BREAKING CHANGES: `@checkstack/backend-api`'s `defaultEsmScriptRunner` now
+  always disables Bun auto-install for the user subprocess. A script that
+  previously relied on Bun silently fetching an un-vendored package from the
+  registry at import time will now fail to resolve it. This is intentional -
+  package availability is governed by the admin allowlist - but any caller
+  depending on the old implicit auto-install behavior must add the package to
+  the allowlist instead. The new `EsmScriptRunOptions.resolutionRoot` field is
+  optional and additive (defaults to today's `os.tmpdir()` behavior when
+  unset), so the runner API itself is source-compatible.
+
+- 270ef29: Add the per-host script-package reconciler and the runner resolution root.
+
+  - `@checkstack/backend-api`: `EsmScriptRunOptions.resolutionRoot` - when
+    set, the per-run temp dir is created inside it so module resolution walks
+    up to `<resolutionRoot>/node_modules` and user scripts can `import`
+    managed npm packages. Defaults to today's `os.tmpdir()` behavior when
+    unset (backward-compatible; isolation unchanged - the subprocess still
+    only sees `SAFE_ENV_VARS`).
+  - `@checkstack/script-packages-backend`: content-addressed cache archive
+    (tar+gzip per package), pure delta diff (`computeMissingBlobs`), atomic
+    `current` symlink swap, the host reconciler (`reconcileToHash` -
+    idempotent: pull only missing blobs, materialize a versioned tree via
+    `bun install --offline`, atomically flip `current`), the concrete fs/Bun
+    adapter, the central install resolver, and the `script-packages.changed`
+    broadcast hook. An opt-in end-to-end test
+    (`CHECKSTACK_E2E_NETWORK=1`) proves resolve -> publish -> cold reconcile
+    (no registry) -> offline materialize -> import.
+
+- 270ef29: Secrets platform Phase 2: secret -> env-var mapping with central resolve, inject, and mask.
+
+  - Script consumers declare a least-privilege `secretEnv` allowlist
+    (`{ ENV_NAME: "${{ secrets.NAME }}" }`). The automation `run_script` /
+    `run_shell` actions resolve ONLY the declared secrets via
+    `secretResolverRef.resolveForRun`, inject them into the runner env for
+    that run (memory-only; the ESM runner gained a per-run `env` option), and
+    mask their values out of stdout/stderr/result/error via the run-scoped
+    masking context. A missing required secret fails the run clearly. No
+    ambient secret access.
+  - Test panel: `testScript` / `testCollectorScript` inject named
+    `__SECRET_<NAME>__` placeholders by default, or user-supplied per-secret
+    overrides; real production values are never resolved in the test path,
+    and overrides are masked out of the result.
+  - Healthcheck collectors carry the `secretEnv` field for authoring +
+    the test panel; runtime injection on satellites lands in Phase 3.
+  - Editor UX: a new `@checkstack/ui` `SecretEnvEditor` renders `x-secret-env`
+    record fields with `${{ secrets.* }}` name autocomplete (from
+    `listSecretNames`), wired into the automation action editor and the
+    healthcheck collector editor. New `withConfigMeta` helper +
+    `x-secret-env` config-meta key in `@checkstack/backend-api`.
+
+- 270ef29: Secrets platform Phase 3: just-in-time secret delivery to satellites + source-side masking, and central-execution injection for healthcheck collectors.
+
+  - New satellite WS messages `request_run_secrets` / `run_secrets`: just
+    before a satellite runs a collector that declares a `secretEnv`, it asks
+    core for that collector's resolved env; core resolves ONLY the secrets the
+    collector's OWN persisted assignment declares (least-privilege — the
+    satellite cannot choose) and replies with the env map (or a clear error).
+    The satellite injects it memory-only for the run and drops it on
+    completion. Secrets never ride the persisted assignment and never touch
+    disk.
+  - Source-side masking: the satellite runs `maskSecrets` over the collector's
+    stdout/stderr/result/error using the run's delivered values BEFORE the
+    result leaves the satellite (defense in depth).
+  - `CollectorStrategy.execute` gains an optional `secretEnv`. The
+    inline-script and shell collectors inject it into the runner
+    (`process.env` / `$VAR`) and mask the values out of their output.
+  - Healthcheck collectors running centrally (the queue executor) also resolve
+    - inject `secretEnv` via `secretResolverRef`, closing the gap where a
+      centrally-run secretEnv collector got no secrets. A missing required
+      secret fails the run clearly in all paths.
+
+### Patch Changes
+
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+  - @checkstack/healthcheck-common@1.4.0
+  - @checkstack/cache-api@0.3.7
+  - @checkstack/queue-api@0.3.7
+
 ## 0.18.0
 
 ### Minor Changes

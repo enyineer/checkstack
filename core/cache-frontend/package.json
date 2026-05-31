@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/cache-frontend",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "license": "Elastic-2.0",
   "type": "module",
   "main": "./dist/index.js",

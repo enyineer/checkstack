@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/secrets-frontend",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Admin Settings -> Secrets management page",
   "author": "Checkstack contributors",
   "license": "Elastic-2.0",

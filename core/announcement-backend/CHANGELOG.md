@@ -1,5 +1,24 @@
 # @checkstack/announcement-backend
 
+## 0.3.12
+
+### Patch Changes
+
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+  - @checkstack/backend-api@0.19.0
+  - @checkstack/auth-backend@0.4.32
+  - @checkstack/cache-api@0.3.7
+  - @checkstack/command-backend@0.1.32
+  - @checkstack/cache-utils@0.2.12
+
 ## 0.3.11
 
 ### Patch Changes

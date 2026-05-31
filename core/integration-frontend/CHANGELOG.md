@@ -1,5 +1,25 @@
 # @checkstack/integration-frontend
 
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+  - @checkstack/ui@1.12.0
+  - @checkstack/tips-frontend@0.2.7
+
 ## 0.5.0
 
 ### Minor Changes

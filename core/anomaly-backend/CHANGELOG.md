@@ -1,5 +1,46 @@
 # @checkstack/anomaly-backend
 
+## 1.1.8
+
+### Patch Changes
+
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+  - @checkstack/backend-api@0.19.0
+  - @checkstack/gitops-common@0.5.0
+  - @checkstack/gitops-backend@0.4.0
+  - @checkstack/healthcheck-backend@1.4.0
+  - @checkstack/healthcheck-common@1.4.0
+  - @checkstack/catalog-backend@1.3.0
+  - @checkstack/cache-api@0.3.7
+  - @checkstack/queue-api@0.3.7
+  - @checkstack/cache-utils@0.2.12
+
 ## 1.1.7
 
 ### Patch Changes

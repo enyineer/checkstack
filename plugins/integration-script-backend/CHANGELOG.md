@@ -1,5 +1,201 @@
 # @checkstack/integration-script-backend
 
+## 0.5.0
+
+### Minor Changes
+
+- b995afb: Improve the automation Run Script secret → env mapping editor and script IntelliSense.
+
+  - **Searchable secret picker with existence validation.** The secret → env mapping editor (`SecretEnvEditor`) now uses a searchable, keyboard-navigable combobox (modeled on `VariablePicker` / `PackageNameCombobox`, `isLowPower`-aware) populated from the secrets plugin's `listSecretNames`, replacing the plain `<input>` + `<datalist>`. A free-typed name still round-trips (a secret may be created later). When a row references a name that the loaded list does not contain, the row shows a non-blocking warning (red border + message); save is not prevented. The existence check lives in a pure, unit-tested `unknownSecretNames` helper.
+  - **Clearer field description.** The `secretEnv` field descriptions on the `run_script` / `run_shell` actions no longer show the stored `${{ secrets.NAME }}` template (which is confusing in a UI that takes a bare name); they now describe the actual UI behavior and how the value is injected (`process.env.<ENV_NAME>` / `$<ENV_NAME>`) and masked.
+  - **`process.env.<ENV_NAME>` autocomplete.** Declared `secretEnv` env-var names now autocomplete under `process.env.` in the Run Script (TypeScript) Monaco editor and are typed `string`, via an ambient `NodeJS.ProcessEnv` augmentation merged into the editor type definitions. New pure, unit-tested generators `generateSecretEnvTypes` and `secretEnvEnvNames` (exported from `@checkstack/automation-frontend`) drive this; the augmentation coexists with `@types/node`'s existing index signature.
+  - **Shared combobox-interaction helper.** The "opens-then-immediately-closes" popover guard (`comboboxAnchorProps` / `isAnchorInteraction`) is promoted from `@checkstack/script-packages-frontend` into `@checkstack/ui` so the new secret picker and the existing package/version comboboxes share one implementation; the package comboboxes now import it from `@checkstack/ui` and the local copy is removed.
+
+- 270ef29: Add in-UI script testing for automation `run_script` / `run_shell` actions.
+
+  A new `testScript` RPC runs a TypeScript or shell script against an
+  editable, auto-seeded sample context using the same sandboxed runner the
+  real action uses, so operators can test scripts directly in the editor
+  without dispatching a whole automation. Surfaces beneath any script field
+  flagged `x-script-testable` via the new `ScriptTestPanel` /
+  `ContextSampleEditor` components in `@checkstack/ui` and the
+  `scriptTestRenderer` prop threaded through `DynamicForm`.
+
+  - `@checkstack/automation-common`: adds the `testScript` contract +
+    `ScriptTest*` schemas (gated by `automation.manage`).
+  - `@checkstack/automation-backend`: implements `testScript` reusing the
+    shared ESM / shell runners; central-only, time-bounded.
+  - `@checkstack/backend-api`: new `x-script-testable` config-schema
+    metadata propagated to the frontend JSON Schema.
+  - `@checkstack/ui`: new `ScriptTestPanel` + `ContextSampleEditor`
+    components and a `scriptTestRenderer` prop on `DynamicForm`.
+  - `@checkstack/automation-frontend`: wires the test panel into the action
+    editor.
+  - `@checkstack/integration-script-backend`: marks the `run_script` /
+    `run_shell` script fields as testable.
+
+- 270ef29: Activate npm packages in script execution: thread the managed
+  `resolutionRoot` into every user-script call site so an allowlisted package
+  can actually be `import`ed.
+
+  - `@checkstack/backend-api`: the ESM runner now always writes a per-run
+    `bunfig.toml` with `[install] auto = "disable"` and runs with that dir as
+    CWD. Without this Bun silently auto-installs any imported package from the
+    registry (verified), defeating the allowlist; with it, imports resolve
+    only against the reconciled `current/node_modules` (when a `resolutionRoot`
+    is set) and otherwise fail fast.
+  - `@checkstack/script-packages-backend`: `resolveResolutionRoot` /
+    `resolveResolutionRootFromStore` / `resolveResolutionRootForHost` decide a
+    host's resolution-root status (`none` / `ready` / `notReady`) from the
+    local `<store>/current`.
+  - `run_script` (integration-script-backend), the inline-script collector
+    (healthcheck-script-backend, core + satellite), and the in-UI `testScript`
+    / `testCollectorScript` endpoints all resolve the root per run and pass it
+    to the runner; `run_script` surfaces a clear "npm packages not ready"
+    error when configured-but-unsynced. Shell paths are unaffected (no module
+    resolution).
+
+  An opt-in end-to-end test (`CHECKSTACK_E2E_NETWORK=1`) proves an allowlisted
+  package imports successfully through the real `run_script` action execute
+  path, with non-network degradation tests running always.
+
+  BREAKING CHANGES: `@checkstack/backend-api`'s `defaultEsmScriptRunner` now
+  always disables Bun auto-install for the user subprocess. A script that
+  previously relied on Bun silently fetching an un-vendored package from the
+  registry at import time will now fail to resolve it. This is intentional -
+  package availability is governed by the admin allowlist - but any caller
+  depending on the old implicit auto-install behavior must add the package to
+  the allowlist instead. The new `EsmScriptRunOptions.resolutionRoot` field is
+  optional and additive (defaults to today's `os.tmpdir()` behavior when
+  unset), so the runner API itself is source-compatible.
+
+- 270ef29: Harden the script-packages store against three confirmed defects:
+
+  - **Tree GC no longer deletes live trees.** The tree garbage collector keyed
+    its grace window on the materialized tree's dir mtime. A tree that had been
+    `current` for days carried an ancient mtime, so it became eligible for
+    deletion the instant it was superseded by a flip - and the post-flip sweep
+    would then delete a tree that an in-flight run (which snapshots its
+    resolution root at run start) was still pinned to. The flip now stamps a
+    `.retired-at` marker into the superseded tree, and the grace window is
+    measured from that retirement timestamp. A non-current tree with no marker
+    is retained (and lazily back-filled) so it ages out instead of leaking, and
+    is never deleted on a missing signal.
+
+    BREAKING CHANGE: the tree-GC grace window is now measured from a tree's
+    retirement time (when it stopped being `current`), not its dir mtime.
+    Existing non-current trees with no `.retired-at` marker are retained on the
+    first sweep and back-filled, then collected on a later sweep once the grace
+    window elapses from the back-filled time.
+
+  - **Installer no longer leaves a plaintext registry token on disk after a
+    failed resolve.** The central resolver wrote the auth-token-bearing
+    `.npmrc` into its scratch dir but only removed the scratch dir on the
+    success path; any failure between `bun install` and packing the cache
+    entries left the token on disk. Scratch-dir removal now runs in a `finally`
+    so the token is cleaned up on every exit path.
+
+  - **Tar extraction rejects symlink/hardlink entries.** Blob unpacking
+    validated entry names against zip-slip but not link targets, so a symlink
+    with a safe name but an escaping target (for example `-> /etc` or
+    `-> ../../..`) passed; a later regular-file entry could then be written
+    through it and escape the target directory. The listing pass now inspects
+    entry types (`tar -tzvf`) and rejects any non-regular, non-directory entry.
+
+- 270ef29: Add the Secrets platform (Phase 1): a central, plugin-agnostic secret manager with a pluggable backend extension point, a cross-plugin resolver service, and a universal Jenkins-style masking layer.
+
+  - New packages: `secrets-common` (schemas, contract, `secrets.read`/`secrets.manage`, masking utils), `secrets-backend` (`SecretBackend` extension point, `secretResolverRef`/`secretAdminRef` services, run-scoped masking context, RPC router), `secrets-backend-local` (default AES-256-GCM backend, owns the `secrets` table promoted from gitops), `secrets-frontend` (admin Settings page).
+  - Resolution machinery (`resolveSecretsBySchema`, `SecretStore`, `${{ secrets.NAME }}` / `x-secret`) is promoted out of `gitops-backend` into `secrets-backend`. GitOps now resolves and manages secrets through the platform's service refs (single source of truth); its secret table is migrated without loss.
+  - Universal masking seam wired at the central script-output boundaries: automation `run_script` / `run_shell` artifacts and the in-UI test panel redact run-scoped secret values from `result`/`stdout`/`stderr`/`error` before persist/return. Phase 1 resolves no run-scoped secrets yet, so masking is a no-op until Phase 2; the seam guarantees the boundary exists.
+  - No endpoint returns a secret value to a browser: DTOs expose only name/metadata/`hasValue`.
+
+  BREAKING CHANGES: `gitops-backend` now depends on `secrets-backend` and resolves/manages secrets through it. The `secrets` table is owned by `secrets-backend-local`; the gitops `secrets` table is retained as a migration source but is no longer the source of truth.
+
+- 270ef29: Secrets platform Phase 2: secret -> env-var mapping with central resolve, inject, and mask.
+
+  - Script consumers declare a least-privilege `secretEnv` allowlist
+    (`{ ENV_NAME: "${{ secrets.NAME }}" }`). The automation `run_script` /
+    `run_shell` actions resolve ONLY the declared secrets via
+    `secretResolverRef.resolveForRun`, inject them into the runner env for
+    that run (memory-only; the ESM runner gained a per-run `env` option), and
+    mask their values out of stdout/stderr/result/error via the run-scoped
+    masking context. A missing required secret fails the run clearly. No
+    ambient secret access.
+  - Test panel: `testScript` / `testCollectorScript` inject named
+    `__SECRET_<NAME>__` placeholders by default, or user-supplied per-secret
+    overrides; real production values are never resolved in the test path,
+    and overrides are masked out of the result.
+  - Healthcheck collectors carry the `secretEnv` field for authoring +
+    the test panel; runtime injection on satellites lands in Phase 3.
+  - Editor UX: a new `@checkstack/ui` `SecretEnvEditor` renders `x-secret-env`
+    record fields with `${{ secrets.* }}` name autocomplete (from
+    `listSecretNames`), wired into the automation action editor and the
+    healthcheck collector editor. New `withConfigMeta` helper +
+    `x-secret-env` config-meta key in `@checkstack/backend-api`.
+
+### Patch Changes
+
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [270ef29]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+- Updated dependencies [b995afb]
+  - @checkstack/backend-api@0.19.0
+  - @checkstack/automation-backend@0.3.0
+  - @checkstack/automation-common@0.3.0
+  - @checkstack/secrets-backend@0.1.0
+  - @checkstack/script-packages-backend@0.2.0
+  - @checkstack/script-packages-common@0.2.0
+  - @checkstack/secrets-common@0.1.0
+
 ## 0.4.0
 
 ### Minor Changes

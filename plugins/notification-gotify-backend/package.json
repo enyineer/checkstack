@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/notification-gotify-backend",
-  "version": "0.1.32",
+  "version": "0.1.33",
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {
