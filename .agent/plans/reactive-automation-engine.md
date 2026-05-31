@@ -15,6 +15,52 @@ claim carries a `file:line` anchor so the implementer never has to guess.
 
 ---
 
+## 0. Design revision (Model B) — plugin-owned reactive wrapper
+
+> **Revised 2026-05-31, mid-implementation.** The original design (still
+> described verbatim in §2, §4, §15.1 below for historical context) had the
+> framework OWN entity current-state in a generic `entity_state` table, and each
+> domain MIRRORED its state into that table through `handle.set` / `handle.patch`.
+> That duplicated every domain's state and coupled plugin writes to a
+> framework-owned table.
+>
+> **Model B replaces it:** `defineEntity` is a reactive WRAPPER that owns NO
+> current-state storage. Each plugin keeps owning its own state (its own table,
+> an in-memory map, or a computed aggregate) and supplies a REQUIRED `read`
+> accessor. ALL reactive-state writes go through a single driven entry point —
+> `handle.mutate({ id, opts?, apply })` (and `handle.remove({ id, opts?, apply })`
+> for tombstones). The handle snapshots `prev` via `read` BEFORE the write, runs
+> the plugin's `apply` (the REAL write against the plugin's own storage, in the
+> plugin's own transaction, returning the resulting state as `next`), then diffs
+> `prev → next` and appends the change to the framework's `entity_transitions`
+> table. There is NO `handle.set` / `handle.patch` and NO `indexes` option.
+>
+> **Why:**
+> - **No state duplication.** The framework never owns a plugin's current state;
+>   there is no mirror table to keep in sync. The plugin's own storage stays the
+>   single source of truth.
+> - **History is always platform-kept.** For EVERY kind, on every real change,
+>   the framework appends field-level rows to `entity_transitions` — including
+>   in-memory kinds (e.g. satellite connection state lives only in process
+>   memory, yet still gets durable platform transition history).
+> - **No cross-plugin transaction coupling.** A plugin-backed kind lives behind a
+>   different DB client than `entity_transitions`, so `apply` commits first and
+>   the transition append runs afterwards in the framework's own transaction. The
+>   plugin write is authoritative; a failure between the two leaves correct plugin
+>   state with at most a missing history row (a gap, never a corruption).
+>
+> **`createKeyedStore` is the opt-in home for HOMELESS kinds only.** A kind whose
+> state has no natural home of its own (the computed `health` aggregate is the
+> sole user today) can opt into a framework keyed store backed by `entity_state`
+> and pass its `readMany` as `read`. It is no longer the universal storage layer —
+> just one possible `read`/`apply` target among "own table", "in-memory map", and
+> "keyed store".
+>
+> Sections §2.1, §4, and §15.1 below describe the SUPERSEDED original model and
+> are retained only as historical record of the locked-then-revised decision.
+
+---
+
 ## 1. Why
 
 - **Polling doesn't scale horizontally.** The current `wait_until` re-evaluates
@@ -38,10 +84,16 @@ claim carries a `file:line` anchor so the implementer never has to guess.
 
 ## 2. Locked decisions
 
-1. **Framework-owned entity storage.** The platform owns the entity-state store;
+1. **Framework-owned entity storage.** ~~The platform owns the entity-state store;
    plugins declare entities and mutate through a returned handle. No plugin-owned
    entity table. Indexes/derived queries are declarable through the entity API so
-   flexibility isn't lost. (Layout decided in §15.1 — generic keyed store.)
+   flexibility isn't lost. (Layout decided in §15.1 — generic keyed store.)~~
+   **SUPERSEDED by Model B (see §0).** The framework owns NO current-state
+   storage. Each plugin keeps owning its state and exposes a `read` accessor;
+   all writes go through `handle.mutate({ id, apply })`; the framework records
+   change history in `entity_transitions` only. The generic keyed store survives
+   as the opt-in home for homeless kinds (the `health` aggregate), not as the
+   universal store. There is no `set` / `patch` / `indexes`.
 2. **Explicit, reason-annotated escape hatch** for data that is intentionally NOT
    a reactive entity (see §5). Its purpose is to *enable strict enforcement* —
    declare intent so enforcement can flag everything unmarked. (Concrete API in §15.6.)
@@ -200,12 +252,22 @@ reactive engine generalizes it to arbitrary entity refs.
 
 ## 4. Core primitive — the entity state machine (`defineEntity`)
 
+> **SUPERSEDED by Model B (§0).** This section describes the original
+> framework-owned-storage API (`set` / `patch` / `indexes`, upsert into the
+> framework entity store) and is retained as historical record. The shipped API
+> is the Model B reactive wrapper: required `read` accessor + driven
+> `handle.mutate({ id, apply })` / `handle.remove({ id, apply })`, no `set` /
+> `patch` / `indexes`, and the framework records change history only. See §0 for
+> the final API and the canonical docs under
+> `docs/src/content/docs/developer-guide/backend/automations/entity-state-machine.md`.
+
 One declaration; everything derived. The returned handle is the **only** typed
 path to reactive state. `defineEntity` is registered through a new extension
-point on `automation-backend` (it owns the entity store, scope projection, and
-the wake-index — the same package that owns dispatch).
+point on `automation-backend` (it owns scope projection, the transition log, and
+the wake-index — the same package that owns dispatch). *(Model B: it does NOT own
+current-state storage.)*
 
-### 4.1 Concrete API
+### 4.1 Concrete API (superseded — see §0)
 
 ```ts
 // core/automation-backend/src/entity/define-entity.ts (NEW)
@@ -775,6 +837,18 @@ job at `:115-150`), with `services: { postgres, redis }`, run
 
 ### 15.1 Entity-store layout — DECIDED: generic keyed store + generic transition log
 
+> **REVISED for Model B (§0).** The `entity_transitions` table below ships
+> unchanged and is the framework's ONLY current-state-adjacent store: it holds
+> the change HISTORY for every kind. The `entity_state` table, however, is NO
+> LONGER the universal current-state store. Under Model B each plugin owns its
+> current state and exposes a `read` accessor; `entity_state` survives only as
+> the backing store of the OPT-IN `createKeyedStore` for HOMELESS kinds (the
+> `health` aggregate is the sole user). The "declarable indexes map onto the
+> generic store" mechanism is dropped — there is no `indexes` option and no
+> per-kind expression indexes are generated. Read the `entity_state` block below
+> as "the keyed-store backing table for homeless kinds", not "where every kind
+> lives".
+
 A **single generic keyed store** (one table for all kinds), NOT per-kind tables.
 
 ```ts
@@ -947,6 +1021,7 @@ Reactive + queue-driven lets us shrink the custom durability code:
 - No `any`, no `eslint-disable`; zod 4; typed object args.
   `bun run typecheck:references:generate` after dep changes (`typecheck.md`).
   Changesets per package (beta = minor, `BREAKING CHANGES:` for the hook removals +
-  framework-owned storage). Docs under `docs/src/content/docs/` in the same effort.
+  the move to plugin-backed reactive entities — see §0). Docs under
+  `docs/src/content/docs/` in the same effort.
   No em-dashes. Conventional commits. Run `bun run typecheck` + `bun run lint` +
   `bun test` before declaring any step done.

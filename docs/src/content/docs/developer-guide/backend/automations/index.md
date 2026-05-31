@@ -3,7 +3,7 @@ title: "Automation platform"
 description: "How the plugin-extensible automation engine is structured - triggers, actions, artifacts, the dispatch lifecycle, and the extension points plugins register into."
 ---
 
-The automation platform lets operators wire triggers to ordered actions with full control flow (choose / parallel / repeat / delay / wait), and lets any plugin contribute triggers, actions, and artifact types. The engine is fully reactive: domain state is exposed through one framework-owned entity state machine, and state changes drive triggers and waiting runs through a two-stage work-queue pipeline rather than polling. This page is the subsystem overview; see the sensing-layer and plugin-author pages for the building blocks and the extension API.
+The automation platform lets operators wire triggers to ordered actions with full control flow (choose / parallel / repeat / delay / wait), and lets any plugin contribute triggers, actions, and artifact types. The engine is fully reactive: each plugin makes its own domain state reactive through the `defineEntity` wrapper (the framework records change history but never owns the state), and state changes drive triggers and waiting runs through a two-stage work-queue pipeline rather than polling. This page is the subsystem overview; see the sensing-layer and plugin-author pages for the building blocks and the extension API.
 
 ## Building blocks
 

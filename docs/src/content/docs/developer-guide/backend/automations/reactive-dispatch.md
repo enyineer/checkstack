@@ -105,7 +105,7 @@ When the walker sees a kind but not a concrete id (a dynamic or computed key), i
 
 A `wait_until` that is not already satisfied suspends with a durable `kind: "until"` wait lock carrying the condition + timeout policy, its wake-index rows, and a single durable timeout timer armed at the deadline. There is no active job and no polling while it waits.
 
-- A relevant `ENTITY_CHANGED` wakes the run via Stage 1. The engine re-enriches scope kind-agnostically (health via the RPC client into `scope.health.*` for back-compat, plus every other `state.<kind>.<id>` ref the wait depends on resolved through the entity store into `scope.state.<kind>.<id>.<field>`), then synchronously re-evaluates the full condition and resumes only if it now holds.
+- A relevant `ENTITY_CHANGED` wakes the run via Stage 1. The engine re-enriches scope kind-agnostically (health via the RPC client into `scope.health.*` for back-compat, plus every other `state.<kind>.<id>` ref the wait depends on resolved through each kind's `read` accessor into `scope.state.<kind>.<id>.<field>`), then synchronously re-evaluates the full condition and resumes only if it now holds.
 - The single timeout timer handles the deadline - one job, not a re-check loop. On timeout the run resumes (continue) or fails per `continue_on_timeout` (default `true`).
 - The stalled sweeper applies the timeout policy as a backstop if the timer job is ever lost.
 
@@ -114,7 +114,7 @@ A `wait_until` that is not already satisfied suspends with a durable `kind: "unt
 
 ## Removed: polling and the template trigger
 
-The polling built-in `template` trigger is removed. Its real cases are covered reactively by the `numeric_state` and `state` triggers and conditions over the entity store. Re-author any `template` trigger as a `numeric_state` / `state` trigger or condition.
+The polling built-in `template` trigger is removed. Its real cases are covered reactively by the `numeric_state` and `state` triggers and conditions over reactive entity state. Re-author any `template` trigger as a `numeric_state` / `state` trigger or condition.
 
 Time-driven timers are NOT polling and are kept: `delay`, the `for:` dwell, `cron` / `interval` triggers, and the wait timeout timer. They fire on a schedule rather than re-evaluating state on an interval.
 

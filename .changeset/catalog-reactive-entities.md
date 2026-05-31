@@ -2,13 +2,15 @@
 "@checkstack/catalog-backend": minor
 ---
 
-Migrate catalog systems + groups to the reactive `catalog-system` / `catalog-group` entities (reactive automation engine Phase 4, §10.4).
+Make `catalog-system` and `catalog-group` plugin-backed reactive entities via the Model-B entity state machine.
 
-Catalog now defines a `catalog-system` entity `{ name, description, metadata }` and a `catalog-group` entity `{ name, metadata }` through the `automation.entity` extension point and mirrors them at every mutation site (router `createSystem` / `updateSystem` / `deleteSystem` / `createGroup` / `updateGroup` / `deleteGroup`, plus the `system.update_metadata` automation action). Change → trigger-event derivers reproduce the existing qualified events:
+Catalog defines a `catalog-system` entity `{ name, description, metadata }` and a `catalog-group` entity `{ name, metadata }`. The `systems` / `groups` tables are BOTH authoritative AND the entities' current-state storage - there is no framework `entity_state` row for a catalog system/group. `defineEntity` is given plugin `read` accessors (`EntityService.getManySystemEntityStates` / `getManyGroupEntityStates`) that project the reactive subsets straight off those tables, and every reactive-state write goes through `handle.mutate` / `handle.remove`: `apply` performs the REAL `systems` / `groups` write (the plugin's own db/tx) and returns the new state; the framework snapshots `prev` via `read` BEFORE the write, appends the transition log, and emits `ENTITY_CHANGED` AFTER the write commits. Covered sites: create-system, update-system, delete-system (tombstone), create-group, update-group, delete-group (tombstone), and the `system.update_metadata` automation action. Create sites pre-generate the id so the handle is keyed on it and the create's `prev` snapshot reads the not-yet-existing row as absent; `EntityService.createSystem` / `createGroup` accept an optional pre-generated `id` (server-owned either way).
 
-- `catalog-system`: create (`prev === null`) → `catalog.created`; tombstone (`next === null`) → `catalog.deleted`; field update → `catalog.updated`. (The deriver emits the qualified TRIGGER event ids — the catalog system triggers use the ids `created`/`updated`/`deleted`, not the dotted hook ids `catalog.system.*`.)
-- `catalog-group`: create → `catalog.group.created`; tombstone → `catalog.group.deleted` (there is no `catalog.group.updated` event, so a pure group update fires nothing).
+Change -> trigger-event derivers reproduce the existing qualified events (emitting the TRIGGER event ids automations match on, not the dotted hook ids):
 
-Mirrors are fail-soft and diff-suppressed (a save-with-no-diff stays a no-op, matching the existing "don't fire automations on no-op updates" behavior).
+- `catalog-system`: create -> `catalog.created`; tombstone -> `catalog.deleted`; field update -> `catalog.updated`.
+- `catalog-group`: create -> `catalog.group.created`; tombstone -> `catalog.group.deleted` (a pure group update fires nothing).
 
-This step KEEPS the `catalog.system.*` / `catalog.group.*` hooks emitting (removed in the final Phase-4 step once incident / dependency / slo consumers move to `onEntityChanged`), so no behavior changes for existing subscribers yet.
+Mirrors are diff-suppressed (a save-with-no-diff stays a no-op). The `catalog.system.*` / `catalog.group.*` cross-plugin hooks are removed in the same effort (see the healthcheck/catalog hook-removal changeset); cross-plugin consumers (incident, dependency, slo, healthcheck) read via `onEntityChanged`.
+
+BREAKING CHANGES (behavior): none for trigger-event consumers - the same qualified trigger events still fire via the change derivers, and `onEntityChanged` consumers see the same change event. The only observable change is internal: catalog current state is read from the `systems` / `groups` tables instead of `entity_state`, and writes route through the entity handle. The `system.update_metadata` action's race-deleted ("disappeared mid-update") path now drives a no-op entity write (the framework diffs it as no change) before returning failure, instead of skipping the write entirely; no event fires either way.
