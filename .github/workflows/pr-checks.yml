@@ -149,6 +149,78 @@ jobs:
             exit 1
           fi
 
+  # Surgical real-services integration lane (plan §14). Kept SEPARATE from
+  # the fast `test` job so the unit lane stays fast: this job spins up real
+  # Postgres + Redis service containers and runs ONLY the `*.it.test.ts`
+  # files, gated behind `CHECKSTACK_IT=1`. The default `bun test` job above
+  # never runs them because each suite is wrapped in
+  # `describe.skipIf(!process.env.CHECKSTACK_IT)`.
+  integration:
+    name: Integration
+    if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: checkstack
+          POSTGRES_PASSWORD: checkstack
+          POSTGRES_DB: checkstack
+        ports:
+          - 5432:5432
+        # Wait until Postgres accepts connections before steps run.
+        options: >-
+          --health-cmd "pg_isready -U checkstack"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        # Wait until Redis answers PING before steps run.
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      CHECKSTACK_IT: "1"
+      CHECKSTACK_IT_PG_URL: postgres://checkstack:checkstack@localhost:5432/checkstack
+      CHECKSTACK_IT_REDIS_URL: redis://localhost:6379
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run Integration Tests
+        id: integration
+        run: |
+          set +e
+          bun test it.test 2>&1 | tee /tmp/integration-output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Upload Output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-output
+          path: /tmp/integration-output.txt
+
+      - name: Set outcome
+        if: always()
+        run: |
+          if [ "${{ steps.integration.outputs.exit_code }}" != "0" ]; then
+            exit 1
+          fi
+
   security:
     name: Security
     if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
@@ -205,7 +277,7 @@ jobs:
 
   report:
     name: Report
-    needs: [typecheck, lint, test, security]
+    needs: [typecheck, lint, test, integration, security]
     if: "!cancelled()"
     runs-on: ubuntu-latest
     steps:
@@ -231,6 +303,14 @@ jobs:
         with:
           name: test-output
           path: /tmp/artifacts/test
+        continue-on-error: true
+
+      - name: Download Integration Output
+        if: always()
+        uses: actions/download-artifact@v8
+        with:
+          name: integration-output
+          path: /tmp/artifacts/integration
         continue-on-error: true
 
       - name: Download Security Output
@@ -274,12 +354,14 @@ jobs:
             const typecheckResult = '${{ needs.typecheck.result }}';
             const lintResult = '${{ needs.lint.result }}';
             const testResult = '${{ needs.test.result }}';
+            const integrationResult = '${{ needs.integration.result }}';
             const securityResult = '${{ needs.security.result }}';
             const typecheckPassed = typecheckResult === 'success' || typecheckResult === 'skipped';
             const lintPassed = lintResult === 'success' || lintResult === 'skipped';
             const testPassed = testResult === 'success' || testResult === 'skipped';
+            const integrationPassed = integrationResult === 'success' || integrationResult === 'skipped';
             const securityPassed = securityResult === 'success' || securityResult === 'skipped';
-            const allPassed = typecheckPassed && lintPassed && testPassed && securityPassed;
+            const allPassed = typecheckPassed && lintPassed && testPassed && integrationPassed && securityPassed;
 
             // Read output files
             function readOutput(name) {
@@ -315,6 +397,7 @@ jobs:
                 '| Typecheck | ✅ Passed |',
                 '| Lint | ✅ Passed |',
                 '| Test | ✅ Passed |',
+                '| Integration | ✅ Passed |',
                 '| Security | ✅ Passed |',
                 '',
                 '',
@@ -378,6 +461,22 @@ jobs:
                 ].join('\n'));
               }
 
+              if (!integrationPassed) {
+                const output = readOutput('integration');
+                sections.push([
+                  '<details>',
+                  '<summary>❌ Integration Test Failures</summary>',
+                  '',
+                  '```',
+                  output,
+                  '```',
+                  '',
+                  '**How to fix:** These are the real-services integration tests (`*.it.test.ts`). To reproduce locally, start the dev services with `docker compose -f docker-compose-dev.yml up -d postgres redis`, then run `CHECKSTACK_IT=1 bun test it.test`. Read the failing assertions and fix the implementation so the tests pass against real Postgres/Redis. Do not weaken or skip the tests.',
+                  '',
+                  '</details>',
+                ].join('\n'));
+              }
+
               if (!securityPassed) {
                 const output = readOutput('security');
                 sections.push([
@@ -409,6 +508,7 @@ jobs:
                 `| Typecheck | ${icon(typecheckPassed)} |`,
                 `| Lint | ${icon(lintPassed)} |`,
                 `| Test | ${icon(testPassed)} |`,
+                `| Integration | ${icon(integrationPassed)} |`,
                 `| Security | ${icon(securityPassed)} |`,
                 '',
                 ...sections,
