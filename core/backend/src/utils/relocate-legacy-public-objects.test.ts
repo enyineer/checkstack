@@ -119,6 +119,34 @@ describe("relocateLegacyPublicObjects", () => {
     expect(moved).toEqual([]);
   });
 
+  it("skips objects present in BOTH public and the plugin schema (no collision ALTER)", async () => {
+    // A half-finished prior run (or a manual move) can leave an object in both
+    // schemas. Moving it again would error with "relation already exists in
+    // schema", so it must be skipped.
+    const { client, altered } = makeFakeClient({
+      relations: {
+        public: { health_check_runs: "r" },
+        plugin_healthcheck: { health_check_runs: "r" },
+      },
+      types: {
+        public: new Set(["health_check_status"]),
+        plugin_healthcheck: new Set(["health_check_status"]),
+      },
+    });
+
+    const { moved } = await relocateLegacyPublicObjects({
+      client,
+      schema: "plugin_healthcheck",
+      owned: {
+        relations: ["health_check_runs"],
+        types: ["health_check_status"],
+      },
+    });
+
+    expect(altered).toEqual([]);
+    expect(moved).toEqual([]);
+  });
+
   it("uses the right ALTER keyword per object kind (view, matview, sequence)", async () => {
     const { client, altered } = makeFakeClient({
       relations: {
