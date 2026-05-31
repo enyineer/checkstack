@@ -199,14 +199,12 @@ export async function enrichScopeWithState(
 //     `wait_until` wake re-eval resolves so a wait on any entity kind sees
 //     current state after a change.
 //
-// The wait re-eval (`reEnrichWaitScope`) deliberately resolves health via
-// the RICH RPC path and EXCLUDES the `health` kind from the refs it passes
-// here, so health is resolved at most once per scope build and conditions
-// always read the rich snapshot. The `health` branch in
-// `projectHealthAlias` therefore only ever runs for a direct caller that
-// passes a `health` ref (none in the dispatch engine today); it is kept as
-// a defensive projection, gated so it never clobbers a richer
-// `scope.health` already set by `enrichScopeWithState`.
+// The two are kept strictly separate: this generic path folds ONLY
+// `scope.state.<kind>.<id>` and never writes `scope.health`. The wait
+// re-eval (`reEnrichWaitScope`) resolves health via the RICH RPC path and
+// EXCLUDES the `health` kind from the refs it passes here, so health is
+// resolved at most once per scope build and conditions always read the rich
+// `scope.health` snapshot.
 
 /** A `{kind, id}` entity reference to pre-resolve into scope. */
 export interface EntityRef {
@@ -260,11 +258,10 @@ function stateNamespace(
  * fail-open: the kind is left absent and a warn is logged — one kind's
  * outage never wedges unrelated automations.
  *
- * If a `health` kind was resolved here (no dispatch path does this today —
- * the wait re-eval resolves health via the rich RPC path instead),
- * {@link projectHealthAlias} projects it into the `scope.health` shape the
- * condition evaluators read, but only when no richer `scope.health` is
- * already present.
+ * This folds ONLY `scope.state.<kind>.<id>`. The rich `scope.health.*`
+ * condition snapshot is owned exclusively by `enrichScopeWithState` (the
+ * health aggregate is computed on read via the healthcheck RPC, not stored
+ * as a framework entity row), so this generic path never touches it.
  */
 export async function enrichScopeWithEntities(
   args: EnrichScopeWithEntitiesArgs,
@@ -321,37 +318,5 @@ export async function enrichScopeWithEntities(
     }
   }
 
-  // If a `health` kind was resolved into `state` (not done by the dispatch
-  // engine, which resolves health via the rich RPC path), project it into
-  // the `scope.health` shape the condition evaluators read — but never over
-  // a richer `scope.health` already set by `enrichScopeWithState`.
-  projectHealthAlias(scope, state);
   return scope;
-}
-
-/**
- * Project the resolved minimal `state.health.<id>` entities into the
- * `scope.health` shape (`{ systems: { <id>: ... } }`) the condition
- * evaluators read. Runs ONLY when a `health` kind was resolved into `state`
- * AND no `scope.health` is already present: the rich `enrichScopeWithState`
- * snapshot (status + latency + p95 + success_rate + transitions, …) is
- * strictly a superset of this minimal entity view, so an existing
- * `scope.health` must never be clobbered with the thinner projection. No
- * dispatch path resolves a `health` ref through `enrichScopeWithEntities`
- * today (the wait re-eval excludes the kind), so this is a defensive
- * projection for any direct caller, not a per-dispatch second resolution.
- */
-function projectHealthAlias(
-  scope: Record<string, unknown>,
-  state: Record<string, Record<string, Record<string, unknown>>>,
-): void {
-  const healthEntities = state.health;
-  if (!healthEntities) return;
-  // A richer rich-snapshot `scope.health` already won — leave it untouched.
-  if (scope.health !== undefined) return;
-  const systems: Record<string, Record<string, unknown>> = {};
-  for (const [id, value] of Object.entries(healthEntities)) {
-    systems[id] = value;
-  }
-  scope.health = { systems };
 }

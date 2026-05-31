@@ -86,83 +86,30 @@ describe("enrichScopeWithEntities", () => {
     expect(calls.incident).toEqual([["inc-1", "inc-2"]]);
   });
 
-  it("projects state.health.* into scope.health (back-compat alias)", async () => {
+  it("folds state.<kind>.<id> only and never sets scope.health", async () => {
+    // `scope.health` is owned exclusively by the rich `enrichScopeWithState`
+    // path; this generic entity path must never write it, even for an
+    // entity kind. (The dispatch wait re-eval also excludes the `health`
+    // kind here, so health is resolved at most once per scope build.)
     const { resolverFor } = makeResolvers({
-      health: { "sys-1": { status: "unhealthy", in_status_for_ms: 1000 } },
+      incident: { "inc-1": { status: "open", severity: "high" } },
     });
     const scope: Record<string, unknown> = {};
-    await enrichScopeWithEntities({
-      scope,
-      logger: noopLogger,
-      refs: [{ kind: "health", id: "sys-1" }],
-      resolverFor,
-    });
-    const health = scope.health as { systems: Record<string, unknown> };
-    expect(health.systems["sys-1"]).toEqual({
-      status: "unhealthy",
-      in_status_for_ms: 1000,
-    });
-  });
-
-  it("does not touch scope.health when no health kind was resolved", async () => {
-    const { resolverFor } = makeResolvers({
-      incident: { "inc-1": { status: "open" } },
-    });
-    const scope: Record<string, unknown> = { health: { systems: { existing: {} } } };
     await enrichScopeWithEntities({
       scope,
       logger: noopLogger,
       refs: [{ kind: "incident", id: "inc-1" }],
       resolverFor,
     });
-    // Pre-existing health namespace (set by enrichScopeWithState) untouched.
-    expect((scope.health as { systems: Record<string, unknown> }).systems).toEqual({
-      existing: {},
-    });
-  });
-
-  it("does not clobber a rich scope.health even when a health kind resolves", async () => {
-    // Regression guard: the rich `scope.health` snapshot from
-    // `enrichScopeWithState` (status + latency + p95 + …) is a superset of
-    // the minimal entity view; resolving a `health` ref here must never
-    // overwrite it with the thinner projection.
-    const { resolverFor } = makeResolvers({
-      health: { "sys-1": { status: "unhealthy", healthyChecks: 0, totalChecks: 3 } },
-    });
-    const rich = {
-      systems: {
-        "sys-1": {
-          status: "healthy",
-          latency_ms: 12,
-          p95_latency_ms: 30,
-          success_rate: 0.99,
-          in_status_for_ms: 5000,
-        },
-      },
-    };
-    const scope: Record<string, unknown> = { health: rich };
-    await enrichScopeWithEntities({
-      scope,
-      logger: noopLogger,
-      refs: [{ kind: "health", id: "sys-1" }],
-      resolverFor,
-    });
-    // The rich snapshot survives untouched — minimal view did not win.
-    expect(scope.health).toBe(rich);
-    expect(
-      (scope.health as { systems: Record<string, Record<string, unknown>> })
-        .systems["sys-1"]!.p95_latency_ms,
-    ).toBe(30);
-    // The minimal entity view is still folded into state.health for triggers.
     const state = scope.state as Record<
       string,
       Record<string, Record<string, unknown>>
     >;
-    expect(state.health!["sys-1"]).toEqual({
-      status: "unhealthy",
-      healthyChecks: 0,
-      totalChecks: 3,
+    expect(state.incident!["inc-1"]).toEqual({
+      status: "open",
+      severity: "high",
     });
+    expect(scope.health).toBeUndefined();
   });
 
   it("fails open and warns when a kind has no resolver", async () => {
@@ -181,15 +128,15 @@ describe("enrichScopeWithEntities", () => {
 
   it("fails open and warns when a resolver throws", async () => {
     const { resolverFor } = makeResolvers(
-      { health: {} },
-      { throwsKind: "health" },
+      { incident: {} },
+      { throwsKind: "incident" },
     );
     const { logger, warnings } = collectingLogger();
     const scope: Record<string, unknown> = {};
     await enrichScopeWithEntities({
       scope,
       logger,
-      refs: [{ kind: "health", id: "sys-1" }],
+      refs: [{ kind: "incident", id: "inc-1" }],
       resolverFor,
     });
     expect(warnings.some((w) => w.includes("failed to resolve kind"))).toBe(true);
