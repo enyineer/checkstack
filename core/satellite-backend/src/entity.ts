@@ -5,12 +5,19 @@
  * Satellite connection state is genuinely an entity: the WS handler's
  * connection lifecycle and the heartbeat monitor's online→offline transition
  * ARE state with diffs. The `satellite-connection` entity is PLUGIN-BACKED
- * (Model B): its current state lives in the shared `satellites` table — in the
- * durable `connectionStatus` / `lastSeenAt` / `lastConnectionEvent` columns —
- * so it is GLOBALLY readable from any pod. There is NO framework `entity_state`
- * mirror. This fixes a horizontal-scaling read bug: the previous design stored
- * current state in a process-local in-memory map, so a satellite connected to
- * pod A was invisible to pod B's scope enrichment / `wait_until` re-eval.
+ * (Model B) and COMPUTE-ON-READ: its `status` is DERIVED on read from the
+ * durable `satellites.lastHeartbeatAt` column (via `computeStatus` /
+ * `OFFLINE_THRESHOLD_MS` — the SAME single liveness source of truth the admin
+ * list uses), so there is no second stored copy of the status to drift, and the
+ * read is globally consistent from any pod AND self-healing: a stale row reads
+ * `offline` once `lastHeartbeatAt` ages past the offline threshold, even if the
+ * pod that owned the socket crashed without writing offline. The only extra
+ * durable column is `lastConnectionEvent` (the deriver's event discriminator).
+ * There is NO framework `entity_state` mirror. This fixes a horizontal-scaling
+ * bug twice over: the original design stored status in a process-local in-memory
+ * map (invisible across pods), and the prior fix's stored `connectionStatus`
+ * still got stuck `online` forever after a pod crash because the heartbeat-lost
+ * EDGE was detected pod-locally. Computing status on read removes both.
  *
  * The three lifecycle sites that used to emit the `satellite.connected` /
  * `.disconnected` / `.heartbeat_lost` hooks now drive `handle.mutate`, whose
@@ -33,6 +40,7 @@ import { z } from "zod";
 import type { EntityChanged } from "@checkstack/automation-common";
 import type { EntityRead } from "@checkstack/automation-backend";
 import type { SatelliteService } from "./service";
+import { computeStatus } from "./status";
 
 /** Globally-unique entity kind for a satellite connection. */
 export const SATELLITE_CONNECTION_ENTITY_KIND = "satellite-connection";
@@ -64,11 +72,20 @@ export type SatelliteConnectionEvent = z.infer<
 
 /** Reactive state of a satellite connection (reactive automation engine §9.1). */
 export const satelliteConnectionStateSchema = z.object({
+  /**
+   * COMPUTED on read from `lastHeartbeatAt` (the single liveness source of
+   * truth). Never stored — a stale row reads `offline` once the heartbeat ages
+   * past the offline threshold, so presence self-heals after a pod crash.
+   */
   status: z.enum(["online", "offline"]),
   name: z.string(),
   region: z.string(),
-  /** ISO timestamp of the lifecycle edge that last touched this connection. */
-  lastSeenAt: z.string(),
+  /**
+   * ISO timestamp the satellite was last seen alive (its `lastHeartbeatAt`), or
+   * `null` after a clean disconnect (when `lastHeartbeatAt` is cleared so the
+   * status flips offline immediately). Derived, not separately stored.
+   */
+  lastSeenAt: z.string().nullable(),
   /** Which lifecycle edge produced the latest change (see above). */
   lastEvent: satelliteConnectionEventEnum,
 });
@@ -116,36 +133,39 @@ export function deriveSatelliteConnectionEvents(
  * The durable connection columns of a satellite row, as read from the shared
  * `satellites` table. This is the raw shape the service returns for the entity
  * `read` accessor; {@link toSatelliteConnectionState} projects it onto the
- * reactive view. A satellite that has never connected has `lastSeenAt === null`
- * and `lastConnectionEvent === null`.
+ * reactive view by COMPUTING `status` from `lastHeartbeatAt`. A satellite that
+ * has never connected has `lastConnectionEvent === null` (no recorded edge yet).
  */
 export interface SatelliteConnectionRow {
-  status: "online" | "offline";
   name: string;
   region: string;
-  lastSeenAt: Date | null;
+  /** The single durable liveness source of truth; `status` is computed from it. */
+  lastHeartbeatAt: Date | null;
   lastConnectionEvent: SatelliteConnectionEvent | null;
 }
 
 /**
  * Project a durable `satellites` connection row onto the reactive
  * `SatelliteConnectionState` view (the exact shape the deriver + change events
- * consume). A satellite with no recorded lifecycle edge yet (never connected)
- * has no entity state, so this returns `null` and the `read` accessor omits the
- * id — exactly the `prev === null` (create) signal the framework needs on the
- * first connect.
+ * consume). `status` is COMPUTED on read from `lastHeartbeatAt` via
+ * {@link computeStatus} — never read from a stored copy — so it is globally
+ * consistent and self-heals to `offline` once the heartbeat ages out. A
+ * satellite with no recorded lifecycle edge yet (never connected,
+ * `lastConnectionEvent === null`) has no entity state, so this returns `null`
+ * and the `read` accessor omits the id — exactly the `prev === null` (create)
+ * signal the framework needs on the first connect.
  */
 export function toSatelliteConnectionState(
   row: SatelliteConnectionRow,
 ): SatelliteConnectionState | null {
-  if (row.lastSeenAt === null || row.lastConnectionEvent === null) {
+  if (row.lastConnectionEvent === null) {
     return null;
   }
   return {
-    status: row.status,
+    status: computeStatus(row.lastHeartbeatAt),
     name: row.name,
     region: row.region,
-    lastSeenAt: row.lastSeenAt.toISOString(),
+    lastSeenAt: row.lastHeartbeatAt ? row.lastHeartbeatAt.toISOString() : null,
     lastEvent: row.lastConnectionEvent,
   };
 }

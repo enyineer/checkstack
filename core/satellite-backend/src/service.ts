@@ -2,28 +2,16 @@ import { eq, inArray } from "drizzle-orm";
 import { satellites } from "./schema";
 import * as schema from "./schema";
 import type { SafeDatabase } from "@checkstack/backend-api";
-import type {
-  SatelliteWithStatus,
-  SatelliteStatus,
-} from "@checkstack/satellite-common";
-import { OFFLINE_THRESHOLD_MS } from "@checkstack/satellite-common";
+import type { SatelliteWithStatus } from "@checkstack/satellite-common";
 import {
   toSatelliteConnectionState,
   type SatelliteConnectionEvent,
   type SatelliteConnectionState,
 } from "./entity";
+import { computeStatus } from "./status";
 
 // Drizzle type helper
 type Db = SafeDatabase<typeof schema>;
-
-/**
- * Compute satellite status from lastHeartbeatAt timestamp.
- */
-function computeStatus(lastHeartbeatAt: Date | null): SatelliteStatus {
-  if (!lastHeartbeatAt) return "offline";
-  const elapsed = Date.now() - lastHeartbeatAt.getTime();
-  return elapsed <= OFFLINE_THRESHOLD_MS ? "online" : "offline";
-}
 
 /**
  * Service for managing satellite records.
@@ -226,10 +214,13 @@ export class SatelliteService {
    * Batched durable read for the `satellite-connection` entity (Model B
    * plugin-backed `read` accessor). Given satellite ids, return the reactive
    * `SatelliteConnectionState` for each that exists AND has connected at least
-   * once (missing / never-connected ids omitted). Reads the durable
-   * `connectionStatus` / `lastSeenAt` / `lastConnectionEvent` columns from the
-   * SHARED `satellites` table — so any pod sees the same state. This is the
-   * single source of truth `handle.mutate` snapshots `prev` from and
+   * once (missing / never-connected ids omitted). The reactive `status` is
+   * COMPUTED on read from the durable `lastHeartbeatAt` column (the single
+   * liveness source of truth, shared by every pod) — never read from a stored
+   * status copy — so any pod sees the same answer AND a stale row self-heals to
+   * `offline` once the heartbeat ages out, even after a pod crash. Only
+   * `lastConnectionEvent` is read additionally (the deriver's discriminator).
+   * This is the single source of truth `handle.mutate` snapshots `prev` from and
    * `get` / `getMany` / scope enrichment / `wait_until` re-eval route through.
    */
   async getManyConnectionStates(
@@ -242,8 +233,7 @@ export class SatelliteService {
         id: satellites.id,
         name: satellites.name,
         region: satellites.region,
-        connectionStatus: satellites.connectionStatus,
-        lastSeenAt: satellites.lastSeenAt,
+        lastHeartbeatAt: satellites.lastHeartbeatAt,
         lastConnectionEvent: satellites.lastConnectionEvent,
       })
       .from(satellites)
@@ -252,10 +242,9 @@ export class SatelliteService {
     const out: Record<string, SatelliteConnectionState> = {};
     for (const row of rows) {
       const state = toSatelliteConnectionState({
-        status: row.connectionStatus,
         name: row.name,
         region: row.region,
-        lastSeenAt: row.lastSeenAt,
+        lastHeartbeatAt: row.lastHeartbeatAt,
         lastConnectionEvent: row.lastConnectionEvent,
       });
       if (state) out[row.id] = state;
@@ -264,28 +253,68 @@ export class SatelliteService {
   }
 
   /**
+   * Read every satellite's durable liveness inputs `(lastHeartbeatAt,
+   * lastConnectionEvent)`. Used by the heartbeat monitor to detect the
+   * online→offline (heartbeat-lost) edge from DURABLE state alone — no pod-local
+   * baseline — so detection works on ANY pod and is idempotent across pods /
+   * redelivery. The monitor computes status from `lastHeartbeatAt` itself.
+   */
+  async listConnectionLiveness(): Promise<
+    Array<{
+      id: string;
+      name: string;
+      region: string;
+      lastHeartbeatAt: Date | null;
+      lastConnectionEvent: SatelliteConnectionEvent | null;
+    }>
+  > {
+    return this.db
+      .select({
+        id: satellites.id,
+        name: satellites.name,
+        region: satellites.region,
+        lastHeartbeatAt: satellites.lastHeartbeatAt,
+        lastConnectionEvent: satellites.lastConnectionEvent,
+      })
+      .from(satellites);
+  }
+
+  /**
    * Durable write for a `satellite-connection` lifecycle edge (the `apply`
-   * body of `handle.mutate`). UPDATEs the satellite's connection columns in the
-   * shared `satellites` table and returns the resulting reactive view (`next`).
-   * The pod that owns the socket is the writer; every other pod reads the new
-   * state via {@link getManyConnectionStates}. Throws when the satellite no
-   * longer exists (a write against a deleted satellite is a no-op caller error).
+   * body of `handle.mutate`). UPDATEs the satellite's liveness columns in the
+   * shared `satellites` table and returns the resulting reactive view (`next`),
+   * whose `status` is COMPUTED from the just-written `lastHeartbeatAt`. The
+   * caller passes the new `lastHeartbeatAt` explicitly so each edge controls
+   * liveness directly:
+   *   - connect / reconnect → `now` (computes online),
+   *   - clean disconnect    → `null` (computes offline immediately),
+   *   - heartbeat-lost      → unchanged (`undefined` leaves the column as the
+   *     already-aged value, which still computes offline) — only
+   *     `lastConnectionEvent` flips, which is what makes monitor detection
+   *     idempotent.
+   * The pod that owns the socket (or any pod, for heartbeat-lost) is the writer;
+   * every other pod reads the new state via {@link getManyConnectionStates}.
+   * Throws when the satellite no longer exists (a write against a deleted
+   * satellite is a no-op caller error).
    */
   async applyConnectionState(props: {
     satelliteId: string;
-    status: "online" | "offline";
     lastEvent: SatelliteConnectionEvent;
-    lastSeenAt: Date;
+    /** New heartbeat timestamp, or `null` to clear it. Omit to leave unchanged. */
+    lastHeartbeatAt?: Date | null;
   }): Promise<SatelliteConnectionState> {
-    const { satelliteId, status, lastEvent, lastSeenAt } = props;
+    const { satelliteId, lastEvent, lastHeartbeatAt } = props;
+
+    const updates: Partial<typeof satellites.$inferInsert> = {
+      lastConnectionEvent: lastEvent,
+    };
+    if (lastHeartbeatAt !== undefined) {
+      updates.lastHeartbeatAt = lastHeartbeatAt;
+    }
 
     const [row] = await this.db
       .update(satellites)
-      .set({
-        connectionStatus: status,
-        lastConnectionEvent: lastEvent,
-        lastSeenAt,
-      })
+      .set(updates)
       .where(eq(satellites.id, satelliteId))
       .returning();
 
@@ -296,10 +325,12 @@ export class SatelliteService {
     }
 
     return {
-      status,
+      status: computeStatus(row.lastHeartbeatAt),
       name: row.name,
       region: row.region,
-      lastSeenAt: lastSeenAt.toISOString(),
+      lastSeenAt: row.lastHeartbeatAt
+        ? row.lastHeartbeatAt.toISOString()
+        : null,
       lastEvent,
     };
   }
