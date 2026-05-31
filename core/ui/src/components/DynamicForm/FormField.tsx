@@ -19,7 +19,11 @@ import {
 } from "../../index";
 
 import type { FormFieldProps, JsonSchemaProperty } from "./types";
-import { getCleanDescription, NONE_SENTINEL } from "./utils";
+import {
+  getCleanDescription,
+  NONE_SENTINEL,
+  findSecretEnvSibling,
+} from "./utils";
 import { DynamicOptionsField } from "./DynamicOptionsField";
 import { JsonField } from "./JsonField";
 import { MultiTypeEditorField } from "./MultiTypeEditorField";
@@ -43,6 +47,10 @@ export const FormField: React.FC<FormFieldProps> = ({
   starterTemplates,
   scriptTestRenderer,
   secretNames,
+  acquireTypes,
+  acquireResetKey,
+  importablePackages,
+  siblingSecretEnv,
   onChange,
 }) => {
   const description = propSchema.description || "";
@@ -175,7 +183,11 @@ export const FormField: React.FC<FormFieldProps> = ({
               ? scriptTestRenderer
               : undefined
           }
+          acquireTypes={acquireTypes}
+          acquireResetKey={acquireResetKey}
+          importablePackages={importablePackages}
           fieldId={id}
+          siblingSecretEnv={siblingSecretEnv}
           onChange={onChange as (val: string | undefined) => void}
         />
       );
@@ -422,6 +434,12 @@ export const FormField: React.FC<FormFieldProps> = ({
 
   // Object (Nested Form)
   if (propSchema.type === "object" && propSchema.properties) {
+    // Resolve the secret→env sibling within THIS object so a nested
+    // testable script field forwards the right mapping to the test panel.
+    const nestedSecretEnv = findSecretEnvSibling({
+      properties: propSchema.properties,
+      values: value as Record<string, unknown> | undefined,
+    });
     return (
       <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
         <p className="text-sm font-semibold">{label}</p>
@@ -442,6 +460,10 @@ export const FormField: React.FC<FormFieldProps> = ({
             starterTemplates={starterTemplates}
             scriptTestRenderer={scriptTestRenderer}
             secretNames={secretNames}
+            acquireTypes={acquireTypes}
+            acquireResetKey={acquireResetKey}
+            importablePackages={importablePackages}
+            siblingSecretEnv={nestedSecretEnv}
             onChange={(val) =>
               onChange({ ...(value as Record<string, unknown>), [key]: val })
             }
@@ -556,6 +578,9 @@ export const FormField: React.FC<FormFieldProps> = ({
                   starterTemplates={starterTemplates}
                   scriptTestRenderer={scriptTestRenderer}
                   secretNames={secretNames}
+                  acquireTypes={acquireTypes}
+                  acquireResetKey={acquireResetKey}
+                  importablePackages={importablePackages}
                   onChange={(val) => {
                     const next = [...(items as unknown[])];
                     next[index] = val;
@@ -613,6 +638,12 @@ export const FormField: React.FC<FormFieldProps> = ({
 
     const displayDiscriminatorField =
       discriminatorField.charAt(0).toUpperCase() + discriminatorField.slice(1);
+
+    // Secret→env sibling within the selected variant's object.
+    const variantSecretEnv = findSecretEnvSibling({
+      properties: selectedVariant.properties,
+      values: currentValue,
+    });
 
     return (
       <div className="space-y-3 p-3 border rounded-lg bg-background">
@@ -690,6 +721,10 @@ export const FormField: React.FC<FormFieldProps> = ({
                 starterTemplates={starterTemplates}
                 scriptTestRenderer={scriptTestRenderer}
                 secretNames={secretNames}
+                acquireTypes={acquireTypes}
+                acquireResetKey={acquireResetKey}
+                importablePackages={importablePackages}
+                siblingSecretEnv={variantSecretEnv}
                 onChange={(val) => onChange({ ...currentValue, [key]: val })}
               />
             ))}

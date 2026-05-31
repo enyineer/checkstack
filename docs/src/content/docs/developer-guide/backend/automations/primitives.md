@@ -143,7 +143,6 @@ actions:
       sequence:
         - wait_until:
             condition: "health.system.status == 'healthy'"
-            poll_seconds: 60
 ```
 
 ### variables
@@ -202,7 +201,7 @@ actions:
 
 ### wait_until
 
-Suspends the run until a condition becomes true, polling on an interval and re-resolving live state each tick. The condition counterpart to `wait_for_trigger`. If the condition is already true when reached, the run continues without suspending.
+Suspends the run until a condition becomes true, woken reactively by a relevant entity change (no polling). The condition counterpart to `wait_for_trigger`. If the condition is already true when reached, the run continues without suspending.
 
 ```yaml
 actions:
@@ -212,23 +211,28 @@ actions:
       condition: "health.system.status == 'healthy'"
       timeout_seconds: 3600        # wait up to 1h
       continue_on_timeout: true    # default; false = fail the run on timeout
-      poll_seconds: 30             # re-check interval (default 30)
   - action: incident.resolve
     config: { incidentId: "{{ artifacts.incident.id }}" }
 ```
 
+> [!NOTE]
+> `wait_until` is reactive: at suspend time the engine extracts the `state.*` refs the condition reads and wakes the run when a matching entity change arrives, then re-evaluates the full condition. The `poll_seconds` field is now inert (a wait is no longer re-checked on a timer). See [the reactive dispatch pipeline](/checkstack/developer-guide/backend/automations/reactive-dispatch/).
+
 ## Triggers
 
-A trigger is the entry point. Every trigger has an `event`; built-in triggers also take `config`. Optional per-trigger fields: an `id` (a discriminator for `trigger.id` in `choose` clauses), a gating `filter` template, and a `for:` dwell.
+A trigger is the entry point. Every trigger has an `event`; built-in triggers also take `config`. Optional per-trigger fields: an `id` (a discriminator for `trigger.id` in `choose` clauses), a gating `filter` template, a `for:` dwell, and a `window:` rate gate.
 
 ### Event trigger with filter
 
 ```yaml
 triggers:
-  - event: healthcheck.system.degraded
+  - event: healthcheck.system_degraded
     id: payments_degraded
     filter: "{{ trigger.payload.systemId == 'payments-api' }}"
 ```
+
+> [!NOTE]
+> Health lifecycle events use the underscore trigger ids `healthcheck.system_degraded` / `healthcheck.system_healthy` / `healthcheck.system_health_changed` (the qualified `${pluginId}.${triggerId}`). These are now driven by the reactive `health` entity's change deriver rather than a hook; the event ids are unchanged from an operator's point of view. See [the entity state machine](/checkstack/developer-guide/backend/automations/entity-state-machine/).
 
 ### for: dwell
 
@@ -236,9 +240,47 @@ Fire only if the matched state still holds after a duration. Accepts a single-un
 
 ```yaml
 triggers:
-  - event: healthcheck.system.degraded
+  - event: healthcheck.system_degraded
     for: { minutes: 30 }
 ```
+
+### window: rate gate
+
+Fire only after this trigger has fired (post-`filter`) at least `count` times within the trailing `minutes`, scoped per context key (e.g. per system). The engine records each qualifying occurrence in a durable append log and counts rows within the sliding window:
+
+- `refire: every` (default) fires on every occurrence at/over the threshold - it re-fires while the window stays over threshold, so debounce in the automation (`mode: single` + `for:`) if you want "page once".
+- `refire: once` fires only on the crossing edge (when the count first reaches `count`) and re-arms naturally as old occurrences age out of the window and the count re-crosses.
+
+The window gate runs AFTER `filter` (so only qualifying occurrences count) and BEFORE `for:` (so the two can compose). The count is read from shared Postgres, so it is identical on every pod; the single occurrence INSERT happens on the one pod that claims the emission from the work queue.
+
+```yaml
+triggers:
+  - event: healthcheck.check_failed
+    window: { count: 5, minutes: 10 }   # 5 check failures in 10 min, per system
+actions:
+  - action: incident.create
+    config: { title: "{{ trigger.payload.systemId }} failing repeatedly", severity: warning }
+```
+
+A single automation covers ALL systems: the count is bucketed per partition key and fires per key, so one automation pages independently for every flapping system without enumerating them. By default the partition is the trigger's built-in context key (`systemId` for health triggers, `incidentId` for incident triggers, and so on).
+
+#### partitionBy
+
+`partitionBy` overrides the dimension the count is bucketed by. It is a bare expression (same flavour as `filter` - no `{{ }}`) evaluated against the trigger scope; the result is coerced to a string and used as the partition key.
+
+```yaml
+triggers:
+  - event: healthcheck.check_failed
+    window:
+      count: 5
+      minutes: 10
+      partitionBy: trigger.payload.severity   # per-severity rate, across all systems
+```
+
+- **Omitted (default):** the trigger's built-in context key (e.g. `systemId`) - one window per system. Existing automations are unaffected.
+- **An explicit equivalent of the default** is `partitionBy: trigger.payload.systemId`.
+- **A composite key** is just an expression: `partitionBy: trigger.payload.systemId + ":" + trigger.payload.checkId` (per system-and-check).
+- **Fallback:** if the expression evaluates to null / undefined / empty, OR it fails to evaluate, the gate falls back to the built-in context key rather than counting globally (so a typo never collapses every partition into one bucket). Evaluation errors are logged.
 
 ### numeric_state trigger
 
@@ -253,22 +295,23 @@ triggers:
     for: { minutes: 10 }
 ```
 
-### Windowed transition count (flapping)
+### Flapping detection (windowed transition count)
 
-There is no dedicated flapping trigger primitive: trigger on a health-changed event and gate with a `numeric_state` condition over the pre-resolved `health.system.transitions_in_window`. The trailing window defaults to 60 minutes and is set per-automation via `state_window_minutes`.
+Flapping is just the `window:` rate gate over the raw `healthcheck.system_health_changed` change event, filtered to unhealthy transitions. There is no dedicated flapping trigger or hook - healthcheck emits only the raw per-system aggregated-health change, and the engine does the counting. Use `refire: once` so a flapping system pages on the crossing edge rather than on every subsequent transition.
 
 ```yaml
 triggers:
-  - event: healthcheck.system.health_changed
-state_window_minutes: 30
-conditions:
-  - numeric_state:
-      value: "health.system.transitions_in_window"
-      above: 4          # 5+ status changes in the last 30 min
+  - event: healthcheck.system_health_changed
+    id: flapping
+    filter: 'trigger.payload.newStatus != "healthy"'   # count unhealthy transitions
+    window: { count: 3, minutes: 60, refire: once }     # 3 in 60 min, per system
 actions:
   - action: incident.create
     config: { title: "{{ trigger.payload.systemId }} is flapping", severity: warning }
 ```
+
+> [!NOTE]
+> Flapping is now PER-SYSTEM (the aggregated `health` entity), not per-check. Trigger `filter` strings are bare expressions (no `{{ }}` wrapper) - the same grammar as a `choose: when` clause.
 
 ## Conditions
 

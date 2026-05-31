@@ -49,6 +49,7 @@
 import type {
   Action,
   ChooseInput,
+  Condition,
   ConditionGuardInput,
   DelayInput,
   ParallelInput,
@@ -83,7 +84,16 @@ import {
   resolveConsumedArtifacts,
   withRepeatContext,
 } from "./scope";
-import { enrichScopeWithState } from "./state-scope";
+import {
+  enrichScopeWithEntities,
+  enrichScopeWithState,
+  type EntityRef,
+} from "./state-scope";
+import {
+  extractWakeRefs,
+  refToString,
+  HEALTH_ENTITY_KIND,
+} from "./wake-refs";
 import {
   formatActionPath,
   type ActionPath,
@@ -172,15 +182,23 @@ export interface DelayResumeJob {
   waitLockId: string;
 }
 
-/** Name of the durable queue we use for `wait_until` condition re-checks. */
-export const WAIT_UNTIL_QUEUE_NAME = "automation-wait-until";
+/**
+ * Name of the durable queue carrying a reactive `wait_until`'s single
+ * timeout timer (reactive automation engine §7, §13.1). A `wait_until` is
+ * now reactive: a relevant `ENTITY_CHANGED` wakes it (Stage 1 →
+ * `checkWaitUntil`). This queue is NOT a re-check loop — it holds at most
+ * one job per suspended wait, scheduled at the deadline, mirroring the
+ * dwell timer pattern. On fire the consumer applies the timeout policy
+ * (continue/fail) via `checkWaitUntil` (which also re-evaluates the
+ * condition one last time).
+ */
+export const WAIT_TIMEOUT_QUEUE_NAME = "automation-wait-timeout";
 
 /**
- * Job payload for a `wait_until` re-check. Each tick re-enriches scope,
- * re-evaluates the condition, and either resumes the run, re-enqueues
- * another tick, or applies the timeout policy.
+ * Job payload for a `wait_until` timeout timer. Carries the run + lock so
+ * the consumer can re-evaluate one final time and apply the timeout policy.
  */
-export interface WaitUntilCheckJob {
+export interface WaitTimeoutJob {
   runId: string;
   waitLockId: string;
 }
@@ -531,6 +549,92 @@ export type WaitUntilCheckOutcome =
   | "gone";
 
 /**
+ * Re-enrich a suspended `wait_until`'s scope before re-evaluation so the
+ * condition sees CURRENT state, not the value at suspension time. Two
+ * sources, kind-aware:
+ *
+ *   1. Health — resolved via the RPC `healthCheckClient`
+ *      (`enrichScopeWithState`), since the health aggregate is computed on
+ *      read and not stored as a framework entity row. Sets the rich
+ *      `scope.health.*` condition snapshot.
+ *   2. Every OTHER `state.<kind>.<id>` ref the wait depends on — resolved
+ *      kind-agnostically through the entity store
+ *      (`enrichScopeWithEntities` + `deps.entityResolverFor`), folding into
+ *      `scope.state.<kind>.<id>.<field>`. The refs are statically extracted
+ *      from the condition (concrete ids only — wildcards carry no id) PLUS
+ *      the concrete `changedRef` that woke this wait (so a wildcard wait on a
+ *      dynamic id still resolves the entity that actually changed).
+ */
+async function reEnrichWaitScope(args: {
+  deps: DispatchDeps;
+  scope: Record<string, unknown>;
+  automation: LoadedAutomation;
+  contextKey: string | null;
+  condition: Condition;
+  changedRef?: string;
+}): Promise<void> {
+  const { deps, scope, automation, contextKey, condition, changedRef } = args;
+
+  // Split the changed ref into its `${kind}:${id}` parts once — reused by
+  // both the health-resolution injection below and the entity-ref collection.
+  let changedKind: string | undefined;
+  let changedId: string | undefined;
+  if (changedRef) {
+    const colon = changedRef.indexOf(":");
+    if (colon > 0) {
+      changedKind = changedRef.slice(0, colon);
+      changedId = changedRef.slice(colon + 1);
+    }
+  }
+
+  // 1. Health: the rich condition snapshot, RPC-resolved. Sets scope.health.*.
+  //    A WILDCARD health wait (`health:*`) is woken by a concrete `health:sysX`
+  //    whose id may be NEITHER the contextKey NOR in `uses_state`. The health
+  //    aggregate is computed-on-read and is only resolved here for the systems
+  //    we pass in, so without the changed id the wait re-evaluates against an
+  //    empty `scope.health.systems[sysX]` and never resumes. Inject the changed
+  //    system's concrete id so a wildcard wake always resolves the system that
+  //    actually changed (deduped inside `enrichScopeWithState`).
+  const usesState =
+    changedKind === HEALTH_ENTITY_KIND && changedId && changedId !== "*"
+      ? [...(automation.definition.uses_state ?? []), changedId]
+      : automation.definition.uses_state;
+  await enrichScopeWithState({
+    scope,
+    client: deps.healthCheckClient,
+    logger: deps.logger,
+    contextKey,
+    usesState,
+    transitionWindowMinutes: automation.definition.state_window_minutes,
+  });
+
+  // 2. Kind-agnostic entity refs (entity-store-resolved). Collect the
+  //    concrete refs the condition reads plus the changed ref, drop the
+  //    health kind (already resolved above via the rich RPC path — excluding
+  //    it here keeps health resolved exactly once per re-enrichment) and any
+  //    wildcard (no concrete id).
+  const refs: EntityRef[] = [];
+  const seen = new Set<string>();
+  const addRef = (kind: string, id: string) => {
+    if (kind === HEALTH_ENTITY_KIND || id === "*" || id.length === 0) return;
+    const key = `${kind}:${id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    refs.push({ kind, id });
+  };
+  for (const ref of extractWakeRefs(condition).refs) addRef(ref.kind, ref.id);
+  if (changedKind && changedId) addRef(changedKind, changedId);
+  if (refs.length === 0) return;
+
+  await enrichScopeWithEntities({
+    scope,
+    logger: deps.logger,
+    refs,
+    resolverFor: (kind) => deps.entityResolverFor?.(kind),
+  });
+}
+
+/**
  * Re-check a suspended `wait_until`: re-enrich scope, evaluate the
  * condition, and either resume the run (satisfied or timeout-continue),
  * fail it (timeout-fail), or report "still waiting" so the caller
@@ -542,7 +646,18 @@ export type WaitUntilCheckOutcome =
  */
 export async function checkWaitUntil(
   deps: DispatchDeps,
-  args: { runId: string; waitLockId: string; automation: LoadedAutomation },
+  args: {
+    runId: string;
+    waitLockId: string;
+    automation: LoadedAutomation;
+    /**
+     * The `${kind}:${id}` ref of the change that woke this wait (Stage-2
+     * `wake` job). Included in the re-enrichment so the changed entity is
+     * always resolved into scope — essential for a wildcard wait whose
+     * condition reads a dynamic id (the ref isn't statically extractable).
+     */
+    changedRef?: string;
+  },
 ): Promise<WaitUntilCheckOutcome> {
   const lock = await deps.runStore.loadWaitLock(args.waitLockId);
   if (!lock || lock.kind !== "until" || !lock.waitConfig) return "gone";
@@ -559,7 +674,7 @@ export async function checkWaitUntil(
   }
 
   // Rebuild the scope from the snapshot + re-enrich live state so the
-  // condition sees CURRENT health, not the value at suspension time.
+  // condition sees CURRENT state, not the value at suspension time.
   const persisted = await deps.runStateStore.load(args.runId);
   const scope = persisted?.scopeSnapshot
     ? { ...persisted.scopeSnapshot }
@@ -569,13 +684,13 @@ export async function checkWaitUntil(
         payload: run.triggerPayload,
         startedAt: run.startedAt,
       });
-  await enrichScopeWithState({
+  await reEnrichWaitScope({
+    deps,
     scope,
-    client: deps.healthCheckClient,
-    logger: deps.logger,
+    automation: args.automation,
     contextKey: run.contextKey,
-    usesState: args.automation.definition.uses_state,
-    transitionWindowMinutes: args.automation.definition.state_window_minutes,
+    condition: lock.waitConfig.condition,
+    changedRef: args.changedRef,
   });
 
   let satisfied = false;
@@ -1861,14 +1976,21 @@ async function executeWaitForTrigger(
 
 /**
  * Suspend the run until a condition becomes true, with an optional
- * timeout. Unlike `wait_for_trigger` (wait for an event), this polls the
- * condition on an interval, re-resolving live state each tick.
+ * timeout. Unlike `wait_for_trigger` (wait for a named event), `wait_until`
+ * is REACTIVE (reactive automation engine §7): the engine statically
+ * extracts the `state.*` refs the condition reads (§8.3), persists a
+ * `kind: "until"` wait lock plus one wake-index row per ref (§8.1), and
+ * suspends with NO active job and NO polling. A relevant `ENTITY_CHANGED`
+ * wakes it (Stage 1 → `checkWaitUntil` re-evaluates the full condition and
+ * resumes if it now holds).
  *
  * Fast path: if the condition is ALREADY true against the current
- * (enriched) scope, continue inline without suspending. Otherwise persist
- * a `kind: "until"` wait lock carrying the condition + poll interval +
- * timeout policy, enqueue the first re-check, and suspend. The wait-until
- * queue consumer (and the sweeper, as a backstop) drive the re-checks.
+ * (enriched) scope, continue inline without suspending.
+ *
+ * Timeout: a single durable timer job at `timeoutAt` (NOT a re-check loop)
+ * applies the continue/fail policy. When ref extraction is wholly
+ * indeterminate (no concrete-or-wildcard ref) AND there is no timeout, the
+ * wait could never wake — we log at `warn` so it is never silent (§8.3).
  */
 async function executeWaitUntil(
   action: WaitUntilInput,
@@ -1907,45 +2029,115 @@ async function executeWaitUntil(
     return { kind: "ok" };
   }
 
-  const pollSeconds = cfg.poll_seconds ?? 30;
   const continueOnTimeout = cfg.continue_on_timeout ?? true;
   const timeoutAt = cfg.timeout_seconds
     ? new Date(Date.now() + cfg.timeout_seconds * 1000)
     : null;
 
-  const waitLockId = await ctx.deps.runStore.createWaitLock({
+  // Static reference extraction → wake-index dependency refs (§8.3).
+  const extracted = extractWakeRefs(cfg.condition);
+  const wakeRefs = extracted.refs.map((ref) => refToString(ref));
+
+  if (extracted.indeterminate && wakeRefs.length === 0) {
+    // The condition reads live state but no concrete-or-wildcard ref could
+    // be derived: the wait can only ever be released by the timeout timer.
+    // Never silent (§8.3, §12).
+    if (timeoutAt) {
+      ctx.deps.logger.warn(
+        `wait_until at ${formatActionPath(path)} (run ${ctx.run.runId}): could not extract any state ref from the condition; relying on the timeout timer only — it will not wake on state changes.`,
+      );
+    } else {
+      ctx.deps.logger.warn(
+        `wait_until at ${formatActionPath(path)} (run ${ctx.run.runId}): could not extract any state ref AND no timeout is set; this wait will never wake. Add a timeout or a concrete state.* reference.`,
+      );
+    }
+  }
+
+  const waitLockId = await ctx.deps.runStore.createWaitLockWithWakeRefs({
     runId: ctx.run.runId,
     actionPath: formatActionPath(path),
-    kind: "until",
-    // Synthetic marker — `until` locks aren't woken by events.
+    // Synthetic marker — reactive `until` locks aren't woken by named events.
     eventId: `@@until:${ctx.run.runId}:${formatActionPath(path)}`,
     contextKey: ctx.run.contextKey,
-    filterTemplate: null,
     timeoutAt,
     waitConfig: {
       condition: cfg.condition,
-      pollSeconds,
       continueOnTimeout,
     },
+    wakeRefs,
   });
 
-  // Persist scope before suspending so each re-check rebuilds it.
+  // Persist scope before suspending so the wake re-check rebuilds it.
   await checkpoint(ctx, path);
 
-  const queue = ctx.deps.queueManager.getQueue<WaitUntilCheckJob>(
-    WAIT_UNTIL_QUEUE_NAME,
-  );
-  await queue.enqueue(
-    { runId: ctx.run.runId, waitLockId },
-    {
-      startDelay: pollSeconds,
-      jobId: `${ctx.run.runId}:${waitLockId}`,
-    },
-  );
+  // Re-evaluate-on-registration guard (reactive automation engine §17).
+  // The condition was checked above (fast path), THEN the wait lock + its
+  // wake-index rows were committed. A relevant `ENTITY_CHANGED` landing in
+  // that arm window is routed by Stage 1 against the just-now-visible lock,
+  // but if the change committed BEFORE our wake rows were visible, Stage 1
+  // found no lock and enqueued no wake job — a lost wakeup. For a no-timeout
+  // wait nothing would ever re-check it (the sweeper filters `isNotNull
+  // (timeoutAt)`), so the run would stall permanently. Guard against this by
+  // re-evaluating ONCE against freshly re-enriched scope now that the lock is
+  // armed: any change that landed during the window is now observable. If the
+  // condition already holds, drop the lock (its wake-index rows cascade) and
+  // continue the current walk inline. Idempotent: the lock delete + the
+  // per-run advisory lock taken by any concurrent wake/resume path serialise
+  // this with a racing Stage-2 wake (whichever deletes the lock first wins;
+  // the loser sees `gone`).
+  let armedSatisfied = false;
+  try {
+    await reEnrichWaitScope({
+      deps: ctx.deps,
+      scope: ctx.scope,
+      automation: ctx.run.automation,
+      contextKey: ctx.run.contextKey,
+      condition: cfg.condition,
+    });
+    armedSatisfied = evaluateCondition(
+      cfg.condition,
+      templateContext(ctx),
+      ctx.deps.filters,
+    );
+  } catch (error) {
+    ctx.deps.logger.debug(
+      `wait_until arm-window re-eval threw (treating as not-yet): ${(error as Error).message}`,
+    );
+  }
+  if (armedSatisfied) {
+    await ctx.deps.runStore.deleteWaitLock(waitLockId);
+    await ctx.deps.runStore.updateStep(stepId, {
+      status: "success",
+      resultPayload: { satisfied: true, armWindow: true },
+    });
+    return { kind: "ok" };
+  }
+
+  // Single durable timeout timer (NOT a poll loop). Only armed when a
+  // deadline exists; otherwise the wait is purely event-driven.
+  if (timeoutAt) {
+    const queue = ctx.deps.queueManager.getQueue<WaitTimeoutJob>(
+      WAIT_TIMEOUT_QUEUE_NAME,
+    );
+    await queue.enqueue(
+      { runId: ctx.run.runId, waitLockId },
+      {
+        startDelay: Math.max(
+          Math.ceil((timeoutAt.getTime() - Date.now()) / 1000),
+          0,
+        ),
+        jobId: `${ctx.run.runId}:${waitLockId}:timeout`,
+      },
+    );
+  }
 
   await ctx.deps.runStore.updateStep(stepId, {
     status: "waiting",
-    resultPayload: { waitLockId, pollSeconds, timeoutAt: timeoutAt?.toISOString() },
+    resultPayload: {
+      waitLockId,
+      wakeRefs,
+      timeoutAt: timeoutAt?.toISOString(),
+    },
   });
   return { kind: "suspended", stepId };
 }

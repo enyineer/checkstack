@@ -22,6 +22,7 @@ import type {
 import {
   assignDefaultIds,
   collectActionIds,
+  duplicateAction,
   makeEmptyAction,
   makeProviderAction,
 } from "./action-helpers";
@@ -128,6 +129,28 @@ export const ActionListEditor: React.FC<ActionListEditorProps> = ({
     setIds((current) => [...current, nextId()]);
   };
 
+  const duplicateStep = (index: number): void => {
+    const original = value[index];
+    if (!original) return;
+    // Clone with FRESH ids deduped against every id in the automation so the
+    // copy never collides with the original (or any sibling/nested step).
+    const taken = collectActionIds(definition.actions);
+    const clone = duplicateAction(original, taken);
+    // Insert directly after the original, keeping the parallel `ids` array in
+    // lockstep so each card's stable React key / drag id stays aligned.
+    const nextValue = [
+      ...value.slice(0, index + 1),
+      clone,
+      ...value.slice(index + 1),
+    ];
+    onChange(nextValue);
+    setIds((current) => [
+      ...current.slice(0, index + 1),
+      nextId(),
+      ...current.slice(index + 1),
+    ]);
+  };
+
   return (
     <div className="space-y-2">
       <DndContext
@@ -150,6 +173,7 @@ export const ActionListEditor: React.FC<ActionListEditorProps> = ({
                 onChange(value.filter((_, i) => i !== index));
                 setIds((current) => current.filter((_, i) => i !== index));
               }}
+              onDuplicate={disabled ? undefined : () => duplicateStep(index)}
               path={childPathAt(index)}
               definition={definition}
               disabled={disabled}
@@ -174,10 +198,11 @@ const SortableActionItem: React.FC<{
   value: ActionInput;
   onChange: (next: ActionInput) => void;
   onDelete: () => void;
+  onDuplicate?: () => void;
   path: ActionPath;
   definition: Parameters<typeof ActionEditor>[0]["definition"];
   disabled?: boolean;
-}> = ({ id, value, onChange, onDelete, path, definition, disabled }) => {
+}> = ({ id, value, onChange, onDelete, onDuplicate, path, definition, disabled }) => {
   const sortable = useSortable({ id });
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(sortable.transform),
@@ -189,6 +214,7 @@ const SortableActionItem: React.FC<{
         value={value}
         onChange={onChange}
         onDelete={onDelete}
+        onDuplicate={onDuplicate}
         path={path}
         definition={definition}
         stableId={id}

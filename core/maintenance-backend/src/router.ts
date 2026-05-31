@@ -7,17 +7,24 @@ import {
   autoAuthMiddleware,
   correlationMiddleware,
   Logger,
+  resolveActor,
   type RpcContext,
 } from "@checkstack/backend-api";
+import type { EntityHandle } from "@checkstack/automation-backend";
 import type { SignalService } from "@checkstack/signal-common";
 import type { MaintenanceService } from "./service";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { AuthApi } from "@checkstack/auth-common";
 import type { InferClient } from "@checkstack/common";
-import { maintenanceHooks } from "./hooks";
 import { notifyAffectedSystems } from "./notifications";
 import type { MaintenanceUpdate } from "@checkstack/maintenance-common";
 import type { MaintenanceCache } from "./cache";
+import {
+  removeMaintenanceEntity,
+  toMaintenanceEntityState,
+  writeMaintenanceEntity,
+  type MaintenanceEntityState,
+} from "./entity";
 
 export function createRouter(
   service: MaintenanceService,
@@ -29,6 +36,15 @@ export function createRouter(
   authClient: InferClient<typeof AuthApi>,
   logger: Logger,
   cache: MaintenanceCache,
+  /**
+   * Reactive `maintenance` entity handle (reactive automation engine §10.2).
+   * PLUGIN-BACKED (Model B): the `maintenances` + `maintenance_systems` tables
+   * ARE the current-state storage. Mutation sites drive the REAL write through
+   * `handle.mutate` / `handle.remove` (the write runs inside `apply`); the
+   * change-deriver re-emits the `maintenance.created` / `maintenance.updated`
+   * trigger events that automations match.
+   */
+  entityHandle: EntityHandle<MaintenanceEntityState>,
 ) {
   /**
    * Resolve user IDs to profile names for a list of updates.
@@ -144,7 +160,23 @@ export function createRouter(
 
     createMaintenance: os.createMaintenance.handler(
       async ({ input, context }) => {
-        const result = await service.createMaintenance(input);
+        // Drive the create through the reactive `maintenance` entity (§10.2):
+        // `apply` performs the REAL `maintenances`/junction write (the plugin's
+        // own db/tx) and returns the new reactive state; the deriver fires
+        // `maintenance.created` from the resulting change. The id is generated
+        // up front so the handle is keyed on it and the create's `prev`
+        // snapshot correctly reads the not-yet-existing row as absent.
+        const maintenanceId = crypto.randomUUID();
+        let result!: Awaited<ReturnType<typeof service.createMaintenance>>;
+        await writeMaintenanceEntity({
+          handle: entityHandle,
+          maintenanceId,
+          opts: { actor: resolveActor(context.user) },
+          apply: async () => {
+            result = await service.createMaintenance(input, maintenanceId);
+            return toMaintenanceEntityState(result);
+          },
+        });
 
         // Invalidate before signal so any frontend that refetches in
         // response sees fresh data. Mutation invariant in this file:
@@ -159,17 +191,6 @@ export function createRouter(
           maintenanceId: result.id,
           systemIds: result.systemIds,
           action: "created",
-        });
-
-        // Emit hook for cross-plugin coordination and integrations
-        await context.emitHook(maintenanceHooks.maintenanceCreated, {
-          maintenanceId: result.id,
-          systemIds: result.systemIds,
-          title: result.title,
-          description: result.description,
-          status: result.status,
-          startAt: result.startAt.toISOString(),
-          endAt: result.endAt.toISOString(),
         });
 
         // Send notifications to system subscribers
@@ -191,12 +212,37 @@ export function createRouter(
 
     updateMaintenance: os.updateMaintenance.handler(
       async ({ input, context }) => {
-        const result = await service.updateMaintenance(input);
-        if (!result) {
+        // Probe existence first so a missing maintenance still surfaces as
+        // NOT_FOUND without driving an entity write.
+        const exists = await service.getMaintenance(input.id);
+        if (!exists) {
           throw new ORPCError("NOT_FOUND", {
             message: "Maintenance not found",
           });
         }
+
+        // Drive the update through the reactive `maintenance` entity (§10.2);
+        // `apply` performs the REAL update (the plugin's own db/tx) and returns
+        // the new reactive state. The deriver fires `maintenance.updated` from
+        // the resulting change.
+        let result!: NonNullable<
+          Awaited<ReturnType<typeof service.updateMaintenance>>
+        >;
+        await writeMaintenanceEntity({
+          handle: entityHandle,
+          maintenanceId: input.id,
+          opts: { actor: resolveActor(context.user) },
+          apply: async () => {
+            const updated = await service.updateMaintenance(input);
+            if (!updated) {
+              throw new ORPCError("NOT_FOUND", {
+                message: "Maintenance not found",
+              });
+            }
+            result = updated;
+            return toMaintenanceEntityState(result);
+          },
+        });
 
         await cache.invalidateForMutation({
           maintenanceId: result.id,
@@ -207,18 +253,6 @@ export function createRouter(
         await signalService.broadcast(MAINTENANCE_UPDATED, {
           maintenanceId: result.id,
           systemIds: result.systemIds,
-          action: "updated",
-        });
-
-        // Emit hook for cross-plugin coordination and integrations
-        await context.emitHook(maintenanceHooks.maintenanceUpdated, {
-          maintenanceId: result.id,
-          systemIds: result.systemIds,
-          title: result.title,
-          description: result.description,
-          status: result.status,
-          startAt: result.startAt.toISOString(),
-          endAt: result.endAt.toISOString(),
           action: "updated",
         });
 
@@ -236,10 +270,31 @@ export function createRouter(
         : undefined;
       const previousStatus = previousMaintenance?.status;
 
-      const result = await service.addUpdate(input, userId);
-      // Read post-write state directly from the service so the broadcast
-      // payload is fresh; the cache is invalidated below before the signal.
-      const maintenance = await service.getMaintenance(input.maintenanceId);
+      // Drive the update through the reactive `maintenance` entity (§10.2).
+      // `apply` posts the update row + (optionally) flips status in the
+      // plugin's own db/tx, then re-reads the post-write reactive state. The
+      // deriver fires `maintenance.updated` purely from the entity diff; when
+      // the status/window is unchanged, the diff is empty and no event fires.
+      let result!: Awaited<ReturnType<typeof service.addUpdate>>;
+      let maintenance: Awaited<ReturnType<typeof service.getMaintenance>>;
+      await writeMaintenanceEntity({
+        handle: entityHandle,
+        maintenanceId: input.maintenanceId,
+        opts: { actor: resolveActor(context.user) },
+        apply: async () => {
+          result = await service.addUpdate(input, userId);
+          maintenance = await service.getMaintenance(input.maintenanceId);
+          // The maintenance must exist (the update FK-references it); guard for
+          // the type and to fail loudly if it vanished mid-write.
+          if (!maintenance) {
+            throw new ORPCError("NOT_FOUND", {
+              message: "Maintenance not found",
+            });
+          }
+          return toMaintenanceEntityState(maintenance);
+        },
+      });
+
       if (maintenance) {
         await cache.invalidateForMutation({
           maintenanceId: input.maintenanceId,
@@ -253,18 +308,6 @@ export function createRouter(
         await signalService.broadcast(MAINTENANCE_UPDATED, {
           maintenanceId: input.maintenanceId,
           systemIds: maintenance.systemIds,
-          action,
-        });
-
-        // Emit hook for cross-plugin coordination and integrations
-        await context.emitHook(maintenanceHooks.maintenanceUpdated, {
-          maintenanceId: input.maintenanceId,
-          systemIds: maintenance.systemIds,
-          title: maintenance.title,
-          description: maintenance.description,
-          status: maintenance.status,
-          startAt: maintenance.startAt.toISOString(),
-          endAt: maintenance.endAt.toISOString(),
           action,
         });
 
@@ -303,16 +346,43 @@ export function createRouter(
       async ({ input, context }) => {
         const userId =
           context.user && "id" in context.user ? context.user.id : undefined;
-        const result = await service.closeMaintenance(
-          input.id,
-          input.message,
-          userId,
-        );
-        if (!result) {
+
+        // Probe existence first so a missing maintenance still surfaces as
+        // NOT_FOUND without driving an entity write.
+        const exists = await service.getMaintenance(input.id);
+        if (!exists) {
           throw new ORPCError("NOT_FOUND", {
             message: "Maintenance not found",
           });
         }
+
+        // Drive the close through the reactive `maintenance` entity (§10.2);
+        // `apply` performs the REAL close (status → completed, the plugin's own
+        // db/tx) and returns the new reactive state. The deriver fires
+        // `maintenance.updated` from the status transition.
+        let result!: NonNullable<
+          Awaited<ReturnType<typeof service.closeMaintenance>>
+        >;
+        await writeMaintenanceEntity({
+          handle: entityHandle,
+          maintenanceId: input.id,
+          opts: { actor: resolveActor(context.user) },
+          apply: async () => {
+            const closed = await service.closeMaintenance(
+              input.id,
+              input.message,
+              userId,
+            );
+            if (!closed) {
+              throw new ORPCError("NOT_FOUND", {
+                message: "Maintenance not found",
+              });
+            }
+            result = closed;
+            return toMaintenanceEntityState(result);
+          },
+        });
+
         await cache.invalidateForMutation({
           maintenanceId: result.id,
           systemIds: result.systemIds,
@@ -321,18 +391,6 @@ export function createRouter(
         await signalService.broadcast(MAINTENANCE_UPDATED, {
           maintenanceId: result.id,
           systemIds: result.systemIds,
-          action: "closed",
-        });
-
-        // Emit hook for cross-plugin coordination and integrations
-        await context.emitHook(maintenanceHooks.maintenanceUpdated, {
-          maintenanceId: result.id,
-          systemIds: result.systemIds,
-          title: result.title,
-          description: result.description,
-          status: result.status,
-          startAt: result.startAt.toISOString(),
-          endAt: result.endAt.toISOString(),
           action: "closed",
         });
 
@@ -353,10 +411,25 @@ export function createRouter(
       },
     ),
 
-    deleteMaintenance: os.deleteMaintenance.handler(async ({ input }) => {
+    deleteMaintenance: os.deleteMaintenance.handler(async ({ input, context }) => {
       // Get maintenance before deleting to get systemIds
       const maintenance = await service.getMaintenance(input.id);
-      const success = await service.deleteMaintenance(input.id);
+
+      // Drive the delete through the reactive `maintenance` entity tombstone
+      // (§10.2). `apply` performs the REAL delete (the plugin's own db/tx);
+      // the framework records the tombstone transition and emits a tombstone
+      // change. The deriver fires nothing, matching the historical behaviour
+      // where delete emitted no maintenance hook.
+      let success = false;
+      await removeMaintenanceEntity({
+        handle: entityHandle,
+        maintenanceId: input.id,
+        opts: { actor: resolveActor(context.user) },
+        apply: async () => {
+          success = await service.deleteMaintenance(input.id);
+        },
+      });
+
       if (success && maintenance) {
         await cache.invalidateForMutation({
           maintenanceId: input.id,

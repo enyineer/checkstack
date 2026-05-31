@@ -7,6 +7,7 @@ import {
 import { createMockLogger } from "@checkstack/test-utils-backend";
 import type { SatelliteService } from "./service";
 import type { ConfigRelay } from "./config-relay";
+import type { SatelliteConnectionEvent } from "./entity";
 import type { SatelliteWithStatus } from "@checkstack/satellite-common";
 
 const MOCK_SATELLITE: SatelliteWithStatus = {
@@ -388,6 +389,144 @@ describe("SatelliteWsHandler", () => {
       const reply = JSON.parse(ws.messages[0]);
       expect(reply.type).toBe("script_package_blob");
       expect(reply.data).toBe("YmxvYg==");
+    });
+  });
+
+  describe("connection-state entity mirror", () => {
+    function makeEntitySink() {
+      const mirrors: Array<{
+        satelliteId: string;
+        lastEvent: SatelliteConnectionEvent;
+        lastHeartbeatAt: Date | null;
+      }> = [];
+      return {
+        sink: {
+          mirror: mock(
+            async (input: {
+              satelliteId: string;
+              lastEvent: SatelliteConnectionEvent;
+              lastHeartbeatAt: Date | null;
+            }) => {
+              mirrors.push(input);
+            },
+          ),
+        },
+        mirrors,
+      };
+    }
+
+    it("drives the connected edge with lastHeartbeatAt=now on successful authentication", async () => {
+      const { sink, mirrors } = makeEntitySink();
+      const h = new SatelliteWsHandler(
+        service,
+        configRelay,
+        resultHandler,
+        logger,
+        sink,
+      );
+      const ws = createMockWs();
+      const { onMessage } = h.onConnection(ws);
+      await onMessage(
+        JSON.stringify({
+          type: "authenticate",
+          clientId: "sat-1",
+          token: "csat_valid-token",
+        }),
+      );
+
+      expect(mirrors).toHaveLength(1);
+      expect(mirrors[0]!.satelliteId).toBe("sat-1");
+      expect(mirrors[0]!.lastEvent).toBe("connected");
+      // lastHeartbeatAt = now (non-null) so the computed status reads online.
+      expect(mirrors[0]!.lastHeartbeatAt).toBeInstanceOf(Date);
+    });
+
+    it("does NOT also call updateHeartbeat on connect when a sink is wired (the mirror writes the heartbeat)", async () => {
+      const { sink } = makeEntitySink();
+      const h = new SatelliteWsHandler(
+        service,
+        configRelay,
+        resultHandler,
+        logger,
+        sink,
+      );
+      const ws = createMockWs();
+      const { onMessage } = h.onConnection(ws);
+      await onMessage(
+        JSON.stringify({
+          type: "authenticate",
+          clientId: "sat-1",
+          token: "csat_valid-token",
+        }),
+      );
+      // The connect-time heartbeat is written by the mirror's apply, not by a
+      // separate updateHeartbeat call.
+      expect(service.updateHeartbeat).not.toHaveBeenCalled();
+    });
+
+    it("writes the connect heartbeat directly when NO sink is wired", async () => {
+      // The default `handler` has no sink: it must still record the heartbeat.
+      const ws = createMockWs();
+      const { onMessage } = handler.onConnection(ws);
+      await onMessage(
+        JSON.stringify({
+          type: "authenticate",
+          clientId: "sat-1",
+          token: "csat_valid-token",
+        }),
+      );
+      expect(service.updateHeartbeat).toHaveBeenCalledWith("sat-1", {});
+    });
+
+    it("drives the disconnected edge with lastHeartbeatAt=null (immediate offline) when the socket closes", async () => {
+      const { sink, mirrors } = makeEntitySink();
+      const h = new SatelliteWsHandler(
+        service,
+        configRelay,
+        resultHandler,
+        logger,
+        sink,
+      );
+      const ws = createMockWs();
+      const { onMessage, onClose } = h.onConnection(ws);
+      await onMessage(
+        JSON.stringify({
+          type: "authenticate",
+          clientId: "sat-1",
+          token: "csat_valid-token",
+        }),
+      );
+      onClose?.();
+      // onClose fires the mirror fire-and-forget; flush the microtask queue.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const disconnected = mirrors.find((m) => m.lastEvent === "disconnected");
+      expect(disconnected).toBeDefined();
+      // Clearing lastHeartbeatAt makes the computed status flip offline at once.
+      expect(disconnected!.lastHeartbeatAt).toBeNull();
+      expect(disconnected!.satelliteId).toBe("sat-1");
+    });
+
+    it("does not mirror on a failed authentication", async () => {
+      const { sink, mirrors } = makeEntitySink();
+      const h = new SatelliteWsHandler(
+        service,
+        configRelay,
+        resultHandler,
+        logger,
+        sink,
+      );
+      const ws = createMockWs();
+      const { onMessage } = h.onConnection(ws);
+      await onMessage(
+        JSON.stringify({
+          type: "authenticate",
+          clientId: "sat-1",
+          token: "csat_invalid-token",
+        }),
+      );
+      expect(mirrors).toHaveLength(0);
     });
   });
 });

@@ -12,9 +12,27 @@ import type { ManifestEntry } from "@checkstack/script-packages-common";
  * entry and verify it before extracting.
  */
 
+/** Bytes as they arrive at the hash boundary from any blob source. */
+export type BlobBytes = Uint8Array | ArrayBuffer;
+
+/**
+ * Normalize blob bytes to a `Uint8Array` at the consume boundary.
+ *
+ * Blob sources differ in what view they hand back: the central resolver and
+ * the Postgres codec yield a `Uint8Array`, but `Bun.S3File.arrayBuffer()` (and
+ * any `Response.arrayBuffer()` transport) yields a raw `ArrayBuffer`. Node's
+ * `crypto.Hash.update()` rejects a bare `ArrayBuffer`
+ * ("Received an instance of ArrayBuffer"), so we wrap it in a `Uint8Array`
+ * view here. A `Uint8Array` view over the same bytes hashes identically to the
+ * underlying buffer, so this never changes a computed content hash.
+ */
+export function toUint8Array(bytes: BlobBytes): Uint8Array {
+  return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+}
+
 /** SHA-256 (hex) of a blob's bytes. */
-export function blobSha256(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
+export function blobSha256(bytes: BlobBytes): string {
+  return createHash("sha256").update(toUint8Array(bytes)).digest("hex");
 }
 
 /**
@@ -29,7 +47,7 @@ export function verifyBlobSha256({
   bytes,
 }: {
   entry: Pick<ManifestEntry, "blobSha256">;
-  bytes: Uint8Array;
+  bytes: BlobBytes;
 }): { ok: true } | { ok: false; expected: string; actual: string } {
   if (!entry.blobSha256) return { ok: true };
   const actual = blobSha256(bytes);

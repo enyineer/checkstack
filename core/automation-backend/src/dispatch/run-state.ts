@@ -15,11 +15,13 @@ import {
   automationRunSteps,
   automationRuns,
   automationWaitLocks,
+  automationWakeIndex,
 } from "../schema";
 import type {
   CreateRunInput,
   CreateStepInput,
   CreateWaitLockInput,
+  CreateWaitLockWithRefsInput,
   LoadedRun,
   LoadedStep,
   LoadedWaitLock,
@@ -34,7 +36,15 @@ type Schema = {
   automationRunSteps: typeof automationRunSteps;
   automationWaitLocks: typeof automationWaitLocks;
   automationRunState: typeof automationRunState;
+  automationWakeIndex: typeof automationWakeIndex;
 };
+
+/** The kind-level wildcard ref for a `${kind}:${id}` ref. */
+function wildcardRefFor(ref: string): string {
+  const colon = ref.indexOf(":");
+  const kind = colon === -1 ? ref : ref.slice(0, colon);
+  return `${kind}:*`;
+}
 
 const ACTIVE_STATUSES = ["pending", "running", "waiting"] as const;
 
@@ -299,6 +309,47 @@ export function createRunStore(
       return row.id;
     },
 
+    async createWaitLockWithWakeRefs(
+      input: CreateWaitLockWithRefsInput,
+    ): Promise<string> {
+      return db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(automationWaitLocks)
+          .values({
+            runId: input.runId,
+            actionPath: input.actionPath,
+            kind: "until",
+            eventId: input.eventId,
+            contextKey: input.contextKey,
+            filterTemplate: null,
+            timeoutAt: input.timeoutAt,
+            // Serialisation boundary — see createWaitLock.
+            waitConfig: input.waitConfig as unknown as Record<string, unknown>,
+          })
+          .returning({ id: automationWaitLocks.id });
+        if (!row) {
+          throw new Error("createWaitLockWithWakeRefs: insert returned no rows");
+        }
+        // De-dupe refs in-process before the insert (the unique index is the
+        // cross-process arm-race guard; this keeps the VALUES list tight).
+        const uniqueRefs = [...new Set(input.wakeRefs)];
+        if (uniqueRefs.length > 0) {
+          await tx
+            .insert(automationWakeIndex)
+            .values(
+              uniqueRefs.map((ref) => ({ waitLockId: row.id, ref })),
+            )
+            .onConflictDoNothing({
+              target: [
+                automationWakeIndex.waitLockId,
+                automationWakeIndex.ref,
+              ],
+            });
+        }
+        return row.id;
+      });
+    },
+
     async loadWaitLock(id) {
       const rows = await db
         .select()
@@ -325,6 +376,31 @@ export function createRunStore(
         .from(automationWaitLocks)
         .where(and(...filters));
       return rows.map((r) => mapWaitLock(r, logger));
+    },
+
+    async findWaitLocksByWakeRef(ref: string): Promise<LoadedWaitLock[]> {
+      // The generalized form of findWaitLocksFor: join the wake-index onto
+      // the wait locks and match the exact ref OR the kind-level wildcard.
+      const wildcard = wildcardRefFor(ref);
+      const rows = await db
+        .select({ lock: automationWaitLocks })
+        .from(automationWaitLocks)
+        .innerJoin(
+          automationWakeIndex,
+          eq(automationWakeIndex.waitLockId, automationWaitLocks.id),
+        )
+        .where(
+          and(
+            eq(automationWaitLocks.kind, "until"),
+            inArray(automationWakeIndex.ref, [ref, wildcard]),
+          ),
+        );
+      // A wait may match on both the exact ref and the wildcard; de-dupe by id.
+      const byId = new Map<string, LoadedWaitLock>();
+      for (const r of rows) {
+        if (!byId.has(r.lock.id)) byId.set(r.lock.id, mapWaitLock(r.lock, logger));
+      }
+      return [...byId.values()];
     },
 
     async findWaitLocksByKind(kind): Promise<LoadedWaitLock[]> {

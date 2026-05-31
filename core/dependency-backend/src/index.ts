@@ -12,6 +12,8 @@ import {
   automationActionExtensionPoint,
   automationArtifactTypeExtensionPoint,
   automationTriggerExtensionPoint,
+  entityExtensionPoint,
+  type EntityHandle,
 } from "@checkstack/automation-backend";
 import { DependencyService } from "./services/dependency-service";
 import { WarningEvaluationService } from "./services/warning-evaluation-service";
@@ -28,15 +30,37 @@ import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { IncidentApi } from "@checkstack/incident-common";
 import { NotificationApi } from "@checkstack/notification-common";
-import { catalogHooks } from "@checkstack/catalog-backend";
-import { healthCheckHooks } from "@checkstack/healthcheck-backend";
+import { CATALOG_SYSTEM_ENTITY_KIND } from "@checkstack/catalog-backend";
+import {
+  HEALTH_ENTITY_KIND,
+  classifyHealthChange,
+} from "@checkstack/healthcheck-backend";
 import { evaluateAndNotifyDownstream } from "./notifications";
+import {
+  DEPENDENCY_EDGE_ENTITY_KIND,
+  DependencyEdgeStateSchema,
+  createDependencyEntityRead,
+  dependencyChangeToPayload,
+  deriveDependencyTriggerEvents,
+  type DependencyEdgeState,
+} from "./dependency-entity";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
 import { registerDependencyGitOpsKinds } from "./dependency-gitops-kinds";
 
 // =============================================================================
 // Plugin Definition
 // =============================================================================
+
+// Reactive `dependency-edge` entity handle (§10.5). Defined in register();
+// mutated from the router/actions onward.
+let dependencyEntity: EntityHandle<DependencyEdgeState> | undefined;
+
+// The DependencyService is created in init() (it needs the resolved
+// database), but the PLUGIN-BACKED entity `read` accessor must be supplied at
+// `defineEntity` time in register(). This holder bridges the two: the `read`
+// closure resolves the service lazily, and init() sets it before any mutation
+// runs (the registry only mutates from init() onward).
+let dependencyServiceRef: DependencyService | undefined;
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
@@ -57,6 +81,40 @@ export default createBackendPlugin({
     env
       .getExtensionPoint(automationArtifactTypeExtensionPoint)
       .registerArtifactType(dependencyArtifactType, pluginMetadata);
+
+    // ─── Reactive `dependency-edge` entity (§10.5) ─────────────────────
+    // PLUGIN-BACKED (Model B): the `dependencies` table IS the current-state
+    // storage. `read` routes straight to the service's batched authoritative
+    // read — no framework `entity_state` row, so no `indexes` (those only
+    // apply to store-backed kinds). The `read` closure resolves the service
+    // set by init() (mutations only happen from init on).
+    const entityPoint = env.getExtensionPoint(entityExtensionPoint);
+    dependencyEntity = entityPoint.defineEntity<DependencyEdgeState>({
+      kind: DEPENDENCY_EDGE_ENTITY_KIND,
+      state: DependencyEdgeStateSchema,
+      read: (ids) => {
+        const svc = dependencyServiceRef;
+        if (!svc) {
+          throw new Error(
+            "dependency entity read before init: service not yet resolved",
+          );
+        }
+        return createDependencyEntityRead(svc)(ids);
+      },
+    });
+    entityPoint.registerChangeDeriver({
+      kind: DEPENDENCY_EDGE_ENTITY_KIND,
+      derive: deriveDependencyTriggerEvents,
+      toPayload: dependencyChangeToPayload,
+    });
+    const onEntityChanged = entityPoint.onEntityChanged;
+    // The propagation cursor is internal bookkeeping (§5): derived
+    // per-system state is reachable via the `health` entity, not this table.
+    entityPoint.declareNonReactiveState({
+      table: "dependency_derived_states",
+      reason: "bookkeeping",
+      note: "Propagation cursor for downstream impact evaluation. Derived per-system state is reachable via the health entity.",
+    });
 
     // ─── GitOps Entity Kind Registration ─────────────────────────────
     let gitopsService: DependencyService | undefined;
@@ -88,6 +146,9 @@ export default createBackendPlugin({
           database as SafeDatabase<typeof schema>,
         );
         gitopsService = service;
+        // Publish the service for the PLUGIN-BACKED entity `read` accessor
+        // (defined in register()). Mutations only run from here onward.
+        dependencyServiceRef = service;
         const warningService = new WarningEvaluationService();
 
         const router = createRouter({
@@ -97,6 +158,7 @@ export default createBackendPlugin({
           catalogClient,
           healthCheckClient,
           logger,
+          getDependencyEntity: () => dependencyEntity,
         });
         rpc.registerRouter(router, dependencyContract);
 
@@ -106,7 +168,6 @@ export default createBackendPlugin({
         database,
         rpcClient,
         logger,
-        onHook,
         emitHook,
         signalService,
       }) => {
@@ -132,7 +193,11 @@ export default createBackendPlugin({
         const automationActions = env.getExtensionPoint(
           automationActionExtensionPoint,
         );
-        for (const action of createDependencyActions({ service, emitHook })) {
+        for (const action of createDependencyActions({
+          service,
+          emitHook,
+          getDependencyEntity: () => dependencyEntity,
+        })) {
           automationActions.registerAction(action, pluginMetadata);
         }
 
@@ -203,27 +268,42 @@ export default createBackendPlugin({
           return statuses;
         }
 
-        // Subscribe to catalog system deletion to clean up dependencies
-        onHook(
-          catalogHooks.systemDeleted,
-          async (payload) => {
-            logger.debug(
-              `Cleaning up dependencies for deleted system: ${payload.systemId}`,
-            );
-            await service.removeSystemDependencies(payload.systemId);
-          },
-          { mode: "work-queue", workerGroup: "dependency-system-cleanup" },
-        );
+        // Cross-plugin consumers now react to the reactive `catalog-system`
+        // / `health` ENTITY changes via `onEntityChanged` instead of the
+        // (being-removed) catalog/healthcheck hooks (§10.5). All keep
+        // `work-queue` delivery: cleanup + downstream-propagation are
+        // side-effecting writes that must run exactly once per cluster, not
+        // per-instance (broadcast would re-run them N times).
 
-        // Subscribe to health check state changes to notify downstream dependents
-        onHook(
-          healthCheckHooks.systemDegraded,
-          async (payload) => {
+        // Subscribe to catalog system deletion (tombstone) to clean up edges
+        onEntityChanged({
+          kind: CATALOG_SYSTEM_ENTITY_KIND,
+          handler: async (change) => {
+            if (change.next !== null) return; // tombstone only
+            const systemId = change.id;
             logger.debug(
-              `Upstream ${payload.systemId} degraded (${payload.previousStatus} → ${payload.newStatus}), evaluating downstream dependencies`,
+              `Cleaning up dependencies for deleted system: ${systemId}`,
+            );
+            await service.removeSystemDependencies(systemId);
+          },
+          delivery: {
+            mode: "work-queue",
+            workerGroup: "dependency-system-cleanup",
+          },
+        });
+
+        // Upstream health DEGRADED → evaluate downstream dependents
+        onEntityChanged({
+          kind: HEALTH_ENTITY_KIND,
+          handler: async (change) => {
+            const { systemId, degraded, previousStatus, newStatus } =
+              classifyHealthChange(change);
+            if (!degraded) return;
+            logger.debug(
+              `Upstream ${systemId} degraded (${previousStatus} → ${newStatus}), evaluating downstream dependencies`,
             );
             await evaluateAndNotifyDownstream({
-              changedSystemId: payload.systemId,
+              changedSystemId: systemId,
               db: typedDb,
               dependencyService: service,
               warningService,
@@ -237,20 +317,23 @@ export default createBackendPlugin({
               emitImpactPropagated,
             });
           },
-          {
+          delivery: {
             mode: "work-queue",
             workerGroup: "dependency-notification-evaluator",
           },
-        );
+        });
 
-        onHook(
-          healthCheckHooks.systemHealthy,
-          async (payload) => {
+        // Upstream health RECOVERED → evaluate downstream dependents
+        onEntityChanged({
+          kind: HEALTH_ENTITY_KIND,
+          handler: async (change) => {
+            const { systemId, recovered } = classifyHealthChange(change);
+            if (!recovered) return;
             logger.debug(
-              `Upstream ${payload.systemId} recovered, evaluating downstream dependencies`,
+              `Upstream ${systemId} recovered, evaluating downstream dependencies`,
             );
             await evaluateAndNotifyDownstream({
-              changedSystemId: payload.systemId,
+              changedSystemId: systemId,
               db: typedDb,
               dependencyService: service,
               warningService,
@@ -264,11 +347,11 @@ export default createBackendPlugin({
               emitImpactPropagated,
             });
           },
-          {
+          delivery: {
             mode: "work-queue",
             workerGroup: "dependency-notification-recovery",
           },
-        );
+        });
 
         logger.debug("✅ Dependency Backend afterPluginsReady complete.");
       },

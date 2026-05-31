@@ -13,7 +13,11 @@ import type {
   AutomationDefinition,
   TriggerInfo,
 } from "@checkstack/automation-common";
-import { generateAutomationContextTypes } from "./script-context";
+import {
+  generateAutomationContextTypes,
+  generateSecretEnvTypes,
+  secretEnvEnvNames,
+} from "./script-context";
 
 const incidentCreated: TriggerInfo = {
   qualifiedId: "incident.created",
@@ -244,5 +248,141 @@ describe("generateAutomationContextTypes", () => {
       path: [{ slot: "root", index: 0 }],
     });
     expect(scope.entries.some((e) => e.path === "trigger")).toBe(true);
+  });
+});
+
+describe("generateSecretEnvTypes", () => {
+  it("emits a ProcessEnv augmentation typing each declared key as string", () => {
+    const out = generateSecretEnvTypes({ envNames: ["API_TOKEN", "DB_PASS"] });
+    expect(out).toContain("declare namespace NodeJS");
+    expect(out).toContain("interface ProcessEnv");
+    expect(out).toContain("readonly API_TOKEN: string;");
+    expect(out).toContain("readonly DB_PASS: string;");
+  });
+
+  it("stays a global script - no top-level export/import that would modularize the merged extra-lib", () => {
+    // A single top-level `export`/`import` would turn the concatenated
+    // `context + secretEnv` extra-lib into a module, demoting the
+    // `declare const context` global to a module-local binding and breaking
+    // `context.*` IntelliSense. The augmentation must use an ambient
+    // `declare namespace`, never `declare global { … } export {};`.
+    const out = generateSecretEnvTypes({ envNames: ["API_TOKEN"] });
+    expect(out).not.toMatch(/^\s*export\b/m);
+    expect(out).not.toMatch(/^\s*import\b/m);
+    expect(out).not.toContain("declare global");
+  });
+
+  it("emits an empty string for empty input so the caller drops it", () => {
+    expect(generateSecretEnvTypes({ envNames: [] })).toBe("");
+  });
+
+  it("skips invalid identifiers but keeps the valid ones", () => {
+    const out = generateSecretEnvTypes({
+      envNames: ["GOOD", "BAD-NAME", "123start", "with space", "_ok$"],
+    });
+    expect(out).toContain("readonly GOOD: string;");
+    expect(out).toContain("readonly _ok$: string;");
+    expect(out).not.toContain("BAD-NAME");
+    expect(out).not.toContain("123start");
+    expect(out).not.toContain("with space");
+  });
+
+  it("emits an empty string when every name is invalid", () => {
+    expect(generateSecretEnvTypes({ envNames: ["BAD-NAME", "1x"] })).toBe("");
+  });
+
+  it("de-duplicates repeated keys", () => {
+    const out = generateSecretEnvTypes({ envNames: ["TOKEN", "TOKEN"] });
+    const occurrences = out.split("readonly TOKEN: string;").length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  it("merged context + secretEnv stays a global script (regression guard)", () => {
+    // Reproduces the action-leaf-cards merge: the `context` global concatenated
+    // with the secretEnv augmentation must NOT contain a top-level
+    // export/import, otherwise `declare const context` stops being global and
+    // its IntelliSense silently disappears in the automation script editor.
+    const { typeDefinitions } = generateAutomationContextTypes({
+      definition: baseDef(),
+      triggers: [],
+      path: [{ slot: "root", index: 0 }],
+    });
+    const secretEnvLib = generateSecretEnvTypes({ envNames: ["API_TOKEN"] });
+    const merged = [typeDefinitions, secretEnvLib].filter(Boolean).join("\n\n");
+    expect(merged).toContain("declare const context");
+    expect(merged).toContain("declare namespace NodeJS");
+    expect(merged).not.toMatch(/^\s*export\b/m);
+    expect(merged).not.toMatch(/^\s*import\b/m);
+  });
+});
+
+describe("secretEnvEnvNames", () => {
+  const configSchema = {
+    type: "object",
+    properties: {
+      script: { type: "string", "x-editor-types": ["typescript"] },
+      secretEnv: {
+        type: "object",
+        additionalProperties: { type: "string" },
+        "x-secret-env": true,
+      },
+    },
+  };
+
+  it("returns the env-var keys from the x-secret-env mapping value", () => {
+    expect(
+      secretEnvEnvNames({
+        configSchema,
+        config: {
+          script: "export default async () => {}",
+          secretEnv: {
+            API_TOKEN: "${{ secrets.jira_token }}",
+            DB: "${{ secrets.db }}",
+          },
+        },
+      }),
+    ).toEqual(["API_TOKEN", "DB"]);
+  });
+
+  it("locates the field by annotation, not by name", () => {
+    const renamed = {
+      type: "object",
+      properties: {
+        mySecrets: {
+          type: "object",
+          additionalProperties: { type: "string" },
+          "x-secret-env": true,
+        },
+      },
+    };
+    expect(
+      secretEnvEnvNames({
+        configSchema: renamed,
+        config: { mySecrets: { TOKEN: "${{ secrets.t }}" } },
+      }),
+    ).toEqual(["TOKEN"]);
+  });
+
+  it("returns [] when there is no x-secret-env field", () => {
+    expect(
+      secretEnvEnvNames({
+        configSchema: { type: "object", properties: { script: { type: "string" } } },
+        config: { script: "x" },
+      }),
+    ).toEqual([]);
+  });
+
+  it("returns [] when the mapping is missing or not a record", () => {
+    expect(secretEnvEnvNames({ configSchema, config: {} })).toEqual([]);
+    expect(
+      secretEnvEnvNames({ configSchema, config: { secretEnv: "nope" } }),
+    ).toEqual([]);
+  });
+
+  it("returns [] for malformed schema / config input", () => {
+    expect(secretEnvEnvNames({ configSchema: null, config: null })).toEqual([]);
+    expect(
+      secretEnvEnvNames({ configSchema: "not-a-schema", config: 42 }),
+    ).toEqual([]);
   });
 });

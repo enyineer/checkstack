@@ -10,18 +10,34 @@ import {
   AchievementTypeSchema,
 } from "@checkstack/slo-common";
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
-import { automationTriggerExtensionPoint } from "@checkstack/automation-backend";
+import {
+  automationTriggerExtensionPoint,
+  entityExtensionPoint,
+  type EntityHandle,
+} from "@checkstack/automation-backend";
 import { SloService } from "./service";
 import { SloEngine } from "./slo-engine";
 import { createRouter } from "./router";
 import { createSloCache } from "./cache";
 import { DependencyApi } from "@checkstack/dependency-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
-import { catalogHooks } from "@checkstack/catalog-backend";
-import { healthCheckHooks } from "@checkstack/healthcheck-backend";
+import {
+  CATALOG_SYSTEM_ENTITY_KIND,
+} from "@checkstack/catalog-backend";
+import {
+  HEALTH_ENTITY_KIND,
+  classifyHealthChange,
+} from "@checkstack/healthcheck-backend";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { resolveRoute } from "@checkstack/common";
 import { sloHooks } from "./hooks";
+import {
+  SLO_ENTITY_KIND,
+  SloEntityStateSchema,
+  createSloEntityRead,
+  deriveSloTriggerEvents,
+  type SloEntityState,
+} from "./slo-entity";
 import { setupDailySnapshotJob } from "./streak-calculator";
 import { setupWeeklyDigestJob } from "./weekly-digest";
 import { evaluateAchievements } from "./achievement-evaluator";
@@ -32,32 +48,13 @@ import { registerSloGitOpsKinds } from "./slo-gitops-kinds";
 // Integration Event Payload Schemas
 // =============================================================================
 
-const sloBudgetWarningPayloadSchema = z.object({
-  systemId: z.string(),
-  objectiveId: z.string(),
-  target: z.number(),
-  budgetRemainingPercent: z.number(),
-});
-
-const sloBudgetCriticalPayloadSchema = z.object({
-  systemId: z.string(),
-  objectiveId: z.string(),
-  target: z.number(),
-  budgetRemainingPercent: z.number(),
-});
-
-const sloBudgetExhaustedPayloadSchema = z.object({
-  systemId: z.string(),
-  objectiveId: z.string(),
-  target: z.number(),
-});
-
-const sloStreakBrokenPayloadSchema = z.object({
-  systemId: z.string(),
-  objectiveId: z.string(),
-  streak: z.number(),
-  bestStreak: z.number(),
-});
+// NOTE: The `budget.warning` / `.critical` / `.exhausted` and
+// `streak.broken` trigger payload schemas were removed (§9.2). Those four
+// thresholds are now authored as reactive `numeric_state` conditions over
+// the `slo` entity's `budgetRemainingPercent` / `currentStreak`, not as
+// pre-baked event triggers. The hooks they fronted were never emitted by
+// the engine (inert), so removing the trigger registrations is behavior-
+// preserving.
 
 const sloAchievementUnlockedPayloadSchema = z.object({
   systemId: z.string(),
@@ -89,6 +86,19 @@ const sloWeeklyDigestPayloadSchema = z.object({
 // Plugin Definition
 // =============================================================================
 
+// Reactive `slo` entity handle (§10.7). Defined in register() via the
+// entity extension point; mutated from the daily snapshot job onward.
+let sloEntity: EntityHandle<SloEntityState> | undefined;
+
+// The SLO service + engine are created in afterPluginsReady (they need the
+// resolved database + RPC clients), but the PLUGIN-BACKED + COMPUTED entity
+// `read` accessor must be supplied at `defineEntity` time in register(). These
+// holders bridge the two: the `read` closure resolves them lazily, and
+// afterPluginsReady sets them before any mutation runs (the daily job — the
+// only mutation site — runs from afterPluginsReady onward).
+let sloEntityServiceRef: SloService | undefined;
+let sloEntityEngineRef: SloEngine | undefined;
+
 export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
@@ -99,59 +109,53 @@ export default createBackendPlugin({
       automationTriggerExtensionPoint,
     );
 
-    automationTriggers.registerTrigger(
-      {
-        id: "budget.warning",
-        displayName: "SLO Budget Warning",
-        description:
-          "Fired when an SLO error budget consumption exceeds the warning threshold",
-        category: "SLO",
-        payloadSchema: sloBudgetWarningPayloadSchema,
-        hook: sloHooks.sloBudgetWarning,
-        contextKey: (p) => p.systemId,
+    // ─── Reactive `slo` entity (§10.7, §9.2) ───────────────────────────
+    // The SLO budget IS the entity. The former `budget.warning/.critical/
+    // .exhausted` + `streak.broken` triggers are removed — those thresholds
+    // are now authored as `numeric_state` conditions over
+    // `state.slo.<objectiveId>.budgetRemainingPercent` / `currentStreak`.
+    // The deriver fires no legacy events; it exists so `slo` is a known
+    // reactive kind (scope + wake resolution).
+    //
+    // PLUGIN-BACKED + COMPUTED (Model B): there is NO framework `entity_state`
+    // row. `read` assembles each objective's view by reading `slo_streaks` +
+    // `slo_objectives` and COMPUTING `budgetRemainingPercent` via the engine
+    // (see `createSloEntityRead`). No `indexes` — those only apply to
+    // store-backed kinds, and a plugin-backed kind keeps its state in its own
+    // tables. The `read` closure resolves the service + engine set by
+    // afterPluginsReady (the daily job is the only mutation site).
+    const entityPoint = env.getExtensionPoint(entityExtensionPoint);
+    sloEntity = entityPoint.defineEntity<SloEntityState>({
+      kind: SLO_ENTITY_KIND,
+      state: SloEntityStateSchema,
+      read: (ids) => {
+        const service = sloEntityServiceRef;
+        const engine = sloEntityEngineRef;
+        if (!service || !engine) {
+          throw new Error(
+            "slo entity read before init: service/engine not yet resolved",
+          );
+        }
+        return createSloEntityRead({ service, engine })(ids);
       },
-      pluginMetadata,
-    );
-
-    automationTriggers.registerTrigger(
-      {
-        id: "budget.critical",
-        displayName: "SLO Budget Critical",
-        description:
-          "Fired when an SLO error budget consumption exceeds the critical threshold",
-        category: "SLO",
-        payloadSchema: sloBudgetCriticalPayloadSchema,
-        hook: sloHooks.sloBudgetCritical,
-        contextKey: (p) => p.systemId,
-      },
-      pluginMetadata,
-    );
-
-    automationTriggers.registerTrigger(
-      {
-        id: "budget.exhausted",
-        displayName: "SLO Budget Exhausted",
-        description: "Fired when an SLO error budget is fully consumed",
-        category: "SLO",
-        payloadSchema: sloBudgetExhaustedPayloadSchema,
-        hook: sloHooks.sloBudgetExhausted,
-        contextKey: (p) => p.systemId,
-      },
-      pluginMetadata,
-    );
-
-    automationTriggers.registerTrigger(
-      {
-        id: "streak.broken",
-        displayName: "SLO Streak Broken",
-        description: "Fired when a reliability streak is broken",
-        category: "SLO",
-        payloadSchema: sloStreakBrokenPayloadSchema,
-        hook: sloHooks.sloStreakBroken,
-        contextKey: (p) => p.systemId,
-      },
-      pluginMetadata,
-    );
+    });
+    entityPoint.registerChangeDeriver({
+      kind: SLO_ENTITY_KIND,
+      derive: deriveSloTriggerEvents,
+    });
+    // Event-sourced history is NOT the live entity (§5): downtime events +
+    // daily snapshots are append-only records, the budget/streak is the
+    // reactive entity.
+    entityPoint.declareNonReactiveState({
+      table: "slo_downtime_events",
+      reason: "bookkeeping",
+      note: "Append-only downtime history. The live budget/streak is the `slo` entity.",
+    });
+    entityPoint.declareNonReactiveState({
+      table: "slo_daily_snapshots",
+      reason: "bookkeeping",
+      note: "Append-only daily trend snapshots. The live budget/streak is the `slo` entity.",
+    });
 
     automationTriggers.registerTrigger(
       {
@@ -183,6 +187,8 @@ export default createBackendPlugin({
     // Shared references across init/afterPluginsReady (maintenance-backend pattern)
     let sharedEngine: SloEngine;
     let gitopsService: SloService | undefined;
+    // Reactive `slo` entity handle (§10.7), defined just above in register().
+    const onEntityChanged = entityPoint.onEntityChanged;
 
     // ─── GitOps Entity Kind Registration ─────────────────────────────
     const kindRegistry = env.getExtensionPoint(entityKindExtensionPoint);
@@ -264,7 +270,6 @@ export default createBackendPlugin({
       afterPluginsReady: async ({
         database,
         logger,
-        onHook,
         emitHook,
         rpcClient,
         signalService,
@@ -277,6 +282,12 @@ export default createBackendPlugin({
           signalService,
           logger,
         });
+        // Publish the service + engine for the PLUGIN-BACKED + COMPUTED entity
+        // `read` accessor (defined in register()). The daily snapshot job — the
+        // only `slo` mutation site — runs from here onward, so the refs are set
+        // before any `read`/`mutate` can fire.
+        sloEntityServiceRef = service;
+        sloEntityEngineRef = engine;
 
         const dependencyClient = rpcClient.forPlugin(DependencyApi);
         const healthCheckClient = rpcClient.forPlugin(HealthCheckApi);
@@ -345,41 +356,52 @@ export default createBackendPlugin({
           }
         };
 
+        // Cross-plugin consumers now react to the reactive `health` /
+        // `catalog-system` ENTITY changes via `onEntityChanged` instead of
+        // the (being-removed) directional hooks (§10.7). `classifyHealthChange`
+        // reproduces the exact degraded/recovered transition predicate the
+        // old `systemDegraded` / `systemHealthy` hooks fired on. Each
+        // consumer keeps `work-queue` delivery with its original
+        // `workerGroup`: these are side-effecting writes (open/close downtime,
+        // achievements, cleanup) that must run exactly once per cluster — not
+        // per-instance — so broadcast would double-apply them.
+
         // =====================================================================
         // Perspective 1: System goes DOWN — open downtime events
         // =====================================================================
-        onHook(
-          healthCheckHooks.systemDegraded,
-          async (payload) => {
+        onEntityChanged({
+          kind: HEALTH_ENTITY_KIND,
+          handler: async (change) => {
+            const { systemId, degraded, previousStatus, newStatus } =
+              classifyHealthChange(change);
+            if (!degraded) return;
             logger.debug(
-              `SLO: System ${payload.systemId} degraded (${payload.previousStatus} → ${payload.newStatus})`,
+              `SLO: System ${systemId} degraded (${previousStatus} → ${newStatus})`,
             );
             await engine.handleSystemDown({
-              systemId: payload.systemId,
+              systemId,
               getUpstreamHealthStatus,
             });
           },
-          { mode: "work-queue", workerGroup: "slo-system-down" },
-        );
+          delivery: { mode: "work-queue", workerGroup: "slo-system-down" },
+        });
 
         // =====================================================================
         // Perspective 1: System goes UP — close downtime events
         // =====================================================================
-        onHook(
-          healthCheckHooks.systemHealthy,
-          async (payload) => {
-            logger.debug(`SLO: System ${payload.systemId} recovered`);
-            await engine.handleSystemUp({
-              systemId: payload.systemId,
-            });
+        onEntityChanged({
+          kind: HEALTH_ENTITY_KIND,
+          handler: async (change) => {
+            const { systemId, recovered } = classifyHealthChange(change);
+            if (!recovered) return;
+            logger.debug(`SLO: System ${systemId} recovered`);
+            await engine.handleSystemUp({ systemId });
 
             // Also handle Perspective 2 (as upstream)
-            const downstreamIds = await getDownstreamSystemIds(
-              payload.systemId,
-            );
+            const downstreamIds = await getDownstreamSystemIds(systemId);
             if (downstreamIds.length > 0) {
               await engine.handleUpstreamUp({
-                upstreamSystemId: payload.systemId,
+                upstreamSystemId: systemId,
                 downstreamSystemIds: downstreamIds,
                 getUpstreamHealthStatus,
               });
@@ -387,54 +409,53 @@ export default createBackendPlugin({
 
             // Evaluate achievements on recovery (rapid_recovery, clean_sheet, etc.)
             await evaluateAchievements({
-              systemId: payload.systemId,
+              systemId,
               service,
               engine,
               logger,
             });
           },
-          { mode: "work-queue", workerGroup: "slo-system-up" },
-        );
+          delivery: { mode: "work-queue", workerGroup: "slo-system-up" },
+        });
 
         // =====================================================================
         // Perspective 2: Upstream degraded — split downstream "self" events
-        // We re-use the systemDegraded hook, checking downstream systems
+        // We re-use the degraded transition, checking downstream systems
         // =====================================================================
-        onHook(
-          healthCheckHooks.systemDegraded,
-          async (payload) => {
-            const downstreamIds = await getDownstreamSystemIds(
-              payload.systemId,
-            );
+        onEntityChanged({
+          kind: HEALTH_ENTITY_KIND,
+          handler: async (change) => {
+            const { systemId, degraded } = classifyHealthChange(change);
+            if (!degraded) return;
+            const downstreamIds = await getDownstreamSystemIds(systemId);
             if (downstreamIds.length > 0) {
               await engine.handleUpstreamDown({
-                upstreamSystemId: payload.systemId,
-                upstreamSystemName: payload.systemName ?? payload.systemId,
+                upstreamSystemId: systemId,
+                upstreamSystemName: systemId,
                 downstreamSystemIds: downstreamIds,
               });
             }
           },
-          { mode: "work-queue", workerGroup: "slo-upstream-down" },
-        );
+          delivery: { mode: "work-queue", workerGroup: "slo-upstream-down" },
+        });
 
         // =====================================================================
-        // Subscribe to catalog system deletion for cleanup
+        // Subscribe to catalog system deletion (tombstone) for cleanup
         // =====================================================================
-        onHook(
-          catalogHooks.systemDeleted,
-          async (payload) => {
+        onEntityChanged({
+          kind: CATALOG_SYSTEM_ENTITY_KIND,
+          handler: async (change) => {
+            // Only react to a tombstone (delete), not create/update.
+            if (change.next !== null) return;
+            const systemId = change.id;
             logger.debug(
-              `Cleaning up SLO data for deleted system: ${payload.systemId}`,
+              `Cleaning up SLO data for deleted system: ${systemId}`,
             );
-            await service.deleteObjectivesForSystem({
-              systemId: payload.systemId,
-            });
-            await service.deleteAchievementsForSystem({
-              systemId: payload.systemId,
-            });
+            await service.deleteObjectivesForSystem({ systemId });
+            await service.deleteAchievementsForSystem({ systemId });
           },
-          { mode: "work-queue", workerGroup: "slo-system-cleanup" },
-        );
+          delivery: { mode: "work-queue", workerGroup: "slo-system-cleanup" },
+        });
 
         // =====================================================================
         // Daily snapshot + streak calculation cron job
@@ -444,6 +465,7 @@ export default createBackendPlugin({
           engine,
           logger,
           queueManager,
+          getSloEntity: () => sloEntity,
         });
 
         // =====================================================================

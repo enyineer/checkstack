@@ -24,6 +24,7 @@ export {
   type EntityKindRegistry,
   type ReconcileContext,
   type SpecSchemaDocumentation,
+  type SpecSchemaDocumentationProvider,
 } from "./entity-kind-registry";
 export { gitopsAccess, gitopsAccessRules } from "./access";
 export { gitopsRoutes } from "./routes";

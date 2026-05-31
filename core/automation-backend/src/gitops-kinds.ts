@@ -28,13 +28,37 @@ type Db = SafeDatabase<typeof schema>;
 /** Origin marker stamped on GitOps-managed automations. */
 export const GITOPS_MANAGED_BY = "gitops";
 
+/**
+ * Metadata label key carrying the automation's grouping label. GitOps has no
+ * dedicated `group` metadata field, so a declaratively-managed automation
+ * expresses its group via `metadata.labels.group`. Mirrors how `name` /
+ * `description` come from `metadata`, keeping `group` out of the spec
+ * (definition) tier — consistent with it being a row column, not part of the
+ * definition YAML.
+ */
+export const GITOPS_GROUP_LABEL = "group";
+
 interface ReconcileArgs {
   entity: {
-    metadata: { name: string; title?: string; description?: string };
+    metadata: {
+      name: string;
+      title?: string;
+      description?: string;
+      labels?: Record<string, string>;
+    };
     spec: AutomationDefinition;
   };
   existingEntityId?: string;
   logger: { info: (msg: string) => void };
+}
+
+/**
+ * Resolve the grouping label from GitOps metadata. Trims and treats a
+ * blank/whitespace value as "no group".
+ */
+function resolveGroup(labels?: Record<string, string>): string | null {
+  const raw = labels?.[GITOPS_GROUP_LABEL]?.trim();
+  return raw && raw.length > 0 ? raw : null;
 }
 
 /**
@@ -53,6 +77,7 @@ export async function reconcileAutomation(
   const definition = AutomationDefinitionSchema.parse(entity.spec);
   const name = entity.metadata.title ?? entity.metadata.name;
   const description = entity.metadata.description ?? definition.description;
+  const group = resolveGroup(entity.metadata.labels);
 
   if (existingEntityId) {
     const [row] = await db
@@ -60,6 +85,7 @@ export async function reconcileAutomation(
       .set({
         name,
         description: description ?? null,
+        group,
         definition: definition as unknown as Record<string, unknown>,
         managedBy: GITOPS_MANAGED_BY,
         updatedAt: new Date(),
@@ -78,6 +104,7 @@ export async function reconcileAutomation(
     .values({
       name,
       description: description ?? null,
+      group,
       status: "enabled",
       definition: definition as unknown as Record<string, unknown>,
       managedBy: GITOPS_MANAGED_BY,

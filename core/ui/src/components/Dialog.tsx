@@ -4,6 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { X } from "lucide-react";
 import { cn } from "../utils";
 import { usePerformance } from "./PerformanceProvider";
+import { PortalContainerContext } from "./portalContainer";
 
 const Dialog = DialogPrimitive.Root;
 
@@ -64,12 +65,23 @@ const DialogContent = React.forwardRef<
   DialogContentProps & DialogContentExtraProps
 >(({ className, children, size, hideCloseButton, ...props }, ref) => {
   const { isLowPower } = usePerformance();
+  // Expose the content element so popovers/comboboxes inside the dialog portal
+  // INTO it, otherwise the modal scroll-lock blocks their internal scrolling.
+  const [content, setContent] = React.useState<HTMLDivElement | null>(null);
+  const setRefs = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      setContent(node);
+      if (typeof ref === "function") ref(node);
+      else if (ref) ref.current = node;
+    },
+    [ref],
+  );
   return (
     <DialogPortal>
       <DialogOverlay />
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
         <DialogPrimitive.Content
-          ref={ref}
+          ref={setRefs}
           className={cn(
             "pointer-events-auto relative",
             dialogContentVariants({ size }),
@@ -79,16 +91,25 @@ const DialogContent = React.forwardRef<
           )}
           {...props}
         >
-          <div className="-mx-2 px-2 flex flex-col gap-6">{children}</div>
-          {!hideCloseButton && (
-            <DialogPrimitive.Close
-              className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-              aria-label="Close"
-            >
-              <X className="h-4 w-4" />
-              <span className="sr-only">Close</span>
-            </DialogPrimitive.Close>
-          )}
+          <PortalContainerContext.Provider value={content}>
+            {/* `min-h-0 flex-1` lets this wrapper fill the height when a
+                consumer makes `DialogContent` a tall flex column (e.g. the
+                CodeEditor popout, so a `fillHeight` editor fills the body).
+                Inert for the default (non-flex) dialog: `flex-1` only affects
+                flex items, and `min-h-0` is the block default. */}
+            <div className="-mx-2 px-2 flex min-h-0 flex-1 flex-col gap-6">
+              {children}
+            </div>
+            {!hideCloseButton && (
+              <DialogPrimitive.Close
+                className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+                <span className="sr-only">Close</span>
+              </DialogPrimitive.Close>
+            )}
+          </PortalContainerContext.Provider>
         </DialogPrimitive.Content>
       </div>
     </DialogPortal>

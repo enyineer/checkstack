@@ -19,16 +19,15 @@
 // (Monarch grammars for ~80 languages) without pulling in the extension host
 // (no SharedArrayBuffer / COOP / COEP needed).
 import "@codingame/monaco-vscode-standalone-languages";
-// The named imports below ALSO trigger this package's side-effect registration
-// of the standalone TypeScript language features (defaults + ts.worker). We use
-// them to configure the TS/JS language services + inject ambient context types.
+// TS/JS language-service setup (compiler options, ambient stdlib types, worker
+// factory) lives in the shared `monacoTsService` module so the headless
+// `validateScripts` validator can reuse the exact same configured singletons.
 import {
   typescriptDefaults,
   javascriptDefaults,
-  ScriptTarget,
-  ModuleKind,
-  ModuleResolutionKind,
-} from "@codingame/monaco-vscode-standalone-typescript-language-features";
+  ensureStandaloneWorkerFactory,
+  markVscodeServicesReady,
+} from "./monacoTsService";
 // Named import also triggers the side-effect registration of the REAL VS Code
 // JSON language service (proper highlighting + completion + folding), replacing
 // the hand-rolled `json-template` Monarch grammar. We turn its built-in
@@ -41,20 +40,8 @@ import { jsonDefaults } from "@codingame/monaco-vscode-standalone-json-language-
 // `languageStatusServiceOverride` below).
 import getLanguagesServiceOverride from "@codingame/monaco-vscode-languages-service-override";
 
-// Worker entry URLs, bundled and resolved by Vite via the `?worker&url`
-// suffix. We import them as URL STRINGS (not Worker constructors) because
-// monaco-languageclient's worker factory consumes `loader().url.toString()`.
-// Vite's STATIC `?worker&url` resolution is required here: a runtime
-// `new URL(specifier, import.meta.url)` would resolve the bare specifier
-// relative to THIS source file (e.g. core/ui/src/components/CodeEditor/...)
-// and 404. The editor worker comes from the monaco-editor drop-in
-// (@codingame/monaco-vscode-editor-api); the TypeScript worker (which also
-// serves JavaScript) from the standalone language-features package.
-import editorWorkerUrl from "@codingame/monaco-vscode-editor-api/esm/vs/editor/editor.worker.js?worker&url";
-import tsWorkerUrl from "@codingame/monaco-vscode-standalone-typescript-language-features/worker?worker&url";
-import jsonWorkerUrl from "@codingame/monaco-vscode-standalone-json-language-features/worker?worker&url";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
 import * as monaco from "@codingame/monaco-vscode-editor-api";
 import { MonacoEditorReactComp } from "@typefox/monaco-editor-react";
 import { extractBracketKeyGroups } from "./bracketKeyGroups";
@@ -68,131 +55,114 @@ import {
   matchShellEnvVarTrigger,
 } from "./shellEnvVarMatcher";
 import type {
+  AcquireTypes,
   CodeEditorLanguage,
   EditorMarker,
   ShellEnvVar,
   TemplateProperty,
 } from "./types";
 import {
+  importSpecifierCompletionContext,
+  mergeImportCompletionEntries,
+  parseBareImportSpecifiers,
+  planAcquisitions,
+} from "./importSpecifiers";
+// Authoritative, build-time-derived list of importable runtime built-in
+// specifiers (`node:fs`, bare `fs`, `bun`, `bun:test`, ...). Generated from the
+// SAME bundled `@types/node` + `bun-types` declarations the editor injects (see
+// scripts/generate-stdlib-types.ts -> extractBuiltinModuleSpecifiers), so the
+// import-name completions never drift from the runtime stdlib. Imported as a
+// plain JSON module (tiny: ~115 names); the bulky type bodies stay in the
+// separately code-split stdlib-types.json.
+import builtinModulesJson from "./generated/builtin-modules.json";
+import {
   type EditorAppConfig,
   type TextContents,
 } from "monaco-languageclient/editorApp";
 import { type MonacoVscodeApiConfig } from "monaco-languageclient/vscodeApiWrapper";
-import {
-  // `useWorkerFactory` is a plain library registration function, not a React
-  // hook. We alias away the `use` prefix so the `react-hooks/rules-of-hooks`
-  // lint rule (which keys purely off the identifier name) does not misfire.
-  useWorkerFactory as registerWorkerFactory,
-  Worker,
-  type WorkerFactoryConfig,
-  type WorkerLoader,
-} from "monaco-languageclient/workerFactory";
-
-// The logger type originates from `@codingame/monaco-vscode-log-service-override`,
-// which is not a direct dependency of this package. We derive it from the
-// `WorkerFactoryConfig` we already import so we never reach for a transitive
-// specifier (and never need an `any`).
-type WorkerFactoryLogger = WorkerFactoryConfig["logger"];
-
-const editorWorkerLoader: WorkerLoader = () =>
-  new Worker(editorWorkerUrl, { type: "module" });
-
-const tsWorkerLoader: WorkerLoader = () =>
-  new Worker(tsWorkerUrl, { type: "module" });
-
-const jsonWorkerLoader: WorkerLoader = () =>
-  new Worker(jsonWorkerUrl, { type: "module" });
+// ─── Lazy Automatic Type Acquisition (ATA) registry ─────────────────────────
+//
+// The TS/JS language services are singletons, so acquired package types are
+// registered ONCE and shared across every editor instance (a package imported
+// in one script editor is then typed in all of them — harmless, since the
+// declarations are the same install). State is module-scoped:
+//
+//  - `acquiredFilePaths`: virtual paths already passed to addExtraLib (dedupe
+//    so two editors importing the same package don't double-register a file).
+//  - `acquiredSpecifiers`: package names already acquired (skip the fetch).
+//  - `acquireResetKey`: the install identity (lockfile hash) the current
+//    acquired-set belongs to; when it changes, the set is reset so types
+//    refresh against the new install.
+const acquiredFilePaths = new Set<string>();
+const acquiredSpecifiers = new Set<string>();
+let currentAcquireResetKey: string | undefined;
 
 /**
- * Registers the worker loaders required for the standalone (classic) Monaco
- * setup. We only need the generic editor worker plus the TypeScript worker
- * (which also serves JavaScript). Mirrors the upstream `defineClassicWorkers`
- * helper referenced above. The underlying `useWorkerFactory` export is a
- * plain library registration function (not a React hook) despite its name;
- * it is called from module scope here, never from a component render.
+ * Reset the acquired-set when the install identity changes. The already-
+ * registered extra-libs are left in place (disposing them is unnecessary —
+ * the new install re-registers the same virtual paths, and addExtraLib
+ * overwrites by path), but the specifier set clears so each package is
+ * re-fetched against the new hash.
  */
-const configureStandaloneWorkerFactory = (
-  logger?: WorkerFactoryLogger,
+const syncAcquireResetKey = (resetKey: string | undefined): void => {
+  if (resetKey === currentAcquireResetKey) return;
+  currentAcquireResetKey = resetKey;
+  acquiredSpecifiers.clear();
+  acquiredFilePaths.clear();
+};
+
+/**
+ * Register one acquired package's declaration files with both the TS and JS
+ * services, deduped by virtual path. Paths are `node_modules/...`-relative;
+ * we mount each at `file:///<path>` so NodeJs + `@types` resolution finds it.
+ */
+const registerAcquiredFiles = (
+  files: ReadonlyArray<{ path: string; content: string }>,
 ): void => {
-  registerWorkerFactory({
-    workerLoaders: {
-      editorWorkerService: editorWorkerLoader,
-      // Both must be defined or the worker factory errors (see upstream
-      // helper-classic.ts).
-      javascript: tsWorkerLoader,
-      typescript: tsWorkerLoader,
-      json: jsonWorkerLoader,
-    },
-    logger,
-  });
-};
-
-// Base compiler options for the standalone TS + JS services. `types` (node +
-// bun-types) is added only once the stdlib bundle has loaded (see
-// ensureStandaloneStdlib), so the service doesn't transiently error on a
-// missing `node` type while the ~3 MB bundle is still fetching.
-const BASE_COMPILER_OPTIONS = {
-  target: ScriptTarget.ESNext,
-  module: ModuleKind.ESNext,
-  moduleResolution: ModuleResolutionKind.NodeJs,
-  lib: ["esnext"],
-  allowNonTsExtensions: false,
-  noEmit: true,
-  strict: true,
-  esModuleInterop: true,
-};
-
-/**
- * Configure the standalone TS + JS language services ONCE at module load.
- * `typescriptDefaults` / `javascriptDefaults` are singletons, so doing this at
- * module scope (not per-mount) guarantees the first editor to mount cannot
- * start the service with stale defaults - the timing race the legacy monaco
- * editor hit.
- */
-const configureTypeScriptDefaults = (): void => {
-  for (const defaults of [typescriptDefaults, javascriptDefaults]) {
-    defaults.setCompilerOptions({ ...BASE_COMPILER_OPTIONS });
-    // 1108: a top-level `return` is valid because the runtime wraps scripts in
-    // an async IIFE (same suppression as the legacy editor).
-    defaults.setDiagnosticsOptions({ diagnosticCodesToIgnore: [1108] });
-    // Push models to the worker eagerly so diagnostics/completions are ready on
-    // the first keystroke.
-    defaults.setEagerModelSync(true);
-  }
-};
-
-configureTypeScriptDefaults();
-
-/**
- * Lazy-load the bundled `@types/node` + `bun-types` declarations into the
- * standalone TS service so script editors have `console`, `fetch`, `process`,
- * `Bun`, etc. typed (parity with the legacy editor). The ~3 MB bundle is
- * code-split into its own chunk and fetched once. Ported from the legacy
- * `monacoStdlib.ts` (without its `@monaco-editor/react` dependency). Runs at
- * module load; this file is browser-only so the dynamic import is safe here.
- */
-let stdlibLoadStarted = false;
-const ensureStandaloneStdlib = async (): Promise<void> => {
-  if (stdlibLoadStarted) {
-    return;
-  }
-  stdlibLoadStarted = true;
-  const stdlibModule = await import("./generated/stdlib-types.json");
-  const bundle = stdlibModule.default;
-  for (const defaults of [typescriptDefaults, javascriptDefaults]) {
-    for (const [path, content] of Object.entries(bundle)) {
-      defaults.addExtraLib(content, `file:///${path}`);
+  for (const file of files) {
+    const uri = `file:///${file.path}`;
+    if (acquiredFilePaths.has(uri)) continue;
+    acquiredFilePaths.add(uri);
+    for (const defaults of [typescriptDefaults, javascriptDefaults]) {
+      defaults.addExtraLib(file.content, uri);
     }
-    // The @types/node + bun-types declarations now exist at their node_modules
-    // virtual paths, so include them ambiently.
-    defaults.setCompilerOptions({
-      ...BASE_COMPILER_OPTIONS,
-      types: ["node", "bun-types"],
-    });
   }
 };
 
-void ensureStandaloneStdlib();
+/**
+ * Acquire types for every NEW bare specifier in `source`, against the given
+ * resolver. Pure planning (`parseBareImportSpecifiers` / `planAcquisitions`)
+ * is unit-tested; this thin async glue is intentionally untested (no DOM /
+ * network in unit tests). A specifier is marked acquired even when it returns
+ * no files, so a typeless package isn't re-fetched on every keystroke.
+ */
+const runTypeAcquisition = async ({
+  source,
+  acquireTypes,
+  resetKey,
+}: {
+  source: string;
+  acquireTypes: AcquireTypes;
+  resetKey: string | undefined;
+}): Promise<void> => {
+  syncAcquireResetKey(resetKey);
+  const specifiers = parseBareImportSpecifiers(source);
+  const toAcquire = planAcquisitions({
+    specifiers,
+    acquired: acquiredSpecifiers,
+  });
+  for (const specifier of toAcquire) {
+    // Mark first so concurrent/keystroke re-runs don't double-fetch.
+    acquiredSpecifiers.add(specifier);
+    try {
+      const files = await acquireTypes(specifier);
+      registerAcquiredFiles(files);
+    } catch {
+      // A failed fetch un-marks so a later edit can retry.
+      acquiredSpecifiers.delete(specifier);
+    }
+  }
+};
 
 // Turn OFF the JSON service's built-in validation. The editor content is a
 // template that renders to JSON, so we validate the template-substituted form
@@ -328,6 +298,13 @@ export type TypefoxEditorProps = {
   /** Minimum editor height in pixels. Defaults to 240. */
   minHeight?: number;
   /**
+   * When true, the editor container fills its flex parent (`height: 100%`)
+   * instead of using a fixed `minHeight` px height, so it grows to fit a tall
+   * flex column (e.g. the popout dialog body). `minHeight` is still applied as
+   * a floor. Defaults to false, preserving the inline fixed-height behaviour.
+   */
+  fillHeight?: boolean;
+  /**
    * Generated ambient type definitions (the `context.d.ts`) injected as a TS
    * extra-lib so `context.*` resolves with real fields. Wired up once per
    * editor at mount, keyed by a unique path - no addExtraLib race.
@@ -356,6 +333,28 @@ export type TypefoxEditorProps = {
   readOnly?: boolean;
   /** Accessible label / hint for the editor (surfaced via aria-label). */
   placeholder?: string;
+  /**
+   * Lazy Automatic Type Acquisition resolver. When provided (TS/JS editors),
+   * bare `import`/`require` specifiers in the buffer are parsed (debounced)
+   * and each NEW package's `.d.ts` closure is fetched + registered so e.g.
+   * `import { debounce } from "lodash"` autocompletes. Injected by the
+   * consumer so this component stays plugin-agnostic.
+   */
+  acquireTypes?: AcquireTypes;
+  /**
+   * Install identity (lockfile hash). When it changes, the shared acquired-set
+   * resets so types refresh against the new install.
+   */
+  acquireResetKey?: string;
+  /**
+   * Importable installed package NAMES (TS/JS editors). When provided, the
+   * editor suggests these as completions while the cursor is inside an import
+   * specifier string (`import {} from "lod"` -> `lodash`) - solving the
+   * lazy-ATA catch-22 where no module is registered yet. Must already exclude
+   * `@types/*` companions (you import `lodash`, never `@types/lodash`).
+   * Injected by the consumer so this component stays plugin-agnostic.
+   */
+  importablePackages?: string[];
 };
 
 /**
@@ -382,18 +381,30 @@ const languageStatusServiceOverride: monaco.editor.IEditorOverrideServices =
       : {};
   })();
 
+// Always-available runtime built-in import specifiers (Node + Bun), derived at
+// build time from the bundled stdlib types. These are importable in the script
+// sandbox regardless of the installed-package allowlist (the sandbox is a Bun
+// subprocess; Bun provides Node's builtins + its own `bun:` modules), and their
+// types are already loaded ambiently via the stdlib bundle - so completing one
+// needs no lazy acquisition. The JSON is a plain `string[]`.
+const BUILTIN_MODULE_SPECIFIERS: readonly string[] = builtinModulesJson;
+
 export const TypefoxEditor = ({
   id,
   value,
   onChange,
   language = "typescript",
   minHeight = 240,
+  fillHeight = false,
   typeDefinitions,
   templateProperties,
   shellEnvVars,
   markers,
   readOnly = false,
   placeholder,
+  acquireTypes,
+  acquireResetKey,
+  importablePackages,
 }: TypefoxEditorProps) => {
   // `MonacoEditorReactComp` captures `onTextChanged` once at editor-start, so
   // the handler it calls would otherwise close over a stale `onChange` (bound
@@ -437,6 +448,138 @@ export const TypefoxEditor = ({
       lib.dispose();
     };
   }, [isTsLike, typeDefinitions, modelId]);
+
+  // Lazy Automatic Type Acquisition (ATA). For TS/JS editors with an injected
+  // `acquireTypes` resolver, parse the buffer's bare import/require specifiers
+  // (debounced) and fetch + register each NEW package's `.d.ts` closure, so
+  // `import { x } from "pkg"` autocompletes. The acquired-set is module-scoped
+  // and shared across editors (the declarations are install-global); the pure
+  // parse/plan steps are unit-tested in importSpecifiers.test.ts. Re-running
+  // on a new `acquireTypes`/`acquireResetKey` identity is cheap and safe — the
+  // module-scoped acquired-set dedupes, so it never double-fetches.
+  useEffect(() => {
+    if (!apiReady || !isTsLike || acquireTypes === undefined) {
+      return;
+    }
+    const model = findModelById(modelId);
+    if (!model) {
+      return;
+    }
+
+    const acquire = (source: string): void => {
+      void runTypeAcquisition({
+        source,
+        acquireTypes,
+        resetKey: acquireResetKey,
+      });
+    };
+
+    // Run once for the initial content so existing imports resolve on open.
+    acquire(model.getValue());
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const subscription = model.onDidChangeContent(() => {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = setTimeout(() => {
+        acquire(model.getValue());
+      }, 400);
+    });
+    return () => {
+      if (timer !== undefined) clearTimeout(timer);
+      subscription.dispose();
+    };
+  }, [apiReady, isTsLike, acquireTypes, acquireResetKey, modelId]);
+
+  // Controlled-value sync. `value` is only seeded into the model at mount
+  // (codeResources), so the editor is otherwise uncontrolled. Apply external
+  // `value` changes — a sibling editor's edits (the inline ↔ popout pair share
+  // one controlled `value`), a YAML→Visual reset, a loaded definition — to this
+  // model. Guarded by an equality check: the user's own edit round-trips
+  // `value === model.getValue()`, so the actively-edited editor is a no-op and
+  // there is no feedback loop; only a background editor whose `value` prop
+  // diverged gets updated.
+  useEffect(() => {
+    if (!apiReady) return;
+    const model = findModelById(modelId);
+    if (!model || model.getValue() === value) return;
+    model.setValue(value);
+  }, [apiReady, modelId, value]);
+
+  // Import-specifier name completions. Lazy ATA only registers a package's
+  // types AFTER its name is in the buffer, so while the user is still TYPING
+  // the specifier (`import {} from "lod"`) no module exists yet and the TS
+  // worker offers nothing. This provider fills that gap: when the cursor is
+  // inside an import/require string (detected by the unit-tested
+  // `importSpecifierCompletionContext`), it suggests:
+  //   - the always-available runtime built-ins (`node:fs`, `bun`, ...), so
+  //     they appear even with an empty allowlist; AND
+  //   - the injected installed-package names (already `@types/*`-free).
+  // Selecting a built-in inserts an already-typed module; selecting an
+  // installed package triggers the ATA loop to load its closure. The list is
+  // merged + deduped + sorted by `mergeImportCompletionEntries` (a unit-tested
+  // pure helper). Built-ins read as "Node.js" / "Bun built-in" via `detail`.
+  // Scoped to THIS model; only the import-string position triggers it, so it
+  // never pollutes normal completions. Always registered (built-ins are
+  // always available), independent of the allowlist.
+  useEffect(() => {
+    if (!apiReady || !isTsLike) {
+      return;
+    }
+    const entries = mergeImportCompletionEntries({
+      builtins: BUILTIN_MODULE_SPECIFIERS,
+      installedPackages: importablePackages ?? [],
+    });
+
+    const provideCompletionItems = (
+      model: monaco.editor.ITextModel,
+      position: monaco.Position,
+    ): monaco.languages.CompletionList => {
+      if (!model.uri.toString().includes(modelId)) {
+        return { suggestions: [] };
+      }
+      const lineUpToCursor = model
+        .getLineContent(position.lineNumber)
+        .slice(0, position.column - 1);
+      const ctx = importSpecifierCompletionContext(lineUpToCursor);
+      if (!ctx) {
+        return { suggestions: [] };
+      }
+      // Replace the whole partial specifier (between the quotes) without
+      // touching the quotes themselves.
+      const range = {
+        startLineNumber: position.lineNumber,
+        startColumn: ctx.replaceFromColumn,
+        endLineNumber: position.lineNumber,
+        endColumn: position.column,
+      };
+      return {
+        suggestions: entries.map((entry) => ({
+          label: entry.name,
+          kind: monaco.languages.CompletionItemKind.Module,
+          detail: entry.detail,
+          insertText: entry.name,
+          filterText: entry.name,
+          range,
+        })),
+        // The list is the full known set; let monaco filter by `partial`.
+        incomplete: false,
+      };
+    };
+
+    const disposables = (["typescript", "javascript"] as const).map((lang) =>
+      monaco.languages.registerCompletionItemProvider(lang, {
+        // Opening quotes start a specifier; `:` advances into a `node:`/`bun:`
+        // builtin; `/` advances into a scoped name or subpath.
+        triggerCharacters: ['"', "'", "/", ":"],
+        provideCompletionItems,
+      }),
+    );
+    return () => {
+      for (const disposable of disposables) {
+        disposable.dispose();
+      }
+    };
+  }, [apiReady, isTsLike, importablePackages, modelId]);
 
   // Type-driven bracket-notation completions. The standalone TS worker omits
   // object members whose keys aren't valid identifiers (artifact ids like
@@ -816,7 +959,7 @@ export const TypefoxEditor = ({
       // Plain editor, no workbench views.
       $type: "EditorService",
     },
-    monacoWorkerFactory: configureStandaloneWorkerFactory,
+    monacoWorkerFactory: ensureStandaloneWorkerFactory,
   };
 
   const editorAppConfig: EditorAppConfig = {
@@ -850,9 +993,17 @@ export const TypefoxEditor = ({
     onChangeRef.current?.(textChanges.modified ?? "");
   };
 
+  // In `fillHeight` mode the container takes its parent's height so Monaco's
+  // `automaticLayout` resizes to fill a tall flex column (the popout body);
+  // `minHeight` stays as a floor. Otherwise the inline fixed-px behaviour is
+  // preserved exactly.
+  const containerStyle: CSSProperties = fillHeight
+    ? { minHeight: `${minHeight}px`, height: "100%" }
+    : { minHeight: `${minHeight}px`, height: `${minHeight}px` };
+
   return (
     <MonacoEditorReactComp
-      style={{ minHeight: `${minHeight}px`, height: `${minHeight}px` }}
+      style={containerStyle}
       vscodeApiConfig={vscodeApiConfig}
       editorAppConfig={editorAppConfig}
       onTextChanged={handleTextChanged}
@@ -862,6 +1013,11 @@ export const TypefoxEditor = ({
         // once, so a second editor never gets its own onVscodeApiInitDone - but
         // onEditorStartDone fires for each editor instance.
         setApiReady(true);
+        // The monaco-vscode services are now up. Let the headless script
+        // validator know it may safely use the worker (it must never init the
+        // services itself - that would collide with this wrapper's one-time
+        // init and throw "Services are already initialized").
+        markVscodeServicesReady();
       }}
     />
   );

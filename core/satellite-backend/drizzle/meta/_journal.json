@@ -8,6 +8,20 @@
       "when": 1776590977685,
       "tag": "0000_melted_gargoyle",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780215564477,
+      "tag": "0001_tiresome_terror",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780221476961,
+      "tag": "0002_graceful_mac_gargan",
+      "breakpoints": true
     }
   ]
 }

@@ -216,10 +216,29 @@ describe("createTemplateCompletionProvider — expression mode", () => {
   it("treats the whole value as an expression (no {{ needed)", () => {
     const result = provider({ value: "trigger.payload.sev", cursor: 19 });
     expect(result!.heading).toBe("Fields");
-    // Field insert in expression mode never appends braces, but does
-    // append a trailing space to advance to the operator stage.
+    // Field insert in expression mode inserts the BARE path with NO trailing
+    // space and no braces — a path is a complete expression on its own. The
+    // operator stage only fires after a MANUAL space, so picking a field
+    // doesn't pop comparators/filters and imply a comparison is required.
     const severity = result!.items.find((i) => i.label.includes("severity"));
-    expect(severity?.insertText).toBe("trigger.payload.severity ");
+    expect(severity?.insertText).toBe("trigger.payload.severity");
+  });
+
+  it("does NOT auto-advance to operators after a field is inserted", () => {
+    // No trailing space (as the field insert now leaves it) → still the field
+    // stage, not the operator stage. Operators require a manual space.
+    const noSpace = provider({
+      value: "trigger.payload.severity",
+      cursor: "trigger.payload.severity".length,
+    });
+    expect(noSpace!.heading).toBe("Fields");
+
+    // A manual trailing space advances to the operator stage.
+    const withSpace = provider({
+      value: "trigger.payload.severity ",
+      cursor: "trigger.payload.severity ".length,
+    });
+    expect(withSpace!.heading).toBe("Operators");
   });
 
   it("suggests enum values after a comparator", () => {

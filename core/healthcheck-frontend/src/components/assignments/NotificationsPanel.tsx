@@ -1,6 +1,6 @@
 import React from "react";
 import type { NotificationPolicy } from "@checkstack/healthcheck-common";
-import { Button, Input, Label, Toggle, Tooltip } from "@checkstack/ui";
+import { Button, Label, Toggle, Tooltip } from "@checkstack/ui";
 
 interface NotificationsPanelProps {
   policy: NotificationPolicy;
@@ -25,6 +25,12 @@ interface NotificationsPanelProps {
  * Panel for configuring per-association notification behaviour. All
  * settings are scoped to a single (system, configuration) assignment
  * — different checks on the same system are independent.
+ *
+ * Auto-incident opening/closing is no longer configured here: it ships
+ * as ordinary user automations. Flapping thresholds likewise moved onto
+ * the automation engine's windowed-count gate (the
+ * `healthcheck.system_health_changed` trigger's `window` block). What
+ * remains is the de-escalation notification preference.
  */
 export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
   policy,
@@ -56,7 +62,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
         <h3 className="text-sm font-semibold">Notifications</h3>
         <p className="text-xs text-muted-foreground mt-1">
           Control which health state transitions notify subscribers for this
-          check, and when an incident is auto-opened for the system.
+          check.
         </p>
       </div>
 
@@ -133,241 +139,6 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
             aria-label="Suppress de-escalation notifications"
           />
         </div>
-      </div>
-
-      {/* Auto-open incident */}
-      <div className="p-4 bg-muted/50 rounded-lg border space-y-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <Label className="text-sm font-medium">
-                Auto-open incident when this check is critical
-              </Label>
-              <Tooltip content="When either trigger below fires, an incident is auto-opened on the system. Different checks on the same system are independent — disabling here only affects this check." />
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              One incident per outage instead of one ping per state change.
-              Especially useful for Jira / Slack / email — the incident's
-              suppression silences downstream channels for the lifetime of
-              the incident.
-            </p>
-          </div>
-          <Toggle
-            checked={policy.autoOpenIncidentOnUnhealthy}
-            onCheckedChange={(checked: boolean) =>
-              onChange({ ...policy, autoOpenIncidentOnUnhealthy: checked })
-            }
-            disabled={disabled}
-            aria-label="Auto-open incident when this check is critical"
-          />
-        </div>
-
-        {policy.autoOpenIncidentOnUnhealthy && (
-          <div className="pl-4 border-l-2 border-border space-y-4">
-            {/* Suppress further notifications */}
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <Label className="text-sm">
-                  Suppress further notifications while open
-                </Label>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Email, Jira, Slack all silenced for this system until the
-                  incident is resolved.
-                </p>
-              </div>
-              <Toggle
-                checked={policy.useNotificationSuppression}
-                onCheckedChange={(checked: boolean) =>
-                  onChange({
-                    ...policy,
-                    useNotificationSuppression: checked,
-                  })
-                }
-                disabled={disabled}
-                aria-label="Suppress further notifications while open"
-              />
-            </div>
-
-            {/* Skip during maintenance */}
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <Label className="text-sm">
-                  Skip during active maintenance
-                </Label>
-                <p className="text-xs text-muted-foreground mt-1">
-                  No auto-incident is opened while the system has an active
-                  maintenance window with suppression.
-                </p>
-              </div>
-              <Toggle
-                checked={policy.skipDuringMaintenance}
-                onCheckedChange={(checked: boolean) =>
-                  onChange({ ...policy, skipDuringMaintenance: checked })
-                }
-                disabled={disabled}
-                aria-label="Skip auto-incident during active maintenance"
-              />
-            </div>
-
-            {/* Sustained-duration trigger */}
-            <div className="space-y-2 pt-2 border-t border-border">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2">
-                  <Label className="text-sm">
-                    Open when unhealthy continuously
-                  </Label>
-                  <Tooltip content="Catches real outages: the check has stayed unhealthy for at least this long without recovering." />
-                </div>
-                <Toggle
-                  checked={policy.sustainedUnhealthyTrigger.enabled}
-                  onCheckedChange={(checked: boolean) =>
-                    onChange({
-                      ...policy,
-                      sustainedUnhealthyTrigger: {
-                        ...policy.sustainedUnhealthyTrigger,
-                        enabled: checked,
-                      },
-                    })
-                  }
-                  disabled={disabled}
-                  aria-label="Enable sustained-unhealthy trigger"
-                />
-              </div>
-              {policy.sustainedUnhealthyTrigger.enabled && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>Open after</span>
-                  <Input
-                    type="number"
-                    min={1}
-                    className="h-8 w-16 text-center"
-                    value={policy.sustainedUnhealthyTrigger.durationMinutes}
-                    onChange={(e) =>
-                      onChange({
-                        ...policy,
-                        sustainedUnhealthyTrigger: {
-                          ...policy.sustainedUnhealthyTrigger,
-                          durationMinutes:
-                            Number.parseInt(e.target.value, 10) || 1,
-                        },
-                      })
-                    }
-                    disabled={disabled}
-                  />
-                  <span>minutes of continuous unhealthy state</span>
-                </div>
-              )}
-            </div>
-
-            {/* Flapping trigger */}
-            <div className="space-y-2 pt-2 border-t border-border">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2">
-                  <Label className="text-sm">Open on flapping</Label>
-                  <Tooltip content="Catches checks that flip in and out of unhealthy too quickly for the sustained trigger to fire." />
-                </div>
-                <Toggle
-                  checked={policy.flappingTrigger.enabled}
-                  onCheckedChange={(checked: boolean) =>
-                    onChange({
-                      ...policy,
-                      flappingTrigger: {
-                        ...policy.flappingTrigger,
-                        enabled: checked,
-                      },
-                    })
-                  }
-                  disabled={disabled}
-                  aria-label="Enable flapping trigger"
-                />
-              </div>
-              {policy.flappingTrigger.enabled && (
-                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span>Open after</span>
-                  <Input
-                    type="number"
-                    min={1}
-                    className="h-8 w-16 text-center"
-                    value={policy.flappingTrigger.transitions}
-                    onChange={(e) =>
-                      onChange({
-                        ...policy,
-                        flappingTrigger: {
-                          ...policy.flappingTrigger,
-                          transitions:
-                            Number.parseInt(e.target.value, 10) || 1,
-                        },
-                      })
-                    }
-                    disabled={disabled}
-                  />
-                  <span>transitions to unhealthy within</span>
-                  <Input
-                    type="number"
-                    min={1}
-                    className="h-8 w-16 text-center"
-                    value={policy.flappingTrigger.windowMinutes}
-                    onChange={(e) =>
-                      onChange({
-                        ...policy,
-                        flappingTrigger: {
-                          ...policy.flappingTrigger,
-                          windowMinutes:
-                            Number.parseInt(e.target.value, 10) || 1,
-                        },
-                      })
-                    }
-                    disabled={disabled}
-                  />
-                  <span>minutes</span>
-                </div>
-              )}
-            </div>
-
-            {/* Auto-close cooldown */}
-            <div className="space-y-2 pt-2 border-t border-border">
-              <div className="flex items-center gap-2">
-                <Label className="text-sm">Auto-close cooldown</Label>
-                <Tooltip content="Resolve the auto-incident once the system has stayed healthy for this long. Snapshotted per-incident at open time — later policy edits don't change in-flight incidents." />
-              </div>
-              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                <label className="inline-flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={policy.autoCloseAfterMinutes === null}
-                    onChange={(e) =>
-                      onChange({
-                        ...policy,
-                        autoCloseAfterMinutes: e.target.checked ? null : 30,
-                      })
-                    }
-                    disabled={disabled}
-                  />
-                  <span>Never auto-close (manual resolve only)</span>
-                </label>
-                {policy.autoCloseAfterMinutes !== null && (
-                  <div className="flex items-center gap-2">
-                    <span>After</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      className="h-8 w-16 text-center"
-                      value={policy.autoCloseAfterMinutes}
-                      onChange={(e) =>
-                        onChange({
-                          ...policy,
-                          autoCloseAfterMinutes:
-                            Number.parseInt(e.target.value, 10) || 1,
-                        })
-                      }
-                      disabled={disabled}
-                    />
-                    <span>minutes of sustained healthy</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Save button hides when the assignment is inheriting — there

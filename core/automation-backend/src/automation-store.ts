@@ -5,7 +5,7 @@
  * Returns are typed against the public `Automation` shape from
  * `@checkstack/automation-common`, with parsed `definition`.
  */
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import {
   AutomationDefinitionSchema,
@@ -29,9 +29,16 @@ export interface AutomationStore {
   getById(id: string): Promise<Automation | undefined>;
   list(filter?: {
     status?: AutomationStatus;
+    group?: string;
     limit?: number;
     offset?: number;
   }): Promise<{ items: Automation[]; total: number }>;
+
+  /**
+   * Distinct, non-null group values across all automations, sorted
+   * alphabetically. Powers the edit-page group picker suggestions.
+   */
+  listGroups(): Promise<string[]>;
 
   /**
    * Enabled automations that reference the given trigger event id in one
@@ -55,6 +62,7 @@ function mapToAutomation(
     id: row.id,
     name: row.name,
     description: row.description ?? undefined,
+    group: row.group ?? undefined,
     status: row.status === "disabled" ? "disabled" : "enabled",
     definition,
     managedBy: row.managedBy ?? undefined,
@@ -87,6 +95,7 @@ export function createAutomationStore(
         .values({
           name: input.name,
           description: input.description ?? null,
+          group: input.group ?? null,
           status: input.status,
           definition: parsedDefinition as unknown as Record<string, unknown>,
         })
@@ -103,6 +112,8 @@ export function createAutomationStore(
       if (input.name !== undefined) set.name = input.name;
       if (input.description !== undefined)
         set.description = input.description ?? null;
+      // `null` clears the group, a string sets it; `undefined` leaves it.
+      if (input.group !== undefined) set.group = input.group ?? null;
       if (input.status !== undefined) set.status = input.status;
       if (input.definition !== undefined) {
         const parsed = AutomationDefinitionSchema.parse(input.definition);
@@ -146,9 +157,12 @@ export function createAutomationStore(
     async list(filter = {}) {
       const limit = filter.limit ?? 50;
       const offset = filter.offset ?? 0;
-      const whereExpr = filter.status
-        ? eq(automations.status, filter.status)
-        : undefined;
+
+      const conditions = [];
+      if (filter.status) conditions.push(eq(automations.status, filter.status));
+      if (filter.group) conditions.push(eq(automations.group, filter.group));
+      const whereExpr =
+        conditions.length > 0 ? and(...conditions) : undefined;
 
       const rows = whereExpr
         ? await db
@@ -176,6 +190,18 @@ export function createAutomationStore(
         items: rows.map((r) => mapToAutomation(r)),
         total: countRows[0]?.c ?? 0,
       };
+    },
+
+    async listGroups() {
+      const rows = await db
+        .selectDistinct({ group: automations.group })
+        .from(automations)
+        .where(isNotNull(automations.group))
+        .orderBy(automations.group);
+      // `isNotNull` already filters NULLs; the guard narrows the type.
+      return rows
+        .map((r) => r.group)
+        .filter((g): g is string => g !== null);
     },
 
     async findEnabledByTriggerEvent(eventId) {
@@ -221,7 +247,3 @@ export function createAutomationStore(
     },
   };
 }
-
-// Silence unused-imports for the second `and` symbol (kept around for the
-// inevitable future "filter by enabled AND something" query).
-void and;

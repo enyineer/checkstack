@@ -25,6 +25,7 @@ import {
   reconcileAutomation,
   deleteAutomationEntity,
 } from "./gitops-kinds";
+import { registerAutomationGitOpsDocumentation } from "./gitops-docs";
 import { AutomationDefinitionSchema } from "@checkstack/automation-common";
 
 import type {
@@ -42,7 +43,7 @@ import { createArtifactStore } from "./artifact-store";
 import { createAutomationStore } from "./automation-store";
 import { createAutomationRouter } from "./router";
 import { runWebhookSubscriptionMigration } from "./migration/from-webhook-subscriptions";
-import { runAutoIncidentMigration } from "./migration/from-auto-incident-policies";
+import { runFlappingAutomationMigration } from "./migration/flapping-to-window";
 import {
   startDelayQueueConsumer,
   type DelayQueueConsumer,
@@ -52,10 +53,19 @@ import {
   type DwellQueueConsumer,
 } from "./dispatch/dwell-queue";
 import {
-  startWaitUntilQueueConsumer,
-  type WaitUntilQueueConsumer,
-} from "./dispatch/wait-until-queue";
+  startWaitTimeoutQueueConsumer,
+  type WaitTimeoutQueueConsumer,
+} from "./dispatch/wait-timeout-queue";
+import {
+  startDispatchQueueConsumer,
+  type DispatchQueueConsumer,
+} from "./dispatch/stage2-dispatch";
+import {
+  startStage1Router,
+  type Stage1Router,
+} from "./dispatch/stage1-router";
 import { createDwellStore } from "./dispatch/dwell-store";
+import { createWindowStore } from "./dispatch/window-store";
 import { createRunStore } from "./dispatch/run-state";
 import { createRunStateStore } from "./dispatch/run-state-store";
 import { createRunSecretRegistry } from "./dispatch/run-secret-registry";
@@ -86,6 +96,19 @@ import {
   registerBuiltinTriggers,
 } from "./builtin-triggers";
 import {
+  createChangeDeriverRegistry,
+  createChangeEmitter,
+  createEntityChangedSubscriptions,
+  createEntityRegistry,
+  createEntityStore,
+  entityExtensionPoint,
+  type ChangeDeriverRegistry,
+  type ChangeEmitter,
+  type EntityChangedSubscriptions,
+  type EntityRegistry,
+} from "./entity";
+import { ENTITY_CHANGED_HOOK } from "./entity/hook";
+import {
   createNotifyUserAction,
   logAction,
   notifyUserArtifactType,
@@ -103,11 +126,17 @@ interface EnvStash {
   artifactTypeRegistry: ArtifactTypeRegistry;
   dispatchDeps: DispatchDeps;
   automationStore: ReturnType<typeof createAutomationStore>;
+  entityRegistry: EntityRegistry;
+  entityChangeEmitter: ChangeEmitter;
+  entityChangedSubscriptions: EntityChangedSubscriptions;
+  changeDerivers: ChangeDeriverRegistry;
   triggerSubscriptions?: TriggerSubscriptions;
   stalledSweeper?: StalledSweeper;
   delayConsumer?: DelayQueueConsumer;
   dwellConsumer?: DwellQueueConsumer;
-  waitUntilConsumer?: WaitUntilQueueConsumer;
+  waitTimeoutConsumer?: WaitTimeoutQueueConsumer;
+  dispatchConsumer?: DispatchQueueConsumer;
+  stage1Router?: Stage1Router;
 }
 
 export default createBackendPlugin({
@@ -127,7 +156,44 @@ export default createBackendPlugin({
     // this same instance, so plugin filters are live by `init()`.
     const filterRegistry: FilterRegistry = createDefaultFilterRegistry();
 
+    // Run-scoped secret registry — created here in `register()` (it has no
+    // deps) so the SAME instance backs both the dispatch masking choke
+    // points (wired in `init()`) and the entity-store masking choke point
+    // (run-originated entity writes mask through this in the handle).
+    const secretRegistry = createRunSecretRegistry();
+
+    // Entity state machine (reactive automation engine §4). The change
+    // emitter buffers until `emitHook` is wired in `afterPluginsReady`
+    // (§3.7); the registry exposes `defineEntity` / `declareNonReactiveState`
+    // through the extension point below, callable from other plugins'
+    // `register`/`init`. The DB-backed store is bound in `init()` (after
+    // migrations run).
+    const entityChangeEmitter = createChangeEmitter();
+    const entityRegistry = createEntityRegistry({
+      secretRegistry,
+      emitter: entityChangeEmitter,
+    });
+
+    // Reactive dispatch pipeline (reactive automation engine §7). The
+    // change-deriver registry maps a kind's change → trigger event id(s)
+    // for Stage-1 routing; per-domain derivers are registered in Phase 4.
+    // The entity-changed subscription service rides ENTITY_CHANGED (filtered
+    // by kind) so other plugins can react without touching the internal hook
+    // (§6.1). Both buffer registrations made before afterPluginsReady wires
+    // the real `onHook`.
+    const changeDerivers = createChangeDeriverRegistry();
+    const entityChangedSubscriptions = createEntityChangedSubscriptions();
+
     env.registerAccessRules(automationAccessRules);
+
+    // Phase 1: register the entity extension point so other plugins can
+    // resolve it and call `defineEntity` during their own register/init.
+    env.registerExtensionPoint(entityExtensionPoint, {
+      defineEntity: entityRegistry.defineEntity,
+      declareNonReactiveState: entityRegistry.declareNonReactiveState,
+      onEntityChanged: entityChangedSubscriptions.onEntityChanged,
+      registerChangeDeriver: (input) => changeDerivers.register(input),
+    });
 
     env.registerExtensionPoint(automationTriggerExtensionPoint, {
       registerTrigger: <TPayload, TConfig = void>(
@@ -208,6 +274,21 @@ export default createBackendPlugin({
       },
     });
 
+    // Register the GitOps spec-schema documentation PROVIDER for the
+    // `Automation` kind HERE in register() (not afterPluginsReady). It is a
+    // LAZY provider: it re-reads the trigger/action registries on every
+    // kind-browser query (`describeKinds()`), so it needs no populated
+    // registries at registration time — registering it early, before any
+    // init / afterPluginsReady ordering, guarantees it is always present.
+    // Surfaces each trigger's / provider action's config schema in the Kind
+    // Registry, conditioned on the chosen `triggers[].event` /
+    // `actions[].action`.
+    registerAutomationGitOpsDocumentation({
+      kindRegistry,
+      triggerRegistry,
+      actionRegistry,
+    });
+
     env.registerInit({
       schema,
       deps: {
@@ -232,12 +313,11 @@ export default createBackendPlugin({
         // Populate the mutable DB ref the GitOps reconcile closures read.
         gitopsDb = database as SafeDatabase<typeof schema>;
 
-        // Run-scoped secret registry: accumulates every secret value
-        // resolved during a run so every persistence choke point (run
-        // store step/run output, run-state scope snapshot, artifact data)
-        // masks before write (run-wide leak guard across ALL actions, and
-        // across replay reads).
-        const secretRegistry = createRunSecretRegistry();
+        // Run-scoped secret registry: created in `register()` (the SAME
+        // instance) so it accumulates every secret value resolved during a
+        // run and every persistence choke point (run store step/run output,
+        // run-state scope snapshot, artifact data, AND run-originated entity
+        // writes) masks before write.
         const artifactStore = createArtifactStore(database, secretRegistry);
         const runStore = createRunStore(database, logger, secretRegistry);
         const runStateStore = createRunStateStore(
@@ -246,7 +326,16 @@ export default createBackendPlugin({
           secretRegistry,
         );
         const dwellStore = createDwellStore(database);
+        const windowStore = createWindowStore(database);
         const automationStore = createAutomationStore(database);
+
+        // Bind the DB-backed transition store to the registry (the extension
+        // point impl registered in `register()` forwards through it). Model B:
+        // the transition store owns the tx + `entity_transitions` log for
+        // EVERY kind. Bound here in `init()` — after migrations have run — so
+        // the table exists.
+        const entityStore = createEntityStore(database);
+        entityRegistry.setStore({ store: entityStore });
 
         env.registerService(automationArtifactStoreRef, artifactStore);
         env.registerService(automationRegistriesRef, {
@@ -312,11 +401,19 @@ export default createBackendPlugin({
           runStore,
           runStateStore,
           dwellStore,
+          windowStore,
           queueManager,
           // Sensing-layer scope pre-resolution reads live health state
           // through this client. forPlugin is lazy; the actual RPC only
           // fires at evaluation time.
           healthCheckClient: rpcClient.forPlugin(HealthCheckApi),
+          // Kind-agnostic entity resolver for reactive `wait_until` wake
+          // re-evaluation (Model B): the registry routes each kind to its
+          // plugin `read` accessor. Unknown kinds
+          // yield `undefined` (enrichment leaves them unresolved, fail-open).
+          // This is what lets a wait on `state.<kind>.<id>` (incident, slo, …)
+          // re-evaluate correctly when that kind changes (not just health).
+          entityResolverFor: (kind) => entityRegistry.entityResolverFor(kind),
           // Registry-backed resolution of provider-action deps (connection
           // store, secret resolver, ...) at execute time. Safe here because
           // dispatch only runs from afterPluginsReady onward, by which point
@@ -345,6 +442,10 @@ export default createBackendPlugin({
         stash.artifactTypeRegistry = artifactTypeRegistry;
         stash.dispatchDeps = dispatchDeps;
         stash.automationStore = automationStore;
+        stash.entityRegistry = entityRegistry;
+        stash.entityChangeEmitter = entityChangeEmitter;
+        stash.entityChangedSubscriptions = entityChangedSubscriptions;
+        stash.changeDerivers = changeDerivers;
 
         const router = createAutomationRouter({
           db: database,
@@ -392,20 +493,42 @@ export default createBackendPlugin({
         env.registerCleanup(async () => {
           const s = env as unknown as EnvStash;
           await s.triggerSubscriptions?.dispose();
+          await s.stage1Router?.dispose();
+          await s.entityChangedSubscriptions?.disposeAll();
           s.stalledSweeper?.stop();
           await s.delayConsumer?.stop();
           await s.dwellConsumer?.stop();
-          await s.waitUntilConsumer?.stop();
+          await s.waitTimeoutConsumer?.stop();
+          await s.dispatchConsumer?.stop();
         });
 
         logger.debug("✅ Automation Backend initialized.");
       },
 
-      afterPluginsReady: async ({ database, logger, onHook, rpcClient }) => {
+      afterPluginsReady: async ({
+        database,
+        logger,
+        onHook,
+        emitHook,
+        rpcClient,
+      }) => {
         const stash = env as unknown as EnvStash;
         const triggers = stash.triggerRegistry.getTriggers();
         const actions = stash.actionRegistry.getActions();
         const artifactTypes = stash.artifactTypeRegistry.getArtifactTypes();
+
+        // Wire the deferred entity-change emitter to the real `emitHook`
+        // (only injectable here — §3.7). Any change events buffered during
+        // the init / afterPluginsReady window are flushed in order now, so
+        // there is no silent no-emit gap.
+        await stash.entityChangeEmitter.wire((payload) =>
+          emitHook(ENTITY_CHANGED_HOOK, payload),
+        );
+
+        // Wire the public cross-plugin entity-change subscription service
+        // (§6.1). Subscriptions registered by other plugins during their
+        // register/init are bound to the real `onHook` now.
+        stash.entityChangedSubscriptions.wire({ onHook, logger });
 
         logger.debug(
           `⚙️  Registered ${triggers.length} automation triggers${
@@ -455,11 +578,35 @@ export default createBackendPlugin({
           logger,
         });
 
-        // `wait_until`: register the consumer that re-checks a suspended
-        // run's condition on each poll tick.
-        stash.waitUntilConsumer = await startWaitUntilQueueConsumer({
+        // Reactive `wait_until` timeout timer: the consumer that fires when
+        // a suspended wait's single deadline job pops, applying the
+        // continue/fail-on-timeout policy. Reactive waits are otherwise woken
+        // by Stage-1 routing on a relevant ENTITY_CHANGED (no polling).
+        stash.waitTimeoutConsumer = await startWaitTimeoutQueueConsumer({
           deps: stash.dispatchDeps,
           automationStore: stash.automationStore,
+          logger,
+        });
+
+        // Stage-2 dispatch fan-out: the consumer that runs each per-run
+        // dispatch job enqueued by Stage-1 routing (reason: trigger →
+        // dispatchTrigger; reason: wake → resume the suspended wait_until).
+        stash.dispatchConsumer = await startDispatchQueueConsumer({
+          deps: stash.dispatchDeps,
+          automationStore: stash.automationStore,
+          changeDerivers: stash.changeDerivers,
+          logger,
+        });
+
+        // Stage-1 routing: claim each ENTITY_CHANGED on the
+        // `automation-entity-route` work-queue (exactly one instance), do
+        // cheap indexed routing (wake-index intersection + trigger-event
+        // derivation), and enqueue Stage-2 jobs.
+        stash.stage1Router = await startStage1Router({
+          deps: stash.dispatchDeps,
+          automationStore: stash.automationStore,
+          changeDerivers: stash.changeDerivers,
+          onHook,
           logger,
         });
 
@@ -490,19 +637,16 @@ export default createBackendPlugin({
           );
         }
 
-        // One-time migration (Phase 20): replace the removed hardcoded
-        // auto-incident path with default automations seeded per
-        // assignment from each system's NotificationPolicy. Idempotent
-        // (managed_by tagged), so safe on every boot.
+        // One-time migration: rewrite legacy `healthcheck.flapping_detected`
+        // triggers onto the generic windowed-count gate over
+        // `healthcheck.system_health_changed` (the flapping trigger + hook
+        // were removed). Idempotent — already-migrated / non-flapping rows are
+        // skipped — so it is safe to run on every boot.
         try {
-          await runAutoIncidentMigration({
-            db: database,
-            rpcClient,
-            logger,
-          });
+          await runFlappingAutomationMigration({ db: database, logger });
         } catch (error) {
           logger.error(
-            `Auto-incident migration failed unexpectedly: ${extractErrorMessage(error, "unknown error")}`,
+            `Flapping automation migration failed unexpectedly: ${extractErrorMessage(error, "unknown error")}`,
           );
         }
 
@@ -522,6 +666,37 @@ export {
   automationArtifactStoreRef,
 } from "./extension-points";
 
+// Entity state machine — the typed path to reactive state. The internal
+// ENTITY_CHANGED hook is intentionally NOT re-exported (§6.1).
+export { entityExtensionPoint } from "./entity";
+export { withEntityWrite, withEntityRemove } from "./entity";
+export type {
+  EntityExtensionPoint,
+  DefineEntity,
+  DefineEntityInput,
+  DeclareNonReactiveState,
+  DeclareNonReactiveStateInput,
+  EntityHandle,
+  EntityMutationOpts,
+  EntityRead,
+  MutateInput,
+  RemoveInput,
+  EntityTx,
+  EntityChangeDeriver,
+  EntityChangePayloadMapper,
+  RegisterChangeDeriver,
+  OnEntityChanged,
+  OnEntityChangedInput,
+  EntityChangedHandler,
+  EntityChangedDelivery,
+  EntityChangedUnsubscribe,
+} from "./entity";
+
+// The validated entity-change payload (Phase 4 derivers + cross-plugin
+// consumers type against this). Re-exported from automation-common so a
+// domain plugin needs only the automation-backend dependency.
+export type { EntityChanged } from "@checkstack/automation-common";
+
 export type {
   TriggerDefinition,
   ActionDefinition,
@@ -537,9 +712,12 @@ export type {
   TriggerTeardown,
 } from "./action-types";
 
+export { makeEntityDrivenTriggerSetup } from "./entity-driven-trigger";
+
 export type { ArtifactStore, PersistedArtifact } from "./artifact-store";
 export type { TriggerRegistry } from "./trigger-registry";
 export type { ActionRegistry } from "./action-registry";
 export type { ArtifactTypeRegistry } from "./artifact-type-registry";
 export type { AutomationRegistries } from "./extension-points";
 export type { AutomationStore } from "./automation-store";
+export type { LoadedAutomation } from "./dispatch/types";

@@ -300,10 +300,21 @@ export const BackendConfigCard: React.FC<{
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Secret values are write-only. They are stored encrypted (or read
-          through from Vault) and never displayed or returned by the API; the
-          list below shows only names and metadata. Reference a secret with{" "}
-          <code>{"${{ secrets.NAME }}"}</code>.
+          {config?.writable === false ? (
+            <>
+              This backend is read-through: secret values are managed in the
+              external store and only their names are indexed here. The list
+              below shows names and metadata only. Reference a secret with{" "}
+              <code>{"${{ secrets.NAME }}"}</code>.
+            </>
+          ) : (
+            <>
+              Secret values are write-only. They are stored encrypted and never
+              displayed or returned by the API; the list below shows only names
+              and metadata. Reference a secret with{" "}
+              <code>{"${{ secrets.NAME }}"}</code>.
+            </>
+          )}
         </p>
       </CardContent>
     </Card>

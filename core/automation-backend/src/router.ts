@@ -146,14 +146,24 @@ export function createAutomationRouter(deps: RouterDeps) {
     // ─── Automations CRUD ────────────────────────────────────────────────
 
     listAutomations: os.listAutomations.handler(async ({ input }) => {
-      const { limit, offset, status } = input;
-      const result = await automationStore.list({ limit, offset, status });
+      const { limit, offset, status, group } = input;
+      const result = await automationStore.list({
+        limit,
+        offset,
+        status,
+        group,
+      });
       return {
         items: result.items,
         total: result.total,
         limit,
         offset,
       };
+    }),
+
+    listAutomationGroups: os.listAutomationGroups.handler(async () => {
+      const groups = await automationStore.listGroups();
+      return { groups };
     }),
 
     getAutomation: os.getAutomation.handler(async ({ input }) => {
@@ -452,6 +462,7 @@ export function createAutomationRouter(deps: RouterDeps) {
           ownerPluginId: t.ownerPluginId,
           payloadSchema: t.payloadJsonSchema,
           configSchema: t.configJsonSchema,
+          contextKeyLabel: t.contextKeyLabel,
         }));
       return { items };
     }),

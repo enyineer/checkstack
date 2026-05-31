@@ -51,6 +51,15 @@ export interface ConditionEditorProps {
   completionProvider: TemplateCompletionProvider;
   /** Render without the wrapping card - used when inlining inside an action card. */
   bare?: boolean;
+  /**
+   * Suppress the inline kind `Select`. Used only for the top-level condition in
+   * the Conditions-section sheet, where the kind is chosen up front via
+   * `AddConditionDialog` (swap kind = delete + re-add, matching actions).
+   * Nested combinator children and the action `condition`-guard body do NOT
+   * set this, so their inline selector stays. The `expr` "fx" picker still
+   * renders when the kind is `expr`, even with the selector hidden.
+   */
+  hideKindSelector?: boolean;
   depth?: number;
 }
 
@@ -74,60 +83,69 @@ export const ConditionEditor: React.FC<ConditionEditorProps> = ({
   variableNodes,
   completionProvider,
   bare,
+  hideKindSelector,
   depth = 0,
 }) => {
   const kind = kindOf(value);
 
   const body = (
     <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <Select
-          value={kind}
-          onValueChange={(next) =>
-            onChange(defaultForKind(next as ConditionKind))
-          }
-        >
-          <SelectTrigger className="h-7 w-40 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {/* Structured kinds are the common case and lead the list. */}
-            <SelectGroup>
-              <SelectLabel>Structured</SelectLabel>
-              <SelectItem value="numeric_state">numeric state</SelectItem>
-              <SelectItem value="time">time of day</SelectItem>
-              <SelectItem value="state">system state</SelectItem>
-            </SelectGroup>
-            <SelectSeparator />
-            <SelectGroup>
-              <SelectLabel>Logical</SelectLabel>
-              <SelectItem value="and">and</SelectItem>
-              <SelectItem value="or">or</SelectItem>
-              <SelectItem value="not">not</SelectItem>
-            </SelectGroup>
-            <SelectSeparator />
-            {/* Raw expression stays the escape hatch for anything the
-                structured variants don't cover — de-emphasised at the bottom,
-                but still reachable. */}
-            <SelectGroup>
-              <SelectLabel>Advanced</SelectLabel>
-              <SelectItem value="expr">expression</SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-        {kind === "expr" && (
-          <VariablePicker
-            scope={variableNodes}
-            onSelect={(path) => {
-              // Conditions are bare expressions - insert the raw path,
-              // not a `{{ … }}`-wrapped reference.
-              const before = typeof value === "string" ? value : "";
-              const sep = before.length > 0 && !before.endsWith(" ") ? " " : "";
-              onChange(`${before}${sep}${path}`);
-            }}
-          />
-        )}
-      </div>
+      {/* The top row holds the kind selector and the `expr` "fx" picker. Render
+          it when EITHER is present; omit it entirely (e.g. hidden selector on a
+          non-expr top-level condition) so no empty row remains. */}
+      {(!hideKindSelector || kind === "expr") && (
+        <div className="flex items-center gap-2">
+          {!hideKindSelector && (
+            <Select
+              value={kind}
+              onValueChange={(next) =>
+                onChange(defaultForKind(next as ConditionKind))
+              }
+            >
+              <SelectTrigger className="h-7 w-40 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {/* Structured kinds are the common case and lead the list. */}
+                <SelectGroup>
+                  <SelectLabel>Structured</SelectLabel>
+                  <SelectItem value="numeric_state">numeric state</SelectItem>
+                  <SelectItem value="time">time of day</SelectItem>
+                  <SelectItem value="state">system state</SelectItem>
+                </SelectGroup>
+                <SelectSeparator />
+                <SelectGroup>
+                  <SelectLabel>Logical</SelectLabel>
+                  <SelectItem value="and">and</SelectItem>
+                  <SelectItem value="or">or</SelectItem>
+                  <SelectItem value="not">not</SelectItem>
+                </SelectGroup>
+                <SelectSeparator />
+                {/* Raw expression stays the escape hatch for anything the
+                    structured variants don't cover — de-emphasised at the
+                    bottom, but still reachable. */}
+                <SelectGroup>
+                  <SelectLabel>Advanced</SelectLabel>
+                  <SelectItem value="expr">expression</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          )}
+          {kind === "expr" && (
+            <VariablePicker
+              scope={variableNodes}
+              onSelect={(path) => {
+                // Conditions are bare expressions - insert the raw path,
+                // not a `{{ … }}`-wrapped reference.
+                const before = typeof value === "string" ? value : "";
+                const sep =
+                  before.length > 0 && !before.endsWith(" ") ? " " : "";
+                onChange(`${before}${sep}${path}`);
+              }}
+            />
+          )}
+        </div>
+      )}
 
       {kind === "expr" && (
         <TemplateValueInput

@@ -36,6 +36,48 @@
       "when": 1780149946844,
       "tag": "0004_cultured_spyke",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780189837825,
+      "tag": "0005_classy_the_hand",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780192006216,
+      "tag": "0006_burly_wallop",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780216684007,
+      "tag": "0007_nappy_jackal",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780246726759,
+      "tag": "0008_remove_seeded_auto_incident_automations",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1780248673895,
+      "tag": "0009_steady_liz_osborn",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1780250068979,
+      "tag": "0010_chunky_changeling",
+      "breakpoints": true
     }
   ]
 }

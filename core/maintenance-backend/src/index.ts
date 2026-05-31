@@ -16,6 +16,8 @@ import {
   automationActionExtensionPoint,
   automationArtifactTypeExtensionPoint,
   automationTriggerExtensionPoint,
+  entityExtensionPoint,
+  type EntityHandle,
 } from "@checkstack/automation-backend";
 import {
   NotificationApi,
@@ -33,6 +35,14 @@ import {
   maintenanceArtifactType,
   maintenanceTriggers,
 } from "./automations";
+import {
+  MAINTENANCE_ENTITY_KIND,
+  createMaintenanceEntityRead,
+  deriveMaintenanceEvents,
+  maintenanceChangeToPayload,
+  maintenanceEntityStateSchema,
+  type MaintenanceEntityState,
+} from "./entity";
 
 // Queue and job constants
 const STATUS_TRANSITION_QUEUE = "maintenance-status-transitions";
@@ -52,10 +62,53 @@ export default createBackendPlugin({
       maintenanceGroupSubscription,
     ]);
 
-    // ─── Automation Platform: triggers + artifact type ─────────────────
+    // ─── Automation Platform: entity + artifact type ───────────────────
     // Buffered behind the extension point until automation-backend's
-    // register() runs. Actions are wired in afterPluginsReady so
-    // `emitHook` is available — see below.
+    // register() runs. Actions are wired in afterPluginsReady so the entity
+    // handle is available on the service — see below.
+    //
+    // Reactive entity (reactive automation engine §10.2): the
+    // `maintenance.created` / `maintenance.updated` trigger events are now
+    // DERIVED from `maintenance` entity changes. The triggers stay registered
+    // (ENTITY-DRIVEN, no hook) so they remain in the editor's trigger catalog +
+    // payload-introspectable; a `toPayload` mapper makes the runtime
+    // `trigger.payload` match their `payloadSchema` (mirroring incident /
+    // catalog / dependency / healthcheck).
+    //
+    // PLUGIN-BACKED (Model B): the `maintenances` + `maintenance_systems`
+    // tables ARE the current-state storage. `read` routes straight to the
+    // service's batched authoritative read — no framework `entity_state` row,
+    // so no `indexes` (those only apply to store-backed kinds). The `read`
+    // closure resolves the service set by init() (mutations only happen from
+    // init onward).
+    const entity = env.getExtensionPoint(entityExtensionPoint);
+
+    // The maintenance service is created in init() (it needs the resolved
+    // database), but the PLUGIN-BACKED entity `read` accessor must be supplied
+    // at `defineEntity` time in register(). This holder bridges the two: the
+    // `read` closure resolves the service lazily, and init() sets it before
+    // any mutation runs (the registry only mutates from init() onward).
+    let maintenanceServiceRef: MaintenanceService | undefined;
+
+    const maintenanceEntityHandle: EntityHandle<MaintenanceEntityState> =
+      entity.defineEntity<MaintenanceEntityState>({
+        kind: MAINTENANCE_ENTITY_KIND,
+        state: maintenanceEntityStateSchema,
+        read: (ids) => {
+          const svc = maintenanceServiceRef;
+          if (!svc) {
+            throw new Error(
+              "maintenance entity read before init: service not yet resolved",
+            );
+          }
+          return createMaintenanceEntityRead(svc)(ids);
+        },
+      });
+    entity.registerChangeDeriver({
+      kind: MAINTENANCE_ENTITY_KIND,
+      derive: deriveMaintenanceEvents,
+      toPayload: maintenanceChangeToPayload,
+    });
     const automationTriggers = env.getExtensionPoint(
       automationTriggerExtensionPoint,
     );
@@ -101,6 +154,9 @@ export default createBackendPlugin({
         maintenanceService = new MaintenanceService(
           database as SafeDatabase<typeof schema>,
         );
+        // Publish the service for the PLUGIN-BACKED entity `read` accessor
+        // (defined in register()). Mutations only run from here onward.
+        maintenanceServiceRef = maintenanceService;
         const cache = createMaintenanceCache({ cacheManager, logger });
         const router = createRouter(
           maintenanceService,
@@ -110,6 +166,7 @@ export default createBackendPlugin({
           authClient,
           logger,
           cache,
+          maintenanceEntityHandle,
         );
         rpc.registerRouter(router, maintenanceContract);
 
@@ -141,14 +198,16 @@ export default createBackendPlugin({
 
         logger.debug("✅ Maintenance Backend initialized.");
       },
-      afterPluginsReady: async ({ queueManager, logger, emitHook }) => {
-        // Register automation actions now that `emitHook` is available.
+      afterPluginsReady: async ({ queueManager, logger }) => {
+        // Register automation actions. Mutation actions mirror window state
+        // through the `maintenance` entity handle (created in init) rather
+        // than emitting the removed hooks.
         const automationActions = env.getExtensionPoint(
           automationActionExtensionPoint,
         );
         for (const action of createMaintenanceActions({
           service: maintenanceService,
-          emitHook,
+          entityHandle: maintenanceEntityHandle,
         })) {
           automationActions.registerAction(action, pluginMetadata);
         }
@@ -244,6 +303,3 @@ export default createBackendPlugin({
     });
   },
 });
-
-// Re-export hooks for other plugins to use
-export { maintenanceHooks } from "./hooks";

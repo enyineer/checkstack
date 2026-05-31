@@ -355,4 +355,98 @@ describe("EntityKindRegistry", () => {
       expect(described[0].specSchemaDocumentation).toHaveLength(1);
     });
   });
+
+  describe("registerSpecSchemaDocumentationProvider", () => {
+    it("invokes providers on every describe, reflecting current state", () => {
+      const registry = createEntityKindRegistry();
+
+      registry.registerKind({
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "Automation",
+        specSchema: z.object({ actions: z.array(z.unknown()) }),
+        reconcile: async () => ({ entityId: "test-id" }),
+      });
+
+      // A mutable source the provider reads — modelling a registry that is
+      // populated AFTER the provider is registered.
+      const source: Array<{ id: string }> = [];
+      registry.registerSpecSchemaDocumentationProvider(() =>
+        source.map((s) => ({
+          apiVersion: CHECKSTACK_API_VERSION,
+          kind: "Automation",
+          fieldPath: "actions[].config",
+          variantId: s.id,
+          label: s.id,
+          schema: z.object({}),
+        })),
+      );
+
+      // Empty at first describe.
+      expect(
+        registry.describeKinds()[0].specSchemaDocumentation,
+      ).toHaveLength(0);
+
+      // Source populated later (e.g. another plugin's afterPluginsReady).
+      source.push({ id: "jira" }, { id: "teams" });
+
+      const docs = registry.describeKinds()[0].specSchemaDocumentation;
+      expect(docs).toHaveLength(2);
+      expect(docs.map((d) => d.variantId).sort()).toEqual(["jira", "teams"]);
+      expect(docs[0].fieldPath).toBe("actions[].config");
+    });
+
+    it("merges provider docs with eagerly registered docs for the same kind", () => {
+      const registry = createEntityKindRegistry();
+
+      registry.registerKind({
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "Automation",
+        specSchema: z.object({
+          triggers: z.array(z.unknown()),
+          actions: z.array(z.unknown()),
+        }),
+        reconcile: async () => ({ entityId: "test-id" }),
+      });
+
+      registry.registerSpecSchemaDocumentation({
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "Automation",
+        fieldPath: "triggers[].config",
+        variantId: "eager",
+        label: "Eager",
+        schema: z.object({}),
+      });
+
+      registry.registerSpecSchemaDocumentationProvider(() => [
+        {
+          apiVersion: CHECKSTACK_API_VERSION,
+          kind: "Automation",
+          fieldPath: "actions[].config",
+          variantId: "lazy",
+          label: "Lazy",
+          schema: z.object({}),
+        },
+      ]);
+
+      const docs = registry.describeKinds()[0].specSchemaDocumentation;
+      expect(docs.map((d) => d.variantId).sort()).toEqual(["eager", "lazy"]);
+    });
+
+    it("ignores provider docs whose kind has no base definition", () => {
+      const registry = createEntityKindRegistry();
+
+      registry.registerSpecSchemaDocumentationProvider(() => [
+        {
+          apiVersion: CHECKSTACK_API_VERSION,
+          kind: "Unregistered",
+          fieldPath: "config",
+          label: "X",
+          schema: z.object({}),
+        },
+      ]);
+
+      // No base definition for "Unregistered" → not described.
+      expect(registry.describeKinds()).toHaveLength(0);
+    });
+  });
 });

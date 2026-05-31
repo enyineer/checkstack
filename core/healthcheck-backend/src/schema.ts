@@ -117,37 +117,16 @@ export const systemHealthChecks = pgTable(
 );
 
 /**
- * Records each time a check's *evaluated* state transitions from
- * non-unhealthy to unhealthy. Used to decide whether the per-check
- * incident threshold (N transitions in M minutes) has been met.
- * Pruned by the retention job alongside raw runs.
- */
-export const healthCheckUnhealthyTransitions = pgTable(
-  "health_check_unhealthy_transitions",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    configurationId: uuid("configuration_id")
-      .notNull()
-      .references(() => healthCheckConfigurations.id, { onDelete: "cascade" }),
-    systemId: text("system_id").notNull(),
-    transitionedAt: timestamp("transitioned_at").defaultNow().notNull(),
-  },
-  (t) => ({
-    // Powers the threshold count query
-    // (WHERE config_id = ? AND system_id = ? AND transitioned_at > ?).
-    lookupIdx: index(
-      "health_check_unhealthy_transitions_lookup_idx",
-    ).on(t.configurationId, t.systemId, t.transitionedAt),
-  }),
-);
-
-/**
  * Records every *aggregate* health-status transition for a system
- * (e.g. healthy -> degraded -> unhealthy -> healthy). Unlike
- * {@link healthCheckUnhealthyTransitions} (unhealthy-only, conditional
- * on the auto-incident policy, and pruned with raw runs), this table is
+ * (e.g. healthy -> degraded -> unhealthy -> healthy). This table is
  * unconditional and covers ALL statuses, giving a reliable
  * "in current status since" timestamp for arbitrary statuses.
+ *
+ * The former `health_check_unhealthy_transitions` table (per-check,
+ * unhealthy-only) was dropped: flapping is now counted in the automation
+ * engine's `automation_window_events` log via the windowed-count gate on the
+ * `system_health_changed` trigger, so healthcheck no longer keeps a separate
+ * transition audit for flapping.
  *
  * One row is written per aggregate transition at the same point the
  * `systemHealthChanged` hook fires. `configurationId` is the check that
@@ -182,49 +161,6 @@ export const healthCheckStateTransitions = pgTable(
     systemRecentIdx: index(
       "health_check_state_transitions_system_recent_idx",
     ).on(t.systemId, t.transitionedAt),
-  }),
-);
-
-/**
- * Mapping of auto-opened incidents back to the system + check that
- * triggered them. `closedAt` stays null while the incident is active;
- * the auto-close worker sets it once the linked system has been
- * steadily healthy for the cooldown.
- *
- * No FK to the incident table — that lives in another plugin's schema
- * and we treat it as a soft reference (incident deletes are handled
- * by the auto-close worker, which tolerates missing rows).
- */
-export const healthCheckAutoIncidents = pgTable(
-  "health_check_auto_incidents",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    incidentId: uuid("incident_id").notNull(),
-    systemId: text("system_id").notNull(),
-    configurationId: uuid("configuration_id")
-      .notNull()
-      .references(() => healthCheckConfigurations.id, { onDelete: "cascade" }),
-    openedAt: timestamp("opened_at").defaultNow().notNull(),
-    closedAt: timestamp("closed_at"),
-    /**
-     * Auto-close cooldown snapshot taken when the incident was opened.
-     * `null` means "never auto-close" — the worker leaves this
-     * incident alone and an operator must resolve it manually. Stored
-     * per-row so a later policy change doesn't retroactively alter
-     * the close behaviour of incidents already in flight.
-     */
-    cooldownMinutes: integer("cooldown_minutes"),
-  },
-  (t) => ({
-    // Powers "is there an active auto-incident for this system?" check.
-    activeBySystemIdx: index(
-      "health_check_auto_incidents_active_by_system_idx",
-    ).on(t.systemId, t.closedAt),
-    // Powers "find the most recent close for this assignment" lookup
-    // used by the require-recovery-before-reopen check.
-    lastCloseByAssignmentIdx: index(
-      "health_check_auto_incidents_last_close_idx",
-    ).on(t.configurationId, t.systemId, t.closedAt),
   }),
 );
 

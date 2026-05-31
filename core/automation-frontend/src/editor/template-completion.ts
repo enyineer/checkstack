@@ -494,6 +494,7 @@ export function createTemplateCompletionProvider(
           replaceStart,
           replaceEnd,
           appendClose: mode === "template" && !window.closed,
+          mode,
         });
       }
       case "operator": {
@@ -515,8 +516,9 @@ function fieldResult(args: {
   replaceStart: number;
   replaceEnd: number;
   appendClose: boolean;
+  mode: "template" | "expression";
 }): TemplateCompletionResult | null {
-  const { stage, fields, replaceStart, replaceEnd, appendClose } = args;
+  const { stage, fields, replaceStart, replaceEnd, appendClose, mode } = args;
   const q = stage.query.toLowerCase();
   // Match + insert in templateRef space (what gets written into `{{ }}`).
   // Also match against the canonical `path` so typing the dotted form
@@ -533,13 +535,11 @@ function fieldResult(args: {
     replaceStart,
     replaceEnd,
     items: matches.map((f) => {
-      // Always append a trailing space so the caret lands in
-      // whitespace after the field — that re-opens completion in the
-      // operator stage (comparators / filters) automatically, the same
-      // way picking a comparator advances to the value stage.
       if (appendClose) {
-        // Unclosed `{{` — also append the closing braces, and land the
-        // caret after the space but before `}}` (offset -2 into ` }}`).
+        // Unclosed `{{` (template mode) — append a space + the closing
+        // braces and land the caret after the space but before `}}`
+        // (offset -2 into ` }}`); the space re-opens the operator stage,
+        // the natural next step inside an interpolation.
         return {
           label: f.templateRef,
           detail: f.type,
@@ -548,11 +548,19 @@ function fieldResult(args: {
           caretOffset: -2,
         } satisfies TemplateCompletionItem;
       }
+      // Expression mode (bare condition / filter / partitionBy): a path is a
+      // complete expression on its own, so DON'T auto-append a trailing space.
+      // The operator stage only requires whitespace, so auto-spacing would pop
+      // comparators/filters at the user the instant they pick a field and imply
+      // a comparison is mandatory. Inserting the bare path closes completion;
+      // the user types a space MANUALLY only when they actually want an operator
+      // (then the operator stage fires). Template mode keeps the auto-space
+      // field → operator flow.
       return {
         label: f.templateRef,
         detail: f.type,
         description: f.description,
-        insertText: `${f.templateRef} `,
+        insertText: mode === "expression" ? f.templateRef : `${f.templateRef} `,
         caretOffset: 0,
       } satisfies TemplateCompletionItem;
     }),

@@ -137,7 +137,7 @@ Deletes `health_check_state_transitions` rows older than the longest `rawRetenti
 
 The `health_check_state_transitions` table records every aggregate health-status transition for a system (for example `healthy` -> `degraded` -> `unhealthy` -> `healthy`). One row is written wherever an aggregate transition is detected, at the same point the `systemHealthChanged` hook fires.
 
-Unlike `health_check_unhealthy_transitions` (which is unhealthy-only, conditional on the auto-incident policy, and pruned with raw runs), this table is unconditional and covers all statuses. It is the source of truth for "how long has this system been in its current status?", which powers the automation sensing layer.
+Unlike `health_check_unhealthy_transitions` (which is unhealthy-only, written by flapping detection, and pruned with raw runs), this table is unconditional and covers all statuses. It is the source of truth for "how long has this system been in its current status?", which powers the automation sensing layer.
 
 | Column | Meaning |
 |--------|---------|

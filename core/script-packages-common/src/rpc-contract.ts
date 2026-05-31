@@ -5,14 +5,17 @@ import { pluginMetadata } from "./plugin-metadata";
 import {
   BlobGcStateSchema,
   BlobGcSummarySchema,
+  GetPackageVersionsInputSchema,
+  GetPackageVersionsOutputSchema,
   InstallStateSchema,
   ManifestEntrySchema,
   PackageNameSchema,
   PackageSpecSchema,
-  PackageTypesSchema,
   PackageVersionSchema,
   RegistryConfigSchema,
   SatelliteSyncStateSchema,
+  SearchPackagesInputSchema,
+  SearchPackagesOutputSchema,
   SetRegistryConfigInputSchema,
   SizeCapConfigSchema,
   StorageConfigSchema,
@@ -24,8 +27,13 @@ import {
  * Management endpoints are gated by the dedicated `script-packages.manage`
  * permission (install-time RCE / supply-chain vector). The read-only
  * editor / runtime endpoints (`getInstallState`, `getManifest`,
- * `downloadBlob`, `listPackageTypes`) are gated by `script-packages.read`
- * so editors and reconcilers can use them.
+ * `downloadBlob`) are gated by `script-packages.read` so editors and
+ * reconcilers can use them.
+ *
+ * NOTE: package-type IntelliSense is NOT an RPC procedure. It is served as
+ * a raw, HTTP-cacheable route (`GET /api/script-packages/types/:hash/:spec`)
+ * so the browser can cache each closure per-install via `Cache-Control`;
+ * see `createTypeClosureHttpHandler` in `script-packages-backend`.
  */
 export const scriptPackagesContract = {
   // ─── Allowlist (manage) ────────────────────────────────────────────────
@@ -62,6 +70,35 @@ export const scriptPackagesContract = {
   })
     .input(z.object({ name: PackageNameSchema, enabled: z.boolean() }))
     .output(PackageSpecSchema),
+
+  // ─── Registry autocomplete (manage) ────────────────────────────────────
+
+  /**
+   * Live package-name search against the configured registry, backend-proxied
+   * (the registry may be private with a server-side-only token, and browsers
+   * can't reach arbitrary registries due to CORS). Gated by `manage` like the
+   * other registry endpoints.
+   */
+  searchPackages: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [scriptPackagesAccess.manage],
+  })
+    .input(SearchPackagesInputSchema)
+    .output(SearchPackagesOutputSchema),
+
+  /**
+   * Fetch published versions (newest-first) + dist-tags for a package from
+   * the configured registry. Backend-proxied for the same reasons as
+   * `searchPackages`. The version list feeds the version field's suggestions.
+   */
+  getPackageVersions: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [scriptPackagesAccess.manage],
+  })
+    .input(GetPackageVersionsInputSchema)
+    .output(GetPackageVersionsOutputSchema),
 
   // ─── Registry config (manage) ──────────────────────────────────────────
 
@@ -236,12 +273,6 @@ export const scriptPackagesContract = {
         sizeBytes: z.number().int().nonnegative(),
       }),
     ),
-
-  listPackageTypes: proc({
-    operationType: "query",
-    userType: "authenticated",
-    access: [scriptPackagesAccess.read],
-  }).output(z.object({ items: z.array(PackageTypesSchema) })),
 };
 
 export type ScriptPackagesContract = typeof scriptPackagesContract;

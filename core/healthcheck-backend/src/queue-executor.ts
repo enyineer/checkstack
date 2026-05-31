@@ -46,17 +46,41 @@ import {
   classifyTransition,
   shouldNotifyTransition,
 } from "./notification-policy";
-import {
-  detectAndEmitFlapping,
-  isTransitionToUnhealthy,
-} from "./flapping-detector";
 import { recordStateTransition } from "./state-transitions";
+import {
+  writeHealthEntity,
+  createHealthEntitySerializer,
+  type HealthEntityState,
+} from "./health-entity";
+import type { EntityHandle } from "@checkstack/automation-backend";
 
 type Db = SafeDatabase<typeof schema>;
 type CatalogClient = InferClient<typeof CatalogApi>;
 type MaintenanceClient = InferClient<typeof MaintenanceApi>;
 type IncidentClient = InferClient<typeof IncidentApi>;
 type NotificationClient = InferClient<typeof NotificationApi>;
+
+/** Shape of the aggregated state returned by `getSystemHealthStatus`. */
+type AggregatedHealth = Awaited<
+  ReturnType<HealthCheckService["getSystemHealthStatus"]>
+>;
+
+/**
+ * Derive the reactive `health` entity view from the freshly-computed
+ * aggregated state. Mirrors `computeHealthEntityState` exactly: `status` is the
+ * worst-wins aggregate, `healthyChecks` counts per-check `"healthy"` statuses,
+ * and `totalChecks` is the number of enabled checks. Kept here so the
+ * `handle.mutate` write returns the SAME view the `read` accessor would have
+ * computed for the post-write state (the handle thus never re-reads).
+ */
+function toHealthEntityView(state: AggregatedHealth): HealthEntityState {
+  return {
+    status: state.status,
+    healthyChecks: state.checkStatuses.filter((c) => c.status === "healthy")
+      .length,
+    totalChecks: state.checkStatuses.length,
+  };
+}
 
 /**
  * Emit the checkCompleted hook if available, plus the narrower
@@ -167,89 +191,12 @@ export async function scheduleHealthCheck(props: {
   });
 }
 
-/**
- * After every check run, run flapping DETECTION for the per-check.
- *
- * The hardcoded incident open/close path was removed in Phase 20 - that
- * behaviour now ships as user-editable default automations
- * (`healthcheck.system.degraded` + `for:` -> `incident.create`, the
- * `healthcheck.flapping_detected` trigger, etc.). What remains here is
- * the detection that those automations subscribe to: record each
- * transition-to-unhealthy and emit `healthcheck.flapping_detected` when
- * the policy's flapping threshold is crossed within the window.
- *
- * The flapping emit is now UNCONDITIONAL on a threshold cross (it no
- * longer depends on `autoOpenIncidentOnUnhealthy`); see
- * `flapping-detector.ts`. Maintenance suppression / require-recovery /
- * the sustained-duration decision all move into the automations.
- */
-async function detectFlappingForCheck(props: {
-  db: Db;
-  service: HealthCheckService;
-  logger: Logger;
-  systemId: string;
-  configurationId: string;
-  getEmitHook?: () => EmitHookFn | undefined;
-  previousState: {
-    checkStatuses: Array<{
-      configurationId: string;
-      status: HealthCheckStatus;
-    }>;
-  };
-  newState: {
-    checkStatuses: Array<{
-      configurationId: string;
-      status: HealthCheckStatus;
-    }>;
-  };
-}): Promise<void> {
-  const {
-    db,
-    service,
-    logger,
-    systemId,
-    configurationId,
-    getEmitHook,
-    previousState,
-    newState,
-  } = props;
-
-  const next = newState.checkStatuses.find(
-    (c) => c.configurationId === configurationId,
-  );
-  // Flapping detection only triggers on a fresh transition to unhealthy.
-  if (!next || next.status !== "unhealthy") return;
-
-  const prev = previousState.checkStatuses.find(
-    (c) => c.configurationId === configurationId,
-  );
-  const isTransition = isTransitionToUnhealthy(prev?.status, next.status);
-  if (!isTransition) return;
-
-  let policy;
-  try {
-    policy = await service.getAssignmentNotificationPolicy({
-      systemId,
-      configurationId,
-    });
-  } catch (error) {
-    logger.warn(
-      `Failed to load policy for flapping detection (${systemId}/${configurationId}):`,
-      error,
-    );
-    return;
-  }
-
-  await detectAndEmitFlapping({
-    db,
-    configurationId,
-    systemId,
-    flappingTrigger: policy.flappingTrigger,
-    isTransition,
-    getEmitHook,
-    logger,
-  });
-}
+// Flapping detection no longer lives here. It moved into the automation
+// engine as a windowed-count gate on the `healthcheck.system_health_changed`
+// trigger (raw aggregated-health change + `filter` +
+// `window: { count, minutes, refire: "once" }`). The queue executor emits only
+// the raw per-system health change (via the reactive `health` entity deriver,
+// unchanged); the engine does the counting.
 
 /**
  * Notify system subscribers about a health state change.
@@ -439,6 +386,14 @@ async function executeHealthCheckJob(props: {
   getEmitHook: () => EmitHookFn | undefined;
   cache: HealthCheckCache;
   /**
+   * Resolver for the reactive `health` entity handle (§10.3). Returns the
+   * handle once automation-backend has bound the entity store; `undefined`
+   * during version skew / tests. Mirrors the `getEmitHook` closure pattern.
+   * The entity is PLUGIN-BACKED + COMPUTED — there is no keyed store; the
+   * durable run/aggregate write IS the entity write (see `writeHealthEntity`).
+   */
+  getHealthEntity?: () => EntityHandle<HealthEntityState> | undefined;
+  /**
    * Central secret resolver. When set, a collector declaring a `secretEnv`
    * has it resolved + injected for this centrally-executed run; the
    * collector masks the values out of its output. Optional for version-skew
@@ -458,6 +413,7 @@ async function executeHealthCheckJob(props: {
     maintenanceClient,
     incidentClient,
     getEmitHook,
+    getHealthEntity,
     cache,
     secretResolver,
   } = props;
@@ -465,6 +421,14 @@ async function executeHealthCheckJob(props: {
 
   // Create service for aggregated state evaluation
   const service = new HealthCheckService(db, registry, collectorRegistry);
+
+  // Per-system serializer for the reactive health mutate (§10.3): a
+  // transaction-scoped advisory lock keyed `health:<systemId>` wraps the
+  // snapshot-prev + apply + diff + emit so concurrent evaluations of one
+  // system (multiple per-config jobs across pods, or at-least-once
+  // redelivery) can't double-emit a single logical transition. Bound to this
+  // job's systemId below at every `writeHealthEntity` call.
+  const serializeHealthWrite = createHealthEntitySerializer({ db })(systemId);
 
   // Capture aggregated state BEFORE this run for comparison
   const previousState = await service.getSystemHealthStatus(systemId);
@@ -751,26 +715,44 @@ async function executeHealthCheckJob(props: {
         },
       };
 
-      await db.insert(healthCheckRuns).values({
-        configurationId: configId,
+      // Persist the run + aggregate THROUGH the reactive `health` entity:
+      // `apply` does the durable write and returns the freshly-computed view.
+      // The framework snapshots `prev` via `read` BEFORE this insert, so a real
+      // status change emits exactly one correct `ENTITY_CHANGED` (§10.3). The
+      // computed aggregated state is stashed for the transition/notify path.
+      let newState!: AggregatedHealth;
+      await writeHealthEntity({
+        handle: getHealthEntity?.(),
         systemId,
-        status: result.status,
-        latencyMs: result.latencyMs,
-        result: { ...result } as Record<string, unknown>,
-        sourceId: undefined,
-        sourceLabel: "Local",
-      });
+        apply: async () => {
+          await db.insert(healthCheckRuns).values({
+            configurationId: configId,
+            systemId,
+            status: result.status,
+            latencyMs: result.latencyMs,
+            result: { ...result } as Record<string, unknown>,
+            sourceId: undefined,
+            sourceLabel: "Local",
+          });
 
-      await incrementHourlyAggregate({
-        db,
-        systemId,
-        configurationId: configId,
-        status: result.status,
-        latencyMs: result.latencyMs,
-        runTimestamp: new Date(),
-        result: { ...result } as Record<string, unknown>,
-        collectorRegistry,
-        sourceLabel: "Local",
+          await incrementHourlyAggregate({
+            db,
+            systemId,
+            configurationId: configId,
+            status: result.status,
+            latencyMs: result.latencyMs,
+            runTimestamp: new Date(),
+            result: { ...result } as Record<string, unknown>,
+            collectorRegistry,
+            sourceLabel: "Local",
+          });
+
+          newState = await service.getSystemHealthStatus(systemId);
+          return toHealthEntityView(newState);
+        },
+        serialize: serializeHealthWrite,
+        onError: (error) =>
+          logger.warn(`Failed to mirror health entity for ${systemId}`, error),
       });
 
       logger.debug(
@@ -790,7 +772,6 @@ async function executeHealthCheckJob(props: {
         latencyMs: result.latencyMs,
       });
 
-      const newState = await service.getSystemHealthStatus(systemId);
       if (newState.status !== previousStatus) {
         // Record the aggregate transition so the sensing layer has a
         // reliable "in status since" for every status (Wave 2).
@@ -816,20 +797,6 @@ async function executeHealthCheckJob(props: {
           logger,
         });
       }
-
-      // Per-check auto-incident: runs whether or not the aggregate
-      // changed (a check can transition to unhealthy without flipping
-      // the aggregate if another check is already unhealthy).
-      await detectFlappingForCheck({
-        db,
-        service,
-        logger,
-        systemId,
-        configurationId: configId,
-        getEmitHook,
-        previousState,
-        newState,
-      });
 
       return;
     } finally {
@@ -859,28 +826,48 @@ async function executeHealthCheckJob(props: {
       },
     };
 
-    // Store result (spread to convert structured type to plain record for jsonb)
-    await db.insert(healthCheckRuns).values({
-      configurationId: configId,
+    // Persist the run + aggregate THROUGH the reactive `health` entity on
+    // every run (§10.3): `apply` does the durable write (insert + hourly
+    // aggregate) and returns the freshly-computed view. The framework
+    // snapshots `prev` via the COMPUTE-ON-READ accessor BEFORE this insert, so
+    // an unchanged aggregate is a no-op and a real status change drives the
+    // directional/umbrella trigger events via `deriveHealthTriggerEvents` —
+    // exactly one correct `ENTITY_CHANGED` with accurate prev → next.
+    let newState!: AggregatedHealth;
+    await writeHealthEntity({
+      handle: getHealthEntity?.(),
       systemId,
-      status: result.status,
-      latencyMs: result.latencyMs,
-      result: { ...result } as Record<string, unknown>,
-      sourceId: undefined,
-      sourceLabel: "Local",
-    });
+      apply: async () => {
+        // Store result (spread to convert structured type to plain record for jsonb)
+        await db.insert(healthCheckRuns).values({
+          configurationId: configId,
+          systemId,
+          status: result.status,
+          latencyMs: result.latencyMs,
+          result: { ...result } as Record<string, unknown>,
+          sourceId: undefined,
+          sourceLabel: "Local",
+        });
 
-    // Trigger incremental hourly aggregation
-    await incrementHourlyAggregate({
-      db,
-      systemId,
-      configurationId: configId,
-      status: result.status,
-      latencyMs: result.latencyMs,
-      runTimestamp: new Date(),
-      result: { ...result } as Record<string, unknown>,
-      collectorRegistry,
-      sourceLabel: "Local",
+        // Trigger incremental hourly aggregation
+        await incrementHourlyAggregate({
+          db,
+          systemId,
+          configurationId: configId,
+          status: result.status,
+          latencyMs: result.latencyMs,
+          runTimestamp: new Date(),
+          result: { ...result } as Record<string, unknown>,
+          collectorRegistry,
+          sourceLabel: "Local",
+        });
+
+        newState = await service.getSystemHealthStatus(systemId);
+        return toHealthEntityView(newState);
+      },
+      serialize: serializeHealthWrite,
+      onError: (error) =>
+        logger.warn(`Failed to mirror health entity for ${systemId}`, error),
     });
 
     logger.debug(
@@ -910,8 +897,6 @@ async function executeHealthCheckJob(props: {
       result: (result.metadata?.collectors as Record<string, unknown>) ?? undefined,
     });
 
-    // Check if aggregated state changed and notify subscribers
-    const newState = await service.getSystemHealthStatus(systemId);
     if (newState.status !== previousStatus) {
       // Record the aggregate transition so the sensing layer has a
       // reliable "in status since" for every status (Wave 2).
@@ -944,72 +929,12 @@ async function executeHealthCheckJob(props: {
         newStatus: newState.status,
       });
 
-      // Emit integration hooks for external integrations
-      const emitHook = getEmitHook();
-      if (emitHook) {
-        const healthyChecks = newState.checkStatuses.filter(
-          (c) => c.status === "healthy",
-        ).length;
-        const totalChecks = newState.checkStatuses.length;
-        const timestamp = new Date().toISOString();
-
-        if (newState.status === "healthy" && previousStatus !== "healthy") {
-          // Recovery: system became healthy
-          await emitHook(healthCheckHooks.systemHealthy, {
-            systemId,
-            previousStatus,
-            healthyChecks,
-            totalChecks,
-            timestamp,
-          });
-          logger.debug(
-            `Emitted systemHealthy hook: ${previousStatus} → ${newState.status}`,
-          );
-        } else if (
-          previousStatus === "healthy" &&
-          newState.status !== "healthy"
-        ) {
-          // Degradation: system went from healthy to unhealthy/degraded
-          await emitHook(healthCheckHooks.systemDegraded, {
-            systemId,
-            previousStatus,
-            newStatus: newState.status,
-            healthyChecks,
-            totalChecks,
-            timestamp,
-          });
-          logger.debug(
-            `Emitted systemDegraded hook: ${previousStatus} → ${newState.status}`,
-          );
-        }
-
-        // Umbrella hook — fires on every transition. Emitted alongside
-        // the directional hooks so existing subscribers stay unchanged
-        // while new automation triggers can react to any change.
-        if (previousStatus !== newState.status) {
-          await emitHook(healthCheckHooks.systemHealthChanged, {
-            systemId,
-            previousStatus,
-            newStatus: newState.status,
-            healthyChecks,
-            totalChecks,
-            timestamp,
-          });
-        }
-      }
+      // The directional + umbrella system-health hooks were removed in
+      // Phase 4 (§10.3): the `health` entity mirror above is the single
+      // source of truth, and its change deriver fires the
+      // `healthcheck.system_degraded` / `_healthy` / `_health_changed`
+      // trigger events through Stage-1 routing. Nothing to emit here.
     }
-
-    // Per-check flapping detection: see comment on the failed-execution path.
-    await detectFlappingForCheck({
-      db,
-      service,
-      logger,
-      systemId,
-      configurationId: configId,
-      getEmitHook,
-      previousState,
-      newState,
-    });
 
     // Note: No manual rescheduling needed - recurring job handles it automatically
   } catch (error) {
@@ -1018,27 +943,48 @@ async function executeHealthCheckJob(props: {
       error,
     );
 
-    // Store failure (no latencyMs for failures)
-    await db.insert(healthCheckRuns).values({
-      configurationId: configId,
+    // Persist the failure run + aggregate THROUGH the reactive `health`
+    // entity: `apply` does the durable write and returns the freshly-computed
+    // view. The framework snapshots `prev` via the compute-on-read accessor
+    // BEFORE this insert, so a real status change emits exactly one correct
+    // `ENTITY_CHANGED` (§10.3). See the success path for the full rationale.
+    let newState!: AggregatedHealth;
+    await writeHealthEntity({
+      handle: getHealthEntity?.(),
       systemId,
-      status: "unhealthy",
-      result: { error: String(error) } as Record<string, unknown>,
-      sourceId: undefined,
-      sourceLabel: "Local",
-    });
+      apply: async () => {
+        // Store failure (no latencyMs for failures)
+        await db.insert(healthCheckRuns).values({
+          configurationId: configId,
+          systemId,
+          status: "unhealthy",
+          result: { error: String(error) } as Record<string, unknown>,
+          sourceId: undefined,
+          sourceLabel: "Local",
+        });
 
-    // Trigger incremental hourly aggregation
-    await incrementHourlyAggregate({
-      db,
-      systemId,
-      configurationId: configId,
-      status: "unhealthy",
-      latencyMs: undefined,
-      runTimestamp: new Date(),
-      // No collector data for error cases
-      collectorRegistry,
-      sourceLabel: "Local",
+        // Trigger incremental hourly aggregation
+        await incrementHourlyAggregate({
+          db,
+          systemId,
+          configurationId: configId,
+          status: "unhealthy",
+          latencyMs: undefined,
+          runTimestamp: new Date(),
+          // No collector data for error cases
+          collectorRegistry,
+          sourceLabel: "Local",
+        });
+
+        newState = await service.getSystemHealthStatus(systemId);
+        return toHealthEntityView(newState);
+      },
+      serialize: serializeHealthWrite,
+      onError: (mirrorError) =>
+        logger.warn(
+          `Failed to mirror health entity for ${systemId}`,
+          mirrorError,
+        ),
     });
 
     // Try to fetch names for the enriched signal (best-effort)
@@ -1082,8 +1028,6 @@ async function executeHealthCheckJob(props: {
       result: undefined,
     });
 
-    // Check if aggregated state changed and notify subscribers
-    const newState = await service.getSystemHealthStatus(systemId);
     if (newState.status !== previousStatus) {
       // Record the aggregate transition so the sensing layer has a
       // reliable "in status since" for every status (Wave 2).
@@ -1116,72 +1060,12 @@ async function executeHealthCheckJob(props: {
         newStatus: newState.status,
       });
 
-      // Emit integration hooks for external integrations
-      const emitHook = getEmitHook();
-      if (emitHook) {
-        const healthyChecks = newState.checkStatuses.filter(
-          (c) => c.status === "healthy",
-        ).length;
-        const totalChecks = newState.checkStatuses.length;
-        const timestamp = new Date().toISOString();
-
-        if (newState.status === "healthy" && previousStatus !== "healthy") {
-          // Recovery: system became healthy
-          await emitHook(healthCheckHooks.systemHealthy, {
-            systemId,
-            previousStatus,
-            healthyChecks,
-            totalChecks,
-            timestamp,
-          });
-          logger.debug(
-            `Emitted systemHealthy hook: ${previousStatus} → ${newState.status}`,
-          );
-        } else if (
-          previousStatus === "healthy" &&
-          newState.status !== "healthy"
-        ) {
-          // Degradation: system went from healthy to unhealthy/degraded
-          await emitHook(healthCheckHooks.systemDegraded, {
-            systemId,
-            previousStatus,
-            newStatus: newState.status,
-            healthyChecks,
-            totalChecks,
-            timestamp,
-          });
-          logger.debug(
-            `Emitted systemDegraded hook: ${previousStatus} → ${newState.status}`,
-          );
-        }
-
-        // Umbrella hook — fires on every transition. Emitted alongside
-        // the directional hooks so existing subscribers stay unchanged
-        // while new automation triggers can react to any change.
-        if (previousStatus !== newState.status) {
-          await emitHook(healthCheckHooks.systemHealthChanged, {
-            systemId,
-            previousStatus,
-            newStatus: newState.status,
-            healthyChecks,
-            totalChecks,
-            timestamp,
-          });
-        }
-      }
+      // The directional + umbrella system-health hooks were removed in
+      // Phase 4 (§10.3): the `health` entity mirror above is the single
+      // source of truth, and its change deriver fires the
+      // `healthcheck.system_degraded` / `_healthy` / `_health_changed`
+      // trigger events through Stage-1 routing. Nothing to emit here.
     }
-
-    // Per-check flapping detection: see comment on the failed-execution path.
-    await detectFlappingForCheck({
-      db,
-      service,
-      logger,
-      systemId,
-      configurationId: configId,
-      getEmitHook,
-      previousState,
-      newState,
-    });
 
     // Note: No manual rescheduling needed - recurring job handles it automatically
   }
@@ -1199,6 +1083,7 @@ export async function setupHealthCheckWorker(props: {
   maintenanceClient: MaintenanceClient;
   incidentClient: IncidentClient;
   getEmitHook: () => EmitHookFn | undefined;
+  getHealthEntity?: () => EntityHandle<HealthEntityState> | undefined;
   cache: HealthCheckCache;
   secretResolver?: SecretResolverService;
 }): Promise<void> {
@@ -1214,6 +1099,7 @@ export async function setupHealthCheckWorker(props: {
     maintenanceClient,
     incidentClient,
     getEmitHook,
+    getHealthEntity,
     cache,
     secretResolver,
   } = props;
@@ -1236,6 +1122,7 @@ export async function setupHealthCheckWorker(props: {
         maintenanceClient,
         incidentClient,
         getEmitHook,
+        getHealthEntity,
         cache,
         secretResolver,
       });

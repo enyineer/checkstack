@@ -137,6 +137,8 @@ kind: Automation
 metadata:
   name: jira-on-incident
   title: Open a Jira ticket on incident
+  labels:
+    group: Incidents # optional: organises the automations list into sections
 spec:
   triggers:
     - event: incident.created
@@ -154,6 +156,10 @@ spec:
 ```
 
 The `spec` accepts every automation field: `triggers` (with optional `for:` dwells), structured `conditions`, the full action catalog, `mode`, `concurrency_scope`, `max_runs`, `uses_state`, and `state_window_minutes`. Validation is the same `AutomationDefinitionSchema` the editor uses, so a definition that round-trips in the UI is a valid descriptor.
+
+The polymorphic config blocks document themselves in the editor: each `triggers[].config` shows the schema for the chosen `triggers[].event`, and each `actions[].config` shows the schema for the chosen `actions[].action`. The same per-variant docs appear in the Kind Registry Browser, so you can discover the exact fields a trigger or provider action expects without leaving the UI.
+
+The optional `metadata.labels.group` label sets the automation's grouping label (the same field as the UI group picker), which organises the automations list into collapsible sections. It is a row-level field, not part of the `spec` definition. Omit it (or leave it blank) to keep the automation in the implicit "Ungrouped" bucket.
 
 ## Built-in extensions
 
@@ -196,39 +202,22 @@ spec:
       unhealthyThreshold: 5
       notificationPolicy:
         suppressDeEscalations: true
-        autoOpenIncidentOnUnhealthy: true
-        useNotificationSuppression: true
-        skipDuringMaintenance: true
-        sustainedUnhealthyTrigger:
-          enabled: true
-          durationMinutes: 30    # opens after 30 min continuous unhealthy
-        flappingTrigger:
-          enabled: true
-          transitions: 3         # OR after 3 transitions...
-          windowMinutes: 60      # ...within 60 minutes
-        autoCloseAfterMinutes: 30  # null = never auto-close
 ```
 
 The `notificationPolicy` block is per assignment - different checks on the
 same system are fully independent. Any field omitted falls back to the
-platform default. Inner objects (`sustainedUnhealthyTrigger`,
-`flappingTrigger`) are also accepted partially.
+platform default.
 
-Either trigger can independently open an auto-incident; both can be
-individually disabled by setting their `enabled: false`. The cooldown is
-snapshotted per-incident at open time - a later policy edit doesn't
-change in-flight incidents.
-
-> [!TIP]
-> Set `autoOpenIncidentOnUnhealthy: false` for checks that are
-> intentionally noisy (canary probes, weather-flapping endpoints) so they
-> don't open auto-incidents. Their state changes still drive the
-> dashboard; they just don't generate Jira tickets / paging.
+`suppressDeEscalations` skips notifications for transitions to a better
+(but still non-healthy) state.
 
 > [!NOTE]
-> If both triggers fire on the same run, the flapping reason takes the
-> incident description. The behaviour is identical either way - one
-> incident per system, attached to via `findActiveAutoIncident`.
+> Flapping thresholds are no longer part of `notificationPolicy`. Flapping is
+> detected in the automation engine by the trigger `window:` rate gate over
+> the `healthcheck.system_health_changed` event (`count` / `minutes`), so the
+> threshold lives next to the automation that reacts to it. See
+> [Build auto-incident automations](/checkstack/user-guide/guides/customise-auto-incident/).
+> A persisted `flappingTrigger` key on an old policy is ignored on read.
 
 ### `System.dependencies` (dependency)
 

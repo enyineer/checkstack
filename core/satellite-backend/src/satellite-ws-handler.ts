@@ -1,4 +1,4 @@
-import type { Hook, Logger } from "@checkstack/backend-api";
+import type { Logger } from "@checkstack/backend-api";
 import type {
   WebSocketRouteHandler,
   WsConnection,
@@ -7,6 +7,7 @@ import type {
 import { extractErrorMessage } from "@checkstack/common";
 import type { SatelliteService } from "./service";
 import type { ConfigRelay } from "./config-relay";
+import type { SatelliteConnectionEvent } from "./entity";
 import {
   SatelliteToCoreMessageSchema,
   type CoreToSatelliteMessage,
@@ -15,24 +16,24 @@ import {
 } from "@checkstack/satellite-common";
 
 /**
- * Optional plug-point for firing automation triggers when a satellite
- * connects or disconnects. Bound from `afterPluginsReady` where
- * `emitHook` is available — when not provided, no hook fires.
+ * Optional plug-point for driving a satellite connection lifecycle edge into
+ * the reactive `satellite-connection` entity (reactive automation engine
+ * §10.6). Bound from `afterPluginsReady` where the entity handle is available —
+ * when not provided, no entity state is mirrored (graceful no-op in unit tests).
+ *
+ * The WS handler calls `mirror` at the same connect / disconnect lifecycle
+ * points it previously emitted the `satellite.connected` / `.disconnected`
+ * hooks; the change-deriver re-fires the equivalent trigger events. The status
+ * is COMPUTED on read from `lastHeartbeatAt`, so the sink carries the new
+ * heartbeat value for the edge rather than a status: `now` on connect (online),
+ * `null` on clean disconnect (offline immediately).
  */
-export interface SatelliteConnectionHookSink {
-  emitHook: <T>(hook: Hook<T>, payload: T) => Promise<void>;
-  connectedHook: Hook<{
+export interface SatelliteConnectionEntitySink {
+  mirror: (input: {
     satelliteId: string;
-    name: string;
-    region: string;
-    timestamp: string;
-  }>;
-  disconnectedHook: Hook<{
-    satelliteId: string;
-    name: string;
-    region: string;
-    timestamp: string;
-  }>;
+    lastEvent: SatelliteConnectionEvent;
+    lastHeartbeatAt: Date | null;
+  }) => Promise<void>;
 }
 
 /**
@@ -102,7 +103,15 @@ interface SatelliteConnection {
  * Manages authentication, heartbeats, result ingestion, and config pushes.
  */
 export class SatelliteWsHandler implements WebSocketRouteHandler {
-  /** Map of satelliteId → active WebSocket connection */
+  /**
+   * Pod-local live-socket registry: satelliteId → the WebSocket connection
+   * physically held by THIS pod. This is NOT the reactive entity's source of
+   * truth (that is the durable `satellites` connection columns, globally
+   * readable from any pod). It exists ONLY to route messages — config pushes,
+   * script-package refreshes, shutdowns — to a socket this pod actually owns;
+   * a satellite connected to another pod is simply absent here. Treat it as
+   * transport infrastructure, not state.
+   */
   private connections = new Map<string, SatelliteConnection>();
 
   constructor(
@@ -111,12 +120,12 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
     private resultHandler: SatelliteResultHandler,
     private logger: Logger,
     /**
-     * Optional. When set, the handler fires `connected` / `disconnected`
-     * hooks at the same lifecycle points it logs. Wired by
-     * `afterPluginsReady` so the action graph stays decoupled from
-     * `emitHook` availability.
+     * Optional. When set, the handler mirrors `online` / `offline`
+     * connection state into the reactive `satellite-connection` entity at
+     * the same lifecycle points it logs. Wired by `afterPluginsReady` so the
+     * action graph stays decoupled from entity-handle availability.
      */
-    private connectionHookSink?: SatelliteConnectionHookSink,
+    private connectionEntitySink?: SatelliteConnectionEntitySink,
     /**
      * Optional. When set, assignment payloads carry the desired script-package
      * lockfile hash and the handler can push `refresh_script_packages` +
@@ -178,29 +187,31 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
         // Track connection
         this.connections.set(satellite.id, { satellite, ws });
 
-        // Fire the automation `connected` hook (best-effort — never
-        // block the auth handshake on a hook subscriber failure).
-        if (this.connectionHookSink) {
+        // Drive the `connected` edge into the reactive entity (best-effort —
+        // never block the auth handshake on a mirror failure). `apply` sets
+        // `lastHeartbeatAt = now` so the computed status reads `online`, and
+        // `lastConnectionEvent = "connected"`; the change-deriver re-fires the
+        // `satellite.connected` trigger event. This is also the connect-time
+        // heartbeat write (no separate `updateHeartbeat` needed), and it runs
+        // through `handle.mutate` so `prev` is snapshotted BEFORE the write.
+        if (this.connectionEntitySink) {
           try {
-            await this.connectionHookSink.emitHook(
-              this.connectionHookSink.connectedHook,
-              {
-                satelliteId: satellite.id,
-                name: satellite.name,
-                region: satellite.region,
-                timestamp: new Date().toISOString(),
-              },
-            );
+            await this.connectionEntitySink.mirror({
+              satelliteId: satellite.id,
+              lastEvent: "connected",
+              lastHeartbeatAt: new Date(),
+            });
           } catch (error) {
             this.logger.error(
-              `Failed to emit satellite.connected hook for ${satellite.name}:`,
+              `Failed to mirror satellite-connection (connected) for ${satellite.name}:`,
               error,
             );
           }
+        } else {
+          // No entity sink wired (e.g. unit tests): still record the
+          // connect-time heartbeat directly so liveness is correct.
+          await this.service.updateHeartbeat(satellite.id, {});
         }
-
-        // Update heartbeat on connect
-        await this.service.updateHeartbeat(satellite.id, {});
 
         // Send authenticated response with full config. Carry the desired
         // script-package lockfile hash as the durable convergence backstop:
@@ -338,19 +349,25 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
         this.logger.info(
           `Satellite disconnected: ${closedSatellite.name} (${closedSatellite.region})`,
         );
-        if (this.connectionHookSink) {
-          // Fire-and-forget — `onClose` is sync, so don't await; we
-          // don't have a place to surface a rejection anyway.
-          void this.connectionHookSink
-            .emitHook(this.connectionHookSink.disconnectedHook, {
+        if (this.connectionEntitySink) {
+          // Fire-and-forget — `onClose` is sync, so don't await; we don't have
+          // a place to surface a rejection anyway. Clear `lastHeartbeatAt`
+          // (`null`) so the computed status flips `offline` IMMEDIATELY on a
+          // clean disconnect (no waiting for the heartbeat to age out), and set
+          // `lastConnectionEvent = "disconnected"` so the deriver re-fires
+          // `satellite.disconnected`. Nulling the heartbeat coincides with the
+          // "never connected" representation, but `lastConnectionEvent` stays
+          // `"disconnected"` (non-null), so the entity still HAS state — the
+          // read only omits a satellite whose `lastConnectionEvent` is null.
+          void this.connectionEntitySink
+            .mirror({
               satelliteId: closedSatellite.id,
-              name: closedSatellite.name,
-              region: closedSatellite.region,
-              timestamp: new Date().toISOString(),
+              lastEvent: "disconnected",
+              lastHeartbeatAt: null,
             })
             .catch((error: unknown) => {
               this.logger.error(
-                `Failed to emit satellite.disconnected hook for ${closedSatellite.name}:`,
+                `Failed to mirror satellite-connection (disconnected) for ${closedSatellite.name}:`,
                 error,
               );
             });

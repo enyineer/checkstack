@@ -40,10 +40,13 @@ import {
   resumeCrashedMigration,
 } from "./storage-migration";
 import { createCentralResolver } from "./resolver";
+import { resolveRegistryRequestConfig } from "./registry-request-config";
 import { createReconcileFsDeps } from "./reconcile-fs";
 import { reconcileToHash } from "./reconciler";
 import { scriptPackagesChangedHook } from "./hooks";
 import { createScriptPackagesRouter } from "./router";
+import { createTypeClosureHttpHandler } from "./type-acquisition-route";
+import { TYPE_ACQUISITION_PATH_PREFIX } from "@checkstack/script-packages-common";
 import * as schema from "./schema";
 
 interface EnvStash {
@@ -83,11 +86,19 @@ export default createBackendPlugin({
       deps: {
         logger: coreServices.logger,
         rpc: coreServices.rpc,
+        auth: coreServices.auth,
         advisoryLock: coreServices.advisoryLock,
         queueManager: coreServices.queueManager,
         internalSecrets: internalSecretsRef,
       },
-      init: async ({ logger, database, rpc, advisoryLock, internalSecrets }) => {
+      init: async ({
+        logger,
+        database,
+        rpc,
+        auth,
+        advisoryLock,
+        internalSecrets,
+      }) => {
         logger.debug("📦 Initializing Script Packages Backend...");
 
         const storeRoot = resolveScriptPackagesDir();
@@ -141,20 +152,15 @@ export default createBackendPlugin({
         // are resolved lazily at install time so config/registry changes
         // and store-plugin registration order don't matter.
         const triggerInstall = async () => {
+          // Same registry + token resolution the live registry-client RPCs
+          // use (shared helper) so the install and autocomplete paths can
+          // never drift on how they talk to the registry.
+          const reqConfig = await resolveRegistryRequestConfig({
+            registry,
+            registryToken,
+            logger,
+          });
           const reg = await registry.get();
-          const secretRef = await registry.authSecretRef();
-          let authToken: string | undefined;
-          if (secretRef) {
-            try {
-              // Resolves the platform marker (internal secrets) or legacy
-              // inline ciphertext transparently.
-              authToken = await registryToken.resolve(secretRef);
-            } catch (error) {
-              logger.error(
-                `Failed to resolve registry auth token: ${extractErrorMessage(error)}`,
-              );
-            }
-          }
           const storageConfig = await storage.get();
           const activeBackend = storageConfig.activeBackend;
           if (!blobStores.has(activeBackend)) {
@@ -169,9 +175,9 @@ export default createBackendPlugin({
             scratchDir: path.join(paths.root, ".install-scratch"),
             cacheDir: paths.cache,
             registry: {
-              registryUrl: reg.registryUrl,
-              scopedRegistries: reg.scopedRegistries,
-              authToken,
+              registryUrl: reqConfig.registryUrl,
+              scopedRegistries: reqConfig.scopedRegistries,
+              authToken: reqConfig.authToken,
             },
           });
           return runInstallNow({
@@ -251,7 +257,6 @@ export default createBackendPlugin({
         const router = createScriptPackagesRouter({
           db: database,
           blobStores,
-          storeRoot,
           logger,
           triggerInstall,
           triggerMigration,
@@ -259,6 +264,23 @@ export default createBackendPlugin({
           registryToken,
         });
         rpc.registerRouter(router, scriptPackagesContract);
+
+        // Raw, HTTP-cacheable route for editor lazy ATA (package `.d.ts`
+        // closures). Served outside oRPC so the response can carry
+        // `Cache-Control` (oRPC procedures here can't set response headers).
+        // Mounted at `/api/script-packages/types/:hash/:specifier`.
+        rpc.registerHttpHandler(
+          createTypeClosureHttpHandler({
+            auth,
+            getLockfileHash: async () => {
+              const state = await installState.load();
+              return state.lockfileHash;
+            },
+            storeRoot,
+            logger,
+          }),
+          TYPE_ACQUISITION_PATH_PREFIX,
+        );
 
         logger.debug("✅ Script Packages Backend initialized.");
       },
@@ -490,6 +512,17 @@ export {
   sortManifest,
 } from "./lockfile";
 export { renderNpmrc, type NpmrcInput } from "./npmrc";
+export {
+  resolveRegistryRequestConfig,
+  type RegistryRequestConfig,
+} from "./registry-request-config";
+export {
+  searchPackages,
+  getPackageVersions,
+  registryUrlForName,
+  RegistryClientError,
+  type PackageSearchResult,
+} from "./registry-client";
 export { parseBunLock, splitSpec } from "./parse-bun-lock";
 export {
   createInstallStateStore,
@@ -522,7 +555,12 @@ export {
 } from "./resolver";
 export { createReconcileFsDeps } from "./reconcile-fs";
 export { findCacheEntry, type CacheEntryLocation } from "./cache-layout";
-export { rollupPackageTypes } from "./package-types";
+export {
+  resolvePackageTypeClosure,
+  typesPackageDirName,
+  extractReferences,
+} from "./package-types";
+export { createTypeClosureHttpHandler } from "./type-acquisition-route";
 export {
   resolveResolutionRoot,
   resolveResolutionRootForHost,

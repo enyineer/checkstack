@@ -13,6 +13,11 @@
  *     the queue scheduler lost the job).
  *   - `kind: "trigger"` locks past `timeoutAt` fail the run with a
  *     clear "wait timed out" error.
+ *   - `kind: "until"` locks past `timeoutAt` apply the wait_until timeout
+ *     policy via `checkWaitUntil` (continue / fail). This is the BACKSTOP
+ *     for a lost timeout-timer job — a reactive `wait_until` is otherwise
+ *     event-driven (Stage-1 wake), with no periodic re-check (reactive
+ *     automation engine §7).
  *
  * And expired `for:` dwell timers whose `automation-dwell` queue job was
  * lost: each is fired via `fireDwell` (which re-confirms state before
@@ -46,6 +51,15 @@ export interface StalledSweeper {
 const DEFAULT_STALE_MS = 60_000; // 1 minute
 const DEFAULT_INTERVAL_MS = 30_000; // every 30 seconds
 
+/**
+ * TTL for windowed-count occurrence rows. A row older than the maximum
+ * window any trigger can configure (the 1440-minute / 24h `WindowSchema`
+ * cap) can never contribute to an in-window count, so it is dead and prunable.
+ * Config-independent: pruning at the schema cap is always safe without
+ * reading any automation's actual window.
+ */
+const WINDOW_EVENT_TTL_MS = 24 * 60 * 60_000; // 24 hours (the WindowSchema cap)
+
 export function startStalledSweeper(
   args: StalledSweeperArgs,
 ): StalledSweeper {
@@ -60,7 +74,7 @@ export function startStalledSweeper(
     // but ordering keeps the wait paths authoritative within a cycle.)
     await sweepExpiredWaitLocks(args);
     await sweepExpiredDwells(args);
-    await sweepWaitUntilLocks(args);
+    await sweepExpiredWindowEvents(args);
     await sweepStalledRuns(args, staleMs);
   };
 
@@ -139,9 +153,37 @@ async function sweepExpiredWaitLocks(
 
   for (const lock of expired) {
     if (lock.kind === "until") {
-      // `until` locks are driven by sweepWaitUntilLocks (which applies
-      // the continue/fail-on-timeout policy + condition re-check); don't
-      // treat a timed-out `until` as a failed trigger here.
+      // Backstop for a lost timeout-timer job: apply the wait_until timeout
+      // policy via checkWaitUntil (it re-evaluates one last time, then
+      // resumes-or-fails per continue_on_timeout). Idempotent. A reactive
+      // `until` lock without a timeout has no `timeoutAt`, so it never lands
+      // here — it is purely event-driven (Stage-1 wake).
+      const run = await args.deps.runStore.loadRun(lock.runId);
+      if (!run) {
+        await args.deps.runStore.deleteWaitLock(lock.id);
+        continue;
+      }
+      const automation = await args.automationStore.getById(run.automationId);
+      if (!automation) {
+        await args.deps.runStore.deleteWaitLock(lock.id);
+        await args.deps.runStore.updateRunStatus(
+          lock.runId,
+          "failed",
+          "automation deleted while run was suspended on wait_until",
+        );
+        await args.deps.runStateStore.clear(lock.runId);
+        continue;
+      }
+      await checkWaitUntil(args.deps, {
+        runId: lock.runId,
+        waitLockId: lock.id,
+        automation: {
+          id: automation.id,
+          name: automation.name,
+          status: automation.status,
+          definition: automation.definition,
+        },
+      });
       continue;
     }
     if (lock.kind === "delay") {
@@ -209,50 +251,21 @@ async function sweepExpiredDwells(
 }
 
 /**
- * Re-tick `wait_until` locks. The wait-until queue is the primary driver
- * of re-checks; this sweep is the backstop for a lost re-check job (a run
- * with no timeout would otherwise hang forever). Re-checking is idempotent
- * (the lock is deleted before resuming, and `resumeRun` takes the advisory
- * lock), so re-ticking a lock the queue is also about to tick is safe.
+ * Prune windowed-count occurrence rows older than the 24h `WindowSchema`
+ * cap. Such rows can never contribute to any in-window count, so the delete
+ * is config-independent and safe. A bulk indexed range delete (`pruneIdx`);
+ * idempotent and cheap when there's nothing to prune.
  */
-async function sweepWaitUntilLocks(
+async function sweepExpiredWindowEvents(
   args: StalledSweeperArgs,
 ): Promise<void> {
-  const locks = await args.deps.runStore.findWaitLocksByKind("until");
-  if (locks.length === 0) return;
-
-  for (const lock of locks) {
-    try {
-      const run = await args.deps.runStore.loadRun(lock.runId);
-      if (!run) {
-        await args.deps.runStore.deleteWaitLock(lock.id);
-        continue;
-      }
-      const automation = await args.automationStore.getById(run.automationId);
-      if (!automation) {
-        await args.deps.runStore.deleteWaitLock(lock.id);
-        await args.deps.runStore.updateRunStatus(
-          lock.runId,
-          "failed",
-          "automation deleted while run was suspended on wait_until",
-        );
-        await args.deps.runStateStore.clear(lock.runId);
-        continue;
-      }
-      await checkWaitUntil(args.deps, {
-        runId: lock.runId,
-        waitLockId: lock.id,
-        automation: {
-          id: automation.id,
-          name: automation.name,
-          status: automation.status,
-          definition: automation.definition,
-        },
-      });
-    } catch (error) {
-      args.logger.warn(
-        `automation sweeper failed to re-check wait_until lock ${lock.id}: ${(error as Error).message}`,
-      );
-    }
+  const cutoff = new Date(Date.now() - WINDOW_EVENT_TTL_MS);
+  try {
+    await args.deps.windowStore.sweepExpired(cutoff);
+  } catch (error) {
+    args.logger.warn(
+      `automation sweeper failed to prune window events: ${(error as Error).message}`,
+    );
   }
 }
+

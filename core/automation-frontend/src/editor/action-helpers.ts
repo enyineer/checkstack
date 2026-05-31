@@ -206,7 +206,6 @@ export function makeEmptyAction(kind: ActionKind): ActionInput {
         wait_until: {
           condition: "",
           continue_on_timeout: true,
-          poll_seconds: 30,
         },
       } satisfies WaitUntilInput;
     }
@@ -362,6 +361,59 @@ export function assignDefaultIds(
     }
     return next;
   });
+}
+
+/**
+ * Produce a duplicate of `action` (and every nested child) with FRESH, unique,
+ * identifier-safe ids, deduped against `taken`. Unlike {@link assignDefaultIds}
+ * - which preserves existing ids and only fills blanks - this strips every id
+ * so a duplicated step never collides with its original. `taken` is mutated as
+ * ids are assigned, so callers can clone several actions against one set.
+ *
+ * Used by the per-card "Duplicate" command: clone the item, insert it directly
+ * after the original, and keep the editor's parallel `ids` array in sync.
+ */
+export function duplicateAction(
+  action: ActionInput,
+  taken: Set<string>,
+): ActionInput {
+  // Strip ids top-down, then run the standard default-id assignment so the
+  // clone (and its children) get brand-new unique ids rather than the
+  // originals'.
+  const stripIds = (input: ActionInput): ActionInput => {
+    const { id: _id, ...rest } = input;
+    const next = rest as ActionInput;
+    if ("choose" in next) {
+      return {
+        ...next,
+        choose: next.choose.map((branch) => ({
+          ...branch,
+          sequence: branch.sequence.map((child) => stripIds(child)),
+        })),
+        else: next.else
+          ? next.else.map((child) => stripIds(child))
+          : undefined,
+      };
+    }
+    if ("parallel" in next) {
+      return { ...next, parallel: next.parallel.map((child) => stripIds(child)) };
+    }
+    if ("repeat" in next) {
+      return {
+        ...next,
+        repeat: {
+          ...next.repeat,
+          sequence: next.repeat.sequence.map((child) => stripIds(child)),
+        },
+      };
+    }
+    if ("sequence" in next) {
+      return { ...next, sequence: next.sequence.map((child) => stripIds(child)) };
+    }
+    return next;
+  };
+  const [cloned] = assignDefaultIds([stripIds(action)], taken);
+  return cloned!;
 }
 
 /**

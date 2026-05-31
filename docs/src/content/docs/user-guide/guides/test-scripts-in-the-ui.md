@@ -27,6 +27,67 @@ clicking **Run** returns the object built from your sample `trigger.payload`.
 > [!NOTE]
 > Tests run on the central server with the same sandbox and curated environment as the real action, so scripts cannot read server secrets. A real run on a satellite may differ slightly; the panel notes this.
 
+## See type errors before you save
+
+Inline `Run Script (TypeScript)` actions are type-checked live against their
+`context` types, and any error shows up as a red badge on the action's card in
+the visual editor (and in the definition issue list) - not just as a squiggle
+inside the open editor. This runs for every script action in the automation,
+including the ones whose cards are collapsed, so a broken script you are not
+currently looking at is still flagged.
+
+This matters most when you change a trigger. With a single trigger,
+`context.trigger.payload.id` reads directly; add a second trigger with a
+different payload and that access is no longer valid for every variant, so you
+must narrow first:
+
+```ts
+export default async function (context) {
+  if (context.trigger.id === "incident_created") {
+    // context.trigger.payload is narrowed to the incident.created shape here.
+    return { incident: context.trigger.payload.id };
+  }
+  return {};
+}
+```
+
+Without the narrowing, the card shows a type-error badge the moment the second
+trigger is added - so the break surfaces in the editor instead of silently
+reading `undefined` at run time.
+
+> [!NOTE]
+> This check runs in your browser for the automation you are editing. Scripts
+> in other automations, or definitions authored directly in YAML, are not
+> type-checked here.
+
+## Map secrets to environment variables
+
+A **Run Script** / **Run Shell Script** action can expose secrets to the script as environment variables through its **secret → env mapping**. Each row maps an environment-variable name to a secret. The secret field is a **searchable dropdown**: start typing to filter the secret names from your backend, then pick one with the mouse or arrow keys plus Enter. You can also free-type a name that does not exist yet (a secret you plan to create later) - it still saves. Checkstack stores each entry as a `${{ secrets.NAME }}` template behind the scenes, so you only ever deal with the bare name in the editor. You can also author the mapping by name in YAML (`secretEnv: { API_TOKEN: jira_token }`).
+
+> [!NOTE]
+> If a row references a secret name that your backend does not currently have, the row shows a non-blocking warning ("No secret named X - it may have been deleted or renamed"). This is a hint, not a block: the secret might be created later, or the list might be momentarily stale, so the action still saves.
+
+Once a mapping is declared, the environment-variable names autocomplete in the **Run Script (TypeScript)** editor under `process.env.` and are typed as `string`, so reading them is type-checked:
+
+```ts
+export default async function () {
+  // `API_TOKEN` (declared in the secret -> env mapping) autocompletes here.
+  return { hasToken: process.env.API_TOKEN.length > 0 };
+}
+```
+
+When you test a script that has a mapping, the test panel **never** resolves your real secret values. Instead:
+
+1. By default, each mapped env var is injected as a named placeholder - `process.env.API_TOKEN === "__SECRET_jira_token__"` - so your script's code paths that read the variable still run.
+2. For a more realistic run, fill in a **Secret test override** for any referenced secret. The panel shows one optional input per distinct secret name. Whatever you type is a test value only: it is masked out of the captured output and is never sent as, or compared against, your real secret.
+
+```ts
+export default async function () {
+  // Defined in the test even with no override (placeholder value).
+  return { hasToken: Boolean(process.env.API_TOKEN) };
+}
+```
+
 ## Load context from a real run
 
 For automation scripts you can seed the sample from an actual run instead of editing JSON by hand:

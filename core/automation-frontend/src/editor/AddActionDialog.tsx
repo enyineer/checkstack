@@ -1,17 +1,20 @@
 import React from "react";
-import { Plus, Search, Zap } from "lucide-react";
+import { Zap } from "lucide-react";
 import {
-  Button,
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DynamicIcon,
-  Input,
   TabPanel,
   Tabs,
 } from "@checkstack/ui";
 import { ACTION_KIND_META, type ActionKind } from "./action-helpers";
+import {
+  PickerAddButton,
+  PickerRow,
+  PickerSearchInput,
+} from "./picker-dialog";
 import { useAutomationRegistry } from "./registry-context";
 
 /**
@@ -37,29 +40,6 @@ const TAB_ITEMS = [
   { id: "actions", label: "Actions" },
   { id: "blocks", label: "Blocks" },
 ];
-
-/** Shared row used by both tabs — icon, name, description, and a `+` affordance. */
-const PickerRow: React.FC<{
-  icon: React.ReactNode;
-  title: string;
-  description?: string;
-  onClick: () => void;
-}> = ({ icon, title, description, onClick }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className="flex w-full items-start gap-3 rounded-md border border-border/60 bg-card px-3 py-2.5 text-left transition-colors hover:border-border hover:bg-accent/50"
-  >
-    <span className="mt-0.5 shrink-0 text-muted-foreground">{icon}</span>
-    <div className="min-w-0 flex-1">
-      <div className="text-sm font-medium">{title}</div>
-      {description && (
-        <div className="text-xs text-muted-foreground">{description}</div>
-      )}
-    </div>
-    <Plus className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-  </button>
-);
 
 export interface AddActionDialogProps {
   /** Insert a building-block step of the given kind. */
@@ -129,17 +109,11 @@ export const AddActionDialog: React.FC<AddActionDialogProps> = ({
 
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
+      <PickerAddButton
+        label="Add step"
         disabled={disabled}
-        className="h-7 text-xs"
         onClick={() => setOpen(true)}
-      >
-        <Plus className="mr-1 h-3 w-3" />
-        Add step
-      </Button>
+      />
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent size="lg">
           <DialogHeader>
@@ -147,16 +121,11 @@ export const AddActionDialog: React.FC<AddActionDialogProps> = ({
           </DialogHeader>
 
           <div className="space-y-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                autoFocus
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search actions and blocks…"
-                className="pl-9"
-              />
-            </div>
+            <PickerSearchInput
+              value={query}
+              onChange={setQuery}
+              placeholder="Search actions and blocks…"
+            />
 
             <Tabs items={TAB_ITEMS} activeTab={tab} onTabChange={setTab} />
 

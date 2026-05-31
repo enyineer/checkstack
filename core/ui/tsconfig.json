@@ -3,6 +3,7 @@
   "include": [
     "src",
     "src/components/CodeEditor/generated/stdlib-types.json",
+    "src/components/CodeEditor/generated/builtin-modules.json",
     "scripts"
   ],
   "references": [

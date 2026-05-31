@@ -5,6 +5,7 @@ import {
   ContextSampleEditor,
   type ScriptTestRenderer,
   type ScriptTestPanelResult,
+  type ScriptTestRunArgs,
 } from "@checkstack/ui";
 import { AutomationApi } from "@checkstack/automation-common";
 import { extractErrorMessage } from "@checkstack/common";
@@ -34,6 +35,13 @@ const TIMEOUT_MS = 30_000;
 interface AutomationScriptTestPanelProps {
   kind: "typescript" | "shell";
   script: string;
+  /**
+   * The action's declared secret → env mapping (the sibling `x-secret-env`
+   * field). Forwarded to `testScript` so the test injects
+   * `__SECRET_<NAME>__` placeholders (or operator overrides) — real secret
+   * values are NEVER resolved in the test path.
+   */
+  secretEnv?: Record<string, string>;
 }
 
 /**
@@ -45,6 +53,7 @@ interface AutomationScriptTestPanelProps {
 const AutomationScriptTestPanel: React.FC<AutomationScriptTestPanelProps> = ({
   kind,
   script,
+  secretEnv,
 }) => {
   const client = usePluginClient(AutomationApi);
   const { automationId } = useAutomationRegistry();
@@ -54,28 +63,37 @@ const AutomationScriptTestPanel: React.FC<AutomationScriptTestPanelProps> = ({
   );
   const [snapshotWarning, setSnapshotWarning] = React.useState(false);
 
-  const handleRun = React.useCallback(async (): Promise<ScriptTestPanelResult> => {
-    let context: Record<string, unknown> | undefined;
-    if (sampleContext.trim().length > 0) {
-      try {
-        context = JSON.parse(sampleContext) as Record<string, unknown>;
-      } catch (error) {
-        return {
-          stdout: "",
-          stderr: "",
-          durationMs: 0,
-          timedOut: false,
-          error: `Sample context is not valid JSON: ${extractErrorMessage(error)}`,
-        };
+  const handleRun = React.useCallback(
+    async ({
+      secretOverrides,
+    }: ScriptTestRunArgs): Promise<ScriptTestPanelResult> => {
+      let context: Record<string, unknown> | undefined;
+      if (sampleContext.trim().length > 0) {
+        try {
+          context = JSON.parse(sampleContext) as Record<string, unknown>;
+        } catch (error) {
+          return {
+            stdout: "",
+            stderr: "",
+            durationMs: 0,
+            timedOut: false,
+            error: `Sample context is not valid JSON: ${extractErrorMessage(error)}`,
+          };
+        }
       }
-    }
-    return testMutation.mutateAsync({
-      kind,
-      script,
-      context,
-      timeoutMs: TIMEOUT_MS,
-    });
-  }, [testMutation, kind, script, sampleContext]);
+      return testMutation.mutateAsync({
+        kind,
+        script,
+        context,
+        // The action's declared secrets → placeholders/overrides in the test
+        // run. Real values are never resolved here (decision 4).
+        ...(secretEnv ? { secretEnv } : {}),
+        ...(secretOverrides ? { secretOverrides } : {}),
+        timeoutMs: TIMEOUT_MS,
+      });
+    },
+    [testMutation, kind, script, sampleContext, secretEnv],
+  );
 
   const note = snapshotWarning
     ? "Loaded trigger + artifacts from the run. Variables / loop state were not available (the run's durable scope was already cleared). Runs on the central backend; real satellite runs may differ."
@@ -85,6 +103,7 @@ const AutomationScriptTestPanel: React.FC<AutomationScriptTestPanelProps> = ({
     <ScriptTestPanel
       onRun={handleRun}
       disabled={script.trim().length === 0}
+      secretEnv={secretEnv}
       note={note}
       contextEditor={
         <ContextSampleEditor
@@ -120,6 +139,12 @@ export const automationScriptTestRenderer: ScriptTestRenderer = ({
   fieldId,
   kind,
   script,
+  secretEnv,
 }) => (
-  <AutomationScriptTestPanel key={`${fieldId}-test`} kind={kind} script={script} />
+  <AutomationScriptTestPanel
+    key={`${fieldId}-test`}
+    kind={kind}
+    script={script}
+    secretEnv={secretEnv}
+  />
 );

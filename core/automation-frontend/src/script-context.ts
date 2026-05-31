@@ -216,3 +216,118 @@ function indent(input: string, pad: string): string {
     .map((line, i) => (i === 0 ? line : `${pad}${line}`))
     .join("\n");
 }
+
+/** A TypeScript identifier safe to emit as an unquoted interface key. */
+const TS_IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+/**
+ * Emit an ambient `NodeJS.ProcessEnv` augmentation that types the declared
+ * `secretEnv` environment-variable NAMES as `string`, so they autocomplete
+ * under `process.env.` in the inline-script Monaco editor and are typed.
+ *
+ * This is a type AUGMENTATION, not a replacement: it adds the known keys as
+ * non-optional `string` members and coexists with `@types/node`'s existing
+ * `ProcessEnv` index signature (`[key: string]: string | undefined`), so
+ * unknown keys still resolve to `string | undefined` while the declared ones
+ * narrow to `string`.
+ *
+ * IMPORTANT: the output is a **global script**, NOT a module. It uses a
+ * top-level ambient `declare namespace NodeJS` (which declaration-merges into
+ * the global `NodeJS.ProcessEnv`) rather than the module-form
+ * `declare global { … } export {};`. The reason is the consumer
+ * (`action-leaf-cards`) CONCATENATES this into the same extra-lib string as the
+ * `declare const context` global. A single top-level `export {};` would turn
+ * the whole concatenated `.d.ts` into a module, which silently demotes
+ * `declare const context` from a global ambient to a module-local binding -
+ * breaking `context.*` IntelliSense entirely. Staying a global script keeps the
+ * merged file ambient. Empty / all-invalid input emits `""` (dropped by the
+ * caller's `.filter(Boolean)`) so merging is always safe.
+ *
+ * Only valid TS identifiers are emitted as ambient keys (an env var like
+ * `MY-VAR` is not a legal `process.env.MY-VAR` member access, so it is
+ * skipped — it remains reachable via the index signature as
+ * `process.env["MY-VAR"]`).
+ */
+export function generateSecretEnvTypes({
+  envNames,
+}: {
+  envNames: string[];
+}): string {
+  // De-dupe, keep only legal identifiers, preserve first-seen order.
+  const seen = new Set<string>();
+  const valid: string[] = [];
+  for (const name of envNames) {
+    const trimmed = name.trim();
+    if (trimmed === "" || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    if (TS_IDENTIFIER_RE.test(trimmed)) valid.push(trimmed);
+  }
+
+  if (valid.length === 0) {
+    // Nothing to declare — emit an empty string so the caller's
+    // `.filter(Boolean)` drops it and the merged extra-lib stays untouched
+    // (a global script). Emitting `export {};` here would modularize the
+    // merged file and break the `context` global (see the doc comment).
+    return "";
+  }
+
+  const members = valid
+    .map((name) => `    readonly ${name}: string;`)
+    .join("\n");
+  return [
+    "/**",
+    " * Auto-generated: the `secretEnv` mapping declared on this action injects",
+    " * these names as `process.env.<NAME>` for the run. Typed `string` so they",
+    " * autocomplete; unknown keys still resolve via @types/node's index signature.",
+    " */",
+    "declare namespace NodeJS {",
+    "  interface ProcessEnv {",
+    members,
+    "  }",
+    "}",
+  ].join("\n");
+}
+
+/** Narrow an `unknown` to a plain (non-array) object record. */
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return undefined;
+}
+
+/**
+ * Locate the action config's secret→env mapping by the `x-secret-env`
+ * schema annotation (NOT a hard-coded field name) and return the declared
+ * environment-variable NAMES (the mapping's keys). These feed
+ * {@link generateSecretEnvTypes} so the script editor types `process.env.*`.
+ *
+ * Both inputs are loosely typed (`configSchema` is a JSON-schema record;
+ * `config` is the action's live config object), so they're narrowed at
+ * runtime via {@link asRecord}. The lone `as` casts the already-narrowed
+ * record to its inferred shape — unavoidable because `asRecord` returns the
+ * generic record. Returns `[]` when no `x-secret-env` field exists or its
+ * mapping value isn't a record.
+ */
+export function secretEnvEnvNames({
+  configSchema,
+  config,
+}: {
+  configSchema: unknown;
+  config: unknown;
+}): string[] {
+  const schemaRecord = asRecord(configSchema);
+  const properties = asRecord(schemaRecord?.properties);
+  if (!properties) return [];
+
+  const fieldKey = Object.entries(properties).find(([, prop]) => {
+    const propRecord = asRecord(prop);
+    return propRecord?.["x-secret-env"] === true;
+  })?.[0];
+  if (!fieldKey) return [];
+
+  const configRecord = asRecord(config);
+  const mapping = asRecord(configRecord?.[fieldKey]);
+  if (!mapping) return [];
+  return Object.keys(mapping);
+}

@@ -72,6 +72,7 @@ function makeStore(auto: Automation): AutomationStore {
           }
         : undefined,
     list: async () => ({ items: [auto], total: 1 }),
+    listGroups: async () => [],
     findEnabledByTriggerEvent: async () => [loaded],
     listEnabled: async () => [loaded],
   };

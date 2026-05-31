@@ -5,6 +5,7 @@ import type {
   EntityKindExtensionDefinition,
   EntityKindRegistry,
   SpecSchemaDocumentation,
+  SpecSchemaDocumentationProvider,
 } from "@checkstack/gitops-common";
 import { entityMetadataSchema } from "@checkstack/gitops-common";
 
@@ -26,6 +27,13 @@ function kindKey(params: { apiVersion: string; kind: string }): string {
  */
 export function createEntityKindRegistry() {
   const kinds = new Map<string, RegisteredKind>();
+  /**
+   * Lazy documentation providers, invoked on every `describeKinds()` so the
+   * docs they return reflect the current state of whatever they read (e.g.
+   * the automation trigger/action registries, populated across plugins with
+   * no guaranteed ordering).
+   */
+  const docProviders: SpecSchemaDocumentationProvider[] = [];
 
   const registry: EntityKindRegistry & {
     /** Get a registered kind definition. */
@@ -148,6 +156,10 @@ export function createEntityKindRegistry() {
       });
     },
 
+    registerSpecSchemaDocumentationProvider(provider) {
+      docProviders.push(provider);
+    },
+
     getKind(params) {
       return kinds.get(kindKey(params))?.definition;
     },
@@ -209,7 +221,20 @@ export function createEntityKindRegistry() {
         }>;
       }> = [];
 
-      for (const registered of kinds.values()) {
+      // Collect lazy-provider docs once per describe, grouped by kind key.
+      // Each provider re-reads its source, so this reflects the current
+      // registry state (order-independent).
+      const providedDocsByKey = new Map<string, SpecSchemaDocumentation[]>();
+      for (const provider of docProviders) {
+        for (const entry of provider()) {
+          const key = kindKey(entry);
+          const list = providedDocsByKey.get(key) ?? [];
+          list.push(entry);
+          providedDocsByKey.set(key, list);
+        }
+      }
+
+      for (const [key, registered] of kinds.entries()) {
         if (!registered.definition) continue;
 
         const def = registered.definition;
@@ -222,16 +247,18 @@ export function createEntityKindRegistry() {
           }),
         );
 
-        const specSchemaDocumentation = registered.specSchemaDocumentation.map(
-          (doc) => ({
-            fieldPath: doc.fieldPath,
-            variantId: doc.variantId,
-            label: doc.label,
-            description: doc.description,
-            specSchema: toJsonSchema(doc.schema),
-            conditions: doc.conditions,
-          }),
-        );
+        const allDocs = [
+          ...registered.specSchemaDocumentation,
+          ...(providedDocsByKey.get(key) ?? []),
+        ];
+        const specSchemaDocumentation = allDocs.map((doc) => ({
+          fieldPath: doc.fieldPath,
+          variantId: doc.variantId,
+          label: doc.label,
+          description: doc.description,
+          specSchema: toJsonSchema(doc.schema),
+          conditions: doc.conditions,
+        }));
 
         result.push({
           apiVersion: def.apiVersion,

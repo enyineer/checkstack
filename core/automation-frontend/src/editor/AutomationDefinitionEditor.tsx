@@ -12,6 +12,10 @@ import {
 import { TriggersEditor } from "./TriggersEditor";
 import { ConditionsEditor } from "./ConditionsEditor";
 import { ActionListEditor } from "./ActionListEditor";
+import { ValidationProvider, type DefinitionIssue } from "./editor-validation";
+import { useScriptDiagnostics } from "./useScriptDiagnostics";
+import { collectScriptActions } from "./script-actions";
+import { ScriptServicesBooter } from "./ScriptServicesBooter";
 
 export interface AutomationDefinitionEditorProps {
   value: AutomationDefinition;
@@ -23,6 +27,14 @@ export interface AutomationDefinitionEditorProps {
    * run" picker, which lists this automation's prior runs.
    */
   automationId?: string;
+  /**
+   * Structural validation issues (from the backend `validateDefinition`),
+   * merged here with the live, frontend-computed inline-script TYPE issues so
+   * both surface through the same per-card badges. Script type-checking lives
+   * inside this component because it needs the registry (trigger/action
+   * catalog) the `AutomationRegistryProvider` supplies.
+   */
+  structuralIssues?: DefinitionIssue[];
 }
 
 /**
@@ -48,8 +60,26 @@ const EditorBody: React.FC<AutomationDefinitionEditorProps> = ({
   value,
   onChange,
   disabled,
+  structuralIssues = [],
 }) => {
-  const { loading } = useAutomationRegistry();
+  const { loading, actions } = useAutomationRegistry();
+
+  // Live type-check of every inline script action (collapsed cards included),
+  // merged with the backend's structural issues so both drive the same
+  // per-card badges via `ValidationProvider`.
+  const scriptIssues = useScriptDiagnostics({ definition: value });
+  const issues = React.useMemo(
+    () => [...structuralIssues, ...scriptIssues],
+    [structuralIssues, scriptIssues],
+  );
+
+  // When the automation already contains inline scripts, boot the editor
+  // services up-front (a hidden editor) so those scripts validate the moment
+  // the automation opens - not only after a card is expanded.
+  const hasScriptActions = React.useMemo(
+    () => collectScriptActions({ definition: value, actions }).length > 0,
+    [value, actions],
+  );
 
   // Scope at the root path = `trigger.*` only. The conditions editor
   // uses `variableNodes` for the explicit "fx" tree and
@@ -61,6 +91,8 @@ const EditorBody: React.FC<AutomationDefinitionEditorProps> = ({
   });
 
   return (
+    <ValidationProvider issues={issues}>
+    {hasScriptActions && <ScriptServicesBooter />}
     <div className="space-y-4">
       {loading && (
         <Card className="border-dashed">
@@ -101,5 +133,6 @@ const EditorBody: React.FC<AutomationDefinitionEditorProps> = ({
         </CardContent>
       </Card>
     </div>
+    </ValidationProvider>
   );
 };

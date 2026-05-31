@@ -21,6 +21,8 @@ import type {
 import { SYSTEM_ACTOR, type Actor } from "@checkstack/common";
 
 import type { AutomationStore } from "../automation-store";
+import { evaluate, parseCondition } from "@checkstack/template-engine";
+
 import { dispatchTrigger, resumeRun } from "./engine";
 import { evaluateCondition } from "./condition";
 import { renderString } from "./render";
@@ -304,6 +306,39 @@ async function wakeWaitingRuns(args: HandleTriggerFiringArgs): Promise<void> {
   }
 }
 
+/**
+ * Stage-2 entry (reactive automation engine §13.3): start fresh runs for ONE
+ * already-resolved automation whose trigger references `eventId`, using the
+ * entity-change as the trigger payload. Mirrors the per-automation inner of
+ * `handleTriggerFiring` step 2, but scoped to a single automation so the
+ * Stage-2 fan-out job (one automation + one entity change) runs in isolation.
+ *
+ * Each matching trigger goes through `maybeStartRun` (config gate, filter,
+ * dwell, concurrency mode) exactly as the hook-driven path does.
+ */
+export async function startRunsForAutomationEvent(args: {
+  deps: DispatchDeps;
+  automation: LoadedAutomation;
+  eventId: string;
+  triggerPayload: Record<string, unknown>;
+  actor: Actor;
+  contextKey: string | null;
+}): Promise<void> {
+  for (const trigger of args.automation.definition.triggers.filter(
+    (t) => t.event === args.eventId,
+  )) {
+    await maybeStartRun({
+      deps: args.deps,
+      automation: args.automation,
+      trigger,
+      triggerPayload: args.triggerPayload,
+      actor: args.actor,
+      contextKey: args.contextKey,
+      eventId: args.eventId,
+    });
+  }
+}
+
 interface MaybeStartRunArgs {
   deps: DispatchDeps;
   automation: LoadedAutomation;
@@ -369,6 +404,43 @@ async function maybeStartRun(args: MaybeStartRunArgs): Promise<void> {
       return;
     }
     if (!pass) return;
+  }
+
+  // Windowed-count / rate gate — runs AFTER the structured config gate + the
+  // operator's `filter` (so only QUALIFYING occurrences count) and BEFORE the
+  // `for:` dwell (so a window can compose with a dwell). Records this
+  // occurrence in the durable append log and counts rows in the trailing
+  // window; fires per the re-fire policy.
+  //
+  // Cross-pod: the work-queue claim gives exactly one INSERT per emission, and
+  // the COUNT is a pure DB read, so every pod agrees on whether the threshold
+  // was crossed (state-and-scale rule). No process-local state.
+  if (args.trigger.window) {
+    // Partition key the count buckets by. Defaults to the trigger's built-in
+    // context key (e.g. systemId); `partitionBy` overrides it with a bare
+    // expression evaluated against the SAME scope `filter` uses. An
+    // empty/undefined result or an eval error falls back to the built-in key
+    // (never accidental global counting).
+    const partitionKey = await resolvePartitionKey(args);
+    let fired: boolean;
+    try {
+      fired = await args.deps.windowStore.recordAndCount({
+        automationId: args.automation.id,
+        triggerId: args.trigger.id ?? deriveTriggerId(args.trigger),
+        eventId: args.eventId,
+        contextKey: partitionKey,
+        occurredAt: new Date(),
+        windowMinutes: args.trigger.window.minutes,
+        threshold: args.trigger.window.count,
+        refire: args.trigger.window.refire,
+      });
+    } catch (error) {
+      args.deps.logger.warn(
+        `Trigger window gate failed; skipping firing: ${(error as Error).message}`,
+      );
+      return;
+    }
+    if (!fired) return;
   }
 
   // `for:` dwell — arm (or re-arm) instead of starting the run now. The
@@ -566,6 +638,55 @@ async function respectConcurrencyModeInner(
 // doesn't currently render templates beyond conditions, but the import
 // is convenient for future filter expressions.
 void renderString;
+
+/**
+ * Resolve the partition key the windowed-count gate buckets the occurrence
+ * count by.
+ *
+ *  - No `window.partitionBy` → the trigger's built-in context key
+ *    (`args.contextKey`, e.g. systemId). Existing behaviour, unchanged.
+ *  - `window.partitionBy` set → evaluate it as a BARE expression (same flavour
+ *    as `filter`, no `{{ }}`) against the SAME scope `filter` uses, then
+ *    coerce the result to a string.
+ *  - The evaluated value is null/undefined/empty, OR evaluation throws →
+ *    fall back to `args.contextKey` (never accidental global counting). An
+ *    eval error is logged, matching the gate's fail-open posture.
+ */
+async function resolvePartitionKey(
+  args: MaybeStartRunArgs,
+): Promise<string | null> {
+  const expression = args.trigger.window?.partitionBy;
+  if (expression === undefined) return args.contextKey;
+
+  try {
+    const scope = buildInitialScope({
+      triggerId: args.trigger.id ?? deriveTriggerId(args.trigger),
+      triggerEventId: args.eventId,
+      payload: args.triggerPayload,
+      actor: args.actor,
+      startedAt: new Date(),
+    });
+    await enrichScopeWithState({
+      scope,
+      client: args.deps.healthCheckClient,
+      logger: args.deps.logger,
+      contextKey: args.contextKey,
+      usesState: args.automation.definition.uses_state,
+      transitionWindowMinutes: args.automation.definition.state_window_minutes,
+    });
+    const value = evaluate(parseCondition(expression), scope, {
+      filters: args.deps.filters,
+    });
+    if (value === null || value === undefined) return args.contextKey;
+    const key = String(value).trim();
+    return key.length > 0 ? key : args.contextKey;
+  } catch (error) {
+    args.deps.logger.warn(
+      `Trigger window partitionBy failed to evaluate; falling back to the built-in context key: ${(error as Error).message}`,
+    );
+    return args.contextKey;
+  }
+}
 
 /**
  * Derive a stable trigger id from the trigger declaration when the

@@ -30,7 +30,17 @@ import {
   automationActionExtensionPoint,
   automationArtifactTypeExtensionPoint,
   automationTriggerExtensionPoint,
+  entityExtensionPoint,
+  type EntityHandle,
 } from "@checkstack/automation-backend";
+import {
+  HEALTH_ENTITY_KIND,
+  HealthEntityStateSchema,
+  createHealthEntityRead,
+  deriveHealthTriggerEvents,
+  healthChangeToPayload,
+  type HealthEntityState,
+} from "./health-entity";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
 import { secretResolverRef } from "@checkstack/secrets-backend";
 import { createHealthCheckRouter } from "./router";
@@ -41,7 +51,7 @@ import {
   healthCheckTriggers,
 } from "./automations";
 import { registerHealthcheckGitOpsKinds, registerHealthcheckGitOpsDocumentation } from "./healthcheck-gitops-kinds";
-import { catalogHooks } from "@checkstack/catalog-backend";
+import { CATALOG_SYSTEM_ENTITY_KIND } from "@checkstack/catalog-backend";
 import { satelliteHooks } from "@checkstack/satellite-backend";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
@@ -53,6 +63,21 @@ import { createHealthCheckCache } from "./cache";
 
 // Store emitHook reference for use during Phase 2 init
 let storedEmitHook: EmitHookFn | undefined;
+
+// The reactive `health` entity handle (§10.3). Defined in register() via
+// the entity extension point (buffered until automation-backend registers
+// the impl); mutations only fire from init() onward once the read accessor
+// has its db + service.
+let healthEntity: EntityHandle<HealthEntityState> | undefined;
+
+// PLUGIN-BACKED + COMPUTED kind: the `health` aggregate has no domain table and
+// no framework `entity_state` row — its current state is COMPUTED on read from
+// the durable `health_check_runs` (via `getSystemHealthStatus`). The db +
+// service are only available in init(), but the entity `read` accessor must be
+// supplied at `defineEntity` time in register(). These holders bridge the two;
+// init() sets them before any mutation runs (the queue worker — the only
+// mutation site — is set up in init() after these are bound).
+let healthEntityService: HealthCheckService | undefined;
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
@@ -76,6 +101,47 @@ export default createBackendPlugin({
     env
       .getExtensionPoint(automationArtifactTypeExtensionPoint)
       .registerArtifactType(assignmentArtifactType, pluginMetadata);
+
+    // ─── Reactive `health` entity (§10.3) ──────────────────────────────
+    // PLUGIN-BACKED + COMPUTED kind (Model B): the per-system aggregate has no
+    // domain table and NO framework `entity_state` row. `read` COMPUTES each
+    // system's `{ status, healthyChecks, totalChecks }` on demand from the same
+    // durable `health_check_runs` the rest of the plugin reads (via
+    // `getSystemHealthStatus`), gated on the system having at least one ENABLED
+    // check association — see `createHealthEntityRead`. A system with an enabled
+    // check but no runs yet resolves to the default-`healthy` baseline so a
+    // first-ever unhealthy run is a real `healthy → degraded` diff. The service
+    // is resolved in init() and bridged via the holder. The change →
+    // trigger-event deriver keeps the
+    // existing `healthcheck.system.degraded` / `.healthy` / `.health_changed`
+    // automations firing off the computed state.
+    const entityPoint = env.getExtensionPoint(entityExtensionPoint);
+    healthEntity = entityPoint.defineEntity<HealthEntityState>({
+      kind: HEALTH_ENTITY_KIND,
+      state: HealthEntityStateSchema,
+      read: (ids) => {
+        const service = healthEntityService;
+        if (!service) {
+          throw new Error(
+            "health entity read before init: service not yet resolved",
+          );
+        }
+        return createHealthEntityRead({ service })(ids);
+      },
+    });
+    entityPoint.registerChangeDeriver({
+      kind: HEALTH_ENTITY_KIND,
+      derive: deriveHealthTriggerEvents,
+      toPayload: healthChangeToPayload,
+    });
+    // Raw per-check samples + cursors are intentionally NON-reactive (§5):
+    // a firehose of individual runs would melt the wake-index; the
+    // aggregate is the entity.
+    entityPoint.declareNonReactiveState({
+      table: "health_check_runs",
+      reason: "raw-sample",
+      note: "High-frequency individual check executions. The per-system aggregate is the `health` entity; raw runs stay a numeric_state wake source only.",
+    });
 
     // ─── GitOps Entity Kind Registration ───────────────────────────────
     // Mutable refs — populated during init(), consumed by reconcile closures.
@@ -155,6 +221,17 @@ export default createBackendPlugin({
         gitopsCollectorRegistry = collectorRegistry;
         gitopsQueueManager = queueManager;
 
+        // Bind the COMPUTE-ON-READ accessor's db + service for the `health`
+        // entity (defined in register()). From here onward the entity `read`
+        // computes each system's aggregate from durable `health_check_runs`,
+        // and the queue worker (set up just below — the only mutation site)
+        // drives writes through `handle.mutate`.
+        healthEntityService = new HealthCheckService(
+          database,
+          healthCheckRegistry,
+          collectorRegistry,
+        );
+
         // Create catalog client for notification delegation
         const catalogClient = rpcClient.forPlugin(CatalogApi);
 
@@ -190,6 +267,7 @@ export default createBackendPlugin({
           maintenanceClient,
           incidentClient,
           getEmitHook: () => storedEmitHook,
+          getHealthEntity: () => healthEntity,
           cache,
           secretResolver,
         });
@@ -201,11 +279,12 @@ export default createBackendPlugin({
           queueManager,
         });
 
-        // The hardcoded auto-incident open/close path was removed in
-        // Phase 20 — auto-incident behaviour now ships as user-editable
-        // default automations (sustained-unhealthy / flapping / cooldown
-        // close). Flapping DETECTION still runs in the queue executor and
-        // emits `healthcheck.flapping_detected` for those automations.
+        // The hardcoded auto-incident open/close path was removed — auto-
+        // incident behaviour is now built entirely by user automations
+        // (e.g. `healthcheck.system_degraded` + `for:` → `incident.create`).
+        // Flapping is detected by the automation engine's windowed-count gate
+        // on the `system_health_changed` trigger — healthcheck emits only the
+        // raw aggregated-health change (via the reactive `health` entity).
 
         const healthCheckRouter = createHealthCheckRouter({
           database: database as SafeDatabase<typeof schema>,
@@ -308,17 +387,23 @@ export default createBackendPlugin({
           automationActions.registerAction(action, pluginMetadata);
         }
 
-        onHook(
-          catalogHooks.systemDeleted,
-          async (payload) => {
+        // React to catalog system deletion (tombstone) via the reactive
+        // `catalog-system` entity instead of the (removed) `system.deleted`
+        // hook (§10.4). `work-queue` delivery preserved: association cleanup
+        // must run once per cluster, not per-instance.
+        entityPoint.onEntityChanged({
+          kind: CATALOG_SYSTEM_ENTITY_KIND,
+          handler: async (change) => {
+            if (change.next !== null) return; // tombstone only
+            const systemId = change.id;
             logger.debug(
-              `Cleaning up health check associations for deleted system: ${payload.systemId}`,
+              `Cleaning up health check associations for deleted system: ${systemId}`,
             );
-            await service.removeAllSystemAssociations(payload.systemId);
-            await healthCheckCache?.invalidateSystem(payload.systemId);
+            await service.removeAllSystemAssociations(systemId);
+            await healthCheckCache?.invalidateSystem(systemId);
           },
-          { mode: "work-queue", workerGroup: "system-cleanup" },
-        );
+          delivery: { mode: "work-queue", workerGroup: "system-cleanup" },
+        });
 
         // Subscribe to satellite deletion to scrub satellite IDs from associations
         onHook(
@@ -335,11 +420,6 @@ export default createBackendPlugin({
           { mode: "work-queue", workerGroup: "satellite-cleanup" },
         );
 
-        // (The auto-incident mapping-sync hook was removed in Phase 20
-        // along with the hardcoded open/close path — the legacy
-        // `health_check_auto_incidents` mapping table is no longer
-        // written or read.)
-
         logger.debug("✅ Health Check Backend afterPluginsReady complete.");
       },
     });
@@ -348,3 +428,13 @@ export default createBackendPlugin({
 
 // Re-export hooks for other plugins to use
 export { healthCheckHooks } from "./hooks";
+
+// Re-export the reactive `health` entity surface so cross-plugin consumers
+// (slo, dependency) can subscribe via onEntityChanged + classify changes
+// without duplicating the kind id / transition predicate (§10.3).
+export {
+  HEALTH_ENTITY_KIND,
+  classifyHealthChange,
+  type HealthChangeClassification,
+  type HealthEntityState,
+} from "./health-entity";

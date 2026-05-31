@@ -19,6 +19,7 @@ import {
   AutomationArtifactSchema,
   AutomationRunSchema,
   AutomationRunStepSchema,
+  AutomationGroupSchema,
   AutomationSchema,
   AutomationStatusSchema,
   CreateAutomationInputSchema,
@@ -51,9 +52,21 @@ export const automationContract = {
     .input(
       PaginationInput.extend({
         status: AutomationStatusSchema.optional(),
+        group: AutomationGroupSchema.optional(),
       }),
     )
     .output(PaginatedResult(AutomationSchema)),
+
+  /**
+   * Distinct, non-null group values across all automations, sorted
+   * alphabetically. Powers the edit-page group picker's "pick existing"
+   * suggestions.
+   */
+  listAutomationGroups: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [automationAccess.read],
+  }).output(z.object({ groups: z.array(z.string()) })),
 
   getAutomation: proc({
     operationType: "query",

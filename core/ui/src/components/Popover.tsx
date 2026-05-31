@@ -2,6 +2,7 @@ import * as React from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { cn } from "../utils";
 import { usePerformance } from "./PerformanceProvider";
+import { usePortalContainer } from "./portalContainer";
 
 const Popover = PopoverPrimitive.Root;
 const PopoverTrigger = PopoverPrimitive.Trigger;
@@ -17,8 +18,12 @@ const PopoverContent = React.forwardRef<
   PopoverContentProps
 >(({ className, align = "end", sideOffset = 8, ...props }, ref) => {
   const { isLowPower } = usePerformance();
+  // When inside a modal Sheet/Dialog, portal into its content so the dialog's
+  // scroll-lock doesn't block this popover's internal scroll. Outside a
+  // Sheet/Dialog the container is null and Radix portals to `body` as usual.
+  const portalContainer = usePortalContainer();
   return (
-    <PopoverPrimitive.Portal>
+    <PopoverPrimitive.Portal container={portalContainer ?? undefined}>
       <PopoverPrimitive.Content
         ref={ref}
         align={align}

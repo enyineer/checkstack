@@ -464,6 +464,63 @@ spec:
     password: "${{ secrets.payment-db-password }}"
 ```
 
+## Documenting polymorphic spec fields
+
+When a kind's `spec` has a field whose shape depends on a sibling
+discriminator value (a strategy id, an event id, an action id), register
+per-variant documentation so the Kind Registry Browser and GitOps editor
+can show the correct schema for the chosen variant. Each entry targets a
+`fieldPath` and may be `conditions`-gated on the selected variant of
+another field.
+
+Use the eager method when the docs derive from data that is fully
+available at registration time:
+
+```ts
+kindRegistry.registerSpecSchemaDocumentation({
+  apiVersion: CHECKSTACK_API_VERSION,
+  kind: "Healthcheck",
+  fieldPath: "collectors[].config",
+  variantId: "healthcheck.http",
+  label: "HTTP collector",
+  schema: httpCollectorConfigSchema,
+  conditions: [{ fieldPath: "config", variantIds: ["healthcheck.http"] }],
+});
+```
+
+> [!IMPORTANT]
+> Eager registration takes a one-shot snapshot. If the docs derive from a
+> registry that other plugins populate across their `init` /
+> `afterPluginsReady` phases (which have no guaranteed cross-plugin
+> ordering), that snapshot can capture a half-populated registry. Register
+> a provider instead.
+
+Use `registerSpecSchemaDocumentationProvider` for that case. The provider
+is a thunk invoked on every describe (each time the kind-browser RPC is
+queried), so the entries it returns always reflect the current registry
+state, order-independently:
+
+```ts
+kindRegistry.registerSpecSchemaDocumentationProvider(() =>
+  actionRegistry.getActions().map((action) => ({
+    apiVersion: CHECKSTACK_API_VERSION,
+    kind: "Automation",
+    fieldPath: "actions[].config",
+    variantId: action.qualifiedId,
+    label: action.displayName,
+    schema: action.config.schema,
+    conditions: [
+      { fieldPath: "actions[].action", variantIds: [action.qualifiedId] },
+    ],
+  })),
+);
+```
+
+The `Automation` kind uses this for `triggers[].config` and
+`actions[].config`, because its triggers and provider actions are
+contributed by many plugins after automation-backend's own
+`afterPluginsReady` runs.
+
 ## Other built-in kinds and extensions
 
 For the full operator-facing list of kinds Checkstack ships out of the

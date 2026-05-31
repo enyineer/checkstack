@@ -1,0 +1,369 @@
+/**
+ * The reactive `health` entity (reactive automation engine §10.3).
+ *
+ * Model B PLUGIN-BACKED + COMPUTED entity. There is NO framework `entity_state`
+ * row for a system's aggregated health and NO domain table of its own — the
+ * reactive subset `{ status, healthyChecks, totalChecks }` is COMPUTED on demand
+ * by the `read` accessor from the SAME durable health data the rest of the
+ * plugin reads (`health_check_runs` via `service.getSystemHealthStatus`). Every
+ * evaluation-site write goes through `handle.mutate`, whose `apply` performs the
+ * REAL durable write (insert run + increment aggregate) and returns the
+ * freshly-computed view. The framework snapshots `prev` via `read` BEFORE
+ * `apply` runs (i.e. before the run is persisted), diffs prev → next, appends
+ * the transition log, and emits `ENTITY_CHANGED`.
+ *
+ * This module is the single source of truth for:
+ *  - the `health` entity zod state schema + kind id,
+ *  - the PLUGIN-BACKED + COMPUTED `read` accessor
+ *    ({@link createHealthEntityRead}),
+ *  - the change → trigger-event deriver (so the existing
+ *    `healthcheck.system.degraded` / `.healthy` / `.health_changed`
+ *    automations keep firing), and
+ *  - the `writeHealthEntity` helper called at every evaluation-write site.
+ */
+import { z } from "zod";
+import { HealthCheckStatusSchema } from "@checkstack/healthcheck-common";
+import { withXactLock, type SafeDatabase } from "@checkstack/backend-api";
+import type {
+  EntityChangeDeriver,
+  EntityChangePayloadMapper,
+  EntityHandle,
+  EntityRead,
+} from "@checkstack/automation-backend";
+import type { HealthCheckService } from "./service";
+import * as schema from "./schema";
+// Re-export the change type through automation-backend's barrel (it
+// re-exports it from automation-common) so this domain needs no extra dep.
+
+type Db = SafeDatabase<typeof schema>;
+
+/** Entity kind id for the per-system aggregated health. */
+export const HEALTH_ENTITY_KIND = "health";
+
+/**
+ * Reactive state subset surfaced as the entity view. The full aggregate
+ * (per-check breakdown, timestamps, etc.) stays in the domain tables; only
+ * the fields automations reason about live here. Computed on read from the
+ * same durable data `getSystemHealthStatus` reads — never materialized.
+ */
+export const HealthEntityStateSchema = z.object({
+  status: HealthCheckStatusSchema,
+  healthyChecks: z.number().int().nonnegative(),
+  totalChecks: z.number().int().nonnegative(),
+});
+
+export type HealthEntityState = z.infer<typeof HealthEntityStateSchema>;
+
+/**
+ * Qualified trigger event ids the health entity drives. These are the
+ * TRIGGER qualifiedIds (`${pluginId}.${trigger.id}`) that automations store
+ * in `trigger.event` and that Stage-1 routing matches on via
+ * `findEnabledByTriggerEvent` — NOT the underlying hook ids. The healthcheck
+ * triggers use underscore ids (`system_degraded`, …), so the deriver must
+ * emit `healthcheck.system_degraded`, not the dotted hook id
+ * `healthcheck.system.degraded`. (Verified against `automations.ts` trigger
+ * ids + `trigger-subscriber.ts` which fires on `t.event === qualifiedId`.)
+ */
+export const HEALTH_TRIGGER_EVENTS = {
+  degraded: "healthcheck.system_degraded",
+  healthy: "healthcheck.system_healthy",
+  healthChanged: "healthcheck.system_health_changed",
+} as const;
+
+/**
+ * Read `status` off a serialized entity-state record (the change payload's
+ * `prev` / `next` are plain JSON records, not the typed state).
+ */
+function readStatus(state: Record<string, unknown> | null): string | null {
+  if (state === null) return null;
+  const status = state["status"];
+  return typeof status === "string" ? status : null;
+}
+
+/**
+ * Map a `health` entity change to the qualified trigger event id(s) the
+ * existing automations match on. Reproduces the directional + umbrella emit
+ * conditions that lived inline in `queue-executor.ts`:
+ *  - recovery (→ healthy):  next === "healthy" && prev !== "healthy"
+ *  - degradation:           prev === "healthy" && next !== "healthy"
+ *  - umbrella (any change): prev !== next
+ *
+ * A create (`prev === null`) or tombstone (`next === null`) fires nothing —
+ * there is no prior aggregate transition to react to, matching the old
+ * behavior where the directional/umbrella hooks only emitted on a real
+ * status transition of an already-tracked system.
+ */
+export const deriveHealthTriggerEvents: EntityChangeDeriver = (changed) => {
+  const prev = readStatus(changed.prev);
+  const next = readStatus(changed.next);
+  if (prev === null || next === null) return [];
+  if (prev === next) return [];
+
+  const events: string[] = [];
+  if (next === "healthy") {
+    events.push(HEALTH_TRIGGER_EVENTS.healthy);
+  } else if (prev === "healthy") {
+    events.push(HEALTH_TRIGGER_EVENTS.degraded);
+  }
+  // Umbrella fires on every transition, alongside the directional event.
+  events.push(HEALTH_TRIGGER_EVENTS.healthChanged);
+  return events;
+};
+
+function readNumber(
+  state: Record<string, unknown> | null,
+  field: string,
+): number | undefined {
+  if (state === null) return undefined;
+  const value = state[field];
+  return typeof value === "number" ? value : undefined;
+}
+
+/**
+ * Map a `health` entity change to the domain-named `trigger.payload` the
+ * healthcheck triggers declare via `payloadSchema` (`systemId`,
+ * `previousStatus`, `newStatus`, `healthyChecks`, `totalChecks`, `timestamp`).
+ * Restores the keys operators read (`trigger.payload.systemId`,
+ * `.previousStatus`, …) that the generic change shape omits.
+ *
+ * `systemId` is the entity id; `previousStatus` is `prev.status` and `newStatus`
+ * is `next.status`; `healthyChecks` / `totalChecks` come from `next`;
+ * `timestamp` is the change's `occurredAt`. `systemName` is not derivable from a
+ * health change (it lives in the catalog) and is OPTIONAL on the schemas, so it
+ * is omitted.
+ */
+export const healthChangeToPayload: EntityChangePayloadMapper = (changed) => {
+  return {
+    systemId: changed.id,
+    previousStatus: readStatus(changed.prev) ?? undefined,
+    newStatus: readStatus(changed.next) ?? undefined,
+    healthyChecks: readNumber(changed.next, "healthyChecks") ?? 0,
+    totalChecks: readNumber(changed.next, "totalChecks") ?? 0,
+    timestamp: changed.occurredAt,
+  };
+};
+
+/**
+ * Classify a `health` entity change for cross-plugin consumers (slo,
+ * dependency) that previously subscribed to the directional
+ * `systemDegraded` / `systemHealthy` hooks. Returns the systemId plus
+ * boolean transition flags, reproducing the exact emit conditions so a
+ * consumer can reproduce its old behavior via `onEntityChanged`.
+ *
+ * - `degraded`: prev === "healthy" && next !== "healthy" (and next exists)
+ * - `recovered`: next === "healthy" && prev !== "healthy" (and prev exists)
+ *
+ * Create / tombstone produce neither (no prior aggregate transition).
+ */
+export interface HealthChangeClassification {
+  systemId: string;
+  previousStatus: string | null;
+  newStatus: string | null;
+  degraded: boolean;
+  recovered: boolean;
+}
+
+export function classifyHealthChange(changed: {
+  id: string;
+  prev: Record<string, unknown> | null;
+  next: Record<string, unknown> | null;
+}): HealthChangeClassification {
+  const previousStatus = readStatus(changed.prev);
+  const newStatus = readStatus(changed.next);
+  const bothPresent = previousStatus !== null && newStatus !== null;
+  const degraded =
+    bothPresent && previousStatus === "healthy" && newStatus !== "healthy";
+  const recovered =
+    bothPresent && newStatus === "healthy" && previousStatus !== "healthy";
+  return {
+    systemId: changed.id,
+    previousStatus,
+    newStatus,
+    degraded,
+    recovered,
+  };
+}
+
+/**
+ * Compute the reactive `health` view for a single system from durable data.
+ *
+ * Derives `{ status, healthyChecks, totalChecks }` from the SAME default-
+ * `healthy` baseline aggregate the executor reads via
+ * `getSystemHealthStatus`:
+ *  - `status`         = `getSystemHealthStatus(systemId).status` (the worst-
+ *    wins aggregate across the system's ENABLED checks, computed from
+ *    `health_check_runs` via `evaluateHealthStatus`; a check with no runs yet
+ *    evaluates to `"healthy"`),
+ *  - `healthyChecks`  = count of per-check statuses that are `"healthy"`,
+ *  - `totalChecks`    = number of enabled checks (`checkStatuses.length`).
+ *
+ * EXISTENCE GATE: the entity resolves iff the system has at least one ENABLED
+ * check association (`checkStatuses.length > 0`). A system with no enabled
+ * checks has no `health` entity and is omitted from the batched `read` (its
+ * health is undefined, not a meaningful `healthy`).
+ *
+ * The gate is intentionally on ASSOCIATIONS, not on persisted runs: a system
+ * that has an enabled check but has never run yet resolves to the default-
+ * `healthy` baseline (the exact value `getSystemHealthStatus` returns for an
+ * empty run window). That makes a first-ever evaluation that comes up
+ * unhealthy a real `healthy → degraded` diff — firing `system_degraded` /
+ * `health_changed` and the `degraded` `onEntityChanged` for SLO/dependency
+ * consumers — instead of a suppressed create (`prev === null`). The entity and
+ * the executor therefore agree on the pre-run baseline.
+ */
+export async function computeHealthEntityState(args: {
+  service: HealthCheckService;
+  systemId: string;
+}): Promise<HealthEntityState | undefined> {
+  const { service, systemId } = args;
+  const overview = await service.getSystemHealthStatus(systemId);
+  // No enabled check associations ⇒ no health entity for this system.
+  if (overview.checkStatuses.length === 0) return undefined;
+  return {
+    status: overview.status,
+    healthyChecks: overview.checkStatuses.filter((c) => c.status === "healthy")
+      .length,
+    totalChecks: overview.checkStatuses.length,
+  };
+}
+
+/**
+ * Build the PLUGIN-BACKED + COMPUTED `read` accessor for the `health` entity.
+ * For each systemId, assembles the view via {@link computeHealthEntityState}
+ * (systems with no runs omitted). This is the single source of truth that
+ * `handle.mutate` snapshots `prev` from and `get`/`getMany`/scope enrichment
+ * route through — no framework `entity_state` storage.
+ */
+export function createHealthEntityRead(deps: {
+  service: HealthCheckService;
+}): EntityRead<HealthEntityState> {
+  const { service } = deps;
+  return async (ids) => {
+    if (ids.length === 0) return {};
+    const out: Record<string, HealthEntityState> = {};
+    await Promise.all(
+      ids.map(async (systemId) => {
+        const state = await computeHealthEntityState({ service, systemId });
+        if (state) out[systemId] = state;
+      }),
+    );
+    return out;
+  };
+}
+
+/**
+ * Drive an evaluation-site health write through `handle.mutate` (§10.3).
+ *
+ * `apply` performs the REAL durable write (insert the run + increment the
+ * hourly aggregate) and returns the freshly-computed `health` view. The
+ * framework snapshots `prev` via `read` BEFORE `apply` runs — i.e. BEFORE the
+ * run is persisted — so a real status change yields exactly one correct
+ * `ENTITY_CHANGED` with accurate prev → next, whose deriver fires the
+ * `healthcheck.system_degraded` / `_healthy` / `_health_changed` trigger
+ * events. An unchanged aggregate is a no-op (the handle diffs internally).
+ *
+ * Concurrency:
+ *  - `serialize`, when provided, wraps the ENTIRE snapshot-prev + apply + diff
+ *    + emit (the `handle.mutate` call) in a per-`systemId` critical section.
+ *    Without it, concurrent evaluations of one system (multiple per-config jobs
+ *    across pods, or at-least-once redelivery) interleave: both snapshot
+ *    `prev = healthy`, both persist a failing run, both diff `healthy →
+ *    degraded`, and both emit — yielding two `ENTITY_CHANGED` + two transition
+ *    rows for one logical transition (inflating `transitionCount`/flapping and
+ *    re-running dependency notify). The executor wires this to a transaction-
+ *    scoped advisory lock keyed `health:<systemId>` (`withXactLock`), so two
+ *    concurrent evals of one system serialize through prev-snapshot to emit.
+ *    The durable `apply` write is the SAME whether serialized or not — only the
+ *    snapshot/diff/emit window is protected.
+ *
+ * Failure handling:
+ *  - When no `handle` is bound (version skew / tests), `apply` still runs —
+ *    the durable write is never gated on entity reactivity. (The serialization
+ *    lock is part of the reactive path, so an unbound handle skips it too; the
+ *    durable insert keeps its own ordering guarantees.)
+ *  - If `apply` throws BEFORE the durable write commits, the error propagates
+ *    so the executor's own error path (fallback insert) runs. We detect this
+ *    via `durableState`: it is only set once `apply` has produced its view, so
+ *    if it is still unset when `mutate` throws, the durable write did not
+ *    commit.
+ *  - If the FRAMEWORK reactivity throws AFTER the durable write committed
+ *    (transition append / emit — the documented Model B post-commit boundary),
+ *    we route it to `onError` and DO NOT rethrow: a reactivity failure must
+ *    never break health-check execution (the durable tables already hold the
+ *    authoritative state).
+ *
+ * Returns the computed view (or `undefined` if `apply` never produced one,
+ * which only happens when it threw and `handle` was absent — in which case the
+ * throw already propagated).
+ */
+export async function writeHealthEntity(args: {
+  handle: EntityHandle<HealthEntityState> | undefined;
+  systemId: string;
+  apply: () => Promise<HealthEntityState>;
+  onError?: (error: unknown) => void;
+  /**
+   * Optional per-`systemId` critical section wrapping the snapshot-prev +
+   * apply + diff + emit. The executor supplies a transaction-scoped advisory
+   * lock (`withXactLock`, key `health:<systemId>`) so concurrent evaluations
+   * of one system can't double-emit a single logical transition. Identity by
+   * default (no serialization) for the unbound-handle / test paths.
+   */
+  serialize?: <T>(fn: () => Promise<T>) => Promise<T>;
+}): Promise<HealthEntityState> {
+  const { handle, systemId, apply, onError, serialize } = args;
+  if (!handle) {
+    // No reactivity bound — run the durable write directly.
+    return apply();
+  }
+  const run = serialize ?? (<T>(fn: () => Promise<T>) => fn());
+  let durableState: HealthEntityState | undefined;
+  try {
+    // The lock scope MUST cover prev-snapshot through emit: `handle.mutate`
+    // snapshots `prev` via `read`, runs `apply`, diffs, and emits inside one
+    // call, and we wrap that whole call so two concurrent evals serialize.
+    return await run(() =>
+      handle.mutate({
+        id: systemId,
+        apply: async () => {
+          durableState = await apply();
+          return durableState;
+        },
+      }),
+    );
+  } catch (error) {
+    // `apply` never committed ⇒ the durable write failed; propagate so the
+    // executor's outer catch can run its fallback path.
+    if (durableState === undefined) throw error;
+    // Durable write committed; only the framework reactivity failed. Fail-soft.
+    onError?.(error);
+    return durableState;
+  }
+}
+
+/** Advisory-lock key namespace for the per-system health critical section. */
+export function healthSystemLockKey(systemId: string): string {
+  return `health:${systemId}`;
+}
+
+/**
+ * Build the per-`systemId` serializer for {@link writeHealthEntity} backed by
+ * a transaction-scoped advisory lock (`withXactLock`, key
+ * `health:<systemId>`). The returned function blocks until it holds the
+ * system's lock, runs `fn` (the whole snapshot-prev + apply + diff + emit), and
+ * auto-releases the lock at COMMIT/ROLLBACK. Two concurrent evaluations of one
+ * system therefore serialize — exactly one logical `healthy → degraded`
+ * transition emits exactly one `ENTITY_CHANGED` + one transition row.
+ *
+ * `fn` does its own durable writes on the outer pool; the lock only gates
+ * ENTRY to the critical section, so its connection affinity is irrelevant —
+ * the second caller cannot acquire the xact lock until the first transaction
+ * commits.
+ */
+export function createHealthEntitySerializer(deps: {
+  db: Db;
+}): (systemId: string) => <T>(fn: () => Promise<T>) => Promise<T> {
+  const { db } = deps;
+  return (systemId) =>
+    <T>(fn: () => Promise<T>) =>
+      withXactLock({ db, key: healthSystemLockKey(systemId), fn: () => fn() });
+}

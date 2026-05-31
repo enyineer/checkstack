@@ -4,6 +4,8 @@ import {
   toSecretTemplate,
   objectToRows,
   rowsToObject,
+  unknownSecretNames,
+  type SecretEnvRow,
 } from "./secretEnv.logic";
 
 describe("parseSecretName", () => {
@@ -12,10 +14,20 @@ describe("parseSecretName", () => {
     expect(parseSecretName("${{secrets.x}}")).toBe("x");
   });
 
-  it("returns empty for a non-template / inline value", () => {
-    expect(parseSecretName("plain")).toBe("");
-    // Only a whole-value template is treated as a single secret reference.
+  it("accepts a legacy bare secret name and returns it as-is", () => {
+    // Bare names are tolerated on the wire (normalized to a template by the
+    // schema), so the picker shows the same name for both forms.
+    expect(parseSecretName("plain")).toBe("plain");
+    expect(parseSecretName("SECRET")).toBe("SECRET");
+    expect(parseSecretName("my-secret")).toBe("my-secret");
+  });
+
+  it("returns empty for junk that is neither a template nor a bare name", () => {
+    // Inline interpolation is not a whole-value secret reference.
     expect(parseSecretName("u:${{ secrets.pw }}@host")).toBe("");
+    // A leading digit / spaces are not a valid secret name.
+    expect(parseSecretName("1bad")).toBe("");
+    expect(parseSecretName("not a name")).toBe("");
   });
 });
 
@@ -54,5 +66,61 @@ describe("objectToRows / rowsToObject round-trip", () => {
   it("trims whitespace in env and secret names", () => {
     const rows = [{ envName: "  TOKEN ", secretName: " tok " }];
     expect(rowsToObject(rows)).toEqual({ TOKEN: "${{ secrets.tok }}" });
+  });
+});
+
+describe("unknownSecretNames", () => {
+  const rows: SecretEnvRow[] = [
+    { envName: "A", secretName: "alpha" },
+    { envName: "B", secretName: "beta" },
+  ];
+
+  it("returns the referenced names that are not in the available list", () => {
+    const result = unknownSecretNames({ rows, secretNames: ["alpha"] });
+    expect(result).toEqual(new Set(["beta"]));
+  });
+
+  it("returns an empty set when the list is undefined (still loading)", () => {
+    expect(unknownSecretNames({ rows, secretNames: undefined })).toEqual(
+      new Set(),
+    );
+  });
+
+  it("returns an empty set when the list is empty (treated as unknown list)", () => {
+    expect(unknownSecretNames({ rows, secretNames: [] })).toEqual(new Set());
+  });
+
+  it("returns an empty set when every referenced name is known", () => {
+    expect(
+      unknownSecretNames({ rows, secretNames: ["alpha", "beta", "gamma"] }),
+    ).toEqual(new Set());
+  });
+
+  it("ignores blank / whitespace-only secret names", () => {
+    const withBlank: SecretEnvRow[] = [
+      { envName: "A", secretName: "" },
+      { envName: "B", secretName: "  " },
+      { envName: "C", secretName: "ghost" },
+    ];
+    expect(
+      unknownSecretNames({ rows: withBlank, secretNames: ["alpha"] }),
+    ).toEqual(new Set(["ghost"]));
+  });
+
+  it("de-duplicates a name referenced by multiple rows", () => {
+    const dupes: SecretEnvRow[] = [
+      { envName: "A", secretName: "ghost" },
+      { envName: "B", secretName: "ghost" },
+    ];
+    expect(unknownSecretNames({ rows: dupes, secretNames: ["alpha"] })).toEqual(
+      new Set(["ghost"]),
+    );
+  });
+
+  it("trims whitespace before comparing against the list", () => {
+    const padded: SecretEnvRow[] = [{ envName: "A", secretName: "  alpha  " }];
+    expect(
+      unknownSecretNames({ rows: padded, secretNames: ["alpha"] }),
+    ).toEqual(new Set());
   });
 });

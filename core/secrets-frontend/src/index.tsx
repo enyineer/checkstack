@@ -35,7 +35,7 @@ export default createFrontendPlugin({
     createSlotExtension(UserMenuItemsSlot, {
       id: "secrets.user-menu.items",
       component: SecretsMenuItems,
-      metadata: { group: "Administration" },
+      metadata: { group: "Configuration" },
     }),
   ],
 });

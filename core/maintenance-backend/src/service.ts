@@ -174,13 +174,89 @@ export class MaintenanceService {
   }
 
   /**
-   * Create a new maintenance
+   * Batched reactive-state read for the `maintenance` entity (Model B
+   * plugin-backed `read` accessor). Given maintenance ids, return the
+   * reactive subset `{ status, systemIds, startAt, endAt }` for each that
+   * exists (missing ids omitted). Reads the AUTHORITATIVE `maintenances` +
+   * `maintenance_systems` tables — no framework `entity_state` storage. This
+   * is the single source of truth `handle.mutate` snapshots `prev` from and
+   * `get`/`getMany`/scope enrichment route through. `startAt`/`endAt` are
+   * serialized to ISO strings to match the entity state schema.
+   */
+  async getManyEntityStates(
+    ids: ReadonlyArray<string>,
+  ): Promise<
+    Record<
+      string,
+      {
+        status: MaintenanceStatus;
+        systemIds: string[];
+        startAt: string;
+        endAt: string;
+      }
+    >
+  > {
+    if (ids.length === 0) return {};
+
+    const rows = await this.db
+      .select({
+        id: maintenances.id,
+        status: maintenances.status,
+        startAt: maintenances.startAt,
+        endAt: maintenances.endAt,
+      })
+      .from(maintenances)
+      .where(inArray(maintenances.id, [...ids]));
+    if (rows.length === 0) return {};
+
+    const presentIds = rows.map((r) => r.id);
+    const systemRows = await this.db
+      .select({
+        maintenanceId: maintenanceSystems.maintenanceId,
+        systemId: maintenanceSystems.systemId,
+      })
+      .from(maintenanceSystems)
+      .where(inArray(maintenanceSystems.maintenanceId, presentIds));
+
+    const systemsByMaintenance = new Map<string, string[]>();
+    for (const r of systemRows) {
+      const list = systemsByMaintenance.get(r.maintenanceId);
+      if (list) list.push(r.systemId);
+      else systemsByMaintenance.set(r.maintenanceId, [r.systemId]);
+    }
+
+    const out: Record<
+      string,
+      {
+        status: MaintenanceStatus;
+        systemIds: string[];
+        startAt: string;
+        endAt: string;
+      }
+    > = {};
+    for (const row of rows) {
+      out[row.id] = {
+        status: row.status,
+        systemIds: systemsByMaintenance.get(row.id) ?? [],
+        startAt: row.startAt.toISOString(),
+        endAt: row.endAt.toISOString(),
+      };
+    }
+    return out;
+  }
+
+  /**
+   * Create a new maintenance.
+   *
+   * `id` may be supplied by the caller so the reactive `maintenance` entity
+   * can be keyed on a known id BEFORE the insert runs (the create's `prev`
+   * snapshot must read the not-yet-existing row as absent — see §10.2). When
+   * omitted, a fresh id is generated. The id is server-owned either way.
    */
   async createMaintenance(
     input: CreateMaintenanceInput,
+    id: string = generateId(),
   ): Promise<MaintenanceWithSystems> {
-    const id = generateId();
-
     await this.db.insert(maintenances).values({
       id,
       title: input.title,

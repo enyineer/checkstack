@@ -49,6 +49,23 @@ export function defaultTriggerId(
 }
 
 /**
+ * Build a fresh trigger subscribed to `event` with a unique, log-friendly
+ * default `id` (deduped against `taken`). Used by the trigger type picker so a
+ * newly-added trigger is immediately referenceable as `trigger.id` rather than
+ * appearing blank.
+ */
+export function makeTrigger({
+  event,
+  taken,
+}: {
+  event: string;
+  taken: Set<string>;
+}): Trigger {
+  const base: Trigger = { event };
+  return { ...base, id: defaultTriggerId(base, taken) };
+}
+
+/**
  * Return a copy of `triggers` with a stable, unique id assigned to every
  * trigger that does not already have one. Existing ids are preserved and seed
  * the uniqueness set. Used when seeding the starter automation so the id is

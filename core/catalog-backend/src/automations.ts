@@ -20,15 +20,22 @@
  * hook so downstream automations + cache subscribers see the change.
  */
 import { z } from "zod";
-import { Versioned, type Hook } from "@checkstack/backend-api";
+import { Versioned } from "@checkstack/backend-api";
 import type {
   ActionDefinition,
   TriggerDefinition,
 } from "@checkstack/automation-backend";
-
-import { catalogHooks } from "./hooks";
+import {
+  makeEntityDrivenTriggerSetup,
+  type EntityHandle,
+} from "@checkstack/automation-backend";
 import type { EntityService } from "./services/entity-service";
 import type { createCatalogCache } from "./cache";
+import {
+  toCatalogSystemState,
+  writeCatalogSystemEntity,
+  type CatalogSystemState,
+} from "./catalog-entity";
 
 // ─── Payload schemas — match the hook payloads exactly ─────────────────
 
@@ -50,6 +57,10 @@ const systemDeletedPayloadSchema = z.object({
 
 // ─── Triggers ──────────────────────────────────────────────────────────
 
+// These triggers are ENTITY-DRIVEN (§10.4): the `catalog-system` entity's
+// change deriver fires `catalog.created/.updated/.deleted` via Stage-1
+// routing, so they no longer subscribe to a hook. A no-op `setup` keeps
+// them in the editor's trigger catalog without re-introducing a hook.
 export const systemCreatedTrigger: TriggerDefinition<
   z.infer<typeof systemCreatedPayloadSchema>
 > = {
@@ -59,7 +70,9 @@ export const systemCreatedTrigger: TriggerDefinition<
   category: "Catalog",
   icon: "Activity",
   payloadSchema: systemCreatedPayloadSchema,
-  hook: catalogHooks.systemCreated,
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof systemCreatedPayloadSchema>
+  >(),
   contextKey: (p) => p.systemId,
 };
 
@@ -72,7 +85,9 @@ export const systemUpdatedTrigger: TriggerDefinition<
   category: "Catalog",
   icon: "Activity",
   payloadSchema: systemUpdatedPayloadSchema,
-  hook: catalogHooks.systemUpdated,
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof systemUpdatedPayloadSchema>
+  >(),
   contextKey: (p) => p.systemId,
 };
 
@@ -85,7 +100,9 @@ export const systemDeletedTrigger: TriggerDefinition<
   category: "Catalog",
   icon: "Activity",
   payloadSchema: systemDeletedPayloadSchema,
-  hook: catalogHooks.systemDeleted,
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof systemDeletedPayloadSchema>
+  >(),
   contextKey: (p) => p.systemId,
 };
 
@@ -134,11 +151,12 @@ export interface CatalogActionDeps {
   entityService: EntityService;
   cache: ReturnType<typeof createCatalogCache>;
   /**
-   * `emitHook` bound during `afterPluginsReady`. Required so the
-   * action fires `systemUpdated` downstream — without it, other
-   * automations waiting on the trigger wouldn't see the change.
+   * Resolver for the reactive `catalog-system` entity (§10.4). The
+   * `update_metadata` action mirrors its edit here; the entity's change
+   * deriver fires the `catalog.updated` trigger event downstream (the old
+   * `systemUpdated` hook emission was removed).
    */
-  emitHook: <T>(hook: Hook<T>, payload: T) => Promise<void>;
+  getSystemEntity?: () => EntityHandle<CatalogSystemState> | undefined;
 }
 
 export function createCatalogActions(
@@ -159,7 +177,7 @@ export function createCatalogActions(
       schema: systemUpdateMetadataConfigSchema,
     }),
     produces: "catalog.system_record",
-    execute: async ({ config, logger }) => {
+    execute: async ({ config, logger, runId }) => {
       const existing = await deps.entityService.getSystem(config.systemId);
       if (!existing) {
         return {
@@ -175,9 +193,39 @@ export function createCatalogActions(
           ? config.metadata
           : { ...existingMetadata, ...config.metadata };
 
-      const updated = await deps.entityService.updateSystem(config.systemId, {
-        metadata: nextMetadata,
+      // Drive the update through the reactive `catalog-system` entity (§10.4);
+      // the REAL `updateSystem` runs INSIDE `apply`, so `prev` is snapshotted
+      // before the write and the deriver fires `catalog.updated`. If the row
+      // was race-deleted mid-update, `apply` falls back to the pre-write
+      // state so the diff is a no-op (no spurious `catalog.updated`), and the
+      // failure is surfaced from the captured `updated`.
+      // Capture the post-write row in a holder so TS control-flow tracks the
+      // assignment made inside the async `apply` closure (a plain `let`
+      // mutated in a closure is invisible to CFA and would narrow to `never`).
+      const captured: {
+        row: Awaited<ReturnType<typeof deps.entityService.updateSystem>> | null;
+      } = { row: null };
+      await writeCatalogSystemEntity({
+        handle: deps.getSystemEntity?.(),
+        systemId: config.systemId,
+        // Run-secret masking choke point: this action resolves config
+        // (including `metadata` values) against the run scope, which can
+        // contain run-resolved secrets. Passing `runId` masks any such secret
+        // in the `entity_transitions` rows + the cluster-wide `ENTITY_CHANGED`.
+        opts: { runId },
+        apply: async () => {
+          const row = await deps.entityService.updateSystem(config.systemId, {
+            metadata: nextMetadata,
+          });
+          captured.row = row ?? null;
+          return toCatalogSystemState({
+            name: row?.name ?? existing.name,
+            description: row?.description ?? existing.description,
+            metadata: row ? nextMetadata : existingMetadata,
+          });
+        },
       });
+      const updated = captured.row;
       if (!updated) {
         return {
           success: false,
@@ -186,11 +234,6 @@ export function createCatalogActions(
       }
 
       await deps.cache.invalidateTopology();
-      await deps.emitHook(catalogHooks.systemUpdated, {
-        systemId: updated.id,
-        systemName: updated.name,
-        changedFields: ["metadata"],
-      });
 
       logger.info(
         `Automation updated metadata on system ${updated.id} (${config.strategy})`,

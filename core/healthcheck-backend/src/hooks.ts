@@ -11,33 +11,19 @@ import type { HealthCheckStatus } from "@checkstack/healthcheck-common";
  * editor.
  */
 export const healthCheckHooks = {
-  /**
-   * Emitted when a system's aggregated health status degrades.
-   * This fires when status changes from healthy to degraded/unhealthy,
-   * or from degraded to unhealthy.
-   */
-  systemDegraded: createHook<{
-    systemId: string;
-    systemName?: string;
-    previousStatus: HealthCheckStatus;
-    newStatus: HealthCheckStatus;
-    healthyChecks: number;
-    totalChecks: number;
-    timestamp: string;
-  }>("healthcheck.system.degraded"),
-
-  /**
-   * Emitted when a system's aggregated health status recovers to healthy.
-   * This fires when status changes from degraded/unhealthy to healthy.
-   */
-  systemHealthy: createHook<{
-    systemId: string;
-    systemName?: string;
-    previousStatus: HealthCheckStatus;
-    healthyChecks: number;
-    totalChecks: number;
-    timestamp: string;
-  }>("healthcheck.system.healthy"),
+  // The `healthcheck.system.degraded` / `.healthy` / `.health_changed` hooks
+  // were removed in Phase 4 (§10.3): the per-system aggregated health is now
+  // the reactive `health` entity, whose change deriver fires the
+  // `healthcheck.system_degraded` / `_healthy` / `_health_changed` trigger
+  // events through Stage-1 routing. The remaining hooks below are KEPT:
+  // `assignmentChanged` (config signal) and `checkCompleted` / `checkFailed`
+  // (high-frequency raw samples + numeric_state wake source).
+  //
+  // The `flappingDetected` hook was removed: flapping is now detected in the
+  // automation engine by the windowed-count gate on the
+  // `healthcheck.system_health_changed` trigger (base raw change event +
+  // `filter` + `window: { count, minutes, refire: "once" }`), so healthcheck
+  // no longer computes or emits a pre-derived flapping signal.
 
   /**
    * Emitted when a health check ↔ system association changes.
@@ -63,26 +49,6 @@ export const healthCheckHooks = {
   }>("healthcheck.check.completed"),
 
   /**
-   * Umbrella variant of `systemDegraded` + `systemHealthy` — fires on
-   * **any** aggregated-health transition, carrying both the previous
-   * and new statuses. Subscribers (e.g. an automation that wants to
-   * react to every state change without subscribing to two hooks
-   * and coalescing themselves) prefer this one.
-   *
-   * Emitted alongside the directional hooks, never instead of them,
-   * so existing subscribers keep working unchanged.
-   */
-  systemHealthChanged: createHook<{
-    systemId: string;
-    systemName?: string;
-    previousStatus: HealthCheckStatus;
-    newStatus: HealthCheckStatus;
-    healthyChecks: number;
-    totalChecks: number;
-    timestamp: string;
-  }>("healthcheck.system.health_changed"),
-
-  /**
    * Narrow variant of `checkCompleted` — fires only when an individual
    * check run completed with a non-`healthy` status. Carries the
    * latency + raw result so subscribers can branch on collector-
@@ -99,25 +65,4 @@ export const healthCheckHooks = {
     result: Record<string, unknown> | undefined;
     timestamp: string;
   }>("healthcheck.check.failed"),
-
-  /**
-   * Emitted when the flapping-detector observes ≥ N unhealthy
-   * transitions in the policy's configured window. Fires regardless
-   * of whether `autoOpenIncidentOnUnhealthy` is enabled — the hook is
-   * informational; the auto-incident pipeline still gates on the
-   * policy.
-   *
-   * Re-fires on every additional transition past the threshold while
-   * the check stays in a flapping pattern, so automations that want
-   * "page once and only once" should debounce on `(systemId,
-   * configurationId)`. Carrying the observed transition count + the
-   * window length lets subscribers reason about both.
-   */
-  flappingDetected: createHook<{
-    systemId: string;
-    configurationId: string;
-    transitionCount: number;
-    windowMinutes: number;
-    timestamp: string;
-  }>("healthcheck.flapping_detected"),
 } as const;

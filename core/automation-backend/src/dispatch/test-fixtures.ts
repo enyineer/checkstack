@@ -5,12 +5,9 @@
  * registries so engine tests can run without a real database or queue.
  */
 import { z } from "zod";
-import { Versioned, createHook } from "@checkstack/backend-api";
+import { Versioned } from "@checkstack/backend-api";
 import { createDefaultFilterRegistry } from "@checkstack/template-engine";
-import type {
-  ActionDefinition,
-  TriggerDefinition,
-} from "../action-types";
+import type { ActionDefinition } from "../action-types";
 import { createActionRegistry, type ActionRegistry } from "../action-registry";
 import {
   createArtifactTypeRegistry,
@@ -23,13 +20,16 @@ import type {
   CreateRunInput,
   CreateStepInput,
   CreateWaitLockInput,
+  CreateWaitLockWithRefsInput,
   DispatchDeps,
   DwellStore,
   LoadedDwell,
   LoadedRun,
   LoadedWaitLock,
+  RecordWindowInput,
   RunStore,
   UpsertDwellInput,
+  WindowStore,
 } from "./types";
 import type { RunStateSnapshot, RunStateStore } from "./run-state-store";
 
@@ -57,6 +57,8 @@ export function createInMemoryRunStore(opts?: {
     resultPayload?: Record<string, unknown>;
   }>;
   waitLocks: Map<string, LoadedWaitLock>;
+  /** Wake-index rows keyed by wait-lock id → set of refs (reactive §8). */
+  wakeRefs: Map<string, Set<string>>;
 } {
   const runs = new Map<string, LoadedRun>();
   const steps: Array<{
@@ -72,6 +74,7 @@ export function createInMemoryRunStore(opts?: {
     resultPayload?: Record<string, unknown>;
   }> = [];
   const waitLocks = new Map<string, LoadedWaitLock>();
+  const wakeRefs = new Map<string, Set<string>>();
   const onCancel = opts?.onCancel;
   let runCounter = 0;
   let stepCounter = 0;
@@ -144,7 +147,10 @@ export function createInMemoryRunStore(opts?: {
       // makeDispatchDeps.)
       if (cancelled.length > 0) {
         for (const [id, lock] of waitLocks) {
-          if (cancelled.includes(lock.runId)) waitLocks.delete(id);
+          if (cancelled.includes(lock.runId)) {
+            waitLocks.delete(id);
+            wakeRefs.delete(id);
+          }
         }
         onCancel?.(cancelled);
       }
@@ -210,6 +216,23 @@ export function createInMemoryRunStore(opts?: {
       });
       return id;
     },
+    async createWaitLockWithWakeRefs(input: CreateWaitLockWithRefsInput) {
+      const id = `lock-${++lockCounter}`;
+      waitLocks.set(id, {
+        id,
+        runId: input.runId,
+        actionPath: input.actionPath,
+        kind: "until",
+        eventId: input.eventId,
+        contextKey: input.contextKey,
+        filterTemplate: null,
+        timeoutAt: input.timeoutAt,
+        waitConfig: input.waitConfig,
+        createdAt: new Date(),
+      });
+      wakeRefs.set(id, new Set(input.wakeRefs));
+      return id;
+    },
     async loadWaitLock(id) {
       return waitLocks.get(id);
     },
@@ -222,6 +245,18 @@ export function createInMemoryRunStore(opts?: {
       }
       return matches;
     },
+    async findWaitLocksByWakeRef(ref) {
+      const colon = ref.indexOf(":");
+      const kind = colon === -1 ? ref : ref.slice(0, colon);
+      const wildcard = `${kind}:*`;
+      const matches: LoadedWaitLock[] = [];
+      for (const [lockId, refs] of wakeRefs) {
+        const lock = waitLocks.get(lockId);
+        if (!lock || lock.kind !== "until") continue;
+        if (refs.has(ref) || refs.has(wildcard)) matches.push(lock);
+      }
+      return matches;
+    },
     async findWaitLocksByKind(kind) {
       return [...waitLocks.values()].filter((lock) => lock.kind === kind);
     },
@@ -230,6 +265,7 @@ export function createInMemoryRunStore(opts?: {
     },
     async deleteWaitLock(id) {
       waitLocks.delete(id);
+      wakeRefs.delete(id);
     },
     async sweepExpiredWaitLocks(now) {
       const expired: LoadedWaitLock[] = [];
@@ -242,7 +278,7 @@ export function createInMemoryRunStore(opts?: {
     },
   };
 
-  return { store, runs, steps, waitLocks };
+  return { store, runs, steps, waitLocks, wakeRefs };
 }
 
 export function createInMemoryArtifactStore(): {
@@ -441,6 +477,71 @@ export function createInMemoryDwellStore(): {
 }
 
 /**
+ * In-memory `WindowStore` mirroring the SQL append-log semantics: each
+ * `recordAndCount` appends an occurrence, counts rows for the key within the
+ * trailing window (inclusive), and applies the re-fire policy. Faithful to
+ * `window-store.ts` so the gate's behaviour is testable without a DB.
+ */
+export function createInMemoryWindowStore(): {
+  store: WindowStore;
+  events: Array<{
+    automationId: string;
+    triggerId: string;
+    eventId: string;
+    contextKey: string | null;
+    occurredAt: Date;
+  }>;
+} {
+  const events: Array<{
+    automationId: string;
+    triggerId: string;
+    eventId: string;
+    contextKey: string | null;
+    occurredAt: Date;
+  }> = [];
+
+  const store: WindowStore = {
+    async recordAndCount(input: RecordWindowInput) {
+      const {
+        automationId,
+        triggerId,
+        eventId,
+        contextKey,
+        occurredAt,
+        windowMinutes,
+        threshold,
+        refire,
+      } = input;
+      events.push({ automationId, triggerId, eventId, contextKey, occurredAt });
+      const windowStart = occurredAt.getTime() - windowMinutes * 60_000;
+      const newCount = events.filter(
+        (e) =>
+          e.automationId === automationId &&
+          e.triggerId === triggerId &&
+          e.contextKey === contextKey &&
+          e.occurredAt.getTime() >= windowStart,
+      ).length;
+      if (refire === "once") return newCount === threshold;
+      return newCount >= threshold;
+    },
+    async sweepExpired(cutoff) {
+      for (let i = events.length - 1; i >= 0; i--) {
+        if (events[i]!.occurredAt.getTime() < cutoff.getTime()) {
+          events.splice(i, 1);
+        }
+      }
+    },
+    async deleteForAutomation(automationId) {
+      for (let i = events.length - 1; i >= 0; i--) {
+        if (events[i]!.automationId === automationId) events.splice(i, 1);
+      }
+    },
+  };
+
+  return { store, events };
+}
+
+/**
  * Minimal in-memory queue manager stub for engine tests. Records enqueued
  * jobs so a test can fire them synchronously to simulate the delay
  * scheduler.
@@ -456,7 +557,7 @@ export interface FakeQueueManager {
   fireAll: () => Promise<void>;
 }
 
-export function createFakeQueueManager(opts?: {
+function createFakeQueueManager(opts?: {
   onJob?: (queue: string, data: unknown) => Promise<void> | void;
 }): FakeQueueManager {
   const jobs: FakeQueueManager["jobs"] = [];
@@ -572,6 +673,11 @@ export function makeDispatchDeps(opts?: {
   /** Optional health-check client for sensing-layer enrichment tests. */
   healthCheckClient?: DispatchDeps["healthCheckClient"];
   /**
+   * Optional kind-agnostic entity resolver for reactive `wait_until` wake
+   * re-eval tests (resolves `state.<kind>.<id>` for non-health entity kinds).
+   */
+  entityResolverFor?: DispatchDeps["entityResolverFor"];
+  /**
    * Wire a faithful in-memory serializing lock for the concurrency-mode
    * check-then-create (models the real transaction-scoped advisory lock:
    * keyed, blocks until granted). Off by default so the natural
@@ -584,6 +690,7 @@ export function makeDispatchDeps(opts?: {
   artifacts: ReturnType<typeof createInMemoryArtifactStore>;
   state: ReturnType<typeof createInMemoryRunStateStore>;
   dwells: ReturnType<typeof createInMemoryDwellStore>;
+  windows: ReturnType<typeof createInMemoryWindowStore>;
   queue: FakeQueueManager;
 } {
   // `cancelActiveRuns` clears the cancelled runs' run-state rows too (the
@@ -601,6 +708,7 @@ export function makeDispatchDeps(opts?: {
   const state = createInMemoryRunStateStore(runs.runs);
   stateHolder.store = state;
   const dwells = createInMemoryDwellStore();
+  const windows = createInMemoryWindowStore();
   const queue = createFakeQueueManager();
   const noopLogger = {
     debug: () => {},
@@ -620,8 +728,10 @@ export function makeDispatchDeps(opts?: {
     artifactStore: artifacts.store,
     runStateStore: state.store,
     dwellStore: dwells.store,
+    windowStore: windows.store,
     queueManager: queue.manager,
     healthCheckClient: opts?.healthCheckClient,
+    entityResolverFor: opts?.entityResolverFor,
     getService: async () => {
       throw new Error("getService not stubbed for this test");
     },
@@ -646,7 +756,7 @@ export function makeDispatchDeps(opts?: {
       return next;
     };
   }
-  return { deps, runs, artifacts, state, dwells, queue };
+  return { deps, runs, artifacts, state, dwells, windows, queue };
 }
 
 // ─── Shared fixtures ────────────────────────────────────────────────────
@@ -712,18 +822,5 @@ export function makeFailingAction(): ActionDefinition<{ reason: string }> {
       success: false,
       error: ctx.config.reason,
     }),
-  };
-}
-
-/** Hook used by tests that need a registered hook reference. */
-export const testHook = createHook<{ id: string }>("test.event");
-
-export function makeTrigger(): TriggerDefinition<{ id: string }> {
-  return {
-    id: "event",
-    displayName: "Test event",
-    payloadSchema: z.object({ id: z.string() }),
-    hook: testHook,
-    contextKey: (p) => p.id,
   };
 }

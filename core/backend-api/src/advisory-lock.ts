@@ -44,6 +44,14 @@ export interface AdvisoryLockPoolClient {
   ): Promise<{ rows: T[] }>;
   /** Return the client to the pool. */
   release(): void;
+  /**
+   * Subscribe to async client errors. A session-lock client is held for a long
+   * time; if its backend dies (admin termination, failover, network drop) `pg`
+   * emits `'error'` on the client, and an `'error'` with no listener is
+   * re-thrown by the EventEmitter and would crash the pod. We attach a listener
+   * so that loss degrades gracefully instead. Modelled on `pg.Client.on`.
+   */
+  on(event: "error", listener: (err: Error) => void): void;
 }
 
 export interface AdvisoryLockPool {
@@ -81,6 +89,14 @@ export function createAdvisoryLockService(
   return {
     async tryAcquire(key) {
       const client = await pool.connect();
+      // A held session lock keeps this client checked out (not idle), so the
+      // pool's own error handler won't cover it. If this backend is terminated
+      // (admin kill / failover) while the lock is held, `pg` emits `'error'`
+      // here; without a listener the process crashes. Swallow it - the session
+      // lock is auto-released server-side when the backend dies, and a stale
+      // `release()` is already a no-op-safe `finally`, so the loss surfaces as
+      // the key simply becoming acquirable again.
+      client.on("error", () => {});
       let acquired = false;
       try {
         const result = await client.query<{ ok: boolean }>(

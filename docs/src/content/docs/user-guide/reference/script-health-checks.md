@@ -186,6 +186,10 @@ The configuration UI uses a VS Code-powered code editor with full TypeScript Int
 - When you open an empty inline-script field, the editor is pre-seeded
   with a runnable starter that imports `node:os` and uses
   `defineHealthCheck` so you have a working example to copy from.
+- The expand icon in the editor's top-right corner opens the same editor
+  in a large full-screen overlay (with identical IntelliSense and
+  completions) so you can comfortably edit longer scripts. Edits made in
+  the overlay sync back to the inline editor.
 
 For shell scripts, the editor offers env-var autocomplete: typing `$`
 or `${` brings up the platform-forwarded vars (`PATH`, `HOME`, `TZ`,

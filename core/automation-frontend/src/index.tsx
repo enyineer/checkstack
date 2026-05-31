@@ -17,6 +17,8 @@ import { AutomationMenuItems } from "./components/AutomationMenuItems";
 
 export {
   generateAutomationContextTypes,
+  generateSecretEnvTypes,
+  secretEnvEnvNames,
   type GenerateAutomationContextTypesInput,
   type GenerateAutomationContextTypesResult,
 } from "./script-context";

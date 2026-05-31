@@ -52,6 +52,30 @@ export interface ShellEnvVar {
   example?: string;
 }
 
+/** One declaration file returned by an `AcquireTypes` resolver. */
+export interface AcquiredTypeFile {
+  /**
+   * Real `node_modules/...`-relative path (e.g.
+   * `node_modules/@types/lodash/index.d.ts`). Registered at `file:///<path>`
+   * so TypeScript's NodeJs + `@types` resolution can find it.
+   */
+  path: string;
+  /** Verbatim declaration content (UNWRAPPED — no `declare module` envelope). */
+  content: string;
+}
+
+/**
+ * Resolver for lazy Automatic Type Acquisition (ATA). Given a bare package
+ * specifier (e.g. `lodash`), returns the declaration-file closure to register
+ * with the TypeScript service (own types and/or the `@types/*` companion).
+ * Returns an empty array when the package has no acquirable types. Plugin-
+ * agnostic: the concrete fetch (route URL + lockfile hash + auth) is injected
+ * by the consumer (see `@checkstack/script-packages-frontend`).
+ */
+export type AcquireTypes = (
+  specifier: string,
+) => Promise<AcquiredTypeFile[]>;
+
 /**
  * An externally-supplied diagnostic to render as an inline squiggle. Positions
  * are 1-based line/column (the editor's convention). Callers compute these from
@@ -106,4 +130,39 @@ export interface CodeEditorProps {
    * diagnostics).
    */
   markers?: EditorMarker[];
+  /**
+   * Lazy Automatic Type Acquisition resolver. When provided (TS/JS editors),
+   * the editor parses bare `import`/`require` specifiers from the buffer and
+   * calls this for each NEW package, registering the returned declaration
+   * files so `import { x } from "pkg"` autocompletes. Injected by the
+   * consumer so `@checkstack/ui` stays plugin-agnostic.
+   */
+  acquireTypes?: AcquireTypes;
+  /**
+   * Identity of the current package install (the lockfile hash). When it
+   * changes (a new install), the editor resets its acquired-set so types
+   * refresh against the new install.
+   */
+  acquireResetKey?: string;
+  /**
+   * Importable installed package NAMES (TS/JS editors). When provided, the
+   * editor suggests these while the cursor is inside an import specifier
+   * string (`import {} from "lod"` -> `lodash`), solving the lazy-ATA
+   * catch-22 where no module is registered until its name is typed. Must
+   * already exclude `@types/*` companions. Injected by the consumer.
+   */
+  importablePackages?: string[];
+  /**
+   * Whether to show the "expand editor" affordance that opens the editor in a
+   * large full-screen overlay for comfortably editing big scripts. Defaults to
+   * `true`. Set `false` to suppress it (e.g. for tiny single-line snippets).
+   */
+  allowPopout?: boolean;
+  /**
+   * Optional override for the overlay dialog title. When omitted, the title is
+   * derived from `language` (e.g. "Edit script - TypeScript"). Lets a consumer
+   * surface a field-specific label (e.g. a DynamicForm field name) while
+   * keeping `@checkstack/ui` plugin-agnostic.
+   */
+  title?: string;
 }

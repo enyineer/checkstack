@@ -145,6 +145,18 @@ export class BullMQQueue<T = unknown> implements Queue<T> {
           },
           prefix: this.config.keyPrefix,
           concurrency: this.config.concurrency,
+          // Durability tuning (reactive-automation-engine plan §15.4): make
+          // BullMQ's defaults explicit and intentional. Stage-2 dispatch jobs
+          // are short (one run); any delay/wait_until suspends and releases the
+          // job rather than blocking, so the suspend-on-wait invariant
+          // guarantees no job blocks longer than lockDuration. BullMQ
+          // automatically renews the lock at lockDuration/2 while the processor
+          // promise is pending, so no manual extendLock is needed. A worker that
+          // dies mid-job has its lock expire after lockDuration; the stalled
+          // check (stalledInterval) then redelivers it once (maxStalledCount).
+          lockDuration: 30_000,
+          stalledInterval: 30_000,
+          maxStalledCount: 1,
           // BullMQ's built-in retry mechanism
           settings: {
             backoffStrategy: (attemptsMade: number) => {

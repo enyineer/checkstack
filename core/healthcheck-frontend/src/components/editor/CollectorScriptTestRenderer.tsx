@@ -53,6 +53,8 @@ const CollectorScriptTestPanel: React.FC<CollectorScriptTestPanelProps> = ({
   );
 
   const handleRun = React.useCallback(async (): Promise<ScriptTestPanelResult> => {
+    // Collector config has no `x-secret-env` field, so there are no secret
+    // overrides to forward; the panel passes none.
     let parsed: {
       config?: Record<string, unknown>;
       check?: { id: string; name: string; intervalSeconds: number };

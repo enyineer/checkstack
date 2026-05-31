@@ -68,6 +68,7 @@ function makeAutomationStore(automations: Automation[]): AutomationStore {
     },
     getById: async (id) => byId.get(id),
     list: async () => ({ items: [...byId.values()], total: byId.size }),
+    listGroups: async () => [],
     findEnabledByTriggerEvent: async (eventId) =>
       [...byId.values()]
         .filter(

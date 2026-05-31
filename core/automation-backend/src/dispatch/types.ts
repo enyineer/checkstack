@@ -21,6 +21,7 @@ import type { ArtifactStore } from "../artifact-store";
 
 import type { RunStateStore } from "./run-state-store";
 import type { RunSecretRegistry } from "./run-secret-registry";
+import type { EntityKindResolver } from "./state-scope";
 
 /**
  * Persistent dependency bundle threaded through the dispatch engine.
@@ -54,8 +55,22 @@ export interface DispatchDeps {
    * and a dwell with no client re-confirms without a status gate.
    */
   healthCheckClient?: InferClient<typeof HealthCheckApi>;
+  /**
+   * Kind-agnostic entity resolver for reactive `wait_until` wake re-eval
+   * (reactive automation engine §3.6, §8). On wake, the engine re-enriches
+   * scope with EVERY `state.<kind>.<id>` ref the wait depends on, resolved
+   * through the framework entity store. Returns a batched `getMany`-style
+   * resolver for a registered kind, or `undefined` for an unknown kind (the
+   * enrichment then leaves that kind unresolved, fail-open). Optional so test
+   * harnesses / minimal installs without the entity store omit it — non-health
+   * waits then can't re-resolve their state (health waits still work via
+   * `healthCheckClient`).
+   */
+  entityResolverFor?: (kind: string) => EntityKindResolver | undefined;
   /** Persistence backend for pre-run `for:` dwell timers. */
   dwellStore: DwellStore;
+  /** Persistence backend for windowed-count / rate trigger gates. */
+  windowStore: WindowStore;
   /**
    * Run-scoped secret registry. When set, the engine wraps each run's
    * `getService` so resolving the secret resolver / connection store
@@ -236,11 +251,24 @@ export interface RunStore {
 
   // Wait locks (for wait_for_trigger + delay + wait_until durability)
   createWaitLock(input: CreateWaitLockInput): Promise<string>;
+  /**
+   * Insert a `kind: "until"` wait lock PLUS its wake-index dependency rows
+   * (one per ref) atomically (reactive automation engine §8.2). The
+   * `(waitLockId, ref)` pair is unique, so duplicate refs collapse via
+   * `ON CONFLICT DO NOTHING`. Returns the new wait-lock id.
+   */
+  createWaitLockWithWakeRefs(input: CreateWaitLockWithRefsInput): Promise<string>;
   loadWaitLock(id: string): Promise<LoadedWaitLock | undefined>;
   findWaitLocksFor(
     eventId: string,
     contextKey: string | null,
   ): Promise<LoadedWaitLock[]>;
+  /**
+   * Wake-index intersection lookup (reactive automation engine §8.2): every
+   * `kind: "until"` wait lock that depends on `ref` (exact match) OR on the
+   * kind-level wildcard for `ref`'s kind. Generalizes `findWaitLocksFor`.
+   */
+  findWaitLocksByWakeRef(ref: string): Promise<LoadedWaitLock[]>;
   /** All wait locks of a given kind — powers the sweeper's `until` re-tick. */
   findWaitLocksByKind(kind: WaitLockKind): Promise<LoadedWaitLock[]>;
   /**
@@ -306,7 +334,6 @@ export type WaitLockKind = "trigger" | "delay" | "until";
  */
 export interface UntilWaitConfig {
   condition: Condition;
-  pollSeconds: number;
   continueOnTimeout: boolean;
 }
 
@@ -320,6 +347,23 @@ export interface CreateWaitLockInput {
   timeoutAt: Date | null;
   /** Only set for `kind: "until"`. */
   waitConfig?: UntilWaitConfig | null;
+}
+
+/**
+ * A reactive `wait_until` suspend: the wait lock plus the wake-index refs
+ * its condition depends on (reactive automation engine §8.2). `kind` is
+ * always `"until"`; the refs are the `${kind}:${id}` (or `${kind}:*`)
+ * strings the condition reads.
+ */
+export interface CreateWaitLockWithRefsInput {
+  runId: string;
+  actionPath: string;
+  eventId: string;
+  contextKey: string | null;
+  timeoutAt: Date | null;
+  waitConfig: UntilWaitConfig;
+  /** Wake-index dependency refs (`${kind}:${id}` or `${kind}:*`). */
+  wakeRefs: ReadonlyArray<string>;
 }
 
 export interface LoadedWaitLock {
@@ -422,4 +466,49 @@ export interface DwellStore {
   deleteForAutomation(automationId: string): Promise<void>;
   /** Dwells whose `fireAt` has passed — the sweeper fallback. */
   sweepExpired(now: Date): Promise<LoadedDwell[]>;
+}
+
+// ─── Windowed-count store interface ──────────────────────────────────────
+
+/** Re-fire policy for a windowed-count gate. */
+export type WindowRefire = "every" | "once";
+
+/** Inputs to {@link WindowStore.recordAndCount}. */
+export interface RecordWindowInput {
+  automationId: string;
+  triggerId: string;
+  eventId: string;
+  contextKey: string | null;
+  /** When the qualifying occurrence happened (the recorded row's timestamp). */
+  occurredAt: Date;
+  /** Trailing sliding window, in minutes. */
+  windowMinutes: number;
+  /** Occurrences within the window that arm the trigger. */
+  threshold: number;
+  /** `every` fires at/over the threshold; `once` fires only on the crossing edge. */
+  refire: WindowRefire;
+}
+
+/**
+ * Persistence for windowed-count / rate trigger gates. The append log is the
+ * source of truth; the in-window COUNT is a pure DB read, so every pod agrees.
+ */
+export interface WindowStore {
+  /**
+   * Append one qualifying occurrence and decide whether the trigger fires:
+   *
+   *  - records the row at `occurredAt`,
+   *  - counts rows for `(automationId, triggerId, contextKey)` whose
+   *    `occurredAt >= occurredAt - windowMinutes` (the new row is included),
+   *  - returns `true` iff the re-fire policy fires for this occurrence:
+   *      `every` → `newCount >= threshold`,
+   *      `once`  → `newCount === threshold` (the crossing edge).
+   *
+   * Single INSERT per claimed emission ⇒ no double-count across pods.
+   */
+  recordAndCount(input: RecordWindowInput): Promise<boolean>;
+  /** Delete occurrences older than `cutoff` — the sweeper's TTL prune. */
+  sweepExpired(cutoff: Date): Promise<void>;
+  /** Drop every occurrence for an automation (disabled / deleted). */
+  deleteForAutomation(automationId: string): Promise<void>;
 }

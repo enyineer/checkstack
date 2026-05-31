@@ -155,6 +155,26 @@ export interface SpecSchemaDocumentation {
 }
 
 /**
+ * A lazy provider of spec-schema documentation. Invoked by the registry at
+ * describe time (when the kind-browser RPC is queried), NOT at registration
+ * time — so the returned entries reflect whatever state the provider reads
+ * at that moment.
+ *
+ * Use this when the documentation derives from registries that are populated
+ * across plugin lifecycle phases with no guaranteed ordering (e.g. the
+ * automation trigger/action registries, whose entries are contributed by
+ * other plugins in their `init` / `afterPluginsReady`). A one-shot eager
+ * `registerSpecSchemaDocumentation` call would snapshot a half-populated
+ * registry; a provider re-reads it every time.
+ */
+export type SpecSchemaDocumentationProvider = () => Array<
+  {
+    apiVersion: string;
+    kind: string;
+  } & SpecSchemaDocumentation
+>;
+
+/**
  * The registry interface exposed via the Extension Point.
  * Plugins call these methods during their `register()` phase.
  */
@@ -173,5 +193,16 @@ export interface EntityKindRegistry {
       apiVersion: string;
       kind: string;
     } & SpecSchemaDocumentation,
+  ): void;
+
+  /**
+   * Register a lazy provider of spec-schema documentation. The provider is
+   * invoked each time the kind registry is described, so the entries it
+   * returns always reflect the current state of whatever it reads. Prefer
+   * this over {@link registerSpecSchemaDocumentation} when the docs derive
+   * from registries populated with no guaranteed ordering.
+   */
+  registerSpecSchemaDocumentationProvider(
+    provider: SpecSchemaDocumentationProvider,
   ): void;
 }

@@ -28,4 +28,5 @@ export {
   parseFormData,
   detectEditorType,
   EDITOR_TYPE_LABELS,
+  findSecretEnvSibling,
 } from "./utils";

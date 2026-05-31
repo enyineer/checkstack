@@ -20,9 +20,21 @@ import { SatelliteWsHandler } from "./satellite-ws-handler";
 import { ConfigRelay } from "./config-relay";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
 import { registerSatelliteGitOpsKinds } from "./satellite-gitops-kinds";
-import { automationTriggerExtensionPoint } from "@checkstack/automation-backend";
+import {
+  automationTriggerExtensionPoint,
+  entityExtensionPoint,
+  withEntityWrite,
+  type EntityHandle,
+} from "@checkstack/automation-backend";
+import {
+  SATELLITE_CONNECTION_ENTITY_KIND,
+  createSatelliteConnectionRead,
+  deriveSatelliteConnectionEvents,
+  satelliteChangeToPayload,
+  satelliteConnectionStateSchema,
+  type SatelliteConnectionState,
+} from "./entity";
 import { satelliteTriggers } from "./automations";
-import { satelliteHooks } from "./hooks";
 
 // Queue and job constants
 const HEARTBEAT_QUEUE = "satellite-heartbeat";
@@ -34,13 +46,49 @@ export default createBackendPlugin({
   register(env) {
     env.registerAccessRules(satelliteAccessRules);
 
-    // ─── Automation Platform: triggers ───────────────────────────────
+    // ─── Automation Platform: reactive connection entity ─────────────
+    // Satellite connection state is the `satellite-connection` entity
+    // (reactive automation engine §10.6, §9.1), PLUGIN-BACKED (Model B) and
+    // COMPUTE-ON-READ: its `status` is DERIVED on read from the DURABLE, shared
+    // `satellites.lastHeartbeatAt` column (the single liveness source of truth,
+    // same as the admin list), and `lastConnectionEvent` is the only extra
+    // durable column (the deriver's event discriminator). There is NO stored
+    // status copy and NO framework `entity_state` mirror, so EVERY pod computes
+    // the same state AND a stale row self-heals to offline once the heartbeat
+    // ages out (this fixes the horizontal-scaling bug twice: the old in-memory
+    // map made pod A's satellite invisible to pod B, and the prior fix's stored
+    // status got stuck `online` after a pod crash because the heartbeat-lost
+    // EDGE was detected pod-locally). The three lifecycle sites (connect /
+    // disconnect / heartbeat-lost) write the liveness inputs through
+    // `handle.mutate`, and the framework records full transition HISTORY in
+    // `entity_transitions`.
+    //
+    // The `satellite.connected` / `.disconnected` / `.heartbeat_lost` trigger
+    // events are DERIVED from its changes (no hook-backed triggers). The
+    // ENTITY-DRIVEN triggers below stay registered so they remain in the
+    // editor's trigger catalog + payload-introspectable, and a `toPayload`
+    // mapper makes the runtime `trigger.payload` match their `payloadSchema`
+    // (mirroring incident / catalog / dependency / healthcheck).
     const automationTriggers = env.getExtensionPoint(
       automationTriggerExtensionPoint,
     );
     for (const trigger of satelliteTriggers) {
       automationTriggers.registerTrigger(trigger, pluginMetadata);
     }
+
+    const entity = env.getExtensionPoint(entityExtensionPoint);
+    entity.registerChangeDeriver({
+      kind: SATELLITE_CONNECTION_ENTITY_KIND,
+      derive: deriveSatelliteConnectionEvents,
+      toPayload: satelliteChangeToPayload,
+    });
+    entity.declareNonReactiveState({
+      table: "satellites",
+      reason: "bookkeeping",
+      note: "lastHeartbeatAt is the raw liveness timestamp; the satellite-connection entity's reactive status is computed from it on read.",
+    });
+    // Created once in init; reused by the WS handler + heartbeat monitor.
+    let satelliteEntityHandle: EntityHandle<SatelliteConnectionState>;
 
     // ─── GitOps Entity Kind Registration ─────────────────────────────
     let gitopsService: SatelliteService | undefined;
@@ -72,6 +120,20 @@ export default createBackendPlugin({
         );
         gitopsService = service;
 
+        // Declare the reactive `satellite-connection` entity once. PLUGIN-
+        // BACKED, COMPUTE-ON-READ: `read` computes status from the durable
+        // `satellites.lastHeartbeatAt` (+ reads `lastConnectionEvent`) via the
+        // service (the source of truth — no stored status copy, no
+        // `entity_state` mirror, globally consistent from any pod). The handle
+        // is the only typed path that drives connection-state changes (reactive
+        // automation engine §4.2); it is reused by the WS handler + heartbeat
+        // monitor wired in afterPluginsReady.
+        satelliteEntityHandle = entity.defineEntity({
+          kind: SATELLITE_CONNECTION_ENTITY_KIND,
+          state: satelliteConnectionStateSchema,
+          read: createSatelliteConnectionRead(service),
+        });
+
         const router = createSatelliteRouter({
           service,
           signalService,
@@ -90,7 +152,6 @@ export default createBackendPlugin({
         rpcClient,
         secretResolver,
         onHook,
-        emitHook,
       }) => {
         const service = new SatelliteService(
           database as SafeDatabase<typeof schema>,
@@ -131,9 +192,25 @@ export default createBackendPlugin({
           },
           logger,
           {
-            emitHook,
-            connectedHook: satelliteHooks.connected,
-            disconnectedHook: satelliteHooks.disconnected,
+            // Drive connect/disconnect through `handle.mutate` (Model B):
+            // `apply` UPDATEs the satellite row's durable liveness columns
+            // (`lastHeartbeatAt` + `lastConnectionEvent`) — the globally-
+            // readable source of truth — and returns the view (status COMPUTED
+            // from `lastHeartbeatAt`). The framework snapshots `prev` via
+            // `read`, records the transition (durable history), and emits the
+            // change; the deriver re-fires the equivalent trigger events.
+            mirror: async ({ satelliteId, lastEvent, lastHeartbeatAt }) => {
+              await withEntityWrite({
+                handle: satelliteEntityHandle,
+                id: satelliteId,
+                apply: () =>
+                  service.applyConnectionState({
+                    satelliteId,
+                    lastEvent,
+                    lastHeartbeatAt,
+                  }),
+              });
+            },
           },
           {
             // Script-package distribution: carry the desired lockfile hash in
@@ -192,8 +269,28 @@ export default createBackendPlugin({
           signalService,
           logger,
           {
-            emitHook,
-            heartbeatLostHook: satelliteHooks.heartbeatLost,
+            // Drive the online → offline (heartbeat-lost) edge through
+            // `handle.mutate`. `apply` flips ONLY `lastConnectionEvent` to
+            // `"heartbeat_lost"` (the aged `lastHeartbeatAt` is left untouched —
+            // it is what made the computed status `offline`). The framework
+            // records the transition (durable history) and the deriver re-fires
+            // `satellite.heartbeat_lost`. The mutate is idempotent: once
+            // `lastConnectionEvent === "heartbeat_lost"`, the monitor's
+            // predicate is false and re-runs (on any pod) are no-ops. This is
+            // the durable, any-pod offline-on-timeout backstop: a pod that dies
+            // without flipping its satellites to offline leaves a stale state
+            // only until ANY pod's monitor observes the heartbeat timeout.
+            mirror: async (satelliteId) => {
+              await withEntityWrite({
+                handle: satelliteEntityHandle,
+                id: satelliteId,
+                apply: () =>
+                  service.applyConnectionState({
+                    satelliteId,
+                    lastEvent: "heartbeat_lost",
+                  }),
+              });
+            },
           },
         );
 

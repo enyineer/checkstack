@@ -1,7 +1,33 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import * as schema from "../schema";
 import { SafeDatabase } from "@checkstack/backend-api";
 import { v4 as uuidv4 } from "uuid";
+
+/** Reactive subset of a catalog system (the `catalog-system` entity state). */
+type CatalogSystemEntityState = {
+  name: string;
+  description: string | null;
+  metadata: Record<string, unknown>;
+};
+
+/** Reactive subset of a catalog group (the `catalog-group` entity state). */
+type CatalogGroupEntityState = {
+  name: string;
+  metadata: Record<string, unknown>;
+};
+
+/**
+ * Narrow the drizzle `json()` column (typed `unknown`) to the reactive
+ * `Record<string, unknown>` metadata shape, defaulting non-object values
+ * (null / scalars / arrays) to an empty object so the entity state is always
+ * a well-formed record.
+ */
+function normalizeMetadata(value: unknown): Record<string, unknown> {
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
 
 // Type aliases for entity creation
 type NewSystem = {
@@ -49,10 +75,19 @@ export class EntityService {
     return result[0];
   }
 
-  async createSystem(data: NewSystem) {
+  /**
+   * Create a system.
+   *
+   * `id` may be supplied by the caller so the reactive `catalog-system`
+   * entity can be keyed on a known id BEFORE the insert runs (the create's
+   * `prev` snapshot must read the not-yet-existing row as absent — see
+   * §10.4). When omitted, a fresh id is generated. The id is server-owned
+   * either way.
+   */
+  async createSystem(data: NewSystem, id: string = uuidv4()) {
     const result = await this.database
       .insert(schema.systems)
-      .values({ id: uuidv4(), ...data })
+      .values({ id, ...data })
       .returning();
     return result[0];
   }
@@ -68,6 +103,40 @@ export class EntityService {
 
   async deleteSystem(id: string) {
     await this.database.delete(schema.systems).where(eq(schema.systems.id, id));
+  }
+
+  /**
+   * Batched reactive-state read for the `catalog-system` entity (Model B
+   * plugin-backed `read` accessor). Given system ids, return the reactive
+   * subset `{ name, description, metadata }` for each that exists (missing
+   * ids omitted). Reads the AUTHORITATIVE `systems` table — no framework
+   * `entity_state` storage. This is the single source of truth
+   * `handle.mutate` snapshots `prev` from and `get`/`getMany`/scope
+   * enrichment route through.
+   */
+  async getManySystemEntityStates(
+    ids: ReadonlyArray<string>,
+  ): Promise<Record<string, CatalogSystemEntityState>> {
+    if (ids.length === 0) return {};
+    const rows = await this.database
+      .select({
+        id: schema.systems.id,
+        name: schema.systems.name,
+        description: schema.systems.description,
+        metadata: schema.systems.metadata,
+      })
+      .from(schema.systems)
+      .where(inArray(schema.systems.id, [...ids]));
+
+    const out: Record<string, CatalogSystemEntityState> = {};
+    for (const row of rows) {
+      out[row.id] = {
+        name: row.name,
+        description: row.description ?? null,
+        metadata: normalizeMetadata(row.metadata),
+      };
+    }
+    return out;
   }
 
   // System Contacts
@@ -147,10 +216,18 @@ export class EntityService {
     }));
   }
 
-  async createGroup(data: NewGroup) {
+  /**
+   * Create a group.
+   *
+   * `id` may be supplied so the reactive `catalog-group` entity can be keyed
+   * on a known id BEFORE the insert runs (the create's `prev` snapshot must
+   * read the not-yet-existing row as absent — see §10.4). When omitted, a
+   * fresh id is generated. The id is server-owned either way.
+   */
+  async createGroup(data: NewGroup, id: string = uuidv4()) {
     const result = await this.database
       .insert(schema.groups)
-      .values({ id: uuidv4(), ...data })
+      .values({ id, ...data })
       .returning();
     return result[0];
   }
@@ -166,6 +243,36 @@ export class EntityService {
 
   async deleteGroup(id: string) {
     await this.database.delete(schema.groups).where(eq(schema.groups.id, id));
+  }
+
+  /**
+   * Batched reactive-state read for the `catalog-group` entity (Model B
+   * plugin-backed `read` accessor). Given group ids, return the reactive
+   * subset `{ name, metadata }` for each that exists (missing ids omitted).
+   * Reads the AUTHORITATIVE `groups` table — no framework `entity_state`
+   * storage.
+   */
+  async getManyGroupEntityStates(
+    ids: ReadonlyArray<string>,
+  ): Promise<Record<string, CatalogGroupEntityState>> {
+    if (ids.length === 0) return {};
+    const rows = await this.database
+      .select({
+        id: schema.groups.id,
+        name: schema.groups.name,
+        metadata: schema.groups.metadata,
+      })
+      .from(schema.groups)
+      .where(inArray(schema.groups.id, [...ids]));
+
+    const out: Record<string, CatalogGroupEntityState> = {};
+    for (const row of rows) {
+      out[row.id] = {
+        name: row.name,
+        metadata: normalizeMetadata(row.metadata),
+      };
+    }
+    return out;
   }
 
   async getGroupsForSystem(systemId: string) {

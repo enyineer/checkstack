@@ -3,7 +3,7 @@ import { mkdir, writeFile, rm } from "node:fs/promises";
 import path from "node:path";
 import type { PackageSpec } from "@checkstack/script-packages-common";
 import type { Resolver, ResolvedPackage } from "./install-service";
-import { buildStorePackageJson } from "./lockfile";
+import { buildDependencies, buildStorePackageJson } from "./lockfile";
 import { renderNpmrc, type NpmrcInput } from "./npmrc";
 import { parseBunLock } from "./parse-bun-lock";
 import { packDir } from "./cache-archive";
@@ -50,6 +50,15 @@ export function createCentralResolver(
       ignoreScripts: boolean;
     }): Promise<ResolvedPackage[]> {
       const { scratchDir, cacheDir, registry } = options;
+
+      // No enabled packages → `bun install` writes no `bun.lock`, so reading
+      // it would throw ENOENT and fail the install. Short-circuit to an empty
+      // resolved set: an empty manifest yields totalSizeBytes 0 and a
+      // deterministic empty-lockfile hash, ending the install in `ready`/0 MB.
+      if (Object.keys(buildDependencies(packages)).length === 0) {
+        return [];
+      }
+
       await rm(scratchDir, { recursive: true, force: true });
       await mkdir(scratchDir, { recursive: true });
       await mkdir(cacheDir, { recursive: true });

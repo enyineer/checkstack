@@ -44,11 +44,11 @@ conditions:
 
 ## Trigger `for:` dwell
 
-A trigger can declare a `for:` dwell - "fire only if the matched state still holds after this duration". This is the precise, event-driven counterpart to the poll-path condition above, and it is restart-safe.
+A trigger can declare a `for:` dwell - "fire only if the matched state still holds after this duration". This is the precise, event-driven dwell that gates a trigger on sustained state, and it is restart-safe.
 
 ```yaml
 triggers:
-  - event: healthcheck.system.degraded
+  - event: healthcheck.system_degraded
     for: { minutes: 30 }   # only if still in the same status after 30 min
 actions:
   - action: incident.create
@@ -97,15 +97,15 @@ actions:
 ## Flapping and the windowed transition count
 
 > [!TIP]
-> Flapping detection is buildable TODAY without this block: trigger on the built-in `healthcheck.flapping_detected` event and run `incident.create`. That trigger fires when the policy's "N unhealthy transitions in M minutes" threshold is crossed.
+> The simplest flapping rule is the trigger `window:` rate gate over the raw `healthcheck.system_health_changed` change event, filtered to unhealthy transitions: `window: { count: 3, minutes: 60, refire: once }`. The engine counts qualifying occurrences in a durable window log - no pre-derived flapping event, no scope field. See [the primitives reference](/checkstack/developer-guide/backend/automations/primitives/#flapping-detection-windowed-transition-count).
 
-For custom "N status changes in M minutes" rules, the health provider folds a windowed transition count into scope. `health.system.transitions_in_window` is the number of aggregate status changes for the system over the trailing window; the window defaults to 60 minutes and is set per-automation via the top-level `state_window_minutes`. Counting all aggregate transitions (not just unhealthy) generalizes the flapping detector, which counts only transitions into `unhealthy`.
+For rules that need the count as a NUMBER in scope (e.g. to branch a `choose` on how badly a system is flapping, or to combine with other conditions), the health provider also folds a windowed transition count into scope. `health.system.transitions_in_window` is the number of aggregate status changes for the system over the trailing window; the window defaults to 60 minutes and is set per-automation via the top-level `state_window_minutes`. Counting all aggregate transitions (not just unhealthy) is a superset of the unhealthy-transition flapping count.
 
-Author a custom flapping rule as a `numeric_state` condition over that field - no new condition variant, no editor change:
+Author such a rule as a `numeric_state` condition over that field - no new condition variant, no editor change:
 
 ```yaml
 triggers:
-  - event: healthcheck.system.health_changed
+  - event: healthcheck.system_health_changed
 state_window_minutes: 30
 conditions:
   - numeric_state:
@@ -216,7 +216,7 @@ conditions:
 
 ## wait_until action
 
-`wait_until` suspends a running automation until a condition becomes true, with an optional timeout. It is the condition counterpart to `wait_for_trigger` (which waits for an *event*): instead of waiting for something to happen, it polls the condition on an interval, re-resolving live state each tick.
+`wait_until` suspends a running automation until a condition becomes true, with an optional timeout. It is the condition counterpart to `wait_for_trigger` (which waits for an *event*): instead of waiting for something to happen, it waits for live state to satisfy a condition. It is fully reactive - the suspended run is woken by a relevant entity change, never re-checked on a timer.
 
 ```yaml
 actions:
@@ -226,15 +226,14 @@ actions:
       condition: "health.system.status == 'healthy'"
       timeout_seconds: 3600       # wait up to 1h
       continue_on_timeout: true   # default; false = fail the run on timeout
-      poll_seconds: 30            # re-check interval (default 30)
   - action: incident.resolve
     config: { incidentId: "{{ artifacts.incident.id }}" }
 ```
 
 - `condition` accepts any condition shape - a template string or a structured `numeric_state` / `time` / `state` variant.
 - If the condition is ALREADY true when reached, the run continues inline without suspending.
-- Otherwise the run suspends with a durable `kind: "until"` wait lock carrying the condition + poll interval + timeout policy, and an `automation-wait-until` job is enqueued. Each tick re-enriches `health.*` and re-evaluates: true resumes the run; `timeout_seconds` elapsed resumes (continue) or fails per `continue_on_timeout` (default true, matching HA's `wait_template`); still-false re-schedules the next tick.
+- Otherwise the run suspends with a durable `kind: "until"` wait lock carrying the condition + timeout policy. At suspend time the engine extracts the `state.*` refs the condition reads and inserts wake-index rows keyed by `${kind}:${id}`, plus a single durable timeout timer at the deadline. A relevant entity change wakes the run, re-enriches scope, and re-evaluates the full condition: true resumes the run; the timeout deadline resumes (continue) or fails per `continue_on_timeout` (default true, matching HA's `wait_template`); still-false stays suspended.
 - Works nested inside `choose` / `parallel` / `repeat` - the engine resumes through the same remainder mechanism as every other suspend.
 
 > [!IMPORTANT]
-> Like every suspend, `wait_until` survives a restart: the wait lock is the source of truth, the queue job is the wake signal, and the stalled sweeper re-ticks `until` locks as a backstop if a re-check job is lost (essential for a `wait_until` with no timeout). Resumes take the per-run advisory lock, so a queue tick and a sweep can't double-resume.
+> Like every suspend, `wait_until` survives a restart: the wait lock + wake-index rows are the source of truth, an `ENTITY_CHANGED` is the wake signal, and the stalled sweeper applies the timeout policy as a backstop if the timer job is lost. Resumes take the per-run advisory lock, so a wake and a sweep can't double-resume. The `poll_seconds` field is now inert (waits are woken by change, not polled). For the full mechanism, see [the reactive dispatch pipeline](/checkstack/developer-guide/backend/automations/reactive-dispatch/).

@@ -10,7 +10,7 @@ import {
   healthcheckScriptContext,
 } from "@checkstack/ui";
 import { Trash2 } from "lucide-react";
-import { useScriptPackageTypes } from "@checkstack/script-packages-frontend";
+import { useScriptPackageTypeAcquisition } from "@checkstack/script-packages-frontend";
 import { useSecretNames } from "@checkstack/secrets-frontend";
 import { AssertionBuilder, type Assertion } from "../AssertionBuilder";
 import { createCollectorScriptTestRenderer } from "./CollectorScriptTestRenderer";
@@ -36,7 +36,11 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
     () => createCollectorScriptTestRenderer(entry.config),
     [entry.config],
   );
-  const { dts: packageTypes } = useScriptPackageTypes();
+  // Lazy ATA: collector scripts get package IntelliSense (incl. `@types/*`)
+  // on demand for whatever npm packages they import. `importablePackages`
+  // drives import-specifier name completion before any module is registered.
+  const { acquireTypes, acquireResetKey, importablePackages } =
+    useScriptPackageTypeAcquisition();
   // Secret names (never values) for the secret -> env mapping editor.
   const { secretNames } = useSecretNames();
 
@@ -80,12 +84,6 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
               // Surface the user's own `env` keys as `$`-completions.
               customEnv: entry.config.env,
             });
-            // Append installed npm-package `.d.ts` so collector scripts get
-            // package IntelliSense on top of the `context`/config types.
-            const typeDefinitions =
-              packageTypes.length > 0
-                ? `${ctx.typeDefinitions}\n${packageTypes}`
-                : ctx.typeDefinitions;
             return (
               <DynamicForm
                 schema={collectorDef.configSchema}
@@ -93,9 +91,11 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
                 onChange={onConfigChange}
                 onValidChange={onValidChange}
                 {...ctx}
-                typeDefinitions={typeDefinitions}
                 scriptTestRenderer={scriptTestRenderer}
                 secretNames={secretNames}
+                acquireTypes={acquireTypes}
+                acquireResetKey={acquireResetKey}
+                importablePackages={importablePackages}
               />
             );
           })()}

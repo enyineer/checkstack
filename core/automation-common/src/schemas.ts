@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ActorSchema } from "@checkstack/common";
 
 /**
  * Schemas for the Automation platform.
@@ -73,7 +74,59 @@ export function durationToMs(
  *   that need extra setup (cron pattern for `time.cron`, etc.).
  * - `for` is an optional dwell: fire only if the matched state still holds
  *   after the duration (re-confirmed at expiry, restart-safe).
+ * - `window` is an optional rate/windowed-count gate: fire only when this
+ *   trigger has fired (post-filter) at least `count` times within the
+ *   trailing `minutes`, scoped per `contextKey`. `refire` decides whether to
+ *   fire on every qualifying occurrence past the threshold (`"every"`) or
+ *   only on the crossing edge (`"once"`).
  */
+
+/**
+ * Windowed-count / rate gate (decision: generic `window` block on any
+ * trigger). The engine records each qualifying occurrence (after the
+ * structured config gate + the operator's `filter`) in a durable append log
+ * keyed `(automationId, triggerId, contextKey)` and counts rows within the
+ * trailing `minutes`:
+ *
+ *  - `"every"` fires iff `newCount >= count` — re-fires on every occurrence
+ *    while the window stays over threshold (debounce in the automation if
+ *    needed).
+ *  - `"once"` fires iff `newCount === count` — only on the crossing edge;
+ *    re-arms naturally as old rows age out and the count re-crosses.
+ *
+ * where `newCount` includes the just-recorded occurrence.
+ */
+export const WindowSchema = z.object({
+  count: z
+    .number()
+    .int()
+    .min(1)
+    .max(1000)
+    .describe("Occurrences within the window that arm the trigger."),
+  minutes: z
+    .number()
+    .int()
+    .min(1)
+    .max(1440)
+    .describe("Trailing sliding window, in minutes, the occurrences count over."),
+  refire: z
+    .enum(["every", "once"])
+    .default("every")
+    .describe(
+      "`every`: fire on every occurrence at/over the threshold. `once`: fire only on the crossing edge (re-arms as the window drains).",
+    ),
+  partitionBy: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe(
+      "Optional bare expression (like `filter`, no `{{ }}`) yielding the partition key the count is bucketed by. Omitted ⇒ the trigger's built-in context key (e.g. systemId). An empty/undefined result or an eval error falls back to that built-in key.",
+    ),
+});
+
+export type Window = z.infer<typeof WindowSchema>;
+
 export const TriggerSchema = z.object({
   id: z
     .string()
@@ -102,6 +155,9 @@ export const TriggerSchema = z.object({
     ),
   for: DurationSchema.optional().describe(
     "Dwell: fire only if the matched state still holds after this duration. Re-confirmed at expiry, restart-safe.",
+  ),
+  window: WindowSchema.optional().describe(
+    "Windowed-count / rate gate: fire only after this trigger has fired N times within M minutes (scoped per context key).",
   ),
 });
 
@@ -389,8 +445,6 @@ export interface WaitUntilInput {
     timeout_seconds?: number;
     /** Default true (HA semantics): on timeout, continue rather than fail. */
     continue_on_timeout?: boolean;
-    /** How often to re-check the condition (seconds). Default 30. */
-    poll_seconds?: number;
   };
 }
 
@@ -576,12 +630,6 @@ export const WaitUntilActionSchema: z.ZodType<WaitUntilInput> = z.lazy(() =>
         .max(60 * 60 * 24 * 30) // 30 days
         .optional(),
       continue_on_timeout: z.boolean().default(true),
-      poll_seconds: z
-        .number()
-        .int()
-        .min(1)
-        .max(60 * 60) // 1h max poll interval
-        .default(30),
     }),
   }),
 );
@@ -712,10 +760,19 @@ export type AutomationDefinition = z.infer<typeof AutomationDefinitionSchema>;
 export const AutomationStatusSchema = z.enum(["enabled", "disabled"]);
 export type AutomationStatus = z.infer<typeof AutomationStatusSchema>;
 
+/**
+ * Optional grouping label, stored as its own row column (not part of the
+ * definition / YAML). A single free-text "category" (HA-style) used purely
+ * to organise the list into collapsible sections. Empty / absent means the
+ * automation lives in the implicit "Ungrouped" bucket.
+ */
+export const AutomationGroupSchema = z.string().trim().min(1).max(120);
+
 export const AutomationSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().optional(),
+  group: AutomationGroupSchema.optional(),
   status: AutomationStatusSchema,
   definition: AutomationDefinitionSchema,
   managedBy: z.string().optional().describe("GitOps provider id when managed declaratively"),
@@ -828,6 +885,7 @@ export type AutomationArtifact = z.infer<typeof AutomationArtifactSchema>;
 export const CreateAutomationInputSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().optional(),
+  group: AutomationGroupSchema.optional(),
   status: AutomationStatusSchema.default("enabled"),
   definition: AutomationDefinitionSchema,
 });
@@ -838,6 +896,12 @@ export const UpdateAutomationInputSchema = z.object({
   id: z.string(),
   name: z.string().min(1).max(200).optional(),
   description: z.string().optional(),
+  /**
+   * `null` clears the group (back to Ungrouped); `undefined` leaves it
+   * unchanged; a string sets it. Modelled with `.nullish()` so the set-builder
+   * can distinguish "clear" from "no change".
+   */
+  group: AutomationGroupSchema.nullish(),
   status: AutomationStatusSchema.optional(),
   definition: AutomationDefinitionSchema.optional(),
 });
@@ -893,6 +957,12 @@ export const TriggerInfoSchema = z.object({
     .string()
     .optional()
     .describe("Default context key path inside the payload (e.g. 'incidentId')"),
+  contextKeyLabel: z
+    .string()
+    .optional()
+    .describe(
+      "Human label for the trigger's built-in context dimension (e.g. 'system'). UI hint only - shown as the default partition in the window editor. Absent ⇒ no built-in context (per automation).",
+    ),
 });
 
 export type TriggerInfo = z.infer<typeof TriggerInfoSchema>;
@@ -928,3 +998,64 @@ export const ArtifactTypeInfoSchema = z.object({
 });
 
 export type ArtifactTypeInfo = z.infer<typeof ArtifactTypeInfoSchema>;
+
+// ─── Reactive entity engine — two-stage queue payloads ─────────────────────
+//
+// The entity state machine (`defineEntity`, automation-backend) emits an
+// internal `ENTITY_CHANGED` hook on every real diff. These schemas are the
+// wire shapes for the two-stage dispatch pipeline (reactive automation
+// engine §13.2). Defined here so later phases (Stage-1 routing, Stage-2
+// dispatch) consume one canonical zod source of truth.
+
+/**
+ * Stage-1 input — the `ENTITY_CHANGED` hook payload. `prev` is null on
+ * create; `next` is null on remove (a tombstone). `delta` carries only the
+ * changed fields; `actor` is the mutating actor (from `HookEventMeta`).
+ */
+export const EntityChangedSchema = z.object({
+  kind: z.string(),
+  id: z.string(),
+  prev: z.record(z.string(), z.unknown()).nullable(), // null on create
+  next: z.record(z.string(), z.unknown()).nullable(), // null on remove (tombstone)
+  delta: z.record(z.string(), z.unknown()), // changed fields only
+  changedFields: z.array(z.string()),
+  actor: ActorSchema, // from HookEventMeta
+  occurredAt: z.string(), // ISO
+  /**
+   * Stable, per-change identity generated ONCE at emit time and carried
+   * through every at-least-once redelivery of THIS change. Distinguishes two
+   * DISTINCT changes to the same entity that share an `occurredAt`
+   * (millisecond granularity) so the Stage-2 trigger jobId dedupes
+   * redeliveries of one change without collapsing two real changes (reactive
+   * automation engine §13.2). Optional for back-compat with payloads emitted
+   * before this field existed; the router falls back to `occurredAt`.
+   */
+  changeId: z.string().optional(),
+});
+
+export type EntityChanged = z.infer<typeof EntityChangedSchema>;
+
+/**
+ * Stage-2 per-run dispatch job. Either a fresh run from a trigger match,
+ * or a resume of a suspended `wait_until`.
+ */
+export const DispatchJobSchema = z.discriminatedUnion("reason", [
+  z.object({
+    // fresh run from a trigger match
+    reason: z.literal("trigger"),
+    automationId: z.string(),
+    triggerId: z.string(),
+    ref: z.string(), // `${kind}:${id}`
+    changed: EntityChangedSchema,
+  }),
+  z.object({
+    // resume a suspended wait_until
+    reason: z.literal("wake"),
+    runId: z.string(),
+    waitLockId: z.string(),
+    ref: z.string(),
+    changed: EntityChangedSchema,
+  }),
+]);
+
+export type DispatchJob = z.infer<typeof DispatchJobSchema>;

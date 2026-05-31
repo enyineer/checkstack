@@ -49,6 +49,49 @@ export const PackageSpecSchema = z.object({
 });
 export type PackageSpec = z.infer<typeof PackageSpecSchema>;
 
+// ─── Registry autocomplete (live search / version lookup) ─────────────────
+
+/** Input for `searchPackages`: a partial package-name query. */
+export const SearchPackagesInputSchema = z.object({
+  text: z.string().min(1).max(214),
+});
+export type SearchPackagesInput = z.infer<typeof SearchPackagesInputSchema>;
+
+/**
+ * One live search hit. `version` is relaxed to a plain string in the OUTPUT
+ * so a valid-but-unusual registry version is surfaced as a suggestion rather
+ * than dropped - strict `PackageVersionSchema` validation still applies on
+ * `addPackage`.
+ */
+export const PackageSearchHitSchema = z.object({
+  name: PackageNameSchema,
+  version: z.string().optional(),
+  description: z.string().optional(),
+});
+export type PackageSearchHit = z.infer<typeof PackageSearchHitSchema>;
+
+export const SearchPackagesOutputSchema = z.object({
+  items: z.array(PackageSearchHitSchema),
+});
+export type SearchPackagesOutput = z.infer<typeof SearchPackagesOutputSchema>;
+
+/** Input for `getPackageVersions`: an exact (optionally scoped) package name. */
+export const GetPackageVersionsInputSchema = z.object({
+  name: PackageNameSchema,
+});
+export type GetPackageVersionsInput = z.infer<
+  typeof GetPackageVersionsInputSchema
+>;
+
+/** Versions newest-first plus dist-tags (e.g. `latest`). Versions relaxed. */
+export const GetPackageVersionsOutputSchema = z.object({
+  versions: z.array(z.string()),
+  distTags: z.record(z.string(), z.string()).optional(),
+});
+export type GetPackageVersionsOutput = z.infer<
+  typeof GetPackageVersionsOutputSchema
+>;
+
 // ─── Registry config ─────────────────────────────────────────────────────
 
 /** A scoped-registry override: `@scope` → registry URL. */
@@ -179,16 +222,42 @@ export const SatelliteSyncStateSchema = z.object({
 });
 export type SatelliteSyncState = z.infer<typeof SatelliteSyncStateSchema>;
 
-// ─── Editor IntelliSense ────────────────────────────────────────────────────
+// ─── Editor IntelliSense (lazy ATA) ──────────────────────────────────────────
 
-/** Rolled-up `.d.ts` for one installed package, for Monaco. */
-export const PackageTypesSchema = z.object({
-  name: PackageNameSchema,
-  version: PackageVersionSchema,
-  /** `declare module '<name>' { ... }` wrapped types, or empty if none. */
-  dts: z.string(),
+/**
+ * One declaration file in a package's type closure. The `path` is a real
+ * `node_modules/...`-relative path (e.g. `node_modules/@types/lodash/index.d.ts`
+ * or `node_modules/zod/index.d.ts`); the frontend registers it at
+ * `file:///<path>` so TypeScript's NodeJs + `@types` resolution finds it.
+ * Files are UNWRAPPED (no `declare module` envelope).
+ */
+export const PackageTypeFileSchema = z.object({
+  /** `node_modules/...`-relative virtual path. */
+  path: z.string(),
+  /** Verbatim file content. */
+  content: z.string(),
 });
-export type PackageTypes = z.infer<typeof PackageTypesSchema>;
+export type PackageTypeFile = z.infer<typeof PackageTypeFileSchema>;
+
+/**
+ * The declaration-file closure for ONE requested specifier, resolved against
+ * the materialized package tree. Returned by the lazy ATA route.
+ */
+export const PackageTypeClosureSchema = z.object({
+  /** The requested bare specifier (e.g. `lodash`, `@babel/core`). */
+  specifier: z.string(),
+  /** Declaration files (own types and/or `@types` companion), unwrapped. */
+  files: z.array(PackageTypeFileSchema),
+  /** The package ships its own declarations. */
+  hasOwnTypes: z.boolean(),
+  /** A DefinitelyTyped `@types/...` companion exists in the tree. */
+  hasAtTypes: z.boolean(),
+  /** Neither own types nor an `@types` companion were found (graceful). */
+  notFound: z.boolean(),
+  /** The closure hit the size ceiling and dropped files (NOT silent). */
+  truncated: z.boolean(),
+});
+export type PackageTypeClosure = z.infer<typeof PackageTypeClosureSchema>;
 
 // ─── Size guardrail ─────────────────────────────────────────────────────────
 

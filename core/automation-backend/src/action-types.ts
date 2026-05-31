@@ -133,6 +133,16 @@ export interface TriggerDefinition<
    */
   contextKey?: (payload: TPayload) => string | undefined;
 
+  /**
+   * Human label for the dimension `contextKey` extracts (e.g. `"system"` for
+   * a `systemId` key). Purely a UI hint — surfaced to the editor (via
+   * `TriggerInfo.contextKeyLabel`) so the window gate's "Partition by" field
+   * can show the default partition ("Leave blank to count per system"). No
+   * runtime behaviour. Omit when the trigger has no `contextKey` (the UI then
+   * shows "per automation").
+   */
+  contextKeyLabel?: string;
+
   /** Hook-backed flavour. */
   hook?: Hook<TPayload>;
   /** Setup-backed flavour. */

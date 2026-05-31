@@ -34,12 +34,20 @@ export type VaultConfigMeta = z.infer<typeof vaultConfigMetaSchema>;
 
 /**
  * Backend configuration as exposed to the browser: the active backend, the
- * available backend ids, and (when configured) the Vault connection
- * metadata. NEVER carries the Vault auth credential or any secret value.
+ * available backend ids, whether the active backend accepts writes, and
+ * (when configured) the Vault connection metadata. NEVER carries the Vault
+ * auth credential or any secret value.
  */
 export const backendConfigDtoSchema = z.object({
   activeBackend: z.string(),
   availableBackends: z.array(z.string()),
+  /**
+   * Whether the active backend supports creating, rotating, and deleting
+   * secret values from this UI. Read-through backends (e.g. Vault) report
+   * `false`: secret values are managed in the external store, so the UI hides
+   * its write controls. The local backend reports `true`.
+   */
+  writable: z.boolean(),
   vault: vaultConfigMetaSchema.optional(),
 });
 export type BackendConfigDto = z.infer<typeof backendConfigDtoSchema>;

@@ -17,6 +17,7 @@
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/automation-backend": "workspace:*",
+    "@checkstack/automation-common": "workspace:*",
     "@checkstack/satellite-common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
@@ -39,7 +40,9 @@
     "@checkstack/test-utils-backend": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
     "@types/bun": "^1.0.0",
+    "@types/pg": "^8.20.0",
     "drizzle-kit": "^0.31.10",
+    "pg": "^8.21.0",
     "typescript": "^5.0.0"
   }
 }

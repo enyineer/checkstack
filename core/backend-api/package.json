@@ -26,9 +26,11 @@
     "zod": "^4.2.1"
   },
   "devDependencies": {
-    "@types/bun": "latest",
+    "@checkstack/scripts": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
-    "@checkstack/scripts": "workspace:*"
+    "@types/bun": "latest",
+    "@types/pg": "^8.20.0",
+    "pg": "^8.21.0"
   },
   "peerDependencies": {
     "hono": "^4.12.14",

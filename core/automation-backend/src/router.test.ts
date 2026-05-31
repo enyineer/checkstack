@@ -69,6 +69,7 @@ const sampleTrigger: TriggerDefinition<{ incidentId: string }> = {
   payloadSchema: samplePayloadSchema,
   hook: sampleHook,
   contextKey: (p) => p.incidentId,
+  contextKeyLabel: "incident",
 };
 
 const sampleAction: ActionDefinition<{ message: string }, { id: string }> = {
@@ -118,6 +119,7 @@ function createInMemoryAutomationStore(): {
         id,
         name: input.name,
         description: input.description,
+        group: input.group,
         status: input.status,
         definition: input.definition,
         createdAt: now(),
@@ -133,6 +135,8 @@ function createInMemoryAutomationStore(): {
         ...existing,
         name: input.name ?? existing.name,
         description: input.description ?? existing.description,
+        // null clears, undefined leaves unchanged, string sets.
+        group: input.group === undefined ? existing.group : (input.group ?? undefined),
         status: input.status ?? existing.status,
         definition: input.definition ?? existing.definition,
         updatedAt: now(),
@@ -161,12 +165,19 @@ function createInMemoryAutomationStore(): {
       const limit = filter?.limit ?? 50;
       const offset = filter?.offset ?? 0;
       const all = [...rows.values()].filter(
-        (a) => !filter?.status || a.status === filter.status,
+        (a) =>
+          (!filter?.status || a.status === filter.status) &&
+          (!filter?.group || a.group === filter.group),
       );
       return {
         items: all.slice(offset, offset + limit),
         total: all.length,
       };
+    },
+    async listGroups() {
+      const groups = new Set<string>();
+      for (const a of rows.values()) if (a.group) groups.add(a.group);
+      return [...groups].sort();
     },
     async findEnabledByTriggerEvent() {
       return [];
@@ -351,6 +362,56 @@ describe("Automation Router", () => {
       expect(res.total).toBe(1);
       expect(res.items[0]?.name).toBe("A");
     });
+
+    it("threads the group filter through to the store", async () => {
+      await h.automationStore.create({
+        name: "A",
+        group: "Alerting",
+        status: "enabled",
+        definition: sampleDefinition,
+      });
+      await h.automationStore.create({
+        name: "B",
+        group: "Networking",
+        status: "enabled",
+        definition: sampleDefinition,
+      });
+      const res = await call(
+        h.router.listAutomations,
+        { limit: 50, offset: 0, group: "Alerting" },
+        { context: h.context },
+      );
+      expect(res.total).toBe(1);
+      expect(res.items[0]?.name).toBe("A");
+    });
+  });
+
+  describe("listAutomationGroups", () => {
+    it("returns the distinct non-null group values", async () => {
+      await h.automationStore.create({
+        name: "A",
+        group: "Networking",
+        status: "enabled",
+        definition: sampleDefinition,
+      });
+      await h.automationStore.create({
+        name: "B",
+        group: "Alerting",
+        status: "enabled",
+        definition: sampleDefinition,
+      });
+      await h.automationStore.create({
+        name: "C",
+        status: "enabled",
+        definition: sampleDefinition,
+      });
+      const res = await call(
+        h.router.listAutomationGroups,
+        {},
+        { context: h.context },
+      );
+      expect(res.groups).toEqual(["Alerting", "Networking"]);
+    });
   });
 
   describe("getAutomation", () => {
@@ -524,6 +585,9 @@ describe("Automation Router", () => {
       expect(res.items).toHaveLength(1);
       expect(res.items[0]?.qualifiedId).toBe("test.incident.created");
       expect(res.items[0]?.payloadSchema).toBeDefined();
+      // contextKeyLabel flows through to the wire format for the editor's
+      // window "Partition by" default hint.
+      expect(res.items[0]?.contextKeyLabel).toBe("incident");
     });
   });
 

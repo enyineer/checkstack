@@ -24,14 +24,22 @@ import type {
   ActionDefinition,
   TriggerDefinition,
 } from "@checkstack/automation-backend";
+import { makeEntityDrivenTriggerSetup } from "@checkstack/automation-backend";
 import { extractErrorMessage } from "@checkstack/common";
 import {
   DerivedStateSchema,
   ImpactTypeSchema,
 } from "@checkstack/dependency-common";
 
+import type { EntityHandle } from "@checkstack/automation-backend";
 import { dependencyHooks } from "./hooks";
 import type { DependencyService } from "./services/dependency-service";
+import {
+  removeDependencyEdge,
+  toDependencyEdgeState,
+  writeDependencyEdge,
+  type DependencyEdgeState,
+} from "./dependency-entity";
 
 // ─── Payload schemas — match the hook payloads exactly ─────────────────
 
@@ -69,6 +77,10 @@ const dependencyImpactPropagatedPayloadSchema = z.object({
 
 // ─── Triggers ──────────────────────────────────────────────────────────
 
+// These three triggers are ENTITY-DRIVEN (§10.5): the `dependency-edge`
+// entity's change deriver fires `dependency.created/.updated/.deleted` via
+// Stage-1 routing, so they no longer subscribe to a hook. A no-op `setup`
+// keeps them in the editor's trigger catalog without re-introducing a hook.
 export const dependencyCreatedTrigger: TriggerDefinition<
   z.infer<typeof dependencyCreatedPayloadSchema>
 > = {
@@ -78,7 +90,9 @@ export const dependencyCreatedTrigger: TriggerDefinition<
   category: "Dependencies",
   icon: "Network",
   payloadSchema: dependencyCreatedPayloadSchema,
-  hook: dependencyHooks.dependencyCreated,
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof dependencyCreatedPayloadSchema>
+  >(),
   contextKey: (p) => p.dependencyId,
 };
 
@@ -87,11 +101,14 @@ export const dependencyUpdatedTrigger: TriggerDefinition<
 > = {
   id: "updated",
   displayName: "Dependency Updated",
-  description: "Fires when an existing dependency's impact-type or label changes",
+  description:
+    "Fires when an existing dependency's reactive state changes (impact type, source, target, or transitivity). A label-only edit does not fire this trigger.",
   category: "Dependencies",
   icon: "Network",
   payloadSchema: dependencyUpdatedPayloadSchema,
-  hook: dependencyHooks.dependencyUpdated,
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof dependencyUpdatedPayloadSchema>
+  >(),
   contextKey: (p) => p.dependencyId,
 };
 
@@ -104,7 +121,9 @@ export const dependencyDeletedTrigger: TriggerDefinition<
   category: "Dependencies",
   icon: "Network",
   payloadSchema: dependencyDeletedPayloadSchema,
-  hook: dependencyHooks.dependencyDeleted,
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof dependencyDeletedPayloadSchema>
+  >(),
   contextKey: (p) => p.dependencyId,
 };
 
@@ -178,6 +197,8 @@ export const dependencyArtifactType = {
 export interface DependencyActionDeps {
   service: DependencyService;
   emitHook: <T>(hook: Hook<T>, payload: T) => Promise<void>;
+  /** Resolver for the reactive `dependency-edge` entity (§10.5). */
+  getDependencyEntity?: () => EntityHandle<DependencyEdgeState> | undefined;
 }
 
 export function createDependencyActions(
@@ -199,19 +220,33 @@ export function createDependencyActions(
     produces: "dependency.edge",
     execute: async ({ config, logger }) => {
       try {
-        const created = await deps.service.createDependency({
-          sourceSystemId: config.sourceSystemId,
-          targetSystemId: config.targetSystemId,
-          impactType: config.impactType,
-          transitive: config.transitive,
-          label: config.label,
-          healthCheckRules: [],
-        });
-        await deps.emitHook(dependencyHooks.dependencyCreated, {
-          dependencyId: created.id,
-          sourceSystemId: created.sourceSystemId,
-          targetSystemId: created.targetSystemId,
-          impactType: created.impactType,
+        // Drive the create through the reactive `dependency-edge` entity
+        // (§10.5): the REAL create (with cycle/duplicate validation that may
+        // throw) runs INSIDE `apply`, so `prev` is snapshotted (absent →
+        // null) BEFORE the insert and the deriver fires `dependency.created`.
+        // The id is generated up front so the create's `prev` snapshot reads
+        // the not-yet-existing row as absent.
+        const dependencyId = crypto.randomUUID();
+        let created!: Awaited<
+          ReturnType<typeof deps.service.createDependency>
+        >;
+        await writeDependencyEdge({
+          handle: deps.getDependencyEntity?.(),
+          dependencyId,
+          apply: async () => {
+            created = await deps.service.createDependency(
+              {
+                sourceSystemId: config.sourceSystemId,
+                targetSystemId: config.targetSystemId,
+                impactType: config.impactType,
+                transitive: config.transitive,
+                label: config.label,
+                healthCheckRules: [],
+              },
+              dependencyId,
+            );
+            return toDependencyEdgeState(created);
+          },
         });
         logger.info(`Automation created dependency ${created.id}`);
         return {
@@ -254,18 +289,23 @@ export function createDependencyActions(
           error: `Dependency not found: ${config.dependencyId}`,
         };
       }
-      const removed = await deps.service.deleteDependency(config.dependencyId);
+      // Drive the delete through the reactive `dependency-edge` entity
+      // tombstone (§10.5); the REAL delete runs INSIDE `apply`, so `prev` is
+      // snapshotted before it and the deriver fires `dependency.deleted`.
+      let removed = false;
+      await removeDependencyEdge({
+        handle: deps.getDependencyEntity?.(),
+        dependencyId: existing.id,
+        apply: async () => {
+          removed = await deps.service.deleteDependency(config.dependencyId);
+        },
+      });
       if (!removed) {
         return {
           success: false,
           error: `Dependency ${config.dependencyId} disappeared mid-delete`,
         };
       }
-      await deps.emitHook(dependencyHooks.dependencyDeleted, {
-        dependencyId: existing.id,
-        sourceSystemId: existing.sourceSystemId,
-        targetSystemId: existing.targetSystemId,
-      });
       logger.info(`Automation removed dependency ${existing.id}`);
       return {
         success: true,

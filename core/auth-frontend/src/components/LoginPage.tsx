@@ -418,19 +418,6 @@ export const LogoutMenuItem = (_props: UserMenuItemsContext) => {
   );
 };
 
-/**
- * Canonical user-menu group labels and their display order. Extensions tag
- * themselves via `group` on their slot registration; anything that doesn't
- * match a known group falls into a trailing label-less bucket.
- */
-const USER_MENU_GROUP_ORDER: readonly string[] = [
-  "Workspace",
-  "Reliability",
-  "Configuration",
-  "Documentation",
-  "Account",
-];
-
 type UserMenuExtension = Extension<typeof UserMenuItemsSlot>;
 
 function groupTopExtensions(
@@ -453,20 +440,12 @@ function groupTopExtensions(
     }
   }
 
-  const result: Array<{ label: string | undefined; items: UserMenuExtension[] }> = [];
-  // Known groups in canonical order.
-  for (const name of USER_MENU_GROUP_ORDER) {
-    const items = buckets.get(name);
-    if (items) {
-      result.push({ label: name, items });
-      buckets.delete(name);
-    }
-  }
-  // Any extra groups plugins introduced — render in encounter order, alphabetised.
-  const extras = [...buckets.entries()].toSorted(([a], [b]) => a.localeCompare(b));
-  for (const [name, items] of extras) {
-    result.push({ label: name, items });
-  }
+  // Groups are displayed alphabetically by label (items keep their order
+  // within a group).
+  const result: Array<{ label: string | undefined; items: UserMenuExtension[] }> =
+    [...buckets.entries()]
+      .toSorted(([a], [b]) => a.localeCompare(b))
+      .map(([name, items]) => ({ label: name, items }));
   // Untagged extensions go last with no header.
   if (ungrouped.length > 0) {
     result.push({ label: undefined, items: ungrouped });

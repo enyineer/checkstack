@@ -62,6 +62,7 @@ export function createTriggerRegistry(): TriggerRegistry {
         payloadSchema: definition.payloadSchema,
         configSchema: definition.configSchema,
         contextKey: definition.contextKey,
+        contextKeyLabel: definition.contextKeyLabel,
         hook: definition.hook,
         setup: definition.setup,
         evaluateConfig: definition.evaluateConfig,

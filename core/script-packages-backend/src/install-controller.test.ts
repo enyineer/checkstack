@@ -191,6 +191,30 @@ describe("runInstallNow", () => {
     expect(emitted).toHaveLength(0);
   });
 
+  test("on a thrown install error, persists the message but logs the full stack", async () => {
+    const logged: string[] = [];
+    const boom = new Error("kaboom");
+    const { deps, stateCalls } = baseDeps({
+      resolver: {
+        resolve: async () => {
+          throw boom;
+        },
+      },
+      logger: { debug: () => {}, error: (m) => void logged.push(m) },
+    });
+    const out = await runInstallNow(deps);
+
+    expect(out.started).toBe(false);
+    // The persisted, user-facing install-state message is just the message.
+    expect(stateCalls).toContain("error:kaboom");
+    // The log carries the full stack so a non-reproducible failure is
+    // pinpointable to its throw site (not merely the message).
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toBe(`Script package install failed: ${boom.stack}`);
+    expect(logged[0]).toContain("install-controller.test");
+    expect(stateCalls).toContain("released");
+  });
+
   test("records lockfile history on a successful install", async () => {
     const recorded: string[] = [];
     const { deps } = baseDeps({

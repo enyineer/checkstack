@@ -14,7 +14,6 @@ import {
   dependencyTriggers,
   dependencyUpdatedTrigger,
 } from "./automations";
-import { dependencyHooks } from "./hooks";
 import type { DependencyService } from "./services/dependency-service";
 
 const logger = createMockLogger() as Logger;
@@ -184,7 +183,28 @@ describe("dependency.create", () => {
       },
     });
     const emitHook = mock(async (_hook: unknown, _payload: unknown) => {});
-    const [create] = createDependencyActions({ service, emitHook: emitHook as never });
+    // The action now drives the create through `handle.mutate({ id, apply })`:
+    // it pre-generates the dependency id (keying the handle), runs `apply()`
+    // (the real `createDependency`), and the handle records the resulting
+    // reactive state.
+    const mutateCalls: Array<{ id: string; next: unknown }> = [];
+    const getDependencyEntity = () =>
+      ({
+        kind: "dependency-edge",
+        async mutate(input: {
+          id: string;
+          apply: () => Promise<unknown>;
+        }) {
+          const next = await input.apply();
+          mutateCalls.push({ id: input.id, next });
+          return next;
+        },
+      }) as never;
+    const [create] = createDependencyActions({
+      service,
+      emitHook: emitHook as never,
+      getDependencyEntity,
+    });
 
     const result = await create!.execute({
       ...ctxBase,
@@ -201,9 +221,24 @@ describe("dependency.create", () => {
     if (!result.success) return;
     expect(result.externalId).toBe("dep-1");
     expect((result.artifact as { dependencyId: string }).dependencyId).toBe("dep-1");
-    expect(emitHook).toHaveBeenCalledTimes(1);
-    const emitCall = emitHook.mock.calls[0]!;
-    expect(emitCall[0]).toBe(dependencyHooks.dependencyCreated);
+    // The old `dependencyCreated` hook emission was replaced by driving the
+    // create through the reactive `dependency-edge` entity via `handle.mutate`
+    // (§10.5): the handle is keyed by the pre-generated dependency id, and
+    // `apply` returns the resulting reactive state.
+    expect(emitHook).not.toHaveBeenCalled();
+    expect(mutateCalls).toHaveLength(1);
+    // The id keying the handle is the pre-generated id passed into the
+    // service create (server-owned uuid), not asserted to a literal here.
+    expect(typeof mutateCalls[0]!.id).toBe("string");
+    expect(mutateCalls[0]!.next).toEqual({
+      sourceSystemId: "sys-a",
+      targetSystemId: "sys-b",
+      impactType: "critical",
+      transitive: false,
+    });
+    // The create was driven with the pre-generated id as its second arg.
+    expect(service.createMock).toHaveBeenCalledTimes(1);
+    expect(service.createMock.mock.calls[0]![1]).toBe(mutateCalls[0]!.id);
   });
 
   it("returns a failure when service.createDependency throws (e.g. cycle detected)", async () => {
@@ -247,7 +282,23 @@ describe("dependency.remove", () => {
       deleteResult: true,
     });
     const emitHook = mock(async (_hook: unknown, _payload: unknown) => {});
-    const [, remove] = createDependencyActions({ service, emitHook: emitHook as never });
+    // The action now drives the delete through `handle.remove({ id, apply })`:
+    // it runs `apply()` (the real `deleteDependency`) and the handle records
+    // the tombstoned id.
+    const removeCalls: string[] = [];
+    const getDependencyEntity = () =>
+      ({
+        kind: "dependency-edge",
+        async remove(input: { id: string; apply: () => Promise<void> }) {
+          await input.apply();
+          removeCalls.push(input.id);
+        },
+      }) as never;
+    const [, remove] = createDependencyActions({
+      service,
+      emitHook: emitHook as never,
+      getDependencyEntity,
+    });
 
     const result = await remove!.execute({
       ...ctxBase,
@@ -258,8 +309,12 @@ describe("dependency.remove", () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.externalId).toBe("dep-1");
-    expect(emitHook).toHaveBeenCalledTimes(1);
-    expect(emitHook.mock.calls[0]![0]).toBe(dependencyHooks.dependencyDeleted);
+    // The old `dependencyDeleted` hook emission was replaced by driving the
+    // tombstone through the reactive `dependency-edge` entity via
+    // `handle.remove` (§10.5). The real delete ran inside `apply`.
+    expect(emitHook).not.toHaveBeenCalled();
+    expect(service.deleteMock).toHaveBeenCalledTimes(1);
+    expect(removeCalls).toEqual(["dep-1"]);
   });
 
   it("returns failure if the dependency does not exist", async () => {

@@ -74,6 +74,9 @@ export default createBackendPlugin({
       registerSpecSchemaDocumentation(params) {
         kindRegistry.registerSpecSchemaDocumentation(params);
       },
+      registerSpecSchemaDocumentationProvider(provider) {
+        kindRegistry.registerSpecSchemaDocumentationProvider(provider);
+      },
     });
 
     env.registerInit({

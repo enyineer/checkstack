@@ -22,7 +22,6 @@ import {
 } from "./automations";
 import type { EntityService } from "./services/entity-service";
 import type { createCatalogCache } from "./cache";
-import { catalogHooks } from "./hooks";
 
 const logger = createMockLogger() as Logger;
 
@@ -57,7 +56,10 @@ describe("catalog triggers", () => {
     const parsed = systemCreatedTrigger.payloadSchema.safeParse(payload);
     expect(parsed.success).toBe(true);
     expect(systemCreatedTrigger.contextKey?.(payload)).toBe("sys-1");
-    expect(systemCreatedTrigger.hook).toBe(catalogHooks.systemCreated);
+    // Entity-driven now (§10.4): no hook, a no-op setup keeps it in the
+    // editor catalog; the `catalog-system` deriver fires `catalog.created`.
+    expect(systemCreatedTrigger.hook).toBeUndefined();
+    expect(typeof systemCreatedTrigger.setup).toBe("function");
   });
 
   it("requires changedFields on the systemUpdated payload", () => {
@@ -128,7 +130,10 @@ interface FakeSystemRow {
 interface ActionFixture {
   service: EntityService;
   cache: ReturnType<typeof createCatalogCache>;
-  emitHookMock: ReturnType<typeof mock>;
+  mutateMock: ReturnType<typeof mock>;
+  /** Reactive states returned by each `apply()` the action drove. */
+  mutateResults: unknown[];
+  getSystemEntity: () => never;
   updateSystemMock: ReturnType<typeof mock>;
   getSystemMock: ReturnType<typeof mock>;
   invalidateTopologyMock: ReturnType<typeof mock>;
@@ -168,12 +173,30 @@ function makeFixture(args: {
     invalidateContacts: mock(async () => {}),
   } as unknown as ReturnType<typeof createCatalogCache>;
 
-  const emitHookMock = mock(async () => {});
+  // The action now drives its write through `handle.mutate({ id, apply })`:
+  // it runs `apply()` (the real `updateSystem`) once and records the id + the
+  // resulting reactive state, mirroring the framework handle.
+  const mutateResults: unknown[] = [];
+  const mutateMock = mock(
+    async (input: {
+      id: string;
+      opts?: { runId?: string };
+      apply: () => Promise<unknown>;
+    }) => {
+      const next = await input.apply();
+      mutateResults.push(next);
+      return next;
+    },
+  );
+  const getSystemEntity = () =>
+    ({ kind: "catalog-system", mutate: mutateMock }) as never;
 
   return {
     service,
     cache,
-    emitHookMock,
+    mutateMock,
+    mutateResults,
+    getSystemEntity,
     updateSystemMock,
     getSystemMock,
     invalidateTopologyMock,
@@ -192,7 +215,7 @@ describe("catalog.system.update_metadata", () => {
     const [action] = createCatalogActions({
       entityService: fx.service,
       cache: fx.cache,
-      emitHook: fx.emitHookMock as never,
+      getSystemEntity: fx.getSystemEntity,
     });
 
     const result = await action!.execute({
@@ -228,14 +251,55 @@ describe("catalog.system.update_metadata", () => {
       });
 
     expect(fx.invalidateTopologyMock).toHaveBeenCalledTimes(1);
-    expect(fx.emitHookMock).toHaveBeenCalledTimes(1);
-    const emitCall = fx.emitHookMock.mock.calls[0]!;
-    expect(emitCall[0]).toBe(catalogHooks.systemUpdated);
-    expect(emitCall[1]).toEqual({
-      systemId: "sys-1",
-      systemName: "API",
-      changedFields: ["metadata"],
+    // The old `systemUpdated` hook emission was replaced by driving the edit
+    // through the reactive `catalog-system` entity via `handle.mutate` (§10.4):
+    // the handle is keyed by system id, and `apply` returns the resulting
+    // reactive state.
+    expect(fx.mutateMock).toHaveBeenCalledTimes(1);
+    const mutateCall = fx.mutateMock.mock.calls[0]![0] as { id: string };
+    expect(mutateCall.id).toBe("sys-1");
+    expect(fx.mutateResults[0]).toEqual({
+      name: "API",
+      description: null,
+      metadata: {
+        tier: "platinum",
+        region: "eu-central-1",
+        owner: "platform",
+      },
     });
+  });
+
+  // Fix 3 (security): the action resolves config (including `metadata` values)
+  // against the run scope, which can contain run-resolved secrets. It MUST pass
+  // `opts: { runId }` into the entity write so the framework handle masks any
+  // such secret in the `entity_transitions` rows + the cluster-wide
+  // `ENTITY_CHANGED` (the masking itself is proven end-to-end in
+  // automation-backend's mutate-handle masking test).
+  it("forwards the dispatch runId to handle.mutate (secret-masking choke point)", async () => {
+    const fx = makeFixture({
+      initialRow: { id: "sys-1", name: "API", metadata: {} },
+    });
+    const [action] = createCatalogActions({
+      entityService: fx.service,
+      cache: fx.cache,
+      getSystemEntity: fx.getSystemEntity,
+    });
+
+    await action!.execute({
+      ...ctxBase,
+      consumedArtifacts: {},
+      config: {
+        systemId: "sys-1",
+        strategy: "merge",
+        metadata: { token: "resolved-secret-value" },
+      } as never,
+    });
+
+    expect(fx.mutateMock).toHaveBeenCalledTimes(1);
+    const mutateCall = fx.mutateMock.mock.calls[0]![0] as {
+      opts?: { runId?: string };
+    };
+    expect(mutateCall.opts?.runId).toBe("run-1");
   });
 
   it("replaces the whole metadata object when strategy=replace", async () => {
@@ -249,7 +313,7 @@ describe("catalog.system.update_metadata", () => {
     const [action] = createCatalogActions({
       entityService: fx.service,
       cache: fx.cache,
-      emitHook: fx.emitHookMock as never,
+      getSystemEntity: fx.getSystemEntity,
     });
 
     const result = await action!.execute({
@@ -285,7 +349,7 @@ describe("catalog.system.update_metadata", () => {
     const [action] = createCatalogActions({
       entityService: fx.service,
       cache: fx.cache,
-      emitHook: fx.emitHookMock as never,
+      getSystemEntity: fx.getSystemEntity,
     });
 
     const result = await action!.execute({
@@ -311,7 +375,7 @@ describe("catalog.system.update_metadata", () => {
     const [action] = createCatalogActions({
       entityService: fx.service,
       cache: fx.cache,
-      emitHook: fx.emitHookMock as never,
+      getSystemEntity: fx.getSystemEntity,
     });
 
     const result = await action!.execute({
@@ -329,7 +393,8 @@ describe("catalog.system.update_metadata", () => {
     expect(result.error).toMatch(/System not found/);
     expect(fx.updateSystemMock).not.toHaveBeenCalled();
     expect(fx.invalidateTopologyMock).not.toHaveBeenCalled();
-    expect(fx.emitHookMock).not.toHaveBeenCalled();
+    // The probe failed, so no entity write was driven.
+    expect(fx.mutateMock).not.toHaveBeenCalled();
   });
 
   it("returns failure if updateSystem returns undefined (race-deleted mid-update)", async () => {
@@ -347,7 +412,7 @@ describe("catalog.system.update_metadata", () => {
     const [action] = createCatalogActions({
       entityService: fx.service,
       cache: fx.cache,
-      emitHook: fx.emitHookMock as never,
+      getSystemEntity: fx.getSystemEntity,
     });
 
     const result = await action!.execute({
@@ -364,6 +429,14 @@ describe("catalog.system.update_metadata", () => {
     if (result.success) return;
     expect(result.error).toMatch(/disappeared mid-update/);
     expect(fx.invalidateTopologyMock).not.toHaveBeenCalled();
-    expect(fx.emitHookMock).not.toHaveBeenCalled();
+    // The probe found the row, so the write was driven — but `apply` fell
+    // back to the pre-write state, so the framework handle would diff it as a
+    // no-op (no spurious `catalog.updated`). The action still reports failure.
+    expect(fx.mutateMock).toHaveBeenCalledTimes(1);
+    expect(fx.mutateResults[0]).toEqual({
+      name: "API",
+      description: null,
+      metadata: {},
+    });
   });
 });

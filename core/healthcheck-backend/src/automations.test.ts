@@ -10,7 +10,6 @@ import {
   assignmentArtifactType,
   checkFailedTrigger,
   createHealthCheckActions,
-  flappingDetectedTrigger,
   healthCheckTriggers,
   systemDegradedTrigger,
   systemHealthChangedTrigger,
@@ -32,22 +31,19 @@ const ctxBase = {
 };
 
 describe("healthcheck triggers", () => {
-  it("exposes five triggers in a stable order", () => {
-    expect(healthCheckTriggers).toHaveLength(5);
+  it("exposes four triggers in a stable order", () => {
+    expect(healthCheckTriggers).toHaveLength(4);
     expect(healthCheckTriggers[0]).toBe(
-      systemDegradedTrigger as (typeof healthCheckTriggers)[number],
+      systemDegradedTrigger as unknown as (typeof healthCheckTriggers)[number],
     );
     expect(healthCheckTriggers[1]).toBe(
-      systemHealthyTrigger as (typeof healthCheckTriggers)[number],
+      systemHealthyTrigger as unknown as (typeof healthCheckTriggers)[number],
     );
     expect(healthCheckTriggers[2]).toBe(
-      systemHealthChangedTrigger as (typeof healthCheckTriggers)[number],
+      systemHealthChangedTrigger as unknown as (typeof healthCheckTriggers)[number],
     );
     expect(healthCheckTriggers[3]).toBe(
-      checkFailedTrigger as (typeof healthCheckTriggers)[number],
-    );
-    expect(healthCheckTriggers[4]).toBe(
-      flappingDetectedTrigger as (typeof healthCheckTriggers)[number],
+      checkFailedTrigger as unknown as (typeof healthCheckTriggers)[number],
     );
   });
 
@@ -69,23 +65,6 @@ describe("healthcheck triggers", () => {
     ).toBe("sys-1");
   });
 
-  it("validates flappingDetected payload and requires transitionCount + windowMinutes", () => {
-    const ok = flappingDetectedTrigger.payloadSchema.safeParse({
-      systemId: "sys-1",
-      configurationId: "cfg-1",
-      transitionCount: 5,
-      windowMinutes: 10,
-      timestamp: "2026-05-29T12:00:00Z",
-    });
-    expect(ok.success).toBe(true);
-
-    const bad = flappingDetectedTrigger.payloadSchema.safeParse({
-      systemId: "sys-1",
-      configurationId: "cfg-1",
-      timestamp: "2026-05-29T12:00:00Z",
-    });
-    expect(bad.success).toBe(false);
-  });
 
   it("extracts systemId as the contextKey on all three", () => {
     const degradedOrChanged = {

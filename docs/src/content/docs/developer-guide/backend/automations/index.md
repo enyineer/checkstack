@@ -3,7 +3,7 @@ title: "Automation platform"
 description: "How the plugin-extensible automation engine is structured - triggers, actions, artifacts, the dispatch lifecycle, and the extension points plugins register into."
 ---
 
-The automation platform lets operators wire triggers to ordered actions with full control flow (choose / parallel / repeat / delay / wait), and lets any plugin contribute triggers, actions, and artifact types. This page is the subsystem overview; see the sensing-layer and plugin-author pages for the Wave-2 building blocks and the extension API.
+The automation platform lets operators wire triggers to ordered actions with full control flow (choose / parallel / repeat / delay / wait), and lets any plugin contribute triggers, actions, and artifact types. The engine is fully reactive: each plugin makes its own domain state reactive through the `defineEntity` wrapper (the framework records change history but never owns the state), and state changes drive triggers and waiting runs through a two-stage work-queue pipeline rather than polling. This page is the subsystem overview; see the sensing-layer and plugin-author pages for the building blocks and the extension API.
 
 ## Building blocks
 
@@ -15,13 +15,21 @@ The automation platform lets operators wire triggers to ordered actions with ful
 
 An automation's definition (triggers + conditions + actions + mode) is stored as JSON, validated by `AutomationDefinitionSchema`, and round-trips losslessly to YAML.
 
+## Row fields vs the definition
+
+A handful of operator-facing fields live as their own columns on the `automations` row rather than inside the `definition` JSON: `name`, `description`, `group`, and `status`. They are part of `AutomationSchema` (and the create / update inputs), not `AutomationDefinitionSchema`, so they are NOT round-tripped to YAML.
+
+`group` is a single optional free-text label (HA-style "category") used purely to organise the list view into collapsible sections. An empty / absent `group` means the automation lives in the implicit "Ungrouped" bucket. `listAutomations` accepts an optional `group` filter, and `listAutomationGroups` returns the distinct non-null group values (sorted) that power the editor's group picker. Because `group` is a row column, the list query can group and filter without parsing every definition blob.
+
+For declaratively managed automations, the group is expressed in GitOps metadata - see the [GitOps entity kinds reference](/checkstack/user-guide/reference/gitops-kinds/).
+
 ## Dispatch lifecycle
 
-1. A trigger fires (a hook emission, or a setup-backed schedule tick).
-2. The trigger fan-in resolves the `contextKey`, pre-resolves live state into scope (the `health.*` namespace), and evaluates the trigger `filter` and pre-run `conditions`.
+1. A trigger fires - a setup-backed schedule tick, or a reactive entity change. A change to a domain's [entity state](/checkstack/developer-guide/backend/automations/entity-state-machine/) is routed through the [two-stage dispatch pipeline](/checkstack/developer-guide/backend/automations/reactive-dispatch/): Stage 1 (one instance claims) derives the qualified trigger event id(s) and the waiting runs to wake, and Stage 2 fans a per-run job out across instances.
+2. The trigger fan-in resolves the `contextKey`, pre-resolves live state into scope (the `state.<kind>.<id>` namespace, with `health.*` kept as a back-compat alias), and evaluates the trigger `filter` and pre-run `conditions`.
 3. Concurrency is applied per `mode` (single / parallel / queued / restart), scoped per `concurrency_scope` (whole automation, or per context key). The check-then-create is serialized under a transaction-scoped advisory lock keyed on `(automationId, scope)`, so two concurrent fires (or a dwell-fire racing a fresh fire, or two pods) can't both pass a `single`-mode "no active run" check and both start a run.
 4. The engine walks the action tree, persisting a step row per action and a durable scope snapshot after each step.
-5. Suspending actions (`delay`, `wait_for_trigger`, `wait_until`, a `for:` dwell) persist a durable lock + enqueue a wake job; the run resumes under a per-run advisory lock when the lock fires. A stalled-run sweeper is the restart-safety backstop.
+5. Suspending actions persist a durable lock; the run resumes under a per-run advisory lock when woken. `delay` / `wait_for_trigger` / a `for:` dwell enqueue a wake job (or wait for a matching event); a reactive `wait_until` records wake-index rows and a single timeout timer instead, and is woken by a relevant entity change. A stalled-run sweeper is the restart-safety backstop.
 
 Every suspend survives a process restart: the durable row is the source of truth, the queue job is just the wake signal, and resumes take an advisory lock so no run double-fires.
 
@@ -42,7 +50,8 @@ Plugins register into these in their `register()` phase:
 - `automationActionExtensionPoint.registerAction(...)`
 - `automationArtifactTypeExtensionPoint.registerArtifactType(...)`
 - `automationFilterExtensionPoint.registerFilter(...)` - pure template filters.
+- `entityExtensionPoint.defineEntity(...)` / `declareNonReactiveState(...)` / `onEntityChanged(...)` / `registerChangeDeriver(...)` - declare reactive entity state and react to cross-plugin changes. See [the entity state machine](/checkstack/developer-guide/backend/automations/entity-state-machine/).
 
 The automation backend also exposes read-only service refs (`automationRegistriesRef`, `automationArtifactStoreRef`) for cross-plugin introspection and artifact lookups, and a GitOps `Automation` entity kind so automations can be declared in Git.
 
-See the [primitives reference](/checkstack/developer-guide/backend/automations/primitives/) for the shape and a runnable YAML example of every action, trigger, and condition, [extending the automation platform](/checkstack/developer-guide/backend/automations/extending/) for the registration API, and [the sensing layer](/checkstack/developer-guide/backend/automations/sensing-layer/) for live state, duration filters, dwells, and structured conditions.
+See the [primitives reference](/checkstack/developer-guide/backend/automations/primitives/) for the shape and a runnable YAML example of every action, trigger, and condition, [extending the automation platform](/checkstack/developer-guide/backend/automations/extending/) for the registration API, [the sensing layer](/checkstack/developer-guide/backend/automations/sensing-layer/) for live state, duration filters, dwells, and structured conditions, [the entity state machine](/checkstack/developer-guide/backend/automations/entity-state-machine/) for exposing reactive state, and [the reactive dispatch pipeline](/checkstack/developer-guide/backend/automations/reactive-dispatch/) for how a state change becomes a run.
