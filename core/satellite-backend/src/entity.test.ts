@@ -13,9 +13,13 @@ import {
   SATELLITE_CONNECTED_EVENT,
   SATELLITE_DISCONNECTED_EVENT,
   SATELLITE_HEARTBEAT_LOST_EVENT,
+  createSatelliteConnectionRead,
   deriveSatelliteConnectionEvents,
   satelliteConnectionStateSchema,
+  toSatelliteConnectionState,
+  type SatelliteConnectionState,
 } from "./entity";
+import type { SatelliteService } from "./service";
 
 function makeChange(over: Partial<EntityChanged>): EntityChanged {
   return {
@@ -143,5 +147,69 @@ describe("satelliteConnectionStateSchema", () => {
       lastEvent: "connected",
     });
     expect(bad.success).toBe(false);
+  });
+});
+
+describe("toSatelliteConnectionState", () => {
+  it("projects a durable connection row onto the reactive view", () => {
+    const seen = new Date("2026-05-31T00:00:00.000Z");
+    expect(
+      toSatelliteConnectionState({
+        status: "online",
+        name: "edge-eu",
+        region: "eu",
+        lastSeenAt: seen,
+        lastConnectionEvent: "connected",
+      }),
+    ).toEqual({
+      status: "online",
+      name: "edge-eu",
+      region: "eu",
+      lastSeenAt: "2026-05-31T00:00:00.000Z",
+      lastEvent: "connected",
+    });
+  });
+
+  it("returns null for a never-connected satellite (no last edge yet)", () => {
+    // A satellite created but never connected has null lastSeenAt /
+    // lastConnectionEvent — it has no entity state, so the read omits it and
+    // the framework sees the first connect as a create (prev === null).
+    expect(
+      toSatelliteConnectionState({
+        status: "offline",
+        name: "edge-eu",
+        region: "eu",
+        lastSeenAt: null,
+        lastConnectionEvent: null,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("createSatelliteConnectionRead", () => {
+  it("routes the batched read straight to the durable service read", async () => {
+    // Proves the entity `read` resolves from the service (the durable
+    // `satellites` table) — so a fresh service instance, i.e. ANOTHER POD,
+    // sees the SAME state. This is the horizontal-scaling fix.
+    const seen: ReadonlyArray<string>[] = [];
+    const durableState: SatelliteConnectionState = {
+      status: "online",
+      name: "edge-eu",
+      region: "eu",
+      lastSeenAt: "2026-05-31T00:00:00.000Z",
+      lastEvent: "connected",
+    };
+    const service = {
+      async getManyConnectionStates(ids: ReadonlyArray<string>) {
+        seen.push(ids);
+        return { "sat-1": durableState };
+      },
+    } as unknown as SatelliteService;
+
+    const read = createSatelliteConnectionRead(service);
+    const out = await read(["sat-1", "sat-2"]);
+    expect(seen).toEqual([["sat-1", "sat-2"]]);
+    expect(out["sat-1"]).toEqual(durableState);
+    expect(out["sat-2"]).toBeUndefined();
   });
 });

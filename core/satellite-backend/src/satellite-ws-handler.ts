@@ -99,7 +99,15 @@ interface SatelliteConnection {
  * Manages authentication, heartbeats, result ingestion, and config pushes.
  */
 export class SatelliteWsHandler implements WebSocketRouteHandler {
-  /** Map of satelliteId → active WebSocket connection */
+  /**
+   * Pod-local live-socket registry: satelliteId → the WebSocket connection
+   * physically held by THIS pod. This is NOT the reactive entity's source of
+   * truth (that is the durable `satellites` connection columns, globally
+   * readable from any pod). It exists ONLY to route messages — config pushes,
+   * script-package refreshes, shutdowns — to a socket this pod actually owns;
+   * a satellite connected to another pod is simply absent here. Treat it as
+   * transport infrastructure, not state.
+   */
   private connections = new Map<string, SatelliteConnection>();
 
   constructor(

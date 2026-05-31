@@ -289,4 +289,162 @@ describe("SatelliteService", () => {
       expect(ids).toEqual(["online-1"]);
     });
   });
+
+  describe("getManyConnectionStates (durable, globally-readable entity read)", () => {
+    it("projects the durable connection columns onto the reactive view", async () => {
+      const seen = new Date("2026-05-31T00:00:00.000Z");
+      let whereArg: unknown;
+      const db = {
+        select: mock(() => ({
+          from: mock(() => ({
+            where: mock((arg: unknown) => {
+              whereArg = arg;
+              return Promise.resolve([
+                {
+                  id: "sat-1",
+                  name: "edge-eu",
+                  region: "eu",
+                  connectionStatus: "online",
+                  lastSeenAt: seen,
+                  lastConnectionEvent: "connected",
+                },
+              ]);
+            }),
+          })),
+        })),
+      } as unknown as ConstructorParameters<typeof SatelliteService>[0];
+
+      const service = new SatelliteService(db);
+      const out = await service.getManyConnectionStates(["sat-1", "sat-2"]);
+
+      expect(whereArg).toBeDefined();
+      expect(out).toEqual({
+        "sat-1": {
+          status: "online",
+          name: "edge-eu",
+          region: "eu",
+          lastSeenAt: "2026-05-31T00:00:00.000Z",
+          lastEvent: "connected",
+        },
+      });
+      // A satellite absent from the result is simply omitted (prev === null).
+      expect(out["sat-2"]).toBeUndefined();
+    });
+
+    it("omits never-connected satellites (null lastSeenAt / lastConnectionEvent)", async () => {
+      const db = {
+        select: mock(() => ({
+          from: mock(() => ({
+            where: mock(() =>
+              Promise.resolve([
+                {
+                  id: "sat-1",
+                  name: "edge-eu",
+                  region: "eu",
+                  connectionStatus: "offline",
+                  lastSeenAt: null,
+                  lastConnectionEvent: null,
+                },
+              ]),
+            ),
+          })),
+        })),
+      } as unknown as ConstructorParameters<typeof SatelliteService>[0];
+
+      const service = new SatelliteService(db);
+      expect(await service.getManyConnectionStates(["sat-1"])).toEqual({});
+    });
+
+    it("short-circuits an empty id list without touching the db", async () => {
+      const select = mock(() => ({ from: mock() }));
+      const db = { select } as unknown as ConstructorParameters<
+        typeof SatelliteService
+      >[0];
+      const service = new SatelliteService(db);
+      expect(await service.getManyConnectionStates([])).toEqual({});
+      expect(select).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("applyConnectionState (durable lifecycle write)", () => {
+    it("UPDATEs the connection columns and returns the reactive view", async () => {
+      const seen = new Date("2026-05-31T00:02:00.000Z");
+      let setArg:
+        | { connectionStatus?: string; lastConnectionEvent?: string; lastSeenAt?: Date }
+        | undefined;
+      const db = {
+        update: mock(() => ({
+          set: mock((arg: typeof setArg) => {
+            setArg = arg;
+            return {
+              where: mock(() => ({
+                returning: mock(() =>
+                  Promise.resolve([
+                    {
+                      id: "sat-1",
+                      name: "edge-eu",
+                      region: "eu",
+                      connectionStatus: "offline",
+                      lastSeenAt: seen,
+                      lastConnectionEvent: "disconnected",
+                      tags: {},
+                      tokenHash: "h",
+                      lastHeartbeatAt: null,
+                      version: null,
+                      createdAt: new Date(),
+                    },
+                  ]),
+                ),
+              })),
+            };
+          }),
+        })),
+      } as unknown as ConstructorParameters<typeof SatelliteService>[0];
+
+      const service = new SatelliteService(db);
+      const next = await service.applyConnectionState({
+        satelliteId: "sat-1",
+        status: "offline",
+        lastEvent: "disconnected",
+        lastSeenAt: seen,
+      });
+
+      // The durable columns were written.
+      expect(setArg).toEqual({
+        connectionStatus: "offline",
+        lastConnectionEvent: "disconnected",
+        lastSeenAt: seen,
+      });
+      // The returned view (next) carries the authoritative name/region.
+      expect(next).toEqual({
+        status: "offline",
+        name: "edge-eu",
+        region: "eu",
+        lastSeenAt: "2026-05-31T00:02:00.000Z",
+        lastEvent: "disconnected",
+      });
+    });
+
+    it("throws when the satellite no longer exists", async () => {
+      const db = {
+        update: mock(() => ({
+          set: mock(() => ({
+            where: mock(() => ({
+              returning: mock(() => Promise.resolve([])),
+            })),
+          })),
+        })),
+      } as unknown as ConstructorParameters<typeof SatelliteService>[0];
+
+      const service = new SatelliteService(db);
+      await expect(
+        service.applyConnectionState({
+          satelliteId: "gone",
+          status: "online",
+          lastEvent: "connected",
+          lastSeenAt: new Date(),
+        }),
+      ).rejects.toThrow(/not found/);
+    });
+  });
 });
