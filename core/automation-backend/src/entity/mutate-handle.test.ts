@@ -73,7 +73,7 @@ function setup(opts?: { secretValues?: string[]; runId?: string }) {
     secretRegistry.register(opts.runId, opts.secretValues);
   }
   const plugin = fakePluginStore();
-  // PLUGIN-BACKED kind: no keyedStore — `read` points at the plugin map.
+  // PLUGIN-BACKED kind: `read` points at the plugin's own map.
   const handle = createEntityHandle<Satellite>({
     kind: "satellite-connection",
     schema: satelliteSchema,

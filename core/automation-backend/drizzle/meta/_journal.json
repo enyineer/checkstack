@@ -50,6 +50,13 @@
       "when": 1780192006216,
       "tag": "0006_burly_wallop",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780216684007,
+      "tag": "0007_nappy_jackal",
+      "breakpoints": true
     }
   ]
 }

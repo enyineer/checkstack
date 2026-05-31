@@ -16,25 +16,23 @@
  *   2. The transition-LOG read helpers (`inStateSince` / `transitionCount`)
  *      that power `inStateSince` / `inStateForMs` / `transitionCount`.
  *
- * The optional `entity_state` keyed store (for homeless kinds) lives in
- * `create-keyed-store.ts`; it plugs in through the handle's `read` + `apply`
- * like any other plugin storage.
+ * Every kind owns its current-state storage and exposes it through a `read`
+ * accessor; this store touches only `entity_transitions`.
  */
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 
-import { entityState, entityTransitions } from "../schema";
+import { entityTransitions } from "../schema";
 
 type Schema = {
-  entityState: typeof entityState;
   entityTransitions: typeof entityTransitions;
 };
 
 /**
  * The transaction handle the store opens and the handle passes to `apply`.
  * It is the drizzle transaction object for the automation-backend schema —
- * opaque to the handle, used by the plugin's `apply` (and the framework
- * keyed store) to write atomically with the transition append.
+ * opaque to the handle, used by the plugin's `apply` to write atomically with
+ * the transition append.
  */
 export type EntityTx = Parameters<
   Parameters<SafeDatabase<Schema>["transaction"]>[0]

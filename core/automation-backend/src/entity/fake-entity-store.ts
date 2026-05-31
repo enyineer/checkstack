@@ -1,18 +1,15 @@
 /**
  * In-memory test doubles for the Model B entity machine.
  *
- * `createFakeEntityStore()` returns a combined fake that plays three roles a
+ * `createFakeEntityStore()` returns a combined fake that plays two roles a
  * unit test needs:
  *
  *   - the framework TRANSITION store (`EntityStore`): a fake transaction +
  *     an in-memory transition log + the `inStateSince` / `transitionCount`
  *     reads. The fake `runInTransaction` just runs the callback (no real tx);
- *     `tx` is a sentinel the in-memory keyed store recognizes.
- *   - an in-memory KEYED store (`KeyedStore`) over the same `rows` map, so a
- *     HOMELESS kind (one that opts into `createKeyedStore`) can be exercised
- *     end-to-end via `handle.mutate` and `rows` stays inspectable.
- *   - a plugin `read` accessor over `rows`, so a homeless handle reads the
- *     same state the keyed store writes.
+ *     `tx` is a sentinel `appendTransitions` recognizes.
+ *   - a plugin `read` accessor over `rows` (`readFor`), so a test can drive a
+ *     kind end-to-end via `handle.mutate` and keep `rows` inspectable.
  *
  * For PLUGIN-BACKED kinds a test supplies its OWN `read` + `apply` (e.g. an
  * in-memory domain map) and only uses this fake for the transition store; see
@@ -20,7 +17,6 @@
  */
 import type { EntityStore, EntityTx, TransitionAppend } from "./entity-store";
 import { serializeFieldValue } from "./entity-store";
-import type { KeyedStore } from "./create-keyed-store";
 
 interface TransitionRow {
   kind: string;
@@ -48,10 +44,6 @@ export interface FakeEntityStore extends EntityStore {
    * the plugin write has committed.
    */
   onTransaction(fn: () => void): void;
-  /** An in-memory keyed store over `rows` for a given kind. */
-  keyedStore<TState extends Record<string, unknown>>(
-    kind: string,
-  ): KeyedStore<TState>;
   /** A plugin `read` accessor over `rows` for a given kind. */
   readFor<TState extends Record<string, unknown>>(
     kind: string,
@@ -122,32 +114,6 @@ export function createFakeEntityStore(): FakeEntityStore {
           t.field === field &&
           t.transitionedAt.getTime() >= since,
       ).length;
-    },
-
-    keyedStore<TState extends Record<string, unknown>>(
-      kind: string,
-    ): KeyedStore<TState> {
-      return {
-        kind,
-        async read(id) {
-          return rows.get(key(kind, id)) as TState | undefined;
-        },
-        async readMany(ids) {
-          const out: Record<string, TState> = {};
-          for (const id of ids) {
-            const row = rows.get(key(kind, id));
-            if (row) out[id] = row as TState;
-          }
-          return out;
-        },
-        async write({ id, state }) {
-          rows.set(key(kind, id), state);
-          return state;
-        },
-        async remove({ id }) {
-          rows.delete(key(kind, id));
-        },
-      };
     },
 
     readFor<TState extends Record<string, unknown>>(kind: string) {

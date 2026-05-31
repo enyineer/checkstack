@@ -88,7 +88,6 @@ import {
   automationFilterExtensionPoint,
   automationRegistriesRef,
   automationTriggerExtensionPoint,
-  entityKeyedStoreServiceRef,
 } from "./extension-points";
 import {
   registerBuiltinTriggerConsumer,
@@ -100,7 +99,6 @@ import {
   createEntityChangedSubscriptions,
   createEntityRegistry,
   createEntityStore,
-  createKeyedStore,
   entityExtensionPoint,
   type ChangeDeriverRegistry,
   type ChangeEmitter,
@@ -321,20 +319,6 @@ export default createBackendPlugin({
         const entityStore = createEntityStore(database);
         entityRegistry.setStore({ store: entityStore });
 
-        // Expose the framework keyed store (`entity_state`) cross-plugin for
-        // homeless reactive kinds whose current state has no table of their
-        // own (e.g. healthcheck's computed `health` aggregate). They cannot
-        // reach `entity_state` through their OWN scoped DB, so they read/write
-        // it through this service (bound to automation-backend's DB) while
-        // staying reactive via `handle.mutate`. The transition log is still
-        // appended by the framework for every change (durable history).
-        env.registerService(entityKeyedStoreServiceRef, {
-          keyedStoreFor: <TState extends Record<string, unknown>>(
-            kind: string,
-          ) => createKeyedStore<TState>({ kind, db: database }),
-          runInTransaction: (fn) => entityStore.runInTransaction(fn),
-        });
-
         env.registerService(automationArtifactStoreRef, artifactStore);
         env.registerService(automationRegistriesRef, {
           triggers: triggerRegistry,
@@ -406,8 +390,7 @@ export default createBackendPlugin({
           healthCheckClient: rpcClient.forPlugin(HealthCheckApi),
           // Kind-agnostic entity resolver for reactive `wait_until` wake
           // re-evaluation (Model B): the registry routes each kind to its
-          // `read` accessor — plugin-backed kinds via their own `read`,
-          // store-backed kinds via the auto-wired keyed store. Unknown kinds
+          // plugin `read` accessor. Unknown kinds
           // yield `undefined` (enrichment leaves them unresolved, fail-open).
           // This is what lets a wait on `state.<kind>.<id>` (incident, slo, …)
           // re-evaluate correctly when that kind changes (not just health).
@@ -664,7 +647,6 @@ export {
   automationArtifactTypeExtensionPoint,
   automationRegistriesRef,
   automationArtifactStoreRef,
-  entityKeyedStoreServiceRef,
 } from "./extension-points";
 
 // Entity state machine — the typed path to reactive state. The internal
@@ -682,7 +664,6 @@ export type {
   MutateInput,
   RemoveInput,
   EntityTx,
-  KeyedStore,
   EntityChangeDeriver,
   RegisterChangeDeriver,
   OnEntityChanged,
@@ -691,9 +672,6 @@ export type {
   EntityChangedDelivery,
   EntityChangedUnsubscribe,
 } from "./entity";
-
-// Model B turnkey current-state store for homeless kinds.
-export { createKeyedStore } from "./entity";
 
 // The validated entity-change payload (Phase 4 derivers + cross-plugin
 // consumers type against this). Re-exported from automation-common so a
@@ -721,8 +699,5 @@ export type { ArtifactStore, PersistedArtifact } from "./artifact-store";
 export type { TriggerRegistry } from "./trigger-registry";
 export type { ActionRegistry } from "./action-registry";
 export type { ArtifactTypeRegistry } from "./artifact-type-registry";
-export type {
-  AutomationRegistries,
-  EntityKeyedStoreService,
-} from "./extension-points";
+export type { AutomationRegistries } from "./extension-points";
 export type { AutomationStore } from "./automation-store";

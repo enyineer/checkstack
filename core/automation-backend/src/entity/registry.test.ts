@@ -157,18 +157,13 @@ describe("entity registry — Model B read + entityResolverFor", () => {
     });
   });
 
-  it("entityResolverFor routes a homeless kind through its keyed-store `read`", async () => {
+  it("entityResolverFor routes a plugin-backed kind through its `read` over a backing map", async () => {
     const reg = makeRegistry();
     const store = createFakeEntityStore();
-    // Homeless kind: opt into the framework keyed store and pass its readMany.
-    const keyedStore = store.keyedStore<{
-      status: string;
-      severity: string;
-    }>("health");
     reg.defineEntity({
       kind: "health",
       state: incidentSchema,
-      read: keyedStore.readMany,
+      read: store.readFor("health"),
     });
     reg.setStore({ store });
     store.rows.set("health:sys-1", { status: "open", severity: "low" });

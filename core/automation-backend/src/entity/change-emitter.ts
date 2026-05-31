@@ -8,10 +8,9 @@
  * silent no-emit window, change events produced before the emitter is set
  * are BUFFERED and flushed (in order) the moment it is wired.
  *
- * Persistence (the entity_state upsert + transition append) is NOT
- * deferred — only the change-event emission is, since the durable store is
- * always the source of truth and Stage-1 routing/wake (later phases)
- * re-reads it.
+ * Persistence (the plugin write + transition append) is NOT deferred — only
+ * the change-event emission is, since the plugin store is always the source
+ * of truth and Stage-1 routing/wake (later phases) re-reads it.
  */
 import type { EntityChanged } from "@checkstack/automation-common";
 import type { Logger } from "@checkstack/backend-api";

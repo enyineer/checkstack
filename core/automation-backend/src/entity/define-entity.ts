@@ -5,9 +5,8 @@ import type { Actor } from "@checkstack/common";
  * Plugin-owned read accessor (Model B). A kind declares where its CURRENT
  * state lives by supplying a batched reader: given a set of ids, return the
  * current state for each (missing ids omitted). The state may come from the
- * plugin's own table, an in-memory map, a computed value, or the framework
- * keyed store (see {@link createKeyedStore}). `defineEntity` NEVER stores a
- * copy of its own — it only makes the plugin's state reactive.
+ * plugin's own table, an in-memory map, or a computed value. `defineEntity`
+ * NEVER stores a copy of its own — it only makes the plugin's state reactive.
  *
  * This is the single source of truth for `get` / `getMany`, scope
  * enrichment, the reactive `wait_until` wake re-eval, and the prev-snapshot
@@ -28,9 +27,7 @@ export interface DefineEntityInput<TState extends Record<string, unknown>> {
   /**
    * Plugin-owned current-state accessor (Model B). REQUIRED: `defineEntity`
    * owns NO current-state storage; this reader is the only path to current
-   * state and the prev-snapshot for diffs. A kind with no natural home for
-   * its state can opt into the framework keyed store
-   * ({@link createKeyedStore}) and pass its `readMany` here.
+   * state and the prev-snapshot for diffs.
    */
   read: EntityRead<TState>;
 }
@@ -75,11 +72,6 @@ export interface EntityMutationOpts {
  *     state corruption). This is the accepted cost of decoupling plugin writes
  *     from framework-internal tables — a plugin platform must NOT couple a
  *     plugin's storage to a framework table's transaction.
- *
- * The framework keyed store ({@link createKeyedStore}) is a homeless kind's
- * opt-in storage: its `write` / `remove` run on the framework tx INSIDE the
- * plugin's own `apply`, so a keyed write still rides this same driven
- * pipeline (the keyed write and the transition append commit together).
  */
 export interface MutateInput<TState extends Record<string, unknown>> {
   id: string;

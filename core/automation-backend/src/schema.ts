@@ -6,7 +6,6 @@ import {
   integer,
   index,
   uniqueIndex,
-  primaryKey,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -404,30 +403,6 @@ export const automationMigrationFailures = pgTable(
       .$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-);
-
-/**
- * Framework-owned entity state — the OPT-IN generic keyed store
- * ({@link createKeyedStore}) for HOMELESS `defineEntity` kinds, i.e. kinds
- * with no natural home for their current state (e.g. healthcheck's computed
- * `health` aggregate). One row per `(kind, entityId)`; the full zod-validated
- * state lives in the `state` jsonb column. A homeless kind needs ZERO
- * migrations: the platform owns this one table and the wake-index / Stage-1
- * routing / scope enrichment are all kind-agnostic.
- *
- * Plugin-backed kinds do NOT use this table — they keep their state in their
- * own schema and expose it through a `read` accessor.
- */
-export const entityState = pgTable(
-  "entity_state",
-  {
-    kind: text("kind").notNull(),
-    entityId: text("entity_id").notNull(),
-    /** Full validated state (zod-parsed before write). */
-    state: jsonb("state").$type<Record<string, unknown>>().notNull(),
-    updatedAt: timestamp("updated_at").defaultNow().notNull(),
-  },
-  (t) => ({ pk: primaryKey({ columns: [t.kind, t.entityId] }) }),
 );
 
 /**

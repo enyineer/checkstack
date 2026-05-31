@@ -7,8 +7,7 @@
  *
  * Model B: `defineEntity` owns no current-state storage. Every kind declares
  * a plugin `read` accessor pointing at wherever its state lives (its own
- * table, an in-memory map, or the opt-in framework keyed store
- * ({@link createKeyedStore}) for homeless kinds).
+ * table, an in-memory map, or a computed value).
  *
  * One registry instance per automation-backend process. `defineEntity` is
  * callable from another plugin's `register`/`init` (Proxy-buffered until the
@@ -83,7 +82,7 @@ function validateInput<TState extends Record<string, unknown>>(args: {
     );
   }
   // Model B: every kind owns its state and exposes it through a plugin `read`
-  // accessor (or the framework keyed store's `readMany` for homeless kinds).
+  // accessor.
   if (typeof read !== "function") {
     throw new TypeError(
       `defineEntity: kind "${kind}" — \`read\` must be a function`,
@@ -152,8 +151,8 @@ export function createEntityRegistry(args: {
     kindsInOrder.push(input.kind);
 
     // Every kind exposes its current state through a plugin `read` accessor
-    // (its own table, an in-memory map, or the opt-in framework keyed store's
-    // `readMany`). `defineEntity` owns no current-state storage.
+    // (its own table, an in-memory map, or a computed value). `defineEntity`
+    // owns no current-state storage.
     const read: EntityRead<TState> = input.read;
 
     // Register the read accessor so `entityResolverFor` can route scope

@@ -35,11 +35,6 @@
  * couple plugin writes to framework-internal tables, so this decoupling is
  * intentional. See `define-entity.ts` for the full rationale.
  *
- * A homeless kind that opts into the framework keyed store
- * ({@link createKeyedStore}) writes `entity_state` from INSIDE its own
- * `apply` (it runs the keyed write on the framework tx supplied by the keyed
- * store's service), so it still rides this same driven pipeline.
- *
  * A structurally-unchanged write (returns an equal state) is a no-op: the
  * plugin write still happened, but no transition is appended and no event is
  * emitted.

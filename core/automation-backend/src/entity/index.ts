@@ -48,7 +48,5 @@ export type {
 } from "./registry";
 export { createEntityStore } from "./entity-store";
 export type { EntityStore, EntityTx } from "./entity-store";
-export { createKeyedStore } from "./create-keyed-store";
-export type { KeyedStore } from "./create-keyed-store";
 export { createChangeEmitter } from "./change-emitter";
 export type { ChangeEmitter, EmitEntityChanged } from "./change-emitter";
